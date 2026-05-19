@@ -18,6 +18,10 @@ import { Route as AutomatizacionesRouteImport } from './routes/automatizaciones'
 import { Route as AsesoresRouteImport } from './routes/asesores'
 import { Route as AgentesRouteImport } from './routes/agentes'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminTenantsRouteImport } from './routes/admin/tenants'
+import { Route as AdminPlanesRouteImport } from './routes/admin/planes'
+import { Route as AdminFacturacionRouteImport } from './routes/admin/facturacion'
+import { Route as AdminAuditoriaRouteImport } from './routes/admin/auditoria'
 
 const PipelineRoute = PipelineRouteImport.update({
   id: '/pipeline',
@@ -64,6 +68,26 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminTenantsRoute = AdminTenantsRouteImport.update({
+  id: '/admin/tenants',
+  path: '/admin/tenants',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPlanesRoute = AdminPlanesRouteImport.update({
+  id: '/admin/planes',
+  path: '/admin/planes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFacturacionRoute = AdminFacturacionRouteImport.update({
+  id: '/admin/facturacion',
+  path: '/admin/facturacion',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAuditoriaRoute = AdminAuditoriaRouteImport.update({
+  id: '/admin/auditoria',
+  path: '/admin/auditoria',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +99,10 @@ export interface FileRoutesByFullPath {
   '/lineas': typeof LineasRoute
   '/metricas': typeof MetricasRoute
   '/pipeline': typeof PipelineRoute
+  '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/facturacion': typeof AdminFacturacionRoute
+  '/admin/planes': typeof AdminPlanesRoute
+  '/admin/tenants': typeof AdminTenantsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +114,10 @@ export interface FileRoutesByTo {
   '/lineas': typeof LineasRoute
   '/metricas': typeof MetricasRoute
   '/pipeline': typeof PipelineRoute
+  '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/facturacion': typeof AdminFacturacionRoute
+  '/admin/planes': typeof AdminPlanesRoute
+  '/admin/tenants': typeof AdminTenantsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +130,10 @@ export interface FileRoutesById {
   '/lineas': typeof LineasRoute
   '/metricas': typeof MetricasRoute
   '/pipeline': typeof PipelineRoute
+  '/admin/auditoria': typeof AdminAuditoriaRoute
+  '/admin/facturacion': typeof AdminFacturacionRoute
+  '/admin/planes': typeof AdminPlanesRoute
+  '/admin/tenants': typeof AdminTenantsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +147,10 @@ export interface FileRouteTypes {
     | '/lineas'
     | '/metricas'
     | '/pipeline'
+    | '/admin/auditoria'
+    | '/admin/facturacion'
+    | '/admin/planes'
+    | '/admin/tenants'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +162,10 @@ export interface FileRouteTypes {
     | '/lineas'
     | '/metricas'
     | '/pipeline'
+    | '/admin/auditoria'
+    | '/admin/facturacion'
+    | '/admin/planes'
+    | '/admin/tenants'
   id:
     | '__root__'
     | '/'
@@ -133,6 +177,10 @@ export interface FileRouteTypes {
     | '/lineas'
     | '/metricas'
     | '/pipeline'
+    | '/admin/auditoria'
+    | '/admin/facturacion'
+    | '/admin/planes'
+    | '/admin/tenants'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +193,10 @@ export interface RootRouteChildren {
   LineasRoute: typeof LineasRoute
   MetricasRoute: typeof MetricasRoute
   PipelineRoute: typeof PipelineRoute
+  AdminAuditoriaRoute: typeof AdminAuditoriaRoute
+  AdminFacturacionRoute: typeof AdminFacturacionRoute
+  AdminPlanesRoute: typeof AdminPlanesRoute
+  AdminTenantsRoute: typeof AdminTenantsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +264,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/tenants': {
+      id: '/admin/tenants'
+      path: '/admin/tenants'
+      fullPath: '/admin/tenants'
+      preLoaderRoute: typeof AdminTenantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/planes': {
+      id: '/admin/planes'
+      path: '/admin/planes'
+      fullPath: '/admin/planes'
+      preLoaderRoute: typeof AdminPlanesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/facturacion': {
+      id: '/admin/facturacion'
+      path: '/admin/facturacion'
+      fullPath: '/admin/facturacion'
+      preLoaderRoute: typeof AdminFacturacionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/auditoria': {
+      id: '/admin/auditoria'
+      path: '/admin/auditoria'
+      fullPath: '/admin/auditoria'
+      preLoaderRoute: typeof AdminAuditoriaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +305,10 @@ const rootRouteChildren: RootRouteChildren = {
   LineasRoute: LineasRoute,
   MetricasRoute: MetricasRoute,
   PipelineRoute: PipelineRoute,
+  AdminAuditoriaRoute: AdminAuditoriaRoute,
+  AdminFacturacionRoute: AdminFacturacionRoute,
+  AdminPlanesRoute: AdminPlanesRoute,
+  AdminTenantsRoute: AdminTenantsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

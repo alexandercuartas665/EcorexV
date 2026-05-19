@@ -26,8 +26,16 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "CUBOT.travels — CRM Conversacional para Agencias Turísticas" },
+      { title: "CUBOT.crm" },
       { name: "description", content: "Plataforma SaaS multi-tenant para agencias de viajes: pipeline comercial, WhatsApp con Evolution API y agentes de IA." },
+      { property: "og:title", content: "CUBOT.crm" },
+      { name: "twitter:title", content: "CUBOT.crm" },
+      { property: "og:description", content: "Plataforma SaaS multi-tenant para agencias de viajes: pipeline comercial, WhatsApp con Evolution API y agentes de IA." },
+      { name: "twitter:description", content: "Plataforma SaaS multi-tenant para agencias de viajes: pipeline comercial, WhatsApp con Evolution API y agentes de IA." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3182ba8c-b554-4cf8-9a7a-43632bb22075/id-preview-b787e7e6--ae1b5170-56e9-4504-afc8-4fce78c4078a.lovable.app-1779202875727.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3182ba8c-b554-4cf8-9a7a-43632bb22075/id-preview-b787e7e6--ae1b5170-56e9-4504-afc8-4fce78c4078a.lovable.app-1779202875727.png" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

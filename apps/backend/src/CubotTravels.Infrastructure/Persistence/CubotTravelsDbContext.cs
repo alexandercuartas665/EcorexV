@@ -34,6 +34,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
     public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<LeadActivity> LeadActivities => Set<LeadActivity>();
+    public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -50,6 +51,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
         configurationBuilder.Properties<PlatformUserStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppLineStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<LeadStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FollowUpTaskStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -186,6 +188,15 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
             b.Property(x => x.Description).HasMaxLength(1000);
             b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.LeadId });
+        });
+
+        modelBuilder.Entity<FollowUpTask>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.Status });
+            b.HasIndex(x => new { x.TenantId, x.DueAt });
         });
     }
 

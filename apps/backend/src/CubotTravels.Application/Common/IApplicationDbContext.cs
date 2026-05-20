@@ -18,6 +18,7 @@ public interface IApplicationDbContext
     DbSet<PipelineStage> PipelineStages { get; }
     DbSet<Lead> Leads { get; }
     DbSet<LeadActivity> LeadActivities { get; }
+    DbSet<FollowUpTask> FollowUpTasks { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

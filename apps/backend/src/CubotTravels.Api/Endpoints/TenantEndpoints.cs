@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CubotTravels.Application.Tenancy;
+using CubotTravels.Domain.Enums;
 
 namespace CubotTravels.Api.Endpoints;
 
@@ -123,6 +124,32 @@ public static class TenantEndpoints
         {
             var lead = await svc.AssignAsync(id, request.TenantUserId, ActorId(user), ct);
             return lead is null ? Results.NotFound() : Results.Ok(lead);
+        });
+
+        // --- Seguimientos / tareas (modulo 2.5) ---
+        var followUps = app.MapGroup("/tenant/follow-ups").RequireAuthorization("TenantMember");
+
+        followUps.MapGet("", async (IFollowUpTaskService svc, Guid? leadId, FollowUpTaskStatus? status, CancellationToken ct) =>
+            Results.Ok(await svc.ListAsync(leadId, status, ct)));
+
+        followUps.MapPost("", async (CreateFollowUpTaskRequest request, ClaimsPrincipal user, IFollowUpTaskService svc, CancellationToken ct) =>
+        {
+            var task = await svc.CreateAsync(request, ActorId(user), ct);
+            return task is null
+                ? Results.BadRequest(new { error = "No hay tenant activo o el lead no existe." })
+                : Results.Created($"/tenant/follow-ups/{task.Id}", task);
+        });
+
+        followUps.MapPost("/{id:guid}/complete", async (Guid id, ClaimsPrincipal user, IFollowUpTaskService svc, CancellationToken ct) =>
+        {
+            var task = await svc.CompleteAsync(id, ActorId(user), ct);
+            return task is null ? Results.NotFound() : Results.Ok(task);
+        });
+
+        followUps.MapPost("/{id:guid}/cancel", async (Guid id, ClaimsPrincipal user, IFollowUpTaskService svc, CancellationToken ct) =>
+        {
+            var task = await svc.CancelAsync(id, ActorId(user), ct);
+            return task is null ? Results.NotFound() : Results.Ok(task);
         });
     }
 

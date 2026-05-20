@@ -13,6 +13,11 @@ public interface IApplicationDbContext
     DbSet<TenantUser> TenantUsers { get; }
     DbSet<Tenant> Tenants { get; }
     DbSet<TenantConfiguration> TenantConfigurations { get; }
+    DbSet<SaasPlan> SaasPlans { get; }
+    DbSet<SaasPlanLimit> SaasPlanLimits { get; }
+    DbSet<TenantSubscription> TenantSubscriptions { get; }
+    DbSet<TenantPayment> TenantPayments { get; }
+    DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

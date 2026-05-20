@@ -92,6 +92,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapConnectEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();
 

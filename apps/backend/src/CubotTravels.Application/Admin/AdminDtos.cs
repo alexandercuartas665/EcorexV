@@ -101,3 +101,13 @@ public sealed record PaymentDetail(
     DateTimeOffset BillingPeriodEnd,
     DateTimeOffset? ConfirmedAt,
     DateTimeOffset CreatedAt);
+
+// --- Auditoria ---
+public sealed record AuditLogListItem(
+    DateTimeOffset OccurredAt,
+    AuditActorType ActorType,
+    Guid ActorUserId,
+    string? TenantName,
+    string ActionName,
+    string EntityName,
+    string? Reason);

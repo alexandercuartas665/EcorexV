@@ -1,0 +1,114 @@
+@page "/facturacion"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IPaymentAdminService PaymentsSvc
+@inject ITenantAdminService TenantsSvc
+
+<PageTitle>Facturacion - CUBOT.travels</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Facturacion y recaudo</h1>
+        <p class="page-sub" style="margin-bottom:0;">Cobros a las agencias, estado de cada pago y alertas de morosidad.</p>
+    </div>
+</div>
+
+@if (_payments is null)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));max-width:1040px;">
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div></div>
+            <div class="kpi-label">Recaudado</div>
+            <div class="kpi-value">@Money(_approved)</div>
+            <div class="kpi-hint">@CountOf(PaymentStatus.Approved) pagos aprobados</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+            <div class="kpi-label">Pendiente</div>
+            <div class="kpi-value">@Money(_pending)</div>
+            <div class="kpi-hint">En revision o por confirmar</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg></div></div>
+            <div class="kpi-label">Rechazado</div>
+            <div class="kpi-value">@Money(_failed)</div>
+            <div class="kpi-hint">Declinados, anulados o con error</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg></div></div>
+            <div class="kpi-label">Tasa de cobro</div>
+            <div class="kpi-value">@_collectionRate%</div>
+            <div class="kpi-hint">Aprobados sobre el total</div>
+        </div>
+    </div>
+
+    @if (_payments.Count == 0)
+    {
+        <p class="text-muted">No hay pagos registrados todavia.</p>
+    }
+    else
+    {
+        <div class="card" style="max-width:1040px;padding:6px 16px;">
+            <table class="table table-hover align-middle" style="margin-bottom:0;">
+                <thead>
+                    <tr><th>Factura</th><th>Tenant</th><th class="text-end">Monto</th><th>Fecha</th><th>Estado</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _payments)
+                    {
+                        <tr>
+                            <td style="font-family:var(--bs-font-monospace);font-size:12px;">@Reference(p)</td>
+                            <td style="font-weight:600;">@(TenantName(p.TenantId) ?? "-")</td>
+                            <td class="text-end" style="font-weight:600;font-variant-numeric:tabular-nums;">@($"$ {p.Amount:N0}")</td>
+                            <td style="font-size:12px;color:var(--muted-foreground);">@p.CreatedAt.LocalDateTime.ToString("dd MMM yyyy")</td>
+                            <td><span class="badge bg-@StatusColor(p.Status)">@p.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<PaymentDetail>? _payments;
+    private Dictionary<Guid, string> _tenantNames = new();
+    private decimal _approved, _pending, _failed;
+    private int _collectionRate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _payments = (await PaymentsSvc.ListAsync()).ToList();
+        _tenantNames = (await TenantsSvc.ListAsync()).ToDictionary(t => t.Id, t => t.Name);
+
+        _approved = Sum(PaymentStatus.Approved);
+        _pending = Sum(PaymentStatus.Pending) + Sum(PaymentStatus.NeedsReview);
+        _failed = Sum(PaymentStatus.Declined) + Sum(PaymentStatus.Voided) + Sum(PaymentStatus.Error);
+        _collectionRate = _payments.Count == 0 ? 0 : (int)Math.Round(100.0 * CountOf(PaymentStatus.Approved) / _payments.Count);
+    }
+
+    private decimal Sum(PaymentStatus status) => _payments!.Where(p => p.Status == status).Sum(p => p.Amount);
+    private int CountOf(PaymentStatus status) => _payments!.Count(p => p.Status == status);
+    private static string Money(decimal v) => $"$ {v:N0}";
+    private string? TenantName(Guid id) => _tenantNames.TryGetValue(id, out var n) ? n : null;
+    private static string Reference(PaymentDetail p) =>
+        string.IsNullOrWhiteSpace(p.ProviderReference) ? $"PG-{p.Id.ToString()[..8]}" : p.ProviderReference!;
+
+    private static string StatusColor(PaymentStatus status) => status switch
+    {
+        PaymentStatus.Approved => "success",
+        PaymentStatus.Pending or PaymentStatus.NeedsReview => "warning",
+        PaymentStatus.Declined or PaymentStatus.Voided or PaymentStatus.Error => "danger",
+        _ => "secondary"
+    };
+}

@@ -15,6 +15,7 @@ public static class DependencyInjection
         services.AddScoped<IPlanAdminService, PlanAdminService>();
         services.AddScoped<ISubscriptionAdminService, SubscriptionAdminService>();
         services.AddScoped<IPaymentAdminService, PaymentAdminService>();
+        services.AddScoped<IAuditAdminService, AuditAdminService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<Tenancy.ITenantUserService, Tenancy.TenantUserService>();
         services.AddScoped<Tenancy.IEvolutionConfigService, Tenancy.EvolutionConfigService>();

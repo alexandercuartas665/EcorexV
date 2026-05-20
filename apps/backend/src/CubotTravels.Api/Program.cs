@@ -69,6 +69,17 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim("platform_role", nameof(PlatformRole.SuperAdmin)));
     options.AddPolicy("TenantMember", policy =>
         policy.RequireClaim("tenant_id"));
+    options.AddPolicy("TenantAdmin", policy =>
+        policy.RequireAssertion(ctx =>
+        {
+            if (ctx.User.FindFirst("tenant_id") is null)
+            {
+                return false;
+            }
+
+            var role = ctx.User.FindFirst("tenant_role")?.Value;
+            return role == nameof(TenantRole.Owner) || role == nameof(TenantRole.Admin);
+        }));
 });
 
 var app = builder.Build();
@@ -93,6 +104,7 @@ app.UseAuthorization();
 
 app.MapConnectEndpoints();
 app.MapAdminEndpoints();
+app.MapTenantEndpoints();
 
 app.Run();
 

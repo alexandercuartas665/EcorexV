@@ -231,7 +231,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 /* ===== Modal ===== */
 .modal-overlay { position: fixed; inset: 0; background: oklch(0.2 0.04 280 / 0.45); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 50; padding: 20px; }
-.modal-dialog { background: var(--card); border-radius: 1.1rem; box-shadow: 0 16px 40px -12px oklch(0.42 0.22 285 / 0.28); width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+/* pointer-events:auto anula el .modal-dialog de Bootstrap (que lo pone en none para
+   dejar pasar el clic al backdrop); sin esto no se puede enfocar/escribir en los inputs. */
+.modal-dialog { pointer-events: auto; background: var(--card); border-radius: 1.1rem; box-shadow: 0 16px 40px -12px oklch(0.42 0.22 285 / 0.28); width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
 .modal-head h3 { font-size: 1.05rem; font-weight: 700; margin: 0; }
 .modal-close { display: grid; place-items: center; width: 34px; height: 34px; margin: -6px -6px -6px 0; border-radius: 0.6rem; background: none; border: none; font-size: 1.4rem; color: var(--muted-foreground); cursor: pointer; line-height: 1; transition: background .15s, color .15s; }

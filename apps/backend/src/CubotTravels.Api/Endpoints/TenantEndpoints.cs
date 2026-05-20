@@ -151,6 +151,10 @@ public static class TenantEndpoints
             var task = await svc.CancelAsync(id, ActorId(user), ct);
             return task is null ? Results.NotFound() : Results.Ok(task);
         });
+
+        // --- Dashboard de metricas (modulo 2.6) ---
+        app.MapGet("/tenant/dashboard", async (IDashboardService svc, CancellationToken ct) =>
+            Results.Ok(await svc.GetAsync(ct))).RequireAuthorization("TenantMember");
     }
 
     private static Guid ActorId(ClaimsPrincipal user) =>

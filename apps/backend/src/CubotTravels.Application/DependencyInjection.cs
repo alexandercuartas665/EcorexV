@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();
         services.AddScoped<Tenancy.IChatIngestService, Tenancy.ChatIngestService>();
+        services.AddScoped<Tenancy.IDashboardService, Tenancy.DashboardService>();
         return services;
     }
 }

@@ -50,6 +50,8 @@ else
 }
 
 app.UseHttpsRedirection();
+// Sirve archivos subidos en tiempo de ejecucion (logos de agencias en wwwroot/uploads).
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();

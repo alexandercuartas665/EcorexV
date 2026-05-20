@@ -91,6 +91,30 @@ public sealed class TenantAdminService : ITenantAdminService
         return Map(tenant);
     }
 
+    public async Task<TenantDetail?> UpdateProfileAsync(Guid id, UpdateTenantProfileRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        if (tenant is null)
+        {
+            return null;
+        }
+
+        tenant.Name = request.Name.Trim();
+        tenant.LegalName = request.LegalName?.Trim();
+        tenant.TaxId = request.TaxId?.Trim();
+        tenant.Country = request.Country?.Trim();
+        tenant.Currency = request.Currency?.Trim();
+        tenant.LogoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? tenant.LogoUrl : request.LogoUrl.Trim();
+
+        _audit.Write(actorUserId, "tenant.profile.update", nameof(Tenant), tenant.Id,
+            previousValue: null,
+            newValue: new { tenant.Name, tenant.LegalName, tenant.TaxId, tenant.Country, tenant.Currency, HasLogo = tenant.LogoUrl is not null },
+            tenantId: tenant.Id);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(tenant);
+    }
+
     private static TenantDetail Map(Tenant t) =>
-        new(t.Id, t.Name, t.LegalName, t.TaxId, t.Country, t.Currency, t.Status, t.Kind, t.CreatedAt);
+        new(t.Id, t.Name, t.LegalName, t.TaxId, t.Country, t.Currency, t.Status, t.Kind, t.CreatedAt, t.LogoUrl);
 }

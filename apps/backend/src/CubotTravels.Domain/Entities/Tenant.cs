@@ -11,6 +11,9 @@ public class Tenant : BaseEntity
     public string? TaxId { get; set; }
     public string? Country { get; set; }
     public string? Currency { get; set; }
+
+    /// <summary>Ruta del logo de la agencia (subido por el cliente), p.ej. /uploads/tenant-{id}.png.</summary>
+    public string? LogoUrl { get; set; }
     public TenantStatus Status { get; set; } = TenantStatus.Trial;
     public TenantKind Kind { get; set; } = TenantKind.Standard;
 }

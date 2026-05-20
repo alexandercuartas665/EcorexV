@@ -77,6 +77,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
             b.Property(x => x.TaxId).HasMaxLength(80);
             b.Property(x => x.Country).HasMaxLength(80);
             b.Property(x => x.Currency).HasMaxLength(10);
+            b.Property(x => x.LogoUrl).HasMaxLength(500);
         });
 
         modelBuilder.Entity<SaasPlan>(b =>

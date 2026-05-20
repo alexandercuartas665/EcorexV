@@ -58,6 +58,12 @@ public static class AdminEndpoints
             return Results.Created($"/admin/plans/{plan.Id}", plan);
         });
 
+        admin.MapPut("/plans/{id:guid}", async (Guid id, CreatePlanRequest request, ClaimsPrincipal user, IPlanAdminService svc, CancellationToken ct) =>
+        {
+            var plan = await svc.UpdateAsync(id, request, ActorId(user), ct);
+            return plan is null ? Results.NotFound() : Results.Ok(plan);
+        });
+
         admin.MapPost("/plans/{id:guid}/active", async (Guid id, SetPlanActiveRequest request, ClaimsPrincipal user, IPlanAdminService svc, CancellationToken ct) =>
         {
             var plan = await svc.SetActiveAsync(id, request.IsActive, ActorId(user), ct);

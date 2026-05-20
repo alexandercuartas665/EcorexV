@@ -208,3 +208,34 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .blazor-error-boundary { background: var(--destructive); padding: 1rem; color: white; border-radius: 8px; }
 .blazor-error-boundary::after { content: "Ha ocurrido un error."; }
 .validation-message { color: var(--destructive); }
+
+/* ===== Module header (icono + eyebrow + titulo + acciones), estilo prototipo ===== */
+.module-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.module-icon { width: 38px; height: 38px; border-radius: 11px; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; }
+.module-icon svg { width: 19px; height: 19px; }
+.module-eyebrow { display: flex; align-items: center; gap: 10px; }
+.module-eyebrow span { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--primary); }
+
+/* ===== Plan cards (estilo prototipo) ===== */
+.plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; max-width: 1100px; }
+.plan-card { background: var(--card); border: 1px solid var(--border); border-radius: 1.25rem; box-shadow: var(--shadow-soft); padding: 24px; display: flex; flex-direction: column; }
+.plan-card.featured { border-color: oklch(0.55 0.22 285 / 0.4); box-shadow: 0 0 0 1px oklch(0.55 0.22 285 / 0.3), var(--shadow-card); }
+.plan-card.gold { border-color: oklch(0.78 0.14 70 / 0.45); }
+.plan-card .pname { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); font-weight: 700; }
+.plan-card .pprice { font-size: 1.9rem; font-weight: 800; line-height: 1.15; margin-top: 4px; }
+.plan-card .pprice small { font-size: 0.85rem; font-weight: 600; color: var(--muted-foreground); }
+.plan-features { list-style: none; padding: 0; margin: 18px 0 0; display: flex; flex-direction: column; gap: 9px; font-size: 0.9rem; }
+.plan-features li { display: flex; align-items: center; gap: 8px; }
+.plan-check { width: 16px; height: 16px; color: var(--success); flex-shrink: 0; }
+.plan-edit { margin-top: 22px; }
+
+/* ===== Modal ===== */
+.modal-overlay { position: fixed; inset: 0; background: oklch(0.2 0.04 280 / 0.45); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 50; padding: 20px; }
+.modal-dialog { background: var(--card); border-radius: 1.1rem; box-shadow: 0 16px 40px -12px oklch(0.42 0.22 285 / 0.28); width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+.modal-head h3 { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.modal-close { background: none; border: none; font-size: 1.1rem; color: var(--muted-foreground); cursor: pointer; line-height: 1; }
+.modal-body { padding: 20px 22px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px; border-top: 1px solid var(--border); }
+.field { margin-bottom: 14px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

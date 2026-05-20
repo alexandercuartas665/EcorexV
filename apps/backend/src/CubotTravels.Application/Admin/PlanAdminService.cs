@@ -45,6 +45,43 @@ public sealed class PlanAdminService : IPlanAdminService
         return Map(plan);
     }
 
+    public async Task<PlanDetail?> UpdateAsync(Guid id, CreatePlanRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var plan = await _db.SaasPlans.Include(p => p.Limits).FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (plan is null)
+        {
+            return null;
+        }
+
+        plan.Name = request.Name.Trim();
+        plan.Description = request.Description?.Trim();
+        plan.MonthlyPrice = request.MonthlyPrice;
+        plan.YearlyPrice = request.YearlyPrice;
+        plan.Currency = request.Currency?.Trim();
+
+        // Reemplaza los limites existentes por los enviados.
+        _db.SaasPlanLimits.RemoveRange(plan.Limits);
+        var newLimits = request.Limits
+            .Select(l => new SaasPlanLimit
+            {
+                PlanId = plan.Id,
+                LimitKey = l.LimitKey.Trim(),
+                LimitValue = l.LimitValue,
+                LimitUnit = l.LimitUnit?.Trim(),
+                EnforcementMode = l.EnforcementMode
+            })
+            .ToList();
+        _db.SaasPlanLimits.AddRange(newLimits);
+
+        _audit.Write(actorUserId, "plan.update", nameof(SaasPlan), plan.Id,
+            previousValue: null,
+            newValue: new { plan.Name, plan.MonthlyPrice, plan.YearlyPrice, LimitCount = newLimits.Count });
+
+        await _db.SaveChangesAsync(cancellationToken);
+        plan.Limits = newLimits;
+        return Map(plan);
+    }
+
     public async Task<IReadOnlyList<PlanDetail>> ListAsync(CancellationToken cancellationToken = default)
     {
         var plans = await _db.SaasPlans

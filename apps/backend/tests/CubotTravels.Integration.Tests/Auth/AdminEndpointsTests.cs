@@ -101,6 +101,37 @@ public sealed class AdminEndpointsTests : IClassFixture<CubotApiFactory>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task UpdatePlan_ChangesNameAndLimits()
+    {
+        var client = await SuperAdminClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/admin/plans",
+            new CreatePlanRequest("Plan Editable", "v1", 10000m, 100000m, "COP",
+            [new PlanLimitInput("max_users", 5, "users")]));
+        var plan = (await createResponse.Content.ReadFromJsonAsync<PlanDetail>())!;
+
+        var update = await client.PutAsJsonAsync($"/admin/plans/{plan.Id}",
+            new CreatePlanRequest("Plan Editable Pro", "v2", 25000m, 250000m, "COP",
+            [
+                new PlanLimitInput("max_users", 25, "users"),
+                new PlanLimitInput("max_whatsapp_lines", 4, "lines")
+            ]));
+        update.EnsureSuccessStatusCode();
+        var updated = (await update.Content.ReadFromJsonAsync<PlanDetail>())!;
+
+        Assert.Equal("Plan Editable Pro", updated.Name);
+        Assert.Equal(25000m, updated.MonthlyPrice);
+        Assert.Equal(2, updated.Limits.Count);
+        Assert.Contains(updated.Limits, l => l.LimitKey == "max_users" && l.LimitValue == 25);
+        Assert.Contains(updated.Limits, l => l.LimitKey == "max_whatsapp_lines" && l.LimitValue == 4);
+
+        // Persistencia: GET refleja los cambios.
+        var fetched = await client.GetFromJsonAsync<PlanDetail>($"/admin/plans/{plan.Id}");
+        Assert.Equal("Plan Editable Pro", fetched!.Name);
+        Assert.Equal(2, fetched.Limits.Count);
+    }
+
     private async Task<HttpClient> SuperAdminClientAsync()
     {
         var client = _factory.CreateClient();

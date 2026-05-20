@@ -1,0 +1,137 @@
+@page "/tenants"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ITenantAdminService TenantsSvc
+
+<PageTitle>Agencias - CUBOT.travels</PageTitle>
+
+<h1>Agencias</h1>
+<p class="text-muted">Alta y gestion de agencias cliente (tenants).</p>
+
+<div class="card mb-4" style="max-width:780px;">
+    <div class="card-body">
+        <h5 class="card-title">Nueva agencia</h5>
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label small">Nombre</label>
+                <input class="form-control" @bind="_name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Pais</label>
+                <input class="form-control" @bind="_country" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Moneda</label>
+                <input class="form-control" @bind="_currency" />
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" @onclick="CreateAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">Crear</button>
+            </div>
+        </div>
+        @if (_error is not null)
+        {
+            <div class="text-danger small mt-2">@_error</div>
+        }
+    </div>
+</div>
+
+@if (_tenants is null)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_tenants.Count == 0)
+{
+    <p>No hay agencias todavia.</p>
+}
+else
+{
+    <table class="table table-hover align-middle" style="max-width:980px;">
+        <thead>
+            <tr><th>Nombre</th><th>Pais</th><th>Estado</th><th>Tipo</th><th>Creada</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var t in _tenants)
+            {
+                <tr>
+                    <td>@t.Name</td>
+                    <td>@t.Country</td>
+                    <td><span class="badge bg-@StatusColor(t.Status)">@t.Status</span></td>
+                    <td>@t.Kind</td>
+                    <td>@t.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</td>
+                    <td class="text-end">
+                        @if (t.Status != TenantStatus.Active)
+                        {
+                            <button class="btn btn-sm btn-outline-success" @onclick="() => ChangeStatusAsync(t.Id, TenantStatus.Active)">Activar</button>
+                        }
+                        @if (t.Status != TenantStatus.Suspended)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => ChangeStatusAsync(t.Id, TenantStatus.Suspended)">Suspender</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<TenantListItem>? _tenants;
+    private string _name = string.Empty;
+    private string _country = "CO";
+    private string _currency = "COP";
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _tenants = (await TenantsSvc.ListAsync()).ToList();
+    }
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await TenantsSvc.CreateAsync(new CreateTenantRequest(_name, Country: _country, Currency: _currency), actor);
+            _name = string.Empty;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ChangeStatusAsync(Guid id, TenantStatus status)
+    {
+        var actor = await ActorAsync();
+        await TenantsSvc.ChangeStatusAsync(id, new ChangeTenantStatusRequest(status), actor);
+        await ReloadAsync();
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) return Guid.Empty;
+        var state = await AuthState;
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string StatusColor(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "success",
+        TenantStatus.Trial => "info",
+        TenantStatus.Suspended or TenantStatus.Blocked => "danger",
+        TenantStatus.PastDue or TenantStatus.PendingPayment => "warning",
+        _ => "secondary"
+    };
+}

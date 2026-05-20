@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CubotTravels.Shared\CubotTravels.Shared.csproj" />
+    <ProjectReference Include="..\CubotTravels.Application\CubotTravels.Application.csproj" />
+    <ProjectReference Include="..\CubotTravels.Infrastructure\CubotTravels.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

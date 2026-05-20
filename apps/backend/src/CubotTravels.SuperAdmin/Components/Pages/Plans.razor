@@ -1,0 +1,124 @@
+@page "/plans"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IPlanAdminService PlansSvc
+
+<PageTitle>Planes - CUBOT.travels</PageTitle>
+
+<h1>Planes</h1>
+<p class="text-muted">Planes comerciales y sus limites.</p>
+
+<div class="card mb-4" style="max-width:780px;">
+    <div class="card-body">
+        <h5 class="card-title">Nuevo plan</h5>
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small">Nombre</label>
+                <input class="form-control" @bind="_name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Precio mensual</label>
+                <input class="form-control" type="number" @bind="_monthly" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Moneda</label>
+                <input class="form-control" @bind="_currency" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Limite usuarios</label>
+                <input class="form-control" type="number" @bind="_maxUsers" />
+            </div>
+            <div class="col-12">
+                <button class="btn btn-primary mt-2" @onclick="CreateAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">Crear plan</button>
+            </div>
+        </div>
+        @if (_error is not null)
+        {
+            <div class="text-danger small mt-2">@_error</div>
+        }
+    </div>
+</div>
+
+@if (_plans is null)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_plans.Count == 0)
+{
+    <p>No hay planes todavia.</p>
+}
+else
+{
+    <table class="table align-middle" style="max-width:980px;">
+        <thead>
+            <tr><th>Nombre</th><th>Mensual</th><th>Anual</th><th>Limites</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var p in _plans)
+            {
+                <tr>
+                    <td>@p.Name</td>
+                    <td>@(p.MonthlyPrice?.ToString("N0")) @p.Currency</td>
+                    <td>@(p.YearlyPrice?.ToString("N0")) @p.Currency</td>
+                    <td>@string.Join(", ", p.Limits.Select(l => $"{l.LimitKey}={l.LimitValue}"))</td>
+                    <td>
+                        @if (p.IsActive)
+                        {
+                            <span class="badge bg-success">Activo</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Inactivo</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<PlanDetail>? _plans;
+    private string _name = string.Empty;
+    private decimal? _monthly;
+    private string _currency = "COP";
+    private long _maxUsers = 10;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync() => _plans = (await PlansSvc.ListAsync()).ToList();
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var limits = new List<PlanLimitInput> { new("max_users", _maxUsers, "users") };
+            await PlansSvc.CreateAsync(new CreatePlanRequest(_name, null, _monthly, _monthly * 10, _currency, limits), actor);
+            _name = string.Empty;
+            _monthly = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) return Guid.Empty;
+        var state = await AuthState;
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

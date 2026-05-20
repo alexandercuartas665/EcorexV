@@ -33,6 +33,15 @@ public static class AdminEndpoints
             return tenant is null ? Results.NotFound() : Results.Ok(tenant);
         });
 
+        // --- Onboarding (alta integral de agencia) ---
+        admin.MapPost("/onboarding", async (OnboardTenantRequest request, ClaimsPrincipal user, IOnboardingService svc, CancellationToken ct) =>
+        {
+            var outcome = await svc.OnboardAsync(request, ActorId(user), ct);
+            return outcome.Success
+                ? Results.Created($"/admin/tenants/{outcome.Result!.TenantId}", outcome.Result)
+                : Results.BadRequest(new { error = outcome.Error });
+        });
+
         // --- Planes ---
         admin.MapGet("/plans", async (IPlanAdminService svc, CancellationToken ct) =>
             Results.Ok(await svc.ListAsync(ct)));

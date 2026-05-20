@@ -15,6 +15,9 @@ public interface IApplicationDbContext
     DbSet<TenantConfiguration> TenantConfigurations { get; }
     DbSet<TenantEvolutionConfig> TenantEvolutionConfigs { get; }
     DbSet<WhatsAppLine> WhatsAppLines { get; }
+    DbSet<PipelineStage> PipelineStages { get; }
+    DbSet<Lead> Leads { get; }
+    DbSet<LeadActivity> LeadActivities { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

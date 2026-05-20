@@ -79,6 +79,51 @@ public static class TenantEndpoints
             var line = await svc.AssignAsync(id, request.TenantUserId, ActorId(user), ct);
             return line is null ? Results.NotFound() : Results.Ok(line);
         });
+
+        // --- Embudo: etapas (modulo 2.1) ---
+        // Listar lo puede cualquier miembro; crear etapas es de administradores del tenant.
+        app.MapGet("/tenant/pipeline/stages", async (IPipelineService svc, CancellationToken ct) =>
+            Results.Ok(await svc.ListStagesAsync(ct))).RequireAuthorization("TenantMember");
+
+        app.MapPost("/tenant/pipeline/stages", async (CreatePipelineStageRequest request, ClaimsPrincipal user, IPipelineService svc, CancellationToken ct) =>
+        {
+            var stage = await svc.CreateStageAsync(request, ActorId(user), ct);
+            return stage is null
+                ? Results.BadRequest(new { error = "No hay tenant activo." })
+                : Results.Created($"/tenant/pipeline/stages/{stage.Id}", stage);
+        }).RequireAuthorization("TenantAdmin");
+
+        // --- Leads (modulo 2.2) ---
+        var leads = app.MapGroup("/tenant/leads").RequireAuthorization("TenantMember");
+
+        leads.MapGet("", async (ILeadService svc, Guid? stageId, CancellationToken ct) =>
+            Results.Ok(await svc.ListAsync(stageId, ct)));
+
+        leads.MapGet("/{id:guid}", async (Guid id, ILeadService svc, CancellationToken ct) =>
+        {
+            var lead = await svc.GetAsync(id, ct);
+            return lead is null ? Results.NotFound() : Results.Ok(lead);
+        });
+
+        leads.MapPost("", async (CreateLeadRequest request, ClaimsPrincipal user, ILeadService svc, CancellationToken ct) =>
+        {
+            var lead = await svc.CreateAsync(request, ActorId(user), ct);
+            return lead is null
+                ? Results.BadRequest(new { error = "No hay tenant activo o no existen etapas configuradas." })
+                : Results.Created($"/tenant/leads/{lead.Id}", lead);
+        });
+
+        leads.MapPost("/{id:guid}/move", async (Guid id, MoveLeadRequest request, ClaimsPrincipal user, ILeadService svc, CancellationToken ct) =>
+        {
+            var lead = await svc.MoveAsync(id, request, ActorId(user), ct);
+            return lead is null ? Results.NotFound() : Results.Ok(lead);
+        });
+
+        leads.MapPost("/{id:guid}/assignment", async (Guid id, AssignLeadRequest request, ClaimsPrincipal user, ILeadService svc, CancellationToken ct) =>
+        {
+            var lead = await svc.AssignAsync(id, request.TenantUserId, ActorId(user), ct);
+            return lead is null ? Results.NotFound() : Results.Ok(lead);
+        });
     }
 
     private static Guid ActorId(ClaimsPrincipal user) =>

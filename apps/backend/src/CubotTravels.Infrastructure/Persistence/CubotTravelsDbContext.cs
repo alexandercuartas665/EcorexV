@@ -31,6 +31,9 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
     public DbSet<TenantConfiguration> TenantConfigurations => Set<TenantConfiguration>();
     public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => Set<TenantEvolutionConfig>();
     public DbSet<WhatsAppLine> WhatsAppLines => Set<WhatsAppLine>();
+    public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
+    public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<LeadActivity> LeadActivities => Set<LeadActivity>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -46,6 +49,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
         configurationBuilder.Properties<TenantRole>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<PlatformUserStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppLineStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<LeadStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -154,6 +158,34 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
             b.Property(x => x.PhoneNumber).HasMaxLength(40);
             b.HasIndex(x => new { x.TenantId, x.InstanceName }).IsUnique();
             b.HasIndex(x => x.AssignedToTenantUserId);
+        });
+
+        modelBuilder.Entity<PipelineStage>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<Lead>(b =>
+        {
+            b.Property(x => x.ContactName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.ContactPhone).HasMaxLength(40);
+            b.Property(x => x.Destination).HasMaxLength(200);
+            b.Property(x => x.Currency).HasMaxLength(10);
+            b.Property(x => x.LossReason).HasMaxLength(500);
+            b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
+            b.HasOne(x => x.Stage).WithMany().HasForeignKey(x => x.StageId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.StageId });
+            b.HasIndex(x => x.AssignedToTenantUserId);
+        });
+
+        modelBuilder.Entity<LeadActivity>(b =>
+        {
+            b.Property(x => x.ActivityType).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.LeadId });
         });
     }
 

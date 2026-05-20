@@ -109,7 +109,15 @@ public sealed class WompiConfigService : IWompiConfigService
             return (false, "Falta el secret de integridad para firmar los cobros.");
         }
 
-        var privateKey = _secretProtector.Unprotect(c.PrivateKeyEncrypted);
+        string privateKey;
+        try
+        {
+            privateKey = _secretProtector.Unprotect(c.PrivateKeyEncrypted);
+        }
+        catch
+        {
+            return (false, "Las llaves estan cifradas con una version anterior. Vuelve a guardarlas.");
+        }
         if (!c.PublicKey.StartsWith("pub_", StringComparison.Ordinal))
         {
             return (false, "La llave publica deberia empezar con 'pub_'.");
@@ -149,7 +157,16 @@ public sealed class WompiConfigService : IWompiConfigService
 
     private string Mask(string encrypted)
     {
-        var value = _secretProtector.Unprotect(encrypted);
+        string value;
+        try
+        {
+            value = _secretProtector.Unprotect(encrypted);
+        }
+        catch
+        {
+            // Secreto cifrado con una llave anterior (p.ej. tras cambiar el key ring): re-ingresar.
+            return "(re-ingresar)";
+        }
         return value.Length <= 4 ? "****" : $"{new string('*', Math.Min(value.Length - 4, 8))}{value[^4..]}";
     }
 }

@@ -106,6 +106,7 @@ app.MapConnectEndpoints();
 app.MapAdminEndpoints();
 app.MapTenantEndpoints();
 app.MapChatEndpoints();
+app.MapWompiEndpoints();
 
 app.Run();
 

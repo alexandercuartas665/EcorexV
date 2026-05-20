@@ -3,11 +3,12 @@ using CubotTravels.Application.Common;
 using CubotTravels.Domain.Common;
 using CubotTravels.Domain.Entities;
 using CubotTravels.Domain.Enums;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace CubotTravels.Infrastructure.Persistence;
 
-public class CubotTravelsDbContext : DbContext, IApplicationDbContext
+public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
 
@@ -24,8 +25,13 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
     public DbSet<TenantSubscription> TenantSubscriptions => Set<TenantSubscription>();
     public DbSet<TenantPayment> TenantPayments => Set<TenantPayment>();
     public DbSet<WompiMasterConfig> WompiMasterConfigs => Set<WompiMasterConfig>();
+    public DbSet<WompiWebhookEvent> WompiWebhookEvents => Set<WompiWebhookEvent>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
+
+    // Llaves de Data Protection compartidas entre apps (Api, SuperAdmin, Workers) para
+    // que los secretos cifrados (Wompi, Evolution) se descifren en cualquiera de ellas.
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     // Tenant-scoped (con filtro global de consulta)
     public DbSet<TenantUser> TenantUsers => Set<TenantUser>();
@@ -58,6 +64,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
         configurationBuilder.Properties<MessageDirection>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WompiEnvironment>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WompiIntegrationStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WebhookProcessingStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -142,6 +149,17 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext
             b.Property(x => x.PublicKey).HasMaxLength(200);
             b.Property(x => x.WebhookEndpoint).HasMaxLength(500);
             b.Property(x => x.Currency).HasMaxLength(10).IsRequired();
+        });
+
+        modelBuilder.Entity<WompiWebhookEvent>(b =>
+        {
+            b.Property(x => x.ProviderEventId).HasMaxLength(250).IsRequired();
+            b.Property(x => x.TransactionId).HasMaxLength(200);
+            b.Property(x => x.Reference).HasMaxLength(200);
+            b.Property(x => x.Note).HasMaxLength(500);
+            b.Property(x => x.RawPayload).HasColumnType("jsonb");
+            // Idempotencia: un evento (transaction + timestamp) no se procesa dos veces.
+            b.HasIndex(x => x.ProviderEventId).IsUnique();
         });
 
         modelBuilder.Entity<TenantUser>(b =>

@@ -3,6 +3,7 @@ using System;
 using CubotTravels.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CubotTravels.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CubotTravelsDbContext))]
-    partial class CubotTravelsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260520205315_AddWompiWebhookEvent")]
+    partial class AddWompiWebhookEvent
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1343,29 +1346,6 @@ namespace CubotTravels.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_wompi_webhook_events_provider_event_id");
 
                     b.ToTable("wompi_webhook_events", (string)null);
-                });
-
-            modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("FriendlyName")
-                        .HasColumnType("text")
-                        .HasColumnName("friendly_name");
-
-                    b.Property<string>("Xml")
-                        .HasColumnType("text")
-                        .HasColumnName("xml");
-
-                    b.HasKey("Id")
-                        .HasName("pk_data_protection_keys");
-
-                    b.ToTable("data_protection_keys", (string)null);
                 });
 
             modelBuilder.Entity("CubotTravels.Domain.Entities.FollowUpTask", b =>

@@ -1,29 +1,52 @@
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">CUBOT.travels</a>
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<div class="cubot-brand">
+    <div class="cubot-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+    </div>
+    <div>
+        <div class="cubot-brand-name">CUBOT<span>.travels</span></div>
+        <div class="cubot-brand-sub">Super Admin SaaS</div>
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="tenants">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Agencias
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="plans">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Planes
-            </NavLink>
-        </div>
-    </nav>
+<div class="cubot-agency">
+    <div class="lbl">Plataforma</div>
+    <div class="name">CUBOT.travels</div>
+    <div class="meta">Consola de gobierno</div>
 </div>
+
+<nav class="cubot-nav">
+    <div class="cubot-nav-label">Gobierno SaaS</div>
+
+    <NavLink class="cubot-nav-link" href="" Match="NavLinkMatch.All">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        <span>Dashboard</span>
+    </NavLink>
+
+    <NavLink class="cubot-nav-link" href="tenants">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>
+        <span>Agencias</span>
+    </NavLink>
+
+    <NavLink class="cubot-nav-link" href="plans">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+        <span>Planes</span>
+    </NavLink>
+</nav>
+
+<div class="cubot-user">
+    <div class="cubot-avatar">SA</div>
+    <div>
+        <div class="nm">Super Admin</div>
+        <div class="rl">Operador de plataforma</div>
+    </div>
+    <span class="cubot-dot"></span>
+</div>
+
+@code {
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

@@ -5,8 +5,9 @@
 
 <PageTitle>Dashboard - CUBOT.travels</PageTitle>
 
-<h1>Dashboard</h1>
-<p class="text-muted">Resumen operativo de la plataforma.</p>
+<div class="page-eyebrow">Gobierno de plataforma</div>
+<h1 class="page-title">Dashboard</h1>
+<p class="page-sub">Resumen operativo de CUBOT<span style="color:var(--primary)">.travels</span>.</p>
 
 @if (_loading)
 {
@@ -14,24 +15,38 @@
 }
 else
 {
-    <div class="row g-3" style="max-width:780px;">
-        <div class="col-md-4">
-            <div class="card text-bg-light"><div class="card-body">
-                <div class="text-muted small">Agencias</div>
-                <div style="font-size:2rem;font-weight:600;">@_totalTenants</div>
-            </div></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-top">
+                <div class="kpi-icon tone-primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/></svg>
+                </div>
+            </div>
+            <div class="kpi-label">Agencias</div>
+            <div class="kpi-value">@_totalTenants</div>
+            <div class="kpi-hint">Tenants registrados</div>
         </div>
-        <div class="col-md-4">
-            <div class="card text-bg-light"><div class="card-body">
-                <div class="text-muted small">Agencias activas</div>
-                <div style="font-size:2rem;font-weight:600;">@_activeTenants</div>
-            </div></div>
+
+        <div class="kpi-card">
+            <div class="kpi-top">
+                <div class="kpi-icon tone-success">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                </div>
+            </div>
+            <div class="kpi-label">Agencias activas</div>
+            <div class="kpi-value">@_activeTenants</div>
+            <div class="kpi-hint">Operando hoy</div>
         </div>
-        <div class="col-md-4">
-            <div class="card text-bg-light"><div class="card-body">
-                <div class="text-muted small">Planes</div>
-                <div style="font-size:2rem;font-weight:600;">@_totalPlans</div>
-            </div></div>
+
+        <div class="kpi-card">
+            <div class="kpi-top">
+                <div class="kpi-icon tone-gold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                </div>
+            </div>
+            <div class="kpi-label">Planes</div>
+            <div class="kpi-value">@_totalPlans</div>
+            <div class="kpi-hint">Oferta comercial</div>
         </div>
     </div>
 }

@@ -78,13 +78,17 @@ CUBOT.travels/
 - Serilog + OpenTelemetry para logs/trazas
 - Clean Architecture + monolito modular preparado para microservicios
 
-**Frontend prototipo (existente, no productivo):**
+**Frontend del producto: 100% .NET Core / Blazor (regla firme).**
 
-- TanStack Start + TanStack Router + TanStack Query
-- React 19 + TypeScript 5.8
-- Vite + Tailwind 4 + shadcn/ui + Radix UI
-- Deploy: Cloudflare Workers (wrangler)
-- Lovable.dev como generador inicial
+- El frontend se construye exclusivamente con Blazor + componentes Razor sobre el stack Microsoft.
+- **Prohibido en el producto:** Node.js, npm, React, Vue, Vite o cualquier toolchain JavaScript para construir/compilar/desplegar la UI. Ver `docs/decisiones/0004-frontend-solo-dotnet.md`.
+- DTOs, validaciones y contratos se comparten via `CubotTravels.Shared` entre Web y Api.
+- Pruebas E2E con Playwright para .NET (`Microsoft.Playwright`), sin Node.
+
+**Prototipo de referencia (NO es el producto):**
+
+- `apps/web-prototype` es TanStack Start + React 19 + Vite + Tailwind + shadcn (generado con Lovable.dev, deploy Cloudflare).
+- Sirve solo como guia visual de la experiencia. No se evoluciona como producto ni define el stack. Node.js solo se necesita si alguien quiere correrlo localmente.
 
 **Infraestructura local:**
 

@@ -28,21 +28,27 @@ public sealed class WompiApiClient : IWompiApiClient
         _secretProtector = secretProtector;
     }
 
-    private async Task<(string baseUrl, string? publicKey, string? privateKey)> ResolveConfigAsync(CancellationToken ct)
+    private async Task<(string baseUrl, string? publicKey, string? privateKey, string? integritySecret)> ResolveConfigAsync(CancellationToken ct)
     {
         var config = await _db.WompiMasterConfigs.AsNoTracking().FirstOrDefaultAsync(ct);
         var baseUrl = config?.Environment == WompiEnvironment.Production ? ProductionBaseUrl : SandboxBaseUrl;
-        string? privateKey = null;
-        if (config?.PrivateKeyEncrypted is { } enc)
-        {
-            try { privateKey = _secretProtector.Unprotect(enc); } catch { privateKey = null; }
-        }
-        return (baseUrl, config?.PublicKey, privateKey);
+        var privateKey = TryDecrypt(config?.PrivateKeyEncrypted);
+        var integritySecret = TryDecrypt(config?.IntegritySecretEncrypted);
+        return (baseUrl, config?.PublicKey, privateKey, integritySecret);
     }
+
+    private string? TryDecrypt(string? ciphertext)
+    {
+        if (string.IsNullOrEmpty(ciphertext)) return null;
+        try { return _secretProtector.Unprotect(ciphertext); } catch { return null; }
+    }
+
+    private static string Sha256Hex(string input) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input))).ToLowerInvariant();
 
     public async Task<WompiAcceptance> GetAcceptanceTokenAsync(CancellationToken cancellationToken = default)
     {
-        var (baseUrl, publicKey, _) = await ResolveConfigAsync(cancellationToken);
+        var (baseUrl, publicKey, _, _) = await ResolveConfigAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(publicKey))
         {
             return new WompiAcceptance(false, null, "Falta la llave publica de Wompi.");
@@ -70,7 +76,7 @@ public sealed class WompiApiClient : IWompiApiClient
 
     public async Task<WompiPaymentSourceResult> CreateCardPaymentSourceAsync(string cardToken, string customerEmail, string acceptanceToken, CancellationToken cancellationToken = default)
     {
-        var (baseUrl, _, privateKey) = await ResolveConfigAsync(cancellationToken);
+        var (baseUrl, _, privateKey, _) = await ResolveConfigAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(privateKey))
         {
             return new WompiPaymentSourceResult(false, null, null, "Falta la llave privada de Wompi.");
@@ -110,11 +116,19 @@ public sealed class WompiApiClient : IWompiApiClient
 
     public async Task<WompiChargeResult> ChargePaymentSourceAsync(long paymentSourceId, long amountInCents, string currency, string reference, string customerEmail, CancellationToken cancellationToken = default)
     {
-        var (baseUrl, _, privateKey) = await ResolveConfigAsync(cancellationToken);
+        var (baseUrl, _, privateKey, integritySecret) = await ResolveConfigAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(privateKey))
         {
             return new WompiChargeResult(false, null, null, "Falta la llave privada de Wompi.");
         }
+        if (string.IsNullOrWhiteSpace(integritySecret))
+        {
+            return new WompiChargeResult(false, null, null, "Falta el secret de integridad de Wompi.");
+        }
+
+        // Wompi exige firma de integridad tambien en transacciones por API:
+        // SHA256(reference + amount_in_cents + currency + integrity_secret).
+        var signature = Sha256Hex($"{reference}{amountInCents}{currency}{integritySecret}");
 
         try
         {
@@ -128,6 +142,7 @@ public sealed class WompiApiClient : IWompiApiClient
                     reference,
                     payment_source_id = paymentSourceId,
                     recurrent = true,
+                    signature,
                     payment_method = new { installments = 1 }
                 })
             };

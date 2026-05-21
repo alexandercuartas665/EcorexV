@@ -137,6 +137,10 @@ public sealed class RecurringBillingService : IRecurringBillingService
             BillingPeriodEnd = subscription.CurrentPeriodEndsAt
         };
         _db.TenantPayments.Add(payment);
+        // Se confirma el pago Pendiente ANTES de cobrar: Wompi puede enviar el webhook de
+        // confirmacion casi de inmediato, y debe encontrar el pago por su referencia (evita
+        // una condicion de carrera que lo dejaria como NoMatchingPayment).
+        await _db.SaveChangesAsync(cancellationToken);
 
         var charge = await _wompi.ChargePaymentSourceAsync(subscription.WompiPaymentSourceId!.Value, amountInCents, currency, reference, email, cancellationToken);
 

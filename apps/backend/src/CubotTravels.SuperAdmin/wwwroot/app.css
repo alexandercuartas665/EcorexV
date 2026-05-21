@@ -277,6 +277,27 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .kb-cardrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .kb-empty { font-size: 12px; color: var(--muted-foreground); text-align: center; padding: 14px 0; }
 
+/* ===== Pipeline: tarjeta enriquecida (estilo prototipo) ===== */
+.kb-card.stale { box-shadow: var(--shadow-soft), -3px 0 0 var(--destructive) inset; padding-left: 15px; border-color: oklch(0.6 0.22 22 / 0.35); }
+.kb-top { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted-foreground); font-weight: 600; margin-bottom: 8px; gap: 8px; }
+.kb-time { display: inline-flex; align-items: center; gap: 5px; }
+.kb-time svg { width: 11px; height: 11px; }
+.kb-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; white-space: nowrap; }
+.kb-badge.stale { background: oklch(0.6 0.22 22 / 0.10); color: var(--destructive); }
+.kb-badge svg { width: 10px; height: 10px; }
+.kb-route { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px dashed var(--border); border-radius: 8px; padding: 7px 10px; margin: 10px 0; background: var(--muted); font-size: 11.5px; }
+.kb-route .codes { font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.kb-route .codes .arr { color: var(--muted-foreground); }
+.kb-route .date { color: var(--muted-foreground); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.kb-route .date svg { width: 11px; height: 11px; flex-shrink: 0; }
+.kb-comment { font-size: 12px; color: var(--muted-foreground); line-height: 1.4; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kb-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 9px; border-top: 1px dashed var(--border); }
+.kb-ase { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--foreground); font-weight: 600; min-width: 0; }
+.kb-ase .nmtxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-ase-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.kb-pax { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted-foreground); font-weight: 600; white-space: nowrap; }
+.kb-pax svg { width: 11px; height: 11px; }
+
 /* ===== Pipeline modal: campos por etapa ===== */
 .pl-stagegroup { margin-bottom: 18px; }
 .pl-stagegroup-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; color: var(--primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); }

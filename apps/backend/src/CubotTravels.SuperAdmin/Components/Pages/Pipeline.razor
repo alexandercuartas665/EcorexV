@@ -80,26 +80,61 @@ else
                     {
                         @foreach (var lead in leadsInStage)
                         {
-                            <div class="kb-card" draggable="true" data-lead-id="@lead.Id"
+                            <div class="kb-card@(IsStale(lead) ? " stale" : "")" draggable="true" data-lead-id="@lead.Id"
                                  @onclick="() => OpenLeadAsync(lead.Id)">
-                                <div class="kb-cardrow">
-                                    <span class="nm">@lead.ContactName</span>
-                                    @if (lead.AssignedToTenantUserId is Guid aid)
+                                <div class="kb-top">
+                                    <span class="kb-time">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        @TimeInStageLabel(lead) aqui
+                                    </span>
+                                    @if (IsStale(lead))
                                     {
-                                        <span class="ase" title="@UserEmail(aid)">@UserInitials(aid)</span>
+                                        <span class="kb-badge stale">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                            @StaleLabel(lead)
+                                        </span>
                                     }
                                 </div>
-                                <div class="meta">
-                                    @(string.IsNullOrWhiteSpace(lead.Destination) ? "Sin destino" : lead.Destination)
-                                    @if (!string.IsNullOrWhiteSpace(lead.ContactPhone))
-                                    {
-                                        <text> &middot; @lead.ContactPhone</text>
-                                    }
+
+                                <div class="nm">@lead.ContactName</div>
+
+                                <div class="kb-route">
+                                    <span class="codes">
+                                        @RouteFrom(lead)
+                                        @if (RouteTo(lead) is { } rt)
+                                        {
+                                            <span class="arr">&rarr;</span> @rt
+                                        }
+                                    </span>
+                                    <span class="date">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                                        @(Field(lead, "fechaTentativa") ?? "Sin fecha")
+                                    </span>
                                 </div>
+
+                                @if (Field(lead, "comentarios") is { } cm)
+                                {
+                                    <div class="kb-comment">@cm</div>
+                                }
+
                                 @if (lead.EstimatedValue is decimal v)
                                 {
-                                    <div class="val">@Money(v, lead.Currency)</div>
+                                    <div class="val" style="margin-bottom:8px;">@Money(v, lead.Currency)</div>
                                 }
+
+                                <div class="kb-foot">
+                                    <span class="kb-ase">
+                                        <span class="kb-ase-dot" style="background:@AseColor(AsesorName(lead))"></span>
+                                        <span class="nmtxt">@(AsesorName(lead) ?? "Sin asesor")</span>
+                                    </span>
+                                    @if (PaxLabel(lead) is { } px)
+                                    {
+                                        <span class="kb-pax">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                                            @px
+                                        </span>
+                                    }
+                                </div>
                             </div>
                         }
                     }
@@ -803,6 +838,75 @@ else
     {
         var email = UserEmail(id);
         return string.IsNullOrEmpty(email) ? "?" : email[..1].ToUpperInvariant();
+    }
+
+    // ===== Datos enriquecidos de la tarjeta =====
+    private string? Field(LeadDto l, string key) =>
+        l.FieldValues.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+
+    private string TimeInStageLabel(LeadDto l)
+    {
+        var span = DateTimeOffset.UtcNow - l.StageChangedAt;
+        var d = (int)span.TotalDays;
+        var h = span.Hours;
+        if (d > 0) { return h > 0 ? $"{d}d {h}h" : $"{d}d"; }
+        if (h > 0) { return $"{h}h"; }
+        return "Nuevo";
+    }
+
+    // Senal de atencion por tiempo en la etapa (proxy de "sin responder" hasta enlazar el chat).
+    private bool IsStale(LeadDto l) => l.Status == LeadStatus.Open && (DateTimeOffset.UtcNow - l.StageChangedAt).TotalDays >= 2;
+    private string StaleLabel(LeadDto l)
+    {
+        var d = (int)(DateTimeOffset.UtcNow - l.StageChangedAt).TotalDays;
+        return $"{d}d sin avance";
+    }
+
+    private static readonly char[] RouteSeparators = { '→', '–', '>', '-' };
+    private string[] RouteParts(LeadDto l) =>
+        (l.Destination ?? string.Empty)
+            .Split(RouteSeparators, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .ToArray();
+    private string RouteFrom(LeadDto l)
+    {
+        var parts = RouteParts(l);
+        return parts.Length > 0 ? parts[0] : "Sin ruta";
+    }
+    private string? RouteTo(LeadDto l)
+    {
+        var parts = RouteParts(l);
+        return parts.Length >= 2 ? parts[1] : null;
+    }
+
+    private string? AsesorName(LeadDto l)
+    {
+        var field = Field(l, "asesor");
+        if (field is not null) { return field; }
+        return l.AssignedToTenantUserId is Guid id ? UserEmail(id) : null;
+    }
+
+    private static string AseColor(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) { return "var(--primary)"; }
+        var palette = new[] { "#A03DC9", "#D89A36", "#4F8A60", "#4E80B5", "#C7398B" };
+        return palette[char.ToUpperInvariant(name[0]) % palette.Length];
+    }
+
+    private static int LeadingNumber(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return 0; }
+        var digits = new string(s.TrimStart().TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : 0;
+    }
+    private string? PaxLabel(LeadDto l)
+    {
+        var adults = LeadingNumber(Field(l, "adultos"));
+        var kids = LeadingNumber(Field(l, "ninos"));
+        if (adults == 0 && kids == 0) { return null; }
+        var total = adults + kids;
+        return kids > 0 ? $"{adults}+{kids} pax" : $"{total} pax";
     }
 
     private async Task<Guid> ActorAsync()

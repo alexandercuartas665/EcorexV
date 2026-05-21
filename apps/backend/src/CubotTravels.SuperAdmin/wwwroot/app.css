@@ -68,7 +68,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
   z-index: 5;
 }
 
-.cubot-content { padding: 26px 30px; width: 100%; max-width: 1400px; }
+.cubot-content { padding: 26px 30px; width: 100%; }
 
 /* ===== Sidebar header / brand ===== */
 .cubot-brand {

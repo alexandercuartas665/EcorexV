@@ -1,6 +1,6 @@
 @page "/mi-cuenta"
 @attribute [Authorize]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject ITenantAdminService TenantsSvc
 @inject ISubscriptionAdminService SubsSvc
 @inject IPaymentAdminService PaymentsSvc

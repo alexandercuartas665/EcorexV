@@ -1,6 +1,6 @@
 @page "/plans"
 @attribute [Authorize(Policy = "PlatformOperator")]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IPlanAdminService PlansSvc
 
 <PageTitle>Planes - CUBOT.travels</PageTitle>

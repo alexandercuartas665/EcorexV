@@ -1,6 +1,6 @@
 @page "/auditoria"
 @attribute [Authorize(Policy = "PlatformOperator")]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IAuditAdminService AuditSvc
 
 <PageTitle>Auditoria - CUBOT.travels</PageTitle>

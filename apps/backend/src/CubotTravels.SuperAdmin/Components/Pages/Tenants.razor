@@ -1,6 +1,6 @@
 @page "/tenants"
 @attribute [Authorize(Policy = "PlatformOperator")]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject ITenantAdminService TenantsSvc
 @inject ISubscriptionAdminService SubsSvc
 @inject IPlanAdminService PlansSvc

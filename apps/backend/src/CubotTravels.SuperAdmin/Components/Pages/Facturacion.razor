@@ -1,6 +1,6 @@
 @page "/facturacion"
 @attribute [Authorize(Policy = "PlatformOperator")]
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IPaymentAdminService PaymentsSvc
 @inject ITenantAdminService TenantsSvc
 @inject IWompiConfigService WompiSvc

@@ -4,6 +4,7 @@
 @inject ITenantAdminService TenantsSvc
 @inject ISubscriptionAdminService SubsSvc
 @inject IPlanAdminService PlansSvc
+@inject IOnboardingService OnboardingSvc
 
 <PageTitle>Agencias - CUBOT.travels</PageTitle>
 
@@ -128,6 +129,44 @@ else
                         <input class="form-control" @bind="_currency" />
                     </div>
                 </div>
+
+                <div class="pl-stagegroup-title" style="margin-top:6px;">Usuario administrador</div>
+                <div class="field">
+                    <label class="form-label">Correo del administrador</label>
+                    <input class="form-control" type="email" @bind="_adminEmail" autocomplete="off" placeholder="admin@agencia.com" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Nombre a mostrar</label>
+                        <input class="form-control" @bind="_adminName" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Contraseña inicial</label>
+                        <input class="form-control" type="password" @bind="_adminPassword" autocomplete="new-password" />
+                    </div>
+                </div>
+
+                <div class="pl-stagegroup-title" style="margin-top:6px;">Plan inicial (opcional)</div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Plan</label>
+                        <select class="form-control" @bind="_createPlanId">
+                            <option value="@Guid.Empty">Sin plan (lo elige el cliente)</option>
+                            @foreach (var p in _plans)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Frecuencia</label>
+                        <select class="form-control" @bind="_createFreq">
+                            <option value="@BillingFrequency.Monthly">Mensual</option>
+                            <option value="@BillingFrequency.Yearly">Anual</option>
+                        </select>
+                    </div>
+                </div>
+
                 @if (_error is not null)
                 {
                     <div class="text-danger small">@_error</div>
@@ -135,7 +174,7 @@ else
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="Close">Cancelar</button>
-                <button class="btn btn-primary" @onclick="CreateAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">Crear agencia</button>
+                <button class="btn btn-primary" @onclick="CreateAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_adminEmail) || string.IsNullOrWhiteSpace(_adminPassword))">Crear agencia</button>
             </div>
         </div>
     </div>
@@ -195,6 +234,11 @@ else
     private string _name = string.Empty;
     private string _country = "CO";
     private string _currency = "COP";
+    private string _adminEmail = string.Empty;
+    private string _adminName = string.Empty;
+    private string _adminPassword = string.Empty;
+    private Guid _createPlanId = Guid.Empty;
+    private BillingFrequency _createFreq = BillingFrequency.Monthly;
     private bool _busy;
     private string? _error;
 
@@ -232,6 +276,11 @@ else
         _name = string.Empty;
         _country = "CO";
         _currency = "COP";
+        _adminEmail = string.Empty;
+        _adminName = string.Empty;
+        _adminPassword = string.Empty;
+        _createPlanId = Guid.Empty;
+        _createFreq = BillingFrequency.Monthly;
         _modalOpen = true;
     }
 
@@ -245,7 +294,20 @@ else
         try
         {
             var actor = await ActorAsync();
-            await TenantsSvc.CreateAsync(new CreateTenantRequest(_name, Country: _country, Currency: _currency), actor);
+            var outcome = await OnboardingSvc.OnboardAsync(new OnboardTenantRequest(
+                TenantName: _name,
+                AdminEmail: _adminEmail.Trim(),
+                AdminPassword: _adminPassword,
+                AdminDisplayName: string.IsNullOrWhiteSpace(_adminName) ? null : _adminName.Trim(),
+                Country: _country,
+                Currency: _currency,
+                PlanId: _createPlanId == Guid.Empty ? null : _createPlanId,
+                BillingFrequency: _createFreq), actor);
+            if (!outcome.Success)
+            {
+                _error = outcome.Error ?? "No se pudo crear la agencia.";
+                return;
+            }
             _modalOpen = false;
             await ReloadAsync();
         }

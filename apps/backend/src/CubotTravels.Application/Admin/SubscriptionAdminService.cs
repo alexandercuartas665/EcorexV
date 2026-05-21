@@ -94,10 +94,10 @@ public sealed class SubscriptionAdminService : ISubscriptionAdminService
             .AsNoTracking()
             .Where(s => s.TenantId == tenantId)
             .OrderByDescending(s => s.StartsAt)
-            .Select(s => new SubscriptionDetail(s.Id, s.TenantId, s.PlanId, s.Status, s.BillingFrequency, s.StartsAt, s.CurrentPeriodEndsAt, s.GracePeriodEndsAt))
+            .Select(s => new SubscriptionDetail(s.Id, s.TenantId, s.PlanId, s.Status, s.BillingFrequency, s.StartsAt, s.CurrentPeriodEndsAt, s.GracePeriodEndsAt, s.AutoRenew, s.PaymentMethodLabel))
             .ToListAsync(cancellationToken);
     }
 
     private static SubscriptionDetail Map(TenantSubscription s) =>
-        new(s.Id, s.TenantId, s.PlanId, s.Status, s.BillingFrequency, s.StartsAt, s.CurrentPeriodEndsAt, s.GracePeriodEndsAt);
+        new(s.Id, s.TenantId, s.PlanId, s.Status, s.BillingFrequency, s.StartsAt, s.CurrentPeriodEndsAt, s.GracePeriodEndsAt, s.AutoRenew, s.PaymentMethodLabel);
 }

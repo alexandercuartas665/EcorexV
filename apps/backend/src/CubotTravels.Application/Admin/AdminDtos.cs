@@ -85,7 +85,9 @@ public sealed record SubscriptionDetail(
     BillingFrequency BillingFrequency,
     DateTimeOffset StartsAt,
     DateTimeOffset CurrentPeriodEndsAt,
-    DateTimeOffset? GracePeriodEndsAt);
+    DateTimeOffset? GracePeriodEndsAt,
+    bool AutoRenew = false,
+    string? PaymentMethodLabel = null);
 
 // --- Payments ---
 public sealed record RegisterPaymentRequest(

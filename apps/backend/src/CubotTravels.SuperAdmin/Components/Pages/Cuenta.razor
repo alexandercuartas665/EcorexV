@@ -6,6 +6,8 @@
 @inject IPaymentAdminService PaymentsSvc
 @inject IPlanAdminService PlansSvc
 @inject IWompiCheckoutService CheckoutSvc
+@inject IRecurringBillingService RecurringSvc
+@inject IWompiConfigService WompiCfgSvc
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -131,6 +133,46 @@ else
         </div>
     </div>
 
+    <div class="card" style="max-width:1040px;padding:18px 22px;margin-top:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:flex-start;gap:14px;">
+                <div class="kpi-icon @(_sub?.AutoRenew == true ? "tone-success" : "tone-primary")" style="width:38px;height:38px;flex-shrink:0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                </div>
+                <div>
+                    <div style="font-weight:700;">Debito automatico</div>
+                    @if (_sub?.AutoRenew == true)
+                    {
+                        <p class="text-muted" style="font-size:0.88rem;margin:4px 0 0;">
+                            Activo. Se cobrara automaticamente en cada corte con <strong>@(_sub.PaymentMethodLabel ?? "tu tarjeta guardada")</strong>.
+                        </p>
+                    }
+                    else
+                    {
+                        <p class="text-muted" style="font-size:0.88rem;margin:4px 0 0;max-width:620px;">
+                            Guarda una tarjeta y CUBOT cobrara tu suscripcion sola en cada corte. Puedes desactivarlo cuando quieras.
+                        </p>
+                    }
+                    @if (_autoMsg is not null)
+                    {
+                        <div class="@(_autoOk ? "text-success" : "text-danger")" style="font-size:0.85rem;margin-top:8px;">@_autoMsg</div>
+                    }
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                @if (_sub?.AutoRenew == true)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ChargeNow" disabled="@(_autoBusy)">Cobrar ahora</button>
+                    <button class="btn btn-outline-danger btn-sm" @onclick="DisableAutoDebit" disabled="@(_autoBusy)">Desactivar</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="OpenAutoDebit" disabled="@(_sub is null)">Activar debito automatico</button>
+                }
+            </div>
+        </div>
+    </div>
+
     <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Mis facturas</h2>
     @if (_payments.Count == 0)
     {
@@ -225,6 +267,53 @@ else
     </div>
 }
 
+@if (_autoOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Activar debito automatico</h3>
+                <button class="modal-close" @onclick="CloseAutoDebit">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:12px;margin-top:0;">
+                    Tu tarjeta se valida directo con Wompi; CUBOT nunca guarda el numero. (Modo pruebas: usa 4242 4242 4242 4242.)
+                </p>
+                <div class="field">
+                    <label class="form-label">Nombre en la tarjeta</label>
+                    <input id="cc-name" class="form-control" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Numero de tarjeta</label>
+                    <input id="cc-number" class="form-control" inputmode="numeric" autocomplete="off" placeholder="4242 4242 4242 4242" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Mes (MM)</label>
+                        <input id="cc-mm" class="form-control" inputmode="numeric" autocomplete="off" placeholder="12" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Año (YY)</label>
+                        <input id="cc-yy" class="form-control" inputmode="numeric" autocomplete="off" placeholder="29" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">CVC</label>
+                        <input id="cc-cvc" class="form-control" inputmode="numeric" autocomplete="off" placeholder="123" />
+                    </div>
+                </div>
+                @if (_autoError is not null)
+                {
+                    <div class="text-danger small">@_autoError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseAutoDebit">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ActivateAutoDebit" disabled="@_autoBusy">@(_autoBusy ? "Guardando..." : "Guardar y activar")</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_changeOpen)
 {
     <div class="modal-overlay">
@@ -306,6 +395,7 @@ else
         {
             var state = await AuthState;
             _isOperator = state.User.FindFirst("platform_role") is not null;
+            _userEmail = state.User.FindFirst(ClaimTypes.Email)?.Value;
             if (!_isOperator && Guid.TryParse(state.User.FindFirst("tenant_id")?.Value, out var tid))
             {
                 _tenantId = tid;   // usuario de agencia: su propio tenant, sin selector
@@ -479,6 +569,116 @@ else
 
     private bool _checkoutBusy;
     private string? _checkoutError;
+
+    private string? _userEmail;
+    private bool _autoOpen;
+    private bool _autoBusy;
+    private string? _autoError;
+    private string? _autoMsg;
+    private bool _autoOk;
+
+    private void OpenAutoDebit()
+    {
+        _autoError = null;
+        _autoOpen = true;
+    }
+
+    private void CloseAutoDebit() => _autoOpen = false;
+
+    private async Task ActivateAutoDebit()
+    {
+        _autoError = null;
+        _autoBusy = true;
+        try
+        {
+            var cfg = await WompiCfgSvc.GetAsync();
+            if (cfg?.PublicKey is null)
+            {
+                _autoError = "La pasarela Wompi no esta configurada.";
+                return;
+            }
+            var baseUrl = cfg.Environment == WompiEnvironment.Production
+                ? "https://production.wompi.co/v1"
+                : "https://sandbox.wompi.co/v1";
+
+            var tk = await JS.InvokeAsync<TokenizeResult>("cubotTokenizeCard", baseUrl, cfg.PublicKey);
+            if (tk is null || !tk.Ok || string.IsNullOrEmpty(tk.Token))
+            {
+                _autoError = tk?.Error ?? "No se pudo validar la tarjeta.";
+                return;
+            }
+
+            var email = string.IsNullOrWhiteSpace(_userEmail) ? "billing@cubot.travels" : _userEmail!;
+            var actor = await ActorAsync();
+            var result = await RecurringSvc.EnableAutoRenewAsync(_tenantId, tk.Token!, email, actor);
+            if (!result.Ok)
+            {
+                _autoError = result.Error ?? "No se pudo activar el debito automatico.";
+                return;
+            }
+            _autoOpen = false;
+            _autoOk = true;
+            _autoMsg = $"Debito automatico activado con {result.Label ?? "tu tarjeta"}.";
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _autoError = ex.Message;
+        }
+        finally
+        {
+            _autoBusy = false;
+        }
+    }
+
+    private async Task ChargeNow()
+    {
+        _autoMsg = null;
+        _autoBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var result = await RecurringSvc.ChargeNowAsync(_tenantId, actor);
+            _autoOk = result.Ok;
+            _autoMsg = result.Ok
+                ? $"Cobro enviado a Wompi (estado: {result.Label}). La confirmacion se aplica automaticamente."
+                : $"No se pudo cobrar: {result.Error}";
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _autoOk = false;
+            _autoMsg = ex.Message;
+        }
+        finally
+        {
+            _autoBusy = false;
+        }
+    }
+
+    private async Task DisableAutoDebit()
+    {
+        _autoBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await RecurringSvc.DisableAutoRenewAsync(_tenantId, actor);
+            _autoOk = true;
+            _autoMsg = "Debito automatico desactivado.";
+            await ReloadAsync();
+        }
+        finally
+        {
+            _autoBusy = false;
+        }
+    }
+
+    private sealed class TokenizeResult
+    {
+        public bool Ok { get; set; }
+        public string? Token { get; set; }
+        public string? Error { get; set; }
+    }
 
     private async Task PayNow()
     {

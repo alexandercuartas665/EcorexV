@@ -1,3 +1,5 @@
+using CubotTravels.Domain.Enums;
+
 namespace CubotTravels.Application.Tenancy;
 
 public sealed record PipelineStageDto(
@@ -12,3 +14,36 @@ public sealed record CreatePipelineStageRequest(
     int SortOrder,
     bool IsClosedWon = false,
     bool IsClosedLost = false);
+
+public sealed record UpdatePipelineStageRequest(
+    string Name,
+    bool IsClosedWon,
+    bool IsClosedLost);
+
+/// <summary>Nuevo orden de las etapas: lista de ids en el orden deseado.</summary>
+public sealed record ReorderStagesRequest(IReadOnlyList<Guid> OrderedStageIds);
+
+// --- Campos configurables ---
+public sealed record PipelineFieldDto(
+    Guid Id,
+    Guid StageId,
+    string FieldKey,
+    string Label,
+    PipelineFieldType FieldType,
+    int Column,
+    int SortOrder,
+    string? Options);
+
+public sealed record CreatePipelineFieldRequest(
+    Guid StageId,
+    string Label,
+    PipelineFieldType FieldType,
+    int Column = 1,
+    string? Options = null,
+    string? FieldKey = null);
+
+public sealed record UpdatePipelineFieldRequest(
+    string Label,
+    PipelineFieldType FieldType,
+    int Column,
+    string? Options);

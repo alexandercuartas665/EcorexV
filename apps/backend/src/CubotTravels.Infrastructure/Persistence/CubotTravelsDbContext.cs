@@ -39,6 +39,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => Set<TenantEvolutionConfig>();
     public DbSet<WhatsAppLine> WhatsAppLines => Set<WhatsAppLine>();
     public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
+    public DbSet<PipelineFieldDefinition> PipelineFieldDefinitions => Set<PipelineFieldDefinition>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<LeadActivity> LeadActivities => Set<LeadActivity>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
@@ -65,6 +66,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
         configurationBuilder.Properties<WompiEnvironment>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WompiIntegrationStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WebhookProcessingStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -202,6 +204,16 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
+        modelBuilder.Entity<PipelineFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Options).HasMaxLength(2000);
+            b.HasOne(x => x.Stage).WithMany().HasForeignKey(x => x.StageId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.StageId, x.SortOrder });
+            b.HasIndex(x => new { x.StageId, x.FieldKey }).IsUnique();
+        });
+
         modelBuilder.Entity<Lead>(b =>
         {
             b.Property(x => x.ContactName).HasMaxLength(200).IsRequired();
@@ -210,6 +222,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.Currency).HasMaxLength(10);
             b.Property(x => x.LossReason).HasMaxLength(500);
             b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
+            b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
             b.HasOne(x => x.Stage).WithMany().HasForeignKey(x => x.StageId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.StageId });
             b.HasIndex(x => x.AssignedToTenantUserId);

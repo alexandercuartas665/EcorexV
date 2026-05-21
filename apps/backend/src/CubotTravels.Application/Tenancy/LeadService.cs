@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CubotTravels.Application.Common;
 using CubotTravels.Domain.Entities;
 using CubotTravels.Domain.Enums;
@@ -93,6 +94,32 @@ public sealed class LeadService : ILeadService
         return Map(lead);
     }
 
+    public async Task<LeadDto?> UpdateAsync(Guid leadId, UpdateLeadRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var lead = await _db.Leads.FirstOrDefaultAsync(l => l.Id == leadId, cancellationToken);
+        if (lead is null)
+        {
+            return null;
+        }
+
+        lead.ContactName = request.ContactName.Trim();
+        lead.ContactPhone = request.ContactPhone?.Trim();
+        lead.Destination = request.Destination?.Trim();
+        lead.EstimatedValue = request.EstimatedValue;
+        lead.Currency = request.Currency?.Trim();
+
+        var values = request.FieldValues ?? new Dictionary<string, string?>();
+        // Se descartan claves vacias para no inflar el documento.
+        var clean = values.Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+                          .ToDictionary(kv => kv.Key, kv => kv.Value);
+        lead.FieldValuesJson = clean.Count == 0 ? null : JsonSerializer.Serialize(clean);
+
+        AddActivity(lead.TenantId, lead.Id, "lead.updated", "Datos del lead actualizados");
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(lead);
+    }
+
     public async Task<LeadDto?> MoveAsync(Guid leadId, MoveLeadRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var lead = await _db.Leads.FirstOrDefaultAsync(l => l.Id == leadId, cancellationToken);
@@ -160,5 +187,21 @@ public sealed class LeadService : ILeadService
     }
 
     private static LeadDto Map(Lead l) =>
-        new(l.Id, l.ContactName, l.ContactPhone, l.Destination, l.EstimatedValue, l.Currency, l.StageId, l.Status, l.AssignedToTenantUserId, l.StageChangedAt);
+        new(l.Id, l.ContactName, l.ContactPhone, l.Destination, l.EstimatedValue, l.Currency, l.StageId, l.Status, l.AssignedToTenantUserId, l.StageChangedAt, DeserializeValues(l.FieldValuesJson));
+
+    private static IReadOnlyDictionary<string, string?> DeserializeValues(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new Dictionary<string, string?>();
+        }
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string?>>(json) ?? new Dictionary<string, string?>();
+        }
+        catch
+        {
+            return new Dictionary<string, string?>();
+        }
+    }
 }

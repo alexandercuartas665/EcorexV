@@ -21,4 +21,7 @@ public class Lead : TenantEntity
     public LeadStatus Status { get; set; } = LeadStatus.Open;
     public string? LossReason { get; set; }
     public DateTimeOffset StageChangedAt { get; set; }
+
+    /// <summary>Valores de los campos configurables (jsonb), indexados por FieldKey.</summary>
+    public string? FieldValuesJson { get; set; }
 }

@@ -168,6 +168,37 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return true;
     }
 
+    public async Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(text))
+        {
+            return new LineSendResult(false, "Indica el numero y el mensaje.");
+        }
+        var line = await _db.WhatsAppLines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null)
+        {
+            return new LineSendResult(false, "La linea no existe.");
+        }
+        if (line.Status != WhatsAppLineStatus.Connected)
+        {
+            return new LineSendResult(false, "La linea no esta conectada.");
+        }
+        var server = await ResolveServerAsync(cancellationToken);
+        if (server is null)
+        {
+            return new LineSendResult(false, "No hay servidor Evolution configurado.");
+        }
+
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var (baseUrl, apiKey) = server.Value;
+        var result = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text.Trim(), cancellationToken);
+
+        _audit.Write(actorUserId, "whatsapp-line.test-send", nameof(WhatsAppLine), line.Id,
+            previousValue: null, newValue: new { to = digits, ok = result.Ok }, tenantId: line.TenantId);
+
+        return new LineSendResult(result.Ok, result.Error);
+    }
+
     // Servidor efectivo (URL + API key descifrada) segun la eleccion del tenant.
     private async Task<(string baseUrl, string apiKey)?> ResolveServerAsync(CancellationToken ct)
     {

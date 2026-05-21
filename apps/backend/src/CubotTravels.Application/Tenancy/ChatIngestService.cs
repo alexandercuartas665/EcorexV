@@ -27,7 +27,8 @@ public sealed class ChatIngestService : IChatIngestService
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(c => c.TenantId == tenantId, cancellationToken);
 
-        if (config is null || string.IsNullOrEmpty(providedToken) || !TokenMatches(config.ApiTokenEncrypted, providedToken))
+        if (config is null || string.IsNullOrEmpty(config.ApiTokenEncrypted)
+            || string.IsNullOrEmpty(providedToken) || !TokenMatches(config.ApiTokenEncrypted, providedToken))
         {
             return ChatIngestResult.Unauthorized;
         }

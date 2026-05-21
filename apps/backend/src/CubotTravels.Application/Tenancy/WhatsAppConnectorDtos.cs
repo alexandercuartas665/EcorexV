@@ -16,3 +16,6 @@ public sealed record SetEvolutionServerRequest(
 
 /// <summary>Resultado de conectar/refrescar una linea: QR a escanear (base64) o error.</summary>
 public sealed record LineConnectResult(bool Ok, string? QrBase64, string? Error);
+
+/// <summary>Resultado de un envio de mensaje de prueba.</summary>
+public sealed record LineSendResult(bool Ok, string? Error);

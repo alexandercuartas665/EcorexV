@@ -118,6 +118,7 @@ else
                             <td class="text-end" style="white-space:nowrap;">
                                 @if (l.Status == WhatsAppLineStatus.Connected)
                                 {
+                                    <button class="btn btn-sm btn-primary" @onclick="() => OpenTest(l)" disabled="@_busy">Probar envio</button>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => RefreshAsync(l.Id)" disabled="@_busy">Actualizar</button>
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => DisconnectAsync(l.Id)" disabled="@_busy">Desconectar</button>
                                 }
@@ -195,6 +196,38 @@ else
     </div>
 }
 
+@* ===== Modal: probar envio ===== *@
+@if (_testOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Probar envio &mdash; @_testLineName</h3>
+                <button class="modal-close" @onclick="() => _testOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Numero de destino *</label>
+                    <input class="form-control" @bind="_testPhone" autocomplete="off" placeholder="573001234567" />
+                    <div class="text-muted" style="font-size:11px;margin-top:4px;">Con codigo de pais, sin signos (ej: 57 + numero).</div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Mensaje</label>
+                    <textarea class="form-control" rows="3" @bind="_testText"></textarea>
+                </div>
+                @if (_testMsg is not null)
+                {
+                    <div class="@(_testOk ? "text-success" : "text-danger")" style="font-size:0.85rem;">@_testMsg</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _testOpen = false">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SendTestAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_testPhone))">Enviar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -219,6 +252,14 @@ else
     private Guid _qrLineId;
     private WhatsAppLineDto? _qrLine;
     private Timer? _pollTimer;
+
+    private bool _testOpen;
+    private Guid _testLineId;
+    private string? _testLineName;
+    private string? _testPhone;
+    private string _testText = "Hola! Mensaje de prueba desde CUBOT.travels.";
+    private string? _testMsg;
+    private bool _testOk;
 
     protected override async Task OnInitializedAsync()
     {
@@ -355,6 +396,29 @@ else
         _qrOpen = false;
         _pollTimer?.Dispose();
         _pollTimer = null;
+    }
+
+    private void OpenTest(WhatsAppLineDto line)
+    {
+        _testMsg = null;
+        _testLineId = line.Id;
+        _testLineName = line.InstanceName;
+        _testPhone = string.IsNullOrWhiteSpace(line.PhoneNumber) ? null : line.PhoneNumber;
+        _testOpen = true;
+    }
+
+    private async Task SendTestAsync()
+    {
+        _testMsg = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var res = await ConnectorSvc.SendTestAsync(_testLineId, _testPhone ?? "", _testText, actor);
+            _testOk = res.Ok;
+            _testMsg = res.Ok ? "Mensaje enviado." : $"No se pudo enviar: {res.Error}";
+        }
+        finally { _busy = false; }
     }
 
     public void Dispose() => _pollTimer?.Dispose();

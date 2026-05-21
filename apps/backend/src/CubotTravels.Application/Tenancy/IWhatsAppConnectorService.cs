@@ -20,4 +20,7 @@ public interface IWhatsAppConnectorService
 
     /// <summary>Cierra sesion y elimina la instancia; deja la linea como desconectada.</summary>
     Task<bool> DisconnectAsync(Guid lineId, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Envia un mensaje de prueba desde la linea a un numero (con codigo de pais).</summary>
+    Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, CancellationToken cancellationToken = default);
 }

@@ -246,9 +246,13 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.LossReason).HasMaxLength(500);
             b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
             b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
+            b.Property(x => x.ArchiveReason).HasMaxLength(80);
+            b.Property(x => x.ArchiveNote).HasMaxLength(1000);
+            b.Property(x => x.ArchivedByName).HasMaxLength(200);
             b.HasOne(x => x.Stage).WithMany().HasForeignKey(x => x.StageId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.StageId });
             b.HasIndex(x => x.AssignedToTenantUserId);
+            b.HasIndex(x => new { x.TenantId, x.ArchivedAt });
         });
 
         modelBuilder.Entity<LeadActivity>(b =>

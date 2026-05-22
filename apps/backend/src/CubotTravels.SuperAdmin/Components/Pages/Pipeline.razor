@@ -33,6 +33,7 @@
         {
             <button class="btn btn-outline-secondary" @onclick="OpenConfig">Configurar embudo</button>
         }
+        <button class="btn btn-outline-secondary" @onclick="OpenHistoryAsync">Historial</button>
         <button class="btn btn-primary" @onclick="() => OpenNewLead(null)" disabled="@(_stages.Count == 0)">+ Nuevo lead</button>
     </div>
 </div>
@@ -193,6 +194,9 @@ else
                                             @StaleLabel(lead)
                                         </span>
                                     }
+                                    <button class="kb-archive" title="Llevar a historial" @onclick="() => OpenArchive(lead)" @onclick:stopPropagation="true">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+                                    </button>
                                 </div>
 
                                 <div class="nm">@lead.ContactName</div>
@@ -346,6 +350,13 @@ else
                 <button class="modal-close" @onclick="CloseLead">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="pl-lead-tabs">
+                    <button class="pl-lead-tab @(_leadTab == "datos" ? "active" : "")" @onclick='() => _leadTab = "datos"'>Datos</button>
+                    <button class="pl-lead-tab @(_leadTab == "actividad" ? "active" : "")" @onclick='() => _leadTab = "actividad"'>Actividad @(_activities.Count > 0 ? $"({_activities.Count})" : "")</button>
+                </div>
+
+                @if (_leadTab == "datos")
+                {
                 @* Stepper de etapas *@
                 <div style="display:grid;grid-template-columns:repeat(@_stages.Count,1fr);gap:4px;margin-bottom:18px;">
                     @for (var i = 0; i < _stages.Count; i++)
@@ -446,19 +457,32 @@ else
                     </div>
                 }
 
-                @* Historial de actividad *@
-                @if (_activities.Count > 0)
+                }
+
+                @if (_leadTab == "actividad")
                 {
-                    <div class="pl-stagegroup">
-                        <div class="pl-stagegroup-title">Actividad</div>
-                        @foreach (var a in _activities)
-                        {
-                            <div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);">
-                                <span class="text-muted">@a.CreatedAt.LocalDateTime.ToString("dd MMM HH:mm")</span>
-                                &middot; @a.Description
-                            </div>
-                        }
-                    </div>
+                    @if (_activities.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Aun no hay actividad registrada para este lead.</div>
+                    }
+                    else
+                    {
+                        <div class="pl-timeline">
+                            @foreach (var a in _activities)
+                            {
+                                <div class="pl-tl-item">
+                                    <div class="pl-tl-dot"></div>
+                                    <div class="pl-tl-body">
+                                        <div class="pl-tl-desc">@a.Description</div>
+                                        <div class="pl-tl-meta">
+                                            <span class="pl-tl-actor">@(string.IsNullOrWhiteSpace(a.ActorName) ? "Sistema" : a.ActorName)</span>
+                                            &middot; @a.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
                 }
 
                 @if (_leadError is not null)
@@ -758,6 +782,92 @@ else
     </div>
 }
 
+@* ===== Modal: llevar a historial ===== *@
+@if (_archiveLead is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:460px;">
+            <div class="modal-head">
+                <h3>Llevar a historial</h3>
+                <button class="modal-close" @onclick="() => _archiveLead = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13px;color:var(--muted-foreground);margin-top:0;">
+                    <strong>@_archiveLead.ContactName</strong> se quitara del tablero y quedara en el historial. Indica el motivo.
+                </p>
+                <div class="field">
+                    <label class="form-label">Motivo *</label>
+                    <select class="form-control" @bind="_archiveReason">
+                        @foreach (var m in ArchiveReasons)
+                        {
+                            <option value="@m">@m</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Observacion</label>
+                    <textarea class="form-control" rows="3" @bind="_archiveNote" placeholder="Detalle del motivo (opcional)"></textarea>
+                </div>
+                @if (_archiveError is not null)
+                {
+                    <div class="text-danger small">@_archiveError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _archiveLead = null">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ConfirmArchiveAsync" disabled="@_busy">Enviar a historial</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: historial ===== *@
+@if (_historyOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:920px;">
+            <div class="modal-head">
+                <h3>Historial de clientes</h3>
+                <button class="modal-close" @onclick="() => _historyOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Clientes enviados a historial. @( _canManage ? "Ves todos los del equipo." : "Ves los que te corresponden segun tu rol.")</div>
+                @if (_history.Count == 0)
+                {
+                    <div class="text-muted" style="font-size:13px;padding:14px 2px;">No hay clientes en historial todavia.</div>
+                }
+                else
+                {
+                    <table class="data-table" style="width:100%;font-size:12.5px;">
+                        <thead>
+                            <tr><th>Cliente</th><th>Destino</th><th>Valor</th><th>Motivo</th><th>Observacion</th><th>Archivado</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var h in _history)
+                            {
+                                <tr>
+                                    <td style="font-weight:600;">@h.ContactName</td>
+                                    <td>@(string.IsNullOrWhiteSpace(h.Destination) ? "—" : h.Destination)</td>
+                                    <td>@(h.EstimatedValue is decimal v ? Money(v, h.Currency) : "—")</td>
+                                    <td><span class="pl-chip">@(h.ArchiveReason ?? "—")</span></td>
+                                    <td style="color:var(--muted-foreground);">@(string.IsNullOrWhiteSpace(h.ArchiveNote) ? "—" : h.ArchiveNote)</td>
+                                    <td style="color:var(--muted-foreground);">
+                                        @(h.ArchivedAt is { } a ? a.LocalDateTime.ToString("dd MMM yyyy") : "—")
+                                        @if (!string.IsNullOrWhiteSpace(h.ArchivedByName)) { <text> &middot; @h.ArchivedByName</text> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _historyOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Modal: configurar embudo ===== *@
 @if (_configOpen)
 {
@@ -909,6 +1019,24 @@ else
     private EditLeadForm _el = new();
     private Dictionary<string, string?> _editValues = new();
     private List<LeadActivityDto> _activities = new();
+    private string _leadTab = "datos";
+
+    // Historial / archivar
+    private LeadDto? _archiveLead;
+    private string _archiveReason = "No interesado / no compro";
+    private string? _archiveNote;
+    private string? _archiveError;
+    private bool _historyOpen;
+    private List<ArchivedLeadDto> _history = new();
+    private static readonly string[] ArchiveReasons =
+    {
+        "No interesado / no compro",
+        "Compro (facturado)",
+        "Datos incorrectos / invalido",
+        "Duplicado",
+        "Sin respuesta prolongada",
+        "Otro"
+    };
 
     // Chat WhatsApp del lead
     private ConversationDto? _conversation;
@@ -1325,6 +1453,38 @@ else
         }
     }
 
+    // ===== Historial / archivar =====
+    private void OpenArchive(LeadDto lead)
+    {
+        _archiveLead = lead;
+        _archiveReason = ArchiveReasons[0];
+        _archiveNote = null;
+        _archiveError = null;
+    }
+
+    private async Task ConfirmArchiveAsync()
+    {
+        if (_archiveLead is null) { return; }
+        _archiveError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var ok = await LeadsSvc.ArchiveAsync(_archiveLead.Id, _archiveReason, _archiveNote, actor);
+            if (!ok) { _archiveError = "No se pudo enviar a historial."; return; }
+            _leads.RemoveAll(l => l.Id == _archiveLead.Id);
+            RecalcKpis();
+            _archiveLead = null;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task OpenHistoryAsync()
+    {
+        _history = (await LeadsSvc.ListArchivedAsync()).ToList();
+        _historyOpen = true;
+    }
+
     // ===== Detalle de lead =====
     private async Task OpenLeadAsync(Guid leadId)
     {
@@ -1333,6 +1493,7 @@ else
         if (detail is null) { return; }
         _editLead = detail.Lead;
         _editStageId = detail.Lead.StageId;
+        _leadTab = "datos";
         _activities = detail.Activities.OrderByDescending(a => a.CreatedAt).ToList();
         _el = new EditLeadForm
         {

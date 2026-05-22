@@ -21,7 +21,8 @@ public sealed class LeadService : ILeadService
 
     public async Task<IReadOnlyList<LeadDto>> ListAsync(Guid? stageId = null, CancellationToken cancellationToken = default)
     {
-        var query = _db.Leads.AsNoTracking();
+        // El tablero solo muestra leads activos; los enviados a historial se excluyen.
+        var query = _db.Leads.AsNoTracking().Where(l => l.ArchivedAt == null);
         if (stageId is Guid s)
         {
             query = query.Where(l => l.StageId == s);
@@ -57,7 +58,8 @@ public sealed class LeadService : ILeadService
             .AsNoTracking()
             .Where(a => a.LeadId == leadId)
             .OrderBy(a => a.CreatedAt)
-            .Select(a => new LeadActivityDto(a.Id, a.ActivityType, a.Description, a.CreatedAt))
+            .Select(a => new LeadActivityDto(a.Id, a.ActivityType, a.Description, a.CreatedAt,
+                _db.PlatformUsers.Where(p => p.Id == a.CreatedBy).Select(p => p.DisplayName ?? p.Email).FirstOrDefault()))
             .ToListAsync(cancellationToken);
 
         return new LeadDetailDto(Map(lead), activities);
@@ -199,6 +201,56 @@ public sealed class LeadService : ILeadService
 
         await _db.SaveChangesAsync(cancellationToken);
         return Map(lead);
+    }
+
+    public async Task<bool> ArchiveAsync(Guid leadId, string reason, string? note, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var lead = await _db.Leads.FirstOrDefaultAsync(l => l.Id == leadId, cancellationToken);
+        if (lead is null) { return false; }
+
+        var actorName = await ResolveActorNameAsync(actorUserId, lead.TenantId, cancellationToken);
+        lead.ArchivedAt = _timeProvider.GetUtcNow();
+        lead.ArchiveReason = string.IsNullOrWhiteSpace(reason) ? "Otro" : reason.Trim();
+        lead.ArchiveNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        lead.ArchivedByName = actorName;
+
+        var desc = $"Enviado a historial - {lead.ArchiveReason}" + (lead.ArchiveNote is null ? "" : $": {lead.ArchiveNote}");
+        AddActivity(lead.TenantId, lead.Id, "lead.archived", desc);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<ArchivedLeadDto>> ListArchivedAsync(CancellationToken cancellationToken = default)
+    {
+        var query = _db.Leads.AsNoTracking().Where(l => l.ArchivedAt != null);
+
+        // Misma visibilidad que el embudo: un asesor OwnOnly solo ve su propio historial.
+        if (_tenantContext.UserId is Guid userId)
+        {
+            var me = await _db.TenantUsers.AsNoTracking()
+                .FirstOrDefaultAsync(tu => tu.PlatformUserId == userId, cancellationToken);
+            if (me is not null && me.TenantRole == TenantRole.Advisor && me.LeadVisibility == LeadVisibility.OwnOnly)
+            {
+                query = query.Where(l => l.AssignedToTenantUserId == me.Id);
+            }
+        }
+
+        return await query
+            .OrderByDescending(l => l.ArchivedAt)
+            .Select(l => new ArchivedLeadDto(l.Id, l.ContactName, l.ContactPhone, l.Destination, l.EstimatedValue, l.Currency,
+                l.ArchiveReason, l.ArchiveNote, l.ArchivedAt, l.ArchivedByName, l.AssignedToTenantUserId))
+            .ToListAsync(cancellationToken);
+    }
+
+    private async Task<string?> ResolveActorNameAsync(Guid actorUserId, Guid tenantId, CancellationToken ct)
+    {
+        if (actorUserId == Guid.Empty) { return null; }
+        var name = await _db.PlatformUsers.AsNoTracking()
+            .Where(p => p.Id == actorUserId)
+            .Select(p => p.DisplayName ?? p.Email)
+            .FirstOrDefaultAsync(ct);
+        return name;
     }
 
     private void AddActivity(Guid tenantId, Guid leadId, string type, string description)

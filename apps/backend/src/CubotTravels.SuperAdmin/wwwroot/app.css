@@ -285,6 +285,10 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .kb-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; white-space: nowrap; }
 .kb-badge.stale { background: oklch(0.6 0.22 22 / 0.10); color: var(--destructive); }
 .kb-badge svg { width: 10px; height: 10px; }
+.kb-archive { margin-left: auto; background: none; border: none; padding: 2px; border-radius: 6px; color: var(--muted-foreground); cursor: pointer; display: inline-grid; place-items: center; opacity: 0.5; }
+.kb-card:hover .kb-archive { opacity: 1; }
+.kb-archive:hover { background: var(--muted); color: var(--destructive); }
+.kb-archive svg { width: 14px; height: 14px; }
 
 /* Lead con mensaje del cliente sin responder */
 .kb-card.needsreply { background: oklch(0.97 0.045 50); border-color: oklch(0.72 0.16 55 / 0.55); box-shadow: var(--shadow-soft), -3px 0 0 oklch(0.7 0.17 50) inset; padding-left: 15px; }
@@ -382,6 +386,22 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .pl-chat-more svg { width: 12px; height: 12px; }
 .pl-chat-line { margin-top: 6px; }
 .pl-chat-line select { font-size: 11px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); width: 100%; }
+
+/* Pestañas de la columna de datos del lead */
+.pl-lead-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.pl-lead-tab { background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--muted-foreground); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.pl-lead-tab:hover { color: var(--foreground); }
+.pl-lead-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* Timeline de actividad */
+.pl-timeline { display: flex; flex-direction: column; }
+.pl-tl-item { display: flex; gap: 12px; padding: 4px 0; }
+.pl-tl-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary); margin-top: 5px; flex-shrink: 0; position: relative; }
+.pl-tl-item:not(:last-child) .pl-tl-dot::after { content: ''; position: absolute; left: 50%; top: 13px; transform: translateX(-50%); width: 2px; height: calc(100% + 8px); background: var(--border); }
+.pl-tl-body { padding-bottom: 14px; }
+.pl-tl-desc { font-size: 13px; color: var(--foreground); }
+.pl-tl-meta { font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
+.pl-tl-actor { font-weight: 600; color: var(--primary); }
 
 /* Chips de cabecera del lead */
 .pl-tags { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }

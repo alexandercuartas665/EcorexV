@@ -24,4 +24,17 @@ public class Lead : TenantEntity
 
     /// <summary>Valores de los campos configurables (jsonb), indexados por FieldKey.</summary>
     public string? FieldValuesJson { get; set; }
+
+    // ===== Historial (archivado) =====
+    /// <summary>Fecha en que se envio a historial. Null = activo en el embudo.</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
+
+    /// <summary>Motivo por el que se envio a historial (ej. ya compro, no interesado, duplicado).</summary>
+    public string? ArchiveReason { get; set; }
+
+    /// <summary>Observacion del asesor al enviar a historial.</summary>
+    public string? ArchiveNote { get; set; }
+
+    /// <summary>Nombre del usuario que lo envio a historial (snapshot).</summary>
+    public string? ArchivedByName { get; set; }
 }

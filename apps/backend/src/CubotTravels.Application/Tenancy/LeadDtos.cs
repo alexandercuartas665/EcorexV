@@ -15,9 +15,22 @@ public sealed record LeadDto(
     DateTimeOffset StageChangedAt,
     IReadOnlyDictionary<string, string?> FieldValues);
 
-public sealed record LeadActivityDto(Guid Id, string ActivityType, string? Description, DateTimeOffset CreatedAt);
+public sealed record LeadActivityDto(Guid Id, string ActivityType, string? Description, DateTimeOffset CreatedAt, string? ActorName);
 
 public sealed record LeadDetailDto(LeadDto Lead, IReadOnlyList<LeadActivityDto> Activities);
+
+public sealed record ArchivedLeadDto(
+    Guid Id,
+    string ContactName,
+    string? ContactPhone,
+    string? Destination,
+    decimal? EstimatedValue,
+    string? Currency,
+    string? ArchiveReason,
+    string? ArchiveNote,
+    DateTimeOffset? ArchivedAt,
+    string? ArchivedByName,
+    Guid? AssignedToTenantUserId);
 
 public sealed record CreateLeadRequest(
     string ContactName,

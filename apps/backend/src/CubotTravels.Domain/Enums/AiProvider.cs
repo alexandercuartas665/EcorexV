@@ -5,5 +5,6 @@ public enum AiProvider
 {
     Claude = 0,
     Gemini,
-    ChatGpt
+    ChatGpt,
+    DeepSeek
 }

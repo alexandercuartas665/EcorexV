@@ -27,6 +27,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<WompiMasterConfig> WompiMasterConfigs => Set<WompiMasterConfig>();
     public DbSet<WompiWebhookEvent> WompiWebhookEvents => Set<WompiWebhookEvent>();
     public DbSet<EvolutionMasterConfig> EvolutionMasterConfigs => Set<EvolutionMasterConfig>();
+    public DbSet<AiProviderConfig> AiProviderConfigs => Set<AiProviderConfig>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
 
@@ -175,6 +176,13 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.WebhookPublicUrl).HasMaxLength(500);
             b.Property(x => x.WebhookActiveUrl).HasMaxLength(500);
             b.Property(x => x.WebhookToken).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<AiProviderConfig>(b =>
+        {
+            b.Property(x => x.Model).HasMaxLength(120);
+            b.Property(x => x.BaseUrl).HasMaxLength(500);
+            b.HasIndex(x => x.Provider).IsUnique();
         });
 
         modelBuilder.Entity<WompiWebhookEvent>(b =>

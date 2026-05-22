@@ -5,8 +5,8 @@ namespace CubotTravels.Application.Tenancy;
 /// <summary>Un turno de la conversacion de prueba. Role: "user" (cliente) o "model" (agente).</summary>
 public sealed record AiChatTurn(string Role, string Text);
 
-/// <summary>Resultado de una llamada de inferencia.</summary>
-public sealed record AiChatResult(bool Ok, string? Text, string? Error);
+/// <summary>Resultado de una llamada de inferencia, con el consumo de tokens reportado por el proveedor.</summary>
+public sealed record AiChatResult(bool Ok, string? Text, string? Error, int InputTokens = 0, int OutputTokens = 0);
 
 /// <summary>
 /// Cliente HTTP que habla con cada proveedor de IA (Gemini, OpenAI/ChatGPT, DeepSeek, Claude).

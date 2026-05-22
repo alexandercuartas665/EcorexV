@@ -7,6 +7,7 @@
 @inject IAiAgentService AgentsSvc
 @inject IAiServerConfigService AiServersSvc
 @inject IAiInferenceService InferenceSvc
+@inject IAiUsageService UsageSvc
 @inject IWebHostEnvironment Env
 
 <PageTitle>Agentes IA - CUBOT.travels</PageTitle>
@@ -24,6 +25,27 @@
     </div>
     <button class="btn btn-primary" @onclick="OpenNew">+ Nuevo agente</button>
 </div>
+
+@if (!_loading && _usage is not null)
+{
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));max-width:760px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Consumo de tokens</div>
+            <div class="kpi-value">@Tokens(_usage.TotalTokens)</div>
+            <div class="kpi-hint">@_usage.InputTokens entrada · @_usage.OutputTokens salida</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Llamadas de IA</div>
+            <div class="kpi-value">@_usage.TotalCalls</div>
+            <div class="kpi-hint">en todos los agentes</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Costo estimado</div>
+            <div class="kpi-value">$@_usage.EstimatedCostUsd.ToString("0.####")</div>
+            <div class="kpi-hint">USD (tarifa aproximada)</div>
+        </div>
+    </div>
+}
 
 @if (_loading)
 {
@@ -52,7 +74,7 @@ else
                 }
                 <div class="ag-prompt">@(string.IsNullOrWhiteSpace(a.SystemPrompt) ? "Sin prompt configurado" : Trim(a.SystemPrompt, 110))</div>
                 <div class="ag-foot">
-                    <span class="ag-res">@a.ResourceCount recurso@(a.ResourceCount == 1 ? "" : "s")</span>
+                    <span class="ag-res">@a.ResourceCount recurso@(a.ResourceCount == 1 ? "" : "s") · @Tokens(AgentTokens(a.Id)) tokens</span>
                     <div style="display:flex;gap:6px;">
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEditAsync(a.Id)" disabled="@_busy">Configurar</button>
                         <label class="ag-switch" title="@(a.IsActive ? "Apagar" : "Poner en produccion")">
@@ -70,12 +92,14 @@ else
 @if (_editorOpen)
 {
     <div class="modal-overlay">
-        <div class="modal-dialog" style="max-width:900px;">
+        <div class="modal-dialog" style="max-width:@(_editId is null ? "640px" : "1180px");">
             <div class="modal-head">
                 <h3>@(_editId is null ? "Nuevo agente" : "Configurar agente")</h3>
                 <button class="modal-close" @onclick="CloseEditor">&times;</button>
             </div>
             <div class="modal-body">
+              <div class="ag-editor-cols">
+               <div class="ag-editor-left">
                 <div class="field-row">
                     <div class="field">
                         <label class="form-label">Nombre *</label>
@@ -189,8 +213,12 @@ else
                             </tbody>
                         </table>
                     }
+                }
+               </div>@* /ag-editor-left *@
 
-                    <hr style="border-color:var(--border);margin:14px 0;" />
+               @if (_editId is not null)
+               {
+                <div class="ag-editor-right">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                         <div class="pl-stagegroup-title">Probar agente</div>
                         @if (_testTurns.Count > 0)
@@ -198,7 +226,7 @@ else
                             <button class="btn btn-sm btn-outline-secondary" @onclick="() => { _testTurns.Clear(); _testError = null; }" disabled="@_testBusy">Limpiar</button>
                         }
                     </div>
-                    <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Conversa como si fueras el cliente. Usa el prompt y los recursos de arriba (aunque no los hayas guardado).</div>
+                    <div class="text-muted" style="font-size:11.5px;margin-bottom:10px;">Conversa como si fueras el cliente. Usa el prompt y los recursos de la izquierda (aunque no los hayas guardado).</div>
                     <div class="ag-test">
                         <div class="ag-test-body">
                             @if (_testTurns.Count == 0)
@@ -226,7 +254,9 @@ else
                             <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || string.IsNullOrWhiteSpace(_testInput))">Enviar</button>
                         </div>
                     </div>
-                }
+                </div>@* /ag-editor-right *@
+               }
+              </div>@* /ag-editor-cols *@
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="CloseEditor">Cerrar</button>
@@ -242,6 +272,7 @@ else
     private bool _busy;
     private List<AiAgentDto> _agents = new();
     private List<AiProviderOptionDto> _providerOptions = new();
+    private AiUsageSummaryDto? _usage;
 
     private bool _editorOpen;
     private Guid? _editId;
@@ -290,7 +321,13 @@ else
     private async Task ReloadAsync()
     {
         _agents = (await AgentsSvc.ListAsync()).ToList();
+        _usage = await UsageSvc.GetSummaryAsync();
     }
+
+    private long AgentTokens(Guid agentId)
+        => _usage?.ByAgent.FirstOrDefault(a => a.AgentId == agentId)?.TotalTokens ?? 0;
+
+    private static string Tokens(long n) => n >= 1000 ? $"{n / 1000.0:0.#}k" : n.ToString();
 
     private void OpenNew()
     {
@@ -350,6 +387,7 @@ else
             if (result.Ok && !string.IsNullOrWhiteSpace(result.Text))
             {
                 _testTurns.Add(new AiChatTurn("model", result.Text!));
+                _usage = await UsageSvc.GetSummaryAsync();
             }
             else
             {

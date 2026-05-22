@@ -11,12 +11,14 @@ public sealed class AiInferenceService : IAiInferenceService
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _secretProtector;
     private readonly IAiProviderClient _client;
+    private readonly IAiUsageService _usage;
 
-    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client)
+    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage)
     {
         _db = db;
         _secretProtector = secretProtector;
         _client = client;
+        _usage = usage;
     }
 
     public async Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, CancellationToken cancellationToken = default)
@@ -44,7 +46,15 @@ public sealed class AiInferenceService : IAiInferenceService
 
         if (turns.Count == 0) { return new AiChatResult(false, null, "Escribe un mensaje para probar el agente."); }
 
-        return await _client.CompleteAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, await systemPrompt, turns, cancellationToken);
+        var result = await _client.CompleteAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, await systemPrompt, turns, cancellationToken);
+
+        // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
+        if (result.Ok)
+        {
+            await _usage.RecordAsync(agent.Id, agent.Provider, model, result.InputTokens, result.OutputTokens, "test", true, cancellationToken);
+        }
+
+        return result;
     }
 
     // Anexa al prompt los recursos de texto del agente como contexto utilizable.

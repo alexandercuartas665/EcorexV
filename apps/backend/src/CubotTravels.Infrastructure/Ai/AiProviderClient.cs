@@ -53,7 +53,13 @@ public sealed class AiProviderClient : IAiProviderClient
 
         using var doc = JsonDocument.Parse(raw);
         var text = doc.RootElement.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-        return new AiChatResult(true, text, null);
+        var (inTok, outTok) = (0, 0);
+        if (doc.RootElement.TryGetProperty("usageMetadata", out var um))
+        {
+            inTok = um.TryGetProperty("promptTokenCount", out var p) ? p.GetInt32() : 0;
+            outTok = um.TryGetProperty("candidatesTokenCount", out var c) ? c.GetInt32() : 0;
+        }
+        return new AiChatResult(true, text, null, inTok, outTok);
     }
 
     // ===== OpenAI / ChatGPT / DeepSeek (formato chat/completions) =====
@@ -75,7 +81,13 @@ public sealed class AiProviderClient : IAiProviderClient
 
         using var doc = JsonDocument.Parse(raw);
         var text = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-        return new AiChatResult(true, text, null);
+        var (inTok, outTok) = (0, 0);
+        if (doc.RootElement.TryGetProperty("usage", out var u))
+        {
+            inTok = u.TryGetProperty("prompt_tokens", out var p) ? p.GetInt32() : 0;
+            outTok = u.TryGetProperty("completion_tokens", out var c) ? c.GetInt32() : 0;
+        }
+        return new AiChatResult(true, text, null, inTok, outTok);
     }
 
     // ===== Claude (messages) =====
@@ -99,7 +111,13 @@ public sealed class AiProviderClient : IAiProviderClient
 
         using var doc = JsonDocument.Parse(raw);
         var text = doc.RootElement.GetProperty("content")[0].GetProperty("text").GetString();
-        return new AiChatResult(true, text, null);
+        var (inTok, outTok) = (0, 0);
+        if (doc.RootElement.TryGetProperty("usage", out var u))
+        {
+            inTok = u.TryGetProperty("input_tokens", out var p) ? p.GetInt32() : 0;
+            outTok = u.TryGetProperty("output_tokens", out var c) ? c.GetInt32() : 0;
+        }
+        return new AiChatResult(true, text, null, inTok, outTok);
     }
 
     private static StringContent JsonContent(object body) =>

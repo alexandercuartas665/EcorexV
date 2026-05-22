@@ -52,6 +52,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
+    public DbSet<AiUsageLog> AiUsageLogs => Set<AiUsageLog>();
     public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
@@ -346,6 +347,15 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.FileName).HasMaxLength(255);
             b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.AgentId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<AiUsageLog>(b =>
+        {
+            b.Property(x => x.Model).HasMaxLength(120);
+            b.Property(x => x.Source).HasMaxLength(40);
+            b.Property(x => x.EstimatedCostUsd).HasPrecision(12, 6);
+            b.HasIndex(x => new { x.TenantId, x.AgentId });
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         modelBuilder.Entity<AutomationRule>(b =>

@@ -102,8 +102,9 @@ else
                         </select>
                     </div>
                     <div class="field">
-                        <label class="form-label">Modelo (opcional)</label>
-                        <input class="form-control" @bind="_fModel" placeholder="@ModelHint(_fProvider)" autocomplete="off" />
+                        <label class="form-label">Modelo</label>
+                        <input class="form-control" value="@EffectiveModel(_fProvider)" disabled />
+                        <div class="text-muted" style="font-size:11px;margin-top:4px;">Lo define el administrador de la plataforma.</div>
                     </div>
                 </div>
                 @if (_editId is not null)
@@ -229,9 +230,17 @@ else
         var opts = _providerOptions.ToList();
         if (_editId is not null && opts.All(o => o.Provider != _fProvider))
         {
-            opts.Insert(0, new AiProviderOptionDto(_fProvider, ProviderLabel(_fProvider), ModelHint(_fProvider)));
+            opts.Insert(0, new AiProviderOptionDto(_fProvider, ProviderLabel(_fProvider), string.IsNullOrWhiteSpace(_fModel) ? ModelHint(_fProvider) : _fModel!));
         }
         return opts;
+    }
+
+    // Modelo que usara el agente: el que fijo el Super Admin para ese proveedor (o el guardado si el
+    // proveedor ya no esta habilitado). El cliente no lo elige.
+    private string? EffectiveModel(AiProvider p)
+    {
+        var opt = _providerOptions.FirstOrDefault(o => o.Provider == p);
+        return opt is not null ? opt.DefaultModel : _fModel;
     }
 
     private async Task ReloadAsync()
@@ -279,15 +288,16 @@ else
         try
         {
             var actor = await ActorAsync();
+            var model = EffectiveModel(_fProvider);
             if (_editId is null)
             {
-                var created = await AgentsSvc.CreateAsync(new CreateAiAgentRequest(_fName, _fRole, _fProvider, _fModel, _fPrompt), actor);
+                var created = await AgentsSvc.CreateAsync(new CreateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt), actor);
                 if (created is null) { _editorError = "No se pudo crear el agente."; return; }
                 _editId = created.Id;
             }
             else
             {
-                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, _fModel, _fPrompt), actor);
+                await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt), actor);
             }
             await ReloadAsync();
         }

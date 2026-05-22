@@ -53,6 +53,7 @@ project.fragment.lock.json
 artifacts/
 
 # CUBOT.travels - secretos y datos locales
+.claude/scheduled_tasks.lock
 .env
 .env.local
 appsettings.*.local.json

@@ -306,6 +306,49 @@ public sealed class LeadService : ILeadService
         return true;
     }
 
+    public async Task<IReadOnlyList<LeadFileDto>> ListFilesAsync(Guid leadId, CancellationToken cancellationToken = default)
+    {
+        return await _db.LeadFiles.AsNoTracking()
+            .Where(f => f.LeadId == leadId)
+            .OrderByDescending(f => f.CreatedAt)
+            .Select(f => new LeadFileDto(f.Id, f.FileName, f.Url, f.ContentType, f.SizeBytes, f.CreatedAt,
+                _db.PlatformUsers.Where(p => p.Id == f.CreatedBy).Select(p => p.DisplayName ?? p.Email).FirstOrDefault()))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<LeadFileDto?> AddFileAsync(Guid leadId, string fileName, string url, string contentType, long sizeBytes, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(url)) { return null; }
+        var lead = await _db.Leads.FirstOrDefaultAsync(l => l.Id == leadId, cancellationToken);
+        if (lead is null) { return null; }
+
+        var file = new LeadFile
+        {
+            TenantId = lead.TenantId,
+            LeadId = leadId,
+            FileName = fileName.Trim(),
+            Url = url.Trim(),
+            ContentType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType.Trim(),
+            SizeBytes = sizeBytes
+        };
+        _db.LeadFiles.Add(file);
+        AddActivity(lead.TenantId, lead.Id, "lead.file.added", $"Archivo adjuntado: {file.FileName}");
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var actorName = await ResolveActorNameAsync(actorUserId, lead.TenantId, cancellationToken);
+        return new LeadFileDto(file.Id, file.FileName, file.Url, file.ContentType, file.SizeBytes, file.CreatedAt, actorName);
+    }
+
+    public async Task<string?> DeleteFileAsync(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var file = await _db.LeadFiles.FirstOrDefaultAsync(f => f.Id == fileId, cancellationToken);
+        if (file is null) { return null; }
+        var url = file.Url;
+        _db.LeadFiles.Remove(file);
+        await _db.SaveChangesAsync(cancellationToken);
+        return url;
+    }
+
     private async Task<string?> ResolveActorNameAsync(Guid actorUserId, Guid tenantId, CancellationToken ct)
     {
         if (actorUserId == Guid.Empty) { return null; }

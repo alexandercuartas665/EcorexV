@@ -419,6 +419,7 @@ else
                 <div class="pl-lead-tabs">
                     <button class="pl-lead-tab @(_leadTab == "datos" ? "active" : "")" @onclick='() => _leadTab = "datos"'>Datos</button>
                     <button class="pl-lead-tab @(_leadTab == "notas" ? "active" : "")" @onclick='() => _leadTab = "notas"'>Notas @(_notes.Count > 0 ? $"({_notes.Count})" : "")</button>
+                    <button class="pl-lead-tab @(_leadTab == "archivos" ? "active" : "")" @onclick='() => _leadTab = "archivos"'>Archivos @(_files.Count > 0 ? $"({_files.Count})" : "")</button>
                     <button class="pl-lead-tab @(_leadTab == "actividad" ? "active" : "")" @onclick='() => _leadTab = "actividad"'>Actividad @(_activities.Count > 0 ? $"({_activities.Count})" : "")</button>
                 </div>
 
@@ -558,6 +559,51 @@ else
                                         <span>@(string.IsNullOrWhiteSpace(n.ActorName) ? "Sistema" : n.ActorName)</span>
                                         &middot; @n.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
                                     </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_leadTab == "archivos")
+                {
+                    <div class="pl-files-upload">
+                        <label class="pl-files-drop">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span>@(_fileBusy ? "Subiendo..." : "Subir documento del cliente (PDF, imagen, etc.)")</span>
+                            <InputFile OnChange="OnLeadFileAsync" accept="*/*" style="display:none;" disabled="@_fileBusy" />
+                        </label>
+                        @if (_fileError is not null)
+                        {
+                            <div class="text-danger small" style="margin-top:6px;">@_fileError</div>
+                        }
+                    </div>
+
+                    @if (_files.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Aun no hay documentos adjuntos para este lead.</div>
+                    }
+                    else
+                    {
+                        <div class="pl-files-list">
+                            @foreach (var f in _files)
+                            {
+                                <div class="pl-file">
+                                    <div class="pl-file-ico">@FileExt(f.FileName)</div>
+                                    <div class="pl-file-info">
+                                        <a href="@f.Url" target="_blank" class="pl-file-name" title="@f.FileName">@f.FileName</a>
+                                        <div class="pl-file-meta">
+                                            @FileSize(f.SizeBytes)
+                                            &middot; @(string.IsNullOrWhiteSpace(f.ActorName) ? "Sistema" : f.ActorName)
+                                            &middot; @f.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+                                        </div>
+                                    </div>
+                                    <a href="@f.Url" target="_blank" class="btn-icon" title="Descargar" download>
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    </a>
+                                    <button class="btn-icon" title="Eliminar archivo" @onclick="() => DeleteLeadFileAsync(f.Id)">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
                                 </div>
                             }
                         </div>
@@ -1179,6 +1225,9 @@ else
     private List<LeadNoteDto> _notes = new();
     private string _noteText = string.Empty;
     private string _noteColor = "yellow";
+    private List<LeadFileDto> _files = new();
+    private bool _fileBusy;
+    private string? _fileError;
     private string _leadTab = "datos";
     private static readonly string[] NoteColors = { "yellow", "green", "blue", "pink", "purple", "gray" };
 
@@ -1753,6 +1802,69 @@ else
         _ => "#ecdfa0"
     };
 
+    // ===== Archivos del lead =====
+    private async Task OnLeadFileAsync(InputFileChangeEventArgs e)
+    {
+        if (_editLead is null) { return; }
+        _fileError = null;
+        var file = e.File;
+        const long max = 25L * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max)
+        {
+            _fileError = "El archivo supera el limite de 25 MB.";
+            return;
+        }
+        _fileBusy = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            var ext = System.IO.Path.GetExtension(file.Name);
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "leads");
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = $"lead-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            var url = $"/uploads/leads/{stored}";
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+
+            var saved = await LeadsSvc.AddFileAsync(_editLead.Id, file.Name, url, mime, file.Size, await ActorAsync());
+            if (saved is not null) { _files.Insert(0, saved); }
+        }
+        catch
+        {
+            _fileError = "No se pudo subir el archivo.";
+        }
+        finally { _fileBusy = false; }
+    }
+
+    private async Task DeleteLeadFileAsync(Guid fileId)
+    {
+        var url = await LeadsSvc.DeleteFileAsync(fileId);
+        if (url is null) { return; }
+        _files.RemoveAll(f => f.Id == fileId);
+        try
+        {
+            var rel = url.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar);
+            var path = System.IO.Path.Combine(Env.WebRootPath, rel);
+            if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+        }
+        catch { /* el registro ya se elimino; el binario huerfano no es critico */ }
+    }
+
+    private static string FileExt(string name)
+    {
+        var ext = System.IO.Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+        return string.IsNullOrEmpty(ext) ? "DOC" : ext;
+    }
+
+    private static string FileSize(long bytes)
+    {
+        if (bytes < 1024) { return $"{bytes} B"; }
+        if (bytes < 1024 * 1024) { return $"{bytes / 1024.0:N0} KB"; }
+        return $"{bytes / (1024.0 * 1024.0):N1} MB";
+    }
+
     // Leads filtrados y ordenados de forma global (vista lista, sin agrupar por etapa).
     private List<LeadDto> AllFilteredLeads()
     {
@@ -1783,6 +1895,8 @@ else
         _notes = (await LeadsSvc.ListNotesAsync(leadId)).ToList();
         _noteText = string.Empty;
         _noteColor = "yellow";
+        _files = (await LeadsSvc.ListFilesAsync(leadId)).ToList();
+        _fileError = null;
         _el = new EditLeadForm
         {
             ContactName = detail.Lead.ContactName,

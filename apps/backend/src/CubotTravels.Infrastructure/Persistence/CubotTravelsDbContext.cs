@@ -44,6 +44,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<LeadActivity> LeadActivities => Set<LeadActivity>();
     public DbSet<LeadNote> LeadNotes => Set<LeadNote>();
+    public DbSet<LeadFile> LeadFiles => Set<LeadFile>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -268,6 +269,15 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
         {
             b.Property(x => x.Content).HasMaxLength(2000).IsRequired();
             b.Property(x => x.Color).HasMaxLength(20).IsRequired();
+            b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.LeadId });
+        });
+
+        modelBuilder.Entity<LeadFile>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.ContentType).HasMaxLength(120).IsRequired();
             b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.LeadId });
         });

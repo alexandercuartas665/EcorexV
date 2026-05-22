@@ -34,4 +34,13 @@ public interface ILeadService
 
     /// <summary>Elimina una nota de seguimiento. False si no existe.</summary>
     Task<bool> DeleteNoteAsync(Guid noteId, CancellationToken cancellationToken = default);
+
+    /// <summary>Archivos/documentos adjuntos al lead (mas recientes primero).</summary>
+    Task<IReadOnlyList<LeadFileDto>> ListFilesAsync(Guid leadId, CancellationToken cancellationToken = default);
+
+    /// <summary>Registra un archivo ya guardado en disco. Null si el lead no existe.</summary>
+    Task<LeadFileDto?> AddFileAsync(Guid leadId, string fileName, string url, string contentType, long sizeBytes, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Elimina el registro de un archivo y devuelve su Url para borrar el binario. Null si no existe.</summary>
+    Task<string?> DeleteFileAsync(Guid fileId, CancellationToken cancellationToken = default);
 }

@@ -1,11 +1,437 @@
 @page "/conversaciones"
 @attribute [Authorize]
+@* prerender:false: el chat usa SignalR y DbContext scoped; evitamos doble ejecucion SSR + circuito. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using CubotTravels.Application.Tenancy
+@using CubotTravels.Domain.Enums
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject IChatService ChatSvc
+@inject IWhatsAppLineService LinesSvc
+@inject ILeadService LeadsSvc
+@inject NavigationManager Nav
 
 <PageTitle>Conversaciones - CUBOT.travels</PageTitle>
 
-<ModulePlaceholder Eyebrow="Operacion Comercial" Title="Conversaciones"
-                   Description="Bandeja unificada de chats de WhatsApp por agencia, con asignacion a asesores y contexto del lead.">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
-    </Icon>
-</ModulePlaceholder>
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+            </div>
+            <span>Comercial Conversacional</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Bandeja <span>unificada</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">WhatsApp multi-linea con asignacion de asesores, contexto del lead y sugerencias del copiloto.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_lines.Count == 0)
+{
+    <div class="cv-warn">No hay lineas WhatsApp conectadas. Conecta una linea en el modulo <a href="lineas">Lineas WhatsApp</a> para empezar a conversar.</div>
+}
+else
+{
+    <div class="cv-grid">
+        @* ===== Columna 1: lista de chats ===== *@
+        <div class="cv-list-col">
+            <div class="cv-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input placeholder="Buscar chat..." @bind="_search" @bind:event="oninput" />
+            </div>
+            <div class="cv-list">
+                @if (FilteredConversations().Count == 0)
+                {
+                    <div class="cv-empty">No hay conversaciones todavia.</div>
+                }
+                else
+                {
+                    @foreach (var c in FilteredConversations())
+                    {
+                        var pend = UnreadFor(c);
+                        <button class="cv-item @(_active?.Id == c.Id ? "on" : "")" @onclick="() => SelectAsync(c)">
+                            <span class="cv-avatar">@Initials(c.ContactName ?? c.ContactPhone)</span>
+                            <span class="cv-item-main">
+                                <span class="cv-item-top">
+                                    <span class="cv-item-name">@(c.ContactName ?? c.ContactPhone)</span>
+                                    <span class="cv-item-time">@TimeLabel(c.LastMessageAt)</span>
+                                </span>
+                                <span class="cv-item-last">@(LastSnippet(c))</span>
+                                <span class="cv-item-tags">
+                                    <span class="cv-line-tag">@LineLabel(c.WhatsAppLineId)</span>
+                                    @if (pend is { } p && p.UnansweredCount > 0)
+                                    {
+                                        <span class="cv-unread">@p.UnansweredCount</span>
+                                    }
+                                </span>
+                            </span>
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+
+        @* ===== Columna 2: hilo de chat ===== *@
+        <div class="cv-thread-col">
+            @if (_active is null)
+            {
+                <div class="cv-thread-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+                    <p>Selecciona una conversacion para ver los mensajes.</p>
+                </div>
+            }
+            else
+            {
+                <div class="cv-thread-head">
+                    <span class="cv-avatar lg">@Initials(_active.ContactName ?? _active.ContactPhone)</span>
+                    <div style="flex:1;min-width:0;">
+                        <div class="cv-th-name">@(_active.ContactName ?? _active.ContactPhone)</div>
+                        <div class="cv-th-sub">@MaskPhone(_active.ContactPhone) &middot; @LineLabel(_active.WhatsAppLineId)</div>
+                    </div>
+                    @if (_lines.Count > 1)
+                    {
+                        <select class="cv-line-select" @bind="_lineId" title="Linea para responder">
+                            @foreach (var ln in _lines)
+                            {
+                                <option value="@ln.Id">@(string.IsNullOrWhiteSpace(ln.PhoneNumber) ? ln.InstanceName : ln.PhoneNumber)</option>
+                            }
+                        </select>
+                    }
+                </div>
+
+                <div class="cv-body">
+                    @if (_messages.Count == 0)
+                    {
+                        <div class="pl-chat-empty">Aun no hay mensajes. Escribe el primero abajo.</div>
+                    }
+                    else
+                    {
+                        DateTime? lastDay = null;
+                        @foreach (var m in _messages)
+                        {
+                            var day = m.SentAt.LocalDateTime.Date;
+                            if (lastDay != day)
+                            {
+                                lastDay = day;
+                                <div class="pl-date-divider">@day.ToString("dd 'DE' MMMM").ToUpperInvariant()</div>
+                            }
+                            <div class="pl-bubble @(m.Direction == MessageDirection.Outbound ? "out" : "in")">
+                                @switch (m.MediaType)
+                                {
+                                    case MessageMediaType.Image:
+                                        <img class="pl-media-img" src="@m.MediaUrl" alt="imagen" />
+                                        break;
+                                    case MessageMediaType.Video:
+                                        <video class="pl-media-img" src="@m.MediaUrl" controls></video>
+                                        break;
+                                    case MessageMediaType.Audio:
+                                        <audio src="@m.MediaUrl" controls style="max-width:220px;"></audio>
+                                        break;
+                                    case MessageMediaType.Document:
+                                        <a class="pl-media-doc" href="@m.MediaUrl" target="_blank">Documento adjunto</a>
+                                        break;
+                                    case MessageMediaType.Location:
+                                        <a class="pl-media-doc" href="@MapsLink(m.MediaUrl)" target="_blank">Ver ubicacion en el mapa</a>
+                                        break;
+                                }
+                                @if (!string.IsNullOrWhiteSpace(m.Body))
+                                {
+                                    <div>@m.Body</div>
+                                }
+                                <div class="t">
+                                    @if (m.Direction == MessageDirection.Outbound && !string.IsNullOrWhiteSpace(m.SentByName))
+                                    {
+                                        <span>@m.SentByName &middot; </span>
+                                    }
+                                    @m.SentAt.LocalDateTime.ToString("hh:mm tt")
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="cv-composer">
+                    @if (_chatError is not null)
+                    {
+                        <div class="text-danger small" style="margin-bottom:6px;">@_chatError</div>
+                    }
+                    <div class="cv-composer-box">
+                        <textarea rows="1" placeholder="Escribe un mensaje..." @bind="_draft" @bind:event="oninput" @onkeydown="ChatKeyDown" disabled="@_sending"></textarea>
+                        <button class="cv-send" @onclick="SendAsync" disabled="@(_sending || string.IsNullOrWhiteSpace(_draft))" title="Enviar">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ===== Columna 3: copiloto IA / contexto ===== *@
+        <div class="cv-side-col">
+            @if (_active is null)
+            {
+                <div class="cv-side-empty">Aqui veras el contexto del cliente y las sugerencias del copiloto.</div>
+            }
+            else
+            {
+                @if (_activeLead is not null)
+                {
+                    <div class="cv-context">
+                        <div class="cv-ctx-title">Lead vinculado</div>
+                        <div class="cv-ctx-name">@_activeLead.ContactName</div>
+                        <div class="cv-ctx-rows">
+                            @if (!string.IsNullOrWhiteSpace(_activeLead.Destination))
+                            {
+                                <div><span>Destino</span><strong>@_activeLead.Destination</strong></div>
+                            }
+                            @if (_activeLead.EstimatedValue is decimal v)
+                            {
+                                <div><span>Valor</span><strong>@Money(v, _activeLead.Currency)</strong></div>
+                            }
+                            <div><span>Estado</span><strong>@StatusText(_activeLead.Status)</strong></div>
+                        </div>
+                        <a class="btn btn-outline-secondary btn-sm" href="pipeline" style="margin-top:10px;width:100%;">Abrir en Pipeline</a>
+                    </div>
+                }
+                else
+                {
+                    <div class="cv-context">
+                        <div class="cv-ctx-title">Sin lead vinculado</div>
+                        <div class="text-muted" style="font-size:12px;">Esta conversacion aun no esta asociada a un lead del embudo.</div>
+                    </div>
+                }
+
+                <div class="cv-copilot">
+                    <div class="cv-copilot-head">
+                        <span class="cv-bot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+                        <span class="cv-copilot-lbl">Copiloto IA</span>
+                        <span class="cv-soon">Proximamente</span>
+                    </div>
+                    <div class="cv-copilot-note">
+                        Cuando configures un agente en <a href="agentes">Agentes IA</a>, aqui apareceran sugerencias de respuesta y un resumen automatico de la conversacion.
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private string? _tenantId;
+    private string _search = string.Empty;
+
+    private List<WhatsAppLineDto> _lines = new();
+    private List<ConversationDto> _conversations = new();
+    private IReadOnlyDictionary<string, LeadChatStateDto> _unread = new Dictionary<string, LeadChatStateDto>();
+
+    private ConversationDto? _active;
+    private LeadDto? _activeLead;
+    private List<MessageDto> _messages = new();
+    private Guid _lineId;
+    private string? _draft;
+    private string? _chatError;
+    private bool _sending;
+
+    private HubConnection? _hub;
+    private string? _joinedConversation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            _tenantId = state.User.FindFirst("tenant_id")?.Value;
+        }
+
+        var lines = await LinesSvc.ListAsync();
+        _lines = lines.Where(l => l.Status == WhatsAppLineStatus.Connected).ToList();
+        _lineId = _lines.FirstOrDefault()?.Id ?? Guid.Empty;
+
+        if (_lines.Count > 0)
+        {
+            await ReloadConversationsAsync();
+            await EnsureHubAsync();
+        }
+        _loading = false;
+    }
+
+    private async Task ReloadConversationsAsync()
+    {
+        _conversations = (await ChatSvc.ListConversationsAsync())
+            .OrderByDescending(c => c.LastMessageAt ?? DateTimeOffset.MinValue)
+            .ToList();
+        _unread = await ChatSvc.GetUnansweredByPhoneAsync();
+    }
+
+    private List<ConversationDto> FilteredConversations()
+    {
+        if (string.IsNullOrWhiteSpace(_search)) { return _conversations; }
+        var s = _search.Trim();
+        return _conversations.Where(c =>
+            (c.ContactName?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (c.ContactPhone?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+    }
+
+    private async Task SelectAsync(ConversationDto c)
+    {
+        _active = c;
+        _chatError = null;
+        _draft = null;
+        if (c.WhatsAppLineId is Guid lid && _lines.Any(l => l.Id == lid)) { _lineId = lid; }
+        _messages = (await ChatSvc.ListMessagesAsync(c.Id)).ToList();
+        _activeLead = c.LeadId is Guid leadId ? (await LeadsSvc.GetAsync(leadId))?.Lead : null;
+        await JoinConversationRealtimeAsync(c.Id);
+    }
+
+    private async Task SendAsync()
+    {
+        _chatError = null;
+        if (_active is null || string.IsNullOrWhiteSpace(_draft) || _lineId == Guid.Empty) { return; }
+        _sending = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var result = await ChatSvc.SendViaLineAsync(_active.Id, _lineId, _draft!.Trim(), actor);
+            if (!result.Ok)
+            {
+                _chatError = result.Error ?? "No se pudo enviar el mensaje.";
+                return;
+            }
+            if (result.Message is not null) { _messages.Add(result.Message); }
+            _draft = null;
+            await ReloadConversationsAsync();
+        }
+        finally { _sending = false; }
+    }
+
+    private async Task ChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task EnsureHubAsync()
+    {
+        if (_hub is not null) { return; }
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/chat"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hub.On<MessageDto>("MessageAdded", async msg =>
+            {
+                if (_active is not null && msg.ConversationId == _active.Id && _messages.All(m => m.Id != msg.Id))
+                {
+                    _messages.Add(msg);
+                }
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hub.On("BoardChanged", async () =>
+            {
+                await ReloadConversationsAsync();
+                await InvokeAsync(StateHasChanged);
+            });
+
+            await _hub.StartAsync();
+            if (!string.IsNullOrEmpty(_tenantId))
+            {
+                await _hub.SendAsync("JoinTenant", _tenantId);
+            }
+        }
+        catch { /* el tiempo real es complemento; la bandeja funciona sin el */ }
+    }
+
+    private async Task JoinConversationRealtimeAsync(Guid conversationId)
+    {
+        if (_hub is null) { return; }
+        try
+        {
+            if (_joinedConversation is not null && _joinedConversation != conversationId.ToString())
+            {
+                await _hub.SendAsync("LeaveConversation", _joinedConversation);
+            }
+            await _hub.SendAsync("JoinConversation", conversationId.ToString());
+            _joinedConversation = conversationId.ToString();
+        }
+        catch { }
+    }
+
+    private LeadChatStateDto? UnreadFor(ConversationDto c)
+    {
+        if (string.IsNullOrWhiteSpace(c.ContactPhone)) { return null; }
+        var key = new string(c.ContactPhone.Where(char.IsDigit).ToArray());
+        return _unread.TryGetValue(key, out var st) ? st : null;
+    }
+
+    private string LineLabel(Guid? lineId)
+    {
+        if (lineId is Guid id)
+        {
+            var ln = _lines.FirstOrDefault(l => l.Id == id);
+            if (ln is not null) { return string.IsNullOrWhiteSpace(ln.PhoneNumber) ? ln.InstanceName : ln.PhoneNumber!; }
+        }
+        return "WhatsApp";
+    }
+
+    private static string LastSnippet(ConversationDto c) => "Toca para ver la conversacion";
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "?"; }
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..1].ToUpperInvariant()
+            : (parts[0][..1] + parts[^1][..1]).ToUpperInvariant();
+    }
+
+    private static string TimeLabel(DateTimeOffset? at)
+    {
+        if (at is not DateTimeOffset dt) { return ""; }
+        var local = dt.LocalDateTime;
+        var today = DateTime.Now.Date;
+        if (local.Date == today) { return local.ToString("HH:mm"); }
+        if (local.Date == today.AddDays(-1)) { return "Ayer"; }
+        return local.ToString("dd/MM");
+    }
+
+    private static string MaskPhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) { return ""; }
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length <= 4) { return "+" + digits; }
+        return $"+{digits[..^4]} ··· {digits[^4..]}";
+    }
+
+    private static string MapsLink(string? coords) => $"https://www.google.com/maps?q={coords}";
+    private static string Money(decimal v, string? currency) => $"$ {v:N0}{(string.IsNullOrWhiteSpace(currency) ? "" : " " + currency)}";
+    private static string StatusText(LeadStatus status) => status switch
+    {
+        LeadStatus.Won => "Ganado",
+        LeadStatus.Lost => "Perdido",
+        _ => "Abierto"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null) { await _hub.DisposeAsync(); }
+    }
+}

@@ -63,4 +63,40 @@ public sealed class AiUsageService : IAiUsageService
             rows.Sum(x => x.EstimatedCostUsd),
             byAgent);
     }
+
+    public async Task<AiQuotaDto> GetQuotaAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return new AiQuotaDto(0, 0, true); }
+
+        // Consumo del mes en curso (UTC). AiUsageLogs ya esta filtrado por tenant.
+        var now = DateTimeOffset.UtcNow;
+        var monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+        var used = await _db.AiUsageLogs.AsNoTracking()
+            .Where(l => l.CreatedAt >= monthStart)
+            .SumAsync(l => (long?)l.TotalTokens, cancellationToken) ?? 0;
+
+        // Limite del plan vigente del tenant (TenantSubscription no es ITenantScoped: filtro explicito).
+        var planId = await _db.TenantSubscriptions.AsNoTracking()
+            .Where(s => s.TenantId == tenantId && s.Status != SubscriptionStatus.Cancelled)
+            .OrderByDescending(s => s.StartsAt)
+            .Select(s => (Guid?)s.PlanId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        long limit = 0;
+        var hard = true;
+        if (planId is Guid pid)
+        {
+            var lim = await _db.SaasPlanLimits.AsNoTracking()
+                .Where(l => l.PlanId == pid && l.LimitKey == IAiUsageService.MonthlyTokenLimitKey)
+                .Select(l => new { l.LimitValue, l.EnforcementMode })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (lim is not null)
+            {
+                limit = lim.LimitValue;
+                hard = lim.EnforcementMode == LimitEnforcementMode.Hard;
+            }
+        }
+
+        return new AiQuotaDto(limit, used, hard);
+    }
 }

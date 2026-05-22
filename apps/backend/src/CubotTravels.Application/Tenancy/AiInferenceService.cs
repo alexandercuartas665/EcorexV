@@ -46,6 +46,13 @@ public sealed class AiInferenceService : IAiInferenceService
 
         if (turns.Count == 0) { return new AiChatResult(false, null, "Escribe un mensaje para probar el agente."); }
 
+        // Control de cupo: si el plan tiene limite duro y ya se agoto el mes, no se ejecuta.
+        var quota = await _usage.GetQuotaAsync(cancellationToken);
+        if (quota.Exceeded && quota.Hard)
+        {
+            return new AiChatResult(false, null, $"Alcanzaste el limite de tokens de IA de tu plan este mes ({quota.MonthlyLimitTokens:N0}). Actualiza tu plan para seguir usando los agentes.");
+        }
+
         var result = await _client.CompleteAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, await systemPrompt, turns, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).

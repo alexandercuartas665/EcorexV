@@ -12,6 +12,15 @@ public sealed record AiUsageSummaryDto(
     decimal EstimatedCostUsd,
     IReadOnlyList<AgentUsageDto> ByAgent);
 
+/// <summary>Cupo mensual de tokens de IA del plan del tenant y su consumo del mes en curso.</summary>
+public sealed record AiQuotaDto(long MonthlyLimitTokens, long MonthlyUsedTokens, bool Hard)
+{
+    public bool HasLimit => MonthlyLimitTokens > 0;
+    public long Remaining => HasLimit ? Math.Max(0, MonthlyLimitTokens - MonthlyUsedTokens) : 0;
+    public bool Exceeded => HasLimit && MonthlyUsedTokens >= MonthlyLimitTokens;
+    public int UsedPct => HasLimit ? (int)Math.Min(100, Math.Round(100.0 * MonthlyUsedTokens / MonthlyLimitTokens)) : 0;
+}
+
 /// <summary>
 /// Modulo de consumo de tokens (capa 3). Punto unico por el que pasa TODO uso de IA del tenant:
 /// registra proveedor, modelo, tokens y costo estimado. Provee indicadores globales y por agente.
@@ -23,6 +32,12 @@ public interface IAiUsageService
 
     /// <summary>Totales de consumo del tenant: global y desglosado por agente.</summary>
     Task<AiUsageSummaryDto> GetSummaryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Cupo mensual de tokens (segun el plan) y consumo del mes en curso.</summary>
+    Task<AiQuotaDto> GetQuotaAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Clave del limite de plan para tokens de IA mensuales.</summary>
+    public const string MonthlyTokenLimitKey = "max_ai_tokens_monthly";
 }
 
 /// <summary>Tarifas aproximadas (USD por 1M tokens) para estimar costo. Editable por proveedor.</summary>

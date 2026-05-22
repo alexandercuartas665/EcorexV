@@ -573,6 +573,11 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ai-rows span { color: var(--muted-foreground); }
 .ai-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 6px 0 2px; cursor: pointer; }
 
+/* Barra de cupo mensual de tokens */
+.ag-quota-bar { height: 6px; border-radius: 999px; background: var(--muted); overflow: hidden; margin: 6px 0 4px; }
+.ag-quota-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width .3s; }
+.ag-quota-fill.over { background: var(--destructive); }
+
 /* Editor de agente en dos columnas */
 .ag-editor-cols { display: flex; gap: 18px; align-items: flex-start; }
 .ag-editor-left { flex: 1; min-width: 0; }

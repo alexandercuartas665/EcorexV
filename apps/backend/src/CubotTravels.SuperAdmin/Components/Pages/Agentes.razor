@@ -44,7 +44,23 @@
             <div class="kpi-value">$@_usage.EstimatedCostUsd.ToString("0.####")</div>
             <div class="kpi-hint">USD (tarifa aproximada)</div>
         </div>
+        @if (_quota is { HasLimit: true })
+        {
+            <div class="kpi-card">
+                <div class="kpi-label">Cupo mensual del plan</div>
+                <div class="kpi-value">@Tokens(_quota.MonthlyUsedTokens) / @Tokens(_quota.MonthlyLimitTokens)</div>
+                <div class="ag-quota-bar"><div class="ag-quota-fill @(_quota.Exceeded ? "over" : "")" style="width:@(_quota.UsedPct)%;"></div></div>
+                <div class="kpi-hint">@Tokens(_quota.Remaining) tokens disponibles este mes</div>
+            </div>
+        }
     </div>
+    @if (_quota is { Exceeded: true })
+    {
+        <div class="cv-warn" style="border-color:var(--destructive);color:var(--destructive);max-width:760px;margin-bottom:18px;">
+            Alcanzaste el limite de tokens de IA de tu plan este mes (@Tokens(_quota.MonthlyLimitTokens)).
+            @(_quota.Hard ? "Los agentes no podran responder hasta el proximo ciclo o hasta que actualices tu plan." : "Puedes seguir usando los agentes, pero estas por encima del cupo de tu plan.")
+        </div>
+    }
 }
 
 @if (_loading)
@@ -273,6 +289,7 @@ else
     private List<AiAgentDto> _agents = new();
     private List<AiProviderOptionDto> _providerOptions = new();
     private AiUsageSummaryDto? _usage;
+    private AiQuotaDto? _quota;
 
     private bool _editorOpen;
     private Guid? _editId;
@@ -322,6 +339,7 @@ else
     {
         _agents = (await AgentsSvc.ListAsync()).ToList();
         _usage = await UsageSvc.GetSummaryAsync();
+        _quota = await UsageSvc.GetQuotaAsync();
     }
 
     private long AgentTokens(Guid agentId)
@@ -388,6 +406,7 @@ else
             {
                 _testTurns.Add(new AiChatTurn("model", result.Text!));
                 _usage = await UsageSvc.GetSummaryAsync();
+                _quota = await UsageSvc.GetQuotaAsync();
             }
             else
             {

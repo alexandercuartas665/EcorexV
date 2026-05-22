@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IChatIngestService, Tenancy.ChatIngestService>();
         services.AddScoped<Tenancy.IDashboardService, Tenancy.DashboardService>();
         services.AddScoped<Tenancy.IAiAgentService, Tenancy.AiAgentService>();
+        services.AddScoped<Tenancy.IAiInferenceService, Tenancy.AiInferenceService>();
         services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();
         return services;
     }

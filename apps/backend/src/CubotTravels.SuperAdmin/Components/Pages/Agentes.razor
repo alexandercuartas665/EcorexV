@@ -6,6 +6,7 @@
 @using CubotTravels.Domain.Enums
 @inject IAiAgentService AgentsSvc
 @inject IAiServerConfigService AiServersSvc
+@inject IAiInferenceService InferenceSvc
 @inject IWebHostEnvironment Env
 
 <PageTitle>Agentes IA - CUBOT.travels</PageTitle>
@@ -188,6 +189,43 @@ else
                             </tbody>
                         </table>
                     }
+
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                        <div class="pl-stagegroup-title">Probar agente</div>
+                        @if (_testTurns.Count > 0)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => { _testTurns.Clear(); _testError = null; }" disabled="@_testBusy">Limpiar</button>
+                        }
+                    </div>
+                    <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Conversa como si fueras el cliente. Usa el prompt y los recursos de arriba (aunque no los hayas guardado).</div>
+                    <div class="ag-test">
+                        <div class="ag-test-body">
+                            @if (_testTurns.Count == 0)
+                            {
+                                <div class="ag-test-empty">Escribe un mensaje para probar la respuesta del agente.</div>
+                            }
+                            else
+                            {
+                                @foreach (var t in _testTurns)
+                                {
+                                    <div class="ag-bubble @(t.Role == "model" ? "bot" : "me")">@t.Text</div>
+                                }
+                            }
+                            @if (_testBusy)
+                            {
+                                <div class="ag-bubble bot ag-typing">Escribiendo...</div>
+                            }
+                        </div>
+                        @if (_testError is not null)
+                        {
+                            <div class="text-danger small" style="padding:0 4px 6px;">@_testError</div>
+                        }
+                        <div class="ag-test-input">
+                            <input class="form-control" placeholder="Mensaje del cliente..." @bind="_testInput" @bind:event="oninput" @onkeydown="TestKeyDown" disabled="@_testBusy" />
+                            <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || string.IsNullOrWhiteSpace(_testInput))">Enviar</button>
+                        </div>
+                    </div>
                 }
             </div>
             <div class="modal-foot">
@@ -215,6 +253,12 @@ else
     private string _fPrompt = "";
     private bool _fActive;
     private List<AiAgentResourceDto> _resources = new();
+
+    // Chat de prueba del agente
+    private readonly List<AiChatTurn> _testTurns = new();
+    private string? _testInput;
+    private bool _testBusy;
+    private string? _testError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -259,7 +303,16 @@ else
         _fPrompt = "";
         _fActive = false;
         _resources = new();
+        ResetTest();
         _editorOpen = true;
+    }
+
+    private void ResetTest()
+    {
+        _testTurns.Clear();
+        _testInput = null;
+        _testError = null;
+        _testBusy = false;
     }
 
     private async Task OpenEditAsync(Guid id)
@@ -275,7 +328,35 @@ else
         _fPrompt = detail.Agent.SystemPrompt;
         _fActive = detail.Agent.IsActive;
         _resources = detail.Resources.ToList();
+        ResetTest();
         _editorOpen = true;
+    }
+
+    private async Task TestKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) { await SendTestAsync(); }
+    }
+
+    private async Task SendTestAsync()
+    {
+        if (_editId is null || string.IsNullOrWhiteSpace(_testInput)) { return; }
+        _testError = null;
+        _testTurns.Add(new AiChatTurn("user", _testInput!.Trim()));
+        _testInput = null;
+        _testBusy = true;
+        try
+        {
+            var result = await InferenceSvc.TestChatAsync(_editId.Value, _testTurns.ToList(), _fPrompt);
+            if (result.Ok && !string.IsNullOrWhiteSpace(result.Text))
+            {
+                _testTurns.Add(new AiChatTurn("model", result.Text!));
+            }
+            else
+            {
+                _testError = result.Error ?? "El agente no devolvio respuesta.";
+            }
+        }
+        finally { _testBusy = false; }
     }
 
     private void CloseEditor() => _editorOpen = false;

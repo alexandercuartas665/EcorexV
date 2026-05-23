@@ -30,6 +30,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<AiProviderConfig> AiProviderConfigs => Set<AiProviderConfig>();
     public DbSet<PlatformBranding> PlatformBrandings => Set<PlatformBranding>();
     public DbSet<EmailConfig> EmailConfigs => Set<EmailConfig>();
+    public DbSet<GoogleAuthConfig> GoogleAuthConfigs => Set<GoogleAuthConfig>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
@@ -189,6 +190,11 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.TokenHash).HasMaxLength(80).IsRequired();
             b.HasIndex(x => x.TokenHash);
             b.HasIndex(x => x.PlatformUserId);
+        });
+
+        modelBuilder.Entity<GoogleAuthConfig>(b =>
+        {
+            b.Property(x => x.ClientId).HasMaxLength(300);
         });
 
         modelBuilder.Entity<WompiMasterConfig>(b =>

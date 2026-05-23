@@ -26,8 +26,10 @@ public static class DependencyInjection
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<ISelfSignupService, SelfSignupService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
+        services.AddScoped<IGoogleSignInService, GoogleSignInService>();
         services.AddScoped<IPlatformBrandingService, PlatformBrandingService>();
         services.AddScoped<IEmailConfigService, EmailConfigService>();
+        services.AddScoped<IGoogleAuthConfigService, GoogleAuthConfigService>();
         services.AddScoped<Tenancy.ITenantUserService, Tenancy.TenantUserService>();
         services.AddScoped<Tenancy.IAdvisorService, Tenancy.AdvisorService>();
         services.AddScoped<Tenancy.IEvolutionConfigService, Tenancy.EvolutionConfigService>();

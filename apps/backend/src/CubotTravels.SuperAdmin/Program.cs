@@ -216,6 +216,80 @@ app.MapPost("/auth/reset", async (
     return Results.Redirect("/login?reset=1");
 }).DisableAntiforgery();
 
+// Inicia el flujo OIDC con Google: arma la URL de challenge y guarda un state (proteccion CSRF).
+app.MapGet("/connect/google", async (
+    HttpContext http,
+    CubotTravels.Application.Auth.IGoogleSignInService google) =>
+{
+    var redirectUri = $"{http.Request.Scheme}://{http.Request.Host}/signin-google";
+    var state = Guid.NewGuid().ToString("N");
+    var url = await google.BuildAuthorizeUrlAsync(redirectUri, state);
+    if (url is null) { return Results.Redirect("/login?gerror=" + Uri.EscapeDataString("El ingreso con Google no esta habilitado.")); }
+
+    http.Response.Cookies.Append("g_oauth_state", state, new CookieOptions
+    {
+        HttpOnly = true,
+        SameSite = SameSiteMode.Lax,
+        Secure = http.Request.IsHttps,
+        MaxAge = TimeSpan.FromMinutes(10),
+        Path = "/"
+    });
+    return Results.Redirect(url);
+}).AllowAnonymous();
+
+// Callback de Google: valida el state, intercambia el code y, si el usuario existe y esta activo,
+// inicia sesion por cookie. No hay auto-registro: usuarios desconocidos reciben un mensaje claro.
+app.MapGet("/signin-google", async (
+    HttpContext http,
+    [FromQuery] string? code,
+    [FromQuery] string? state,
+    [FromQuery] string? error,
+    CubotTravels.Application.Auth.IGoogleSignInService google) =>
+{
+    if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code))
+    {
+        return Results.Redirect("/login?gerror=" + Uri.EscapeDataString("No se completo el ingreso con Google."));
+    }
+
+    var expectedState = http.Request.Cookies["g_oauth_state"];
+    http.Response.Cookies.Delete("g_oauth_state");
+    if (string.IsNullOrEmpty(state) || !string.Equals(state, expectedState, StringComparison.Ordinal))
+    {
+        return Results.Redirect("/login?gerror=" + Uri.EscapeDataString("Sesion de ingreso invalida. Intenta de nuevo."));
+    }
+
+    var redirectUri = $"{http.Request.Scheme}://{http.Request.Host}/signin-google";
+    var result = await google.ResolveAsync(code, redirectUri);
+    if (!result.Success)
+    {
+        return Results.Redirect("/login?gerror=" + Uri.EscapeDataString(result.Error ?? "No se pudo iniciar sesion con Google."));
+    }
+
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, result.UserId.ToString()),
+        new(ClaimTypes.Name, result.DisplayName ?? result.Email ?? string.Empty),
+        new(ClaimTypes.Email, result.Email ?? string.Empty)
+    };
+
+    string redirect;
+    if (result.PlatformRole is not null)
+    {
+        claims.Add(new Claim("platform_role", result.PlatformRole));
+        redirect = "/";
+    }
+    else
+    {
+        claims.Add(new Claim("tenant_id", result.TenantId!.Value.ToString()));
+        claims.Add(new Claim("tenant_role", result.TenantRole ?? string.Empty));
+        redirect = "/mi-cuenta";
+    }
+
+    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+    return Results.Redirect(redirect);
+}).AllowAnonymous();
+
 app.MapPost("/auth/logout", async (HttpContext http) =>
 {
     await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

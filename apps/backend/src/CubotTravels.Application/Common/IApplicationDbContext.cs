@@ -40,6 +40,7 @@ public interface IApplicationDbContext
     DbSet<AiProviderConfig> AiProviderConfigs { get; }
     DbSet<PlatformBranding> PlatformBrandings { get; }
     DbSet<EmailConfig> EmailConfigs { get; }
+    DbSet<GoogleAuthConfig> GoogleAuthConfigs { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 

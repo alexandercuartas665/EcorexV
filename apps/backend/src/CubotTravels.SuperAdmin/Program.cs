@@ -153,6 +153,39 @@ app.MapPost("/auth/login", async (
     return Results.Redirect(redirect);
 }).DisableAntiforgery();
 
+// Auto-registro (autogestion): un visitante crea su propia agencia + usuario Owner y queda
+// con sesion iniciada. La agencia nace activa sin plan; elige plan luego en "Mi cuenta".
+app.MapPost("/auth/register", async (
+    HttpContext http,
+    [FromForm] string agencyName,
+    [FromForm] string displayName,
+    [FromForm] string email,
+    [FromForm] string password,
+    CubotTravels.Application.Auth.ISelfSignupService signup) =>
+{
+    var result = await signup.SignUpAsync(
+        new CubotTravels.Application.Auth.SelfSignupRequest(agencyName, displayName, email, password));
+
+    if (!result.Success)
+    {
+        var msg = Uri.EscapeDataString(result.Error ?? "No se pudo crear la cuenta.");
+        return Results.Redirect($"/login?mode=signup&regerror={msg}");
+    }
+
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, result.AdminUserId.ToString()),
+        new(ClaimTypes.Name, string.IsNullOrWhiteSpace(displayName) ? result.Email : displayName.Trim()),
+        new(ClaimTypes.Email, result.Email),
+        new("tenant_id", result.TenantId.ToString()),
+        new("tenant_role", TenantRole.Owner.ToString())
+    };
+
+    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+    return Results.Redirect("/mi-cuenta");
+}).DisableAntiforgery();
+
 app.MapPost("/auth/logout", async (HttpContext http) =>
 {
     await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

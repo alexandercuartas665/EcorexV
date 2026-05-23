@@ -38,6 +38,7 @@ public interface IApplicationDbContext
     DbSet<WompiWebhookEvent> WompiWebhookEvents { get; }
     DbSet<EvolutionMasterConfig> EvolutionMasterConfigs { get; }
     DbSet<AiProviderConfig> AiProviderConfigs { get; }
+    DbSet<PlatformBranding> PlatformBrandings { get; }
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

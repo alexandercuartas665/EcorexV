@@ -28,6 +28,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<WompiWebhookEvent> WompiWebhookEvents => Set<WompiWebhookEvent>();
     public DbSet<EvolutionMasterConfig> EvolutionMasterConfigs => Set<EvolutionMasterConfig>();
     public DbSet<AiProviderConfig> AiProviderConfigs => Set<AiProviderConfig>();
+    public DbSet<PlatformBranding> PlatformBrandings => Set<PlatformBranding>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
 
@@ -162,6 +163,15 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.NewValue).HasColumnType("jsonb");
             b.HasIndex(x => x.TenantId);
             b.HasIndex(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<PlatformBranding>(b =>
+        {
+            b.Property(x => x.PlatformName).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Tagline).HasMaxLength(160);
+            b.Property(x => x.LoginLogoUrl).HasMaxLength(500);
+            b.Property(x => x.LoginHeadline).HasMaxLength(160);
+            b.Property(x => x.LoginSubtext).HasMaxLength(600);
         });
 
         modelBuilder.Entity<WompiMasterConfig>(b =>

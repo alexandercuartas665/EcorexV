@@ -40,6 +40,11 @@ public sealed class WebhookAdminService : IWebhookAdminService
             cfg.WebhookToken = token.Trim();
         }
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Re-registrar el webhook en las instancias conectadas (igual que al iniciar el tunel en
+        // modo desarrollo). Sin esto, cambiar a Produccion solo actualizaba la BD y Evolution seguia
+        // entregando los entrantes a la URL anterior; las lineas no recibian en el nuevo destino.
+        await _connector.ApplyWebhookToConnectedLinesAsync(actorUserId, cancellationToken);
         return Map(cfg);
     }
 

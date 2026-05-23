@@ -70,6 +70,12 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 .cubot-content { padding: 26px 30px; width: 100%; }
 
+/* Piezas del menu movil: ocultas en escritorio. */
+.cubot-nav-toggle { display: none; }
+.cubot-nav-overlay { display: none; }
+.cubot-hamburger { display: none; }
+.cubot-topbar-brand { display: none; }
+
 /* ===== Sidebar header / brand ===== */
 .cubot-brand {
   display: flex;
@@ -763,3 +769,63 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 /* ===== Nav: insignia "en construccion" ===== */
 .cubot-nav-soon { margin-left: auto; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 6px; background: var(--muted); color: var(--muted-foreground); }
+
+/* =====================================================================
+   RESPONSIVE - moviles y tabletas (<= 991px): menu off-canvas + ajustes
+   ===================================================================== */
+@media (max-width: 991.98px) {
+  /* El menu se vuelve un panel deslizable; oculto por defecto (se oculta solo). */
+  .cubot-sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    height: 100vh; height: 100dvh;
+    width: 280px;
+    z-index: 1050;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    box-shadow: 0 0 40px rgba(0,0,0,.18);
+  }
+  /* Abierto cuando el checkbox esta marcado. */
+  .cubot-nav-toggle:checked ~ .cubot-sidebar { transform: translateX(0); }
+
+  /* Capa oscura detras del menu abierto. */
+  .cubot-nav-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 1040; border: 0; }
+  .cubot-nav-toggle:checked ~ .cubot-nav-overlay { display: block; }
+
+  /* Topbar: hamburguesa a la izquierda + marca, usuario a la derecha. */
+  .cubot-topbar { justify-content: flex-start; gap: 10px; padding: 0 14px; }
+  .cubot-hamburger {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; margin-left: -6px;
+    border-radius: 10px; cursor: pointer; color: var(--foreground);
+  }
+  .cubot-hamburger:hover { background: var(--muted); }
+  .cubot-hamburger svg { width: 22px; height: 22px; }
+  .cubot-topbar-brand { display: inline-block; font-weight: 800; font-size: 15px; letter-spacing: -0.02em; }
+  .cubot-topbar-brand span { color: var(--primary); }
+  .cubot-topbar form { margin-left: auto; }            /* empuja "Salir" a la derecha */
+  .cubot-user-chip { display: none; }                   /* se oculta para no saturar */
+
+  /* Mas aire util en pantallas chicas. */
+  .cubot-content { padding: 16px 14px; }
+  .page-title { font-size: 1.5rem; }
+  .module-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  /* Rejillas comunes a una sola columna. */
+  .ai-grid, .rep-grid, .brand-cols { grid-template-columns: 1fr !important; }
+
+  /* Tablas anchas: que hagan scroll horizontal en vez de romper el layout. */
+  .table-responsive { -webkit-overflow-scrolling: touch; }
+  .cubot-content .table { display: block; width: 100%; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+
+  /* Modales/cuadros anchos: que quepan en la pantalla. */
+  .modal-dialog { margin: 10px; }
+}
+
+/* Telefonos pequenos. */
+@media (max-width: 560px) {
+  .cubot-topbar-brand { font-size: 14px; }
+  .cubot-content { padding: 14px 11px; }
+  .page-title { font-size: 1.32rem; }
+  .page-sub { font-size: .86rem; }
+}

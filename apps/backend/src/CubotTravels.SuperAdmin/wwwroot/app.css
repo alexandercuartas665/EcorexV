@@ -791,6 +791,13 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 /* ===== Nav: insignia "en construccion" ===== */
 .cubot-nav-soon { margin-left: auto; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 6px; background: var(--muted); color: var(--muted-foreground); }
 
+/* Acordeon de la API de integracion en Mi cuenta (colapsado por defecto). */
+.acct-api > summary { list-style: none; cursor: pointer; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.acct-api > summary::-webkit-details-marker { display: none; }
+.acct-api > summary::before { content: "\25B8"; color: var(--muted-foreground); margin-right: 8px; transition: transform .15s ease; }
+.acct-api[open] > summary::before { transform: rotate(90deg); }
+.acct-api > summary:hover { background: var(--muted); border-radius: 1.25rem; }
+
 /* =====================================================================
    RESPONSIVE - moviles y tabletas (<= 991px): menu off-canvas + ajustes
    ===================================================================== */

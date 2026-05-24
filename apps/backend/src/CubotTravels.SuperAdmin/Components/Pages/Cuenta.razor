@@ -577,19 +577,38 @@ else
 
     private string ApiCurl()
     {
-        var baseUrl = $"{Nav.BaseUri.TrimEnd('/')}";
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
         var key = _api?.ApiKey ?? "TU_API_KEY";
-        return $"curl -X POST {baseUrl}/api/public/leads \\\n"
-            + $"  -H \"X-Api-Key: {key}\" \\\n"
-            + "  -H \"Content-Type: application/json\" \\\n"
-            + "  -d '{\n"
-            + "    \"contactName\": \"Juan Perez\",\n"
-            + "    \"contactPhone\": \"573001234567\",\n"
-            + "    \"destination\": \"Cartagena\",\n"
-            + "    \"estimatedValue\": 1500000,\n"
-            + "    \"currency\": \"COP\",\n"
-            + "    \"fields\": { \"adultos\": \"2\", \"ninos\": \"1\", \"comentarios\": \"Viaje de aniversario\" }\n"
-            + "  }'";
+        var fields = _api?.Fields ?? new List<CubotTravels.Application.Tenancy.ApiFieldInfo>();
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"curl -X POST {baseUrl}/api/public/leads \\\n");
+        sb.Append($"  -H \"X-Api-Key: {key}\" \\\n");
+        sb.Append("  -H \"Content-Type: application/json\" \\\n");
+        sb.Append("  -d '{\n");
+        sb.Append("    \"contactName\": \"Juan Perez\",\n");
+        sb.Append("    \"contactPhone\": \"573001234567\",\n");
+        sb.Append("    \"destination\": \"Cartagena\",\n");
+        sb.Append("    \"estimatedValue\": 1500000,\n");
+        sb.Append("    \"currency\": \"COP\",\n");
+        if (fields.Count == 0)
+        {
+            sb.Append("    \"fields\": {}\n");
+        }
+        else
+        {
+            sb.Append("    \"fields\": {\n");
+            for (var i = 0; i < fields.Count; i++)
+            {
+                var f = fields[i];
+                var val = f.IsArray ? $"[\"{f.Sample}\", \"{f.Sample}\"]" : $"\"{f.Sample}\"";
+                var comma = i < fields.Count - 1 ? "," : "";
+                sb.Append($"      \"{f.FieldKey}\": {val}{comma}\n");
+            }
+            sb.Append("    }\n");
+        }
+        sb.Append("  }'");
+        return sb.ToString();
     }
 
     private void OpenChange()

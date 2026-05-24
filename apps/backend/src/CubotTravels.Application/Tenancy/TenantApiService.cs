@@ -9,17 +9,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CubotTravels.Application.Tenancy;
 
-/// <summary>Config de la API de ingestion del tenant para Mi cuenta (incluye la key en claro para mostrarla).</summary>
-public sealed record TenantApiConfigDto(Guid TenantId, string? ApiKey, bool IsEnabled, bool HasKey, DateTimeOffset? LastUsedAt);
+/// <summary>Info de un campo del embudo para generar el ejemplo de curl dinamicamente.</summary>
+public sealed record ApiFieldInfo(string FieldKey, string Label, bool IsArray, string Sample);
 
-/// <summary>Payload de creacion de lead via API publica. Fields va indexado por FieldKey del embudo.</summary>
+/// <summary>Config de la API de ingestion del tenant para Mi cuenta (incluye la key en claro y los campos del embudo).</summary>
+public sealed record TenantApiConfigDto(Guid TenantId, string? ApiKey, bool IsEnabled, bool HasKey, DateTimeOffset? LastUsedAt, IReadOnlyList<ApiFieldInfo> Fields);
+
+/// <summary>
+/// Payload de creacion de lead via API publica. Fields va indexado por FieldKey del embudo; cada valor
+/// puede ser un texto o un arreglo de textos (para campos multiples/repetidos).
+/// </summary>
 public sealed record ApiCreateLeadRequest(
     string? ContactName,
     string? ContactPhone,
     string? Destination,
     decimal? EstimatedValue,
     string? Currency,
-    Dictionary<string, string?>? Fields);
+    Dictionary<string, JsonElement>? Fields);
 
 public sealed record ApiLeadResult(bool Ok, Guid? LeadId = null, string? Error = null);
 
@@ -58,10 +64,32 @@ public sealed class TenantApiService : ITenantApiService
 
     public async Task<TenantApiConfigDto?> GetAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
+        var fields = await LoadFieldsAsync(tenantId, cancellationToken);
         var cfg = await _db.TenantApiConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.TenantId == tenantId, cancellationToken);
-        if (cfg is null) { return new TenantApiConfigDto(tenantId, null, false, false, null); }
-        return new TenantApiConfigDto(tenantId, Decrypt(cfg.ApiKeyEncrypted), cfg.IsEnabled, !string.IsNullOrEmpty(cfg.ApiKeyEncrypted), cfg.LastUsedAt);
+        if (cfg is null) { return new TenantApiConfigDto(tenantId, null, false, false, null, fields); }
+        return new TenantApiConfigDto(tenantId, Decrypt(cfg.ApiKeyEncrypted), cfg.IsEnabled, !string.IsNullOrEmpty(cfg.ApiKeyEncrypted), cfg.LastUsedAt, fields);
     }
+
+    private async Task<IReadOnlyList<ApiFieldInfo>> LoadFieldsAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var defs = await _db.PipelineFieldDefinitions.IgnoreQueryFilters()
+            .Where(f => f.TenantId == tenantId)
+            .OrderBy(f => f.SortOrder)
+            .Select(f => new { f.FieldKey, f.Label, f.FieldType, f.AllowMultiple, f.RepeatWithFieldKey })
+            .ToListAsync(cancellationToken);
+        return defs.Select(f => new ApiFieldInfo(
+            f.FieldKey, f.Label,
+            f.AllowMultiple || !string.IsNullOrEmpty(f.RepeatWithFieldKey),
+            SampleFor(f.FieldType))).ToList();
+    }
+
+    private static string SampleFor(PipelineFieldType type) => type switch
+    {
+        PipelineFieldType.Number or PipelineFieldType.Currency => "0",
+        PipelineFieldType.Date => "2026-06-15",
+        PipelineFieldType.Phone => "573001234567",
+        _ => "valor"
+    };
 
     public async Task<TenantApiConfigDto> RegenerateAsync(Guid tenantId, Guid actorUserId, CancellationToken cancellationToken = default)
     {
@@ -76,7 +104,7 @@ public sealed class TenantApiService : ITenantApiService
         _audit.Write(actorUserId, isNew ? "tenant-api.create" : "tenant-api.regenerate",
             nameof(TenantApiConfig), cfg.Id, previousValue: null, newValue: new { cfg.IsEnabled }, tenantId: tenantId);
         await _db.SaveChangesAsync(cancellationToken);
-        return new TenantApiConfigDto(tenantId, key, cfg.IsEnabled, true, cfg.LastUsedAt);
+        return new TenantApiConfigDto(tenantId, key, cfg.IsEnabled, true, cfg.LastUsedAt, await LoadFieldsAsync(tenantId, cancellationToken));
     }
 
     public async Task<TenantApiConfigDto?> SetEnabledAsync(Guid tenantId, bool enabled, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -87,7 +115,7 @@ public sealed class TenantApiService : ITenantApiService
         _audit.Write(actorUserId, "tenant-api.toggle", nameof(TenantApiConfig), cfg.Id,
             previousValue: null, newValue: new { enabled }, tenantId: tenantId);
         await _db.SaveChangesAsync(cancellationToken);
-        return new TenantApiConfigDto(tenantId, Decrypt(cfg.ApiKeyEncrypted), cfg.IsEnabled, true, cfg.LastUsedAt);
+        return new TenantApiConfigDto(tenantId, Decrypt(cfg.ApiKeyEncrypted), cfg.IsEnabled, true, cfg.LastUsedAt, await LoadFieldsAsync(tenantId, cancellationToken));
     }
 
     public async Task<Guid?> ResolveTenantAsync(string apiKey, CancellationToken cancellationToken = default)
@@ -134,9 +162,12 @@ public sealed class TenantApiService : ITenantApiService
 
         if (request.Fields is { Count: > 0 })
         {
-            var clean = request.Fields
-                .Where(kv => !string.IsNullOrWhiteSpace(kv.Key))
-                .ToDictionary(kv => kv.Key.Trim(), kv => kv.Value);
+            var clean = new Dictionary<string, string?>();
+            foreach (var kv in request.Fields)
+            {
+                if (string.IsNullOrWhiteSpace(kv.Key)) { continue; }
+                clean[kv.Key.Trim()] = FieldValueToString(kv.Value);
+            }
             if (clean.Count > 0) { lead.FieldValuesJson = JsonSerializer.Serialize(clean); }
         }
 
@@ -160,4 +191,15 @@ public sealed class TenantApiService : ITenantApiService
 
     private static string Hash(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    // Convierte el valor recibido al formato de almacenamiento que entiende el formulario del lead:
+    // arreglo -> string con JSON array de textos (campos multiples/repetidos); escalar -> texto.
+    private static string? FieldValueToString(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.Array => JsonSerializer.Serialize(
+            el.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.GetRawText()).ToList()),
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        _ => el.GetRawText()
+    };
 }

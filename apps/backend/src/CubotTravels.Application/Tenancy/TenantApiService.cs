@@ -72,8 +72,9 @@ public sealed class TenantApiService : ITenantApiService
 
     private async Task<IReadOnlyList<ApiFieldInfo>> LoadFieldsAsync(Guid tenantId, CancellationToken cancellationToken)
     {
+        // Los campos Total son calculados (solo lectura): no se exponen en la API para que no se envien.
         var defs = await _db.PipelineFieldDefinitions.IgnoreQueryFilters()
-            .Where(f => f.TenantId == tenantId)
+            .Where(f => f.TenantId == tenantId && f.FieldType != PipelineFieldType.Total)
             .OrderBy(f => f.SortOrder)
             .Select(f => new { f.FieldKey, f.Label, f.FieldType, f.AllowMultiple, f.RepeatWithFieldKey })
             .ToListAsync(cancellationToken);
@@ -160,16 +161,41 @@ public sealed class TenantApiService : ITenantApiService
             StageChangedAt = now
         };
 
+        // Definiciones del embudo del tenant: para convertir valores segun el tipo y calcular los Total.
+        var fieldDefs = await _db.PipelineFieldDefinitions.IgnoreQueryFilters()
+            .Where(f => f.TenantId == tenantId)
+            .Select(f => new { f.FieldKey, f.FieldType, f.AllowMultiple, f.MultiWithDetail, f.TotalSourceKeys })
+            .ToListAsync(cancellationToken);
+        var defByKey = fieldDefs
+            .GroupBy(f => f.FieldKey)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var clean = new Dictionary<string, string?>();
         if (request.Fields is { Count: > 0 })
         {
-            var clean = new Dictionary<string, string?>();
             foreach (var kv in request.Fields)
             {
                 if (string.IsNullOrWhiteSpace(kv.Key)) { continue; }
-                clean[kv.Key.Trim()] = FieldValueToString(kv.Value);
+                var key = kv.Key.Trim();
+                // Los Total son calculados; se ignora cualquier valor enviado por el cliente.
+                if (defByKey.TryGetValue(key, out var def) && def.FieldType == PipelineFieldType.Total) { continue; }
+                var withDetail = def is { AllowMultiple: true, MultiWithDetail: true };
+                clean[key] = FieldValueToString(kv.Value, withDetail);
             }
-            if (clean.Count > 0) { lead.FieldValuesJson = JsonSerializer.Serialize(clean); }
         }
+
+        // Calcula los campos Total sumando sus origenes (los multiples suman todos sus registros).
+        foreach (var tf in fieldDefs.Where(f => f.FieldType == PipelineFieldType.Total && !string.IsNullOrWhiteSpace(f.TotalSourceKeys)))
+        {
+            decimal sum = 0m;
+            foreach (var src in tf.TotalSourceKeys!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (clean.TryGetValue(src, out var raw)) { sum += SumNumeric(raw); }
+            }
+            clean[tf.FieldKey] = sum.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (clean.Count > 0) { lead.FieldValuesJson = JsonSerializer.Serialize(clean); }
 
         _db.Leads.Add(lead);
         _db.LeadActivities.Add(new LeadActivity
@@ -192,14 +218,61 @@ public sealed class TenantApiService : ITenantApiService
     private static string Hash(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
-    // Convierte el valor recibido al formato de almacenamiento que entiende el formulario del lead:
-    // arreglo -> string con JSON array de textos (campos multiples/repetidos); escalar -> texto.
-    private static string? FieldValueToString(JsonElement el) => el.ValueKind switch
+    // Convierte el valor recibido al formato de almacenamiento que entiende el formulario del lead.
+    // Escalar -> texto. Arreglo (campos multiples/repetidos) -> JSON array de textos. Cuando el campo
+    // es "multiple con detalle", cada item se normaliza a objeto {d:detalle, v:valor} (acepta texto suelto).
+    private static string? FieldValueToString(JsonElement el, bool withDetail)
     {
-        JsonValueKind.Array => JsonSerializer.Serialize(
-            el.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.GetRawText()).ToList()),
-        JsonValueKind.String => el.GetString(),
-        JsonValueKind.Null or JsonValueKind.Undefined => null,
-        _ => el.GetRawText()
-    };
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.String:
+                return el.GetString();
+            case JsonValueKind.Null or JsonValueKind.Undefined:
+                return null;
+            case JsonValueKind.Array:
+                if (withDetail)
+                {
+                    var items = el.EnumerateArray().Select(x =>
+                    {
+                        if (x.ValueKind == JsonValueKind.Object)
+                        {
+                            var d = x.TryGetProperty("d", out var dp) && dp.ValueKind == JsonValueKind.String ? dp.GetString() : null;
+                            var v = x.TryGetProperty("v", out var vp) ? (vp.ValueKind == JsonValueKind.String ? vp.GetString() : vp.GetRawText()) : null;
+                            return new { d, v };
+                        }
+                        return new { d = (string?)null, v = x.ValueKind == JsonValueKind.String ? x.GetString() : x.GetRawText() };
+                    }).ToList();
+                    return JsonSerializer.Serialize(items);
+                }
+                return JsonSerializer.Serialize(
+                    el.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.GetRawText()).ToList());
+            default:
+                return el.GetRawText();
+        }
+    }
+
+    // Suma el contenido numerico de un valor guardado: escalar, arreglo de textos, o arreglo de objetos {v}.
+    private static decimal SumNumeric(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return 0m; }
+        var t = raw.TrimStart();
+        if (t.StartsWith("["))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(raw);
+                decimal s = 0m;
+                foreach (var el in doc.RootElement.EnumerateArray())
+                {
+                    var token = el.ValueKind == JsonValueKind.Object && el.TryGetProperty("v", out var vp)
+                        ? (vp.ValueKind == JsonValueKind.String ? vp.GetString() : vp.GetRawText())
+                        : (el.ValueKind == JsonValueKind.String ? el.GetString() : el.GetRawText());
+                    if (decimal.TryParse(token, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n)) { s += n; }
+                }
+                return s;
+            }
+            catch { return 0m; }
+        }
+        return decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var scalar) ? scalar : 0m;
+    }
 }

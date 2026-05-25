@@ -1,0 +1,363 @@
+@page "/plantillas"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text
+@using CubotTravels.Application.Tenancy
+@inject IQuoteTemplateService TemplatesSvc
+@inject ITemplateAssetService AssetsSvc
+@inject IWebHostEnvironment Env
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Plantillas - CUBOT.travels</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>
+            </div>
+            <span>Mi agencia</span>
+        </div>
+        <h1 class="page-title">Plantillas de <span>cotizacion</span></h1>
+        <p class="page-sub">Edita plantillas HTML para imprimir las cotizaciones de tus clientes. Sube imagenes a la galeria y reutilizalas con su URL.</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" @onclick="NewTemplate">+ Nueva plantilla</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="pl-tpl-layout">
+        <!-- Lista de plantillas -->
+        <aside class="pl-tpl-list card-soft">
+            <div class="pl-tpl-list-title">Plantillas (@_list.Count)</div>
+            @if (_list.Count == 0)
+            {
+                <div class="text-muted" style="font-size:13px;padding:8px 2px;">Aun no hay plantillas. Crea la primera con "+ Nueva plantilla".</div>
+            }
+            @foreach (var t in _list)
+            {
+                <button class="pl-tpl-item @(_editingId == t.Id ? "active" : "")" @onclick="() => Select(t.Id)">
+                    <div class="nm">@t.Name @if (t.IsDefault) { <span class="pl-tpl-default">predeterminada</span> }</div>
+                    <div class="mt">Actualizada @t.UpdatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")</div>
+                </button>
+            }
+        </aside>
+
+        <!-- Editor + vista previa -->
+        <section class="pl-tpl-editor">
+            <div class="card-soft" style="padding:18px;">
+                <div class="auth-field">
+                    <label>Nombre de la plantilla</label>
+                    <input class="form-control" @bind="_name" placeholder="Ej. Cotizacion playa" />
+                </div>
+
+                <div class="auth-field" style="margin-top:14px;">
+                    <label>Contenido HTML <span class="text-muted" style="font-weight:400;">(la vista previa se actualiza al salir del editor)</span></label>
+                    <textarea class="form-control pl-tpl-html" rows="16" @bind="_html" @bind:event="onchange" spellcheck="false"></textarea>
+                </div>
+
+                <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_busy ? "Guardando..." : (_editingId is null ? "Crear plantilla" : "Guardar cambios"))</button>
+                    @if (_editingId is not null)
+                    {
+                        <button class="btn btn-outline-secondary" @onclick="SetDefaultAsync" disabled="@(_busy || _isDefault)">@(_isDefault ? "Es la predeterminada" : "Marcar predeterminada")</button>
+                        <button class="btn btn-outline-danger" @onclick="DeleteAsync" disabled="@_busy">Eliminar</button>
+                    }
+                    @if (_savedOk) { <span class="pl-saved-flag">Guardado</span> }
+                    @if (!string.IsNullOrWhiteSpace(_error)) { <span class="text-danger" style="font-size:.88rem;">@_error</span> }
+                </div>
+
+                <div class="pl-tpl-vars">
+                    <div class="pl-tpl-vars-title">Marcadores disponibles</div>
+                    <div class="pl-tpl-vars-grid">
+                        @foreach (var v in _placeholders)
+                        {
+                            <code class="pl-tpl-var" title="@v.Item2">@v.Item1</code>
+                        }
+                    </div>
+                    <div class="text-muted" style="font-size:11.5px;margin-top:8px;">
+                        Tambien puedes usar cualquier campo del embudo con <code>@("{{campo.clave}}")</code> (ej. <code>@("{{campo.aerolinea}}")</code>).
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-soft" style="padding:0;overflow:hidden;">
+                <div class="pl-tpl-preview-head">Vista previa (con datos de ejemplo)</div>
+                <iframe class="pl-tpl-preview" srcdoc="@PreviewHtml" title="Vista previa de la plantilla"></iframe>
+            </div>
+        </section>
+    </div>
+
+    <!-- Galeria de recursos -->
+    <div class="card-soft pl-tpl-gallery">
+        <div class="pl-tpl-gallery-head">
+            <div>
+                <div class="pl-tpl-list-title" style="margin:0;">Galeria de recursos (@_assets.Count)</div>
+                <div class="text-muted" style="font-size:11.5px;">Sube imagenes (logos, hoteles, aerolineas) y copia su URL para usarla en cualquier plantilla con <code>&lt;img src="..."&gt;</code>.</div>
+            </div>
+            <label class="btn btn-primary" style="cursor:pointer;margin:0;">
+                @(_uploading ? "Subiendo..." : "+ Subir imagen")
+                <InputFile OnChange="OnAssetSelected" accept="image/*" multiple style="display:none;" disabled="@_uploading" />
+            </label>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_assetError)) { <div class="text-danger" style="font-size:.85rem;margin-top:8px;">@_assetError</div> }
+        @if (_assets.Count == 0)
+        {
+            <div class="text-muted" style="font-size:13px;padding:10px 2px;">Aun no hay recursos. Sube tu primera imagen.</div>
+        }
+        else
+        {
+            <div class="pl-tpl-assets">
+                @foreach (var a in _assets)
+                {
+                    <div class="pl-tpl-asset">
+                        <div class="pl-tpl-asset-thumb"><img src="@a.Url" alt="@a.FileName" /></div>
+                        <div class="pl-tpl-asset-name" title="@a.FileName">@a.FileName</div>
+                        <div class="pl-tpl-asset-actions">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => CopyUrl(a.Url)">Copiar URL</button>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAssetAsync(a.Id)">Quitar</button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true, _busy, _savedOk, _isDefault, _uploading;
+    private string? _error, _assetError;
+    private Guid? _editingId;
+    private string _name = "";
+    private string _html = "";
+    private List<QuoteTemplateDto> _list = new();
+    private List<TemplateAssetDto> _assets = new();
+
+    private readonly (string, string)[] _placeholders =
+    {
+        ("{{agencyName}}", "Tu Agencia"),
+        ("{{contactName}}", "Maria Perez"),
+        ("{{contactPhone}}", "573001234567"),
+        ("{{destination}}", "Cancun"),
+        ("{{estimatedValue}}", "1,970,000"),
+        ("{{currency}}", "COP"),
+        ("{{date}}", DateTime.Now.ToString("dd/MM/yyyy"))
+    };
+
+    // Ejemplos para los campos del embudo en la vista previa (los reales salen del lead al imprimir).
+    private readonly Dictionary<string, string> _fieldSamples = new()
+    {
+        ["adultos"] = "4",
+        ["ninos"] = "0",
+        ["hotel1"] = "Hotel Palma Linda",
+        ["valorVuelosPax"] = "1,970,000",
+        ["aerolinea"] = "Avianca"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _assets = (await AssetsSvc.ListAsync()).ToList();
+        _loading = false;
+        if (_list.Count > 0) { Select(_list[0].Id); } else { NewTemplate(); }
+    }
+
+    private async Task ReloadAsync() => _list = (await TemplatesSvc.ListAsync()).ToList();
+
+    private void NewTemplate()
+    {
+        _editingId = null; _isDefault = false; _name = ""; _html = StarterHtml; _savedOk = false; _error = null;
+    }
+
+    private void Select(Guid id)
+    {
+        var t = _list.FirstOrDefault(x => x.Id == id);
+        if (t is null) { return; }
+        _editingId = t.Id; _name = t.Name; _html = t.HtmlContent; _isDefault = t.IsDefault; _savedOk = false; _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true; _savedOk = false; _error = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_name)) { _error = "Escribe un nombre para la plantilla."; return; }
+            var saved = _editingId is Guid id
+                ? await TemplatesSvc.UpdateAsync(id, _name, _html, Guid.Empty)
+                : await TemplatesSvc.CreateAsync(_name, _html, Guid.Empty);
+            if (saved is null) { _error = "No se pudo guardar."; return; }
+            await ReloadAsync();
+            _editingId = saved.Id; _isDefault = saved.IsDefault; _savedOk = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetDefaultAsync()
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        try { if (await TemplatesSvc.SetDefaultAsync(id, Guid.Empty)) { await ReloadAsync(); _isDefault = true; } }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        try
+        {
+            if (await TemplatesSvc.DeleteAsync(id, Guid.Empty))
+            {
+                await ReloadAsync();
+                if (_list.Count > 0) { Select(_list[0].Id); } else { NewTemplate(); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Galeria de recursos =====
+    private async Task OnAssetSelected(InputFileChangeEventArgs e)
+    {
+        _assetError = null;
+        _uploading = true;
+        try
+        {
+            const long max = 5L * 1024 * 1024;
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "templates");
+            System.IO.Directory.CreateDirectory(dir);
+            foreach (var file in e.GetMultipleFiles(20))
+            {
+                if (file.Size <= 0 || file.Size > max) { _assetError = $"\"{file.Name}\" supera 5 MB y se omitio."; continue; }
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(max).CopyToAsync(ms);
+                var ext = System.IO.Path.GetExtension(file.Name);
+                var name = $"tpl-{Guid.NewGuid():N}{ext}";
+                await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), ms.ToArray());
+                await AssetsSvc.AddAsync(file.Name, $"/uploads/templates/{name}", file.ContentType, file.Size);
+            }
+            _assets = (await AssetsSvc.ListAsync()).ToList();
+        }
+        catch { _assetError = "No se pudo subir la imagen."; }
+        finally { _uploading = false; }
+    }
+
+    private async Task DeleteAssetAsync(Guid id)
+    {
+        if (await AssetsSvc.DeleteAsync(id)) { _assets = (await AssetsSvc.ListAsync()).ToList(); }
+    }
+
+    private async Task CopyUrl(string url)
+    {
+        // Copia la ruta relativa (portable entre entornos). Sirve en <img src="...">.
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", url); } catch { }
+    }
+
+    // Reemplaza los marcadores conocidos e inyecta un <base> para resolver imagenes en la vista previa.
+    private string PreviewHtml
+    {
+        get
+        {
+            var html = string.IsNullOrWhiteSpace(_html) ? "<p style='font-family:sans-serif;color:#888;padding:24px'>Escribe HTML para ver la vista previa.</p>" : _html;
+            var sb = new StringBuilder(html);
+            foreach (var (key, sample) in _placeholders) { sb.Replace(key, sample); }
+            var result = sb.ToString();
+            // Campos del embudo {{campo.clave}}: en la vista previa se muestran con un valor de ejemplo.
+            result = System.Text.RegularExpressions.Regex.Replace(result, @"\{\{campo\.([a-zA-Z0-9_]+)\}\}", m =>
+                _fieldSamples.TryGetValue(m.Groups[1].Value, out var s) ? s : "(dato)");
+            var baseTag = $"<base href=\"{Nav.BaseUri}\">";
+            var headIdx = result.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
+            return headIdx >= 0 ? result.Insert(headIdx + 6, baseTag) : baseTag + result;
+        }
+    }
+
+    private const string StarterHtml = @"<!DOCTYPE html>
+<html>
+<head>
+<meta charset=""utf-8"">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #2b2b2b; margin: 0; }
+  .page { max-width: 800px; margin: 0 auto; padding: 28px 32px 0; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo { width: 54px; height: 54px; border-radius: 10px; background: #efe6fb; display:flex; align-items:center; justify-content:center; color:#7a2fb8; font-weight:800; font-size:20px; }
+  .brand .name { font-size: 22px; font-weight: 800; color: #2b2b2b; }
+  .brand .nit { font-size: 11px; color: #7a2fb8; font-weight: 700; line-height: 1.4; }
+  .dest { font-size: 34px; font-weight: 800; color: #b14de0; font-family: 'Brush Script MT', cursive; }
+  h2.client { margin: 22px 0 2px; font-size: 26px; font-weight: 800; letter-spacing: .5px; }
+  .sub { font-weight: 800; letter-spacing: .5px; color:#2b2b2b; }
+  table.info { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  table.info th { background: #a23ddc; color: #fff; padding: 12px; font-size: 14px; border: 2px solid #a23ddc; letter-spacing: .5px; }
+  table.info td { text-align: center; padding: 14px; border: 1px solid #c9c9c9; font-size: 15px; }
+  h3 { color: #a23ddc; font-size: 24px; font-weight: 800; letter-spacing: .5px; margin: 28px 0 14px; }
+  .incluye { display: flex; gap: 18px; }
+  .incluye .it { text-align: center; flex: 1; font-size: 13px; line-height: 1.3; }
+  .incluye .it .ic { width: 84px; height: 84px; border-radius: 50%; margin: 0 auto 8px; background: #ddd center/cover no-repeat; }
+  .hotel { display: flex; gap: 18px; align-items: flex-start; }
+  .hotel .img { width: 150px; height: 150px; border-radius: 50%; background: #ddd center/cover no-repeat; flex: none; }
+  .hotel .det b { color: #a23ddc; }
+  .valores { display: flex; margin-top: 30px; }
+  .valores .v { flex: 1; text-align: center; }
+  .valores .v .lbl { background: #a23ddc; color: #fff; padding: 12px; font-weight: 800; letter-spacing: .5px; }
+  .valores .v .amt { background: #efe6fb; padding: 16px; font-size: 22px; font-weight: 800; }
+  .foot { margin-top: 26px; background: #a23ddc; color: #fff; padding: 14px 24px; font-size: 13px; display:flex; gap: 22px; justify-content:center; }
+</style>
+</head>
+<body>
+  <div class=""page"">
+    <div class=""top"">
+      <div class=""brand"">
+        <div class=""logo"">TF</div>
+        <div>
+          <div class=""name"">{{agencyName}}</div>
+          <div class=""nit"">NIT: 000000000-0<br>RNT: 000000</div>
+        </div>
+      </div>
+      <div class=""dest"">{{destination}}</div>
+    </div>
+
+    <h2 class=""client"">{{contactName}}</h2>
+    <div class=""sub"">ENCUENTRA LOS DETALLES DE TU VIAJE AQUI:</div>
+
+    <table class=""info"">
+      <tr><th>ORIGEN-DESTINO</th><th>FECHA DE VIAJE</th><th>PASAJEROS</th></tr>
+      <tr><td>{{destination}}</td><td>{{date}}</td><td>{{campo.adultos}} adultos</td></tr>
+    </table>
+
+    <h3>QUE INCLUYE TU PLAN?</h3>
+    <div class=""incluye"">
+      <div class=""it""><div class=""ic""></div>Vuelos<br>ida y regreso</div>
+      <div class=""it""><div class=""ic""></div>Traslados<br>A-H-A</div>
+      <div class=""it""><div class=""ic""></div>Noches<br>de hotel</div>
+      <div class=""it""><div class=""ic""></div>Asistencia<br>medica</div>
+    </div>
+
+    <h3>HOTEL PREVISTO</h3>
+    <div class=""hotel"">
+      <div class=""img""></div>
+      <div class=""det"">
+        <div style=""font-size:20px;font-weight:800;"">{{campo.hotel1}}</div>
+        <b>ALIMENTACION:</b> Desayunos y cenas<br>
+        <b>ACOMODACION:</b> Habitacion doble
+      </div>
+    </div>
+
+    <div class=""valores"">
+      <div class=""v""><div class=""lbl"">VALOR POR PERSONA</div><div class=""amt"">{{currency}} {{campo.valorVuelosPax}}</div></div>
+      <div class=""v""><div class=""lbl"">VALOR TOTAL</div><div class=""amt"">{{currency}} {{estimatedValue}}</div></div>
+    </div>
+  </div>
+
+  <div class=""foot"">
+    <span>{{agencyName}}</span><span>{{contactPhone}}</span>
+  </div>
+</body>
+</html>";
+}

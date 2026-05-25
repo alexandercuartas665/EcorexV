@@ -58,6 +58,8 @@ public static class DependencyInjection
         // Comprobantes PDF (QuestPDF). Licencia Community: gratis para empresas con ingresos < USD 1M/ano.
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
         services.AddScoped<Application.Common.IReceiptPdfRenderer, Pdf.QuestPdfReceiptRenderer>();
+        // PDF de cotizaciones desde HTML libre (Chromium headless via PuppeteerSharp).
+        services.AddScoped<Application.Common.IQuotePdfRenderer, Rendering.PuppeteerQuotePdfRenderer>();
 
         return services;
     }

@@ -13,6 +13,7 @@
 @inject IWebHostEnvironment Env
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject CubotTravels.Application.Common.IQuotePdfRenderer PdfRenderer
 @using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Pipeline - CUBOT.travels</PageTitle>
@@ -915,6 +916,28 @@ else
                     <div class="text-danger small" style="padding:0 12px 8px;">@_chatError</div>
                 }
             }
+            <div class="pl-quote-actions">
+                <button class="btn btn-outline-secondary" @onclick="VerCotizacionAsync" disabled="@_quoteBusy">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Ver cotizacion
+                </button>
+                @if (!_sendConfirm)
+                {
+                    <button class="btn btn-primary" @onclick="() => { _sendConfirm = true; _quoteMsg = null; }"
+                            disabled="@(_quoteBusy || _conversation is null || _chatLineId == Guid.Empty)"
+                            title="@(_conversation is null || _chatLineId == Guid.Empty ? "Necesitas una linea activa en la conversacion" : "")">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        Enviar cotizacion
+                    </button>
+                }
+                else
+                {
+                    <span class="pl-quote-confirm">Enviar la cotizacion al cliente por WhatsApp?</span>
+                    <button class="btn btn-primary" @onclick="EnviarCotizacionAsync" disabled="@_quoteBusy">@(_quoteBusy ? "Enviando..." : "Si, enviar")</button>
+                    <button class="btn btn-link" @onclick="() => _sendConfirm = false" disabled="@_quoteBusy">Cancelar</button>
+                }
+                @if (_quoteMsg is not null) { <span class="pl-quote-msg">@_quoteMsg</span> }
+            </div>
           </div>
         </div>
     </div>
@@ -1459,6 +1482,9 @@ else
     private string? _chatDraft;
     private string? _chatError;
     private bool _chatBusy;
+    // Cotizacion (ver / enviar por WhatsApp)
+    private bool _sendConfirm, _quoteBusy;
+    private string? _quoteMsg;
     private string _qrCategory = "saludo";
     private List<MessageTemplateDto> _templates = new();
     private bool _attachOpen;
@@ -2246,6 +2272,49 @@ else
         }
     }
 
+    // Abre la cotizacion del lead (HTML del diseno con los datos) en una pestana nueva.
+    private async Task VerCotizacionAsync()
+    {
+        if (_editLead is null) { return; }
+        await JS.InvokeVoidAsync("open", $"/cotizacion/{_editLead.Id}", "_blank");
+    }
+
+    // Genera el PDF de la cotizacion y lo envia por WhatsApp usando la linea activa de la conversacion.
+    private async Task EnviarCotizacionAsync()
+    {
+        _quoteMsg = null;
+        if (_editLead is null || _conversation is null || _chatLineId == Guid.Empty) { _quoteMsg = "Necesitas una linea activa."; _sendConfirm = false; return; }
+        _quoteBusy = true;
+        try
+        {
+            var url = $"{Nav.BaseUri.TrimEnd('/')}/cotizacion/{_editLead.Id}";
+            var pdf = await PdfRenderer.RenderUrlToPdfAsync(url);
+            if (pdf.Length == 0) { _quoteMsg = "No se pudo generar el PDF."; return; }
+
+            // Guarda el PDF servible y lo registra como documento del mensaje.
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "cotizaciones");
+            System.IO.Directory.CreateDirectory(dir);
+            var fileName = $"cotizacion-{Guid.NewGuid():N}.pdf";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fileName), pdf);
+            var localUrl = $"/uploads/cotizaciones/{fileName}";
+            var b64 = Convert.ToBase64String(pdf);
+
+            var actor = await ActorAsync();
+            var caption = $"Hola {_el.ContactName}, te compartimos tu cotizacion.";
+            var result = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, MessageMediaType.Document,
+                b64, localUrl, "application/pdf", "Cotizacion.pdf", caption, actor);
+            if (!result.Ok) { _quoteMsg = result.Error ?? "No se pudo enviar."; return; }
+            if (result.Message is not null) { _messages.Add(result.Message); }
+            _quoteMsg = "Cotizacion enviada.";
+            _sendConfirm = false;
+        }
+        catch (Exception ex)
+        {
+            _quoteMsg = "Error al enviar la cotizacion: " + ex.Message;
+        }
+        finally { _quoteBusy = false; }
+    }
+
     private static string Initials(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)) { return "?"; }
@@ -2264,6 +2333,9 @@ else
         _chatLines = new();
         _chatDraft = null;
         _chatError = null;
+        _sendConfirm = false;
+        _quoteMsg = null;
+        _quoteBusy = false;
     }
 
     private async Task SaveLeadAsync()

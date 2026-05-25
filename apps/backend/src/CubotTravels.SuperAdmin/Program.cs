@@ -350,6 +350,31 @@ app.MapPost("/api/public/leads", async (
         : Results.Json(new { ok = false, error = result.Error }, statusCode: 400);
 }).AllowAnonymous().DisableAntiforgery();
 
+// Pagina publica de la cotizacion de un lead (HTML del diseno con los datos del lead). La usa el
+// boton "Ver cotizacion" y tambien el render de PDF (Chromium navega aqui). Clave: el id del lead.
+app.MapGet("/cotizacion/{leadId:guid}", async (
+    Guid leadId,
+    [FromQuery] Guid? templateId,
+    CubotTravels.Application.Tenancy.IQuoteRenderService render,
+    CancellationToken ct) =>
+{
+    var html = await render.RenderHtmlAsync(leadId, templateId, ct);
+    return html is null ? Results.NotFound() : Results.Content(html, "text/html; charset=utf-8");
+}).AllowAnonymous();
+
+// PDF de la cotizacion (render headless de la pagina anterior). Para descargar/ver como PDF.
+app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
+    Guid leadId,
+    [FromQuery] Guid? templateId,
+    HttpRequest httpReq,
+    CubotTravels.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    var url = $"{httpReq.Scheme}://{httpReq.Host}/cotizacion/{leadId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
+}).AllowAnonymous();
+
 // Descarga del comprobante de pago (PDF). Solo pagos aprobados; el usuario de agencia solo
 // puede descargar comprobantes de su propio tenant; el operador de plataforma puede cualquiera.
 app.MapGet("/comprobante/{paymentId:guid}", async (

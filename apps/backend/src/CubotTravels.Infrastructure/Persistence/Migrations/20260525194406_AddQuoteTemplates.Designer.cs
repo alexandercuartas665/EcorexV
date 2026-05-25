@@ -3,6 +3,7 @@ using System;
 using CubotTravels.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CubotTravels.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CubotTravelsDbContext))]
-    partial class CubotTravelsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260525194406_AddQuoteTemplates")]
+    partial class AddQuoteTemplates
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1848,63 +1851,6 @@ namespace CubotTravels.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_super_admin_audit_logs_tenant_id");
 
                     b.ToTable("super_admin_audit_logs", (string)null);
-                });
-
-            modelBuilder.Entity("CubotTravels.Domain.Entities.TemplateAsset", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("file_name");
-
-                    b.Property<string>("MimeType")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("mime_type");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint")
-                        .HasColumnName("size_bytes");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("updated_by");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("url");
-
-                    b.HasKey("Id")
-                        .HasName("pk_template_assets");
-
-                    b.HasIndex("TenantId", "CreatedAt")
-                        .HasDatabaseName("ix_template_assets_tenant_id_created_at");
-
-                    b.ToTable("template_assets", (string)null);
                 });
 
             modelBuilder.Entity("CubotTravels.Domain.Entities.Tenant", b =>

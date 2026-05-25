@@ -55,6 +55,8 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+    public DbSet<QuoteTemplate> QuoteTemplates => Set<QuoteTemplate>();
+    public DbSet<TemplateAsset> TemplateAssets => Set<TemplateAsset>();
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
     public DbSet<AiAgentPrompt> AiAgentPrompts => Set<AiAgentPrompt>();
@@ -372,6 +374,21 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.MediaUrl).HasMaxLength(500);
             b.Property(x => x.MediaMimeType).HasMaxLength(120);
             b.HasIndex(x => new { x.TenantId, x.Category, x.SortOrder });
+        });
+
+        modelBuilder.Entity<QuoteTemplate>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.HtmlContent).HasColumnType("text");
+            b.HasIndex(x => new { x.TenantId, x.IsDefault });
+        });
+
+        modelBuilder.Entity<TemplateAsset>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.MimeType).HasMaxLength(120);
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         modelBuilder.Entity<AiAgent>(b =>

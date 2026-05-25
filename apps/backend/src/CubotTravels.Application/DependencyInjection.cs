@@ -41,6 +41,9 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();
         services.AddScoped<Tenancy.IMessageTemplateService, Tenancy.MessageTemplateService>();
+        services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
+        services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();
+        services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
         // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.
         services.AddScoped<Tenancy.IChatBroadcaster, Tenancy.NoOpChatBroadcaster>();
         services.AddScoped<Tenancy.IWebhookAdminService, Tenancy.WebhookAdminService>();

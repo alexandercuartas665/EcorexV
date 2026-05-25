@@ -25,6 +25,8 @@ public interface IApplicationDbContext
     DbSet<Conversation> Conversations { get; }
     DbSet<Message> Messages { get; }
     DbSet<MessageTemplate> MessageTemplates { get; }
+    DbSet<QuoteTemplate> QuoteTemplates { get; }
+    DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }
     DbSet<AiAgentPrompt> AiAgentPrompts { get; }

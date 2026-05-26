@@ -51,7 +51,8 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
         {
             Format = PaperFormat.A4,
             PrintBackground = true,
-            MarginOptions = new MarginOptions { Top = "0", Bottom = "0", Left = "0", Right = "0" }
+            // Margen de pagina ("padding" del formato) para que el contenido no quede pegado al borde.
+            MarginOptions = new MarginOptions { Top = "12mm", Bottom = "12mm", Left = "10mm", Right = "10mm" }
         });
     }
 

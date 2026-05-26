@@ -5,6 +5,7 @@
 @using CubotTravels.Application.Tenancy
 @inject IQuoteTemplateService TemplatesSvc
 @inject ITemplateAssetService AssetsSvc
+@inject IPipelineService PipelineSvc
 @inject IWebHostEnvironment Env
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -75,15 +76,34 @@ else
                 </div>
 
                 <div class="pl-tpl-vars">
-                    <div class="pl-tpl-vars-title">Marcadores disponibles</div>
+                    <div class="pl-tpl-vars-title">Marcadores generales <span class="text-muted" style="font-weight:400;">(clic para copiar)</span></div>
                     <div class="pl-tpl-vars-grid">
                         @foreach (var v in _placeholders)
                         {
-                            <code class="pl-tpl-var" title="@v.Item2">@v.Item1</code>
+                            <code class="pl-tpl-var" title="@v.Item2" @onclick="() => CopyText(v.Item1)">@v.Item1</code>
                         }
                     </div>
+
+                    <div class="pl-tpl-vars-title" style="margin-top:14px;">Campos del embudo (datos capturados)</div>
+                    @if (_fields.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:11.5px;padding:4px 0;">
+                            Aun no hay campos configurados en el embudo. Crealos en <strong>Pipeline &rarr; Configurar etapas</strong> y apareceran aqui.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pl-tpl-vars-grid">
+                            @foreach (var f in _fields)
+                            {
+                                var tag = "{{campo." + f.FieldKey + "}}";
+                                var tip = f.Label + (f.AllowMultiple ? " (multiple)" : "");
+                                <code class="pl-tpl-var" title="@tip" @onclick="() => CopyText(tag)">@tag &middot; @f.Label</code>
+                            }
+                        </div>
+                    }
                     <div class="text-muted" style="font-size:11.5px;margin-top:8px;">
-                        Tambien puedes usar cualquier campo del embudo con <code>@("{{campo.clave}}")</code> (ej. <code>@("{{campo.aerolinea}}")</code>).
+                        Cada etiqueta <code>@("{{campo.clave}}")</code> se reemplaza con el dato capturado del lead al imprimir o enviar la cotizacion.
                     </div>
                 </div>
             </div>
@@ -139,6 +159,7 @@ else
     private string _html = "";
     private List<QuoteTemplateDto> _list = new();
     private List<TemplateAssetDto> _assets = new();
+    private List<PipelineFieldDto> _fields = new();
 
     private readonly (string, string)[] _placeholders =
     {
@@ -165,6 +186,11 @@ else
     {
         await ReloadAsync();
         _assets = (await AssetsSvc.ListAsync()).ToList();
+        // Campos reales del embudo del tenant: sus claves alimentan las etiquetas {{campo.clave}}.
+        _fields = (await PipelineSvc.ListFieldsAsync())
+            .GroupBy(f => f.FieldKey)
+            .Select(g => g.First())
+            .ToList();
         _loading = false;
         if (_list.Count > 0) { Select(_list[0].Id); } else { NewTemplate(); }
     }
@@ -259,6 +285,12 @@ else
         try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", url); } catch { }
     }
 
+    // Copia un marcador (ej. {{campo.aerolinea}}) al portapapeles para pegarlo en el HTML.
+    private async Task CopyText(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
+    }
+
     // Reemplaza los marcadores conocidos e inyecta un <base> para resolver imagenes en la vista previa.
     private string PreviewHtml
     {
@@ -269,8 +301,14 @@ else
             foreach (var (key, sample) in _placeholders) { sb.Replace(key, sample); }
             var result = sb.ToString();
             // Campos del embudo {{campo.clave}}: en la vista previa se muestran con un valor de ejemplo.
+            // Prioridad: ejemplo conocido -> nombre (Label) del campo real del embudo -> marcador generico.
             result = System.Text.RegularExpressions.Regex.Replace(result, @"\{\{campo\.([a-zA-Z0-9_]+)\}\}", m =>
-                _fieldSamples.TryGetValue(m.Groups[1].Value, out var s) ? s : "(dato)");
+            {
+                var key = m.Groups[1].Value;
+                if (_fieldSamples.TryGetValue(key, out var s)) { return s; }
+                var field = _fields.FirstOrDefault(f => string.Equals(f.FieldKey, key, StringComparison.OrdinalIgnoreCase));
+                return field is not null ? $"[{field.Label}]" : "(dato)";
+            });
             var baseTag = $"<base href=\"{Nav.BaseUri}\">";
             var headIdx = result.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
             return headIdx >= 0 ? result.Insert(headIdx + 6, baseTag) : baseTag + result;
@@ -283,38 +321,46 @@ else
 <meta charset=""utf-8"">
 <style>
   * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #2b2b2b; margin: 0; }
-  .page { max-width: 800px; margin: 0 auto; padding: 28px 32px 0; }
+  html, body { margin: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #2b2b2b; background:#fff; }
+  .page { padding: 14px 30px 0; }
   .top { display: flex; justify-content: space-between; align-items: center; }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand .logo { width: 54px; height: 54px; border-radius: 10px; background: #efe6fb; display:flex; align-items:center; justify-content:center; color:#7a2fb8; font-weight:800; font-size:20px; }
-  .brand .name { font-size: 22px; font-weight: 800; color: #2b2b2b; }
-  .brand .nit { font-size: 11px; color: #7a2fb8; font-weight: 700; line-height: 1.4; }
-  .dest { font-size: 34px; font-weight: 800; color: #b14de0; font-family: 'Brush Script MT', cursive; }
-  h2.client { margin: 22px 0 2px; font-size: 26px; font-weight: 800; letter-spacing: .5px; }
-  .sub { font-weight: 800; letter-spacing: .5px; color:#2b2b2b; }
-  table.info { width: 100%; border-collapse: collapse; margin-top: 16px; }
-  table.info th { background: #a23ddc; color: #fff; padding: 12px; font-size: 14px; border: 2px solid #a23ddc; letter-spacing: .5px; }
-  table.info td { text-align: center; padding: 14px; border: 1px solid #c9c9c9; font-size: 15px; }
-  h3 { color: #a23ddc; font-size: 24px; font-weight: 800; letter-spacing: .5px; margin: 28px 0 14px; }
-  .incluye { display: flex; gap: 18px; }
-  .incluye .it { text-align: center; flex: 1; font-size: 13px; line-height: 1.3; }
-  .incluye .it .ic { width: 84px; height: 84px; border-radius: 50%; margin: 0 auto 8px; background: #ddd center/cover no-repeat; }
-  .hotel { display: flex; gap: 18px; align-items: flex-start; }
-  .hotel .img { width: 150px; height: 150px; border-radius: 50%; background: #ddd center/cover no-repeat; flex: none; }
-  .hotel .det b { color: #a23ddc; }
-  .valores { display: flex; margin-top: 30px; }
-  .valores .v { flex: 1; text-align: center; }
-  .valores .v .lbl { background: #a23ddc; color: #fff; padding: 12px; font-weight: 800; letter-spacing: .5px; }
-  .valores .v .amt { background: #efe6fb; padding: 16px; font-size: 22px; font-weight: 800; }
-  .foot { margin-top: 26px; background: #a23ddc; color: #fff; padding: 14px 24px; font-size: 13px; display:flex; gap: 22px; justify-content:center; }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand img { width: 50px; height: 50px; }
+  .brand .name { font-size: 21px; font-weight: 800; line-height:1.1; }
+  .brand .nit { font-size: 10px; color: #7a2fb8; font-weight: 700; line-height: 1.3; }
+  .dest { font-size: 32px; font-weight: 700; color: #b14de0; font-family: 'Brush Script MT','Segoe Script',cursive; }
+  h2.client { margin: 12px 0 1px; font-size: 22px; font-weight: 800; letter-spacing:.5px; }
+  .sub { font-weight: 800; letter-spacing:.5px; font-size: 13px; }
+  table.info { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.info th { background:#a23ddc; color:#fff; padding:9px; font-size:12.5px; border:2px solid #a23ddc; letter-spacing:.4px; }
+  table.info td { text-align:center; padding:9px; border:1px solid #c9c9c9; font-size:13.5px; }
+  h3 { color:#a23ddc; font-size:19px; font-weight:800; letter-spacing:.4px; margin:16px 0 8px; }
+  .incluye { display:flex; gap:10px; }
+  .incluye .it { text-align:center; flex:1; font-size:12px; line-height:1.25; }
+  .incluye .it img { width:62px; height:62px; border-radius:50%; display:block; margin:0 auto 5px; }
+  .hotel { display:flex; gap:16px; align-items:center; }
+  .hotel img { width:108px; height:108px; border-radius:50%; object-fit:cover; flex:none; }
+  .hotel .det { font-size:14px; line-height:1.5; }
+  .hotel .det .hname { font-size:19px; font-weight:800; }
+  .hotel .det b { color:#a23ddc; }
+  .fly { display:flex; align-items:center; gap:14px; padding:8px 0; border-bottom:1px solid #e5e5e5; font-size:13px; }
+  .fly img { width:44px; }
+  .fly .when { font-weight:800; font-size:14px; }
+  .fly .meta { color:#777; font-size:11.5px; }
+  .fly .col { flex:1; }
+  .valores { display:flex; margin-top:18px; gap:0; }
+  .valores .v { flex:1; text-align:center; }
+  .valores .v .lbl { background:#a23ddc; color:#fff; padding:10px; font-weight:800; letter-spacing:.4px; font-size:13px; }
+  .valores .v .amt { background:#efe6fb; padding:13px; font-size:20px; font-weight:800; }
+  .foot { margin-top:18px; background:#a23ddc; color:#fff; padding:12px 30px; font-size:12px; display:flex; gap:22px; justify-content:center; flex-wrap:wrap; }
 </style>
 </head>
 <body>
   <div class=""page"">
     <div class=""top"">
       <div class=""brand"">
-        <div class=""logo"">TF</div>
+        <img src=""/uploads/templates/demo-logo.svg"" alt=""logo"">
         <div>
           <div class=""name"">{{agencyName}}</div>
           <div class=""nit"">NIT: 000000000-0<br>RNT: 000000</div>
@@ -333,20 +379,32 @@ else
 
     <h3>QUE INCLUYE TU PLAN?</h3>
     <div class=""incluye"">
-      <div class=""it""><div class=""ic""></div>Vuelos<br>ida y regreso</div>
-      <div class=""it""><div class=""ic""></div>Traslados<br>A-H-A</div>
-      <div class=""it""><div class=""ic""></div>Noches<br>de hotel</div>
-      <div class=""it""><div class=""ic""></div>Asistencia<br>medica</div>
+      <div class=""it""><img src=""/uploads/templates/demo-icon-vuelo.svg"" alt="""">Vuelos<br>ida y regreso</div>
+      <div class=""it""><img src=""/uploads/templates/demo-icon-traslado.svg"" alt="""">Traslados<br>A-H-A</div>
+      <div class=""it""><img src=""/uploads/templates/demo-icon-hotel.svg"" alt="""">Noches<br>de hotel</div>
+      <div class=""it""><img src=""/uploads/templates/demo-icon-salud.svg"" alt="""">Asistencia<br>medica de viaje</div>
     </div>
 
-    <h3>HOTEL PREVISTO</h3>
+    <h3>HOTEL PREVISTO:</h3>
     <div class=""hotel"">
-      <div class=""img""></div>
+      <img src=""/uploads/templates/demo-hotel.svg"" alt=""hotel"">
       <div class=""det"">
-        <div style=""font-size:20px;font-weight:800;"">{{campo.hotel1}}</div>
+        <div class=""hname"">{{campo.hotel1}}</div>
         <b>ALIMENTACION:</b> Desayunos y cenas<br>
         <b>ACOMODACION:</b> Habitacion doble
       </div>
+    </div>
+
+    <h3>ITINERARIO DE VUELOS:</h3>
+    <div class=""fly"">
+      <img src=""/uploads/templates/demo-avianca.svg"" alt=""avianca"">
+      <div class=""col""><div class=""when"">Ida</div><div class=""meta"">Avianca - {{destination}}</div></div>
+      <div class=""col""><div class=""meta"">Directo</div></div>
+    </div>
+    <div class=""fly"">
+      <img src=""/uploads/templates/demo-avianca.svg"" alt=""avianca"">
+      <div class=""col""><div class=""when"">Regreso</div><div class=""meta"">Avianca - {{destination}}</div></div>
+      <div class=""col""><div class=""meta"">Directo</div></div>
     </div>
 
     <div class=""valores"">
@@ -356,7 +414,7 @@ else
   </div>
 
   <div class=""foot"">
-    <span>{{agencyName}}</span><span>{{contactPhone}}</span>
+    <span>{{agencyName}}</span><span>Tel: {{contactPhone}}</span><span>Cotizacion: {{date}}</span>
   </div>
 </body>
 </html>";

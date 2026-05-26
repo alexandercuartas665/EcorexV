@@ -114,4 +114,42 @@ public sealed class DatabaseSeeder
             "Seed inicial creado. Super Admin: {SuperAdmin} / {SuperPass}. Admin agencia: {TenantAdmin} / {TenantPass}",
             SuperAdminEmail, SuperAdminPassword, TenantAdminEmail, TenantAdminPassword);
     }
+
+    // Recursos de ejemplo (imagenes) de la galeria de plantillas para la agencia demo. Idempotente:
+    // solo registra si la agencia aun no tiene recursos. Se llama en cada arranque de Desarrollo.
+    public async Task EnsureDemoTemplateAssetsAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.TemplateAssets.IgnoreQueryFilters().AnyAsync(a => a.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        (string name, string file)[] assets =
+        {
+            ("Logo agencia", "demo-logo.svg"),
+            ("Hotel (foto)", "demo-hotel.svg"),
+            ("Avianca (aerolinea)", "demo-avianca.svg"),
+            ("Icono Vuelos", "demo-icon-vuelo.svg"),
+            ("Icono Traslados", "demo-icon-traslado.svg"),
+            ("Icono Hotel", "demo-icon-hotel.svg"),
+            ("Icono Asistencia", "demo-icon-salud.svg")
+        };
+        foreach (var (name, file) in assets)
+        {
+            _db.TemplateAssets.Add(new TemplateAsset
+            {
+                TenantId = tenant.Id,
+                FileName = name,
+                Url = $"/uploads/templates/{file}",
+                MimeType = "image/svg+xml",
+                SizeBytes = 600
+            });
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Recursos demo de la galeria de plantillas registrados ({Count}).", assets.Length);
+    }
 }

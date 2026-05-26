@@ -85,7 +85,9 @@ else
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<CubotTravelsDbContext>();
     await db.Database.MigrateAsync();
-    await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.SeedAsync();
+    await seeder.EnsureDemoTemplateAssetsAsync();
 }
 
 app.UseHttpsRedirection();

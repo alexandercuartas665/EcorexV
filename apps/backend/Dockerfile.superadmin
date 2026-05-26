@@ -12,15 +12,17 @@ RUN dotnet publish src/CubotTravels.SuperAdmin/CubotTravels.SuperAdmin.csproj \
 # --- runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 
-# Chromium para el render de PDF de cotizaciones (modulo Plantillas). PuppeteerSharp lanza este
-# Chrome del sistema via CUBOT_CHROME_PATH (en vez de descargar Chromium en runtime, que ademas
-# fallaria por falta de librerias). apt instala Chromium con todas sus dependencias del sistema.
-# Se deja como capa propia (antes del COPY del codigo) para que se cachee entre cambios de codigo.
+# Render de PDF de cotizaciones (modulo Plantillas) con PuppeteerSharp.
+# IMPORTANTE: NO se usa el Chromium del sistema como navegador, porque su version no coincide con
+# la que espera PuppeteerSharp 20.x y el protocolo CDP falla ("Invalid referrerPolicy"). En su lugar,
+# PuppeteerSharp DESCARGA el Chromium que le corresponde (BrowserFetcher) al primer uso. Aun asi se
+# instala el paquete chromium por sus LIBRERIAS del sistema (libnss3, libgbm, etc.), que el Chromium
+# descargado necesita para arrancar, mas las fuentes. Se deja antes del COPY para cachear la capa.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        chromium fonts-liberation fonts-noto-color-emoji ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-ENV CUBOT_CHROME_PATH=/usr/bin/chromium
+# (Sin CUBOT_CHROME_PATH a proposito: que PuppeteerSharp use el Chromium que descarga, compatible.)
 
 WORKDIR /app
 COPY --from=build /app/publish ./

@@ -88,19 +88,23 @@ else
                     @if (_fields.Count == 0)
                     {
                         <div class="text-muted" style="font-size:11.5px;padding:4px 0;">
-                            Aun no hay campos configurados en el embudo. Crealos en <strong>Pipeline &rarr; Configurar etapas</strong> y apareceran aqui.
+                            Aun no hay campos configurados en el embudo. Crealos en <strong>Pipeline &rarr; Configurar embudo</strong> y apareceran aqui.
                         </div>
                     }
                     else
                     {
-                        <div class="pl-tpl-vars-grid">
-                            @foreach (var f in _fields)
-                            {
-                                var tag = "{{campo." + f.FieldKey + "}}";
-                                var tip = f.Label + (f.AllowMultiple ? " (multiple)" : "");
-                                <code class="pl-tpl-var" title="@tip" @onclick="() => CopyText(tag)">@tag &middot; @f.Label</code>
-                            }
-                        </div>
+                        @foreach (var grp in _fieldGroups)
+                        {
+                            <div class="pl-tpl-stage-label">@grp.Stage</div>
+                            <div class="pl-tpl-vars-grid" style="margin-bottom:8px;">
+                                @foreach (var f in grp.Fields)
+                                {
+                                    var tag = "{{campo." + f.FieldKey + "}}";
+                                    var tip = f.Label + (f.AllowMultiple ? " (multiple)" : "");
+                                    <code class="pl-tpl-var" title="@tip" @onclick="() => CopyText(tag)">@tag &middot; @f.Label</code>
+                                }
+                            </div>
+                        }
                     }
                     <div class="text-muted" style="font-size:11.5px;margin-top:8px;">
                         Cada etiqueta <code>@("{{campo.clave}}")</code> se reemplaza con el dato capturado del lead al imprimir o enviar la cotizacion.
@@ -160,6 +164,8 @@ else
     private List<QuoteTemplateDto> _list = new();
     private List<TemplateAssetDto> _assets = new();
     private List<PipelineFieldDto> _fields = new();
+    // Campos del embudo agrupados por etapa, en el mismo orden que el pipeline.
+    private List<(string Stage, List<PipelineFieldDto> Fields)> _fieldGroups = new();
 
     private readonly (string, string)[] _placeholders =
     {
@@ -186,16 +192,34 @@ else
     {
         await ReloadAsync();
         _assets = (await AssetsSvc.ListAsync()).ToList();
-        // Campos reales del embudo del tenant: sus claves alimentan las etiquetas {{campo.clave}}.
-        _fields = (await PipelineSvc.ListFieldsAsync())
-            .GroupBy(f => f.FieldKey)
-            .Select(g => g.First())
-            .ToList();
+        await LoadFieldsAsync();
         _loading = false;
         if (_list.Count > 0) { Select(_list[0].Id); } else { NewTemplate(); }
     }
 
     private async Task ReloadAsync() => _list = (await TemplatesSvc.ListAsync()).ToList();
+
+    // Carga los campos del embudo agrupados por etapa, en el mismo orden que estan configurados
+    // en el pipeline (etapa por SortOrder, luego campo por SortOrder). Sus claves alimentan {{campo.clave}}.
+    private async Task LoadFieldsAsync()
+    {
+        var stages = await PipelineSvc.ListStagesAsync();
+        var all = await PipelineSvc.ListFieldsAsync();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _fieldGroups = new();
+        foreach (var s in stages)
+        {
+            var fs = all.Where(f => f.StageId == s.Id)
+                .OrderBy(f => f.SortOrder)
+                .Where(f => seen.Add(f.FieldKey))
+                .ToList();
+            if (fs.Count > 0) { _fieldGroups.Add((s.Name, fs)); }
+        }
+        // Campos sin etapa conocida (por si acaso): se agrupan al final.
+        var orphans = all.Where(f => seen.Add(f.FieldKey)).OrderBy(f => f.SortOrder).ToList();
+        if (orphans.Count > 0) { _fieldGroups.Add(("Otros", orphans)); }
+        _fields = _fieldGroups.SelectMany(g => g.Fields).ToList();
+    }
 
     private void NewTemplate()
     {

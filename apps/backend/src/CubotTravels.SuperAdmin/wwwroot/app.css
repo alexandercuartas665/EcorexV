@@ -825,6 +825,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .pl-tpl-vars { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
 .pl-tpl-vars-title { font-size: 11.5px; font-weight: 700; color: var(--muted-foreground); margin-bottom: 8px; }
 .pl-tpl-vars-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.pl-tpl-stage-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--primary); margin: 8px 0 5px; opacity: .85; }
 .pl-tpl-var { font-size: 11.5px; background: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; color: var(--primary); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
 .pl-tpl-var:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 .pl-tpl-preview-head { padding: 10px 14px; font-size: 12px; font-weight: 700; color: var(--muted-foreground); background: var(--card); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .04em; }

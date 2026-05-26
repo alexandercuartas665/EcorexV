@@ -128,6 +128,8 @@ public sealed class LeadService : ILeadService
             return null;
         }
 
+        var previousPhoneDigits = PhoneDigits(lead.ContactPhone);
+
         lead.ContactName = request.ContactName.Trim();
         lead.ContactPhone = request.ContactPhone?.Trim();
         lead.Destination = request.Destination?.Trim();
@@ -139,6 +141,11 @@ public sealed class LeadService : ILeadService
         var clean = values.Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
                           .ToDictionary(kv => kv.Key, kv => kv.Value);
         lead.FieldValuesJson = clean.Count == 0 ? null : JsonSerializer.Serialize(clean);
+
+        // Si cambia el telefono, la conversacion de WhatsApp debe seguir al nuevo numero (el chat
+        // se envia al ContactPhone de la conversacion, no al del lead). De lo contrario los mensajes
+        // seguirian yendo al numero anterior.
+        await SyncConversationPhoneAsync(lead, previousPhoneDigits, cancellationToken);
 
         AddActivity(lead.TenantId, lead.Id, "lead.updated", "Datos del lead actualizados");
 
@@ -369,6 +376,42 @@ public sealed class LeadService : ILeadService
             Description = description
         });
     }
+
+    // Mantiene la conversacion de WhatsApp del lead apuntando a su telefono actual. Si el numero no
+    // cambio no hace nada. Si cambio: cuando ya existe una conversacion con el numero nuevo, religa el
+    // lead a esa (evita romper la unicidad por telefono); si no, mueve la conversacion del lead al numero nuevo.
+    private async Task SyncConversationPhoneAsync(Lead lead, string previousPhoneDigits, CancellationToken cancellationToken)
+    {
+        var newDigits = PhoneDigits(lead.ContactPhone);
+        if (string.IsNullOrEmpty(newDigits) || newDigits == previousPhoneDigits)
+        {
+            return;
+        }
+
+        var linked = await _db.Conversations.FirstOrDefaultAsync(c => c.LeadId == lead.Id, cancellationToken);
+        var withNewNumber = await _db.Conversations.FirstOrDefaultAsync(c => c.ContactPhone == newDigits, cancellationToken);
+
+        if (withNewNumber is not null)
+        {
+            // Ya hay una conversacion con el numero nuevo: religar el lead a ella y soltar la anterior.
+            if (linked is not null && linked.Id != withNewNumber.Id)
+            {
+                linked.LeadId = null;
+            }
+            withNewNumber.LeadId = lead.Id;
+            if (string.IsNullOrWhiteSpace(withNewNumber.ContactName))
+            {
+                withNewNumber.ContactName = lead.ContactName;
+            }
+        }
+        else if (linked is not null)
+        {
+            // Mover la conversacion existente (con su historial) al numero nuevo.
+            linked.ContactPhone = newDigits;
+        }
+    }
+
+    private static string PhoneDigits(string? s) => string.IsNullOrEmpty(s) ? string.Empty : new string(s.Where(char.IsDigit).ToArray());
 
     private static LeadDto Map(Lead l) =>
         new(l.Id, l.ContactName, l.ContactPhone, l.Destination, l.EstimatedValue, l.Currency, l.StageId, l.Status, l.AssignedToTenantUserId, l.StageChangedAt, DeserializeValues(l.FieldValuesJson));

@@ -372,7 +372,11 @@ app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     CubotTravels.Application.Common.IQuotePdfRenderer pdf,
     CancellationToken ct) =>
 {
-    var url = $"{httpReq.Scheme}://{httpReq.Host}/cotizacion/{leadId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    // Chromium corre en el MISMO contenedor que la app: navega al loopback interno (Kestrel escucha
+    // en ASPNETCORE_HTTP_PORTS), no al dominio publico. El contenedor no puede alcanzar su propia URL
+    // publica desde adentro (hairpin) y GoToAsync expira. La pagina /cotizacion es AllowAnonymous.
+    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
+    var url = $"http://localhost:{port}/cotizacion/{leadId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
 }).AllowAnonymous();

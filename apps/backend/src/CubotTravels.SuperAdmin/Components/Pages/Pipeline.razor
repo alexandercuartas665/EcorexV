@@ -14,6 +14,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject CubotTravels.Application.Common.IQuotePdfRenderer PdfRenderer
+@inject CubotTravels.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Pipeline - CUBOT.travels</PageTitle>
@@ -787,7 +788,8 @@ else
                     Mas
                 </span>
             </div>
-            <div class="pl-chat-body">
+            <div class="pl-chat-body" id="pl-chat-drop">
+                <div class="pl-chat-dropmask">Suelta el documento para enviarlo</div>
                 @if (string.IsNullOrWhiteSpace(_el.ContactPhone))
                 {
                     <div class="pl-chat-empty">Agrega un telefono al lead para iniciar la conversacion por WhatsApp.</div>
@@ -1279,6 +1281,7 @@ else
                                 <div class="text-muted" style="font-size:11px;font-style:italic;">@f.Description</div>
                             }
                         </div>
+                        <button class="btn btn-outline-secondary" style="padding:2px 8px;" disabled="@_busy" @onclick="() => MoveFieldColumnAsync(f)" title="Mover a la otra columna">&#8644; col @(f.Column == 2 ? 1 : 2)</button>
                         <button class="btn btn-outline-secondary" style="padding:2px 8px;" disabled="@_busy" @onclick="() => EditField(f)">Editar</button>
                         <button class="btn btn-outline-danger" style="padding:2px 8px;" disabled="@_busy" @onclick="() => DeleteFieldAsync(f.Id)">Eliminar</button>
                     </div>
@@ -1821,6 +1824,61 @@ else
             _scrollChatPending = false;
             try { await JS.InvokeVoidAsync("cubotScrollChat"); } catch { }
         }
+        // Activa el arrastrar-y-soltar de archivos sobre la conversacion (idempotente).
+        if (_leadOpen && _selfRef is not null)
+        {
+            try { await JS.InvokeVoidAsync("cubotPipeline.initChatDrop", "pl-chat-drop", _selfRef); } catch { }
+        }
+    }
+
+    // Recibe un archivo soltado sobre la conversacion (desde JS) y lo envia por la linea activa.
+    [JSInvokable]
+    public async Task OnChatFileDropped(string fileName, string mime, string base64)
+    {
+        _chatError = null;
+        if (_conversation is null || _chatLineId == Guid.Empty) { _chatError = "Selecciona una linea activa para enviar."; await InvokeAsync(StateHasChanged); return; }
+        if (string.IsNullOrEmpty(base64)) { return; }
+
+        var type = (mime ?? "").StartsWith("image/") ? MessageMediaType.Image
+            : (mime ?? "").StartsWith("video/") ? MessageMediaType.Video
+            : (mime ?? "").StartsWith("audio/") ? MessageMediaType.Audio
+            : MessageMediaType.Document;
+
+        _chatBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(base64); } catch { _chatError = "Archivo invalido."; return; }
+            const long max = 16L * 1024 * 1024;
+            if (bytes.Length == 0 || bytes.Length > max) { _chatError = "Archivo invalido o supera 16 MB."; return; }
+
+            var ext = System.IO.Path.GetExtension(fileName);
+            if (string.IsNullOrWhiteSpace(ext)) { ext = ".bin"; }
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "chat");
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = $"chat-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            var localUrl = $"/uploads/chat/{stored}";
+            var safeMime = string.IsNullOrWhiteSpace(mime) ? "application/octet-stream" : mime;
+
+            var actor = await ActorAsync();
+            var caption = string.IsNullOrWhiteSpace(_chatDraft) ? null : _chatDraft!.Trim();
+            var r = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, type, base64, localUrl, safeMime, fileName, caption, actor);
+            if (!r.Ok) { _chatError = r.Error; return; }
+            if (r.Message is not null) { _messages.Add(r.Message); }
+            _chatDraft = null;
+            _scrollChatPending = true;
+        }
+        catch (Exception ex)
+        {
+            _chatError = "No se pudo enviar el archivo: " + ex.Message;
+        }
+        finally
+        {
+            _chatBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     [JSInvokable]
@@ -2287,22 +2345,31 @@ else
         _quoteBusy = true;
         try
         {
-            var url = $"{Nav.BaseUri.TrimEnd('/')}/cotizacion/{_editLead.Id}";
-            var pdf = await PdfRenderer.RenderUrlToPdfAsync(url);
-            if (pdf.Length == 0) { _quoteMsg = "No se pudo generar el PDF."; return; }
+            // Formato segun la plantilla predeterminada de la agencia: imagen (PNG) o PDF adjunto.
+            var defaultTpl = (await QuoteTplSvc.ListAsync()).FirstOrDefault(t => t.IsDefault);
+            var asImage = defaultTpl?.SendAsImage ?? false;
 
-            // Guarda el PDF servible y lo registra como documento del mensaje.
+            var url = $"{Nav.BaseUri.TrimEnd('/')}/cotizacion/{_editLead.Id}";
+            var bytes = asImage ? await PdfRenderer.RenderUrlToImageAsync(url) : await PdfRenderer.RenderUrlToPdfAsync(url);
+            if (bytes.Length == 0) { _quoteMsg = "No se pudo generar la cotizacion."; return; }
+
+            var ext = asImage ? "png" : "pdf";
+            var mediaType = asImage ? MessageMediaType.Image : MessageMediaType.Document;
+            var mime = asImage ? "image/png" : "application/pdf";
+            var sendName = asImage ? "Cotizacion.png" : "Cotizacion.pdf";
+
+            // Guarda el archivo servible y lo registra como media del mensaje.
             var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "cotizaciones");
             System.IO.Directory.CreateDirectory(dir);
-            var fileName = $"cotizacion-{Guid.NewGuid():N}.pdf";
-            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fileName), pdf);
+            var fileName = $"cotizacion-{Guid.NewGuid():N}.{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fileName), bytes);
             var localUrl = $"/uploads/cotizaciones/{fileName}";
-            var b64 = Convert.ToBase64String(pdf);
+            var b64 = Convert.ToBase64String(bytes);
 
             var actor = await ActorAsync();
             var caption = $"Hola {_el.ContactName}, te compartimos tu cotizacion.";
-            var result = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, MessageMediaType.Document,
-                b64, localUrl, "application/pdf", "Cotizacion.pdf", caption, actor);
+            var result = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, mediaType,
+                b64, localUrl, mime, sendName, caption, actor);
             if (!result.Ok) { _quoteMsg = result.Error ?? "No se pudo enviar."; return; }
             if (result.Message is not null) { _messages.Add(result.Message); }
             _quoteMsg = "Cotizacion enviada.";
@@ -2656,6 +2723,21 @@ else
         {
             var actor = await ActorAsync();
             await PipelineSvc.ReorderFieldsAsync(new ReorderFieldsRequest(ordered), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // Mueve un campo a la otra columna (1 <-> 2) sin abrir el editor.
+    private async Task MoveFieldColumnAsync(PipelineFieldDto f)
+    {
+        var newCol = f.Column == 2 ? 1 : 2;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.UpdateFieldAsync(f.Id,
+                new UpdatePipelineFieldRequest(f.Label, f.FieldType, newCol, f.Options, f.Description, f.AllowMultiple, f.RepeatWithFieldKey, f.MultiWithDetail, f.TotalSourceKeys), actor);
             await ReloadAsync();
         }
         finally { _busy = false; }

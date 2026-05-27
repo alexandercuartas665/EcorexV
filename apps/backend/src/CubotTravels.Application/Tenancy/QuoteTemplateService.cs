@@ -4,14 +4,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CubotTravels.Application.Tenancy;
 
-public sealed record QuoteTemplateDto(Guid Id, string Name, string HtmlContent, bool IsDefault, DateTimeOffset UpdatedAt);
+public sealed record QuoteTemplateDto(Guid Id, string Name, string HtmlContent, bool IsDefault, DateTimeOffset UpdatedAt, bool SendAsImage);
 
 public interface IQuoteTemplateService
 {
     Task<IReadOnlyList<QuoteTemplateDto>> ListAsync(CancellationToken cancellationToken = default);
     Task<QuoteTemplateDto?> GetAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<QuoteTemplateDto?> CreateAsync(string name, string html, Guid actorUserId, CancellationToken cancellationToken = default);
-    Task<QuoteTemplateDto?> UpdateAsync(Guid id, string name, string html, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<QuoteTemplateDto?> CreateAsync(string name, string html, bool sendAsImage, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<QuoteTemplateDto?> UpdateAsync(Guid id, string name, string html, bool sendAsImage, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> SetDefaultAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
 }
@@ -36,17 +36,17 @@ public sealed class QuoteTemplateService : IQuoteTemplateService
         => await _db.QuoteTemplates
             .AsNoTracking()
             .OrderByDescending(t => t.IsDefault).ThenBy(t => t.Name)
-            .Select(t => new QuoteTemplateDto(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt))
+            .Select(t => new QuoteTemplateDto(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt, t.SendAsImage))
             .ToListAsync(cancellationToken);
 
     public async Task<QuoteTemplateDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
         => await _db.QuoteTemplates
             .AsNoTracking()
             .Where(t => t.Id == id)
-            .Select(t => new QuoteTemplateDto(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt))
+            .Select(t => new QuoteTemplateDto(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt, t.SendAsImage))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<QuoteTemplateDto?> CreateAsync(string name, string html, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<QuoteTemplateDto?> CreateAsync(string name, string html, bool sendAsImage, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId) { return null; }
         var clean = (name ?? string.Empty).Trim();
@@ -58,20 +58,22 @@ public sealed class QuoteTemplateService : IQuoteTemplateService
             TenantId = tenantId,
             Name = clean,
             HtmlContent = html ?? string.Empty,
-            IsDefault = isFirst   // la primera plantilla de la agencia queda como predeterminada
+            IsDefault = isFirst,   // la primera plantilla de la agencia queda como predeterminada
+            SendAsImage = sendAsImage
         };
         _db.QuoteTemplates.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }
 
-    public async Task<QuoteTemplateDto?> UpdateAsync(Guid id, string name, string html, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<QuoteTemplateDto?> UpdateAsync(Guid id, string name, string html, bool sendAsImage, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var entity = await _db.QuoteTemplates.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         if (entity is null) { return null; }
         var clean = (name ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(clean)) { entity.Name = clean; }
         entity.HtmlContent = html ?? string.Empty;
+        entity.SendAsImage = sendAsImage;
         await _db.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }
@@ -104,5 +106,5 @@ public sealed class QuoteTemplateService : IQuoteTemplateService
         return true;
     }
 
-    private static QuoteTemplateDto Map(QuoteTemplate t) => new(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt);
+    private static QuoteTemplateDto Map(QuoteTemplate t) => new(t.Id, t.Name, t.HtmlContent, t.IsDefault, t.UpdatedAt ?? t.CreatedAt, t.SendAsImage);
 }

@@ -60,6 +60,14 @@ else
                 </div>
 
                 <div class="auth-field" style="margin-top:14px;">
+                    <label>Al enviar la cotizacion, mandar como</label>
+                    <select class="form-control" @bind="SendFormat" style="max-width:220px;">
+                        <option value="pdf">PDF adjunto</option>
+                        <option value="image">Imagen (PNG)</option>
+                    </select>
+                </div>
+
+                <div class="auth-field" style="margin-top:14px;">
                     <label>Contenido HTML <span class="text-muted" style="font-weight:400;">(la vista previa se actualiza al salir del editor)</span></label>
                     <textarea class="form-control pl-tpl-html" rows="16" @bind="_html" @bind:event="onchange" spellcheck="false"></textarea>
                 </div>
@@ -162,7 +170,9 @@ else
 }
 
 @code {
-    private bool _loading = true, _busy, _savedOk, _isDefault, _uploading;
+    private bool _loading = true, _busy, _savedOk, _isDefault, _uploading, _sendAsImage;
+    // El binding de <select> a bool en Blazor es problematico (formatea True/False); usamos un string.
+    private string SendFormat { get => _sendAsImage ? "image" : "pdf"; set => _sendAsImage = value == "image"; }
     private string? _error, _assetError;
     private Guid? _editingId;
     private string _name = "";
@@ -231,14 +241,14 @@ else
 
     private void NewTemplate()
     {
-        _editingId = null; _isDefault = false; _name = ""; _html = StarterHtml; _savedOk = false; _error = null;
+        _editingId = null; _isDefault = false; _name = ""; _html = StarterHtml; _savedOk = false; _error = null; _sendAsImage = false;
     }
 
     private void Select(Guid id)
     {
         var t = _list.FirstOrDefault(x => x.Id == id);
         if (t is null) { return; }
-        _editingId = t.Id; _name = t.Name; _html = t.HtmlContent; _isDefault = t.IsDefault; _savedOk = false; _error = null;
+        _editingId = t.Id; _name = t.Name; _html = t.HtmlContent; _isDefault = t.IsDefault; _savedOk = false; _error = null; _sendAsImage = t.SendAsImage;
     }
 
     private async Task SaveAsync()
@@ -248,8 +258,8 @@ else
         {
             if (string.IsNullOrWhiteSpace(_name)) { _error = "Escribe un nombre para la plantilla."; return; }
             var saved = _editingId is Guid id
-                ? await TemplatesSvc.UpdateAsync(id, _name, _html, Guid.Empty)
-                : await TemplatesSvc.CreateAsync(_name, _html, Guid.Empty);
+                ? await TemplatesSvc.UpdateAsync(id, _name, _html, _sendAsImage, Guid.Empty)
+                : await TemplatesSvc.CreateAsync(_name, _html, _sendAsImage, Guid.Empty);
             if (saved is null) { _error = "No se pudo guardar."; return; }
             await ReloadAsync();
             _editingId = saved.Id; _isDefault = saved.IsDefault; _savedOk = true;

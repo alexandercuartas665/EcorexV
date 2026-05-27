@@ -66,8 +66,43 @@ window.cubotPipeline = (function () {
     });
   }
 
+  // Arrastrar-y-soltar archivos del SO sobre la conversacion del chat. Idempotente por elemento.
+  function initChatDrop(zoneId, ref) {
+    const zone = document.getElementById(zoneId);
+    if (!zone || zone.dataset.dropWired === '1') { return; }
+    zone.dataset.dropWired = '1';
+    const stop = function (e) { e.preventDefault(); e.stopPropagation(); };
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) {
+        if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) { return; }
+        stop(e);
+        e.dataTransfer.dropEffect = 'copy';
+        zone.classList.add('pl-chat-dragover');
+      });
+    });
+    zone.addEventListener('dragleave', function (e) {
+      if (zone.contains(e.relatedTarget)) { return; }
+      zone.classList.remove('pl-chat-dragover');
+    });
+    zone.addEventListener('drop', function (e) {
+      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) { return; }
+      stop(e);
+      zone.classList.remove('pl-chat-dragover');
+      Array.prototype.slice.call(e.dataTransfer.files).forEach(function (f) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          const res = reader.result || '';
+          const b64 = res.indexOf(',') >= 0 ? res.split(',')[1] : '';
+          if (b64 && ref) { ref.invokeMethodAsync('OnChatFileDropped', f.name, f.type || '', b64); }
+        };
+        reader.readAsDataURL(f);
+      });
+    });
+  }
+
   return {
-    init: function (ref) { dotnet = ref; wire(); }
+    init: function (ref) { dotnet = ref; wire(); },
+    initChatDrop: initChatDrop
   };
 })();
 

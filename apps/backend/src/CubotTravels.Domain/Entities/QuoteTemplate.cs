@@ -18,4 +18,7 @@ public class QuoteTemplate : TenantEntity
 
     /// <summary>Plantilla predeterminada de la agencia para imprimir cotizaciones.</summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>Si es true, al enviar la cotizacion se manda como imagen (PNG); si es false, como PDF adjunto.</summary>
+    public bool SendAsImage { get; set; }
 }

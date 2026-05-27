@@ -788,8 +788,9 @@ else
                     Mas
                 </span>
             </div>
-            <div class="pl-chat-body" id="pl-chat-drop">
-                <div class="pl-chat-dropmask">Suelta el documento para enviarlo</div>
+            <div class="pl-chat-bodywrap" id="pl-chat-drop">
+              <div class="pl-chat-dropmask">Suelta el documento para enviarlo</div>
+              <div class="pl-chat-body">
                 @if (string.IsNullOrWhiteSpace(_el.ContactPhone))
                 {
                     <div class="pl-chat-empty">Agrega un telefono al lead para iniciar la conversacion por WhatsApp.</div>
@@ -846,6 +847,7 @@ else
                         </div>
                     }
                 }
+              </div>
             </div>
             @if (!string.IsNullOrWhiteSpace(_el.ContactPhone) && _chatLines.Count > 0)
             {

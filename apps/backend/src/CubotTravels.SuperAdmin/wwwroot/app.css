@@ -735,10 +735,12 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ag-test-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); background: var(--card); }
 .ag-test-input input { flex: 1; }
 
-.pl-chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 9px; position: relative; }
-/* Overlay para arrastrar y soltar documentos sobre la conversacion */
+.pl-chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 9px; }
+/* Contenedor fijo (no hace scroll) para el chat: ancla el overlay de drag&drop a la vista visible */
+.pl-chat-bodywrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Overlay para arrastrar y soltar documentos sobre la conversacion (visible aunque el chat este lleno) */
 .pl-chat-dropmask { display: none; position: absolute; inset: 8px; z-index: 5; border: 2px dashed var(--primary); border-radius: 12px; background: color-mix(in srgb, var(--primary) 12%, #fff); color: var(--primary); font-weight: 700; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
-.pl-chat-body.pl-chat-dragover .pl-chat-dropmask { display: flex; }
+.pl-chat-bodywrap.pl-chat-dragover .pl-chat-dropmask { display: flex; }
 .pl-date-divider { text-align: center; font-size: 10px; color: var(--muted-foreground); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; margin: 4px 0 2px; display: flex; align-items: center; gap: 10px; }
 .pl-date-divider::before, .pl-date-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .pl-bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.4; word-wrap: break-word; }

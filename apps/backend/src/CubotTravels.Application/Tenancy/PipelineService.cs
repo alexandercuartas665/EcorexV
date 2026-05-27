@@ -255,6 +255,27 @@ public sealed class PipelineService : IPipelineService
         return new PipelineFieldDto(field.Id, field.StageId, field.FieldKey, field.Label, field.FieldType, field.Column, field.SortOrder, field.Options, field.Description, field.AllowMultiple, field.RepeatWithFieldKey, field.MultiWithDetail, field.TotalSourceKeys);
     }
 
+    public async Task<PipelineFieldDto?> MoveFieldToStageAsync(Guid fieldId, Guid targetStageId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var field = await _db.PipelineFieldDefinitions.FirstOrDefaultAsync(f => f.Id == fieldId, cancellationToken);
+        if (field is null) { return null; }
+        if (field.StageId == targetStageId) { return Map(field); }
+        // La etapa destino debe existir (y por filtro de tenant, pertenecer a la agencia).
+        if (!await _db.PipelineStages.AnyAsync(s => s.Id == targetStageId, cancellationToken)) { return null; }
+
+        var maxOrder = await _db.PipelineFieldDefinitions.Where(f => f.StageId == targetStageId)
+            .Select(f => (int?)f.SortOrder).MaxAsync(cancellationToken) ?? -1;
+        field.StageId = targetStageId;
+        field.SortOrder = maxOrder + 1;
+        _audit.Write(actorUserId, "pipeline-field.move-stage", nameof(PipelineFieldDefinition), field.Id,
+            previousValue: null, newValue: new { field.FieldKey, TargetStageId = targetStageId }, tenantId: field.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(field);
+    }
+
+    private static PipelineFieldDto Map(PipelineFieldDefinition f) =>
+        new(f.Id, f.StageId, f.FieldKey, f.Label, f.FieldType, f.Column, f.SortOrder, f.Options, f.Description, f.AllowMultiple, f.RepeatWithFieldKey, f.MultiWithDetail, f.TotalSourceKeys);
+
     public async Task ReorderFieldsAsync(ReorderFieldsRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var fields = await _db.PipelineFieldDefinitions.ToListAsync(cancellationToken);

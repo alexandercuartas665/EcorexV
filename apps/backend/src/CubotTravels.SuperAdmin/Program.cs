@@ -22,7 +22,11 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    // Sube el limite de mensajes del circuito SignalR: al arrastrar y soltar archivos al chat,
+    // el contenido viaja como base64 por invokeMethodAsync y el limite por defecto (32 KB) lo
+    // rechazaba en silencio. 32 MB cubre el tope de 16 MB del archivo (~21 MB en base64).
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 32L * 1024 * 1024);
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();

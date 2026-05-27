@@ -64,36 +64,44 @@ window.cubotPipeline = (function () {
         dotnet.invokeMethodAsync('MoveLeadFromJs', leadId, stageId);
       }
     });
-  }
 
-  // Arrastrar-y-soltar archivos del SO sobre la conversacion del chat. Idempotente por elemento.
-  function initChatDrop(zoneId, ref) {
-    const zone = document.getElementById(zoneId);
-    if (!zone || zone.dataset.dropWired === '1') { return; }
-    zone.dataset.dropWired = '1';
-    const stop = function (e) { e.preventDefault(); e.stopPropagation(); };
-    ['dragenter', 'dragover'].forEach(function (ev) {
-      zone.addEventListener(ev, function (e) {
-        if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) { return; }
-        stop(e);
-        e.dataTransfer.dropEffect = 'copy';
-        zone.classList.add('pl-chat-dragover');
-      });
+    // ===== Arrastrar-y-soltar archivos del SO sobre la conversacion del chat =====
+    // Delegacion a nivel document (sobrevive a los re-render de Blazor del panel de chat).
+    function chatZone(target) {
+      return target && target.closest ? target.closest('#pl-chat-drop') : null;
+    }
+    function dragHasFiles(dt) {
+      return !!dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0;
+    }
+
+    document.addEventListener('dragenter', function (e) {
+      const z = chatZone(e.target);
+      if (z && dragHasFiles(e.dataTransfer)) { e.preventDefault(); z.classList.add('pl-chat-dragover'); }
     });
-    zone.addEventListener('dragleave', function (e) {
-      if (zone.contains(e.relatedTarget)) { return; }
-      zone.classList.remove('pl-chat-dragover');
+    document.addEventListener('dragover', function (e) {
+      const z = chatZone(e.target);
+      if (z && dragHasFiles(e.dataTransfer)) {
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'copy'; } catch (_) { }
+        z.classList.add('pl-chat-dragover');
+      }
     });
-    zone.addEventListener('drop', function (e) {
-      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) { return; }
-      stop(e);
-      zone.classList.remove('pl-chat-dragover');
-      Array.prototype.slice.call(e.dataTransfer.files).forEach(function (f) {
+    document.addEventListener('dragleave', function (e) {
+      const z = chatZone(e.target);
+      if (z && !z.contains(e.relatedTarget)) { z.classList.remove('pl-chat-dragover'); }
+    });
+    document.addEventListener('drop', function (e) {
+      const z = chatZone(e.target);
+      if (!z) { return; }
+      e.preventDefault();
+      z.classList.remove('pl-chat-dragover');
+      const files = e.dataTransfer && e.dataTransfer.files ? Array.prototype.slice.call(e.dataTransfer.files) : [];
+      files.forEach(function (f) {
         const reader = new FileReader();
         reader.onload = function () {
           const res = reader.result || '';
           const b64 = res.indexOf(',') >= 0 ? res.split(',')[1] : '';
-          if (b64 && ref) { ref.invokeMethodAsync('OnChatFileDropped', f.name, f.type || '', b64); }
+          if (b64 && dotnet) { dotnet.invokeMethodAsync('OnChatFileDropped', f.name, f.type || '', b64); }
         };
         reader.readAsDataURL(f);
       });
@@ -102,7 +110,8 @@ window.cubotPipeline = (function () {
 
   return {
     init: function (ref) { dotnet = ref; wire(); },
-    initChatDrop: initChatDrop
+    // Compatibilidad: el wiring del chat ahora es a nivel document en wire(); no hace falta init por elemento.
+    initChatDrop: function () { }
   };
 })();
 

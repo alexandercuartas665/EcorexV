@@ -711,6 +711,19 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ag-item-sub { font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ag-rtype { flex: none; width: 38px; height: 26px; border-radius: 6px; background: var(--accent); color: var(--primary); font-size: 9.5px; font-weight: 800; display: grid; place-items: center; letter-spacing: 0.04em; }
 
+/* Scroll dentro de listas largas (recursos, cache fields). ~10 items visibles. */
+.ag-list-scroll { max-height: 440px; overflow-y: auto; padding-right: 6px; }
+
+/* Acordeon para colapsar secciones del editor de agente. */
+.ag-accordion { border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.ag-accordion-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; background: transparent; border: 0; cursor: pointer; text-align: left; }
+.ag-accordion-head:hover { background: var(--muted); }
+.ag-accordion-chev { display: inline-block; transition: transform 0.15s ease; color: var(--muted-foreground); font-size: 12px; width: 14px; }
+.ag-accordion-chev.open { transform: rotate(90deg); }
+.ag-accordion-count { display: inline-grid; place-items: center; min-width: 28px; height: 22px; padding: 0 8px; border-radius: 11px; background: var(--accent); color: var(--primary); font-size: 11px; font-weight: 700; }
+.ag-accordion-spacer { flex: 1; }
+.ag-accordion-body { padding: 4px 12px 14px; border-top: 1px solid var(--border); }
+
 /* Chat de prueba del agente */
 .ag-test { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .ag-test-body { max-height: 380px; min-height: 160px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--muted); }

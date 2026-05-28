@@ -54,6 +54,8 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<CubotTravels.Application.Tenancy.IChatBroadcaster, CubotTravels.SuperAdmin.RealTime.SignalRChatBroadcaster>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<CubotTravels.Application.Tenancy.IDevTunnel, CubotTravels.SuperAdmin.RealTime.CloudflaredTunnel>();
+// Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
+builder.Services.AddScoped<CubotTravels.SuperAdmin.Seeders.TravelFansAgentSeeder>();
 
 var app = builder.Build();
 
@@ -118,9 +120,17 @@ app.MapPost("/auth/login", async (
     var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
 
     if (user is null
-        || user.Status != PlatformUserStatus.Active
         || string.IsNullOrEmpty(user.PasswordHash)
         || !hasher.Verify(user.PasswordHash, password ?? string.Empty))
+    {
+        return Results.Redirect("/login?error=1");
+    }
+    // Si la clave es correcta pero la cuenta esta pendiente de activacion, redirige al flujo de activacion.
+    if (user.Status == PlatformUserStatus.PendingActivation)
+    {
+        return Results.Redirect($"/activar?email={Uri.EscapeDataString(normalized)}&error={Uri.EscapeDataString("Activa tu cuenta antes de iniciar sesion. Te enviamos un codigo a tu correo.")}");
+    }
+    if (user.Status != PlatformUserStatus.Active)
     {
         return Results.Redirect("/login?error=1");
     }
@@ -165,8 +175,9 @@ app.MapPost("/auth/login", async (
     return Results.Redirect(redirect);
 }).DisableAntiforgery();
 
-// Auto-registro (autogestion): un visitante crea su propia agencia + usuario Owner y queda
-// con sesion iniciada. La agencia nace activa sin plan; elige plan luego en "Mi cuenta".
+// Auto-registro (autogestion): un visitante crea su propia agencia + usuario Owner. La cuenta
+// queda en PendingActivation; se envia un codigo de 6 digitos por correo y el visitante debe
+// ingresarlo en /activar antes de poder iniciar sesion. La agencia nace activa sin plan.
 app.MapPost("/auth/register", async (
     HttpContext http,
     [FromForm] string agencyName,
@@ -184,18 +195,65 @@ app.MapPost("/auth/register", async (
         return Results.Redirect($"/login?mode=signup&regerror={msg}");
     }
 
+    // No iniciamos sesion: el usuario debe activar la cuenta con el codigo enviado por correo.
+    return Results.Redirect($"/activar?email={Uri.EscapeDataString(result.Email)}&sent=1");
+}).DisableAntiforgery();
+
+// Activa la cuenta del visitante usando el codigo recibido por correo. Si es valido, inicia
+// la sesion automaticamente y redirige a "Mi cuenta".
+app.MapPost("/auth/activate", async (
+    HttpContext http,
+    [FromForm] string email,
+    [FromForm] string code,
+    CubotTravels.Application.Auth.IAccountActivationService activation) =>
+{
+    var result = await activation.ActivateAsync(email, code);
+    if (!result.Ok || result.PlatformUserId is null)
+    {
+        var msg = Uri.EscapeDataString(result.Error ?? "Codigo invalido o expirado.");
+        return Results.Redirect($"/activar?email={Uri.EscapeDataString(email ?? string.Empty)}&error={msg}");
+    }
+
     var claims = new List<Claim>
     {
-        new(ClaimTypes.NameIdentifier, result.AdminUserId.ToString()),
-        new(ClaimTypes.Name, string.IsNullOrWhiteSpace(displayName) ? result.Email : displayName.Trim()),
-        new(ClaimTypes.Email, result.Email),
-        new("tenant_id", result.TenantId.ToString()),
-        new("tenant_role", TenantRole.Owner.ToString())
+        new(ClaimTypes.NameIdentifier, result.PlatformUserId.Value.ToString()),
+        new(ClaimTypes.Name, result.Email ?? string.Empty),
+        new(ClaimTypes.Email, result.Email ?? string.Empty)
     };
+    if (result.TenantId is { } tid)
+    {
+        claims.Add(new Claim("tenant_id", tid.ToString()));
+        claims.Add(new Claim("tenant_role", TenantRole.Owner.ToString()));
+    }
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
     return Results.Redirect("/mi-cuenta");
+}).DisableAntiforgery();
+
+// Reenvio del codigo de activacion: invalida los codigos previos y emite uno nuevo. La respuesta
+// siempre es uniforme para no revelar si el correo existe o ya esta activado.
+app.MapPost("/auth/resend-activation", async (
+    [FromForm] string email,
+    CubotTravels.Application.Auth.IAccountActivationService activation,
+    CubotTravels.Application.Common.IEmailSender emailSender,
+    CubotTravels.Application.Admin.IPlatformBrandingService branding) =>
+{
+    var result = await activation.ResendAsync(email);
+    if (result.Ok && !string.IsNullOrEmpty(result.Code))
+    {
+        var brand = await branding.GetAsync();
+        var html = $@"<div style=""font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;color:#1f2937;"">
+  <h2 style=""color:#4f46e5;"">{brand.PlatformName}</h2>
+  <p>Aqui esta tu nuevo codigo de activacion:</p>
+  <p style=""text-align:center;margin:28px 0;"">
+    <span style=""display:inline-block;background:#eef2ff;color:#1e1b4b;font-size:26px;letter-spacing:6px;font-weight:bold;padding:14px 24px;border-radius:10px;border:1px solid #c7d2fe;"">{result.Code}</span>
+  </p>
+  <p>Este codigo vence en 24 horas y solo puede usarse una vez.</p>
+</div>";
+        await emailSender.SendAsync(email, $"Tu codigo de activacion - {brand.PlatformName}", html);
+    }
+    return Results.Redirect($"/activar?email={Uri.EscapeDataString(email ?? string.Empty)}&sent=1");
 }).DisableAntiforgery();
 
 // Recuperar contrasena (autogestion): envia un enlace de reseteo por correo. Nunca revela si el

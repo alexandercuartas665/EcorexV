@@ -30,6 +30,8 @@ public interface IApplicationDbContext
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }
     DbSet<AiAgentPrompt> AiAgentPrompts { get; }
+    DbSet<AiAgentCacheField> AiAgentCacheFields { get; }
+    DbSet<AiAgentCacheValue> AiAgentCacheValues { get; }
     DbSet<AiUsageLog> AiUsageLogs { get; }
     DbSet<AutomationRule> AutomationRules { get; }
     DbSet<SaasPlan> SaasPlans { get; }
@@ -45,6 +47,7 @@ public interface IApplicationDbContext
     DbSet<GoogleAuthConfig> GoogleAuthConfigs { get; }
     DbSet<TenantApiConfig> TenantApiConfigs { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
+    DbSet<AccountActivationCode> AccountActivationCodes { get; }
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

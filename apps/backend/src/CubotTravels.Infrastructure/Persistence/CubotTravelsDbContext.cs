@@ -33,6 +33,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<GoogleAuthConfig> GoogleAuthConfigs => Set<GoogleAuthConfig>();
     public DbSet<TenantApiConfig> TenantApiConfigs => Set<TenantApiConfig>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<AccountActivationCode> AccountActivationCodes => Set<AccountActivationCode>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
 
@@ -60,6 +61,8 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
     public DbSet<AiAgentPrompt> AiAgentPrompts => Set<AiAgentPrompt>();
+    public DbSet<AiAgentCacheField> AiAgentCacheFields => Set<AiAgentCacheField>();
+    public DbSet<AiAgentCacheValue> AiAgentCacheValues => Set<AiAgentCacheValue>();
     public DbSet<AiUsageLog> AiUsageLogs => Set<AiUsageLog>();
     public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
 
@@ -192,6 +195,12 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
         {
             b.Property(x => x.TokenHash).HasMaxLength(80).IsRequired();
             b.HasIndex(x => x.TokenHash);
+            b.HasIndex(x => x.PlatformUserId);
+        });
+
+        modelBuilder.Entity<AccountActivationCode>(b =>
+        {
+            b.Property(x => x.CodeHash).HasMaxLength(80).IsRequired();
             b.HasIndex(x => x.PlatformUserId);
         });
 
@@ -417,6 +426,28 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.Body).HasColumnType("text");
             b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.AgentId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<AiAgentCacheField>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.AgentId, x.SortOrder });
+            // FieldKey unica por agente: el motor identifica el dato por esta clave.
+            b.HasIndex(x => new { x.AgentId, x.FieldKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<AiAgentCacheValue>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Value).HasMaxLength(2000);
+            b.Property(x => x.Source).HasMaxLength(40);
+            b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.AgentId, x.SessionId });
+            // Un valor por (sesion, campo): si llega otro dato, se actualiza el registro.
+            b.HasIndex(x => new { x.AgentId, x.SessionId, x.FieldKey }).IsUnique();
         });
 
         modelBuilder.Entity<AiUsageLog>(b =>

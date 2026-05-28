@@ -5,6 +5,7 @@
 @using CubotTravels.Application.Admin
 @using CubotTravels.Domain.Enums
 @inject IAiAgentService AgentsSvc
+@inject IAiAgentCacheService CacheSvc
 @inject IAiServerConfigService AiServersSvc
 @inject IAiInferenceService InferenceSvc
 @inject IAiUsageService UsageSvc
@@ -205,34 +206,84 @@ else
                         </div>
                     }
 
-                    @* ===== Recursos ===== *@
+                    @* ===== Datos cache (objetivos del agente) - acordeon ===== *@
                     <hr style="border-color:var(--border);margin:14px 0;" />
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                        <div class="pl-stagegroup-title">Recursos del agente</div>
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenResource(null)" disabled="@_busy">+ Agregar recurso</button>
-                    </div>
-                    <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Archivos y datos que el agente puede usar para responder a los clientes.</div>
-                    @if (_resources.Count == 0)
-                    {
-                        <div class="text-muted small">Sin recursos. Agrega imagenes, videos, audios, PDF, ubicaciones o textos.</div>
-                    }
-                    else
-                    {
-                        <div class="ag-list">
-                            @foreach (var r in _resources)
-                            {
-                                <div class="ag-item">
-                                    <span class="ag-rtype">@ResourceLabel(r.ResourceType)</span>
-                                    <div class="ag-item-main">
-                                        <div class="ag-item-name">@r.Name</div>
-                                        <div class="ag-item-sub">@(string.IsNullOrWhiteSpace(r.Detail) ? (r.FileName ?? "Sin detalle") : Trim(r.Detail!, 70))</div>
-                                    </div>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenResource(r)" disabled="@_busy">Editar</button>
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteResourceAsync(r.Id)" disabled="@_busy">&times;</button>
-                                </div>
-                            }
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _cacheOpen = !_cacheOpen">
+                            <span class="ag-accordion-chev @(_cacheOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Datos cache (objetivo)</span>
+                            <span class="ag-accordion-count">@_cacheFields.Count</span>
+                            <span class="ag-accordion-spacer"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenCacheField(null)" disabled="@_busy">+ Agregar dato</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="OpenPerceivedModal" disabled="@_busy">Ver datos percibidos</button>
                         </div>
-                    }
+                        @if (_cacheOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Define que datos debe ir capturando el agente durante la conversacion (ej. "pais", "nombre", "destino"). Cuando un telefono se enlace al sistema se creara una sesion de cache por conversacion; aqui usamos el agente como sesion de prueba.</div>
+                                @if (_cacheFields.Count == 0)
+                                {
+                                    <div class="text-muted small">Sin datos definidos. Agrega el primero para que el agente empiece a capturarlos.</div>
+                                }
+                                else
+                                {
+                                    <div class="ag-list ag-list-scroll">
+                                        @foreach (var f in _cacheFields)
+                                        {
+                                            <div class="ag-item">
+                                                <span class="ag-rtype">DATO</span>
+                                                <div class="ag-item-main">
+                                                    <div class="ag-item-name">@f.Label <span class="text-muted" style="font-size:11px;">(@f.FieldKey)</span></div>
+                                                    <div class="ag-item-sub">@(string.IsNullOrWhiteSpace(f.Description) ? "Sin descripcion" : Trim(f.Description!, 90))</div>
+                                                </div>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenCacheField(f)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteCacheFieldAsync(f.Id)" disabled="@_busy">&times;</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Recursos del agente - acordeon ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _resourcesOpen = !_resourcesOpen">
+                            <span class="ag-accordion-chev @(_resourcesOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Recursos del agente</span>
+                            <span class="ag-accordion-count">@_resources.Count</span>
+                            <span class="ag-accordion-spacer"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenResource(null)" disabled="@_busy">+ Agregar recurso</button>
+                        </div>
+                        @if (_resourcesOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Archivos y datos que el agente puede usar para responder a los clientes.</div>
+                                @if (_resources.Count == 0)
+                                {
+                                    <div class="text-muted small">Sin recursos. Agrega imagenes, videos, audios, PDF, ubicaciones o textos.</div>
+                                }
+                                else
+                                {
+                                    <div class="ag-list ag-list-scroll">
+                                        @foreach (var r in _resources)
+                                        {
+                                            <div class="ag-item">
+                                                <span class="ag-rtype">@ResourceLabel(r.ResourceType)</span>
+                                                <div class="ag-item-main">
+                                                    <div class="ag-item-name">@r.Name</div>
+                                                    <div class="ag-item-sub">@(string.IsNullOrWhiteSpace(r.Detail) ? (r.FileName ?? "Sin detalle") : Trim(r.Detail!, 70))</div>
+                                                </div>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenResource(r)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteResourceAsync(r.Id)" disabled="@_busy">&times;</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 }
                </div>@* /ag-editor-left *@
 
@@ -385,6 +436,90 @@ else
     </div>
 }
 
+@* ===== Modal: dato cache ===== *@
+@if (_cacheModalOpen)
+{
+    <div class="modal-overlay" style="z-index:1200;">
+        <div class="modal-dialog" style="max-width:560px;">
+            <div class="modal-head">
+                <h3>@(_cacheEditId is null ? "Nuevo dato cache" : "Editar dato cache")</h3>
+                <button class="modal-close" @onclick="() => _cacheModalOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre del dato *</label>
+                    <input class="form-control" @bind="_cName" placeholder="Ej. Pais, Nombre, Destino" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">De que trata el dato</label>
+                    <textarea class="form-control" rows="3" @bind="_cDescription" placeholder="Pista para el motor: que dato debe extraer del mensaje del cliente"></textarea>
+                </div>
+                @if (_cacheError is not null)
+                {
+                    <div class="text-danger small">@_cacheError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _cacheModalOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveCacheFieldAsync" disabled="@_busy">@(_cacheEditId is null ? "Agregar" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: datos percibidos (sesion de prueba) ===== *@
+@if (_perceivedModalOpen)
+{
+    <div class="modal-overlay" style="z-index:1200;">
+        <div class="modal-dialog" style="max-width:720px;">
+            <div class="modal-head">
+                <h3>Datos percibidos (sesion de prueba)</h3>
+                <button class="modal-close" @onclick="() => _perceivedModalOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Lo que el motor de inferencia ha logrado extraer hasta ahora. Para esta sesion de prueba la clave es el id del agente; en un chat real sera el id de la conversacion.</div>
+                @if (_cacheValues.Count == 0)
+                {
+                    <div class="text-muted small">Aun no hay campos definidos. Agrega primero un dato cache.</div>
+                }
+                else
+                {
+                    <div class="ag-list ag-list-scroll">
+                        @foreach (var v in _cacheValues)
+                        {
+                            <div class="ag-item">
+                                <div class="ag-item-main">
+                                    <div class="ag-item-name">@v.Label</div>
+                                    <div class="ag-item-sub">
+                                        @if (string.IsNullOrWhiteSpace(v.Value))
+                                        {
+                                            <em class="text-muted">Sin capturar todavia</em>
+                                        }
+                                        else
+                                        {
+                                            @v.Value
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(v.Source) || v.UpdatedAt is not null)
+                                        {
+                                            <span class="text-muted" style="font-size:11px;margin-left:6px;">
+                                                @(string.IsNullOrWhiteSpace(v.Source) ? "" : $"({v.Source}) ")@(v.UpdatedAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "")
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-danger" @onclick="ClearCacheValuesAsync" disabled="@(_busy || _cacheValues.All(v => string.IsNullOrWhiteSpace(v.Value)))">Vaciar datos percibidos</button>
+                <button class="btn btn-outline-secondary" @onclick="() => _perceivedModalOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Modal: recurso ===== *@
 @if (_resModalOpen)
 {
@@ -414,7 +549,8 @@ else
                 </div>
                 <div class="field">
                     <label class="form-label">Detalle</label>
-                    <textarea class="form-control" rows="3" @bind="_rDetail" placeholder="@DetailHint(_rType)"></textarea>
+                    @RichToolbar("resourceDetail", () => _resEmojiOpen, v => _resEmojiOpen = v)
+                    <textarea id="resourceDetail" class="form-control" rows="6" @bind="_rDetail" @bind:event="oninput" placeholder="@DetailHint(_rType)"></textarea>
                 </div>
                 @if (_rType is not (AgentResourceType.Text or AgentResourceType.Location))
                 {
@@ -482,9 +618,25 @@ else
     private string? _rFileName;
     private string? _resError;
 
+    // Datos cache (capa 3: el agente captura datos durante la conversacion)
+    private List<AiAgentCacheFieldDto> _cacheFields = new();
+    private List<AiAgentCacheValueDto> _cacheValues = new();
+    private bool _cacheModalOpen;
+    private Guid? _cacheEditId;
+    private string _cName = "";
+    private string? _cDescription;
+    private string? _cacheError;
+
+    // Acordeones del editor (colapsados por defecto para no llenar la columna).
+    private bool _cacheOpen;
+    private bool _resourcesOpen;
+    // Modal aparte para los datos percibidos en la sesion de prueba.
+    private bool _perceivedModalOpen;
+
     // Editor de texto (formato WhatsApp + emojis)
     private bool _baseEmojiOpen;
     private bool _promptEmojiOpen;
+    private bool _resEmojiOpen;
     private static readonly string[] Emojis =
     {
         "😀","😅","👍","🙏","🎉","✈️","🏖️","🌴","🧳","📍","📅","💲",
@@ -558,6 +710,11 @@ else
         _fPrompt = "";
         _fActive = false;
         _resources = new();
+        _cacheFields = new();
+        _cacheValues = new();
+        _cacheOpen = false;
+        _resourcesOpen = false;
+        _perceivedModalOpen = false;
         ResetTest();
         _editorOpen = true;
     }
@@ -586,8 +743,88 @@ else
         _fActive = detail.Agent.IsActive;
         _resources = detail.Resources.ToList();
         _prompts = detail.Prompts.ToList();
+        await ReloadCacheAsync(id);
+        _cacheOpen = false;
+        _resourcesOpen = false;
+        _perceivedModalOpen = false;
         ResetTest();
         _editorOpen = true;
+    }
+
+    // ===== Datos cache =====
+    // Para esta pantalla de pruebas usamos el AgentId como SessionId (una sesion por agente).
+    // Cuando un telefono real se enlace, la sesion sera el ConversationId.
+    private async Task ReloadCacheAsync(Guid agentId)
+    {
+        _cacheFields = (await CacheSvc.ListFieldsAsync(agentId)).ToList();
+        _cacheValues = (await CacheSvc.GetValuesAsync(agentId, agentId)).ToList();
+    }
+
+    private void OpenCacheField(AiAgentCacheFieldDto? f)
+    {
+        _cacheError = null;
+        _cacheEditId = f?.Id;
+        _cName = f?.Label ?? "";
+        _cDescription = f?.Description;
+        _cacheModalOpen = true;
+    }
+
+    private async Task SaveCacheFieldAsync()
+    {
+        _cacheError = null;
+        if (_editId is null) { return; }
+        if (string.IsNullOrWhiteSpace(_cName)) { _cacheError = "El nombre es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            if (_cacheEditId is null)
+            {
+                var created = await CacheSvc.CreateFieldAsync(new CreateAgentCacheFieldRequest(_editId.Value, _cName, _cDescription), actor);
+                if (created is null) { _cacheError = "No se pudo crear el dato."; return; }
+            }
+            else
+            {
+                var updated = await CacheSvc.UpdateFieldAsync(_cacheEditId.Value, new UpdateAgentCacheFieldRequest(_cName, _cDescription), actor);
+                if (updated is null) { _cacheError = "No se pudo actualizar el dato."; return; }
+            }
+            await ReloadCacheAsync(_editId.Value);
+            _cacheModalOpen = false;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCacheFieldAsync(Guid id)
+    {
+        if (_editId is null) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await CacheSvc.DeleteFieldAsync(id, actor);
+            await ReloadCacheAsync(_editId.Value);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ClearCacheValuesAsync()
+    {
+        if (_editId is null) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await CacheSvc.ClearValuesAsync(_editId.Value, _editId.Value, actor);
+            await ReloadCacheAsync(_editId.Value);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task OpenPerceivedModal()
+    {
+        // Recargamos los valores antes de mostrar el modal para que la vista sea la mas reciente.
+        if (_editId is not null) { await ReloadCacheAsync(_editId.Value); }
+        _perceivedModalOpen = true;
     }
 
     // ===== Prompts enrutados =====
@@ -651,6 +888,7 @@ else
         _rDetail = r?.Detail;
         _rFileUrl = r?.FileUrl;
         _rFileName = r?.FileName;
+        _resEmojiOpen = false;
         _resModalOpen = true;
     }
 
@@ -835,6 +1073,7 @@ else
                 var created = await AgentsSvc.CreateAsync(new CreateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt), actor);
                 if (created is null) { _editorError = "No se pudo crear el agente."; return; }
                 _editId = created.Id;
+                await ReloadCacheAsync(_editId.Value);
             }
             else
             {

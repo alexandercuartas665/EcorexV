@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IRecurringBillingService, RecurringBillingService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
         services.AddScoped<ISelfSignupService, SelfSignupService>();
+        services.AddScoped<IAccountActivationService, AccountActivationService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
         services.AddScoped<IGoogleSignInService, GoogleSignInService>();
         services.AddScoped<IPlatformBrandingService, PlatformBrandingService>();
@@ -52,6 +53,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IChatIngestService, Tenancy.ChatIngestService>();
         services.AddScoped<Tenancy.IDashboardService, Tenancy.DashboardService>();
         services.AddScoped<Tenancy.IAiAgentService, Tenancy.AiAgentService>();
+        services.AddScoped<Tenancy.IAiAgentCacheService, Tenancy.AiAgentCacheService>();
         services.AddScoped<Tenancy.IAiUsageService, Tenancy.AiUsageService>();
         services.AddScoped<Tenancy.IAiInferenceService, Tenancy.AiInferenceService>();
         services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();

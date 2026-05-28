@@ -735,6 +735,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .ag-test-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); background: var(--card); }
 .ag-test-input input { flex: 1; }
 
+/* Separador visual entre campos del lead (tipo de campo Separador) */
+.pl-field-separator { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; color: var(--primary); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.pl-field-separator::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .pl-chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 9px; }
 /* Contenedor fijo (no hace scroll) para el chat: ancla el overlay de drag&drop a la vista visible */
 .pl-chat-bodywrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }

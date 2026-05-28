@@ -498,6 +498,11 @@ else
                         <div class="pl-fields">
                             @foreach (var f in stageFields)
                             {
+                                if (f.FieldType == PipelineFieldType.Separator)
+                                {
+                                    <div class="pl-field-separator col2"><span>@f.Label</span></div>
+                                    continue;
+                                }
                                 <div class="pl-field @(f.Column == 2 ? "col2" : "")">
                                     <label class="form-label">@f.Label</label>
                                     @if (!string.IsNullOrWhiteSpace(f.Description))
@@ -595,6 +600,16 @@ else
                                                 break;
                                             case PipelineFieldType.Date:
                                                 <input class="form-control" type="date" value="@_editValues[f.FieldKey]" @onchange="e => _editValues[f.FieldKey] = e.Value?.ToString()" />
+                                                break;
+                                            case PipelineFieldType.Time:
+                                                <input class="form-control" type="time" value="@_editValues[f.FieldKey]" @onchange="e => _editValues[f.FieldKey] = e.Value?.ToString()" />
+                                                break;
+                                            case PipelineFieldType.TimeRange:
+                                                <div style="display:flex;gap:6px;align-items:center;">
+                                                    <input class="form-control" type="time" title="Salida" value="@TimeRangePart(_editValues[f.FieldKey], 0)" @onchange="e => _editValues[f.FieldKey] = SetTimeRange(_editValues[f.FieldKey], 0, e.Value?.ToString())" />
+                                                    <span class="text-muted" style="font-size:12px;">a</span>
+                                                    <input class="form-control" type="time" title="Llegada" value="@TimeRangePart(_editValues[f.FieldKey], 1)" @onchange="e => _editValues[f.FieldKey] = SetTimeRange(_editValues[f.FieldKey], 1, e.Value?.ToString())" />
+                                                </div>
                                                 break;
                                             case PipelineFieldType.Phone:
                                                 <input class="form-control" type="tel" @bind="_editValues[f.FieldKey]" placeholder="+57 300 000 0000" />
@@ -1308,10 +1323,13 @@ else
                                 <option value="@PipelineFieldType.Number">Numero</option>
                                 <option value="@PipelineFieldType.Currency">Moneda</option>
                                 <option value="@PipelineFieldType.Date">Fecha</option>
+                                <option value="@PipelineFieldType.Time">Hora</option>
+                                <option value="@PipelineFieldType.TimeRange">Hora salida/llegada</option>
                                 <option value="@PipelineFieldType.Phone">Telefono</option>
                                 <option value="@PipelineFieldType.TextArea">Texto largo</option>
                                 <option value="@PipelineFieldType.Select">Lista</option>
                                 <option value="@PipelineFieldType.Total">Total (suma de campos)</option>
+                                <option value="@PipelineFieldType.Separator">Separador (linea divisoria)</option>
                             </select>
                         </div>
                     </div>
@@ -2748,6 +2766,23 @@ else
             await ReloadAsync();
         }
         finally { _busy = false; }
+    }
+
+    // Hora salida/llegada: se guarda como "salida - llegada". Devuelve la parte idx (0=salida, 1=llegada).
+    private static string TimeRangePart(string? combined, int idx)
+    {
+        if (string.IsNullOrWhiteSpace(combined)) { return string.Empty; }
+        var parts = combined.Split('-', 2);
+        return idx < parts.Length ? parts[idx].Trim() : string.Empty;
+    }
+
+    // Actualiza una de las dos horas y recompone el valor "salida - llegada".
+    private static string SetTimeRange(string? combined, int idx, string? value)
+    {
+        var salida = idx == 0 ? (value ?? "").Trim() : TimeRangePart(combined, 0);
+        var llegada = idx == 1 ? (value ?? "").Trim() : TimeRangePart(combined, 1);
+        if (string.IsNullOrEmpty(salida) && string.IsNullOrEmpty(llegada)) { return string.Empty; }
+        return $"{salida} - {llegada}";
     }
 
     // Mueve un campo a la otra columna (1 <-> 2) sin abrir el editor.

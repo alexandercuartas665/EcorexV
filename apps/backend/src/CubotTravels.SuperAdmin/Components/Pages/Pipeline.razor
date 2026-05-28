@@ -358,7 +358,16 @@ else
                     </div>
                     <div class="field">
                         <label class="form-label">Moneda</label>
-                        <input class="form-control" @bind="_nl.Currency" placeholder="COP" />
+                        <select class="form-control" @bind="_nl.Currency">
+                            @if (!string.IsNullOrWhiteSpace(_nl.Currency) && !CommonCurrencies.Any(c => c.Code == _nl.Currency))
+                            {
+                                <option value="@_nl.Currency">@_nl.Currency</option>
+                            }
+                            @foreach (var c in CommonCurrencies)
+                            {
+                                <option value="@c.Code">@c.Label</option>
+                            }
+                        </select>
                     </div>
                 </div>
                 <div class="field">
@@ -465,7 +474,16 @@ else
                         </div>
                         <div class="pl-field">
                             <label class="form-label">Moneda</label>
-                            <input class="form-control" @bind="_el.Currency" />
+                            <select class="form-control" @bind="_el.Currency">
+                                @if (!string.IsNullOrWhiteSpace(_el.Currency) && !CommonCurrencies.Any(c => c.Code == _el.Currency))
+                                {
+                                    <option value="@_el.Currency">@_el.Currency</option>
+                                }
+                                @foreach (var c in CommonCurrencies)
+                                {
+                                    <option value="@c.Code">@c.Label</option>
+                                }
+                            </select>
                         </div>
                         <div class="pl-field col2">
                             <label class="form-label">Asesor asignado</label>
@@ -526,7 +544,10 @@ else
                                                     <span class="pl-multi-idx">@(ci + 1)</span>
                                                     @if (f.FieldType == PipelineFieldType.Currency)
                                                     {
-                                                        <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(rlist[ci])" @onchange="e => rlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                        <div class="pl-money-input" style="flex:1;">
+                                                            <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                            <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(rlist[ci])" @onchange="e => rlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                        </div>
                                                     }
                                                     else if (f.FieldType == PipelineFieldType.Number)
                                                     {
@@ -562,7 +583,10 @@ else
                                                 }
                                                 @if (f.FieldType == PipelineFieldType.Currency)
                                                 {
-                                                    <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(mlist[ci])" @onchange="e => mlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                    <div class="pl-money-input" style="flex:1;">
+                                                        <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                        <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(mlist[ci])" @onchange="e => mlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                    </div>
                                                 }
                                                 else if (f.FieldType == PipelineFieldType.Number)
                                                 {
@@ -596,7 +620,10 @@ else
                                                 <input class="form-control" type="number" @bind="_editValues[f.FieldKey]" />
                                                 break;
                                             case PipelineFieldType.Currency:
-                                                <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(_editValues[f.FieldKey])" @onchange="e => _editValues[f.FieldKey] = DigitsToRaw(e.Value?.ToString())" />
+                                                <div class="pl-money-input">
+                                                    <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                    <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(_editValues[f.FieldKey])" @onchange="e => _editValues[f.FieldKey] = DigitsToRaw(e.Value?.ToString())" />
+                                                </div>
                                                 break;
                                             case PipelineFieldType.Date:
                                                 <input class="form-control" type="date" value="@_editValues[f.FieldKey]" @onchange="e => _editValues[f.FieldKey] = e.Value?.ToString()" />
@@ -624,7 +651,10 @@ else
                                                 </select>
                                                 break;
                                             case PipelineFieldType.Total:
-                                                <input class="form-control pl-total-field" type="text" readonly value="@FormatMoneyDecimal(ComputeTotal(f))" />
+                                                <div class="pl-money-input">
+                                                    <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                    <input class="form-control pl-total-field" type="text" readonly value="@FormatMoneyDecimal(ComputeTotal(f))" />
+                                                </div>
                                                 break;
                                             default:
                                                 <input class="form-control" @bind="_editValues[f.FieldKey]" />
@@ -2767,6 +2797,31 @@ else
         }
         finally { _busy = false; }
     }
+
+    // Monedas mas usadas para el desplegable del campo Moneda.
+    private static readonly (string Code, string Label)[] CommonCurrencies =
+    {
+        ("COP", "COP - Peso colombiano"),
+        ("USD", "USD - Dolar"),
+        ("EUR", "EUR - Euro"),
+        ("MXN", "MXN - Peso mexicano"),
+        ("ARS", "ARS - Peso argentino"),
+        ("CLP", "CLP - Peso chileno"),
+        ("PEN", "PEN - Sol peruano"),
+        ("BRL", "BRL - Real brasileno"),
+        ("GBP", "GBP - Libra esterlina")
+    };
+
+    // Simbolo de moneda segun el codigo seleccionado (para los campos tipo Moneda).
+    private static string CurrencySymbol(string? code) => (code ?? "").Trim().ToUpperInvariant() switch
+    {
+        "USD" => "US$",
+        "EUR" => "€",
+        "GBP" => "£",
+        "BRL" => "R$",
+        "PEN" => "S/",
+        _ => "$"
+    };
 
     // Hora salida/llegada: se guarda como "salida - llegada". Devuelve la parte idx (0=salida, 1=llegada).
     private static string TimeRangePart(string? combined, int idx)

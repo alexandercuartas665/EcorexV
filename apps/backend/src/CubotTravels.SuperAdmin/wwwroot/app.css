@@ -805,7 +805,13 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .pl-stagegroup-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; color: var(--primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
 .pl-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pl-field.col2 { grid-column: 1 / -1; }
-.pl-field-help { font-size: 11px; color: var(--muted-foreground); margin: 2px 0 6px; font-style: italic; }
+/* Caption pegado a su texto de ayuda (menos separacion) */
+.pl-field .form-label { margin-bottom: 1px; }
+.pl-field-help { font-size: 11px; color: var(--muted-foreground); margin: 0 0 5px; font-style: italic; line-height: 1.25; }
+/* Campo de moneda con simbolo como prefijo */
+.pl-money-input { display: flex; align-items: stretch; }
+.pl-money-input .pl-money-sign { flex: none; display: flex; align-items: center; padding: 0 9px; border: 1px solid var(--border); border-right: none; border-radius: 0.5rem 0 0 0.5rem; background: var(--muted); color: var(--muted-foreground); font-weight: 700; font-size: 12.5px; }
+.pl-money-input input { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .pl-multi-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .pl-multi-idx { flex: none; min-width: 22px; height: 22px; border-radius: 6px; background: var(--muted); color: var(--muted-foreground); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
 .pl-multi-del { flex: none; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--destructive); cursor: pointer; line-height: 1; font-size: 16px; }

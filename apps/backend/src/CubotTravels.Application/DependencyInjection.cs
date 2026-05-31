@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IWompiCheckoutService, WompiCheckoutService>();
         services.AddScoped<IRecurringBillingService, RecurringBillingService>();
         services.AddScoped<IOnboardingService, OnboardingService>();
+        services.AddScoped<IPlatformOperatorService, PlatformOperatorService>();
         services.AddScoped<ISelfSignupService, SelfSignupService>();
         services.AddScoped<IAccountActivationService, AccountActivationService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
@@ -57,6 +58,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAiUsageService, Tenancy.AiUsageService>();
         services.AddScoped<Tenancy.IAiInferenceService, Tenancy.AiInferenceService>();
         services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();
+        services.AddScoped<Tenancy.ITaskBoardService, Tenancy.TaskBoardService>();
+        services.AddScoped<Tenancy.ITaskCardService, Tenancy.TaskCardService>();
         return services;
     }
 }

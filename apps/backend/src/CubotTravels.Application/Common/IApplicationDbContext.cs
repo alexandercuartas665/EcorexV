@@ -34,6 +34,15 @@ public interface IApplicationDbContext
     DbSet<AiAgentCacheValue> AiAgentCacheValues { get; }
     DbSet<AiUsageLog> AiUsageLogs { get; }
     DbSet<AutomationRule> AutomationRules { get; }
+    DbSet<TaskBoard> TaskBoards { get; }
+    DbSet<TaskBoardColumn> TaskBoardColumns { get; }
+    DbSet<TaskCard> TaskCards { get; }
+    DbSet<TaskCardAssignment> TaskCardAssignments { get; }
+    DbSet<TaskCardTag> TaskCardTags { get; }
+    DbSet<TaskCardTagAssignment> TaskCardTagAssignments { get; }
+    DbSet<TaskCardChecklistItem> TaskCardChecklistItems { get; }
+    DbSet<TaskCardActivity> TaskCardActivities { get; }
+    DbSet<TaskCardAttachment> TaskCardAttachments { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

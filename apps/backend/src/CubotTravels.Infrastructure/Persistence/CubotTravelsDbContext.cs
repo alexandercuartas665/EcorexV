@@ -66,6 +66,17 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
     public DbSet<AiUsageLog> AiUsageLogs => Set<AiUsageLog>();
     public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
 
+    // Modulo Tableros (Kanban de tareas/proyectos por agencia).
+    public DbSet<TaskBoard> TaskBoards => Set<TaskBoard>();
+    public DbSet<TaskBoardColumn> TaskBoardColumns => Set<TaskBoardColumn>();
+    public DbSet<TaskCard> TaskCards => Set<TaskCard>();
+    public DbSet<TaskCardAssignment> TaskCardAssignments => Set<TaskCardAssignment>();
+    public DbSet<TaskCardTag> TaskCardTags => Set<TaskCardTag>();
+    public DbSet<TaskCardTagAssignment> TaskCardTagAssignments => Set<TaskCardTagAssignment>();
+    public DbSet<TaskCardChecklistItem> TaskCardChecklistItems => Set<TaskCardChecklistItem>();
+    public DbSet<TaskCardActivity> TaskCardActivities => Set<TaskCardActivity>();
+    public DbSet<TaskCardAttachment> TaskCardAttachments => Set<TaskCardAttachment>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Todos los enums se persisten como texto (legibles y estables ante reordenamientos).
@@ -94,6 +105,7 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
         configurationBuilder.Properties<EvolutionIntegrationStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WebhookProcessingStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -433,6 +445,8 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
             b.Property(x => x.Label).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(600);
+            // Default true: por defecto el motor puede actualizar el dato si lo necesita.
+            b.Property(x => x.IsUpdatable).HasDefaultValue(true);
             b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.AgentId, x.SortOrder });
             // FieldKey unica por agente: el motor identifica el dato por esta clave.
@@ -468,6 +482,83 @@ public class CubotTravelsDbContext : DbContext, IApplicationDbContext, IDataProt
             b.Property(x => x.TemplateCategory).HasMaxLength(40);
             b.Property(x => x.ShiftName).HasMaxLength(60);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        // ---- Modulo Tableros (Kanban) ----
+
+        modelBuilder.Entity<TaskBoard>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(2000);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<TaskBoardColumn>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.HasOne(x => x.Board).WithMany().HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.BoardId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<TaskCard>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasColumnType("text");
+            b.HasOne(x => x.Board).WithMany().HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Column).WithMany().HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.BoardId, x.ColumnId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+        });
+
+        modelBuilder.Entity<TaskCardAssignment>(b =>
+        {
+            b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.TenantUser).WithMany().HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Cascade);
+            // Un usuario no se asigna dos veces a la misma tarjeta.
+            b.HasIndex(x => new { x.TaskCardId, x.TenantUserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskCardTag>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.HasOne(x => x.Board).WithMany().HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
+            // El nombre de etiqueta es unico por tablero.
+            b.HasIndex(x => new { x.BoardId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskCardTagAssignment>(b =>
+        {
+            b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskCardId, x.TagId }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskCardChecklistItem>(b =>
+        {
+            b.Property(x => x.Text).HasMaxLength(500).IsRequired();
+            b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskCardId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<TaskCardActivity>(b =>
+        {
+            b.Property(x => x.ActorName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Text).HasColumnType("text").IsRequired();
+            b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<TaskCardAttachment>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.MimeType).HasMaxLength(120);
+            b.Property(x => x.UploadedByName).HasMaxLength(200);
+            b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
         });
     }
 

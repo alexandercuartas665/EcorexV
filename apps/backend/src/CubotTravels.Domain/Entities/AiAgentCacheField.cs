@@ -22,4 +22,11 @@ public class AiAgentCacheField : TenantEntity
     public string? Description { get; set; }
 
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Si esta en true, el motor de inferencia puede sobrescribir el valor del dato durante la
+    /// conversacion (ej. el cliente cambia el destino). Si esta en false, una vez capturado queda
+    /// fijo y no se actualiza (ej. tipo_cliente, idContacto).
+    /// </summary>
+    public bool IsUpdatable { get; set; } = true;
 }

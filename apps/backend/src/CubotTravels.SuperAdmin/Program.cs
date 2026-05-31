@@ -42,6 +42,8 @@ builder.Services
 builder.Services.AddAuthorizationBuilder()
     // Operador de plataforma (Super Admin / roles internos): tiene claim platform_role.
     .AddPolicy("PlatformOperator", p => p.RequireClaim("platform_role"))
+    // Solo SuperAdmin (alta del equipo de plataforma).
+    .AddPolicy("SuperAdminOnly", p => p.RequireClaim("platform_role", "SuperAdmin"))
     // Miembro de una agencia: tiene claim tenant_id.
     .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"));
 
@@ -93,6 +95,7 @@ else
     await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     await seeder.SeedAsync();
+    await seeder.EnsurePlatformAdminTenantAsync();
     await seeder.EnsureDemoTemplateAssetsAsync();
 }
 
@@ -143,32 +146,35 @@ app.MapPost("/auth/login", async (
     };
 
     string redirect;
-    if (user.PlatformRole is PlatformRole role)
+    var isOperator = user.PlatformRole is PlatformRole platformRole;
+    if (isOperator)
     {
-        // Operador de plataforma (Super Admin / roles internos).
-        claims.Add(new Claim("platform_role", role.ToString()));
-        redirect = "/";
+        claims.Add(new Claim("platform_role", user.PlatformRole!.Value.ToString()));
     }
-    else
+
+    // Membresia de agencia: la resolvemos para TODOS los usuarios (operador o no). Un operador
+    // de plataforma que ademas sea miembro de un tenant (ej. el Super Admin como Owner del tenant
+    // interno "Plataforma CUBOT") recibe los dos claims y puede usar tanto la consola de gobierno
+    // como los modulos comerciales tenant-scoped (Pipeline, Conversaciones, etc.).
+    var membership = await db.TenantUsers
+        .IgnoreQueryFilters()
+        .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+        .OrderBy(tu => tu.CreatedAt)
+        .FirstOrDefaultAsync();
+
+    if (!isOperator && membership is null)
     {
-        // Usuario de agencia: resolver su membresia activa. Sin contexto de tenant aun,
-        // se ignora el filtro global para localizar la membresia por su PlatformUserId.
-        var membership = await db.TenantUsers
-            .IgnoreQueryFilters()
-            .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
-            .OrderBy(tu => tu.CreatedAt)
-            .FirstOrDefaultAsync();
+        // Identidad valida pero sin rol de plataforma ni membresia activa: sin acceso.
+        return Results.Redirect("/login?error=1");
+    }
 
-        if (membership is null)
-        {
-            // Identidad valida pero sin rol de plataforma ni membresia activa: sin acceso.
-            return Results.Redirect("/login?error=1");
-        }
-
+    if (membership is not null)
+    {
         claims.Add(new Claim("tenant_id", membership.TenantId.ToString()));
         claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
-        redirect = "/mi-cuenta";
     }
+
+    redirect = isOperator ? "/" : "/mi-cuenta";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
@@ -340,7 +346,8 @@ app.MapGet("/signin-google", async (
     [FromQuery] string? code,
     [FromQuery] string? state,
     [FromQuery] string? error,
-    CubotTravels.Application.Auth.IGoogleSignInService google) =>
+    CubotTravels.Application.Auth.IGoogleSignInService google,
+    CubotTravelsDbContext db) =>
 {
     if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code))
     {
@@ -379,17 +386,34 @@ app.MapGet("/signin-google", async (
     };
 
     string redirect;
-    if (result.PlatformRole is not null)
+    var isOperator = result.PlatformRole is not null;
+    if (isOperator)
     {
-        claims.Add(new Claim("platform_role", result.PlatformRole));
-        redirect = "/";
+        claims.Add(new Claim("platform_role", result.PlatformRole!));
     }
-    else
+
+    // Si el resultado de Google ya trae tenant_id (login de tenant), lo usamos; si no, miramos si
+    // el usuario es miembro de algun tenant (caso Super Admin con tenant interno "Plataforma CUBOT").
+    if (result.TenantId is { } resultTenantId)
     {
-        claims.Add(new Claim("tenant_id", result.TenantId!.Value.ToString()));
-        claims.Add(new Claim("tenant_role", result.TenantRole ?? string.Empty));
-        redirect = "/mi-cuenta";
+        claims.Add(new Claim("tenant_id", resultTenantId.ToString()));
+        claims.Add(new Claim("tenant_role", result.TenantRole ?? TenantRole.Owner.ToString()));
     }
+    else if (isOperator)
+    {
+        var membership = await db.TenantUsers
+            .IgnoreQueryFilters()
+            .Where(tu => tu.PlatformUserId == result.UserId && tu.Status == PlatformUserStatus.Active)
+            .OrderBy(tu => tu.CreatedAt)
+            .FirstOrDefaultAsync();
+        if (membership is not null)
+        {
+            claims.Add(new Claim("tenant_id", membership.TenantId.ToString()));
+            claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
+        }
+    }
+
+    redirect = isOperator ? "/" : "/mi-cuenta";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));

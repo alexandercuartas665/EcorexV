@@ -24,7 +24,7 @@ public sealed class AiAgentCacheService : IAiAgentCacheService
         return await _db.AiAgentCacheFields.AsNoTracking()
             .Where(f => f.AgentId == agentId)
             .OrderBy(f => f.SortOrder).ThenBy(f => f.Label)
-            .Select(f => new AiAgentCacheFieldDto(f.Id, f.AgentId, f.FieldKey, f.Label, f.Description, f.SortOrder))
+            .Select(f => new AiAgentCacheFieldDto(f.Id, f.AgentId, f.FieldKey, f.Label, f.Description, f.SortOrder, f.IsUpdatable))
             .ToListAsync(cancellationToken);
     }
 
@@ -51,13 +51,14 @@ public sealed class AiAgentCacheService : IAiAgentCacheService
             FieldKey = key,
             Label = label,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
-            SortOrder = nextOrder
+            SortOrder = nextOrder,
+            IsUpdatable = request.IsUpdatable
         };
         _db.AiAgentCacheFields.Add(field);
         _audit.Write(actorUserId, "ai-agent.cache-field.create", nameof(AiAgentCacheField), field.Id,
             previousValue: null, newValue: new { request.AgentId, field.FieldKey, field.Label }, tenantId: tenantId);
         await _db.SaveChangesAsync(cancellationToken);
-        return new AiAgentCacheFieldDto(field.Id, field.AgentId, field.FieldKey, field.Label, field.Description, field.SortOrder);
+        return new AiAgentCacheFieldDto(field.Id, field.AgentId, field.FieldKey, field.Label, field.Description, field.SortOrder, field.IsUpdatable);
     }
 
     public async Task<AiAgentCacheFieldDto?> UpdateFieldAsync(Guid fieldId, UpdateAgentCacheFieldRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -68,8 +69,9 @@ public sealed class AiAgentCacheService : IAiAgentCacheService
         if (label.Length == 0) { return null; }
         field.Label = label;
         field.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        field.IsUpdatable = request.IsUpdatable;
         await _db.SaveChangesAsync(cancellationToken);
-        return new AiAgentCacheFieldDto(field.Id, field.AgentId, field.FieldKey, field.Label, field.Description, field.SortOrder);
+        return new AiAgentCacheFieldDto(field.Id, field.AgentId, field.FieldKey, field.Label, field.Description, field.SortOrder, field.IsUpdatable);
     }
 
     public async Task<bool> DeleteFieldAsync(Guid fieldId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -130,11 +132,29 @@ public sealed class AiAgentCacheService : IAiAgentCacheService
         }
         else
         {
+            // Si el campo es sticky (no actualizable) y ya tenia valor, no lo sobrescribimos.
+            if (!field.IsUpdatable && !string.IsNullOrWhiteSpace(entry.Value))
+            {
+                return new AiAgentCacheValueDto(field.FieldKey, field.Label, field.Description, entry.Value, entry.Source, entry.UpdatedAt);
+            }
             entry.Value = request.Value;
             entry.Source = request.Source;
         }
         await _db.SaveChangesAsync(cancellationToken);
         return new AiAgentCacheValueDto(field.FieldKey, field.Label, field.Description, entry.Value, entry.Source, entry.UpdatedAt);
+    }
+
+    public async Task<int> BulkSetFieldsUpdatableAsync(Guid agentId, bool isUpdatable, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var fields = await _db.AiAgentCacheFields
+            .Where(f => f.AgentId == agentId && f.IsUpdatable != isUpdatable)
+            .ToListAsync(cancellationToken);
+        if (fields.Count == 0) { return 0; }
+        foreach (var f in fields) { f.IsUpdatable = isUpdatable; }
+        _audit.Write(actorUserId, "ai-agent.cache-field.bulk-set-updatable", nameof(AiAgentCacheField), agentId,
+            previousValue: null, newValue: new { isUpdatable, count = fields.Count }, tenantId: _tenantContext.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return fields.Count;
     }
 
     public async Task<int> ClearValuesAsync(Guid agentId, Guid sessionId, Guid actorUserId, CancellationToken cancellationToken = default)

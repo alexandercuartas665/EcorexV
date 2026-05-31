@@ -14,6 +14,12 @@ public interface IAiAgentCacheService
     Task<AiAgentCacheFieldDto?> UpdateFieldAsync(Guid fieldId, UpdateAgentCacheFieldRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteFieldAsync(Guid fieldId, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Marca todos los campos cache del agente como actualizables o sticky de una sola vez.
+    /// Devuelve cuantos quedaron afectados.
+    /// </summary>
+    Task<int> BulkSetFieldsUpdatableAsync(Guid agentId, bool isUpdatable, Guid actorUserId, CancellationToken cancellationToken = default);
+
     // Valores capturados en una sesion (datos percibidos).
     Task<IReadOnlyList<AiAgentCacheValueDto>> GetValuesAsync(Guid agentId, Guid sessionId, CancellationToken cancellationToken = default);
     Task<AiAgentCacheValueDto?> SetValueAsync(SetAgentCacheValueRequest request, CancellationToken cancellationToken = default);

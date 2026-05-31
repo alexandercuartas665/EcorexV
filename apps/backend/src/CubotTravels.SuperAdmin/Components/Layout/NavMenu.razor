@@ -37,6 +37,11 @@
             <span>Pipeline</span>
         </NavLink>
 
+        <NavLink class="cubot-nav-link" href="tableros">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            <span>Tableros</span>
+        </NavLink>
+
         <NavLink class="cubot-nav-link" href="conversaciones">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
             <span>Conversaciones</span>
@@ -95,6 +100,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>
             <span>Agencias</span>
         </NavLink>
+
+        @if (_isSuperAdmin)
+        {
+            <NavLink class="cubot-nav-link" href="equipo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>Equipo plataforma</span>
+            </NavLink>
+        }
 
         <NavLink class="cubot-nav-link" href="plans">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
@@ -155,6 +168,7 @@
     // (tenant_id) ve solo sus grupos comerciales y Mi agencia.
     private bool _showAdmin;
     private bool _showTenant;
+    private bool _isSuperAdmin;
     private string? _userName;
     private string? _tenantName;
     private string _roleLabel = "Operador de plataforma";
@@ -176,6 +190,7 @@
 
         _showAdmin = isPlatformOperator;
         _showTenant = isPlatformOperator || isTenantUser;
+        _isSuperAdmin = state.User.FindFirst("platform_role")?.Value == "SuperAdmin";
 
         _userName = state.User.Identity?.Name;
         _avatar = Initials(_userName);

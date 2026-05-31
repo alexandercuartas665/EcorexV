@@ -86,6 +86,7 @@ else
                 <div class="ag-card-top">
                     <span class="ag-provider @ProviderClass(a.Provider)">@ProviderLabel(a.Provider)</span>
                     <span class="badge @(a.IsActive ? "bg-success" : "bg-secondary")">@(a.IsActive ? "En produccion" : "Apagado")</span>
+                    <button class="ag-card-del" title="Eliminar agente" @onclick="() => OpenDeleteAgent(a)" disabled="@_busy">&times;</button>
                 </div>
                 <div class="ag-name">@a.Name</div>
                 @if (!string.IsNullOrWhiteSpace(a.Role))
@@ -215,6 +216,7 @@ else
                             <span class="ag-accordion-count">@_cacheFields.Count</span>
                             <span class="ag-accordion-spacer"></span>
                             <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="() => OpenCacheField(null)" disabled="@_busy">+ Agregar dato</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="BulkToggleStickyAsync" disabled="@(_busy || _cacheFields.Count == 0)" title="Marca todos los campos como sticky (no se actualizan tras captura) o, si ya estan todos sticky, los pone actualizables.">@(AllSticky() ? "Marcar todos actualizables" : "Marcar todos sticky")</button>
                             <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="OpenPerceivedModal" disabled="@_busy">Ver datos percibidos</button>
                         </div>
                         @if (_cacheOpen)
@@ -233,7 +235,13 @@ else
                                             <div class="ag-item">
                                                 <span class="ag-rtype">DATO</span>
                                                 <div class="ag-item-main">
-                                                    <div class="ag-item-name">@f.Label <span class="text-muted" style="font-size:11px;">(@f.FieldKey)</span></div>
+                                                    <div class="ag-item-name">
+                                                        @f.Label <span class="text-muted" style="font-size:11px;">(@f.FieldKey)</span>
+                                                        @if (!f.IsUpdatable)
+                                                        {
+                                                            <span class="ag-pill-sticky" title="Una vez capturado, este dato queda fijo y no se actualiza.">sticky</span>
+                                                        }
+                                                    </div>
                                                     <div class="ag-item-sub">@(string.IsNullOrWhiteSpace(f.Description) ? "Sin descripcion" : Trim(f.Description!, 90))</div>
                                                 </div>
                                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenCacheField(f)" disabled="@_busy">Editar</button>
@@ -389,6 +397,54 @@ else
                             <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || string.IsNullOrWhiteSpace(_testInput))">Enviar</button>
                         </div>
                     </div>
+
+                    @* Acordeon de depuracion: log cronologico de los prompts enviados a la IA (mas reciente arriba). *@
+                    <div class="ag-accordion" style="margin-top:10px;">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _debugPromptOpen = !_debugPromptOpen">
+                            <span class="ag-accordion-chev @(_debugPromptOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Prompts enviados a la IA</span>
+                            @if (_debugLog.Count > 0)
+                            {
+                                <span class="ag-accordion-count" title="Llamadas registradas">@_debugLog.Count</span>
+                            }
+                            <span class="ag-accordion-spacer"></span>
+                            @if (_debugLog.Count > 0)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick:stopPropagation="true" @onclick="ClearDebugLog">Limpiar</button>
+                            }
+                        </div>
+                        @if (_debugPromptOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                @if (_debugLog.Count == 0)
+                                {
+                                    <div class="text-muted small">Envia un mensaje al agente para ver aqui los prompts (principal del agente + extractor de cache) que se enviaron a la IA, con su fecha y hora.</div>
+                                }
+                                else
+                                {
+                                    <div style="display:flex;flex-direction:column;gap:10px;max-height:520px;overflow-y:auto;padding-right:4px;">
+                                        @for (int i = _debugLog.Count - 1; i >= 0; i--)
+                                        {
+                                            var entry = _debugLog[i];
+                                            <div class="ag-prompt-entry">
+                                                <div class="ag-prompt-entry-head">
+                                                    <span class="ag-prompt-entry-time">fecha hora: @entry.SentAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                                                    <span class="ag-prompt-entry-title">@entry.Title</span>
+                                                </div>
+                                                <div class="ag-prompt-entry-label">Prompt enviado</div>
+                                                <textarea class="form-control" rows="10" readonly style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;white-space:pre;">@entry.Content</textarea>
+                                                @if (entry.Response is not null)
+                                                {
+                                                    <div class="ag-prompt-entry-label" style="margin-top:8px;">Respuesta del LLM</div>
+                                                    <textarea class="form-control" rows="4" readonly style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;white-space:pre;">@entry.Response</textarea>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>@* /ag-editor-right *@
                }
               </div>@* /ag-editor-cols *@
@@ -453,6 +509,25 @@ else
                 <div class="field">
                     <label class="form-label">De que trata el dato</label>
                     <textarea class="form-control" rows="3" @bind="_cDescription" placeholder="Pista para el motor: que dato debe extraer del mensaje del cliente"></textarea>
+                </div>
+                <div class="field">
+                    <label class="form-label" style="display:flex;align-items:center;gap:10px;">
+                        <label class="ag-switch" style="margin:0;">
+                            <input type="checkbox" checked="@_cIsUpdatable" @onchange="e => _cIsUpdatable = (bool)e.Value!" />
+                            <span class="ag-slider"></span>
+                        </label>
+                        Actualizable durante la conversacion
+                    </label>
+                    <div class="text-muted" style="font-size:11.5px;margin-top:4px;">
+                        @if (_cIsUpdatable)
+                        {
+                            <span>El agente puede sobrescribir el valor si el cliente cambia de opinion (ej. cambio de destino, de fecha).</span>
+                        }
+                        else
+                        {
+                            <span>Una vez capturado, el valor queda fijo y el motor no lo sobrescribe (ideal para tipo_cliente, idContacto, etc).</span>
+                        }
+                    </div>
                 </div>
                 @if (_cacheError is not null)
                 {
@@ -578,6 +653,61 @@ else
     </div>
 }
 
+@* ===== Modal: eliminar agente (doble confirmacion) ===== *@
+@if (_deleteAgent is not null)
+{
+    <div class="modal-overlay" style="z-index:1300;">
+        <div class="modal-dialog" style="max-width:560px;">
+            <div class="modal-head">
+                <h3>@(_deleteStep == 1 ? "Eliminar agente" : "Confirmacion final")</h3>
+                <button class="modal-close" @onclick="CloseDeleteAgent">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_deleteStep == 1)
+                {
+                    <div style="font-size:14px;margin-bottom:12px;">
+                        Vas a eliminar el agente <strong>@_deleteAgent.Name</strong>. Esta accion no se puede deshacer.
+                    </div>
+                    <div class="text-muted" style="font-size:12.5px;">
+                        Si continuas, en el siguiente paso te mostraremos exactamente que se borrara y te pediremos una confirmacion final.
+                    </div>
+                }
+                else
+                {
+                    <div style="font-size:13.5px;margin-bottom:10px;">
+                        Esto eliminara <strong>permanentemente</strong>:
+                    </div>
+                    <ul style="font-size:13px;line-height:1.7;margin-bottom:14px;">
+                        <li>El agente <strong>@_deleteAgent.Name</strong> y su prompt base.</li>
+                        <li><strong>@_delResourcesCount</strong> recurso@(_delResourcesCount == 1 ? "" : "s") (saludos, fichas, PDFs, etc).</li>
+                        <li><strong>@_delPromptsCount</strong> prompt@(_delPromptsCount == 1 ? "" : "s") enrutado@(_delPromptsCount == 1 ? "" : "s").</li>
+                        <li><strong>@_delCacheFieldsCount</strong> campo@(_delCacheFieldsCount == 1 ? "" : "s") de cache y sus valores capturados.</li>
+                    </ul>
+                    <div class="field">
+                        <label class="form-label" style="font-size:12.5px;">Para confirmar, escribe el nombre exacto del agente:</label>
+                        <input class="form-control" placeholder="@_deleteAgent.Name" @bind="_delConfirmName" @bind:event="oninput" autocomplete="off" />
+                    </div>
+                    @if (_delError is not null)
+                    {
+                        <div class="text-danger small" style="margin-top:6px;">@_delError</div>
+                    }
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseDeleteAgent" disabled="@_busy">Cancelar</button>
+                @if (_deleteStep == 1)
+                {
+                    <button class="btn btn-outline-danger" @onclick="GoToDeleteStep2">Continuar</button>
+                }
+                else
+                {
+                    <button class="btn btn-danger" @onclick="ConfirmDeleteAgentAsync" disabled="@(_busy || !string.Equals(_delConfirmName, _deleteAgent.Name, StringComparison.Ordinal))">Eliminar definitivamente</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -625,6 +755,7 @@ else
     private Guid? _cacheEditId;
     private string _cName = "";
     private string? _cDescription;
+    private bool _cIsUpdatable = true;
     private string? _cacheError;
 
     // Acordeones del editor (colapsados por defecto para no llenar la columna).
@@ -632,6 +763,15 @@ else
     private bool _resourcesOpen;
     // Modal aparte para los datos percibidos en la sesion de prueba.
     private bool _perceivedModalOpen;
+
+    // Eliminacion de agente (doble confirmacion).
+    private AiAgentDto? _deleteAgent;
+    private int _deleteStep = 1;
+    private int _delResourcesCount;
+    private int _delPromptsCount;
+    private int _delCacheFieldsCount;
+    private string _delConfirmName = "";
+    private string? _delError;
 
     // Editor de texto (formato WhatsApp + emojis)
     private bool _baseEmojiOpen;
@@ -648,6 +788,10 @@ else
     private string? _testInput;
     private bool _testBusy;
     private string? _testError;
+
+    // Depuracion: log cronologico de prompts enviados a la IA (uno por cada llamada al LLM).
+    private readonly List<AiDebugPrompt> _debugLog = new();
+    private bool _debugPromptOpen;
 
     private sealed record TestMsg(string Role, string Text, IReadOnlyList<AiChatAttachment>? Attachments = null);
 
@@ -725,6 +869,8 @@ else
         _testInput = null;
         _testError = null;
         _testBusy = false;
+        _debugLog.Clear();
+        _debugPromptOpen = false;
     }
 
     private static string MapsLink(string? coords) => $"https://www.google.com/maps?q={coords}";
@@ -766,6 +912,7 @@ else
         _cacheEditId = f?.Id;
         _cName = f?.Label ?? "";
         _cDescription = f?.Description;
+        _cIsUpdatable = f?.IsUpdatable ?? true;
         _cacheModalOpen = true;
     }
 
@@ -780,12 +927,12 @@ else
             var actor = await ActorAsync();
             if (_cacheEditId is null)
             {
-                var created = await CacheSvc.CreateFieldAsync(new CreateAgentCacheFieldRequest(_editId.Value, _cName, _cDescription), actor);
+                var created = await CacheSvc.CreateFieldAsync(new CreateAgentCacheFieldRequest(_editId.Value, _cName, _cDescription, _cIsUpdatable), actor);
                 if (created is null) { _cacheError = "No se pudo crear el dato."; return; }
             }
             else
             {
-                var updated = await CacheSvc.UpdateFieldAsync(_cacheEditId.Value, new UpdateAgentCacheFieldRequest(_cName, _cDescription), actor);
+                var updated = await CacheSvc.UpdateFieldAsync(_cacheEditId.Value, new UpdateAgentCacheFieldRequest(_cName, _cDescription, _cIsUpdatable), actor);
                 if (updated is null) { _cacheError = "No se pudo actualizar el dato."; return; }
             }
             await ReloadCacheAsync(_editId.Value);
@@ -815,6 +962,22 @@ else
         {
             var actor = await ActorAsync();
             await CacheSvc.ClearValuesAsync(_editId.Value, _editId.Value, actor);
+            await ReloadCacheAsync(_editId.Value);
+        }
+        finally { _busy = false; }
+    }
+
+    private bool AllSticky() => _cacheFields.Count > 0 && _cacheFields.All(f => !f.IsUpdatable);
+
+    private async Task BulkToggleStickyAsync()
+    {
+        if (_editId is null || _cacheFields.Count == 0) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var target = !AllSticky();   // si NO todos son sticky -> los pone sticky (IsUpdatable=false); si todos son sticky, los pone actualizables.
+            await CacheSvc.BulkSetFieldsUpdatableAsync(_editId.Value, !target, actor);
             await ReloadCacheAsync(_editId.Value);
         }
         finally { _busy = false; }
@@ -979,8 +1142,12 @@ else
         _testBusy = true;
         try
         {
-            var turns = _testMsgs.Select(m => new AiChatTurn(m.Role, m.Text)).ToList();
+            // Pasamos tambien los adjuntos de cada turno; el extractor de cache los usa para construir
+            // una transcripcion legible (sino veria texto vacio cuando el agente solo respondio con un recurso).
+            var turns = _testMsgs.Select(m => new AiChatTurn(m.Role, m.Text, m.Attachments)).ToList();
             var result = await InferenceSvc.TestChatAsync(_editId.Value, turns, _fPrompt);
+            // Acumulamos las entradas del log de prompts (principal + extractor) en orden cronologico.
+            if (result.DebugPrompts is not null) { _debugLog.AddRange(result.DebugPrompts); }
             if (result.Ok && (!string.IsNullOrWhiteSpace(result.Text) || result.Attachments is { Count: > 0 }))
             {
                 _testMsgs.Add(new TestMsg("model", result.Text ?? "", result.Attachments));
@@ -995,6 +1162,8 @@ else
         }
         finally { _testBusy = false; }
     }
+
+    private void ClearDebugLog() => _debugLog.Clear();
 
     // Reenvia la respuesta del agente (texto + adjuntos) a un telefono real por una linea conectada.
     private async Task SendToPhoneAsync(string? text, IReadOnlyList<AiChatAttachment>? attachments)
@@ -1106,6 +1275,68 @@ else
             await AgentsSvc.SetActiveAsync(_editId.Value, active, actor);
             _fActive = active;
             await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Eliminar agente (doble confirmacion) =====
+    private void OpenDeleteAgent(AiAgentDto a)
+    {
+        _deleteAgent = a;
+        _deleteStep = 1;
+        _delResourcesCount = a.ResourceCount;
+        _delPromptsCount = 0;
+        _delCacheFieldsCount = 0;
+        _delConfirmName = "";
+        _delError = null;
+    }
+
+    private void CloseDeleteAgent()
+    {
+        _deleteAgent = null;
+        _deleteStep = 1;
+        _delConfirmName = "";
+        _delError = null;
+    }
+
+    private async Task GoToDeleteStep2()
+    {
+        if (_deleteAgent is null) { return; }
+        // Cargamos las cuentas exactas justo antes del paso 2 para que el usuario vea que se borrara.
+        try
+        {
+            var detail = await AgentsSvc.GetAsync(_deleteAgent.Id);
+            if (detail is not null)
+            {
+                _delResourcesCount = detail.Resources.Count;
+                _delPromptsCount = detail.Prompts.Count;
+            }
+            _delCacheFieldsCount = (await CacheSvc.ListFieldsAsync(_deleteAgent.Id)).Count;
+        }
+        catch { /* si fallan las cuentas seguimos con los valores por defecto */ }
+        _deleteStep = 2;
+    }
+
+    private async Task ConfirmDeleteAgentAsync()
+    {
+        if (_deleteAgent is null) { return; }
+        if (!string.Equals(_delConfirmName, _deleteAgent.Name, StringComparison.Ordinal))
+        {
+            _delError = "El nombre no coincide.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var ok = await AgentsSvc.DeleteAsync(_deleteAgent.Id, actor);
+            if (!ok) { _delError = "No se pudo eliminar el agente."; return; }
+            CloseDeleteAgent();
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _delError = ex.Message;
         }
         finally { _busy = false; }
     }

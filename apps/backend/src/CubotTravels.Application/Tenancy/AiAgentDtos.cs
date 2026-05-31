@@ -38,9 +38,9 @@ public sealed record UpdateAgentPromptRequest(string Name, string? Rule, string 
 
 // --- Datos Cache del agente (capa 3) ---
 // Definicion del dato que el agente debe ir capturando durante la conversacion.
-public sealed record AiAgentCacheFieldDto(Guid Id, Guid AgentId, string FieldKey, string Label, string? Description, int SortOrder);
-public sealed record CreateAgentCacheFieldRequest(Guid AgentId, string Label, string? Description);
-public sealed record UpdateAgentCacheFieldRequest(string Label, string? Description);
+public sealed record AiAgentCacheFieldDto(Guid Id, Guid AgentId, string FieldKey, string Label, string? Description, int SortOrder, bool IsUpdatable);
+public sealed record CreateAgentCacheFieldRequest(Guid AgentId, string Label, string? Description, bool IsUpdatable = true);
+public sealed record UpdateAgentCacheFieldRequest(string Label, string? Description, bool IsUpdatable = true);
 
 // Valor capturado por sesion. Para pruebas la sesion es el AgentId; en chat real sera el ConversationId.
 public sealed record AiAgentCacheValueDto(string FieldKey, string Label, string? Description, string? Value, string? Source, DateTimeOffset? UpdatedAt);

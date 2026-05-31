@@ -115,6 +115,53 @@ public sealed class DatabaseSeeder
             SuperAdminEmail, SuperAdminPassword, TenantAdminEmail, TenantAdminPassword);
     }
 
+    /// <summary>
+    /// Asegura que el Super Admin (admin@cubot.travels) tambien sea Owner de un tenant interno
+    /// "Plataforma CUBOT". Asi el Super Admin puede usar Pipeline y los modulos comerciales como
+    /// si fuera una agencia mas, sin perder su rol de gobierno de la plataforma. Idempotente: si
+    /// el tenant interno o la membresia ya existen, no hace nada.
+    /// </summary>
+    public async Task EnsurePlatformAdminTenantAsync(CancellationToken cancellationToken = default)
+    {
+        var superAdmin = await _db.PlatformUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.PlatformRole == PlatformRole.SuperAdmin && u.Status == PlatformUserStatus.Active, cancellationToken);
+        if (superAdmin is null) { return; }
+
+        var platformTenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Internal, cancellationToken);
+        if (platformTenant is null)
+        {
+            platformTenant = new Tenant
+            {
+                Name = "Plataforma CUBOT",
+                LegalName = "CUBOT.travels SAS",
+                Country = "CO",
+                Currency = "COP",
+                Status = TenantStatus.Active,
+                Kind = TenantKind.Internal
+            };
+            _db.Tenants.Add(platformTenant);
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Tenant interno 'Plataforma CUBOT' creado para el Super Admin (id={Id}).", platformTenant.Id);
+        }
+
+        var membership = await _db.TenantUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(tu => tu.TenantId == platformTenant.Id && tu.PlatformUserId == superAdmin.Id, cancellationToken);
+        if (membership is null)
+        {
+            _db.TenantUsers.Add(new TenantUser
+            {
+                TenantId = platformTenant.Id,
+                PlatformUserId = superAdmin.Id,
+                Email = superAdmin.Email,
+                TenantRole = TenantRole.Owner,
+                Status = PlatformUserStatus.Active
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Super Admin {Email} agregado como Owner del tenant interno.", superAdmin.Email);
+        }
+    }
+
     // Recursos de ejemplo (imagenes) de la galeria de plantillas para la agencia demo. Idempotente:
     // solo registra si la agencia aun no tiene recursos. Se llama en cada arranque de Desarrollo.
     public async Task EnsureDemoTemplateAssetsAsync(CancellationToken cancellationToken = default)

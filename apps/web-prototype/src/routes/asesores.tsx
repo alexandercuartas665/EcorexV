@@ -5,7 +5,7 @@ import { Users, Plus } from "lucide-react";
 export const Route = createFileRoute("/asesores")({
   head: () => ({
     meta: [
-      { title: "Asesores · CUBOT.travels" },
+      { title: "Asesores · CUBOT.nails" },
       { name: "description", content: "Gestión de asesores, turnos, líneas asignadas y performance comercial." },
     ],
   }),

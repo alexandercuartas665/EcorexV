@@ -7,7 +7,7 @@
       "runtimeArgs": [
         "run",
         "--project",
-        "apps/backend/src/CubotTravels.SuperAdmin/CubotTravels.SuperAdmin.csproj",
+        "apps/backend/src/CubotNails.SuperAdmin/CubotNails.SuperAdmin.csproj",
         "--launch-profile",
         "http"
       ],
@@ -19,7 +19,7 @@
       "runtimeArgs": [
         "run",
         "--project",
-        "apps/backend/src/CubotTravels.Web/CubotTravels.Web/CubotTravels.Web.csproj",
+        "apps/backend/src/CubotNails.Web/CubotNails.Web/CubotNails.Web.csproj",
         "--launch-profile",
         "http"
       ],

@@ -18,7 +18,7 @@ futuros Workers necesitan descifrar los mismos secretos.
 ## Decision
 
 1. **Data Protection compartida en la base de datos.** `AddInfrastructure` configura
-   `AddDataProtection().SetApplicationName("CubotTravels").PersistKeysToDbContext<CubotTravelsDbContext>()`.
+   `AddDataProtection().SetApplicationName("CubotNails").PersistKeysToDbContext<CubotNailsDbContext>()`.
    Las llaves viven en la tabla `data_protection_keys` (Postgres compartido) con un nombre de
    aplicacion comun, de modo que cualquier app del sistema cifra/descifra los mismos secretos.
    Paquete: `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`.

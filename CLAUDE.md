@@ -1,213 +1,244 @@
-# CLAUDE.md - Memoria del agente de desarrollo para CUBOT.travels
+# CLAUDE.md - Memoria del agente de desarrollo para CUBOT.nails
 
-> Este archivo es la primera lectura obligatoria para cualquier agente de desarrollo (Claude Code u otro) antes de modificar codigo en este repositorio. Reglas pequenas, concretas y verificables.
+> Primera lectura obligatoria para cualquier agente (Claude Code u otro) antes de
+> modificar codigo en este repositorio. Reglas pequenas, concretas y verificables.
+> Convencion del proyecto: **solo ASCII** en archivos nuevos (sin tildes ni enie).
 
 ---
 
 ## 1. Contexto del proyecto
 
-CUBOT.travels es un **SaaS multi-tenant para agencias turisticas** orientado a:
+CUBOT.nails es un **SaaS multi-tenant de agenda y turnos para centros de belleza**
+(salones de unas, peluquerias, spas, barberias). El activo critico del negocio es
+el **tiempo disponible de cada profesional y cada estacion**, no un catalogo ni un
+embudo de ventas. El corazon del producto es un **motor de agenda** que calcula
+disponibilidad real, evita choques de horario y permite reservar, reprogramar y
+liberar citas con trazabilidad completa.
 
-- Ventas por WhatsApp via Evolution API
-- Embudos comerciales tipo Kanban
-- Automatizacion de seguimientos
-- Agentes de IA (copiloto comercial, clasificador, resumen, seguimiento)
-- Facturacion SaaS con Wompi maestro
-- Super Admin de plataforma separado del admin de tenant
+Pilares:
 
-Repo oficial: `https://github.com/alexandercuartas665/cubotcrm.git`. El contenido actual del repo es el **prototipo visual frontend** (TanStack Start + React 19), no la base backend. El backend .NET esta pendiente de scaffold en `apps/backend/`.
+- Reservas y confirmaciones por **WhatsApp** via Evolution API.
+- Recordatorios automaticos y control de **no-show**.
+- **Agentes de IA** (recepcionista virtual que propone horarios reales, nunca inventa).
+- **Facturacion SaaS** con Wompi maestro y planes con limites.
+- **Super Admin** de plataforma separado del admin de tenant (salon).
+
+### Origen del codigo (importante)
+
+Este repo se **clono desde `cubotcrm.git`** (codigo de CUBOT.travels, el hermano
+mayor de la familia CUBOT) y se renombro `CubotTravels` -> `CubotNails`. Toda la
+columna vertebral SaaS (Super Admin, IA, Evolution, identidad, marca, Wompi) **ya
+viene funcionando**; lo que se construye nuevo es el **nucleo operativo del salon**
+(agenda, turnos, citas, asesores, cadenas, puntualidad).
+
+- `origin`   -> https://github.com/alexandercuartas665/CUBOT.nails.git (push del proyecto nails)
+- `upstream` -> https://github.com/alexandercuartas665/cubotcrm.git (backports de la columna vertebral hermana via fetch + cherry-pick)
 
 ---
 
-## 2. Fuente de verdad
+## 2. Fuente de verdad (vault Obsidian)
 
-Las especificaciones funcionales viven en el **vault Obsidian**:
+Las especificaciones funcionales viven en:
 
 ```
-C:\Users\acuartas\Documents\Personal\OneDrive\Proyectos\07. Agencias de Viajes\CUBOT.travels\CUBOT.travels
+C:\Users\acuartas\Documents\Personal\OneDrive\Proyectos\08. Agente Belleza\CUBOT.nails
 ```
 
 Documentos maestros (leer en este orden):
 
-1. `02. Inventario de modulos/INVENTARIO GENERAL.md` - mapa de modulos, capas, dependencias, tracker
-2. `03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md` - plan paso a paso (este documento es el contrato de trabajo)
-3. `Capa 0 Vision General/CUBOT.travels.md` - arquitectura general
-4. `Capa 1 Gestion de tenant/Gestion de Tenant - Super Admin SaaS.md` - gobierno SaaS
-5. `Capa 3 Agentes de IA/Agentes de IA - Arquitectura y Operacion.md` - capa IA
-6. `04. Notas para desarrollador/Notas de desarrollo.md` - login Google y otros detalles
+1. `02. Inventario de modulos/INVENTARIO GENERAL.md` - modulos, capas, dependencias, tracker
+2. `03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md` - plan paso a paso (contrato de trabajo)
+3. `01. Requerimiento/Capa 0 Vision General/CUBOT.nails.md` - arquitectura general
+4. `01. Requerimiento/Capa 2 Agenda y Turnos/Agenda, Turnos y Citas - Nucleo Operativo.md` - el corazon
+5. `01. Requerimiento/Capa 1 Gestion de tenant/Gestion de Tenant - Super Admin SaaS.md` - gobierno SaaS
+6. `01. Requerimiento/Capa 3 Agentes de IA/Agentes de IA - Arquitectura y Operacion.md` - capa IA
+7. `02. Inventario de modulos/Modelo de Datos - Entidades y Tablas.md` - modelo de datos
+8. `04. Notas para desarrollador/Notas de desarrollo.md` - concurrencia, anti-overbooking, login
+9. `05. Pruebas/Modelo de pruebas/CREDENCIALES - Usuarios y claves por perfil.md` - credenciales demo
 
-Antes de implementar un modulo, leer su documento correspondiente. No reinterpretar requerimientos a memoria.
+Antes de implementar un modulo, leer su documento. No reinterpretar requerimientos de memoria.
 
 ---
 
 ## 3. Estructura del repositorio
 
 ```txt
-CUBOT.travels/
-├── apps/
-│   ├── web-prototype/        # frontend TanStack Start (prototipo visual)
-│   │   ├── src/              # codigo React/TS del prototipo
-│   │   ├── public/
-│   │   ├── package.json, vite.config.ts, wrangler.jsonc, tsconfig.json
-│   │   └── components.json   # shadcn config
-│   └── backend/              # solucion .NET (scaffold pendiente)
-│       └── (placeholder)
-├── deploy/
-│   └── docker/               # docker-compose, .env.example, README operativo
-├── docs/
-│   ├── decisiones/           # ADRs (Architecture Decision Records)
-│   └── arquitectura/
-├── CLAUDE.md                 # este archivo
-└── .gitignore
+CUBOT.nails/
++-- apps/
+|   +-- web-prototype/                # prototipo React/TanStack (SOLO referencia visual, no es el producto)
+|   +-- backend/
+|       +-- CubotNails.sln
+|       +-- src/
+|       |   +-- CubotNails.Domain/            (entidades + enums)
+|       |   +-- CubotNails.Application/        (servicios, DTOs, casos de uso)
+|       |   +-- CubotNails.Infrastructure/     (EF Core, migraciones, integraciones)
+|       |   +-- CubotNails.Shared/             (contratos compartidos)
+|       |   +-- CubotNails.Api/                (Minimal API + JWT)
+|       |   +-- CubotNails.SuperAdmin/         (CONSOLA UNIFICADA Blazor: super admin Y tenant)
+|       |   +-- CubotNails.Web/                (Blazor Web App heredado + .Client WASM)
+|       |   +-- CubotNails.Workers/            (BackgroundServices)
+|       +-- tests/
+|           +-- CubotNails.Domain.Tests/
+|           +-- CubotNails.Application.Tests/
+|           +-- CubotNails.Integration.Tests/  (Testcontainers - requiere Docker)
++-- deploy/docker/                    # docker-compose, .env.example, README
++-- docs/decisiones/                  # ADRs
++-- docs/arquitectura/
++-- CLAUDE.md                         # este archivo
 ```
 
-**Por que monorepo:** el repo originalmente trae el prototipo en `src/` y la hoja de ruta pide colocar .NET tambien en `src/`. Ver `docs/decisiones/0002-monorepo-apps.md`.
+**Decision clave (heredada de CUBOT.travels):** la consola es **UNA SOLA** app Blazor
+(`CubotNails.SuperAdmin`) que sirve paginas de super admin Y de tenant, separadas por
+**politicas** (`PlatformOperator` vs `TenantMember`), no por aplicaciones distintas.
+
+`CubotNails.Web` viene heredado; su rol final aun se decide (ver pendientes). No borrarlo
+sin un ADR.
 
 ---
 
 ## 4. Stack tecnico
 
-**Backend (pendiente de scaffold):**
+- **.NET**: el codigo apunta hoy a **net9.0** (puente). Objetivo declarado .NET 10;
+  migrar a `net10.0` es un cambio aparte que requiere su propio ADR y validacion.
+  En esta maquina hay SDK 10.0.300 y 9.0.314.
+- Blazor (Server interactivo) para consola y web del salon. SignalR para tiempo real.
+- EF Core + PostgreSQL (snake_case, jsonb, query filters por tenant).
+- Redis: cache de disponibilidad, **locks de reserva**, rate limiting.
+- RabbitMQ + MassTransit para eventos/recordatorios (en MVP pueden ser in-process via MediatR).
+- Serilog + OpenTelemetry. Docker para infraestructura local.
+- Clean Architecture + monolito modular preparado para microservicios.
 
-- .NET 10 + ASP.NET Core 10 (objetivo). En esta maquina hay **.NET 9.0.314 instalado**, se usa como puente temporal hasta migrar - ver `docs/decisiones/` (ADR de excepcion .NET por crear).
-- Blazor (Server/WASM/Hybrid) para frontend empresarial y Super Admin
-- EF Core 10 con PostgreSQL
-- Redis para cache, sesiones, locks
-- RabbitMQ + MassTransit para event bus y workers
-- SignalR para tiempo real (chat, dashboards)
-- Serilog + OpenTelemetry para logs/trazas
-- Clean Architecture + monolito modular preparado para microservicios
+**Frontend del producto: 100% .NET / Blazor (regla firme).** Prohibido Node/npm/React/Vue/Vite
+para construir o desplegar la UI del producto. E2E con Playwright para .NET. El `web-prototype`
+React solo es guia visual; no se evoluciona como producto.
 
-**Frontend del producto: 100% .NET Core / Blazor (regla firme).**
-
-- El frontend se construye exclusivamente con Blazor + componentes Razor sobre el stack Microsoft.
-- **Prohibido en el producto:** Node.js, npm, React, Vue, Vite o cualquier toolchain JavaScript para construir/compilar/desplegar la UI. Ver `docs/decisiones/0004-frontend-solo-dotnet.md`.
-- DTOs, validaciones y contratos se comparten via `CubotTravels.Shared` entre Web y Api.
-- Pruebas E2E con Playwright para .NET (`Microsoft.Playwright`), sin Node.
-
-**Prototipo de referencia (NO es el producto):**
-
-- `apps/web-prototype` es TanStack Start + React 19 + Vite + Tailwind + shadcn (generado con Lovable.dev, deploy Cloudflare).
-- Sirve solo como guia visual de la experiencia. No se evoluciona como producto ni define el stack. Node.js solo se necesita si alguien quiere correrlo localmente.
-
-**Infraestructura local:**
-
-- Docker Compose con Postgres 16, Redis 7, RabbitMQ 3.13, pgAdmin 4
-- Puertos host reasignados: 5434 (postgres), 6381 (redis), 5673/15673 (rabbit), 5051 (pgadmin) - ver `docs/decisiones/0001-puertos-docker-locales.md`
+**Infraestructura local (puertos reasignados, ver docker-compose):**
+Postgres 5434 (`cubot_nails_dev`), Redis 6381, RabbitMQ 5673 / UI 15673, pgAdmin 5051.
 
 ---
 
-## 5. Multi-tenancy (regla bloqueante)
+## 5. REGLA DE ORO DEL DOMINIO: nunca overbooking
+
+El motor de agenda **jamas** puede permitir dos citas en el mismo cupo. Defensa de dos capas,
+ambas obligatorias (ver `04. Notas para desarrollador/Notas de desarrollo.md`):
+
+1. **Base de datos (fuente de verdad):** `UNIQUE(tenant_id, resource_id, appointment_date, start_time)`.
+   Si dos transacciones chocan, Postgres deja pasar una y rechaza la otra; el servicio traduce
+   la violacion a un mensaje amable ("ese horario acaba de ocuparse").
+2. **Aplicacion (mejor experiencia):** lock corto en Redis (`SET NX EX ~10s`) antes de tocar la BD.
+
+Reprogramar = liberar origen + ocupar destino en **una sola transaccion** (rollback si el destino
+viola el unique; registrar `RescheduledFromId`). La IA usa la **misma** ruta de reserva: no tiene
+atajos que salten estas defensas. El **test de concurrencia** que prueba la imposibilidad de doble
+reserva es el hito mas critico del producto.
+
+Zona horaria: la cita se guarda con fecha/hora **local del salon** (`DateOnly`+`TimeOnly`) + `Tenant.TimeZone`.
+UTC solo para auditoria.
+
+---
+
+## 6. Multi-tenancy (regla bloqueante)
 
 - Toda entidad operativa de tenant lleva `TenantId` obligatorio.
-- Toda consulta tenant-scoped debe filtrar por tenant (Query Filters de EF Core).
-- No permitir fuga de datos entre agencias. Tests de aislamiento son obligatorios desde el primer modulo.
-- El rol Super Admin no se mezcla con el rol admin de tenant. Endpoints, politicas, UI y auditoria separadas.
+- Toda consulta tenant-scoped filtra por tenant (Query Filters de EF Core).
+- Sin fuga de datos entre salones. Tests de aislamiento desde el primer modulo.
+- Super Admin no se mezcla con admin de tenant: endpoints, politicas, UI y auditoria separados.
+- Roles de salon: **Owner, Admin, Reception, Professional**. Un `Professional` se vincula a su
+  `Resource` (`LinkedResourceId`) para ver solo su agenda.
 
 ---
 
-## 6. Seguridad (regla no negociable)
+## 7. Seguridad (regla no negociable)
 
-- Secretos en `.env`, user-secrets, o secret store - **nunca** versionados.
-- No loggear: tokens Evolution API, llaves Wompi, llaves IA, credenciales, mensajes privados completos, id tokens, refresh tokens, authorization codes.
-- HTTPS obligatorio fuera de localhost.
-- JWT propio de CUBOT.travels - Google es proveedor de identidad, no de permisos.
-- Rate limiting en endpoints de auth.
-- Auditoria de acciones sensibles (Super Admin, cambios de estado de tenant, configuracion Evolution, Wompi).
+- Secretos en `.env` / user-secrets / DataProtection cifrado en BD - **nunca** versionados ni en claro.
+- No loggear: tokens Evolution API, llaves Wompi, llaves IA, credenciales, mensajes privados, id/refresh tokens.
+- HTTPS obligatorio fuera de localhost. JWT propio de CUBOT.nails (Google es identidad, no permisos).
+- Rate limiting en auth. Auditoria de acciones sensibles (Super Admin, estado de tenant, Evolution, Wompi).
 
 ---
 
-## 7. IA (regla no negociable)
+## 8. IA (regla no negociable)
 
-- Ningun agente se ejecuta sin tenant activo.
-- Ningun agente consume tokens si el plan del tenant no lo permite.
-- Toda ejecucion de IA registra: proveedor, modelo, tokens entrada/salida, costo, agente, lead, tenant, correlation id.
-- La IA inicia en **modo sugerencia**, no respuesta automatica.
-- La IA no inventa precios, disponibilidad, reservas ni condiciones finales.
-- Guardrails antes de enviar respuestas IA al cliente final.
+- Ningun agente se ejecuta sin tenant activo ni si el plan no lo permite.
+- Toda ejecucion registra `AiUsageLog`: proveedor, modelo, tokens in/out, costo, agente, tenant, correlation id.
+- La IA **no inventa** disponibilidad, precios, reservas ni condiciones. Solo ofrece cupos que el motor valido.
+- La IA inicia en **modo sugerencia**; auto-confirmar solo con configuracion explicita del salon.
 
 ---
 
-## 8. Reglas de implementacion
+## 9. Orden de construccion (hoja de ruta nails, seccion 4.5)
 
-- Cambios pequenos, commits frecuentes, tests por modulo.
-- No construir modulos fuera del orden de `INVENTARIO GENERAL.md` sin un ADR.
-- No duplicar reglas: si una regla vive en `Application`, no replicarla en `Api` ni en `Web`.
-- Nombres de clases en ingles; mensajes de usuario final en espanol.
-- Si una decision arquitectonica cambia algo del cerebro digital, registrar en `docs/decisiones/` y reflejar en Obsidian.
-
----
-
-## 9. Orden inicial de modulos (hoja de ruta seccion 8)
+Como el clon ya trae Super Admin + IA + Evolution + identidad + marca, el 80% del trabajo nuevo
+esta en el **Nucleo Operativo (Capa 2)**:
 
 ```
-0.1 Super Admin Console
-  -> 0.2 Planes, Limites y Suscripciones
-    -> 1.1 Onboarding y Activacion de Agencia
-      -> 1.2 Usuarios, Roles y Permisos
-        -> 1.3 Configuracion Evolution API
-          -> 1.4 Gestion de Lineas WhatsApp
-            -> 2.1 Embudo Comercial y Pipeline
-              -> 2.2 Leads y Ficha Comercial
-                -> 2.3 Chat Omnicanal WhatsApp
-                  -> 2.5 Seguimientos y Automatizacion Basica
-                    -> 2.6 Dashboard Comercial
-                      -> 3.1 AI Provider Gateway
-                        -> 3.2 Agent Orchestrator
-                          -> 3.3 Copiloto Comercial
+YA VIENE (renombrar/sembrar/rebrandear):
+  Plataforma multi-tenant, Super Admin, Onboarding, Usuarios/Roles,
+  Lineas WhatsApp + Evolution + SignalR, AI Gateway + Agentes, Branding, Auditoria,
+  Conversaciones, Plantillas, Automatizaciones.
+
+CONSTRUIR NUEVO (en este orden):
+  Menu del sistema (bloqueante de Fase 1)
+   -> Servicios -> Recursos (Asesores de imagen) -> Turnos base
+    -> Motor de disponibilidad -> Citas (ANTI-OVERBOOKING, hito critico)
+     -> Excepciones (globales + por asesor) -> Vista Dia / Semana / Asignacion
+      -> Cadena multi-estacion + Puntualidad 3 estados -> Reprogramaciones
+       -> Recordatorios 24h/2h + No-Show worker -> Dashboard -> Capa IA de reservas
+
+ELIMINAR del menu (son del CRM, no aplican a un salon):
+  Pipeline.razor, Tableros.razor, TableroDetalle.razor y reportes de embudo.
 ```
 
-Romper este orden tiene costo: construir agentes IA antes de chat/leads/limites produce demo bonita pero ingobernable.
+**Primera tarea funcional (antes de cualquier modulo de negocio):** reorganizar el menu/`NavMenu.razor`
+por secciones (Operacion diaria / Configuracion del salon / Comunicacion e IA / Gestion del negocio),
+con stubs de paginas y politicas. Detalle en la Hoja de Ruta.
 
 ---
 
 ## 10. Checklist antes de cada commit
 
-- [ ] `dotnet build` verde (cuando exista solucion .NET).
-- [ ] `dotnet test` verde en proyectos tocados.
-- [ ] Sin secretos versionados.
-- [ ] Sin queries tenant-scoped sin filtro.
-- [ ] Sin credenciales/tokens/mensajes privados en logs.
-- [ ] Si toca Super Admin: auditoria presente.
-- [ ] Si toca IA: medicion de tokens/costo.
-- [ ] Si toca Wompi/Evolution: idempotencia de webhooks.
-- [ ] Si cierra un modulo: actualizar `INVENTARIO GENERAL.md`.
-- [ ] Si decision arquitectonica nueva: registrar en `docs/decisiones/`.
+- [ ] `dotnet build` verde en `apps/backend/CubotNails.sln`.
+- [ ] `dotnet test` verde en proyectos tocados (Integration.Tests requiere Docker).
+- [ ] Sin secretos versionados; sin credenciales/tokens/mensajes privados en logs.
+- [ ] Sin queries tenant-scoped sin filtro de tenant.
+- [ ] Ninguna ruta de reserva puede producir overbooking (unique + lock presentes).
+- [ ] Si toca Super Admin: auditoria. Si toca IA: medicion de tokens. Si toca Wompi/Evolution: webhooks idempotentes.
+- [ ] Si cierra un modulo: actualizar `INVENTARIO GENERAL.md`. Si hay decision nueva: ADR en `docs/decisiones/`.
+- [ ] Archivos nuevos en ASCII.
 
 ---
 
 ## 11. Comandos clave del entorno local
 
 ```powershell
-# Levantar infraestructura
-cd C:\DesarrolloIA\CUBOT.travels\deploy\docker
-docker compose up -d
-docker compose ps
+# Build / test
+cd C:\DesarrolloIA\CUBOT.nails\apps\backend
+dotnet build CubotNails.sln
+dotnet test  CubotNails.sln
 
-# Bajar infraestructura (mantiene datos)
-docker compose down
+# Infraestructura local
+cd C:\DesarrolloIA\CUBOT.nails\deploy\docker
+docker compose up -d ; docker compose ps
 
-# Cadenas de conexion locales (puertos reasignados)
-# Postgres : Host=localhost;Port=5434;Database=cubot_travels_dev;Username=cubot;Password=...
-# Redis    : localhost:6381 (con password)
-# RabbitMQ : amqp://cubot:...@localhost:5673  + UI http://localhost:15673
-# pgAdmin  : http://localhost:5051
+# Migraciones EF (Infrastructure = proyecto, SuperAdmin = startup)
+dotnet ef database update `
+  --project   apps/backend/src/CubotNails.Infrastructure `
+  --startup-project apps/backend/src/CubotNails.SuperAdmin
 
-# Frontend prototipo
-cd C:\DesarrolloIA\CUBOT.travels\apps\web-prototype
-bun install
-bun run dev
+# Levantar la consola unificada
+dotnet run --project apps/backend/src/CubotNails.SuperAdmin --launch-profile https
 ```
 
 ---
 
 ## 12. Riesgos a no romper
 
-1. Fuga de datos entre tenants (tests de aislamiento desde el primer modulo).
-2. Chat acoplado a Evolution API (usar conector + colas + persistencia).
-3. Costos IA sin control (validar plan, registrar costo, modo sugerencia).
-4. Super Admin mezclado con tenant admin (separar roles/politicas/UI).
-5. Wompi duplicando pagos (idempotencia por `provider_event_id`).
-6. Pipeline rigido (etapas configurables por tenant).
-7. Spam de seguimientos (frecuencia, horarios, opt-out, detener al recibir respuesta).
-8. Observabilidad tardia (Serilog + correlation id + health checks desde fase 1).
+1. **Overbooking** (la regla de oro): unique + lock Redis + test de concurrencia.
+2. Fuga de datos entre salones: tests de aislamiento desde el primer modulo.
+3. IA inventando horarios: solo ofrece lo que el motor de disponibilidad valida.
+4. Costos IA sin control: validar plan, registrar `AiUsageLog`, modo sugerencia.
+5. Citas huerfanas al recortar turnos: validacion + confirmacion explicita.
+6. No-show alto: recordatorios + confirmacion + sena opcional.
+7. Zona horaria: fecha/hora local del salon + `Tenant.TimeZone`.
+8. Super Admin mezclado con tenant: roles/politicas/UI/auditoria separados.
+9. Wompi duplicando pagos: idempotencia por `provider_event_id`.

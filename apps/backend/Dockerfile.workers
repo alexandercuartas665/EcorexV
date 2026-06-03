@@ -1,4 +1,4 @@
-# CUBOT.travels - imagen de produccion del worker de fondo (cobro recurrente Wompi).
+# CUBOT.nails - imagen de produccion del worker de fondo (cobro recurrente Wompi).
 # Debe usar la MISMA base de datos que la web para compartir las llaves de DataProtection.
 # Contexto de build esperado: raiz del repo (Railway Root Directory = /).
 
@@ -6,11 +6,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 COPY apps/backend/ ./
-RUN dotnet publish src/CubotTravels.Workers/CubotTravels.Workers.csproj \
+RUN dotnet publish src/CubotNails.Workers/CubotNails.Workers.csproj \
     -c Release -o /app/publish /p:UseAppHost=false
 
 # --- runtime ---
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish ./
-ENTRYPOINT ["dotnet", "CubotTravels.Workers.dll"]
+ENTRYPOINT ["dotnet", "CubotNails.Workers.dll"]

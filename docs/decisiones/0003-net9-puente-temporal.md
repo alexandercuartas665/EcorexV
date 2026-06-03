@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-05-19
 **Estado:** Aceptado
-**Contexto del proyecto:** CUBOT.travels - Scaffold inicial (hoja de ruta seccion 4)
+**Contexto del proyecto:** CUBOT.nails - Scaffold inicial (hoja de ruta seccion 4)
 
 ## Contexto
 
@@ -39,7 +39,7 @@ Esto aplica a los 8 proyectos `src/` y a los 3 proyectos `tests/` indicados en l
 
 ```powershell
 dotnet --version          # debe mostrar 9.x.x
-dotnet build apps\backend\CubotTravels.sln
+dotnet build apps\backend\CubotNails.sln
 ```
 
 Cuando se ejecute la migracion futura, este ADR queda como historico y se crea un ADR-00XX nuevo con estado "Aceptado" que reemplace este.

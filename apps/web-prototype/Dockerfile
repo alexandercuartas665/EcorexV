@@ -1,4 +1,4 @@
-# Prototipo visual CUBOT.travels (TanStack Start + Vite). Solo referencia de diseño.
+# Prototipo visual CUBOT.nails (TanStack Start + Vite). Solo referencia de diseño.
 # Servidor de desarrollo Vite para comparaciones visuales (no es build de produccion).
 FROM oven/bun:1
 

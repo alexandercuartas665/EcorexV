@@ -5,7 +5,7 @@ import { Bot, Sparkles, Plus } from "lucide-react";
 export const Route = createFileRoute("/agentes")({
   head: () => ({
     meta: [
-      { title: "Agentes IA · CUBOT.travels" },
+      { title: "Agentes IA · CUBOT.nails" },
       { name: "description", content: "Copilotos comerciales por agencia: clasificación de leads, extracción de datos y respuestas asistidas." },
     ],
   }),

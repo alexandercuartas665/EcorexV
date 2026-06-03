@@ -9,7 +9,7 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CUBOT.travels — Dashboard de tu Agencia" },
+      { title: "CUBOT.nails — Dashboard de tu Agencia" },
       { name: "description", content: "Pipeline, conversaciones WhatsApp, agentes IA y métricas comerciales de tu agencia turística en un solo lugar." },
     ],
   }),
@@ -268,7 +268,7 @@ function Dashboard() {
       </section>
 
       <footer className="text-center text-[11px] text-muted-foreground pt-2 pb-4">
-        CUBOT.travels v0.1 · CRM Conversacional Multi-Tenant para Agencias Turísticas
+        CUBOT.nails v0.1 · CRM Conversacional Multi-Tenant para Agencias Turísticas
       </footer>
     </div>
   );

@@ -11,7 +11,7 @@ Este documento fija las decisiones de base antes de escribir entidades. Nada se 
 
 ## Punto 1 - BaseEntity y TenantEntity
 
-Dos clases base en `CubotTravels.Domain`:
+Dos clases base en `CubotNails.Domain`:
 
 ```
 BaseEntity (abstracta)
@@ -91,7 +91,7 @@ Se marca con una interfaz `ITenantScoped { Guid TenantId { get; } }` para que el
 
 ## Punto 5 - Enums
 
-En `CubotTravels.Domain` (o `CubotTravels.Shared` si el frontend los necesita). Se persisten como **texto** en PostgreSQL (no int) para legibilidad y estabilidad ante reordenamientos; columnas `varchar`.
+En `CubotNails.Domain` (o `CubotNails.Shared` si el frontend los necesita). Se persisten como **texto** en PostgreSQL (no int) para legibilidad y estabilidad ante reordenamientos; columnas `varchar`.
 
 ```
 TenantStatus            : Trial, Active, PendingPayment, PastDue, Suspended, Blocked, Closing, Archived
@@ -116,14 +116,14 @@ TenantRole              : Owner, Admin, Supervisor, Advisor       # rol interno 
 
 ---
 
-## Punto 6 - CubotTravelsDbContext
+## Punto 6 - CubotNailsDbContext
 
-Vive en `CubotTravels.Infrastructure`. Provider Npgsql.
+Vive en `CubotNails.Infrastructure`. Provider Npgsql.
 
 Componentes:
 
 1. **DbSets** para todas las entidades de los puntos 3 y 4.
-2. **`ITenantContext`** (interfaz en `CubotTravels.Application`, implementacion en Infrastructure/Api): expone `Guid? TenantId` y `Guid? UserId` del request actual. Resuelto desde el claim `tenant_id` del JWT (ver Notas dev). En workers/seed puede no haber tenant.
+2. **`ITenantContext`** (interfaz en `CubotNails.Application`, implementacion en Infrastructure/Api): expone `Guid? TenantId` y `Guid? UserId` del request actual. Resuelto desde el claim `tenant_id` del JWT (ver Notas dev). En workers/seed puede no haber tenant.
 3. **Filtro global de query**: en `OnModelCreating`, para cada entidad que implemente `ITenantScoped`, aplicar
    `modelBuilder.Entity<T>().HasQueryFilter(e => e.TenantId == _tenantContext.TenantId)`.
    Si `TenantId` del contexto es null, el filtro no devuelve filas tenant-scoped (fail-closed). Acceso administrativo cross-tenant usa `IgnoreQueryFilters()` en servicios de plataforma controlados.
@@ -131,7 +131,7 @@ Componentes:
 5. **Interceptor de auditoria** (`SaveChangesInterceptor`): setea `CreatedAt`/`CreatedBy` en Added y `UpdatedAt`/`UpdatedBy` en Modified, usando `ITenantContext.UserId` y un `TimeProvider` (UTC).
 6. **Indices**: unicos por tenant donde aplique (`tenant_users (tenant_id, platform_user_id)`, `tenant_configurations (tenant_id, config_key)`); unico global `wompi_webhook_events (provider_event_id)`; unico `platform_users (google_subject)` y `(email)` normalizado.
 7. **Tipos**: `DateTimeOffset` -> `timestamptz`; `decimal(12,2)` para montos; `jsonb` para payloads/valores de auditoria.
-8. **Migraciones**: EF Core Migrations contra la BD Docker local (`Host=localhost;Port=5434;Database=cubot_travels_dev`). Carpeta `apps/backend/src/CubotTravels.Infrastructure/Migrations`.
+8. **Migraciones**: EF Core Migrations contra la BD Docker local (`Host=localhost;Port=5434;Database=cubot_nails_dev`). Carpeta `apps/backend/src/CubotNails.Infrastructure/Migrations`.
 
 Paquetes NuGet (versiones compatibles net9): `Npgsql.EntityFrameworkCore.PostgreSQL`, `EFCore.NamingConventions`, `Microsoft.EntityFrameworkCore.Design`.
 
@@ -139,12 +139,12 @@ Paquetes NuGet (versiones compatibles net9): `Npgsql.EntityFrameworkCore.Postgre
 
 ## Punto 7 - Test de aislamiento (bloqueante)
 
-Proyecto `CubotTravels.Integration.Tests`. **Bloqueante**: ningun modulo tenant-scoped avanza sin esto verde.
+Proyecto `CubotNails.Integration.Tests`. **Bloqueante**: ningun modulo tenant-scoped avanza sin esto verde.
 
 Estrategia de BD para el test:
 
 - **Testcontainers.PostgreSql** (levanta un Postgres efimero por corrida). Razon: reproducible en CI sin depender de la pila Docker local ni de puertos; aislado entre corridas. Requiere Docker disponible en el runner (ya lo esta en local; en CI se documenta en seccion 12 de la hoja de ruta).
-- Alternativa local rapida: apuntar a la BD `cubot_travels_dev` del compose, pero se prefiere Testcontainers para no ensuciar datos.
+- Alternativa local rapida: apuntar a la BD `cubot_nails_dev` del compose, pero se prefiere Testcontainers para no ensuciar datos.
 
 Escenario:
 
@@ -169,7 +169,7 @@ Criterios de aceptacion (hoja de ruta sec.5.3): sin tenant activo no hay datos t
 1. Enums + `BaseEntity`/`TenantEntity` + interfaz `ITenantScoped` en Domain.
 2. Entidades globales y tenant-scoped en Domain.
 3. `ITenantContext` en Application.
-4. `CubotTravelsDbContext` + naming + filtros + interceptor + configuraciones en Infrastructure.
+4. `CubotNailsDbContext` + naming + filtros + interceptor + configuraciones en Infrastructure.
 5. Migracion inicial contra Postgres local.
 6. Test de aislamiento en Integration.Tests con Testcontainers.
 7. `dotnet build` + `dotnet test` verdes -> commit.

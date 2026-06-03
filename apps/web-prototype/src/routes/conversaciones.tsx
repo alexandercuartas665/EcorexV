@@ -5,7 +5,7 @@ import { MessagesSquare, Send, Search, Bot } from "lucide-react";
 export const Route = createFileRoute("/conversaciones")({
   head: () => ({
     meta: [
-      { title: "Conversaciones · CUBOT.travels" },
+      { title: "Conversaciones · CUBOT.nails" },
       { name: "description", content: "Bandeja unificada WhatsApp con sugerencias del copiloto IA y trazabilidad por asesor." },
     ],
   }),

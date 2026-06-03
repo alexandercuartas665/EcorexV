@@ -1,0 +1,224 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject ITenantAdminService TenantsSvc
+
+<div class="cubot-brand">
+    <div class="cubot-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+    </div>
+    <div>
+        <div class="cubot-brand-name">CUBOT<span>.travels</span></div>
+        <div class="cubot-brand-sub">CRM Conversacional</div>
+    </div>
+</div>
+
+<div class="cubot-agency">
+    @if (_showAdmin)
+    {
+        <div class="lbl">Plataforma</div>
+        <div class="name">CUBOT.nails</div>
+        <div class="meta">Consola de gobierno</div>
+    }
+    else
+    {
+        <div class="lbl">Agencia</div>
+        <div class="name">@(_tenantName ?? "Mi agencia")</div>
+        <div class="meta">@_roleLabel</div>
+    }
+</div>
+
+<nav class="cubot-nav">
+    @if (_showTenant)
+    {
+        <div class="cubot-nav-label">Operacion Comercial</div>
+
+        <NavLink class="cubot-nav-link" href="pipeline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>
+            <span>Pipeline</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="tableros">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            <span>Tableros</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="conversaciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+            <span>Conversaciones</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="asesores">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span>Asesores</span>
+        </NavLink>
+
+        <div class="cubot-nav-label">Infraestructura & IA</div>
+
+        <NavLink class="cubot-nav-link" href="lineas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+            <span>Lineas WhatsApp</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="agentes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+            <span>Agentes IA</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="automatizaciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+            <span>Automatizaciones</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="metricas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            <span>Metricas</span>
+        </NavLink>
+
+        <div class="cubot-nav-label">Mi agencia</div>
+
+        <NavLink class="cubot-nav-link" href="plantillas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/></svg>
+            <span>Plantillas</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="mi-cuenta">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Mi cuenta</span>
+        </NavLink>
+    }
+
+    @if (_showAdmin)
+    {
+        <div class="cubot-nav-label">Super Admin SaaS</div>
+
+        <NavLink class="cubot-nav-link" href="" Match="NavLinkMatch.All">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+            <span>Dashboard</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="tenants">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>
+            <span>Agencias</span>
+        </NavLink>
+
+        @if (_isSuperAdmin)
+        {
+            <NavLink class="cubot-nav-link" href="equipo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span>Equipo plataforma</span>
+            </NavLink>
+        }
+
+        <NavLink class="cubot-nav-link" href="plans">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+            <span>Planes</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="facturacion">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>
+            <span>Facturacion</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="auditoria">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>
+            <span>Auditoria</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="servidor-evolution">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+            <span>Servidor Evolution</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="servidores-ia">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+            <span>Servidores de IA</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="marca">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+            <span>Marca</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="servidor-correo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span>Servidor de correo</span>
+        </NavLink>
+
+        <NavLink class="cubot-nav-link" href="login-google">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 5v4h-4"/></svg>
+            <span>Login con Google</span>
+        </NavLink>
+    }
+</nav>
+
+<div class="cubot-user">
+    <div class="cubot-avatar">@_avatar</div>
+    <div>
+        <div class="nm">@(_userName ?? "Usuario")</div>
+        <div class="rl">@_roleLabel</div>
+    </div>
+    <span class="cubot-dot"></span>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // El menu se arma por rol: el operador de plataforma (platform_role) ve el grupo
+    // Super Admin SaaS y previsualiza los modulos del tenant; el usuario de agencia
+    // (tenant_id) ve solo sus grupos comerciales y Mi agencia.
+    private bool _showAdmin;
+    private bool _showTenant;
+    private bool _isSuperAdmin;
+    private string? _userName;
+    private string? _tenantName;
+    private string _roleLabel = "Operador de plataforma";
+    private string _avatar = "SA";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        var isPlatformOperator = state.User.FindFirst("platform_role") is not null;
+        var tenantClaim = state.User.FindFirst("tenant_id")?.Value;
+        var isTenantUser = tenantClaim is not null;
+
+        _showAdmin = isPlatformOperator;
+        _showTenant = isPlatformOperator || isTenantUser;
+        _isSuperAdmin = state.User.FindFirst("platform_role")?.Value == "SuperAdmin";
+
+        _userName = state.User.Identity?.Name;
+        _avatar = Initials(_userName);
+
+        if (isPlatformOperator)
+        {
+            _roleLabel = "Operador de plataforma";
+        }
+        else if (isTenantUser)
+        {
+            _roleLabel = state.User.FindFirst("tenant_role")?.Value ?? "Agencia";
+            if (Guid.TryParse(tenantClaim, out var tenantId))
+            {
+                var tenant = await TenantsSvc.GetAsync(tenantId);
+                _tenantName = tenant?.Name;
+            }
+        }
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "U";
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

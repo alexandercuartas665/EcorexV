@@ -2,16 +2,16 @@
 
 **Fecha:** 2026-05-19
 **Estado:** Aceptado
-**Contexto del proyecto:** CUBOT.travels - Fase de scaffolding inicial
+**Contexto del proyecto:** CUBOT.nails - Fase de scaffolding inicial
 
 ## Contexto
 
-El repositorio oficial [cubotcrm](https://github.com/alexandercuartas665/cubotcrm.git) clonado en `C:\DesarrolloIA\CUBOT.travels` es un **prototipo frontend** (TanStack Start + React 19 + Vite + Tailwind + shadcn/Radix UI, desplegable en Cloudflare via wrangler, generado con Lovable.dev). Ocupa la carpeta `src/` en la raiz del repo.
+El repositorio oficial [cubotcrm](https://github.com/alexandercuartas665/cubotcrm.git) clonado en `C:\DesarrolloIA\CUBOT.nails` es un **prototipo frontend** (TanStack Start + React 19 + Vite + Tailwind + shadcn/Radix UI, desplegable en Cloudflare via wrangler, generado con Lovable.dev). Ocupa la carpeta `src/` en la raiz del repo.
 
 La hoja de ruta del vault Obsidian (`03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md`, seccion 4) instruye crear una solucion .NET 10 con 8 proyectos en `src/`:
 
-- `src/CubotTravels.Domain`, `.Application`, `.Infrastructure`, `.Shared`
-- `src/CubotTravels.Api`, `.Web` (Blazor), `.SuperAdmin` (Blazor), `.Workers`
+- `src/CubotNails.Domain`, `.Application`, `.Infrastructure`, `.Shared`
+- `src/CubotNails.Api`, `.Web` (Blazor), `.SuperAdmin` (Blazor), `.Workers`
 
 Mismo path, dos significados incompatibles. Habia tres opciones:
 
@@ -24,12 +24,12 @@ Mismo path, dos significados incompatibles. Habia tres opciones:
 Adoptar **opcion C**. Estructura final del repo:
 
 ```txt
-CUBOT.travels/
+CUBOT.nails/
 ├── apps/
 │   ├── web-prototype/    # frontend TanStack Start (cubotcrm original)
 │   │   ├── src/, public/, package.json, vite.config.ts, wrangler.jsonc, ...
 │   └── backend/          # solucion .NET (scaffold pendiente, hoja de ruta seccion 4)
-│       ├── src/CubotTravels.*
+│       ├── src/CubotNails.*
 │       └── tests/
 ├── deploy/docker/        # infraestructura local (Postgres, Redis, RabbitMQ, pgAdmin)
 ├── docs/decisiones/      # ADRs

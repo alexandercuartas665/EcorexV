@@ -1,4 +1,4 @@
-# Infraestructura local de CUBOT.travels
+# Infraestructura local de CUBOT.nails
 
 Pila Docker Compose para desarrollo local. Incluye PostgreSQL, Redis, RabbitMQ y pgAdmin.
 
@@ -8,7 +8,7 @@ Los puertos se eligieron para no chocar con otra pila Docker existente en la maq
 
 | Servicio | Puerto host | Puerto interno | Acceso |
 |----------|-------------|----------------|--------|
-| PostgreSQL | 5434 | 5432 | `Host=localhost;Port=5434;Database=cubot_travels_dev;Username=cubot;Password=...` |
+| PostgreSQL | 5434 | 5432 | `Host=localhost;Port=5434;Database=cubot_nails_dev;Username=cubot;Password=...` |
 | Redis | 6381 | 6379 | `localhost:6381` (con password) |
 | RabbitMQ AMQP | 5673 | 5672 | `amqp://cubot:...@localhost:5673` |
 | RabbitMQ Management UI | 15673 | 15672 | http://localhost:15673 |
@@ -17,7 +17,7 @@ Los puertos se eligieron para no chocar con otra pila Docker existente en la maq
 ## Levantar la pila
 
 ```powershell
-cd C:\DesarrolloIA\CUBOT.travels\deploy\docker
+cd C:\DesarrolloIA\CUBOT.nails\deploy\docker
 docker compose up -d
 docker compose ps
 ```
@@ -37,7 +37,7 @@ docker compose down -v
 ## Validar conectividad
 
 ```powershell
-docker compose exec postgres pg_isready -U cubot -d cubot_travels_dev
+docker compose exec postgres pg_isready -U cubot -d cubot_nails_dev
 docker compose exec redis redis-cli -a $env:REDIS_PASSWORD ping
 docker compose exec rabbitmq rabbitmq-diagnostics ping
 ```

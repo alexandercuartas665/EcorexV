@@ -5,7 +5,7 @@ import { KanbanSquare, Plus, Filter } from "lucide-react";
 export const Route = createFileRoute("/pipeline")({
   head: () => ({
     meta: [
-      { title: "Pipeline · CUBOT.travels" },
+      { title: "Pipeline · CUBOT.nails" },
       { name: "description", content: "Tablero Kanban comercial: Lead, Cotización, Inquietudes, Cierre y Seguimiento." },
     ],
   }),

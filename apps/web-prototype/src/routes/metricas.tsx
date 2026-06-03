@@ -5,7 +5,7 @@ import { BarChart3 } from "lucide-react";
 export const Route = createFileRoute("/metricas")({
   head: () => ({
     meta: [
-      { title: "Métricas · CUBOT.travels" },
+      { title: "Métricas · CUBOT.nails" },
       { name: "description", content: "Analítica comercial: conversión por etapa, performance de asesores y volumen conversacional." },
     ],
   }),

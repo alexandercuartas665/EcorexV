@@ -1,4 +1,4 @@
-# Como ejecutar CUBOT.travels en local
+# Como ejecutar CUBOT.nails en local
 
 Estado a la fecha (secciones 1-7 de la hoja de ruta implementadas). Backend .NET 9,
 Postgres/Redis/RabbitMQ/pgAdmin en Docker, y prototipo visual React (referencia).
@@ -6,44 +6,44 @@ Postgres/Redis/RabbitMQ/pgAdmin en Docker, y prototipo visual React (referencia)
 ## 1. Infraestructura (Docker)
 
 ```powershell
-cd C:\DesarrolloIA\CUBOT.travels\deploy\docker
+cd C:\DesarrolloIA\CUBOT.nails\deploy\docker
 docker compose up -d
 ```
 
 Puertos: Postgres 5434, Redis 6381, RabbitMQ 5673/15673, pgAdmin 5051. Ver ADR-0001.
 
 Cadena de conexion local (no versionada):
-`Host=localhost;Port=5434;Database=cubot_travels_dev;Username=cubot;Password=<.env>`
+`Host=localhost;Port=5434;Database=cubot_nails_dev;Username=cubot;Password=<.env>`
 
 ## 2. API (.NET) - autenticacion y endpoints Super Admin
 
 La cadena de conexion se pasa por variable de entorno o argumento (no se versiona).
 
 ```powershell
-$env:CUBOT_DB_CONNECTION = "Host=localhost;Port=5434;Database=cubot_travels_dev;Username=cubot;Password=TU_PASSWORD"
-dotnet run --project apps\backend\src\CubotTravels.Api\CubotTravels.Api.csproj --launch-profile http
+$env:CUBOT_DB_CONNECTION = "Host=localhost;Port=5434;Database=cubot_nails_dev;Username=cubot;Password=TU_PASSWORD"
+dotnet run --project apps\backend\src\CubotNails.Api\CubotNails.Api.csproj --launch-profile http
 # Escucha en http://localhost:5280
 ```
 
 En Development aplica migraciones y siembra datos automaticamente. Credenciales sembradas:
 
-- Super Admin: `admin@cubot.travels` / `Admin123*`
-- Admin agencia demo: `demo-admin@cubot.travels` / `Demo123*`
+- Super Admin: `admin@cubot.nails` / `Admin123*`
+- Admin agencia demo: `demo-admin@cubot.nails` / `Demo123*`
 
 Ejemplos:
 
 ```powershell
 # Login (devuelve JWT propio)
-curl -X POST http://localhost:5280/connect/token -H "Content-Type: application/json" -d '{"email":"admin@cubot.travels","password":"Admin123*"}'
+curl -X POST http://localhost:5280/connect/token -H "Content-Type: application/json" -d '{"email":"admin@cubot.nails","password":"Admin123*"}'
 # Endpoints admin protegidos por SuperAdminOnly: /admin/tenants, /admin/plans, /admin/subscriptions, /admin/payments
 ```
 
 ## 3. Consola Super Admin (Blazor)
 
 ```powershell
-$env:CUBOT_DB_CONNECTION = "Host=localhost;Port=5434;Database=cubot_travels_dev;Username=cubot;Password=TU_PASSWORD"
-dotnet run --project apps\backend\src\CubotTravels.SuperAdmin\CubotTravels.SuperAdmin.csproj --launch-profile http
-# http://localhost:5232  -> login con admin@cubot.travels / Admin123*
+$env:CUBOT_DB_CONNECTION = "Host=localhost;Port=5434;Database=cubot_nails_dev;Username=cubot;Password=TU_PASSWORD"
+dotnet run --project apps\backend\src\CubotNails.SuperAdmin\CubotNails.SuperAdmin.csproj --launch-profile http
+# http://localhost:5232  -> login con admin@cubot.nails / Admin123*
 ```
 
 Paginas: Dashboard (metricas), Agencias (alta + activar/suspender), Planes (alta + listado).

@@ -5,7 +5,7 @@ import { UserSquare2, Plus, Download } from "lucide-react";
 export const Route = createFileRoute("/leads")({
   head: () => ({
     meta: [
-      { title: "Leads · CUBOT.travels" },
+      { title: "Leads · CUBOT.nails" },
       { name: "description", content: "Listado completo de leads con filtros, segmentos y asignación por asesor." },
     ],
   }),

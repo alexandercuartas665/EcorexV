@@ -5,7 +5,7 @@ import { Smartphone, QrCode, RefreshCw } from "lucide-react";
 export const Route = createFileRoute("/lineas")({
   head: () => ({
     meta: [
-      { title: "Líneas WhatsApp · CUBOT.travels" },
+      { title: "Líneas WhatsApp · CUBOT.nails" },
       { name: "description", content: "Monitoreo y conexión de líneas WhatsApp vía Evolution API." },
     ],
   }),

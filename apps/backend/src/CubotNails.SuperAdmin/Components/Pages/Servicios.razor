@@ -1,10 +1,209 @@
 @page "/servicios"
 @attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using CubotNails.Application.Tenancy
+@inject IServiceCatalogService Svc
+@inject IJSRuntime JS
+
 <PageTitle>Servicios - CUBOT.nails</PageTitle>
 
-<ModulePlaceholder Eyebrow="Configuracion del salon" Title="Servicios"
-                   Description="Pendiente Fase 2 (Catalogo): catalogo del salon (nombre, duracion en minutos, precio base, categoria y color).">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
-    </Icon>
-</ModulePlaceholder>
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+            </div>
+            <span>Configuracion del salon</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Servicios</h1>
+        <p class="page-sub" style="margin-bottom:0;">Catalogo del salon: precio base, duracion y categoria. Cada asesor de imagen puede ajustar su propio precio en su ficha.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="() => OpenForm(null)">+ Nuevo servicio</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));max-width:620px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Servicios activos</div>
+            <div class="kpi-value">@_items.Count(s => s.IsActive)</div>
+            <div class="kpi-hint">En el catalogo</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Duracion promedio</div>
+            <div class="kpi-value">@(_items.Count == 0 ? 0 : (int)_items.Average(s => s.DurationMinutes)) min</div>
+            <div class="kpi-hint">Por servicio</div>
+        </div>
+    </div>
+
+    @if (_items.Count == 0)
+    {
+        <p class="text-muted">Aun no hay servicios. Crea el primero con "+ Nuevo servicio".</p>
+    }
+    else
+    {
+        <div class="card" style="max-width:920px;padding:6px 16px;">
+            <table class="table table-hover align-middle" style="margin-bottom:0;">
+                <thead>
+                    <tr><th>Servicio</th><th>Categoria</th><th class="text-end">Duracion</th><th class="text-end">Precio base</th><th>Estado</th><th class="text-end">Acciones</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _items)
+                    {
+                        <tr>
+                            <td>
+                                <span style="display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:9px;vertical-align:middle;background:@(string.IsNullOrWhiteSpace(s.Color) ? "#A03DC9" : s.Color)"></span>
+                                <strong>@s.Name</strong>
+                            </td>
+                            <td class="text-muted">@(string.IsNullOrWhiteSpace(s.Category) ? "-" : s.Category)</td>
+                            <td class="text-end">@s.DurationMinutes min</td>
+                            <td class="text-end">$@s.Price.ToString("N0")</td>
+                            <td>
+                                @if (s.IsActive)
+                                {
+                                    <span class="badge bg-success">Activo</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Inactivo</span>
+                                }
+                            </td>
+                            <td class="text-end" style="white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenForm(s)">Editar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActiveAsync(s)" disabled="@_busy">@(s.IsActive ? "Desactivar" : "Activar")</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(s)" disabled="@_busy">Eliminar</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@if (_formOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nuevo servicio" : "Editar servicio")</h3>
+                <button class="modal-close" @onclick="() => _formOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_form.Name" placeholder="Manicure semipermanente" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Duracion (min)</label>
+                        <input class="form-control" type="number" min="0" @bind="_form.DurationMinutes" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Precio base</label>
+                        <input class="form-control" type="number" min="0" @bind="_form.Price" />
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Categoria</label>
+                        <input class="form-control" @bind="_form.Category" placeholder="Unas, cabello, spa..." />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Color en la agenda</label>
+                        <input class="form-control" type="color" @bind="_form.Color" style="height:42px;padding:4px;" />
+                    </div>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="text-danger small">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _formOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_form.Name))">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _formOpen;
+    private string? _error;
+    private Guid? _editingId;
+    private List<ServiceDto> _items = new();
+    private FormModel _form = new();
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _items = (await Svc.ListAsync(includeInactive: true)).ToList();
+        _loading = false;
+    }
+
+    private void OpenForm(ServiceDto? s)
+    {
+        _error = null;
+        _editingId = s?.Id;
+        _form = s is null
+            ? new FormModel { Color = "#A03DC9", DurationMinutes = 45 }
+            : new FormModel { Name = s.Name, DurationMinutes = s.DurationMinutes, Price = s.Price, Category = s.Category, Color = string.IsNullOrWhiteSpace(s.Color) ? "#A03DC9" : s.Color };
+        _formOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Name)) { _error = "Escribe el nombre del servicio."; return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var req = new SaveServiceRequest(_form.Name, _form.DurationMinutes, _form.Price, _form.Category, _form.Color);
+            var result = _editingId is Guid id ? await Svc.UpdateAsync(id, req, actor) : await Svc.CreateAsync(req, actor);
+            if (result is null) { _error = "No se pudo guardar."; return; }
+            _formOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleActiveAsync(ServiceDto s)
+    {
+        _busy = true;
+        try { await Svc.SetActiveAsync(s.Id, !s.IsActive, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(ServiceDto s)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar el servicio \"{s.Name}\"? Se quitara de las fichas de los asesores.")) { return; }
+        _busy = true;
+        try { await Svc.DeleteAsync(s.Id, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private sealed class FormModel
+    {
+        public string Name { get; set; } = "";
+        public int DurationMinutes { get; set; } = 45;
+        public decimal Price { get; set; }
+        public string? Category { get; set; }
+        public string? Color { get; set; } = "#A03DC9";
+    }
+}

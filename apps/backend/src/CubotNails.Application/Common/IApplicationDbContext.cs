@@ -59,5 +59,12 @@ public interface IApplicationDbContext
     DbSet<AccountActivationCode> AccountActivationCodes { get; }
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 
+    // Configuracion del salon (Capa 2).
+    DbSet<Service> Services { get; }
+    DbSet<Resource> Resources { get; }
+    DbSet<ResourceServiceLink> ResourceServiceLinks { get; }
+    DbSet<ShiftTemplate> ShiftTemplates { get; }
+    DbSet<ScheduleException> ScheduleExceptions { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

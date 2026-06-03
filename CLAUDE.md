@@ -220,10 +220,12 @@ dotnet test  CubotNails.sln
 cd C:\DesarrolloIA\CUBOT.nails\deploy\docker
 docker compose up -d ; docker compose ps
 
-# Migraciones EF (Infrastructure = proyecto, SuperAdmin = startup)
+# Migraciones EF. startup-project = Infrastructure (tiene el IDesignTimeDbContextFactory y
+# referencia EFCore.Design; SuperAdmin NO referencia Design). Ejecutar desde apps/backend.
+dotnet ef migrations add NombreMigracion `
+  --project src/CubotNails.Infrastructure --startup-project src/CubotNails.Infrastructure
 dotnet ef database update `
-  --project   apps/backend/src/CubotNails.Infrastructure `
-  --startup-project apps/backend/src/CubotNails.SuperAdmin
+  --project src/CubotNails.Infrastructure --startup-project src/CubotNails.Infrastructure
 
 # Levantar la consola unificada
 dotnet run --project apps/backend/src/CubotNails.SuperAdmin --launch-profile https

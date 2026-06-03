@@ -60,6 +60,11 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();
         services.AddScoped<Tenancy.ITaskBoardService, Tenancy.TaskBoardService>();
         services.AddScoped<Tenancy.ITaskCardService, Tenancy.TaskCardService>();
+        // Configuracion del salon (Capa 2).
+        services.AddScoped<Tenancy.IServiceCatalogService, Tenancy.ServiceCatalogService>();
+        services.AddScoped<Tenancy.IResourceService, Tenancy.ResourceService>();
+        services.AddScoped<Tenancy.IShiftTemplateService, Tenancy.ShiftTemplateService>();
+        services.AddScoped<Tenancy.IScheduleExceptionService, Tenancy.ScheduleExceptionService>();
         return services;
     }
 }

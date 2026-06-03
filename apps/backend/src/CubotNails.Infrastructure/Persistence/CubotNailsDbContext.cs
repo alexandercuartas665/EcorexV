@@ -77,6 +77,13 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
     public DbSet<TaskCardActivity> TaskCardActivities => Set<TaskCardActivity>();
     public DbSet<TaskCardAttachment> TaskCardAttachments => Set<TaskCardAttachment>();
 
+    // Modulo Configuracion del salon (Capa 2): catalogo, recursos, turnos base y excepciones.
+    public DbSet<Service> Services => Set<Service>();
+    public DbSet<Resource> Resources => Set<Resource>();
+    public DbSet<ResourceServiceLink> ResourceServiceLinks => Set<ResourceServiceLink>();
+    public DbSet<ShiftTemplate> ShiftTemplates => Set<ShiftTemplate>();
+    public DbSet<ScheduleException> ScheduleExceptions => Set<ScheduleException>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Todos los enums se persisten como texto (legibles y estables ante reordenamientos).
@@ -106,6 +113,9 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
         configurationBuilder.Properties<WebhookProcessingStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ResourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ExceptionScope>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ExceptionReason>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -559,6 +569,47 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
             b.Property(x => x.UploadedByName).HasMaxLength(200);
             b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
+        });
+
+        // ---- Modulo Configuracion del salon (Servicios, Asesores/Recursos, Turnos base, Excepciones) ----
+
+        modelBuilder.Entity<Service>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Currency).HasMaxLength(8);
+            b.Property(x => x.Category).HasMaxLength(80);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Price).HasPrecision(14, 2);
+            b.HasIndex(x => new { x.TenantId, x.Name });
+        });
+
+        modelBuilder.Entity<Resource>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Phone).HasMaxLength(40);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.Name });
+        });
+
+        modelBuilder.Entity<ResourceServiceLink>(b =>
+        {
+            b.Property(x => x.PriceOverride).HasPrecision(14, 2);
+            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<Service>().WithMany().HasForeignKey(x => x.ServiceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.ServiceId }).IsUnique();
+        });
+
+        modelBuilder.Entity<ShiftTemplate>(b =>
+        {
+            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.DayOfWeek });
+        });
+
+        modelBuilder.Entity<ScheduleException>(b =>
+        {
+            b.Property(x => x.Note).HasMaxLength(500);
+            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.DateFrom, x.DateTo });
         });
     }
 

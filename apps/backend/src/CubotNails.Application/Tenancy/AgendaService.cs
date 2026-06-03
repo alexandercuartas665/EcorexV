@@ -38,8 +38,10 @@ public sealed record BookingChatLine(bool Outbound, string Body);
 public sealed record BookingRequest(Guid? AppointmentId, Guid ResourceId, DateOnly Date, TimeOnly StartTime,
     string ClientName, string? ClientPhone, Guid? ClientId, IReadOnlyList<Guid> ServiceIds,
     AppointmentStatus Status, Punctuality Punctuality, string? Notes,
-    IReadOnlyList<BookingChainStep> ChainSteps, IReadOnlyList<BookingChatLine> Chat);
+    IReadOnlyList<BookingChainStep> ChainSteps, IReadOnlyList<BookingChatLine> Chat, Guid? RescheduledFromId = null);
 public sealed record BookingResult(bool Success, Guid? AppointmentId, string? Error);
+public sealed record RescheduleItemDto(Guid AppointmentId, Guid ResourceId, string ResourceName, DateOnly Date, TimeOnly StartTime,
+    Guid? ClientId, string? ClientName, string? ClientPhone, string ServicesText, IReadOnlyList<Guid> ServiceIds, DateTimeOffset? CancelledAt);
 
 /// <summary>
 /// Motor de agenda: disponibilidad (turnos - excepciones - citas) para las vistas Dia/Semana/Asignacion,
@@ -56,6 +58,10 @@ public interface IAgendaService
     Task<AppointmentDetailDto?> GetAppointmentAsync(Guid id, CancellationToken cancellationToken = default);
     Task<BookingResult> SaveBookingAsync(BookingRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> CancelAppointmentAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<RescheduleItemDto>> GetRescheduleQueueAsync(CancellationToken cancellationToken = default);
+    Task<int> CountRescheduleQueueAsync(CancellationToken cancellationToken = default);
+    Task<bool> DismissRescheduleAsync(Guid appointmentId, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<bool> MarkPunctualityAsync(Guid appointmentId, Punctuality punctuality, Guid actorUserId, CancellationToken cancellationToken = default);
 }
 
 public sealed class AgendaService : IAgendaService
@@ -311,13 +317,21 @@ public sealed class AgendaService : IAgendaService
             DurationMinutes = totalDuration, ClientId = client?.Id, Status = request.Status, Punctuality = request.Punctuality,
             Channel = BookingChannel.Reception, EstimatedValue = totalValue,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
-            ChainId = chainId, ChainSequence = chainId is null ? null : 1, ChainTotal = chainId is null ? null : chainTotal
+            ChainId = chainId, ChainSequence = chainId is null ? null : 1, ChainTotal = chainId is null ? null : chainTotal,
+            RescheduledFromId = request.RescheduledFromId
         };
         StampLifecycle(main, now);
         _db.Appointments.Add(main);
         AddServiceItems(main.Id, tenantId, request.ServiceIds, prices);
         AddChat(main.Id, tenantId, request.Chat, actorUserId, now);
         if (client is not null) { ApplyClientDeltas(client, null, main.Status, Punctuality.Unknown, main.Punctuality, now); }
+
+        // Reprogramacion: la cita original pasa a Rescheduled y sale de la bandeja de reprogramaciones.
+        if (request.RescheduledFromId is Guid origId)
+        {
+            var orig = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == origId, cancellationToken);
+            if (orig is not null) { orig.Status = AppointmentStatus.Rescheduled; orig.CancelledAt ??= now; }
+        }
 
         if (chainId is { } cid)
         {
@@ -349,6 +363,65 @@ public sealed class AgendaService : IAgendaService
         appt.Status = AppointmentStatus.Cancelled;
         appt.CancelledAt = _clock.GetUtcNow();
         _audit.Write(actorUserId, "appointment.cancel", nameof(Appointment), appt.Id, null, null, appt.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    // ===== Reprogramaciones (bandeja de citas canceladas que el cliente pidio reprogramar) =====
+
+    public async Task<int> CountRescheduleQueueAsync(CancellationToken cancellationToken = default)
+        => await _db.Appointments.AsNoTracking().CountAsync(a => a.Status == AppointmentStatus.Cancelled, cancellationToken);
+
+    public async Task<IReadOnlyList<RescheduleItemDto>> GetRescheduleQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var appts = await _db.Appointments.AsNoTracking()
+            .Where(a => a.Status == AppointmentStatus.Cancelled)
+            .OrderByDescending(a => a.CancelledAt).ThenByDescending(a => a.AppointmentDate)
+            .ToListAsync(cancellationToken);
+        if (appts.Count == 0) { return Array.Empty<RescheduleItemDto>(); }
+
+        var apptIds = appts.Select(a => a.Id).ToList();
+        var items = await _db.AppointmentServiceItems.AsNoTracking()
+            .Where(i => apptIds.Contains(i.AppointmentId)).OrderBy(i => i.SortOrder).ToListAsync(cancellationToken);
+        var serviceIdsByAppt = items.GroupBy(i => i.AppointmentId).ToDictionary(g => g.Key, g => (IReadOnlyList<Guid>)g.Select(i => i.ServiceId).ToList());
+        var servicesText = await BuildServicesTextAsync(apptIds, cancellationToken);
+        var clientNames = await ClientNamesAsync(appts, cancellationToken);
+        var clientPhones = await ClientPhonesAsync(appts, cancellationToken);
+        var resourceNames = await _db.Resources.AsNoTracking().ToDictionaryAsync(r => r.Id, r => r.Name, cancellationToken);
+
+        return appts.Select(a => new RescheduleItemDto(
+            a.Id, a.ResourceId, resourceNames.TryGetValue(a.ResourceId, out var rn) ? rn : "?",
+            a.AppointmentDate, a.StartTime,
+            a.ClientId, a.ClientId is Guid cid && clientNames.TryGetValue(cid, out var n) ? n : null,
+            a.ClientId is Guid cid2 && clientPhones.TryGetValue(cid2, out var ph) ? ph : null,
+            servicesText.TryGetValue(a.Id, out var st) ? st : "",
+            serviceIdsByAppt.TryGetValue(a.Id, out var sids) ? sids : Array.Empty<Guid>(),
+            a.CancelledAt)).ToList();
+    }
+
+    public async Task<bool> DismissRescheduleAsync(Guid appointmentId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var appt = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId && a.Status == AppointmentStatus.Cancelled, cancellationToken);
+        if (appt is null) { return false; }
+        appt.Status = AppointmentStatus.Rescheduled; // sale de la bandeja sin reprogramar
+        _audit.Write(actorUserId, "appointment.reschedule-dismiss", nameof(Appointment), appt.Id, null, null, appt.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> MarkPunctualityAsync(Guid appointmentId, Punctuality punctuality, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var appt = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == appointmentId, cancellationToken);
+        if (appt is null) { return false; }
+        var old = appt.Punctuality;
+        if (old == punctuality) { return true; }
+        appt.Punctuality = punctuality;
+        if (appt.ClientId is Guid cid)
+        {
+            var client = await _db.Clients.FirstOrDefaultAsync(c => c.Id == cid, cancellationToken);
+            if (client is not null) { ApplyClientDeltas(client, appt.Status, appt.Status, old, punctuality, _clock.GetUtcNow()); }
+        }
+        _audit.Write(actorUserId, "appointment.punctuality", nameof(Appointment), appt.Id, null, new { punctuality }, appt.TenantId);
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -492,5 +565,12 @@ public sealed class AgendaService : IAgendaService
         var ids = appts.Where(a => a.ClientId.HasValue).Select(a => a.ClientId!.Value).Distinct().ToList();
         if (ids.Count == 0) { return new(); }
         return await _db.Clients.AsNoTracking().Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.FullName, cancellationToken);
+    }
+
+    private async Task<Dictionary<Guid, string>> ClientPhonesAsync(List<Appointment> appts, CancellationToken cancellationToken)
+    {
+        var ids = appts.Where(a => a.ClientId.HasValue).Select(a => a.ClientId!.Value).Distinct().ToList();
+        if (ids.Count == 0) { return new(); }
+        return await _db.Clients.AsNoTracking().Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Phone, cancellationToken);
     }
 }

@@ -9,11 +9,33 @@
         <div class="modal-dialog pl-lead-dialog">
           <div class="pl-lead-left">
             <div class="modal-head">
-                <h3>@(_appointmentId is null ? "Reservar cita" : "Editar cita")</h3>
+                <h3>@(_reschedule ? "Reprogramar cita" : (_appointmentId is null ? "Reservar cita" : "Editar cita"))</h3>
                 <button class="modal-close" @onclick="Close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="text-muted" style="font-size:13px;margin-bottom:12px;"><strong>@_slotLabel</strong></div>
+                @if (_reschedule)
+                {
+                    <div style="background:#fff7ed;border:1px dashed #f59e0b;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+                        <div style="font-weight:700;color:#92400E;font-size:13px;margin-bottom:8px;">@_slotLabel &mdash; elige nuevo asesor, fecha y hora</div>
+                        <div class="field">
+                            <label class="form-label">Asesor</label>
+                            <select class="form-control" @bind="_resourceId" @bind:after="ReloadOptionsAsync">
+                                @foreach (var r in Resources)
+                                {
+                                    <option value="@r.Id">@r.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field-row">
+                            <div class="field"><label class="form-label">Fecha</label><input class="form-control" type="date" @bind="_date" /></div>
+                            <div class="field"><label class="form-label">Hora</label><input class="form-control" type="time" @bind="_startTime" /></div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted" style="font-size:13px;margin-bottom:12px;"><strong>@_slotLabel</strong></div>
+                }
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;" class="bk-cols">
 
                     @* Col 1: cliente *@
@@ -158,6 +180,8 @@
     private string? _error;
     private string _slotLabel = "";
     private Guid? _appointmentId;
+    private bool _reschedule;
+    private Guid? _rescheduledFromId;
     private Guid _resourceId;
     private DateOnly _date;
     private TimeOnly _startTime;
@@ -177,7 +201,7 @@
 
     public async Task OpenForNewAsync(Guid resourceId, DateOnly date, TimeOnly time, string resourceName)
     {
-        _appointmentId = null; _resourceId = resourceId; _date = date; _startTime = time;
+        _appointmentId = null; _reschedule = false; _rescheduledFromId = null; _resourceId = resourceId; _date = date; _startTime = time;
         _clientName = ""; _clientPhone = ""; _clientId = null;
         _status = AppointmentStatus.Scheduled; _punctuality = Punctuality.Unknown; _notes = null;
         _chosen = new(); _chain = new(); _suggestions = new(); _error = null;
@@ -193,7 +217,7 @@
     {
         var d = await Agenda.GetAppointmentAsync(appointmentId);
         if (d is null) { return; }
-        _appointmentId = appointmentId; _resourceId = d.ResourceId; _date = d.Date; _startTime = d.StartTime;
+        _appointmentId = appointmentId; _reschedule = false; _rescheduledFromId = null; _resourceId = d.ResourceId; _date = d.Date; _startTime = d.StartTime;
         _clientName = d.ClientName ?? ""; _clientPhone = d.ClientPhone ?? ""; _clientId = d.ClientId;
         _status = d.Status; _punctuality = d.Punctuality; _notes = d.Notes;
         _chosen = d.ServiceIds.ToList(); _chain = new(); _suggestions = new(); _error = null;
@@ -202,6 +226,28 @@
         _svcToAdd = _options.FirstOrDefault()?.Id ?? Guid.Empty;
         _visible = true;
         StateHasChanged();
+    }
+
+    // Reprogramacion: nueva cita sin cupo fijo (el usuario elige asesor/fecha/hora), prefijada con el cliente y servicios.
+    public async Task OpenForRescheduleAsync(RescheduleItemDto item)
+    {
+        _appointmentId = null; _reschedule = true; _rescheduledFromId = item.AppointmentId;
+        _resourceId = item.ResourceId; _date = item.Date; _startTime = item.StartTime;
+        _clientName = item.ClientName ?? ""; _clientPhone = item.ClientPhone ?? ""; _clientId = item.ClientId;
+        _status = AppointmentStatus.Scheduled; _punctuality = Punctuality.Unknown; _notes = null;
+        _chosen = item.ServiceIds.ToList(); _chain = new(); _suggestions = new(); _error = null;
+        _slotLabel = $"Reprogramar cita de {item.ClientName}";
+        _options = (await Agenda.GetServiceOptionsAsync(_resourceId)).ToList();
+        _svcToAdd = _options.FirstOrDefault()?.Id ?? Guid.Empty;
+        _chainResource = Resources.FirstOrDefault()?.Id ?? Guid.Empty;
+        _visible = true;
+        StateHasChanged();
+    }
+
+    private async Task ReloadOptionsAsync()
+    {
+        _options = (await Agenda.GetServiceOptionsAsync(_resourceId)).ToList();
+        if (!_options.Any(o => o.Id == _svcToAdd)) { _svcToAdd = _options.FirstOrDefault()?.Id ?? Guid.Empty; }
     }
 
     private void Close() => _visible = false;
@@ -238,7 +284,7 @@
         {
             var req = new BookingRequest(_appointmentId, _resourceId, _date, _startTime, _clientName, _clientPhone, _clientId,
                 _chosen.ToList(), _status, _punctuality, _notes,
-                _appointmentId is null ? _chain.ToList() : Array.Empty<BookingChainStep>(), Array.Empty<BookingChatLine>());
+                _appointmentId is null ? _chain.ToList() : Array.Empty<BookingChainStep>(), Array.Empty<BookingChatLine>(), _rescheduledFromId);
             var res = await Agenda.SaveBookingAsync(req, await ActorAsync());
             if (!res.Success) { _error = res.Error ?? "No se pudo guardar."; return; }
             _visible = false;

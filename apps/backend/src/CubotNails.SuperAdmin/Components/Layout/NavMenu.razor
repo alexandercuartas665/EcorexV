@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject NavigationManager Navigation
 @inject ITenantAdminService TenantsSvc
+@inject CubotNails.Application.Tenancy.IAgendaService Agenda
 
 <div class="cubot-brand">
     <div class="cubot-logo">
@@ -243,6 +244,12 @@
                 var tenant = await TenantsSvc.GetAsync(tenantId);
                 _tenantName = tenant?.Name;
             }
+        }
+
+        if (_showTenant)
+        {
+            // Conteo de citas pendientes de reprogramar para el badge del menu (best-effort).
+            try { _reprogCount = await Agenda.CountRescheduleQueueAsync(); } catch { }
         }
     }
 

@@ -118,7 +118,7 @@ else
 @if (_editorOpen)
 {
     <div class="modal-overlay">
-        <div class="modal-dialog" style="max-width:@(_editId is null ? "640px" : "1180px");">
+        <div class="modal-dialog" style="max-width:@(_editId is null ? "640px" : "min(1480px, 95vw)");">
             <div class="modal-head">
                 <h3>@(_editId is null ? "Nuevo agente" : "Configurar agente")</h3>
                 <button class="modal-close" @onclick="CloseEditor">&times;</button>

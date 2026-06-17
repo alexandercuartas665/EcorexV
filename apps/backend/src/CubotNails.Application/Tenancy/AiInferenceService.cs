@@ -52,15 +52,15 @@ public sealed class AiInferenceService : IAiInferenceService
     }
 
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
-    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, cancellationToken);
+    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, CancellationToken cancellationToken = default)
+        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
     // (reservar/cancelar de verdad vs solo sugerir) la fija el binding de la linea.
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, cancellationToken);
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, cancellationToken);
 
-    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, CancellationToken cancellationToken)
+    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, CancellationToken cancellationToken)
     {
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
         if (agent is null) { return new AiChatResult(false, null, "El agente no existe."); }
@@ -121,6 +121,9 @@ public sealed class AiInferenceService : IAiInferenceService
         // reservar citas in-process. Si el modelo no llama ninguna herramienta, equivale a una respuesta normal.
         var actor = actorUserId;
         var disabledTools = ParseDisabledTools(agent.DisabledToolsJson);
+        // Contexto ambiental para herramientas de vision (clasificar_largo_cabello): conversacion en curso
+        // y/o imagen pendiente (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
+        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime);
         var (result, bookingCreated) = await RunToolLoopAsync(
             agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
@@ -229,6 +232,10 @@ public sealed class AiInferenceService : IAiInferenceService
         var closeToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "inscribir_curso", "reservar_cita" };
         var closeToolInvoked = false;
         var closeNudged = false;
+        // Red de seguridad de PRECIOS: el modelo a veces da cifras sin consultar la herramienta (inventa).
+        var priceToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "consultar_servicios_precios", "consultar_productos", "consultar_cursos" };
+        var priceToolInvoked = false;
+        var priceNudged = false;
 
         for (var round = 1; round <= MaxToolRounds; round++)
         {
@@ -264,6 +271,23 @@ public sealed class AiInferenceService : IAiInferenceService
                         completion.Text));
                     continue;
                 }
+                // Si dio PRECIOS sin haber consultado la herramienta de precios, lo forzamos una vez:
+                // la regla de oro prohibe inventar precios.
+                if (!priceToolInvoked && !priceNudged && MentionsPrice(completion.Text))
+                {
+                    priceNudged = true;
+                    messages.Add(new AiToolMessage("assistant", completion.Text));
+                    messages.Add(new AiToolMessage("user",
+                        "[SISTEMA] Diste precios SIN invocar la herramienta de precios. Esta PROHIBIDO inventar precios. " +
+                        "Invoca AHORA consultar_servicios_precios (o consultar_productos / consultar_cursos segun el caso) y " +
+                        "responde usando EXACTAMENTE los precios que devuelva. Si el servicio trae precios_por_largo, usa el del largo correspondiente."));
+                    debugPrompts.Add(new AiDebugPrompt(
+                        "Red de seguridad de precios",
+                        DateTimeOffset.UtcNow,
+                        "El modelo dio precios sin consultar la herramienta; se le pidio consultarla.",
+                        completion.Text));
+                    continue;
+                }
                 return (new AiChatResult(true, completion.Text ?? lastText, null, totalIn, totalOut), bookingCreated);
             }
 
@@ -282,6 +306,7 @@ public sealed class AiInferenceService : IAiInferenceService
             foreach (var call in completion.ToolCalls)
             {
                 if (closeToolNames.Contains(call.Name)) { closeToolInvoked = true; }
+                if (priceToolNames.Contains(call.Name)) { priceToolInvoked = true; }
                 var owner = ownerByTool.GetValueOrDefault(call.Name);
                 var exec = owner is null
                     ? new AgendaToolResult(JsonSerializer.Serialize(new { ok = false, error = $"Herramienta no disponible o deshabilitada: {call.Name}" }), false)
@@ -317,6 +342,13 @@ public sealed class AiInferenceService : IAiInferenceService
             || n.Contains("reservad")                // cita reservada
             || n.Contains("tu solicitud")
             || n.Contains("tu pedido");
+    }
+
+    // Detecta si el texto da una cifra de PRECIO ("$95.000", "$ 95,000"): un signo $ seguido de digito.
+    private static bool MentionsPrice(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        return System.Text.RegularExpressions.Regex.IsMatch(text, @"\$\s?\d");
     }
 
     private static string StripAccents(string s)

@@ -600,15 +600,16 @@ app.MapPost("/api/test/agent", async (
     CubotNails.Application.Common.IApplicationDbContext db,
     CubotNails.Application.Tenancy.IChatIngestService ingest,
     IServiceScopeFactory scopes,
+    IWebHostEnvironment env,
     CancellationToken ct) =>
 {
     if (!Guid.TryParse(user.FindFirst("tenant_id")?.Value, out var tenantId))
     {
         return Results.BadRequest(new { error = "No hay un tenant activo en la sesion." });
     }
-    if (body is null || string.IsNullOrWhiteSpace(body.Text))
+    if (body is null || (string.IsNullOrWhiteSpace(body.Text) && string.IsNullOrWhiteSpace(body.ImageBase64)))
     {
-        return Results.BadRequest(new { error = "Falta el texto del mensaje." });
+        return Results.BadRequest(new { error = "Envia un texto o una imagen." });
     }
 
     var now = DateTimeOffset.UtcNow;
@@ -676,13 +677,46 @@ app.MapPost("/api/test/agent", async (
     var phone = string.IsNullOrWhiteSpace(body.ContactPhone) ? "573001112233" : new string(body.ContactPhone.Where(char.IsDigit).ToArray());
     if (phone.Length == 0) { phone = "573001112233"; }
     var name = string.IsNullOrWhiteSpace(body.ContactName) ? "Cliente de prueba" : body.ContactName.Trim();
+    var text = string.IsNullOrWhiteSpace(body.Text) ? "(foto)" : body.Text.Trim();
     var payload = new CubotNails.Application.Tenancy.IngestMessageRequest(
-        phone, name, "emu-in-" + Guid.NewGuid().ToString("N"), body.Text.Trim(), "text", now, line.Id);
+        phone, name, "emu-in-" + Guid.NewGuid().ToString("N"), text, "text", now, line.Id);
     await ingest.IngestTrustedAsync(tenantId, payload, enqueueDispatch: false, cancellationToken: ct);
 
     var conv = await db.Conversations.FirstOrDefaultAsync(
         c => c.TenantId == tenantId && c.WhatsAppLineId == line.Id && c.ContactPhone == phone, ct);
     if (conv is null) { return Results.Problem("No se pudo crear la conversacion de prueba."); }
+
+    // Si llego una imagen, la guardamos en uploads/chat y la ingerimos como mensaje ENTRANTE de imagen,
+    // para que el agente la vea (clasificar_largo_cabello usa la ultima foto entrante de la conversacion).
+    if (!string.IsNullOrWhiteSpace(body.ImageBase64))
+    {
+        try
+        {
+            var bytes = Convert.FromBase64String(body.ImageBase64!);
+            var mime = string.IsNullOrWhiteSpace(body.ImageMime) ? "image/jpeg" : body.ImageMime!;
+            var ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
+            var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+            System.IO.Directory.CreateDirectory(dir);
+            var fname = $"emu-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
+            db.Messages.Add(new CubotNails.Domain.Entities.Message
+            {
+                TenantId = tenantId,
+                ConversationId = conv.Id,
+                Direction = CubotNails.Domain.Enums.MessageDirection.Inbound,
+                ExternalId = "emu-img-" + Guid.NewGuid().ToString("N"),
+                Body = "",
+                MessageType = "image",
+                MediaType = CubotNails.Domain.Enums.MessageMediaType.Image,
+                MediaUrl = $"/uploads/chat/{fname}",
+                MediaMimeType = mime,
+                SentAt = now.AddSeconds(1)
+            });
+            conv.LastMessageAt = now.AddSeconds(1);
+            await db.SaveChangesAsync(ct);
+        }
+        catch { /* imagen invalida: seguimos solo con el texto */ }
+    }
 
     // 5. Atender de forma sincrona (fija el tenant en el scope, igual que el despachador en background).
     using (CubotNails.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId))
@@ -728,6 +762,6 @@ app.Run();
 
 namespace CubotNails.SuperAdmin
 {
-    /// <summary>Cuerpo del emulador de canal: texto del cliente + opciones de prueba.</summary>
-    public sealed record TestAgentRequest(string Text, Guid? AgentId = null, string? ContactPhone = null, string? ContactName = null);
+    /// <summary>Cuerpo del emulador de canal: texto del cliente + opciones de prueba + imagen opcional (base64).</summary>
+    public sealed record TestAgentRequest(string? Text = null, Guid? AgentId = null, string? ContactPhone = null, string? ContactName = null, string? ImageBase64 = null, string? ImageMime = null);
 }

@@ -164,7 +164,20 @@ public sealed class AgendaToolset : IAgendaToolset
         var all = (await _services.ListAsync(false, ct)).ToList();
         return Ok(new
         {
-            servicios = all.Select(s => new { id = s.Id, nombre = s.Name, precio = s.Price, duracion_min = s.DurationMinutes, categoria = s.Category, descripcion = s.Description }).ToArray()
+            servicios = all.Select(s => new
+            {
+                id = s.Id,
+                nombre = s.Name,
+                precio = s.Price,
+                duracion_min = s.DurationMinutes,
+                categoria = s.Category,
+                descripcion = s.Description,
+                // Tarifas por LARGO de cabello (si el servicio varia). Cuando aplique, usa el precio/duracion
+                // del largo detectado en vez del precio base. El largo se obtiene con clasificar_largo_cabello.
+                precios_por_largo = (s.PriceTiers is { Count: > 0 })
+                    ? s.PriceTiers.Select(t => new { largo = t.Length.ToString(), precio = t.Price, duracion_min = t.DurationMinutes }).ToArray()
+                    : null
+            }).ToArray()
         });
     }
 

@@ -90,6 +90,9 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.CourseToolset>();
         services.AddScoped<Tenancy.ICourseToolset>(sp => sp.GetRequiredService<Tenancy.CourseToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.CourseToolset>());
+        services.AddScoped<Tenancy.HairLengthToolset>();
+        services.AddScoped<Tenancy.IHairLengthToolset>(sp => sp.GetRequiredService<Tenancy.HairLengthToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.HairLengthToolset>());
         // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
         services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();

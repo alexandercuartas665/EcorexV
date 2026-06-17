@@ -528,9 +528,20 @@ else
                         {
                             <div class="text-danger small" style="padding:0 4px 6px;">@_testError</div>
                         }
+                        @if (_testImageBase64 is not null)
+                        {
+                            <div style="display:flex;align-items:center;gap:8px;padding:4px;margin-bottom:4px;font-size:11.5px;color:var(--muted-foreground);">
+                                <span>Imagen adjunta: @_testImageName</span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" style="padding:0 7px;" @onclick="() => { _testImageBase64 = null; _testImageName = null; }">Quitar</button>
+                            </div>
+                        }
                         <div class="ag-test-input">
+                            <label class="btn btn-sm btn-outline-secondary" title="Adjuntar foto (caja de arena)" style="cursor:pointer;padding:6px 9px;">
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+                                <InputFile OnChange="OnTestImageAsync" accept="image/*" style="display:none;" />
+                            </label>
                             <input class="form-control" placeholder="Mensaje del cliente..." @bind="_testInput" @bind:event="oninput" @onkeydown="TestKeyDown" disabled="@_testBusy" />
-                            <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || string.IsNullOrWhiteSpace(_testInput))">Enviar</button>
+                            <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@(_testBusy || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null))">Enviar</button>
                         </div>
                     </div>
 
@@ -1007,6 +1018,9 @@ else
     // Chat de prueba del agente
     private readonly List<TestMsg> _testMsgs = new();
     private string? _testInput;
+    private string? _testImageBase64;
+    private string? _testImageMime;
+    private string? _testImageName;
     private bool _testBusy;
     private string? _testError;
 
@@ -1094,6 +1108,9 @@ else
     {
         _testMsgs.Clear();
         _testInput = null;
+        _testImageBase64 = null;
+        _testImageMime = null;
+        _testImageName = null;
         _testError = null;
         _testBusy = false;
         _debugLog.Clear();
@@ -1483,19 +1500,35 @@ else
         if (e.Key == "Enter" && !e.ShiftKey) { await SendTestAsync(); }
     }
 
+    private async Task OnTestImageAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        const long max = 10L * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max) { _testError = "La imagen no es valida o supera 10MB."; return; }
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(max).CopyToAsync(ms);
+        _testImageBase64 = Convert.ToBase64String(ms.ToArray());
+        _testImageMime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+        _testImageName = file.Name;
+    }
+
     private async Task SendTestAsync()
     {
-        if (_editId is null || string.IsNullOrWhiteSpace(_testInput)) { return; }
+        if (_editId is null || (string.IsNullOrWhiteSpace(_testInput) && _testImageBase64 is null)) { return; }
         _testError = null;
-        _testMsgs.Add(new TestMsg("user", _testInput!.Trim()));
+        var hadImage = _testImageBase64 is not null;
+        _testMsgs.Add(new TestMsg("user", string.IsNullOrWhiteSpace(_testInput) ? (hadImage ? "(foto enviada)" : "") : _testInput!.Trim()));
         _testInput = null;
         _testBusy = true;
+        // La imagen adjunta se manda en ESTE turno y luego se limpia.
+        var img = _testImageBase64; var imgMime = _testImageMime;
+        _testImageBase64 = null; _testImageName = null;
         try
         {
             // Pasamos tambien los adjuntos de cada turno; el extractor de cache los usa para construir
             // una transcripcion legible (sino veria texto vacio cuando el agente solo respondio con un recurso).
             var turns = _testMsgs.Select(m => new AiChatTurn(m.Role, m.Text, m.Attachments)).ToList();
-            var result = await InferenceSvc.TestChatAsync(_editId.Value, turns, _fPrompt, await ActorAsync());
+            var result = await InferenceSvc.TestChatAsync(_editId.Value, turns, _fPrompt, await ActorAsync(), img, imgMime);
             // Acumulamos las entradas del log de prompts (principal + extractor) en orden cronologico.
             if (result.DebugPrompts is not null) { _debugLog.AddRange(result.DebugPrompts); }
             if (result.Ok && (!string.IsNullOrWhiteSpace(result.Text) || result.Attachments is { Count: > 0 }))

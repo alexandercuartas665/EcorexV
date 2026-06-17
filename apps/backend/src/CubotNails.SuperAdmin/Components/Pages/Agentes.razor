@@ -390,7 +390,7 @@ else
                         }
                     </div>
 
-                    @* ===== Historial de versiones de prompts - acordeon ===== *@
+                    @* ===== Historial de versiones de prompts (red de seguridad) - acordeon ===== *@
                     <div class="ag-accordion">
                         <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleVersionHistory">
                             <span class="ag-accordion-chev @(_versionsOpen ? "open" : "")">&#9656;</span>
@@ -400,23 +400,31 @@ else
                         @if (_versionsOpen)
                         {
                             <div class="ag-accordion-body">
-                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Cada vez que guardas cambios se conserva una instantanea del prompt base y los prompts enrutados (ultimas 5). Puedes restaurar cualquiera.</div>
-                                @if (_versions.Count == 0)
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+                                    Cada vez que guardas cambios se almacena una copia del <strong>prompt base + prompts enrutados</strong> (se conservan las ultimas @MaxVersionsShown). Si borras o editas algo por error, puedes <strong>restaurar</strong> una version anterior.
+                                </div>
+                                @if (_versionsLoading)
                                 {
-                                    <div class="text-muted" style="font-size:12px;">Aun no hay versiones guardadas. Se creara una al guardar el siguiente cambio.</div>
+                                    <div class="text-muted small">Cargando historial...</div>
+                                }
+                                else if (_versions.Count == 0)
+                                {
+                                    <div class="text-muted small">Aun no hay versiones guardadas. Se crea una cada vez que pulsas "Guardar cambios".</div>
                                 }
                                 else
                                 {
-                                    @foreach (var v in _versions)
-                                    {
-                                        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 2px;border-bottom:1px solid var(--border);">
-                                            <div style="min-width:0;flex:1;">
-                                                <div style="font-weight:600;font-size:13px;">Version @(v.Index + 1) · @v.SavedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
-                                                <div class="text-muted" style="font-size:11.5px;">@(v.Prompts.Count) prompt@(v.Prompts.Count == 1 ? "" : "s") enrutado@(v.Prompts.Count == 1 ? "" : "s") · base @(v.BasePrompt.Length) car.</div>
+                                    <div class="ag-list">
+                                        @foreach (var v in _versions)
+                                        {
+                                            <div class="ag-item">
+                                                <div class="ag-item-main">
+                                                    <div class="ag-item-name">@(v.Index == 0 ? "Version actual" : $"Version #{_versions.Count - v.Index}") &middot; @v.SavedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
+                                                    <div class="ag-item-sub">Prompt base: @(string.IsNullOrWhiteSpace(v.BasePrompt) ? "(vacio)" : Trim(v.BasePrompt, 70)) &middot; @v.Prompts.Count prompt@(v.Prompts.Count == 1 ? "" : "s") enrutado@(v.Prompts.Count == 1 ? "" : "s")</div>
+                                                </div>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => AskRestoreVersion(v)" disabled="@(_busy || v.Index == 0)" title="@(v.Index == 0 ? "Es la version actual" : "Restaurar esta version")">Restaurar</button>
                                             </div>
-                                            <button class="btn btn-sm btn-outline-secondary" style="flex:none;" @onclick="() => AskRestoreVersion(v)" disabled="@_busy">Restaurar</button>
-                                        </div>
-                                    }
+                                        }
+                                    </div>
                                 }
                             </div>
                         }
@@ -595,23 +603,60 @@ else
                 <button class="modal-close" @onclick="() => _promptModalOpen = false">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="field">
-                    <label class="form-label">Nombre *</label>
-                    <input class="form-control" @bind="_pName" placeholder="Ej. Cotizacion Panama" autocomplete="off" />
+                <div style="display:flex;gap:16px;align-items:stretch;">
+                    @* Panel lateral: versiones guardadas de ESTE prompt (solo al editar uno existente). *@
+                    @if (_promptEditId is not null)
+                    {
+                        <div style="flex:0 0 215px;border-right:1px solid var(--border);padding-right:14px;max-height:430px;overflow:auto;">
+                            <div class="pl-stagegroup-title" style="margin:0 0 8px;">Versiones</div>
+                            @if (_promptVersionsLoading)
+                            {
+                                <div class="text-muted small">Cargando...</div>
+                            }
+                            else if (_promptVersions.Count == 0)
+                            {
+                                <div class="text-muted" style="font-size:11.5px;line-height:1.5;">Sin versiones guardadas de este prompt todavia. Se crean cada vez que pulsas <strong>"Guardar cambios"</strong> del agente.</div>
+                            }
+                            else
+                            {
+                                <div style="display:flex;flex-direction:column;gap:5px;">
+                                    @foreach (var ev in _promptVersions)
+                                    {
+                                        <button type="button" @onclick="() => LoadPromptVersion(ev)"
+                                                style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid @(_promptVersionActive == ev.Index ? "var(--primary,#6c4cf1)" : "var(--border)");background:@(_promptVersionActive == ev.Index ? "rgba(108,76,241,.08)" : "transparent");border-radius:7px;padding:7px 9px;cursor:pointer;font-size:12px;">
+                                            <span style="width:7px;height:7px;border-radius:50%;background:@(ev.Index == 0 ? "var(--primary,#6c4cf1)" : "var(--border)");flex:0 0 auto;"></span>
+                                            <span style="white-space:nowrap;">@ev.SavedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                            @if (ev.Index == 0)
+                                            {
+                                                <span style="margin-left:auto;font-size:10px;color:var(--primary,#6c4cf1);">actual</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
+                                <div class="text-muted" style="font-size:11px;margin-top:10px;line-height:1.5;">Haz click en una fecha para cargar ese texto en el editor. Se aplica al pulsar <strong>Guardar</strong>.</div>
+                            }
+                        </div>
+                    }
+                    <div style="flex:1;min-width:0;">
+                        <div class="field">
+                            <label class="form-label">Nombre *</label>
+                            <input class="form-control" @bind="_pName" placeholder="Ej. Cotizacion Panama" autocomplete="off" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Regla (cuando usarlo)</label>
+                            <input class="form-control" @bind="_pRule" placeholder="Ej. cuando el cliente pregunte por el destino Panama" autocomplete="off" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Prompt *</label>
+                            @RichToolbar("promptBody", () => _promptEmojiOpen, v => _promptEmojiOpen = v)
+                            <textarea id="promptBody" class="form-control" rows="9" @bind="_pBody" @bind:event="oninput" placeholder="Instrucciones que el agente debe seguir cuando aplica esta regla..."></textarea>
+                        </div>
+                        @if (_promptError is not null)
+                        {
+                            <div class="text-danger small">@_promptError</div>
+                        }
+                    </div>
                 </div>
-                <div class="field">
-                    <label class="form-label">Regla (cuando usarlo)</label>
-                    <input class="form-control" @bind="_pRule" placeholder="Ej. cuando el cliente pregunte por el destino Panama" autocomplete="off" />
-                </div>
-                <div class="field">
-                    <label class="form-label">Prompt *</label>
-                    @RichToolbar("promptBody", () => _promptEmojiOpen, v => _promptEmojiOpen = v)
-                    <textarea id="promptBody" class="form-control" rows="9" @bind="_pBody" @bind:event="oninput" placeholder="Instrucciones que el agente debe seguir cuando aplica esta regla..."></textarea>
-                </div>
-                @if (_promptError is not null)
-                {
-                    <div class="text-danger small">@_promptError</div>
-                }
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="() => _promptModalOpen = false">Cancelar</button>
@@ -894,7 +939,9 @@ else
     private List<AiAgentPromptDto> _prompts = new();
 
     // Historial de versiones de prompts (red de seguridad: restaurar una instantanea anterior).
+    private const int MaxVersionsShown = 5;
     private bool _versionsOpen;
+    private bool _versionsLoading;
     private List<AiAgentPromptVersionDto> _versions = new();
     private AiAgentPromptVersionDto? _versionPendingRestore;
 
@@ -905,6 +952,10 @@ else
     private string? _pRule;
     private string _pBody = "";
     private string? _promptError;
+    // Panel lateral de versiones dentro del modal "Editar prompt".
+    private List<AgentPromptVersionEntryDto> _promptVersions = new();
+    private bool _promptVersionsLoading;
+    private int? _promptVersionActive;
 
     // Modal de recurso
     private bool _resModalOpen;
@@ -1100,10 +1151,16 @@ else
 
     private async Task ReloadVersionsAsync(Guid agentId)
     {
-        _versions = (await AgentsSvc.GetPromptHistoryAsync(agentId)).ToList();
+        _versionsLoading = true;
+        try { _versions = (await AgentsSvc.GetPromptHistoryAsync(agentId)).ToList(); }
+        finally { _versionsLoading = false; }
     }
 
-    private void ToggleVersionHistory() => _versionsOpen = !_versionsOpen;
+    private async Task ToggleVersionHistory()
+    {
+        _versionsOpen = !_versionsOpen;
+        if (_versionsOpen && _editId is not null) { await ReloadVersionsAsync(_editId.Value); }
+    }
 
     private void AskRestoreVersion(AiAgentPromptVersionDto v) => _versionPendingRestore = v;
 
@@ -1256,14 +1313,31 @@ else
     }
 
     // ===== Prompts enrutados =====
-    private void OpenPrompt(AiAgentPromptDto? p)
+    private async Task OpenPrompt(AiAgentPromptDto? p)
     {
         _promptError = null;
         _promptEditId = p?.Id;
         _pName = p?.Name ?? "";
         _pRule = p?.Rule;
         _pBody = p?.Body ?? "";
+        _promptVersions = new();
+        _promptVersionActive = null;
         _promptModalOpen = true;
+        // Al editar un prompt existente, carga sus versiones guardadas (para el panel lateral).
+        if (p is not null && _editId is not null)
+        {
+            _promptVersionsLoading = true;
+            try { _promptVersions = (await AgentsSvc.GetPromptVersionsAsync(_editId.Value, p.Name)).ToList(); }
+            finally { _promptVersionsLoading = false; }
+        }
+    }
+
+    // Carga el cuerpo/regla de una version guardada en el editor (se aplica al pulsar Guardar).
+    private void LoadPromptVersion(AgentPromptVersionEntryDto ev)
+    {
+        _pRule = ev.Rule;
+        _pBody = ev.Body;
+        _promptVersionActive = ev.Index;
     }
 
     private async Task SavePromptAsync()

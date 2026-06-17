@@ -22,7 +22,7 @@ public sealed class MessageTemplateService : IMessageTemplateService
             .AsNoTracking()
             .Where(t => t.IsActive)
             .OrderBy(t => t.Category).ThenBy(t => t.SortOrder)
-            .Select(t => new MessageTemplateDto(t.Id, t.Category, t.Body, t.MediaType, t.MediaUrl, t.MediaMimeType, t.SortOrder))
+            .Select(t => new MessageTemplateDto(t.Id, t.Category, t.Body, t.MediaType, t.MediaUrl, t.MediaMimeType, t.SortOrder, t.Name))
             .ToListAsync(cancellationToken);
     }
 
@@ -46,6 +46,7 @@ public sealed class MessageTemplateService : IMessageTemplateService
         {
             TenantId = tenantId,
             Category = category,
+            Name = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim(),
             Body = (request.Body ?? "").Trim(),
             MediaType = request.MediaType,
             MediaUrl = request.MediaUrl,
@@ -66,6 +67,7 @@ public sealed class MessageTemplateService : IMessageTemplateService
             return null;
         }
         entity.Category = (request.Category ?? entity.Category).Trim().ToLowerInvariant();
+        entity.Name = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
         entity.Body = (request.Body ?? "").Trim();
         entity.MediaType = request.MediaType;
         entity.MediaUrl = request.MediaUrl;
@@ -121,7 +123,7 @@ public sealed class MessageTemplateService : IMessageTemplateService
     }
 
     private static MessageTemplateDto Map(MessageTemplate t) =>
-        new(t.Id, t.Category, t.Body, t.MediaType, t.MediaUrl, t.MediaMimeType, t.SortOrder);
+        new(t.Id, t.Category, t.Body, t.MediaType, t.MediaUrl, t.MediaMimeType, t.SortOrder, t.Name);
 
     // Mensajes del prototipo (embudo-ventas v0). {asesor} y {destino} se rellenan al usarlos.
     private static readonly (string Category, string[] Items)[] _defaults =

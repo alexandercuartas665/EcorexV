@@ -118,8 +118,8 @@ public sealed class EvolutionApiClient : IEvolutionApiClient
         try
         {
             using var resp = await SendAsync(HttpMethod.Post, baseUrl, $"/message/sendText/{Uri.EscapeDataString(instanceName)}", apiKey, JsonContent.Create(body), cancellationToken);
-            if (resp.IsSuccessStatusCode) { return new EvolutionSendResult(true, null); }
             var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+            if (resp.IsSuccessStatusCode) { return new EvolutionSendResult(true, null, ExtractMessageId(json)); }
             return new EvolutionSendResult(false, $"HTTP {(int)resp.StatusCode}: {Trim(json)}");
         }
         catch (Exception ex)
@@ -176,19 +176,54 @@ public sealed class EvolutionApiClient : IEvolutionApiClient
         return await PostSendAsync(baseUrl, apiKey, $"/webhook/set/{Uri.EscapeDataString(instanceName)}", body, cancellationToken);
     }
 
-    private async Task<EvolutionSendResult> PostSendAsync(string baseUrl, string apiKey, string path, object body, CancellationToken ct)
+    public async Task<EvolutionSendResult> DeleteMessageForEveryoneAsync(string baseUrl, string apiKey, string instanceName, string remoteJid, string messageId, bool fromMe, CancellationToken cancellationToken = default)
     {
+        // Evolution v2: DELETE /chat/deleteMessageForEveryone/{instance} con la clave del mensaje en el body.
+        var body = new { id = messageId, remoteJid, fromMe };
         try
         {
-            using var resp = await SendAsync(HttpMethod.Post, baseUrl, path, apiKey, JsonContent.Create(body), ct);
+            using var resp = await SendAsync(HttpMethod.Delete, baseUrl, $"/chat/deleteMessageForEveryone/{Uri.EscapeDataString(instanceName)}", apiKey, JsonContent.Create(body), cancellationToken);
             if (resp.IsSuccessStatusCode) { return new EvolutionSendResult(true, null); }
-            var json = await resp.Content.ReadAsStringAsync(ct);
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
             return new EvolutionSendResult(false, $"HTTP {(int)resp.StatusCode}: {Trim(json)}");
         }
         catch (Exception ex)
         {
             return new EvolutionSendResult(false, ex.Message);
         }
+    }
+
+    private async Task<EvolutionSendResult> PostSendAsync(string baseUrl, string apiKey, string path, object body, CancellationToken ct)
+    {
+        try
+        {
+            using var resp = await SendAsync(HttpMethod.Post, baseUrl, path, apiKey, JsonContent.Create(body), ct);
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            if (resp.IsSuccessStatusCode) { return new EvolutionSendResult(true, null, ExtractMessageId(json)); }
+            return new EvolutionSendResult(false, $"HTTP {(int)resp.StatusCode}: {Trim(json)}");
+        }
+        catch (Exception ex)
+        {
+            return new EvolutionSendResult(false, ex.Message);
+        }
+    }
+
+    // Extrae key.id de la respuesta de envio de Evolution (el id de WhatsApp del mensaje recien creado),
+    // necesario para eliminar el mensaje "para todos" mas tarde. Null si la respuesta no lo trae.
+    private static string? ExtractMessageId(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.Object
+                && key.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
+            {
+                return id.GetString();
+            }
+        }
+        catch { /* respuesta no-JSON o sin key: sin id */ }
+        return null;
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string baseUrl, string path, string apiKey, HttpContent? content, CancellationToken ct)

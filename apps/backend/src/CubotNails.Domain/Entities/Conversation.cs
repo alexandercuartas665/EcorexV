@@ -13,4 +13,7 @@ public class Conversation : TenantEntity
     public Guid? LeadId { get; set; }
     public Guid? WhatsAppLineId { get; set; }
     public DateTimeOffset? LastMessageAt { get; set; }
+
+    /// <summary>Cuando se archivo la conversacion (se oculta de la bandeja activa). Null = activa.</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
 }

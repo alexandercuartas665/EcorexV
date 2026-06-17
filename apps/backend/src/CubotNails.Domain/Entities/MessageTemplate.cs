@@ -13,6 +13,9 @@ public class MessageTemplate : TenantEntity
     /// <summary>Clave de categoria: saludo | info | cotizacion | seguimiento | cierre (u otras del tenant).</summary>
     public string Category { get; set; } = null!;
 
+    /// <summary>Nombre corto/etiqueta de la plantilla (se muestra en los chips y en el comando slash). Opcional.</summary>
+    public string? Name { get; set; }
+
     /// <summary>Texto del mensaje (o pie de foto si lleva media). Admite marcadores {asesor} y {destino}.</summary>
     public string Body { get; set; } = "";
 

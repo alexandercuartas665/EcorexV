@@ -35,4 +35,7 @@ public interface IWhatsAppConnectorService
 
     /// <summary>Envia una ubicacion desde la linea al numero.</summary>
     Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Elimina un mensaje PARA TODOS en WhatsApp (solo lineas Evolution). messageId = id de WhatsApp del mensaje.</summary>
+    Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default);
 }

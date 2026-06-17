@@ -20,7 +20,8 @@ public sealed record MessageDto(
     MessageMediaType MediaType = MessageMediaType.None,
     string? MediaUrl = null,
     string? MediaMimeType = null,
-    string? SentByName = null);
+    string? SentByName = null,
+    string? Reaction = null);
 
 /// <summary>Payload normalizado del webhook entrante (lo produce el Evolution Connector).</summary>
 /// <param name="WhatsAppLineId">Linea que recibio el mensaje (se deduce del nombre de instancia). Necesaria para

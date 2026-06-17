@@ -431,6 +431,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
             b.Property(x => x.MediaUrl).HasMaxLength(500);
             b.Property(x => x.MediaMimeType).HasMaxLength(120);
             b.Property(x => x.SentByName).HasMaxLength(200);
+            b.Property(x => x.Reaction).HasMaxLength(40);
             b.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.ConversationId });
             // Idempotencia de ingesta: un mensaje externo no se inserta dos veces.
@@ -447,6 +448,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
         modelBuilder.Entity<MessageTemplate>(b =>
         {
             b.Property(x => x.Category).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(120);
             b.Property(x => x.Body).HasMaxLength(4000);
             b.Property(x => x.MediaUrl).HasMaxLength(500);
             b.Property(x => x.MediaMimeType).HasMaxLength(120);

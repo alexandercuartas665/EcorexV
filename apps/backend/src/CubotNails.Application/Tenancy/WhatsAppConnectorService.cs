@@ -269,13 +269,13 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         }
         var digits = new string(phone.Where(char.IsDigit).ToArray());
 
-        bool ok; string? error;
+        bool ok; string? error; string? messageId;
         if (line.Provider == WhatsAppProvider.Cloud)
         {
             var creds = CloudCreds(line);
             if (creds is null) { return new LineSendResult(false, "Faltan credenciales Cloud en la linea."); }
             var r = await _cloud.SendTextAsync(creds.Value.phoneNumberId, creds.Value.token, digits, text.Trim(), cancellationToken);
-            (ok, error) = (r.Ok, r.Error);
+            (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
         }
         else
         {
@@ -283,13 +283,13 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
             var (baseUrl, apiKey) = server.Value;
             var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text.Trim(), cancellationToken);
-            (ok, error) = (r.Ok, r.Error);
+            (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
         }
 
         _audit.Write(actorUserId, "whatsapp-line.test-send", nameof(WhatsAppLine), line.Id,
             previousValue: null, newValue: new { to = digits, ok }, tenantId: line.TenantId);
 
-        return new LineSendResult(ok, error);
+        return new LineSendResult(ok, error, messageId);
     }
 
     public async Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -314,7 +314,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             try { bytes = Convert.FromBase64String(base64); }
             catch { return new LineSendResult(false, "El adjunto no es base64 valido."); }
             var r = await _cloud.SendMediaAsync(creds.Value.phoneNumberId, creds.Value.token, digits, mt, bytes, mimeType, fileName, caption, cancellationToken);
-            return new LineSendResult(r.Ok, r.Error);
+            return new LineSendResult(r.Ok, r.Error, r.MessageId);
         }
 
         var server = await ResolveServerAsync(cancellationToken);
@@ -324,7 +324,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var result = mediaType == MessageMediaType.Audio
             ? await _client.SendAudioAsync(baseUrl, apiKey, instance, digits, base64, cancellationToken)
             : await _client.SendMediaAsync(baseUrl, apiKey, instance, digits, mt, base64, mimeType, fileName, caption, cancellationToken);
-        return new LineSendResult(result.Ok, result.Error);
+        return new LineSendResult(result.Ok, result.Error, result.MessageId);
     }
 
     public async Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -337,13 +337,29 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             var creds = CloudCreds(line);
             if (creds is null) { return new LineSendResult(false, "Faltan credenciales Cloud en la linea."); }
             var rc = await _cloud.SendLocationAsync(creds.Value.phoneNumberId, creds.Value.token, digits, latitude, longitude, name, null, cancellationToken);
-            return new LineSendResult(rc.Ok, rc.Error);
+            return new LineSendResult(rc.Ok, rc.Error, rc.MessageId);
         }
 
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
         var result = await _client.SendLocationAsync(baseUrl, apiKey, EvoInstance(line), digits, latitude, longitude, name, null, cancellationToken);
+        return new LineSendResult(result.Ok, result.Error, result.MessageId);
+    }
+
+    public async Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageId)) { return new LineSendResult(false, "El mensaje no tiene id de WhatsApp (no se puede eliminar para todos)."); }
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new LineSendResult(false, "La linea no existe."); }
+        if (line.Provider == WhatsAppProvider.Cloud) { return new LineSendResult(false, "Meta Cloud no permite eliminar mensajes; solo lineas Evolution."); }
+        if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
+        var server = await ResolveServerAsync(cancellationToken);
+        if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
+        var (baseUrl, apiKey) = server.Value;
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var remoteJid = $"{digits}@s.whatsapp.net";
+        var result = await _client.DeleteMessageForEveryoneAsync(baseUrl, apiKey, EvoInstance(line), remoteJid, messageId, fromMe: true, cancellationToken);
         return new LineSendResult(result.Ok, result.Error);
     }
 

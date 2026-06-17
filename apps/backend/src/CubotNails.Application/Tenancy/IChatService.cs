@@ -6,6 +6,18 @@ public interface IChatService
     Task<IReadOnlyList<ConversationDto>> ListConversationsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MessageDto>> ListMessagesAsync(Guid conversationId, CancellationToken cancellationToken = default);
 
+    /// <summary>Conversaciones archivadas (ocultas de la bandeja activa), mas recientes primero.</summary>
+    Task<IReadOnlyList<ConversationDto>> ListArchivedConversationsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Archiva (oculta) o restaura una conversacion. False si no existe en el tenant.</summary>
+    Task<bool> SetConversationArchivedAsync(Guid conversationId, bool archived, CancellationToken cancellationToken = default);
+
+    /// <summary>Ids de conversaciones cuyos mensajes contienen el texto (insensible a may/min). Vacio si term vacio.</summary>
+    Task<IReadOnlyList<Guid>> SearchConversationIdsByMessageAsync(string term, CancellationToken cancellationToken = default);
+
+    /// <summary>Elimina un mensaje saliente PARA TODOS en WhatsApp y, si tiene exito, lo borra localmente.</summary>
+    Task<ChatSendResult> DeleteMessageForEveryoneAsync(Guid messageId, Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Persiste un mensaje saliente. El envio real via Evolution Connector queda diferido. Null si la conversacion no existe en el tenant.</summary>
     Task<MessageDto?> SendAsync(Guid conversationId, string body, Guid actorUserId, CancellationToken cancellationToken = default);
 

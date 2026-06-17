@@ -9,21 +9,24 @@ public sealed record MessageTemplateDto(
     MessageMediaType MediaType,
     string? MediaUrl,
     string? MediaMimeType,
-    int SortOrder);
+    int SortOrder,
+    string? Name = null);
 
 public sealed record CreateMessageTemplateRequest(
     string Category,
     string Body,
     MessageMediaType MediaType = MessageMediaType.None,
     string? MediaUrl = null,
-    string? MediaMimeType = null);
+    string? MediaMimeType = null,
+    string? Name = null);
 
 public sealed record UpdateMessageTemplateRequest(
     string Category,
     string Body,
     MessageMediaType MediaType = MessageMediaType.None,
     string? MediaUrl = null,
-    string? MediaMimeType = null);
+    string? MediaMimeType = null,
+    string? Name = null);
 
 /// <summary>Categorias estandar de pregrabados (clave + etiqueta para la UI).</summary>
 public static class MessageTemplateCategories

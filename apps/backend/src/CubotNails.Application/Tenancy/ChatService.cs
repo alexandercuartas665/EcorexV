@@ -26,9 +26,86 @@ public sealed class ChatService : IChatService
     {
         return await _db.Conversations
             .AsNoTracking()
+            // Solo activas y CON al menos un mensaje. last_message_at es NULL exactamente cuando la
+            // conversacion nunca tuvo mensaje (la crea GetOrCreateFor*Async al abrir el chat desde otro
+            // modulo); esas "vacias" no se muestran y reaparecen solas al entrar/salir el primer mensaje.
+            .Where(c => c.ArchivedAt == null && c.LastMessageAt != null)
             .OrderByDescending(c => c.LastMessageAt)
             .Select(c => new ConversationDto(c.Id, c.ContactPhone, c.ContactName, c.LeadId, c.LastMessageAt, c.WhatsAppLineId))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ConversationDto>> ListArchivedConversationsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _db.Conversations
+            .AsNoTracking()
+            .Where(c => c.ArchivedAt != null)
+            .OrderByDescending(c => c.ArchivedAt)
+            .Select(c => new ConversationDto(c.Id, c.ContactPhone, c.ContactName, c.LeadId, c.LastMessageAt, c.WhatsAppLineId))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> SetConversationArchivedAsync(Guid conversationId, bool archived, CancellationToken cancellationToken = default)
+    {
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (conv is null) { return false; }
+        conv.ArchivedAt = archived ? _timeProvider.GetUtcNow() : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<Guid>> SearchConversationIdsByMessageAsync(string term, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(term)) { return Array.Empty<Guid>(); }
+        // LOWER(body) LIKE '%term%' (insensible a may/min, sin depender del proveedor Npgsql).
+        var t = term.Trim().ToLower();
+        return await _db.Messages
+            .AsNoTracking()
+            .Where(m => m.Body != null && m.Body.ToLower().Contains(t))
+            .Select(m => m.ConversationId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<ChatSendResult> DeleteMessageForEveryoneAsync(Guid messageId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var msg = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
+        if (msg is null) { return new ChatSendResult(false, null, "El mensaje no existe."); }
+        // Solo se pueden eliminar PARA TODOS los mensajes propios (salientes).
+        if (msg.Direction != MessageDirection.Outbound)
+        {
+            return new ChatSendResult(false, null, "Solo puedes eliminar para todos los mensajes que tu enviaste.");
+        }
+        // Mensajes antiguos (enviados antes de esta funcion) no guardaron el id de WhatsApp: no se pueden borrar para todos.
+        if (string.IsNullOrWhiteSpace(msg.ExternalId))
+        {
+            return new ChatSendResult(false, null, "Este mensaje no se puede eliminar para todos (es anterior a esta funcion o no tiene id de WhatsApp).");
+        }
+
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == msg.ConversationId, cancellationToken);
+        if (conv is null) { return new ChatSendResult(false, null, "Conversacion no encontrada."); }
+        if (conv.WhatsAppLineId is not Guid lineId)
+        {
+            return new ChatSendResult(false, null, "La conversacion no tiene una linea asociada.");
+        }
+
+        // Borrado PARA TODOS en WhatsApp (Evolution). Si falla, NO quitamos la fila local (para no
+        // mentir: el mensaje seguiria visible en el telefono del cliente).
+        var del = await _connector.DeleteMessageForEveryoneAsync(lineId, conv.ContactPhone, msg.ExternalId, cancellationToken);
+        if (!del.Ok)
+        {
+            return new ChatSendResult(false, null, del.Error ?? "No se pudo eliminar en WhatsApp.");
+        }
+
+        // OK en WhatsApp: quitamos la fila local (el archivo de media queda como huerfano en /uploads, inocuo).
+        _db.Messages.Remove(msg);
+        conv.LastMessageAt = await _db.Messages
+            .Where(m => m.ConversationId == conv.Id && m.Id != msg.Id)
+            .OrderByDescending(m => m.SentAt)
+            .Select(m => (DateTimeOffset?)m.SentAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ChatSendResult(true, null, null);
     }
 
     public async Task<IReadOnlyList<MessageDto>> ListMessagesAsync(Guid conversationId, CancellationToken cancellationToken = default)
@@ -37,7 +114,7 @@ public sealed class ChatService : IChatService
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
             .OrderBy(m => m.SentAt)
-            .Select(m => new MessageDto(m.Id, m.ConversationId, m.Direction, m.Body, m.MessageType, m.SentAt, m.MediaType, m.MediaUrl, m.MediaMimeType, m.SentByName))
+            .Select(m => new MessageDto(m.Id, m.ConversationId, m.Direction, m.Body, m.MessageType, m.SentAt, m.MediaType, m.MediaUrl, m.MediaMimeType, m.SentByName, m.Reaction))
             .ToListAsync(cancellationToken);
     }
 
@@ -169,6 +246,7 @@ public sealed class ChatService : IChatService
             Direction = MessageDirection.Outbound,
             Body = body.Trim(),
             MessageType = "text",
+            ExternalId = send.MessageId,
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now
@@ -213,6 +291,7 @@ public sealed class ChatService : IChatService
             MediaType = mediaType,
             MediaUrl = localUrl,
             MediaMimeType = mimeType,
+            ExternalId = send.MessageId,
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now
@@ -252,6 +331,7 @@ public sealed class ChatService : IChatService
             MessageType = "location",
             MediaType = MessageMediaType.Location,
             MediaUrl = $"{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            ExternalId = send.MessageId,
             SentByTenantUserId = sender.Id,
             SentByName = sender.Name,
             SentAt = now

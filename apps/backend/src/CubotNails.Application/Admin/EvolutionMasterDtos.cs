@@ -19,7 +19,7 @@ public sealed record EvolutionPingResult(bool Reachable, bool Authenticated, int
 /// <summary>Resultado de operaciones sobre una instancia (crear/conectar). QrBase64 es el codigo QR a escanear.</summary>
 public sealed record EvolutionInstanceResult(bool Ok, string? QrBase64, string? State, string? PhoneNumber, string? Error);
 
-public sealed record EvolutionSendResult(bool Ok, string? Error);
+public sealed record EvolutionSendResult(bool Ok, string? Error, string? MessageId = null);
 
 /// <summary>Cliente HTTP del servidor Evolution API. Implementacion en Infrastructure.</summary>
 public interface IEvolutionApiClient
@@ -53,6 +53,9 @@ public interface IEvolutionApiClient
 
     /// <summary>Configura el webhook entrante de la instancia (POST /webhook/set/{instance}) para recibir mensajes.</summary>
     Task<EvolutionSendResult> SetWebhookAsync(string baseUrl, string apiKey, string instanceName, string webhookUrl, string token, CancellationToken cancellationToken = default);
+
+    /// <summary>Elimina un mensaje PARA TODOS (DELETE /chat/deleteMessageForEveryone/{instance}). remoteJid = numero@s.whatsapp.net.</summary>
+    Task<EvolutionSendResult> DeleteMessageForEveryoneAsync(string baseUrl, string apiKey, string instanceName, string remoteJid, string messageId, bool fromMe, CancellationToken cancellationToken = default);
 }
 
 public interface IEvolutionMasterConfigService

@@ -30,4 +30,7 @@ public class Message : TenantEntity
     public string? MediaUrl { get; set; }
 
     public string? MediaMimeType { get; set; }
+
+    /// <summary>Emoji de reaccion sobre este mensaje (uno por mensaje, como en WhatsApp). Null = sin reaccion.</summary>
+    public string? Reaction { get; set; }
 }

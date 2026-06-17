@@ -80,6 +80,15 @@ public sealed class AiAgentService : IAiAgentService
         agent.Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
         agent.SystemPrompt = request.SystemPrompt ?? "";
         agent.DisabledToolsJson = SerializeTools(request.DisabledTools);
+
+        // Red de seguridad: guarda una instantanea {prompt base + enrutados} en el historial (ultimas 5).
+        var snapshotPrompts = await _db.AiAgentPrompts.AsNoTracking()
+            .Where(p => p.AgentId == id).OrderBy(p => p.SortOrder)
+            .Select(p => new AgentPromptSnapshotDto(p.Name, p.Rule, p.Body, p.SortOrder))
+            .ToListAsync(cancellationToken);
+        agent.PromptHistoryJson = PushPromptVersion(agent.PromptHistoryJson,
+            new StoredPromptVersion(DateTimeOffset.UtcNow, agent.SystemPrompt, snapshotPrompts));
+
         await _db.SaveChangesAsync(cancellationToken);
         var count = await _db.AiAgentResources.CountAsync(r => r.AgentId == id, cancellationToken);
         return Map(agent, count);
@@ -189,6 +198,145 @@ public sealed class AiAgentService : IAiAgentService
         if (prompt is null) { return false; }
         _db.AiAgentPrompts.Remove(prompt);
         await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    // ===== Duplicar agente =====
+    public async Task<AiAgentDto?> DuplicateAsync(Guid sourceId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return null; }
+        var src = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == sourceId, cancellationToken);
+        if (src is null) { return null; }
+        var nextOrder = (await _db.AiAgents.Select(a => (int?)a.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+
+        // Agente nuevo: copia la config base + herramientas + historial. Queda APAGADO y SIN linea vinculada.
+        var copy = new AiAgent
+        {
+            TenantId = tenantId,
+            Name = $"Copia de {src.Name}",
+            Role = src.Role,
+            Provider = src.Provider,
+            Model = src.Model,
+            SystemPrompt = src.SystemPrompt,
+            IsActive = false,
+            SortOrder = nextOrder,
+            DisabledToolsJson = src.DisabledToolsJson,
+            PromptHistoryJson = src.PromptHistoryJson
+        };
+        _db.AiAgents.Add(copy);
+        await _db.SaveChangesAsync(cancellationToken); // asegura copy.Id para los hijos
+        var newId = copy.Id;
+
+        foreach (var p in await _db.AiAgentPrompts.AsNoTracking().Where(p => p.AgentId == sourceId).ToListAsync(cancellationToken))
+        {
+            _db.AiAgentPrompts.Add(new AiAgentPrompt { TenantId = tenantId, AgentId = newId, Name = p.Name, Rule = p.Rule, Body = p.Body, SortOrder = p.SortOrder });
+        }
+        foreach (var r in await _db.AiAgentResources.AsNoTracking().Where(r => r.AgentId == sourceId).ToListAsync(cancellationToken))
+        {
+            _db.AiAgentResources.Add(new AiAgentResource { TenantId = tenantId, AgentId = newId, Name = r.Name, ResourceType = r.ResourceType, Detail = r.Detail, FileUrl = r.FileUrl, FileName = r.FileName, SortOrder = r.SortOrder });
+        }
+        foreach (var f in await _db.AiAgentCacheFields.AsNoTracking().Where(f => f.AgentId == sourceId).ToListAsync(cancellationToken))
+        {
+            _db.AiAgentCacheFields.Add(new AiAgentCacheField { TenantId = tenantId, AgentId = newId, FieldKey = f.FieldKey, Label = f.Label, Description = f.Description, SortOrder = f.SortOrder, IsUpdatable = f.IsUpdatable });
+        }
+        // NO se copian: AiAgentLineBindings (linea de atencion) ni AiAgentCacheValues (datos de conversacion).
+        _audit.Write(actorUserId, "ai-agent.duplicate", nameof(AiAgent), newId,
+            previousValue: new { source = sourceId }, newValue: new { copy.Name }, tenantId: tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        var count = await _db.AiAgentResources.CountAsync(r => r.AgentId == newId, cancellationToken);
+        return Map(copy, count);
+    }
+
+    // ===== Versiones de prompts =====
+    private const int MaxPromptVersions = 5;
+    private sealed record StoredPromptVersion(DateTimeOffset SavedAt, string BasePrompt, List<AgentPromptSnapshotDto> Prompts);
+
+    public async Task<IReadOnlyList<AiAgentPromptVersionDto>> GetPromptHistoryAsync(Guid agentId, CancellationToken cancellationToken = default)
+    {
+        var json = await _db.AiAgents.AsNoTracking().Where(a => a.Id == agentId).Select(a => a.PromptHistoryJson).FirstOrDefaultAsync(cancellationToken);
+        return DeserializeVersions(json)
+            .Select((v, i) => new AiAgentPromptVersionDto(i, v.SavedAt, v.BasePrompt ?? "", v.Prompts ?? new List<AgentPromptSnapshotDto>()))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<AgentPromptVersionEntryDto>> GetPromptVersionsAsync(Guid agentId, string promptName, CancellationToken cancellationToken = default)
+    {
+        var json = await _db.AiAgents.AsNoTracking().Where(a => a.Id == agentId).Select(a => a.PromptHistoryJson).FirstOrDefaultAsync(cancellationToken);
+        var name = (promptName ?? string.Empty).Trim();
+        var result = new List<AgentPromptVersionEntryDto>();
+        var idx = 0;
+        foreach (var v in DeserializeVersions(json))
+        {
+            var match = (v.Prompts ?? new List<AgentPromptSnapshotDto>())
+                .FirstOrDefault(p => string.Equals((p.Name ?? string.Empty).Trim(), name, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                result.Add(new AgentPromptVersionEntryDto(idx, v.SavedAt, match.Rule, match.Body ?? string.Empty));
+                idx++;
+            }
+        }
+        return result;
+    }
+
+    public async Task<AiAgentDetailDto?> RestorePromptVersionAsync(Guid agentId, int versionIndex, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var agent = await _db.AiAgents.FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
+        if (agent is null) { return null; }
+        var list = DeserializeVersions(agent.PromptHistoryJson);
+        if (versionIndex < 0 || versionIndex >= list.Count) { return null; }
+        var version = list[versionIndex];
+
+        agent.SystemPrompt = version.BasePrompt ?? "";
+        var current = await _db.AiAgentPrompts.Where(p => p.AgentId == agentId).ToListAsync(cancellationToken);
+        _db.AiAgentPrompts.RemoveRange(current);
+        var order = 0;
+        foreach (var p in (version.Prompts ?? new List<AgentPromptSnapshotDto>()).OrderBy(p => p.SortOrder))
+        {
+            _db.AiAgentPrompts.Add(new AiAgentPrompt
+            {
+                TenantId = agent.TenantId,
+                AgentId = agentId,
+                Name = string.IsNullOrWhiteSpace(p.Name) ? "Prompt" : p.Name,
+                Rule = string.IsNullOrWhiteSpace(p.Rule) ? null : p.Rule,
+                Body = p.Body ?? "",
+                SortOrder = order++
+            });
+        }
+        // Registra la restauracion como nueva instantanea (asi el indice 0 = estado vivo).
+        agent.PromptHistoryJson = PushPromptVersion(agent.PromptHistoryJson,
+            new StoredPromptVersion(DateTimeOffset.UtcNow, agent.SystemPrompt, (version.Prompts ?? new List<AgentPromptSnapshotDto>()).ToList()));
+        _audit.Write(actorUserId, "ai-agent.restore-prompt-version", nameof(AiAgent), agent.Id,
+            previousValue: null, newValue: new { versionIndex, version.SavedAt }, tenantId: agent.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return await GetAsync(agentId, cancellationToken);
+    }
+
+    private static string PushPromptVersion(string? existingJson, StoredPromptVersion version)
+    {
+        var list = DeserializeVersions(existingJson);
+        if (list.Count > 0 && SameContent(list[0], version) && existingJson is not null) { return existingJson; }
+        list.Insert(0, version);
+        if (list.Count > MaxPromptVersions) { list = list.Take(MaxPromptVersions).ToList(); }
+        return JsonSerializer.Serialize(list);
+    }
+
+    private static List<StoredPromptVersion> DeserializeVersions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return new List<StoredPromptVersion>(); }
+        try { return JsonSerializer.Deserialize<List<StoredPromptVersion>>(json) ?? new List<StoredPromptVersion>(); }
+        catch { return new List<StoredPromptVersion>(); }
+    }
+
+    private static bool SameContent(StoredPromptVersion a, StoredPromptVersion b)
+    {
+        if (!string.Equals(a.BasePrompt ?? "", b.BasePrompt ?? "", StringComparison.Ordinal)) { return false; }
+        var pa = a.Prompts ?? new List<AgentPromptSnapshotDto>();
+        var pb = b.Prompts ?? new List<AgentPromptSnapshotDto>();
+        if (pa.Count != pb.Count) { return false; }
+        for (var i = 0; i < pa.Count; i++)
+        {
+            if (pa[i].Name != pb[i].Name || (pa[i].Rule ?? "") != (pb[i].Rule ?? "") || (pa[i].Body ?? "") != (pb[i].Body ?? "")) { return false; }
+        }
         return true;
     }
 

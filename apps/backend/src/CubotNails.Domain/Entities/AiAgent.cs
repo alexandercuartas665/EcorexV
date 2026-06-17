@@ -32,4 +32,11 @@ public class AiAgent : TenantEntity
     /// Null o vacio = todas las herramientas registradas estan habilitadas (compatibilidad hacia atras).
     /// </summary>
     public string? DisabledToolsJson { get; set; }
+
+    /// <summary>
+    /// Historial de versiones de los prompts (red de seguridad). Cada "Guardar cambios" guarda una
+    /// instantanea {prompt base + prompts enrutados}, conservando las ultimas 5. Permite restaurar.
+    /// Formato: arreglo JSON de { savedAt, basePrompt, prompts:[{ name, rule, body, sortOrder }] }.
+    /// </summary>
+    public string? PromptHistoryJson { get; set; }
 }

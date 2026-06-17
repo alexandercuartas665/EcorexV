@@ -475,6 +475,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
             b.Property(x => x.Model).HasMaxLength(100);
             b.Property(x => x.SystemPrompt).HasColumnType("text");
             b.Property(x => x.DisabledToolsJson).HasColumnType("jsonb");
+            b.Property(x => x.PromptHistoryJson).HasColumnType("text");
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 

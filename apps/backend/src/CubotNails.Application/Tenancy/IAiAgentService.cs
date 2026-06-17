@@ -13,6 +13,14 @@ public interface IAiAgentService
     Task<AiAgentDto?> SetActiveAsync(Guid id, bool active, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>Duplica un agente con su config (prompts, recursos, datos cache, herramientas), EXCEPTO el binding de linea y los valores de cache. Queda apagado.</summary>
+    Task<AiAgentDto?> DuplicateAsync(Guid sourceId, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    // Historial de versiones de prompts (red de seguridad).
+    Task<IReadOnlyList<AiAgentPromptVersionDto>> GetPromptHistoryAsync(Guid agentId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AgentPromptVersionEntryDto>> GetPromptVersionsAsync(Guid agentId, string promptName, CancellationToken cancellationToken = default);
+    Task<AiAgentDetailDto?> RestorePromptVersionAsync(Guid agentId, int versionIndex, Guid actorUserId, CancellationToken cancellationToken = default);
+
     Task<AiAgentResourceDto?> AddResourceAsync(CreateAgentResourceRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<AiAgentResourceDto?> UpdateResourceAsync(Guid id, UpdateAgentResourceRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteResourceAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);

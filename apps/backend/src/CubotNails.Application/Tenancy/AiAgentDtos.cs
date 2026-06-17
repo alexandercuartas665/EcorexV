@@ -31,6 +31,11 @@ public sealed record AiAgentDetailDto(AiAgentDto Agent, IReadOnlyList<AiAgentRes
 public sealed record CreateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null);
 public sealed record UpdateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null);
 
+// --- Historial de versiones de prompts (red de seguridad) ---
+public sealed record AgentPromptSnapshotDto(string Name, string? Rule, string Body, int SortOrder);
+public sealed record AiAgentPromptVersionDto(int Index, DateTimeOffset SavedAt, string BasePrompt, IReadOnlyList<AgentPromptSnapshotDto> Prompts);
+public sealed record AgentPromptVersionEntryDto(int Index, DateTimeOffset SavedAt, string? Rule, string Body);
+
 public sealed record CreateAgentResourceRequest(Guid AgentId, string Name, AgentResourceType ResourceType, string? Detail, string? FileUrl, string? FileName);
 public sealed record UpdateAgentResourceRequest(string Name, AgentResourceType ResourceType, string? Detail, string? FileUrl, string? FileName);
 

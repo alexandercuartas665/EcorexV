@@ -88,6 +88,9 @@ else
                 <div class="ag-card-top">
                     <span class="ag-provider @ProviderClass(a.Provider)">@ProviderLabel(a.Provider)</span>
                     <span class="badge @(a.IsActive ? "bg-success" : "bg-secondary")">@(a.IsActive ? "En produccion" : "Apagado")</span>
+                    <button class="ag-card-del" title="Duplicar agente (copia toda la config menos la linea de atencion)" @onclick="() => DuplicateAgentAsync(a)" disabled="@_busy" style="margin-left:auto;">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    </button>
                     <button class="ag-card-del" title="Eliminar agente" @onclick="() => OpenDeleteAgent(a)" disabled="@_busy">&times;</button>
                 </div>
                 <div class="ag-name">@a.Name</div>
@@ -380,6 +383,38 @@ else
                                                 <div style="font-weight:600;font-size:13px;">@Humanize(spec.Name)</div>
                                                 <div class="text-muted" style="font-size:11.5px;">@Trim(spec.Description ?? "", 130)</div>
                                             </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Historial de versiones de prompts - acordeon ===== *@
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleVersionHistory">
+                            <span class="ag-accordion-chev @(_versionsOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Historial de versiones</span>
+                            <span class="ag-accordion-count">@_versions.Count</span>
+                        </div>
+                        @if (_versionsOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Cada vez que guardas cambios se conserva una instantanea del prompt base y los prompts enrutados (ultimas 5). Puedes restaurar cualquiera.</div>
+                                @if (_versions.Count == 0)
+                                {
+                                    <div class="text-muted" style="font-size:12px;">Aun no hay versiones guardadas. Se creara una al guardar el siguiente cambio.</div>
+                                }
+                                else
+                                {
+                                    @foreach (var v in _versions)
+                                    {
+                                        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 2px;border-bottom:1px solid var(--border);">
+                                            <div style="min-width:0;flex:1;">
+                                                <div style="font-weight:600;font-size:13px;">Version @(v.Index + 1) · @v.SavedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</div>
+                                                <div class="text-muted" style="font-size:11.5px;">@(v.Prompts.Count) prompt@(v.Prompts.Count == 1 ? "" : "s") enrutado@(v.Prompts.Count == 1 ? "" : "s") · base @(v.BasePrompt.Length) car.</div>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary" style="flex:none;" @onclick="() => AskRestoreVersion(v)" disabled="@_busy">Restaurar</button>
                                         </div>
                                     }
                                 }
@@ -806,6 +841,32 @@ else
     </div>
 }
 
+@* ===== Modal: confirmar restauracion de version ===== *@
+@if (_versionPendingRestore is not null)
+{
+    <div class="modal-overlay" style="z-index:1300;">
+        <div class="modal-dialog" style="max-width:520px;">
+            <div class="modal-head">
+                <h3>Restaurar version @(_versionPendingRestore.Index + 1)</h3>
+                <button class="modal-close" @onclick="() => _versionPendingRestore = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:14px;margin-bottom:12px;">
+                    Vas a restaurar la instantanea del <strong>@_versionPendingRestore.SavedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong>.
+                </div>
+                <div class="text-muted" style="font-size:12.5px;line-height:1.6;">
+                    Se reemplazaran el prompt base y los prompts enrutados actuales por los de esa version.
+                    El estado actual se guarda como una nueva version antes de restaurar, asi que puedes deshacerlo.
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _versionPendingRestore = null" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ConfirmRestoreVersionAsync" disabled="@_busy">Restaurar esta version</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -831,6 +892,11 @@ else
     private bool _fActive;
     private List<AiAgentResourceDto> _resources = new();
     private List<AiAgentPromptDto> _prompts = new();
+
+    // Historial de versiones de prompts (red de seguridad: restaurar una instantanea anterior).
+    private bool _versionsOpen;
+    private List<AiAgentPromptVersionDto> _versions = new();
+    private AiAgentPromptVersionDto? _versionPendingRestore;
 
     // Modal de prompt enrutado
     private bool _promptModalOpen;
@@ -961,6 +1027,10 @@ else
         _disabledTools.Clear();
         _toolsOpen = false;
         _resources = new();
+        _prompts = new();
+        _versions = new();
+        _versionsOpen = false;
+        _versionPendingRestore = null;
         _cacheFields = new();
         _cacheValues = new();
         _cacheOpen = false;
@@ -999,13 +1069,62 @@ else
         _resources = detail.Resources.ToList();
         _prompts = detail.Prompts.ToList();
         await ReloadCacheAsync(id);
+        await ReloadVersionsAsync(id);
         _agentLines = (await AgentLinesSvc.ListLinesForAgentAsync(id)).ToList();
         _cacheOpen = false;
         _resourcesOpen = false;
         _linesOpen = false;
+        _versionsOpen = false;
+        _versionPendingRestore = null;
         _perceivedModalOpen = false;
         ResetTest();
         _editorOpen = true;
+    }
+
+    // ===== Duplicar agente y versiones de prompts =====
+    private async Task DuplicateAgentAsync(AiAgentDto a)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var copy = await AgentsSvc.DuplicateAsync(a.Id, actor);
+            await ReloadAsync();
+            if (copy is not null)
+            {
+                await OpenEditAsync(copy.Id);
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ReloadVersionsAsync(Guid agentId)
+    {
+        _versions = (await AgentsSvc.GetPromptHistoryAsync(agentId)).ToList();
+    }
+
+    private void ToggleVersionHistory() => _versionsOpen = !_versionsOpen;
+
+    private void AskRestoreVersion(AiAgentPromptVersionDto v) => _versionPendingRestore = v;
+
+    private async Task ConfirmRestoreVersionAsync()
+    {
+        if (_versionPendingRestore is null || _editId is null) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var detail = await AgentsSvc.RestorePromptVersionAsync(_editId.Value, _versionPendingRestore.Index, actor);
+            _versionPendingRestore = null;
+            if (detail is not null)
+            {
+                _fPrompt = detail.Agent.SystemPrompt;
+                _prompts = detail.Prompts.ToList();
+                await ReloadVersionsAsync(_editId.Value);
+                await ReloadAsync();
+            }
+        }
+        finally { _busy = false; }
     }
 
     // ===== Lineas de WhatsApp del agente =====
@@ -1416,6 +1535,7 @@ else
             else
             {
                 await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList()), actor);
+                await ReloadVersionsAsync(_editId.Value);
             }
             await ReloadAsync();
         }

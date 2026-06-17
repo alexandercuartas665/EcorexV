@@ -94,6 +94,9 @@ public sealed class ChatIngestService : IChatIngestService
             ExternalId = payload.ExternalMessageId,
             Body = payload.Body,
             MessageType = string.IsNullOrWhiteSpace(payload.MessageType) ? "text" : payload.MessageType!.Trim(),
+            MediaType = payload.MediaType,
+            MediaUrl = payload.MediaUrl,
+            MediaMimeType = payload.MediaMimeType,
             SentAt = sentAt
         };
         _db.Messages.Add(message);

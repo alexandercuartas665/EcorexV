@@ -388,9 +388,10 @@ public sealed class DatabaseSeeder
              "cuando el cliente quiere un servicio del salon (manicure, unas, peinado, maquillaje, asesoria de imagen) o agendar con un estilista, y no es una cancelacion",
              "El cliente quiere un SERVICIO del salon / asesoria de imagen. Atiende asi:\n" +
              "1) Usa listar_asesores, consultar_servicios_precios y consultar_disponibilidad para orientarlo con datos reales; si confirma un cupo puedes reservar con reservar_cita.\n" +
-             "2) Captura nombre del cliente y telefono.\n" +
+             "2) PRECIO SEGUN EL LARGO DEL CABELLO: si el servicio que pide trae 'precios_por_largo' (su precio/duracion varia segun el largo), NO des un precio unico. Pide a la clienta una FOTO donde se vea bien el largo y usa la herramienta clasificar_largo_cabello para determinarlo; luego cotiza el PRECIO y la DURACION de ese largo (no el precio base). Si no quiere enviar foto, muestrale el rango por largo y pidele que indique su largo.\n" +
+             "3) Captura nombre de la clienta, telefono y el largo de cabello detectado.\n" +
              "GUION DE CIERRE: cuando tengas nombre, telefono y el servicio o intencion clara, ademas de atender la cita, CIERRA " +
-             "registrando el lead con crear_lead usando tipo_cliente='estilista' y un resumen del servicio que busca, para que el " +
+             "registrando el lead con crear_lead usando tipo_cliente='estilista' y un resumen del servicio (incluye el largo y el precio cotizado si aplica), para que el " +
              "equipo comercial le de seguimiento.")
         };
 
@@ -413,6 +414,25 @@ public sealed class DatabaseSeeder
                                   "'productos' (producto al detal / uso personal), 'cursos' (formacion) o 'estilista' (servicio del salon / asesoria de imagen). " +
                                   "Infierelo de lo que pide el cliente.",
                     SortOrder = nextField,
+                    IsUpdatable = true
+                });
+            }
+
+            // Dato cache del largo de cabello detectado (idempotente por field_key).
+            var hasLargo = await _db.AiAgentCacheFields.IgnoreQueryFilters()
+                .AnyAsync(f => f.AgentId == agent.Id && f.FieldKey == "largo", cancellationToken);
+            if (!hasLargo)
+            {
+                var nextLargo = (await _db.AiAgentCacheFields.IgnoreQueryFilters().Where(f => f.AgentId == agent.Id)
+                    .Select(f => (int?)f.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+                _db.AiAgentCacheFields.Add(new AiAgentCacheField
+                {
+                    TenantId = tenant.Id,
+                    AgentId = agent.Id,
+                    FieldKey = "largo",
+                    Label = "Largo de cabello",
+                    Description = "Largo de cabello de la clienta (corto/medio/largo/muy largo) detectado por foto con clasificar_largo_cabello, para cotizar servicios que varian por largo.",
+                    SortOrder = nextLargo,
                     IsUpdatable = true
                 });
             }

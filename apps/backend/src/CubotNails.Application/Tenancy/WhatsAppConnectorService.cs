@@ -384,6 +384,19 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(result.Ok, result.Error, result.MessageId);
     }
 
+    public async Task<CubotNails.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageKeyId)) { return new(false, null, null, "Falta el id del mensaje."); }
+        // IgnoreQueryFilters: lo llama el webhook entrante (sin contexto de tenant en sesion).
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new(false, null, null, "La linea no existe."); }
+        if (line.Provider != WhatsAppProvider.Evolution) { return new(false, null, null, "La descarga de media por id solo aplica a lineas Evolution."); }
+        var server = await ResolveServerAsync(cancellationToken);
+        if (server is null) { return new(false, null, null, "No hay servidor Evolution configurado."); }
+        var (baseUrl, apiKey) = server.Value;
+        return await _client.GetBase64FromMediaMessageAsync(baseUrl, apiKey, EvoInstance(line), messageKeyId, cancellationToken);
+    }
+
     public async Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(messageId)) { return new LineSendResult(false, "El mensaje no tiene id de WhatsApp (no se puede eliminar para todos)."); }

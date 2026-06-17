@@ -527,6 +527,8 @@ app.MapPost("/webhooks/evolution", async (
     HttpRequest request,
     IApplicationDbContext db,
     CubotNails.Application.Tenancy.IChatIngestService ingest,
+    CubotNails.Application.Tenancy.IWhatsAppConnectorService connector,
+    IWebHostEnvironment env,
     CancellationToken ct) =>
 {
     var master = await db.EvolutionMasterConfigs.FirstOrDefaultAsync(ct);
@@ -542,7 +544,38 @@ app.MapPost("/webhooks/evolution", async (
     var parsed = CubotNails.SuperAdmin.RealTime.EvolutionWebhookParser.Parse(doc.RootElement);
     if (parsed is null) { return Results.Ok(new { status = "ignored" }); }
 
-    var result = await ingest.IngestTrustedAsync(parsed.TenantId, parsed.Payload, cancellationToken: ct);
+    var payload = parsed.Payload;
+    // Imagen entrante: descargamos la media (por el id del mensaje) y la guardamos como adjunto, para que
+    // el agente pueda analizarla (clasificar_largo_cabello). Fijamos el tenant para resolver el servidor.
+    if (payload.MessageType == "image" && payload.WhatsAppLineId is Guid lid)
+    {
+        using (CubotNails.SuperAdmin.Auth.AmbientTenantContext.Begin(parsed.TenantId))
+        {
+            try
+            {
+                var media = await connector.FetchInboundMediaAsync(lid, payload.ExternalMessageId, ct);
+                if (media.Ok && !string.IsNullOrWhiteSpace(media.Base64))
+                {
+                    var bytes = Convert.FromBase64String(media.Base64!);
+                    var mime = string.IsNullOrWhiteSpace(media.Mime) ? "image/jpeg" : media.Mime!;
+                    var ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
+                    var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+                    System.IO.Directory.CreateDirectory(dir);
+                    var fname = $"wa-{Guid.NewGuid():N}{ext}";
+                    await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
+                    payload = payload with
+                    {
+                        MediaType = CubotNails.Domain.Enums.MessageMediaType.Image,
+                        MediaUrl = $"/uploads/chat/{fname}",
+                        MediaMimeType = mime
+                    };
+                }
+            }
+            catch { /* si falla la descarga, ingerimos igual como texto "(imagen)" */ }
+        }
+    }
+
+    var result = await ingest.IngestTrustedAsync(parsed.TenantId, payload, cancellationToken: ct);
     return result == CubotNails.Application.Tenancy.ChatIngestResult.Duplicate
         ? Results.Ok(new { status = "duplicate" })
         : Results.Accepted();

@@ -21,6 +21,9 @@ public sealed record EvolutionInstanceResult(bool Ok, string? QrBase64, string? 
 
 public sealed record EvolutionSendResult(bool Ok, string? Error, string? MessageId = null);
 
+/// <summary>Resultado de descargar la media ENTRANTE de un mensaje (base64 + mime).</summary>
+public sealed record EvolutionMediaResult(bool Ok, string? Base64, string? Mime, string? Error);
+
 /// <summary>Cliente HTTP del servidor Evolution API. Implementacion en Infrastructure.</summary>
 public interface IEvolutionApiClient
 {
@@ -56,6 +59,9 @@ public interface IEvolutionApiClient
 
     /// <summary>Elimina un mensaje PARA TODOS (DELETE /chat/deleteMessageForEveryone/{instance}). remoteJid = numero@s.whatsapp.net.</summary>
     Task<EvolutionSendResult> DeleteMessageForEveryoneAsync(string baseUrl, string apiKey, string instanceName, string remoteJid, string messageId, bool fromMe, CancellationToken cancellationToken = default);
+
+    /// <summary>Descarga la media ENTRANTE de un mensaje a base64 (POST /chat/getBase64FromMediaMessage/{instance}).</summary>
+    Task<EvolutionMediaResult> GetBase64FromMediaMessageAsync(string baseUrl, string apiKey, string instanceName, string messageKeyId, CancellationToken cancellationToken = default);
 }
 
 public interface IEvolutionMasterConfigService

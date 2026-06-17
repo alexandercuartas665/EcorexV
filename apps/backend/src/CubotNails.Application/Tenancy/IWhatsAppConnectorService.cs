@@ -38,4 +38,7 @@ public interface IWhatsAppConnectorService
 
     /// <summary>Elimina un mensaje PARA TODOS en WhatsApp (solo lineas Evolution). messageId = id de WhatsApp del mensaje.</summary>
     Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Descarga la media ENTRANTE de un mensaje (imagen) a base64. Solo lineas Evolution. Lo usa el webhook.</summary>
+    Task<CubotNails.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default);
 }

@@ -33,7 +33,10 @@ public sealed record IngestMessageRequest(
     string Body,
     string? MessageType = null,
     DateTimeOffset? SentAt = null,
-    Guid? WhatsAppLineId = null);
+    Guid? WhatsAppLineId = null,
+    MessageMediaType MediaType = MessageMediaType.None,
+    string? MediaUrl = null,
+    string? MediaMimeType = null);
 
 public sealed record SendMessageRequest(string Body);
 

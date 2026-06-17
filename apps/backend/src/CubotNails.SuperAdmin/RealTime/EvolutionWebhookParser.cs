@@ -53,8 +53,9 @@ public static class EvolutionWebhookParser
             : Guid.NewGuid().ToString("N");
 
         var name2 = data.TryGetProperty("pushName", out var pn) && pn.ValueKind == JsonValueKind.String ? pn.GetString() : null;
+        var isImage = IsImageMessage(data);
         var body = ExtractText(data);
-        if (string.IsNullOrWhiteSpace(body)) { body = "(mensaje no soportado)"; }
+        if (string.IsNullOrWhiteSpace(body)) { body = isImage ? "(imagen)" : "(mensaje no soportado)"; }
 
         DateTimeOffset? sentAt = null;
         if (data.TryGetProperty("messageTimestamp", out var ts) && ts.ValueKind == JsonValueKind.Number && ts.TryGetInt64(out var secs))
@@ -62,9 +63,15 @@ public static class EvolutionWebhookParser
             sentAt = DateTimeOffset.FromUnixTimeSeconds(secs);
         }
 
+        // Para imagenes marcamos MessageType="image": el webhook descargara la media por el id del mensaje
+        // (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla.
         return new ParsedInbound(tenantId.Value,
-            new IngestMessageRequest(phone, name2, externalId, body!, "text", sentAt, lineId));
+            new IngestMessageRequest(phone, name2, externalId, body!, isImage ? "image" : "text", sentAt, lineId));
     }
+
+    private static bool IsImageMessage(JsonElement data) =>
+        data.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object
+        && msg.TryGetProperty("imageMessage", out var im) && im.ValueKind == JsonValueKind.Object;
 
     private static string? ExtractText(JsonElement data)
     {

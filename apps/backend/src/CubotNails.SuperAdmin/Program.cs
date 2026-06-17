@@ -692,9 +692,12 @@ app.MapPost("/api/test/agent", async (
         await runner.RunAsync(conv.Id, ct);
     }
 
-    // 6. Devolver la respuesta del agente (ultimo saliente) para inspeccion rapida.
+    // 6. Devolver la respuesta de TEXTO del agente (no los adjuntos) para inspeccion rapida.
     var reply = await db.Messages.AsNoTracking()
-        .Where(m => m.ConversationId == conv.Id && m.Direction == CubotNails.Domain.Enums.MessageDirection.Outbound)
+        .Where(m => m.ConversationId == conv.Id
+            && m.Direction == CubotNails.Domain.Enums.MessageDirection.Outbound
+            && m.MediaType == CubotNails.Domain.Enums.MessageMediaType.None
+            && m.Body != "")
         .OrderByDescending(m => m.SentAt)
         .Select(m => m.Body)
         .FirstOrDefaultAsync(ct);

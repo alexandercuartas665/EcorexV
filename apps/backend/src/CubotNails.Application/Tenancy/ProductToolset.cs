@@ -102,7 +102,28 @@ public sealed class ProductToolset : IProductToolset
         if (!string.IsNullOrWhiteSpace(categoria))
         {
             var cat = Normalize(categoria!);
-            list = list.Where(p => !string.IsNullOrWhiteSpace(p.Category) && Normalize(p.Category!).Contains(cat)).ToList();
+            var byCat = list.Where(p => !string.IsNullOrWhiteSpace(p.Category) && Normalize(p.Category!).Contains(cat)).ToList();
+            // El agente suele ADIVINAR el nombre de la categoria (p.ej. "Cuidado Capilar" vs "Cuidado del
+            // cabello"). Si la coincidencia exacta no encuentra nada pero si hay catalogo, caemos a una
+            // busqueda laxa por palabras significativas del termino sobre nombre/categoria/descripcion,
+            // para no devolver vacio cuando claramente hay productos afines.
+            if (byCat.Count == 0)
+            {
+                var stop = new HashSet<string> { "para", "cuidado", "producto", "productos", "linea" };
+                var words = cat.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length >= 4 && !stop.Contains(w))
+                    .ToArray();
+                list = words.Length == 0
+                    ? byCat
+                    : list.Where(p => words.Any(w =>
+                        Normalize(p.Name).Contains(w)
+                        || (!string.IsNullOrWhiteSpace(p.Category) && Normalize(p.Category!).Contains(w))
+                        || (!string.IsNullOrWhiteSpace(p.Description) && Normalize(p.Description!).Contains(w)))).ToList();
+            }
+            else
+            {
+                list = byCat;
+            }
         }
         if (!string.IsNullOrWhiteSpace(busqueda))
         {

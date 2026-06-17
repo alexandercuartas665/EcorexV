@@ -138,8 +138,23 @@ else
 
             @if (!string.IsNullOrWhiteSpace(_webhook.EffectiveUrl))
             {
-                <div class="text-muted" style="font-size:11px;margin-top:8px;word-break:break-all;">Webhook activo: @_webhook.EffectiveUrl</div>
+                <div class="text-muted" style="font-size:11px;margin-top:8px;word-break:break-all;">Webhook activo (Evolution): @_webhook.EffectiveUrl</div>
             }
+
+            @* ===== Webhook de Meta (WhatsApp Cloud API) ===== *@
+            <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;">
+                <div style="font-weight:700;margin-bottom:4px;">Webhook de Meta (WhatsApp Cloud API)</div>
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Para las lineas Cloud, pega estos datos en el panel de tu App de Meta (WhatsApp &gt; Configuracion &gt; Webhooks) y suscribete al campo <strong>messages</strong>.</div>
+                <div class="field" style="max-width:620px;">
+                    <label class="form-label">Callback URL</label>
+                    <input class="form-control" readonly value="@(_webhook.MetaCallbackUrl ?? "(inicia el tunel o configura la URL publica)")" />
+                </div>
+                <div class="field" style="max-width:620px;">
+                    <label class="form-label">Verify token</label>
+                    <input class="form-control" readonly value="@(_webhook.MetaVerifyToken ?? "")" />
+                </div>
+            </div>
+
             @if (_whMsg is not null)
             {
                 <div class="@(_whOk ? "text-success" : "text-danger")" style="font-size:12px;margin-top:8px;">@_whMsg</div>
@@ -169,6 +184,14 @@ else
         </div>
     </div>
 
+    @if (_actionMsg is not null)
+    {
+        <div class="@(_actionOk ? "text-success" : "text-danger")" style="max-width:1040px;margin-bottom:12px;font-size:13px;display:flex;gap:8px;align-items:center;">
+            <span>@_actionMsg</span>
+            <button class="btn btn-sm btn-outline-secondary" style="padding:0 8px;" @onclick="() => _actionMsg = null">x</button>
+        </div>
+    }
+
     @if (_lines.Count == 0)
     {
         <p class="text-muted">No tienes lineas todavia. Usa "Conectar linea" para escanear un WhatsApp.</p>
@@ -178,13 +201,14 @@ else
         <div class="card" style="max-width:1040px;padding:6px 16px;">
             <table class="table table-hover align-middle" style="margin-bottom:0;">
                 <thead>
-                    <tr><th>Linea</th><th>Telefono</th><th>Estado</th><th>Ultima conexion</th><th class="text-end">Acciones</th></tr>
+                    <tr><th>Linea</th><th>Proveedor</th><th>Telefono</th><th>Estado</th><th>Ultima conexion</th><th class="text-end">Acciones</th></tr>
                 </thead>
                 <tbody>
                     @foreach (var l in _lines)
                     {
                         <tr>
                             <td style="font-weight:600;">@l.InstanceName</td>
+                            <td><span class="badge @(l.Provider == WhatsAppProvider.Cloud ? "bg-info" : "bg-secondary")">@(l.Provider == WhatsAppProvider.Cloud ? "Cloud (Meta)" : "Evolution")</span></td>
                             <td style="font-size:12px;color:var(--muted-foreground);">@(string.IsNullOrWhiteSpace(l.PhoneNumber) ? "—" : l.PhoneNumber)</td>
                             <td><span class="badge bg-@StatusColor(l.Status)">@StatusText(l.Status)</span></td>
                             <td style="font-size:12px;color:var(--muted-foreground);">@(l.LastConnectedAt is { } c ? c.LocalDateTime.ToString("dd MMM HH:mm") : "Nunca")</td>
@@ -197,7 +221,7 @@ else
                                 }
                                 else
                                 {
-                                    <button class="btn btn-sm btn-primary" @onclick="() => ConnectAsync(l)" disabled="@_busy">Conectar / QR</button>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => ConnectAsync(l)" disabled="@_busy">@(l.Provider == WhatsAppProvider.Cloud ? "Validar / Conectar" : "Conectar / QR")</button>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => RefreshAsync(l.Id)" disabled="@_busy">Actualizar</button>
                                 }
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => AskDeleteLine(l)" disabled="@_busy" title="Eliminar linea">Eliminar</button>
@@ -221,9 +245,36 @@ else
             </div>
             <div class="modal-body">
                 <div class="field">
+                    <label class="form-label">Proveedor</label>
+                    <select class="form-control" @bind="_newProvider">
+                        <option value="@WhatsAppProvider.Evolution">Evolution (conexion por QR)</option>
+                        <option value="@WhatsAppProvider.Cloud">WhatsApp Cloud API (oficial de Meta)</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label class="form-label">Nombre de la linea *</label>
                     <input class="form-control" @bind="_newName" autocomplete="off" placeholder="Ventas, Soporte, etc." />
                 </div>
+                @if (_newProvider == WhatsAppProvider.Cloud)
+                {
+                    <div class="field">
+                        <label class="form-label">Numero visible (opcional)</label>
+                        <input class="form-control" @bind="_newPhone" autocomplete="off" placeholder="+57 300 000 0000" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Phone Number ID *</label>
+                        <input class="form-control" @bind="_newCloudPhoneNumberId" autocomplete="off" placeholder="Ej. 123456789012345" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Token de acceso *</label>
+                        <input class="form-control" type="password" @bind="_newCloudToken" autocomplete="off" placeholder="Token permanente / de sistema" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">WABA id (opcional)</label>
+                        <input class="form-control" @bind="_newCloudWaba" autocomplete="off" placeholder="WhatsApp Business Account id" />
+                    </div>
+                    <div class="text-muted small">Sin QR: se valida con Meta al conectar. Recuerda configurar el webhook de Meta (abajo) en el panel de tu App.</div>
+                }
                 @if (_newError is not null)
                 {
                     <div class="text-danger small">@_newError</div>
@@ -231,7 +282,7 @@ else
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="() => _newOpen = false">Cancelar</button>
-                <button class="btn btn-primary" @onclick="CreateAndConnectAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">Crear y conectar</button>
+                <button class="btn btn-primary" @onclick="CreateAndConnectAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">@(_newProvider == WhatsAppProvider.Cloud ? "Crear y validar" : "Crear y conectar")</button>
             </div>
         </div>
     </div>
@@ -339,6 +390,15 @@ else
     private bool _newOpen;
     private string? _newName;
     private string? _newError;
+    private WhatsAppProvider _newProvider = WhatsAppProvider.Evolution;
+    private string? _newPhone;
+    private string? _newCloudPhoneNumberId;
+    private string? _newCloudToken;
+    private string? _newCloudWaba;
+
+    // Banner de resultado de acciones (validar linea Cloud, etc.).
+    private string? _actionMsg;
+    private bool _actionOk;
 
     private bool _qrOpen;
     private string? _qr;
@@ -467,11 +527,24 @@ else
     {
         _newError = null;
         if (string.IsNullOrWhiteSpace(_newName)) { _newError = "Escribe un nombre."; return; }
+        if (_newProvider == WhatsAppProvider.Cloud
+            && (string.IsNullOrWhiteSpace(_newCloudPhoneNumberId) || string.IsNullOrWhiteSpace(_newCloudToken)))
+        {
+            _newError = "Para una linea Cloud indica el Phone Number ID y el token de acceso.";
+            return;
+        }
         _busy = true;
         try
         {
             var actor = await ActorAsync();
-            var line = await LinesSvc.CreateAsync(new CreateWhatsAppLineRequest(_newName!.Trim()), actor);
+            var req = new CreateWhatsAppLineRequest(
+                _newName!.Trim(),
+                _newProvider == WhatsAppProvider.Cloud ? _newPhone : null,
+                _newProvider,
+                _newProvider == WhatsAppProvider.Cloud ? _newCloudPhoneNumberId : null,
+                _newProvider == WhatsAppProvider.Cloud ? _newCloudToken : null,
+                _newProvider == WhatsAppProvider.Cloud ? _newCloudWaba : null);
+            var line = await LinesSvc.CreateAsync(req, actor);
             if (line is null) { _newError = "No se pudo crear la linea."; return; }
             _newOpen = false;
             await ReloadAsync();
@@ -482,6 +555,22 @@ else
 
     private async Task ConnectAsync(WhatsAppLineDto line)
     {
+        // Linea Cloud: no hay QR; se valida con Meta y se muestra el resultado en un banner.
+        if (line.Provider == WhatsAppProvider.Cloud)
+        {
+            _busy = true;
+            try
+            {
+                var actor = await ActorAsync();
+                var res = await ConnectorSvc.ConnectLineAsync(line.Id, actor);
+                _actionOk = res.Ok;
+                _actionMsg = res.Ok ? $"Linea \"{line.InstanceName}\" validada y conectada con Meta." : $"No se pudo validar: {res.Error}";
+                await ReloadAsync();
+            }
+            finally { _busy = false; }
+            return;
+        }
+
         _qrError = null;
         _qr = null;
         _qrLineId = line.Id;

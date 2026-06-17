@@ -9,9 +9,19 @@ public sealed record WhatsAppLineDto(
     WhatsAppLineStatus Status,
     Guid? AssignedToTenantUserId,
     DateTimeOffset? LastConnectedAt,
-    DateTimeOffset? LastStatusAt);
+    DateTimeOffset? LastStatusAt,
+    WhatsAppProvider Provider = WhatsAppProvider.Evolution,
+    string? CloudPhoneNumberId = null,
+    string? CloudBusinessAccountId = null,
+    bool HasCloudToken = false);
 
-public sealed record CreateWhatsAppLineRequest(string InstanceName, string? PhoneNumber = null);
+public sealed record CreateWhatsAppLineRequest(
+    string InstanceName,
+    string? PhoneNumber = null,
+    WhatsAppProvider Provider = WhatsAppProvider.Evolution,
+    string? CloudPhoneNumberId = null,
+    string? CloudAccessToken = null,
+    string? CloudBusinessAccountId = null);
 
 public sealed record ChangeLineStatusRequest(WhatsAppLineStatus Status);
 

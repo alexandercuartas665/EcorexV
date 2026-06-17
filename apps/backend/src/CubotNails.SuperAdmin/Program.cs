@@ -100,6 +100,8 @@ if (!app.Environment.IsDevelopment())
         // demo. Esto es lo unico del seeder que tiene sentido correr en produccion.
         var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
         await seeder.EnsurePlatformAdminTenantAsync();
+        // Clave fuerte del Super Admin definida como secreto en la plataforma (Railway), no versionada.
+        await seeder.EnsureSuperAdminPasswordAsync(Environment.GetEnvironmentVariable("CUBOT_SEED_ADMIN_PASSWORD"));
     }
 }
 else
@@ -544,6 +546,48 @@ app.MapPost("/webhooks/evolution", async (
     return result == CubotNails.Application.Tenancy.ChatIngestResult.Duplicate
         ? Results.Ok(new { status = "duplicate" })
         : Results.Accepted();
+}).AllowAnonymous().DisableAntiforgery();
+
+// Webhook de Meta (WhatsApp Cloud API) - handshake de verificacion (GET).
+app.MapGet("/webhooks/meta", async (HttpRequest request, IApplicationDbContext db, CancellationToken ct) =>
+{
+    var mode = request.Query["hub.mode"].ToString();
+    var token = request.Query["hub.verify_token"].ToString();
+    var challenge = request.Query["hub.challenge"].ToString();
+    var master = await db.EvolutionMasterConfigs.FirstOrDefaultAsync(ct);
+    var expected = master?.MetaWebhookVerifyToken;
+    if (string.Equals(mode, "subscribe", StringComparison.Ordinal)
+        && !string.IsNullOrEmpty(expected) && string.Equals(token, expected, StringComparison.Ordinal))
+    {
+        return Results.Text(challenge); // Meta espera el challenge en texto plano.
+    }
+    return Results.StatusCode(403);
+}).AllowAnonymous().DisableAntiforgery();
+
+// Webhook de Meta - mensajes entrantes (POST). Resuelve la linea por phone_number_id y reutiliza el pipeline.
+app.MapPost("/webhooks/meta", async (
+    HttpRequest request,
+    IApplicationDbContext db,
+    CubotNails.Application.Tenancy.IChatIngestService ingest,
+    CancellationToken ct) =>
+{
+    using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+    var messages = CubotNails.SuperAdmin.RealTime.MetaWebhookParser.Parse(doc.RootElement);
+    if (messages.Count == 0) { return Results.Ok(new { status = "ignored" }); }
+
+    foreach (var m in messages)
+    {
+        // Sin contexto de tenant aun: la linea Cloud se identifica por su phone_number_id.
+        var line = await db.WhatsAppLines.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.CloudPhoneNumberId == m.PhoneNumberId
+                && l.Provider == CubotNails.Domain.Enums.WhatsAppProvider.Cloud, ct);
+        if (line is null) { continue; } // numero no registrado en ninguna linea
+
+        var payload = new CubotNails.Application.Tenancy.IngestMessageRequest(
+            m.Phone, m.Name, m.ExternalId, m.Body, "text", m.SentAt, line.Id);
+        await ingest.IngestTrustedAsync(line.TenantId, payload, ct);
+    }
+    return Results.Ok(new { status = "ok" });
 }).AllowAnonymous().DisableAntiforgery();
 
 app.Run();

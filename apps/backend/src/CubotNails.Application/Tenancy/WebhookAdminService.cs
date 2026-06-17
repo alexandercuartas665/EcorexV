@@ -77,12 +77,20 @@ public sealed class WebhookAdminService : IWebhookAdminService
     private async Task<EvolutionMasterConfig> GetOrCreateAsync(CancellationToken ct)
     {
         var cfg = await _db.EvolutionMasterConfigs.FirstOrDefaultAsync(ct);
+        var dirty = false;
         if (cfg is null)
         {
             cfg = new EvolutionMasterConfig { WebhookMode = "Development" };
             _db.EvolutionMasterConfigs.Add(cfg);
-            await _db.SaveChangesAsync(ct);
+            dirty = true;
         }
+        // Verify token del webhook de Meta: se genera una vez y se reutiliza (handshake GET).
+        if (string.IsNullOrWhiteSpace(cfg.MetaWebhookVerifyToken))
+        {
+            cfg.MetaWebhookVerifyToken = GenerateToken();
+            dirty = true;
+        }
+        if (dirty) { await _db.SaveChangesAsync(ct); }
         return cfg;
     }
 
@@ -92,7 +100,8 @@ public sealed class WebhookAdminService : IWebhookAdminService
             ? c.WebhookPublicUrl
             : c.WebhookActiveUrl;
         var effective = string.IsNullOrWhiteSpace(effectiveBase) ? null : $"{effectiveBase!.TrimEnd('/')}/webhooks/evolution";
-        return new WebhookConfigDto(c.WebhookMode, c.WebhookPublicUrl, c.WebhookToken, c.WebhookActiveUrl, _tunnel.IsRunning, effective);
+        var metaCallback = string.IsNullOrWhiteSpace(effectiveBase) ? null : $"{effectiveBase!.TrimEnd('/')}/webhooks/meta";
+        return new WebhookConfigDto(c.WebhookMode, c.WebhookPublicUrl, c.WebhookToken, c.WebhookActiveUrl, _tunnel.IsRunning, effective, c.MetaWebhookVerifyToken, metaCallback);
     }
 
     private static string GenerateToken()

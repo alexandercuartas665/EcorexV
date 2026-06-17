@@ -139,6 +139,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<SalonFieldScope>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<SalonFieldType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -325,8 +326,13 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
         {
             b.Property(x => x.InstanceName).HasMaxLength(200).IsRequired();
             b.Property(x => x.PhoneNumber).HasMaxLength(40);
+            b.Property(x => x.CloudPhoneNumberId).HasMaxLength(60);
+            b.Property(x => x.CloudBusinessAccountId).HasMaxLength(60);
+            b.Property(x => x.CloudAccessTokenEncrypted).HasColumnType("text");
             b.HasIndex(x => new { x.TenantId, x.InstanceName }).IsUnique();
             b.HasIndex(x => x.AssignedToTenantUserId);
+            // El webhook entrante de Meta resuelve la linea por phone_number_id.
+            b.HasIndex(x => x.CloudPhoneNumberId);
         });
 
         modelBuilder.Entity<PipelineStage>(b =>

@@ -16,4 +16,15 @@ public class WhatsAppLine : TenantEntity
     public Guid? AssignedToTenantUserId { get; set; }
     public DateTimeOffset? LastConnectedAt { get; set; }
     public DateTimeOffset? LastStatusAt { get; set; }
+
+    /// <summary>Proveedor de la linea (Evolution por QR o Meta Cloud API oficial). Default Evolution.</summary>
+    public WhatsAppProvider Provider { get; set; } = WhatsAppProvider.Evolution;
+
+    // ===== Credenciales para lineas Cloud (Meta WhatsApp Cloud API) =====
+    /// <summary>phone_number_id de Meta: identifica el numero y enruta el webhook entrante.</summary>
+    public string? CloudPhoneNumberId { get; set; }
+    /// <summary>WABA id (WhatsApp Business Account) de Meta. Opcional, para referencia y plantillas.</summary>
+    public string? CloudBusinessAccountId { get; set; }
+    /// <summary>Token de acceso de Meta cifrado en reposo (ISecretProtector).</summary>
+    public string? CloudAccessTokenEncrypted { get; set; }
 }

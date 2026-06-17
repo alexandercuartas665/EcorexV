@@ -31,4 +31,7 @@ public class EvolutionMasterConfig : BaseEntity
 
     /// <summary>Token compartido que valida los webhooks entrantes de Evolution.</summary>
     public string? WebhookToken { get; set; }
+
+    /// <summary>Verify token del webhook de Meta (handshake GET hub.verify_token). Se elige en la plataforma.</summary>
+    public string? MetaWebhookVerifyToken { get; set; }
 }

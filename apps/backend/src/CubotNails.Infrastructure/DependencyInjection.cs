@@ -51,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<Application.Common.IEmailSender, Email.SmtpEmailSender>();
         services.AddHttpClient<CubotNails.Application.Admin.IWompiApiClient, Wompi.WompiApiClient>();
         services.AddHttpClient<CubotNails.Application.Admin.IEvolutionApiClient, Evolution.EvolutionApiClient>();
+        services.AddHttpClient<CubotNails.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();
         services.AddHttpClient<CubotNails.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>();
         services.AddHttpClient<CubotNails.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
         services.AddScoped<DatabaseSeeder>();

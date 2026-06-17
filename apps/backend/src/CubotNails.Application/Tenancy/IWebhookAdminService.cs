@@ -6,7 +6,9 @@ public sealed record WebhookConfigDto(
     string? Token,
     string? ActiveUrl,
     bool TunnelRunning,
-    string? EffectiveUrl);
+    string? EffectiveUrl,
+    string? MetaVerifyToken = null,
+    string? MetaCallbackUrl = null);
 
 /// <summary>Administra la config del webhook entrante (modo dev/prod, URL, token) y el tunel de desarrollo.</summary>
 public interface IWebhookAdminService

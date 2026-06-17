@@ -116,6 +116,27 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
+    /// Fija la clave del Super Admin a partir de un valor provisto por el entorno (CUBOT_SEED_ADMIN_PASSWORD
+    /// en Railway). Sirve para que en produccion el super admin tenga una clave FUERTE sin versionarla ni
+    /// pasarla en claro: el operador la define como secreto en la plataforma y aqui solo se hashea. Es
+    /// idempotente y seguro de correr en cada arranque. No hace nada si el valor es vacio.
+    /// </summary>
+    public async Task EnsureSuperAdminPasswordAsync(string? newPassword, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(newPassword)) { return; }
+        var superAdmin = await _db.PlatformUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.PlatformRole == PlatformRole.SuperAdmin && u.Status == PlatformUserStatus.Active, cancellationToken);
+        if (superAdmin is null) { return; }
+
+        var pwd = newPassword.Trim();
+        // Si la clave actual ya coincide, no reescribir (evita un update por cada arranque).
+        if (!string.IsNullOrEmpty(superAdmin.PasswordHash) && _hasher.Verify(superAdmin.PasswordHash, pwd)) { return; }
+        superAdmin.PasswordHash = _hasher.Hash(pwd);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogWarning("Clave del Super Admin {Email} actualizada desde el entorno.", superAdmin.Email);
+    }
+
+    /// <summary>
     /// Asegura que el Super Admin (admin@cubot.nails) tambien sea Owner de un tenant interno
     /// "Plataforma CUBOT". Asi el Super Admin puede usar Pipeline y los modulos comerciales como
     /// si fuera una agencia mas, sin perder su rol de gobierno de la plataforma. Idempotente: si

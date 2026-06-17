@@ -11,13 +11,15 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
     private readonly ITenantContext _tenantContext;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _timeProvider;
+    private readonly ISecretProtector _secretProtector;
 
-    public WhatsAppLineService(IApplicationDbContext db, ITenantContext tenantContext, IAuditWriter audit, TimeProvider timeProvider)
+    public WhatsAppLineService(IApplicationDbContext db, ITenantContext tenantContext, IAuditWriter audit, TimeProvider timeProvider, ISecretProtector secretProtector)
     {
         _db = db;
         _tenantContext = tenantContext;
         _audit = audit;
         _timeProvider = timeProvider;
+        _secretProtector = secretProtector;
     }
 
     public async Task<IReadOnlyList<WhatsAppLineDto>> ListAsync(CancellationToken cancellationToken = default)
@@ -25,7 +27,8 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
         return await _db.WhatsAppLines
             .AsNoTracking()
             .OrderBy(l => l.InstanceName)
-            .Select(l => new WhatsAppLineDto(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt))
+            .Select(l => new WhatsAppLineDto(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt,
+                l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, l.CloudAccessTokenEncrypted != null))
             .ToListAsync(cancellationToken);
     }
 
@@ -42,13 +45,19 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
             InstanceName = request.InstanceName.Trim(),
             PhoneNumber = request.PhoneNumber?.Trim(),
             Status = WhatsAppLineStatus.Created,
-            LastStatusAt = _timeProvider.GetUtcNow()
+            LastStatusAt = _timeProvider.GetUtcNow(),
+            Provider = request.Provider,
+            CloudPhoneNumberId = request.Provider == WhatsAppProvider.Cloud ? Clean(request.CloudPhoneNumberId) : null,
+            CloudBusinessAccountId = request.Provider == WhatsAppProvider.Cloud ? Clean(request.CloudBusinessAccountId) : null,
+            CloudAccessTokenEncrypted = request.Provider == WhatsAppProvider.Cloud && !string.IsNullOrWhiteSpace(request.CloudAccessToken)
+                ? _secretProtector.Protect(request.CloudAccessToken.Trim())
+                : null
         };
         _db.WhatsAppLines.Add(line);
 
         _audit.Write(actorUserId, "whatsapp-line.create", nameof(WhatsAppLine), line.Id,
             previousValue: null,
-            newValue: new { line.InstanceName, line.PhoneNumber },
+            newValue: new { line.InstanceName, line.PhoneNumber, Provider = line.Provider.ToString() },
             tenantId: tenantId);
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -114,5 +123,8 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
     }
 
     private static WhatsAppLineDto Map(WhatsAppLine l) =>
-        new(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt);
+        new(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt,
+            l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, !string.IsNullOrEmpty(l.CloudAccessTokenEncrypted));
+
+    private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 }

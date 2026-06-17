@@ -22,7 +22,7 @@ public interface IHairLengthService
     Task<bool> SetActiveAsync(Guid id, bool isActive, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteCategoryAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
 
-    Task<HairLengthRefImageDto?> AddImageAsync(Guid categoryId, string url, string? fileName, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<HairLengthRefImageDto?> AddImageAsync(Guid categoryId, byte[] content, string contentType, string? fileName, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> RemoveImageAsync(Guid imageId, Guid actorUserId, CancellationToken cancellationToken = default);
 }
 
@@ -113,15 +113,24 @@ public sealed class HairLengthService : IHairLengthService
         return true;
     }
 
-    public async Task<HairLengthRefImageDto?> AddImageAsync(Guid categoryId, string url, string? fileName, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<HairLengthRefImageDto?> AddImageAsync(Guid categoryId, byte[] content, string contentType, string? fileName, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId) { return null; }
+        if (content is null || content.Length == 0) { return null; }
         if (!await _db.HairLengthCategories.AnyAsync(c => c.Id == categoryId, cancellationToken)) { return null; }
         var next = (await _db.HairLengthReferenceImages.Where(i => i.CategoryId == categoryId).Select(i => (int?)i.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
-        var img = new HairLengthReferenceImage { TenantId = tenantId, CategoryId = categoryId, Url = url.Trim(), FileName = fileName, SortOrder = next };
+        var img = new HairLengthReferenceImage
+        {
+            TenantId = tenantId,
+            CategoryId = categoryId,
+            Content = content,
+            ContentType = string.IsNullOrWhiteSpace(contentType) ? "image/jpeg" : contentType,
+            FileName = fileName,
+            SortOrder = next
+        };
         _db.HairLengthReferenceImages.Add(img);
         await _db.SaveChangesAsync(cancellationToken);
-        return new HairLengthRefImageDto(img.Id, img.Url, img.FileName, img.SortOrder);
+        return new HairLengthRefImageDto(img.Id, $"/media/hairref/{img.Id}", img.FileName, img.SortOrder);
     }
 
     public async Task<bool> RemoveImageAsync(Guid imageId, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -136,5 +145,5 @@ public sealed class HairLengthService : IHairLengthService
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
     private static HairLengthCategoryDto Map(HairLengthCategory c, IEnumerable<HairLengthReferenceImage> images) =>
         new(c.Id, c.Name, c.Description, c.SortOrder, c.IsActive,
-            images.OrderBy(i => i.SortOrder).Select(i => new HairLengthRefImageDto(i.Id, i.Url, i.FileName, i.SortOrder)).ToList());
+            images.OrderBy(i => i.SortOrder).Select(i => new HairLengthRefImageDto(i.Id, $"/media/hairref/{i.Id}", i.FileName, i.SortOrder)).ToList());
 }

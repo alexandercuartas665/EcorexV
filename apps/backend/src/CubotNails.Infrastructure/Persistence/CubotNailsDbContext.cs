@@ -681,7 +681,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
 
         modelBuilder.Entity<HairLengthReferenceImage>(b =>
         {
-            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.ContentType).HasMaxLength(120);
             b.Property(x => x.FileName).HasMaxLength(255);
             b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.CategoryId, x.SortOrder });

@@ -226,11 +226,15 @@ else
         try
         {
             var actor = await ActorAsync();
+            const long max = 10L * 1024 * 1024;
             foreach (var file in e.GetMultipleFiles(8))
             {
-                var saved = await SaveImageFileAsync(file);
-                if (saved is null) { _imgMsg = "Alguna imagen no se pudo subir (max 10MB)."; continue; }
-                await Svc.AddImageAsync(categoryId, saved.Value.Url, saved.Value.Name, actor);
+                if (file.Size <= 0 || file.Size > max) { _imgMsg = "Alguna imagen no se pudo subir (max 10MB)."; continue; }
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(max).CopyToAsync(ms);
+                var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+                // Las fotos de referencia se guardan EN LA BD (persisten aunque el contenedor se recree).
+                await Svc.AddImageAsync(categoryId, ms.ToArray(), mime, file.Name, actor);
             }
             await ReloadAsync();
         }
@@ -272,20 +276,6 @@ else
             else { _classifyMsg = res.Error ?? "No se pudo clasificar la foto."; }
         }
         finally { _classifying = false; }
-    }
-
-    private async Task<(string Url, string Name)?> SaveImageFileAsync(IBrowserFile file)
-    {
-        const long max = 10L * 1024 * 1024;
-        if (file.Size <= 0 || file.Size > max) { return null; }
-        using var ms = new MemoryStream();
-        await file.OpenReadStream(max).CopyToAsync(ms);
-        var ext = System.IO.Path.GetExtension(file.Name);
-        var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "hair");
-        System.IO.Directory.CreateDirectory(dir);
-        var name = $"hair-{Guid.NewGuid():N}{ext}";
-        await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), ms.ToArray());
-        return ($"/uploads/hair/{name}", file.Name);
     }
 
     private async Task<Guid> ActorAsync()

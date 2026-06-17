@@ -758,6 +758,17 @@ app.MapGet("/media/hair/{id:guid}", async (
     return Results.File(await System.IO.File.ReadAllBytesAsync(path, ct), contentType);
 }).RequireAuthorization("TenantMember");
 
+// Sirve una imagen de REFERENCIA de medida de cabello, guardada en la BD (persiste a redeploys).
+app.MapGet("/media/hairref/{id:guid}", async (
+    Guid id,
+    CubotNails.Application.Common.IApplicationDbContext db,
+    CancellationToken ct) =>
+{
+    var img = await db.HairLengthReferenceImages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (img?.Content is null || img.Content.Length == 0) { return Results.NotFound(); }
+    return Results.File(img.Content, string.IsNullOrWhiteSpace(img.ContentType) ? "image/jpeg" : img.ContentType);
+}).RequireAuthorization("TenantMember");
+
 app.Run();
 
 namespace CubotNails.SuperAdmin

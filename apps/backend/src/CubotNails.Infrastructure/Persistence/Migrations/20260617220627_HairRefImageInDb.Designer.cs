@@ -3,6 +3,7 @@ using System;
 using CubotNails.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CubotNails.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CubotNailsDbContext))]
-    partial class CubotNailsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260617220627_HairRefImageInDb")]
+    partial class HairRefImageInDb
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -32,13 +32,12 @@ public sealed class HairClassifierService : IHairClassifierService
     private readonly ISecretProtector _secretProtector;
     private readonly IAiProviderClient _client;
     private readonly IAiUsageService _usage;
-    private readonly IAgentAssetReader _assets;
 
     public HairClassifierService(IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector secretProtector,
-        IAiProviderClient client, IAiUsageService usage, IAgentAssetReader assets)
+        IAiProviderClient client, IAiUsageService usage)
     {
         _db = db; _tenantContext = tenantContext; _secretProtector = secretProtector;
-        _client = client; _usage = usage; _assets = assets;
+        _client = client; _usage = usage;
     }
 
     public async Task<HairClassificationResultDto> ClassifyAsync(string clientPhotoBase64, string mime, string? storedPhotoFileName, Guid actorUserId, CancellationToken ct = default)
@@ -81,8 +80,11 @@ public sealed class HairClassifierService : IHairClassifierService
             {
                 foreach (var img in imgs)
                 {
-                    var b64 = await _assets.ReadBase64Async(img.Url, ct);
-                    if (b64 is not null) { parts.Add(new(ImageBase64: b64, ImageMime: GuessMime(img.Url))); }
+                    if (img.Content is { Length: > 0 })
+                    {
+                        parts.Add(new(ImageBase64: Convert.ToBase64String(img.Content),
+                            ImageMime: string.IsNullOrWhiteSpace(img.ContentType) ? "image/jpeg" : img.ContentType));
+                    }
                 }
             }
         }
@@ -163,12 +165,6 @@ public sealed class HairClassifierService : IHairClassifierService
 
     private static string? GetStr(JsonElement el, string prop)
         => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static string GuessMime(string url)
-    {
-        var ext = System.IO.Path.GetExtension(url).ToLowerInvariant();
-        return ext switch { ".png" => "image/png", ".webp" => "image/webp", ".gif" => "image/gif", _ => "image/jpeg" };
-    }
 
     private static string Normalize(string s)
     {

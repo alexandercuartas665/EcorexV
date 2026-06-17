@@ -24,7 +24,11 @@ public class HairLengthReferenceImage : TenantEntity
 {
     public Guid CategoryId { get; set; }
     public HairLengthCategory? Category { get; set; }
-    public string Url { get; set; } = null!;
+
+    /// <summary>Contenido del archivo guardado EN LA BD (bytea): persiste aunque el contenedor se recree
+    /// (Railway tiene disco efimero). Se sirve por /media/hairref/{id}.</summary>
+    public byte[]? Content { get; set; }
+    public string? ContentType { get; set; }
     public string? FileName { get; set; }
     public int SortOrder { get; set; }
 }

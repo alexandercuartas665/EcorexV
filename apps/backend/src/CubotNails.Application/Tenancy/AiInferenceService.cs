@@ -223,6 +223,12 @@ public sealed class AiInferenceService : IAiInferenceService
         var totalOut = 0;
         var bookingCreated = false;
         string? lastText = null;
+        // Red de seguridad de CIERRE: el modelo a veces afirma "ya te registre / un asesor te contactara"
+        // sin invocar la herramienta de cierre, dejando al cliente FUERA del pipeline. Si detectamos ese
+        // caso lo forzamos a invocarla una sola vez.
+        var closeToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "inscribir_curso", "reservar_cita" };
+        var closeToolInvoked = false;
+        var closeNudged = false;
 
         for (var round = 1; round <= MaxToolRounds; round++)
         {
@@ -238,6 +244,26 @@ public sealed class AiInferenceService : IAiInferenceService
             // Sin herramientas pedidas: el modelo entrega su respuesta final.
             if (completion.ToolCalls.Count == 0)
             {
+                // Si afirma un cierre (registro/inscripcion/que un asesor lo contactara) pero NUNCA invoco
+                // una herramienta de cierre, lo forzamos una sola vez: no podemos prometerle al cliente que
+                // quedo en el pipeline si no creamos el lead/inscripcion.
+                if (!closeToolInvoked && !closeNudged && ClaimsCloseWithoutTool(completion.Text))
+                {
+                    closeNudged = true;
+                    messages.Add(new AiToolMessage("assistant", completion.Text));
+                    messages.Add(new AiToolMessage("user",
+                        "[SISTEMA] Afirmaste que registraste/inscribiste al cliente o que un asesor lo contactara, " +
+                        "pero NO invocaste ninguna herramienta de cierre (crear_lead, inscribir_curso o reservar_cita). " +
+                        "Es OBLIGATORIO: invoca AHORA la herramienta de cierre adecuada con los datos que ya tienes " +
+                        "(nombre y canal/tipo de cliente). Si te falta el nombre, pidelo en vez de afirmar el registro. " +
+                        "No respondas solo con texto."));
+                    debugPrompts.Add(new AiDebugPrompt(
+                        "Red de seguridad de cierre",
+                        DateTimeOffset.UtcNow,
+                        "El modelo afirmo un cierre sin invocar la herramienta; se le pidio invocarla.",
+                        completion.Text));
+                    continue;
+                }
                 return (new AiChatResult(true, completion.Text ?? lastText, null, totalIn, totalOut), bookingCreated);
             }
 
@@ -255,6 +281,7 @@ public sealed class AiInferenceService : IAiInferenceService
             // Ejecuta cada herramienta in-process y agrega su resultado como mensaje "tool".
             foreach (var call in completion.ToolCalls)
             {
+                if (closeToolNames.Contains(call.Name)) { closeToolInvoked = true; }
                 var owner = ownerByTool.GetValueOrDefault(call.Name);
                 var exec = owner is null
                     ? new AgendaToolResult(JsonSerializer.Serialize(new { ok = false, error = $"Herramienta no disponible o deshabilitada: {call.Name}" }), false)
@@ -273,6 +300,37 @@ public sealed class AiInferenceService : IAiInferenceService
 
         // Se agoto el tope de vueltas sin respuesta final: devolvemos el ultimo texto o un aviso.
         return (new AiChatResult(true, lastText ?? "Estoy procesando tu solicitud, dame un momento.", null, totalIn, totalOut), bookingCreated);
+    }
+
+    // Detecta cuando el texto AFIRMA un cierre (registro / inscripcion / que un asesor lo contactara /
+    // cita agendada) para forzar la herramienta de cierre si el modelo no la invoco. Insensible a acentos.
+    private static bool ClaimsCloseWithoutTool(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        var n = StripAccents(text.ToLowerInvariant());
+        return n.Contains("registr")                 // he registrado / te registre / quedaste registrada
+            || n.Contains("contactar")               // un asesor te contactara / se pondra en contacto
+            || n.Contains("se pondra en contacto")
+            || n.Contains("se comunicar")
+            || n.Contains("inscr")                   // quedaste inscrita / inscripcion
+            || n.Contains("agendad")                 // tu cita quedo agendada
+            || n.Contains("reservad")                // cita reservada
+            || n.Contains("tu solicitud")
+            || n.Contains("tu pedido");
+    }
+
+    private static string StripAccents(string s)
+    {
+        var d = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new StringBuilder();
+        foreach (var c in d)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
     }
 
     // Arma el prompt del sistema: prompt base + enrutador + catalogo de recursos + ESTADO DE CACHE

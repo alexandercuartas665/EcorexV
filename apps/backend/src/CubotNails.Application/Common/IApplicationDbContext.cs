@@ -66,6 +66,7 @@ public interface IApplicationDbContext
     // Configuracion del salon (Capa 2).
     DbSet<Service> Services { get; }
     DbSet<ServiceImage> ServiceImages { get; }
+    DbSet<ServicePriceTier> ServicePriceTiers { get; }
     DbSet<Resource> Resources { get; }
     DbSet<Sede> Sedes { get; }
     DbSet<Product> Products { get; }

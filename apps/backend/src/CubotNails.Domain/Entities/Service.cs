@@ -1,4 +1,5 @@
 using CubotNails.Domain.Common;
+using CubotNails.Domain.Enums;
 
 namespace CubotNails.Domain.Entities;
 
@@ -18,6 +19,19 @@ public class Service : TenantEntity
     public string? Category { get; set; }
     public string? Color { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// Precio y duracion de un servicio SEGUN el largo de cabello (corto/medio/largo/muy largo). TENANT-SCOPED.
+/// Es opcional: si un servicio no define tarifas por largo, se usa el precio/duracion base del servicio.
+/// </summary>
+public class ServicePriceTier : TenantEntity
+{
+    public Guid ServiceId { get; set; }
+    public Service? Service { get; set; }
+    public HairLength Length { get; set; }
+    public decimal Price { get; set; }
+    public int DurationMinutes { get; set; }
 }
 
 /// <summary>Imagen de un servicio (archivo subido a wwwroot/uploads/services). TENANT-SCOPED.</summary>

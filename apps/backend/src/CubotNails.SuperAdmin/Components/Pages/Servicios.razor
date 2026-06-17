@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "TenantMember")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using CubotNails.Application.Tenancy
+@using CubotNails.Domain.Enums
 @inject IServiceCatalogService Svc
 @inject IJSRuntime JS
 @inject IWebHostEnvironment Env
@@ -75,9 +76,25 @@ else
                     }
                     <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;">
                         <span><span class="text-muted">Categoria:</span> <strong>@(string.IsNullOrWhiteSpace(s.Category) ? "-" : s.Category)</strong></span>
-                        <span><span class="text-muted">Duracion:</span> <strong>@s.DurationMinutes min</strong></span>
-                        <span><span class="text-muted">Precio:</span> <strong>$@s.Price.ToString("N0")</strong></span>
+                        @if (s.PriceTiers is { Count: > 0 } pt)
+                        {
+                            <span><span class="text-muted">Precio:</span> <strong>desde $@(pt.Min(t => t.Price).ToString("N0"))</strong> <span class="text-muted">(por largo)</span></span>
+                        }
+                        else
+                        {
+                            <span><span class="text-muted">Duracion:</span> <strong>@s.DurationMinutes min</strong></span>
+                            <span><span class="text-muted">Precio:</span> <strong>$@s.Price.ToString("N0")</strong></span>
+                        }
                     </div>
+                    @if (s.PriceTiers is { Count: > 0 } tiers2)
+                    {
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                            @foreach (var t in tiers2)
+                            {
+                                <span style="font-size:11px;background:var(--muted);border-radius:6px;padding:2px 7px;">@LengthLabel(t.Length): <strong>$@t.Price.ToString("N0")</strong>@(t.DurationMinutes > 0 ? $" · {t.DurationMinutes}min" : "")</span>
+                            }
+                        </div>
+                    }
                     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:4px;">
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenForm(s)">Editar</button>
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActiveAsync(s)" disabled="@_busy">@(s.IsActive ? "Desactivar" : "Activar")</button>
@@ -126,6 +143,31 @@ else
                         <input class="form-control" type="color" @bind="_form.Color" style="height:42px;padding:4px;" />
                     </div>
                 </div>
+
+                <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+                    <label class="form-label">Precios por largo de cabello (opcional)</label>
+                    <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Si el servicio cambia segun el largo, define el precio y el tiempo por cada largo. Las filas que dejes vacias no se guardan y se usa el precio/duracion base de arriba.</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="text-align:left;color:var(--muted-foreground);font-size:11px;text-transform:uppercase;letter-spacing:.03em;">
+                                <th style="padding:4px 6px;font-weight:700;">Largo</th>
+                                <th style="padding:4px 6px;font-weight:700;width:38%;">Precio</th>
+                                <th style="padding:4px 6px;font-weight:700;width:30%;">Tiempo (min)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _form.Tiers)
+                            {
+                                <tr>
+                                    <td style="padding:4px 6px;font-weight:600;">@LengthLabel(row.Length)</td>
+                                    <td style="padding:4px 6px;"><input class="form-control" type="number" min="0" step="1000" @bind="row.Price" style="height:34px;" placeholder="—" /></td>
+                                    <td style="padding:4px 6px;"><input class="form-control" type="number" min="0" @bind="row.Minutes" style="height:34px;" placeholder="—" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
                 <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
                     <label class="form-label">Imagenes</label>
                     @if (_editingId is null)
@@ -191,6 +233,15 @@ else
         _form = s is null
             ? new FormModel { Color = "#A03DC9", DurationMinutes = 45 }
             : new FormModel { Name = s.Name, Description = s.Description, DurationMinutes = s.DurationMinutes, Price = s.Price, Category = s.Category, Color = string.IsNullOrWhiteSpace(s.Color) ? "#A03DC9" : s.Color };
+        // Carga las tarifas por largo guardadas (sobre las 4 filas por defecto).
+        if (s?.PriceTiers is not null)
+        {
+            foreach (var t in s.PriceTiers)
+            {
+                var row = _form.Tiers.FirstOrDefault(r => r.Length == t.Length);
+                if (row is not null) { row.Price = t.Price; row.Minutes = t.DurationMinutes; }
+            }
+        }
         _formOpen = true;
     }
 
@@ -201,7 +252,8 @@ else
         try
         {
             var actor = await ActorAsync();
-            var req = new SaveServiceRequest(_form.Name, _form.DurationMinutes, _form.Price, _form.Category, _form.Color, _form.Description);
+            var tiers = _form.Tiers.Select(r => new ServicePriceTierDto(r.Length, r.Price, r.Minutes)).ToList();
+            var req = new SaveServiceRequest(_form.Name, _form.DurationMinutes, _form.Price, _form.Category, _form.Color, _form.Description, tiers);
             if (_editingId is Guid id)
             {
                 var updated = await Svc.UpdateAsync(id, req, actor);
@@ -291,6 +343,15 @@ else
 
     private static string Trim(string s, int max) => s.Length <= max ? s : s[..max] + "...";
 
+    private static string LengthLabel(HairLength l) => l switch
+    {
+        HairLength.Corto => "Corto",
+        HairLength.Medio => "Medio",
+        HairLength.Largo => "Largo",
+        HairLength.MuyLargo => "Muy largo",
+        _ => l.ToString()
+    };
+
     private sealed class FormModel
     {
         public string Name { get; set; } = "";
@@ -299,5 +360,21 @@ else
         public decimal Price { get; set; }
         public string? Category { get; set; }
         public string? Color { get; set; } = "#A03DC9";
+        public List<TierRow> Tiers { get; set; } = DefaultTiers();
+
+        public static List<TierRow> DefaultTiers() => new()
+        {
+            new TierRow { Length = HairLength.Corto },
+            new TierRow { Length = HairLength.Medio },
+            new TierRow { Length = HairLength.Largo },
+            new TierRow { Length = HairLength.MuyLargo }
+        };
+    }
+
+    private sealed class TierRow
+    {
+        public HairLength Length { get; set; }
+        public decimal Price { get; set; }
+        public int Minutes { get; set; }
     }
 }

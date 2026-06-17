@@ -5,16 +5,19 @@ namespace CubotNails.Domain.Entities;
 
 /// <summary>
 /// Cita: entidad transaccional central del salon (Modelo de Datos seccion 6). TENANT-SCOPED.
-/// Anti-overbooking: indice UNIQUE parcial (tenant, recurso, fecha, hora) sobre citas NO canceladas
-/// (ver configuracion en el DbContext). Una visita puede pasar por varios asesores (cadena).
+/// Anti-overbooking por SOLAPAMIENTO: exclusion constraint GiST sobre el intervalo
+/// [inicio, inicio + duracion + buffer) por (tenant, recurso, fecha) entre citas NO canceladas
+/// (ver configuracion y migracion en Infrastructure). Una visita puede pasar por varios asesores (cadena).
 /// </summary>
 public class Appointment : TenantEntity
 {
     public Guid ResourceId { get; set; }
     public DateOnly AppointmentDate { get; set; }
     public TimeOnly StartTime { get; set; }
-    /// <summary>Suma de las duraciones de los servicios de la cita.</summary>
+    /// <summary>Suma de las duraciones de los servicios de la cita (por largo de cabello cuando aplica).</summary>
     public int DurationMinutes { get; set; }
+    /// <summary>Margen reservado tras la cita; snapshot del recurso al reservar. Entra en el anti-solapamiento.</summary>
+    public int BufferMinutes { get; set; }
     public Guid? ClientId { get; set; }
     public AppointmentStatus Status { get; set; } = AppointmentStatus.Scheduled;
     public Punctuality Punctuality { get; set; } = Punctuality.Unknown;

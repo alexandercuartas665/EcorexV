@@ -808,11 +808,11 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
             b.Property(x => x.Notes).HasMaxLength(1000);
             b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
             b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
-            // ANTI-OVERBOOKING: un solo cupo por (recurso, fecha, hora) entre citas NO canceladas.
-            // Indice unico parcial: las citas Cancelled/Rescheduled liberan el cupo.
-            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.AppointmentDate, x.StartTime })
-                .IsUnique()
-                .HasFilter("status NOT IN ('Cancelled', 'Rescheduled')");
+            // ANTI-OVERBOOKING por SOLAPAMIENTO: un exclusion constraint GiST (ck_appointments_no_overlap)
+            // prohibe que dos citas activas del mismo (tenant, recurso, fecha) crucen su intervalo
+            // [inicio, inicio + duracion + buffer). Se crea por SQL crudo en la migracion (EF no modela
+            // EXCLUDE). Subsume el viejo UNIQUE(start_time): dos citas a la misma hora siempre se cruzan,
+            // pero dos pegadas (rango medio-abierto) no. Las Cancelled/Rescheduled liberan el cupo.
             b.HasIndex(x => new { x.TenantId, x.ResourceId, x.AppointmentDate });
             b.HasIndex(x => new { x.TenantId, x.ClientId, x.AppointmentDate });
             b.HasIndex(x => x.ChainId);

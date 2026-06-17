@@ -48,7 +48,8 @@ public sealed record RescheduleItemDto(Guid AppointmentId, Guid ResourceId, stri
 
 /// <summary>
 /// Motor de agenda: disponibilidad (turnos - excepciones - citas) para las vistas Dia/Semana/Asignacion,
-/// y reserva de citas con ANTI-OVERBOOKING (indice unico parcial + captura de violacion). Modulos 2.2/2.3.
+/// y reserva de citas con ANTI-OVERBOOKING por SOLAPAMIENTO (exclusion constraint GiST + captura de
+/// violacion 23505/23P01). Modulos 2.2/2.3.
 /// </summary>
 public interface IAgendaService
 {
@@ -290,6 +291,13 @@ public sealed class AgendaService : IAgendaService
         var totalDuration = request.ServiceIds.Sum(sid => durations.TryGetValue(sid, out var d) ? d : 0);
         var totalValue = request.ServiceIds.Sum(sid => prices.TryGetValue(sid, out var p) ? p : 0m);
 
+        // Buffer (margen) por recurso: snapshot al reservar; entra en el intervalo del anti-solapamiento.
+        var resourceIds = new List<Guid> { request.ResourceId };
+        if (request.ChainSteps is { Count: > 0 }) { resourceIds.AddRange(request.ChainSteps.Select(s => s.ResourceId)); }
+        var buffers = await _db.Resources.AsNoTracking().Where(r => resourceIds.Contains(r.Id))
+            .ToDictionaryAsync(r => r.Id, r => r.BufferMinutes, cancellationToken);
+        int BufferOf(Guid rid) => buffers.TryGetValue(rid, out var bm) ? bm : 0;
+
         if (request.AppointmentId is Guid editId)
         {
             var appt = await _db.Appointments.FirstOrDefaultAsync(x => x.Id == editId, cancellationToken);
@@ -298,6 +306,7 @@ public sealed class AgendaService : IAgendaService
 
             appt.ClientId = client?.Id;
             appt.DurationMinutes = totalDuration;
+            appt.BufferMinutes = BufferOf(appt.ResourceId);
             appt.EstimatedValue = totalValue;
             appt.Status = request.Status;
             appt.Punctuality = request.Punctuality;
@@ -320,7 +329,8 @@ public sealed class AgendaService : IAgendaService
         var main = new Appointment
         {
             TenantId = tenantId, ResourceId = request.ResourceId, AppointmentDate = request.Date, StartTime = request.StartTime,
-            DurationMinutes = totalDuration, ClientId = client?.Id, Status = request.Status, Punctuality = request.Punctuality,
+            DurationMinutes = totalDuration, BufferMinutes = BufferOf(request.ResourceId),
+            ClientId = client?.Id, Status = request.Status, Punctuality = request.Punctuality,
             Channel = BookingChannel.Reception, EstimatedValue = totalValue,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             FieldValuesJson = SalonFieldJson.Serialize(request.FieldValues),
@@ -348,7 +358,8 @@ public sealed class AgendaService : IAgendaService
                 var stepAppt = new Appointment
                 {
                     TenantId = tenantId, ResourceId = step.ResourceId, AppointmentDate = request.Date, StartTime = step.StartTime,
-                    DurationMinutes = totalDuration, ClientId = client?.Id, Status = AppointmentStatus.Scheduled,
+                    DurationMinutes = totalDuration, BufferMinutes = BufferOf(step.ResourceId),
+                    ClientId = client?.Id, Status = AppointmentStatus.Scheduled,
                     Channel = BookingChannel.Reception, EstimatedValue = totalValue,
                     Notes = $"Cadena: paso {seq}", ChainId = cid, ChainSequence = seq, ChainTotal = chainTotal
                 };
@@ -448,18 +459,19 @@ public sealed class AgendaService : IAgendaService
             await _db.SaveChangesAsync(cancellationToken);
             return new BookingResult(true, appointmentId, null);
         }
-        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (IsSlotConflict(ex))
         {
-            // Otro actor (recepcion / cliente / IA) ocupo el cupo entre la lectura y el guardado.
-            return new BookingResult(false, null, "Ese horario acaba de ocuparse, elige otro.");
+            // Otro actor (recepcion / cliente / IA) ocupo (o solapo) el cupo entre la lectura y el guardado.
+            return new BookingResult(false, null, "Ese horario acaba de ocuparse o se cruza con otra cita, elige otro.");
         }
     }
 
-    private static bool IsUniqueViolation(DbUpdateException ex)
+    private static bool IsSlotConflict(DbUpdateException ex)
     {
-        // Evita acoplar la capa Application a Npgsql: lee SqlState por reflexion (23505 = unique_violation).
+        // Evita acoplar la capa Application a Npgsql: lee SqlState por reflexion.
+        // 23505 = unique_violation; 23P01 = exclusion_violation (el constraint de no-solapamiento).
         var sqlState = ex.InnerException?.GetType().GetProperty("SqlState")?.GetValue(ex.InnerException) as string;
-        return sqlState == "23505";
+        return sqlState is "23505" or "23P01";
     }
 
     private async Task<Client?> ResolveClientAsync(Guid tenantId, BookingRequest request, CancellationToken cancellationToken)

@@ -12,14 +12,16 @@ public sealed class ChatService : IChatService
     private readonly IWhatsAppConnectorService _connector;
     private readonly IChatBroadcaster _broadcaster;
     private readonly TimeProvider _timeProvider;
+    private readonly IAuditWriter _audit;
 
-    public ChatService(IApplicationDbContext db, ITenantContext tenantContext, IWhatsAppConnectorService connector, IChatBroadcaster broadcaster, TimeProvider timeProvider)
+    public ChatService(IApplicationDbContext db, ITenantContext tenantContext, IWhatsAppConnectorService connector, IChatBroadcaster broadcaster, TimeProvider timeProvider, IAuditWriter audit)
     {
         _db = db;
         _tenantContext = tenantContext;
         _connector = connector;
         _broadcaster = broadcaster;
         _timeProvider = timeProvider;
+        _audit = audit;
     }
 
     public async Task<IReadOnlyList<ConversationDto>> ListConversationsAsync(CancellationToken cancellationToken = default)
@@ -65,6 +67,29 @@ public sealed class ChatService : IChatService
             .Select(m => m.ConversationId)
             .Distinct()
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<ChatClearResult> ClearAllConversationsAsync(Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return new ChatClearResult(0, 0); }
+
+        // Ids de TODAS las conversaciones del tenant (activas + archivadas). El query filter global ya
+        // restringe al tenant activo, asi que nunca toca otros salones.
+        var conversationIds = await _db.Conversations.Select(c => c.Id).ToListAsync(cancellationToken);
+        if (conversationIds.Count == 0) { return new ChatClearResult(0, 0); }
+
+        // Dependientes SIN FK relacional (no cascadean): logs del agente y cache de sesion. SessionId solo
+        // coincide con ConversationId en el chat real; las pruebas de sandbox usan AgentId y no se tocan.
+        await _db.AiAgentRunLogs.Where(l => conversationIds.Contains(l.ConversationId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.AiAgentCacheValues.Where(v => conversationIds.Contains(v.SessionId)).ExecuteDeleteAsync(cancellationToken);
+        // Mensajes (cascadean por FK, pero los borramos explicitos por claridad/orden) y luego conversaciones.
+        var messages = await _db.Messages.Where(m => conversationIds.Contains(m.ConversationId)).ExecuteDeleteAsync(cancellationToken);
+        var conversations = await _db.Conversations.Where(c => conversationIds.Contains(c.Id)).ExecuteDeleteAsync(cancellationToken);
+
+        // No se borran leads: la conversacion apunta al lead, no al reves.
+        _audit.Write(actorUserId, "chat.clear-all", nameof(Conversation), null, null, new { conversations, messages }, tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ChatClearResult(conversations, messages);
     }
 
     public async Task<ChatSendResult> DeleteMessageForEveryoneAsync(Guid messageId, Guid actorUserId, CancellationToken cancellationToken = default)

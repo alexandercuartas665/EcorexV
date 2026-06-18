@@ -43,5 +43,8 @@ public sealed record SendMessageRequest(string Body);
 /// <summary>Resultado de enviar un mensaje por una linea WhatsApp (Evolution real).</summary>
 public sealed record ChatSendResult(bool Ok, MessageDto? Message, string? Error);
 
+/// <summary>Resultado de vaciar el historial: cuantas conversaciones y mensajes se borraron.</summary>
+public sealed record ChatClearResult(int Conversations, int Messages);
+
 /// <summary>Estado "sin responder" de una conversacion: mensajes entrantes tras la ultima respuesta y desde cuando espera.</summary>
 public sealed record LeadChatStateDto(int UnansweredCount, DateTimeOffset WaitingSince);

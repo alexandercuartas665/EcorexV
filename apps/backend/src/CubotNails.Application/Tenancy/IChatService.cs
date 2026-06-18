@@ -18,6 +18,10 @@ public interface IChatService
     /// <summary>Elimina un mensaje saliente PARA TODOS en WhatsApp y, si tiene exito, lo borra localmente.</summary>
     Task<ChatSendResult> DeleteMessageForEveryoneAsync(Guid messageId, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>Vacia TODO el historial de conversaciones del tenant activo (conversaciones, mensajes, logs y
+    /// cache de sesion del agente). Accion destructiva e irreversible; NO borra leads. Solo local (no toca WhatsApp).</summary>
+    Task<ChatClearResult> ClearAllConversationsAsync(Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Persiste un mensaje saliente. El envio real via Evolution Connector queda diferido. Null si la conversacion no existe en el tenant.</summary>
     Task<MessageDto?> SendAsync(Guid conversationId, string body, Guid actorUserId, CancellationToken cancellationToken = default);
 

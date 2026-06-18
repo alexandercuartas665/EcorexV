@@ -7,7 +7,7 @@ namespace CubotNails.Application.Tenancy;
 
 public sealed record ResourceLinkDto(Guid ServiceId, string ServiceName, decimal BasePrice, int DurationMinutes, decimal? PriceOverride, decimal EffectivePrice);
 public sealed record ResourceDto(Guid Id, string Name, ResourceKind Kind, string? Color, string? Phone, string? Notes, bool IsActive, IReadOnlyList<ResourceLinkDto> Services, Guid? SedeId = null, string? SedeName = null,
-    SchedulingMode SchedulingMode = SchedulingMode.SlotGrid, int BufferMinutes = 0);
+    SchedulingMode SchedulingMode = SchedulingMode.SlotGrid, int BufferMinutes = 0, bool HasPhoto = false);
 public sealed record ResourceLinkInput(Guid ServiceId, decimal? PriceOverride);
 public sealed record SaveResourceRequest(string Name, ResourceKind Kind, string? Color, string? Phone, string? Notes, IReadOnlyList<ResourceLinkInput> Services, Guid? SedeId = null,
     SchedulingMode SchedulingMode = SchedulingMode.SlotGrid, int BufferMinutes = 0);
@@ -22,6 +22,12 @@ public interface IResourceService
     Task<ResourceDto?> CreateAsync(SaveResourceRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<ResourceDto?> UpdateAsync(Guid id, SaveResourceRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Guarda (o reemplaza) la foto del asesor en la BD. Devuelve false si el recurso no existe.</summary>
+    Task<bool> SetPhotoAsync(Guid resourceId, byte[] content, string? contentType, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Quita la foto del asesor.</summary>
+    Task<bool> RemovePhotoAsync(Guid resourceId, Guid actorUserId, CancellationToken cancellationToken = default);
 }
 
 public sealed class ResourceService : IResourceService
@@ -41,7 +47,9 @@ public sealed class ResourceService : IResourceService
         var links = await _db.ResourceServiceLinks.AsNoTracking().ToListAsync(cancellationToken);
         var svcById = await _db.Services.AsNoTracking().ToDictionaryAsync(s => s.Id, cancellationToken);
         var sedeNames = await _db.Sedes.AsNoTracking().ToDictionaryAsync(s => s.Id, s => s.Name, cancellationToken);
-        return resources.Select(r => Map(r, links.Where(l => l.ResourceId == r.Id), svcById, sedeNames)).ToList();
+        // Solo los ids con foto (sin cargar los bytes; Resource se lista en cada turno del agente).
+        var withPhoto = (await _db.ResourcePhotos.AsNoTracking().Select(p => p.ResourceId).ToListAsync(cancellationToken)).ToHashSet();
+        return resources.Select(r => Map(r, links.Where(l => l.ResourceId == r.Id), svcById, sedeNames, withPhoto)).ToList();
     }
 
     public async Task<ResourceDto?> CreateAsync(SaveResourceRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -134,10 +142,12 @@ public sealed class ResourceService : IResourceService
         var svcIds = links.Select(l => l.ServiceId).ToList();
         var svcById = await _db.Services.AsNoTracking().Where(s => svcIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, cancellationToken);
         var sedeNames = await _db.Sedes.AsNoTracking().ToDictionaryAsync(s => s.Id, s => s.Name, cancellationToken);
-        return Map(resource, links, svcById, sedeNames);
+        var withPhoto = await _db.ResourcePhotos.AsNoTracking().AnyAsync(p => p.ResourceId == id, cancellationToken)
+            ? new HashSet<Guid> { id } : new HashSet<Guid>();
+        return Map(resource, links, svcById, sedeNames, withPhoto);
     }
 
-    private static ResourceDto Map(Resource r, IEnumerable<ResourceServiceLink> links, IReadOnlyDictionary<Guid, Service> svcById, IReadOnlyDictionary<Guid, string> sedeNames)
+    private static ResourceDto Map(Resource r, IEnumerable<ResourceServiceLink> links, IReadOnlyDictionary<Guid, Service> svcById, IReadOnlyDictionary<Guid, string> sedeNames, IReadOnlySet<Guid> withPhoto)
     {
         var linkDtos = links
             .Where(l => svcById.ContainsKey(l.ServiceId))
@@ -151,7 +161,39 @@ public sealed class ResourceService : IResourceService
             .OrderBy(l => l.ServiceName)
             .ToList();
         string? sedeName = r.SedeId is Guid sid && sedeNames.TryGetValue(sid, out var sn) ? sn : null;
-        return new ResourceDto(r.Id, r.Name, r.Kind, r.Color, r.Phone, r.Notes, r.IsActive, linkDtos, r.SedeId, sedeName, r.SchedulingMode, r.BufferMinutes);
+        return new ResourceDto(r.Id, r.Name, r.Kind, r.Color, r.Phone, r.Notes, r.IsActive, linkDtos, r.SedeId, sedeName, r.SchedulingMode, r.BufferMinutes, withPhoto.Contains(r.Id));
+    }
+
+    public async Task<bool> SetPhotoAsync(Guid resourceId, byte[] content, string? contentType, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return false; }
+        if (content is null || content.Length == 0) { return false; }
+        var resource = await _db.Resources.AsNoTracking().FirstOrDefaultAsync(r => r.Id == resourceId, cancellationToken);
+        if (resource is null) { return false; }
+
+        var existing = await _db.ResourcePhotos.FirstOrDefaultAsync(p => p.ResourceId == resourceId, cancellationToken);
+        if (existing is null)
+        {
+            _db.ResourcePhotos.Add(new ResourcePhoto { TenantId = tenantId, ResourceId = resourceId, Content = content, ContentType = contentType });
+        }
+        else
+        {
+            existing.Content = content;
+            existing.ContentType = contentType;
+        }
+        _audit.Write(actorUserId, "resource.photo.set", nameof(Resource), resourceId, null, new { bytes = content.Length }, tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> RemovePhotoAsync(Guid resourceId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.ResourcePhotos.FirstOrDefaultAsync(p => p.ResourceId == resourceId, cancellationToken);
+        if (existing is null) { return false; }
+        _db.ResourcePhotos.Remove(existing);
+        _audit.Write(actorUserId, "resource.photo.remove", nameof(Resource), resourceId, null, null, existing.TenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

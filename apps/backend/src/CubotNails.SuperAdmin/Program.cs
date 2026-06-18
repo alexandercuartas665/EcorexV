@@ -802,6 +802,18 @@ app.MapGet("/media/hairref/{id:guid}", async (
     return Results.File(img.Content, string.IsNullOrWhiteSpace(img.ContentType) ? "image/jpeg" : img.ContentType);
 }).RequireAuthorization("TenantMember");
 
+// Foto del asesor, guardada en la BD. ANONIMA: la consume la pagina publica de reserva (/r/{token})
+// y tambien la consola. No expone datos sensibles (solo la foto). Se busca por ResourceId sin filtro de tenant.
+app.MapGet("/media/asesor/{id:guid}", async (
+    Guid id,
+    CubotNails.Application.Common.IApplicationDbContext db,
+    CancellationToken ct) =>
+{
+    var photo = await db.ResourcePhotos.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.ResourceId == id, ct);
+    if (photo?.Content is null || photo.Content.Length == 0) { return Results.NotFound(); }
+    return Results.File(photo.Content, string.IsNullOrWhiteSpace(photo.ContentType) ? "image/jpeg" : photo.ContentType);
+}).AllowAnonymous();
+
 app.Run();
 
 namespace CubotNails.SuperAdmin

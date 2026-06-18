@@ -45,7 +45,14 @@ else
             {
                 <div class="card" style="padding:16px;cursor:pointer;" @onclick="() => OpenForm(a)">
                     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-                        <span style="width:46px;height:46px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;color:#fff;font-weight:800;background:@(string.IsNullOrWhiteSpace(a.Color) ? "#A03DC9" : a.Color)">@Initials(a.Name)</span>
+                        @if (a.HasPhoto)
+                        {
+                            <img src="/media/asesor/@a.Id" alt="@a.Name" style="width:46px;height:46px;border-radius:50%;flex-shrink:0;object-fit:cover;border:1px solid var(--border);" />
+                        }
+                        else
+                        {
+                            <span style="width:46px;height:46px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;color:#fff;font-weight:800;background:@(string.IsNullOrWhiteSpace(a.Color) ? "#A03DC9" : a.Color)">@Initials(a.Name)</span>
+                        }
                         <div style="min-width:0;flex:1;">
                             <div style="font-weight:700;">@a.Name</div>
                             <div class="text-muted" style="font-size:12px;">@(string.IsNullOrWhiteSpace(a.Phone) ? "-" : a.Phone)</div>
@@ -91,6 +98,34 @@ else
             <div class="modal-body">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;" class="ase-cols">
                     <div>
+                        <div class="field">
+                            <label class="form-label">Foto del asesor</label>
+                            <div style="display:flex;align-items:center;gap:14px;">
+                                @{
+                                    var preview = _form.PhotoPreview
+                                        ?? (_form.HasPhoto && _editingId is Guid pid ? $"/media/asesor/{pid}?v={_photoVersion}" : null);
+                                }
+                                @if (preview is not null)
+                                {
+                                    <img src="@preview" alt="Foto" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:1px solid var(--border);" />
+                                }
+                                else
+                                {
+                                    <span style="width:72px;height:72px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:22px;background:@(string.IsNullOrWhiteSpace(_form.Color) ? "#A03DC9" : _form.Color)">@Initials(_form.Name)</span>
+                                }
+                                <div style="display:flex;flex-direction:column;gap:6px;">
+                                    <label class="btn btn-sm btn-outline-secondary" style="cursor:pointer;margin:0;">
+                                        @(preview is null ? "Subir foto" : "Cambiar foto")
+                                        <InputFile OnChange="OnPhotoSelectedAsync" accept="image/*" style="display:none;" />
+                                    </label>
+                                    @if (preview is not null)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RemovePhoto">Quitar</button>
+                                    }
+                                </div>
+                            </div>
+                            @if (_photoMsg is not null) { <div class="text-muted small" style="margin-top:4px;">@_photoMsg</div> }
+                        </div>
                         <div class="field">
                             <label class="form-label">Nombre *</label>
                             <input class="form-control" @bind="_form.Name" />
@@ -193,6 +228,8 @@ else
     private List<ServiceDto> _services = new();
     private List<SedeDto> _sedes = new();
     private FormModel _form = new();
+    private string? _photoMsg;
+    private int _photoVersion = 1; // cache-buster para refrescar la imagen tras cambiarla
 
     protected override async Task OnInitializedAsync()
     {
@@ -212,7 +249,7 @@ else
 
     private void OpenForm(ResourceDto? a)
     {
-        _error = null;
+        _error = null; _photoMsg = null;
         _editingId = a?.Id;
         var existing = a?.Services.ToDictionary(s => s.ServiceId) ?? new();
         _form = new FormModel
@@ -225,6 +262,7 @@ else
             SedeId = a?.SedeId,
             SchedulingMode = a?.SchedulingMode ?? SchedulingMode.SlotGrid,
             BufferMinutes = a?.BufferMinutes ?? 0,
+            HasPhoto = a?.HasPhoto ?? false,
             Links = _services.Select(s => new LinkRow
             {
                 ServiceId = s.Id,
@@ -250,10 +288,50 @@ else
             var req = new SaveResourceRequest(_form.Name, _form.Kind, _form.Color, _form.Phone, _form.Notes, links, _form.SedeId, _form.SchedulingMode, Math.Max(0, _form.BufferMinutes));
             var result = _editingId is Guid id ? await Resources.UpdateAsync(id, req, await ActorAsync()) : await Resources.CreateAsync(req, await ActorAsync());
             if (result is null) { _error = "No se pudo guardar."; return; }
+            // Foto: persistirla/quitarla despues de tener el id del recurso (sirve para alta y edicion).
+            if (_form.PhotoBytes is { Length: > 0 })
+            {
+                await Resources.SetPhotoAsync(result.Id, _form.PhotoBytes, _form.PhotoContentType, await ActorAsync());
+            }
+            else if (_form.PhotoRemoved && _form.HasPhoto)
+            {
+                await Resources.RemovePhotoAsync(result.Id, await ActorAsync());
+            }
             _formOpen = false;
+            _photoVersion++;
             await ReloadAsync();
         }
         finally { _busy = false; }
+    }
+
+    private async Task OnPhotoSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _photoMsg = null;
+        var file = e.File;
+        if (file is null) { return; }
+        const long max = 5 * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max) { _photoMsg = "La foto debe pesar menos de 5MB."; return; }
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+            _form.PhotoBytes = bytes;
+            _form.PhotoContentType = mime;
+            _form.PhotoRemoved = false;
+            _form.PhotoPreview = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch { _photoMsg = "No se pudo leer la imagen."; }
+    }
+
+    private void RemovePhoto()
+    {
+        _form.PhotoBytes = null;
+        _form.PhotoContentType = null;
+        _form.PhotoPreview = null;
+        _form.PhotoRemoved = true;
+        _form.HasPhoto = false;
     }
 
     private async Task DeleteAsync()
@@ -291,6 +369,11 @@ else
         public Guid? SedeId { get; set; }
         public SchedulingMode SchedulingMode { get; set; } = SchedulingMode.SlotGrid;
         public int BufferMinutes { get; set; }
+        public bool HasPhoto { get; set; }
+        public byte[]? PhotoBytes { get; set; }
+        public string? PhotoContentType { get; set; }
+        public string? PhotoPreview { get; set; }
+        public bool PhotoRemoved { get; set; }
         public List<LinkRow> Links { get; set; } = new();
     }
 

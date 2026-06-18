@@ -89,6 +89,7 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
     public DbSet<HairLengthReferenceImage> HairLengthReferenceImages => Set<HairLengthReferenceImage>();
     public DbSet<HairLengthClassification> HairLengthClassifications => Set<HairLengthClassification>();
     public DbSet<Resource> Resources => Set<Resource>();
+    public DbSet<ResourcePhoto> ResourcePhotos => Set<ResourcePhoto>();
     public DbSet<ResourceServiceLink> ResourceServiceLinks => Set<ResourceServiceLink>();
     public DbSet<ShiftTemplate> ShiftTemplates => Set<ShiftTemplate>();
     public DbSet<ScheduleException> ScheduleExceptions => Set<ScheduleException>();
@@ -702,6 +703,13 @@ public class CubotNailsDbContext : DbContext, IApplicationDbContext, IDataProtec
             b.Property(x => x.Phone).HasMaxLength(40);
             b.Property(x => x.Notes).HasMaxLength(1000);
             b.HasIndex(x => new { x.TenantId, x.Kind, x.Name });
+        });
+
+        modelBuilder.Entity<ResourcePhoto>(b =>
+        {
+            b.Property(x => x.ContentType).HasMaxLength(120);
+            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ResourceId }).IsUnique();
         });
 
         modelBuilder.Entity<ResourceServiceLink>(b =>

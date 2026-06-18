@@ -71,6 +71,7 @@ public interface IApplicationDbContext
     DbSet<HairLengthReferenceImage> HairLengthReferenceImages { get; }
     DbSet<HairLengthClassification> HairLengthClassifications { get; }
     DbSet<Resource> Resources { get; }
+    DbSet<ResourcePhoto> ResourcePhotos { get; }
     DbSet<Sede> Sedes { get; }
     DbSet<Product> Products { get; }
     DbSet<ProductImage> ProductImages { get; }

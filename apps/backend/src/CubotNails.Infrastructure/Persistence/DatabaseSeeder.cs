@@ -386,10 +386,11 @@ public sealed class DatabaseSeeder
 
             ("Asesoria de imagen (servicio estilista)",
              "cuando el cliente quiere un servicio del salon (manicure, unas, peinado, maquillaje, asesoria de imagen) o agendar con un estilista, y no es una cancelacion",
-             "El cliente quiere un SERVICIO del salon / asesoria de imagen. Atiende asi:\n" +
-             "1) Usa listar_asesores, consultar_servicios_precios y consultar_disponibilidad para orientarlo con datos reales; si confirma un cupo puedes reservar con reservar_cita.\n" +
-             "2) PRECIO SEGUN EL LARGO DEL CABELLO: si el servicio que pide trae 'precios_por_largo' (su precio/duracion varia segun el largo), NO des un precio unico. Pide a la clienta una FOTO donde se vea bien el largo y usa la herramienta clasificar_largo_cabello para determinarlo; luego cotiza el PRECIO y la DURACION de ese largo (no el precio base). Si no quiere enviar foto, muestrale el rango por largo y pidele que indique su largo.\n" +
-             "3) Captura nombre de la clienta, telefono y el largo de cabello detectado.\n" +
+             "El cliente quiere un SERVICIO del salon / asesoria de imagen. Conversa natural, calida y humana, paso a paso: NO sueltes todo de golpe y NO listes precios si no te los piden.\n" +
+             "1) Si pregunta QUE servicios hay, presentalos por NOMBRE con una frase corta de en que consisten, SIN PRECIOS todavia (usa consultar_servicios_precios solo para saber los nombres reales; no inventes). Cierra invitandola a decirte cual le interesa.\n" +
+             "2) Solo cuando pregunte el COSTO/precio o elija un servicio das valores. Si ese servicio trae 'precios_por_largo' (su precio/duracion varia segun el largo), NO des precio aun: explicale con calidez que el precio depende del largo y pidele una FOTO donde se vea bien su cabello; con la foto usa clasificar_largo_cabello y cotiza el PRECIO y la DURACION de ese largo (no el precio base). Si no quiere foto, muestrale el rango por largo y pidele que indique su largo. Para servicios SIN variacion por largo, da el precio directo.\n" +
+             "3) Para agendar usa listar_asesores y consultar_disponibilidad; si confirma un cupo, reserva con reservar_cita. Si prefiere agendar ella misma, enviales el link con obtener_link_reserva.\n" +
+             "4) Captura nombre de la clienta, telefono y el largo de cabello detectado.\n" +
              "GUION DE CIERRE: cuando tengas nombre, telefono y el servicio o intencion clara, ademas de atender la cita, CIERRA " +
              "registrando el lead con crear_lead usando tipo_cliente='estilista' y un resumen del servicio (incluye el largo y el precio cotizado si aplica), para que el " +
              "equipo comercial le de seguimiento.")

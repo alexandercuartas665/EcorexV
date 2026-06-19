@@ -34,6 +34,15 @@ public interface IAiAgentLineService
 
     Task<IReadOnlyList<AgentConversationDto>> ListAttendedConversationsAsync(int take = 50, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentRunLogEntryDto>> GetConversationLogAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Vacia TODA la bitacora del tenant Y el cache de datos capturados por los agentes (deja al
+    /// agente en cero). No toca mensajes del chat ni leads. Devuelve (logs, cache) borrados.</summary>
+    Task<(int Logs, int Cache)> ClearAllLogsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Reinicia la memoria de UNA conversacion: borra sus logs de bitacora, su cache de datos
+    /// (sessionId = conversationId) y los mensajes del chat; resetea LastMessageAt para que el agente arme
+    /// un contexto vacio en el siguiente mensaje. No toca el lead. Devuelve (logs, cache, mensajes).</summary>
+    Task<(int Logs, int Cache, int Messages)> ResetConversationMemoryAsync(Guid conversationId, CancellationToken cancellationToken = default);
 }
 
 public sealed class AiAgentLineService : IAiAgentLineService
@@ -131,4 +140,32 @@ public sealed class AiAgentLineService : IAiAgentLineService
             .OrderBy(l => l.OccurredAt)
             .Select(l => new AgentRunLogEntryDto(l.OccurredAt, l.Kind, l.Title, l.Content, l.Response))
             .ToListAsync(cancellationToken);
+
+    public async Task<(int Logs, int Cache)> ClearAllLogsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return (0, 0); }
+        // El filtro global por tenant aplica a ambas (son TenantEntity); ExecuteDelete corre el DELETE en BD.
+        // Se borra TAMBIEN el cache de datos capturados: "limpiar historial" debe dejar al agente en cero
+        // (si no, el cache quedaba huerfano). No se tocan mensajes del chat ni leads.
+        var logs = await _db.AiAgentRunLogs.ExecuteDeleteAsync(cancellationToken);
+        var cache = await _db.AiAgentCacheValues.ExecuteDeleteAsync(cancellationToken);
+        _audit.Write(_tenant.UserId ?? Guid.Empty, "agent.log.clear-all", nameof(AiAgentRunLog), null, null, new { logs, cache }, tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return (logs, cache);
+    }
+
+    public async Task<(int Logs, int Cache, int Messages)> ResetConversationMemoryAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return (0, 0, 0); }
+        var logs = await _db.AiAgentRunLogs.Where(l => l.ConversationId == conversationId).ExecuteDeleteAsync(cancellationToken);
+        var cache = await _db.AiAgentCacheValues.Where(v => v.SessionId == conversationId).ExecuteDeleteAsync(cancellationToken);
+        var messages = await _db.Messages.Where(m => m.ConversationId == conversationId).ExecuteDeleteAsync(cancellationToken);
+        // LastMessageAt apuntaba al ultimo mensaje recien borrado; lo reseteamos para que la bandeja no
+        // muestre una fecha que ya no corresponde y el agente arranque de cero.
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (conv is not null) { conv.LastMessageAt = null; }
+        _audit.Write(_tenant.UserId ?? Guid.Empty, "agent.log.reset-conversation", nameof(Conversation), conversationId, null, new { logs, cache, messages }, tenantId);
+        await _db.SaveChangesAsync(cancellationToken);
+        return (logs, cache, messages);
+    }
 }

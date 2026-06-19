@@ -99,9 +99,18 @@ public sealed class AgentConversationService : IAgentConversationService
         }
 
         // Enviar la respuesta por la linea (persiste el saliente y lo difunde).
+        // Si el envio a WhatsApp falla, lo registramos en la bitacora (antes fallaba en SILENCIO:
+        // el agente respondia pero el mensaje no llegaba al WhatsApp y no quedaba rastro del motivo).
+        var textFailed = false;
         if (!string.IsNullOrWhiteSpace(result.Text))
         {
-            await _chat.SendViaLineAsync(conversationId, lineId, result.Text!, actor, cancellationToken);
+            var sent = await _chat.SendViaLineAsync(conversationId, lineId, result.Text!, actor, cancellationToken);
+            if (!sent.Ok)
+            {
+                textFailed = true;
+                await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Error,
+                    "No se pudo enviar la respuesta al WhatsApp", sent.Error, null, cancellationToken);
+            }
         }
 
         if (result.Attachments is { Count: > 0 })
@@ -120,8 +129,13 @@ public sealed class AgentConversationService : IAgentConversationService
             }
         }
 
-        await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Reply,
-            "Respuesta enviada", result.Text, AttachmentSummary(result.Attachments), cancellationToken);
+        // Solo marcamos "Respuesta enviada" si el texto SI salio (si fallo, ya quedo el Error arriba y
+        // seria enganoso decir "enviada"). Sin texto (solo adjuntos) tambien se registra.
+        if (!textFailed)
+        {
+            await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Reply,
+                "Respuesta enviada", result.Text, AttachmentSummary(result.Attachments), cancellationToken);
+        }
     }
 
     // Devuelve null si el adjunto se envio bien, o un mensaje de error para la bitacora si fallo.

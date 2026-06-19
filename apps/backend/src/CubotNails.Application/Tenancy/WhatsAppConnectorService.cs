@@ -280,7 +280,9 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         {
             return new LineSendResult(false, "Indica el numero y el mensaje.");
         }
-        var line = await _db.WhatsAppLines.FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        // IgnoreQueryFilters: tambien lo invoca el agente desde el despachador (disparado por webhook),
+        // donde no hay usuario/tenant en sesion; el lineId ya viene resuelto en el tenant correcto.
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
         if (line is null)
         {
             return new LineSendResult(false, "La linea no existe.");
@@ -417,7 +419,8 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     private async Task<(string? Error, WhatsAppLine? Line, string Digits)> ReadyAsync(Guid lineId, string phone, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(phone)) { return ("Indica el numero.", null, ""); }
-        var line = await _db.WhatsAppLines.FirstOrDefaultAsync(l => l.Id == lineId, ct);
+        // IgnoreQueryFilters: el agente (despachador disparado por webhook) envia adjuntos/ubicacion sin tenant en sesion.
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, ct);
         if (line is null) { return ("La linea no existe.", null, ""); }
         if (line.Status != WhatsAppLineStatus.Connected) { return ("La linea no esta conectada.", null, ""); }
         var digits = new string(phone.Where(char.IsDigit).ToArray());

@@ -36,6 +36,12 @@ html, body {
 a, .btn-link { color: var(--primary); }
 h1, h2, h3 { letter-spacing: -0.01em; }
 
+/* FocusOnNavigate (Routes.razor) enfoca el primer h1 tras navegar para que los lectores de pantalla
+   anuncien el titulo; eso le pone tabindex="-1" y el navegador dibuja un recuadro de foco feo en el h1.
+   Mantenemos el foco (accesibilidad) pero ocultamos el recuadro en esos destinos NO interactivos.
+   No afecta botones/inputs (no usan tabindex="-1"). */
+[tabindex="-1"]:focus { outline: none; }
+
 /* ===== Layout shell ===== */
 .cubot-shell { display: flex; min-height: 100vh; }
 

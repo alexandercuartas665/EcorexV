@@ -195,7 +195,8 @@ app.MapPost("/auth/login", async (
         claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
     }
 
-    redirect = isOperator ? "/" : "/mi-cuenta";
+    // Operador de plataforma -> Dashboard; usuario de salon -> Pipeline comercial (no la pagina de cuenta).
+    redirect = isOperator ? "/" : "/pipeline";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
@@ -434,7 +435,8 @@ app.MapGet("/signin-google", async (
         }
     }
 
-    redirect = isOperator ? "/" : "/mi-cuenta";
+    // Operador de plataforma -> Dashboard; usuario de salon -> Pipeline comercial (no la pagina de cuenta).
+    redirect = isOperator ? "/" : "/pipeline";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));

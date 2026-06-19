@@ -1298,6 +1298,34 @@ else
             </div>
             <div class="modal-body">
                 <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Clientes enviados a historial. @( _canManage ? "Ves todos los del equipo." : "Ves los que te corresponden segun tu rol.")</div>
+
+                @* Borrado total del historial: SOLO administrador del tenant, con doble comprobacion. *@
+                @if (_isTenantAdmin && _history.Count > 0)
+                {
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;border:1px solid #f1c9c4;background:#fdf3f2;border-radius:8px;">
+                        @if (_purgeStep == 0)
+                        {
+                            <button style="border:1px solid #d92d20;background:#fff;color:#b42318;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" @onclick="() => { _purgeStep = 1; _purgeMsg = null; }">Borrar todo el historial</button>
+                        }
+                        else if (_purgeStep == 1)
+                        {
+                            <span style="color:#b42318;font-size:12px;font-weight:600;flex:1;min-width:220px;">Vas a borrar PERMANENTEMENTE @_history.Count cliente(s) del historial y todos sus datos (notas, archivos, tareas). Es irreversible.</span>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _purgeStep = 0" disabled="@_purgeBusy">Cancelar</button>
+                            <button style="border:none;background:#d92d20;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" @onclick="() => _purgeStep = 2" disabled="@_purgeBusy">Entiendo, continuar</button>
+                        }
+                        else
+                        {
+                            <span style="color:#b42318;font-size:12px;font-weight:700;flex:1;min-width:220px;">Confirmacion final: se eliminara TODO el historial sin posibilidad de recuperarlo.</span>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _purgeStep = 0" disabled="@_purgeBusy">Cancelar</button>
+                            <button style="border:none;background:#b42318;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700;" @onclick="PurgeHistoryAsync" disabled="@_purgeBusy">@(_purgeBusy ? "Borrando..." : "Si, borrar definitivamente")</button>
+                        }
+                    </div>
+                }
+                @if (_purgeMsg is not null)
+                {
+                    <div class="text-muted" style="font-size:12px;margin-bottom:10px;color:#0a7d33;">@_purgeMsg</div>
+                }
+
                 @if (_history.Count == 0)
                 {
                     <div class="text-muted" style="font-size:13px;padding:14px 2px;">No hay clientes en historial todavia.</div>
@@ -1642,6 +1670,10 @@ else
     private Dictionary<Guid, string> _userEmails = new();
     private List<TenantUserDto> _team = new();
     private bool _canManage;
+    private bool _isTenantAdmin;        // Owner/Admin: pueden vaciar el historial.
+    private int _purgeStep;             // 0 oculto, 1 primer aviso, 2 confirmacion final.
+    private bool _purgeBusy;
+    private string? _purgeMsg;
     private int _conversion;
 
     // Busqueda, orden y filtros del tablero
@@ -2048,6 +2080,7 @@ else
             var state = await AuthState;
             var role = state.User.FindFirst("tenant_role")?.Value;
             _canManage = role is "Owner" or "Admin" or "Supervisor";
+            _isTenantAdmin = role is "Owner" or "Admin";
             _tenantId = state.User.FindFirst("tenant_id")?.Value;
         }
         var actor = await ActorAsync();
@@ -2257,7 +2290,43 @@ else
         _histSearch = string.Empty;
         _histReason = string.Empty;
         _histAsesor = string.Empty;
+        _purgeStep = 0;
+        _purgeMsg = null;
         _historyOpen = true;
+    }
+
+    // Borrado total del historial (solo admin del tenant; el backend revalida el rol). Tras borrar
+    // en BD, elimina los binarios de los archivos del disco (best-effort).
+    private async Task PurgeHistoryAsync()
+    {
+        _purgeBusy = true;
+        _purgeMsg = null;
+        try
+        {
+            var result = await LeadsSvc.PurgeArchivedHistoryAsync();
+            if (result is null)
+            {
+                _purgeMsg = "No tienes permiso para borrar el historial.";
+                _purgeStep = 0;
+                return;
+            }
+            foreach (var url in result.FileUrls)
+            {
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(url)) { continue; }
+                    var rel = url.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar);
+                    var path = System.IO.Path.Combine(Env.WebRootPath, rel);
+                    if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+                }
+                catch { /* binario huerfano, se ignora */ }
+            }
+            _history.Clear();
+            RecalcKpis();
+            _purgeStep = 0;
+            _purgeMsg = $"Historial borrado: {result.DeletedLeads} cliente(s).";
+        }
+        finally { _purgeBusy = false; }
     }
 
     private IEnumerable<ArchivedLeadDto> FilteredHistory()

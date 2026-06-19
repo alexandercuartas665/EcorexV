@@ -42,6 +42,10 @@ public sealed record ArchivedLeadDto(
     DateTimeOffset StageChangedAt,
     IReadOnlyDictionary<string, string?> FieldValues);
 
+/// <summary>Resultado de vaciar el historial: cuantos leads se borraron y las URLs de sus archivos
+/// (para que el llamador borre los binarios del disco).</summary>
+public sealed record PurgeArchivedResult(int DeletedLeads, IReadOnlyList<string> FileUrls);
+
 public sealed record CreateLeadRequest(
     string ContactName,
     string? ContactPhone = null,

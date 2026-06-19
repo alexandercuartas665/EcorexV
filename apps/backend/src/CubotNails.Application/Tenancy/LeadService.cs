@@ -260,6 +260,40 @@ public sealed class LeadService : ILeadService
             r.AssignedToTenantUserId, r.StageId, r.Status, r.StageChangedAt, DeserializeValues(r.FieldValuesJson))).ToList();
     }
 
+    public async Task<PurgeArchivedResult?> PurgeArchivedHistoryAsync(CancellationToken cancellationToken = default)
+    {
+        // Candado de rol: solo el administrador del tenant (Owner/Admin) puede vaciar el historial.
+        // Es una accion destructiva e irreversible. Defensa en profundidad: la UI tambien la oculta.
+        if (_tenantContext.UserId is not Guid userId) { return null; }
+        var me = await _db.TenantUsers.AsNoTracking()
+            .FirstOrDefaultAsync(tu => tu.PlatformUserId == userId, cancellationToken);
+        if (me is null || me.TenantRole is not (TenantRole.Owner or TenantRole.Admin)) { return null; }
+
+        // Ids de los leads en historial del tenant activo (el filtro global ya limita por tenant).
+        var ids = await _db.Leads
+            .Where(l => l.ArchivedAt != null)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+        if (ids.Count == 0) { return new PurgeArchivedResult(0, Array.Empty<string>()); }
+
+        // URLs de los binarios para que el llamador los borre del disco.
+        var fileUrls = await _db.LeadFiles
+            .Where(f => ids.Contains(f.LeadId))
+            .Select(f => f.Url)
+            .ToListAsync(cancellationToken);
+
+        // Hijos primero (FK), luego soltamos el enlace de la conversacion y por ultimo los leads.
+        await _db.LeadNotes.Where(n => ids.Contains(n.LeadId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.LeadActivities.Where(a => ids.Contains(a.LeadId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.LeadFiles.Where(f => ids.Contains(f.LeadId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.FollowUpTasks.Where(t => ids.Contains(t.LeadId)).ExecuteDeleteAsync(cancellationToken);
+        await _db.Conversations.Where(c => c.LeadId != null && ids.Contains(c.LeadId.Value))
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.LeadId, (Guid?)null), cancellationToken);
+        var deleted = await _db.Leads.Where(l => ids.Contains(l.Id)).ExecuteDeleteAsync(cancellationToken);
+
+        return new PurgeArchivedResult(deleted, fileUrls);
+    }
+
     public async Task<LeadDto?> UnarchiveAsync(Guid leadId, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var lead = await _db.Leads.FirstOrDefaultAsync(l => l.Id == leadId, cancellationToken);

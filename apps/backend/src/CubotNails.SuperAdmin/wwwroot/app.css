@@ -42,6 +42,18 @@ h1, h2, h3 { letter-spacing: -0.01em; }
    No afecta botones/inputs (no usan tabindex="-1"). */
 [tabindex="-1"]:focus { outline: none; }
 
+/* Acordeon de configuracion AVANZADA (colapsado por defecto -> oculta servidor/webhook). */
+.cfg-accordion { border: 1px solid var(--border); border-radius: 0.9rem; background: var(--card); overflow: hidden; }
+.cfg-accordion[open] { box-shadow: var(--shadow-soft); }
+.cfg-accordion-summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 14px 18px; cursor: pointer; user-select: none; font-weight: 600; font-size: 13.5px; }
+.cfg-accordion-summary::-webkit-details-marker { display: none; }
+.cfg-accordion-summary:hover { background: var(--muted); }
+.cfg-accordion-summary .cfg-accordion-chevron { transition: transform 0.2s; flex: none; color: var(--muted-foreground); }
+.cfg-accordion[open] .cfg-accordion-summary .cfg-accordion-chevron { transform: rotate(90deg); }
+.cfg-accordion[open] .cfg-accordion-summary { border-bottom: 1px solid var(--border); }
+.cfg-accordion > .card { border: 0; box-shadow: none; margin: 14px !important; max-width: none !important; }
+.cfg-accordion > .card:last-child { margin-bottom: 14px !important; }
+
 /* ===== Layout shell ===== */
 .cubot-shell { display: flex; min-height: 100vh; }
 

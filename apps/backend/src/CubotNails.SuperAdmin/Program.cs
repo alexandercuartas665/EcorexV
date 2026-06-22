@@ -533,20 +533,44 @@ app.MapPost("/webhooks/evolution", async (
     CubotNails.Application.Tenancy.IChatIngestService ingest,
     CubotNails.Application.Tenancy.IWhatsAppConnectorService connector,
     IWebHostEnvironment env,
+    ILoggerFactory loggerFactory,
     CancellationToken ct) =>
 {
+    // Log de diagnostico (visible en los logs de Railway): permite saber si Evolution esta ENTREGANDO los
+    // entrantes a este host y con que resultado, sin necesidad de tunel ni Bitacora. NO se loggea el contenido
+    // del mensaje ni el token (regla de seguridad): solo metadata operativa (instancia, evento, resultado).
+    var log = loggerFactory.CreateLogger("EvolutionWebhook");
+
     var master = await db.EvolutionMasterConfigs.FirstOrDefaultAsync(ct);
     var expected = master?.WebhookToken
         ?? Environment.GetEnvironmentVariable("CUBOT_EVOLUTION_WEBHOOK_TOKEN");
-    if (string.IsNullOrEmpty(expected)) { return Results.StatusCode(503); }
+    if (string.IsNullOrEmpty(expected))
+    {
+        log.LogWarning("Webhook Evolution recibido pero RECHAZADO: no hay token de webhook configurado.");
+        return Results.StatusCode(503);
+    }
 
     var provided = request.Headers["x-webhook-token"].ToString();
     if (string.IsNullOrEmpty(provided)) { provided = request.Query["token"].ToString(); }
-    if (!string.Equals(provided, expected, StringComparison.Ordinal)) { return Results.Unauthorized(); }
+    if (!string.Equals(provided, expected, StringComparison.Ordinal))
+    {
+        // Importante: este 401 significa que Evolution SI esta llegando a este host; lo que falla es el token.
+        log.LogWarning("Webhook Evolution recibido pero RECHAZADO: token invalido o ausente.");
+        return Results.Unauthorized();
+    }
 
     using var doc = await System.Text.Json.JsonDocument.ParseAsync(request.Body, cancellationToken: ct);
+    var instance = doc.RootElement.TryGetProperty("instance", out var instEl) && instEl.ValueKind == System.Text.Json.JsonValueKind.String
+        ? instEl.GetString() : "(sin instancia)";
+    var evt = doc.RootElement.TryGetProperty("event", out var evEl) && evEl.ValueKind == System.Text.Json.JsonValueKind.String
+        ? evEl.GetString() : "(sin evento)";
+
     var parsed = CubotNails.SuperAdmin.RealTime.EvolutionWebhookParser.Parse(doc.RootElement);
-    if (parsed is null) { return Results.Ok(new { status = "ignored" }); }
+    if (parsed is null)
+    {
+        log.LogInformation("Webhook Evolution IGNORADO (evento no procesable). instancia={Instance} evento={Event}", instance, evt);
+        return Results.Ok(new { status = "ignored" });
+    }
 
     var payload = parsed.Payload;
     // Imagen entrante: descargamos la media (por el id del mensaje) y la guardamos como adjunto, para que
@@ -580,6 +604,8 @@ app.MapPost("/webhooks/evolution", async (
     }
 
     var result = await ingest.IngestTrustedAsync(parsed.TenantId, payload, cancellationToken: ct);
+    log.LogInformation("Webhook Evolution INGERIDO. instancia={Instance} tenant={Tenant} tipo={Type} resultado={Result}",
+        instance, parsed.TenantId, payload.MessageType, result);
     return result == CubotNails.Application.Tenancy.ChatIngestResult.Duplicate
         ? Results.Ok(new { status = "duplicate" })
         : Results.Accepted();

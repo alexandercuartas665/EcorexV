@@ -19,6 +19,10 @@ public sealed class AiInferenceService : IAiInferenceService
     private readonly IReadOnlyList<IAgentToolset> _toolsets;
     private readonly TimeProvider _clock;
 
+    // Nombres de TODAS las herramientas (de todos los toolsets). Se usan para sanear la respuesta saliente:
+    // a veces el modelo escribe la llamada como texto (p.ej. "crear_lead(...)") y eso NO debe llegar al cliente.
+    private readonly IReadOnlyCollection<string> _allToolNames;
+
     // Tope de vueltas del bucle de herramientas: evita ciclos infinitos si el modelo insiste en llamar tools.
     private const int MaxToolRounds = 6;
 
@@ -35,6 +39,8 @@ public sealed class AiInferenceService : IAiInferenceService
         _cache = cache;
         _toolsets = toolsets.ToList();
         _clock = clock;
+        _allToolNames = _toolsets.SelectMany(t => t.GetSpecs()).Select(s => s.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     // Herramientas que el agente tiene DESHABILITADAS (AiAgent.DisabledToolsJson). Vacio = todas habilitadas.
@@ -162,6 +168,7 @@ public sealed class AiInferenceService : IAiInferenceService
         if (result.Ok && !string.IsNullOrEmpty(result.Text))
         {
             var (cleanText, attachments) = ExtractAttachments(result.Text!, resources);
+            cleanText = StripToolCallArtifacts(cleanText, _allToolNames);
             return result with { Text = cleanText, Attachments = attachments, DebugPrompts = debugPrompts };
         }
 
@@ -380,6 +387,10 @@ public sealed class AiInferenceService : IAiInferenceService
         var sb = new StringBuilder();
         // Ancla temporal: el modelo no conoce "hoy"; sin esto reserva con anios equivocados.
         sb.AppendLine(BuildDateContextLine());
+        sb.AppendLine();
+        sb.AppendLine("REGLA CRITICA DE SALIDA: usa las herramientas SOLO por el mecanismo de funciones, NUNCA las escribas como texto. " +
+            "El cliente JAMAS debe ver nombres de funciones, llamadas tipo crear_lead(...), JSON interno, marcadores ni razonamiento. " +
+            "Tu respuesta es unicamente el mensaje natural para el cliente.");
         // Modo de operacion de la linea: en sugerencia el agente NO finaliza solo, deja la solicitud al asesor.
         if (!autonomous)
         {
@@ -640,6 +651,27 @@ public sealed class AiInferenceService : IAiInferenceService
         // Limpia espacios/lineas sobrantes que deja el marcador.
         clean = Regex.Replace(clean, @"[ \t]+\n", "\n").Trim();
         return (clean, attachments);
+    }
+
+    // Red de seguridad: a veces el modelo escribe la LLAMADA de una herramienta como texto dentro de la
+    // respuesta (p.ej. "crear_lead(cliente_nombre='Lina', tipo_cliente='estilista')"). Eso son "las tripas"
+    // del agente y NO debe llegar al cliente. Aqui quitamos cualquier "nombre_de_herramienta(args...)" del
+    // texto saliente (con o sin backticks), y limpiamos los restos (fences vacios, lineas en blanco de mas).
+    private static string StripToolCallArtifacts(string text, IReadOnlyCollection<string> toolNames)
+    {
+        if (string.IsNullOrEmpty(text) || toolNames.Count == 0) { return text; }
+        var clean = text;
+        foreach (var name in toolNames)
+        {
+            // `?nombre( ... )`?  -> los parentesis no anidan en estos leaks; [^)]* basta.
+            var pattern = $@"`?\b{Regex.Escape(name)}\s*\([^)]*\)`?";
+            clean = Regex.Replace(clean, pattern, string.Empty, RegexOptions.IgnoreCase);
+        }
+        // Restos: fences de codigo que quedaron vacios, espacios al final de linea y lineas en blanco triples.
+        clean = Regex.Replace(clean, @"```[a-zA-Z]*\s*```", string.Empty);
+        clean = Regex.Replace(clean, @"[ \t]+\n", "\n");
+        clean = Regex.Replace(clean, @"\n{3,}", "\n\n");
+        return clean.Trim();
     }
 
     private static AiChatAttachment? FindResource(IReadOnlyList<AiChatAttachment> resources, string name)

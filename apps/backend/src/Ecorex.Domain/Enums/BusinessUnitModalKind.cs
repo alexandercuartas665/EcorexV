@@ -8,6 +8,6 @@ public enum BusinessUnitModalKind
 {
     /// <summary>Modal estandar del lead (datos + campos + chat).</summary>
     Generic,
-    /// <summary>Abre el modulo del salon para gestionar al cliente (ficha, historial, agendar).</summary>
+    /// <summary>Valor legado del backbone (modulo salon, eliminado). Se conserva solo para poder leer datos existentes.</summary>
     ImageAdvisory
 }

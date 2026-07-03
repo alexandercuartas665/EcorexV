@@ -16,9 +16,6 @@
 @inject Ecorex.Application.Common.IQuotePdfRenderer PdfRenderer
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.IBusinessUnitService BizUnitSvc
-@inject Ecorex.Application.Tenancy.IClientService ClientSvc
-@inject Ecorex.Application.Tenancy.IResourceService ResourcesSvc
-@inject Ecorex.Application.Tenancy.ISalonFieldService SalonFieldsSvc
 @using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Pipeline - ECOREX.tareas</PageTitle>
@@ -452,8 +449,6 @@ else
     </div>
 }
 
-@* El modal de "Asesoria de imagen" reutiliza el BookingModal del salon (ver al final del archivo). *@
-
 @* ===== Modal: unidades de negocio ===== *@
 @if (_unitsOpen)
 {
@@ -464,14 +459,13 @@ else
                 <button class="modal-close" @onclick="() => _unitsOpen = false">&times;</button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small" style="margin-top:0;">Canales del cliente. El color clasifica las tarjetas del pipeline. El tipo "Asesoria de imagen" abre la ficha del salon al hacer clic en la tarjeta.</p>
+                <p class="text-muted small" style="margin-top:0;">Canales del cliente. El color clasifica las tarjetas del pipeline.</p>
                 <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
                     @foreach (var u in _businessUnits)
                     {
                         <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);">
                             <span style="width:14px;height:14px;border-radius:4px;background:@u.Color;flex:0 0 auto;"></span>
                             <span style="font-weight:600;flex:1 1 auto;@(u.IsActive ? "" : "opacity:.5;text-decoration:line-through;")">@u.Name</span>
-                            <span class="text-muted" style="font-size:11px;">@(u.ModalKind == Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory ? "Asesoria de imagen" : "Generico")</span>
                             <button class="pl-link" @onclick="() => EditUnit(u)">Editar</button>
                             <button class="pl-link" @onclick="() => ToggleUnitActiveAsync(u)">@(u.IsActive ? "Ocultar" : "Activar")</button>
                             <button class="pl-link" style="color:#C7398B;" @onclick="() => DeleteUnitAsync(u)">Eliminar</button>
@@ -492,13 +486,6 @@ else
                         <label class="form-label">Color</label>
                         <input class="form-control" type="color" @bind="_uf.Color" style="padding:2px;height:38px;" />
                     </div>
-                </div>
-                <div class="field">
-                    <label class="form-label">Tipo de modal al abrir la tarjeta</label>
-                    <select class="form-control" @bind="_uf.ModalKind">
-                        <option value="Generic">Generico (ficha del lead)</option>
-                        <option value="ImageAdvisory">Asesoria de imagen (ficha del salon)</option>
-                    </select>
                 </div>
                 @if (_unitsError is not null)
                 {
@@ -1433,14 +1420,7 @@ else
                         }
                     </select>
                     <div class="text-muted" style="font-size:11px;margin-top:4px;">
-                        @if (CfgUnitIsImage)
-                        {
-                            <text>Esta unidad abre el modal de atencion del salon. Sus campos se comparten con Dia del salon, Asignacion y Vista semanal.</text>
-                        }
-                        else
-                        {
-                            <text>Los campos de las unidades genericas se muestran en el modal del lead, organizados por etapa.</text>
-                        }
+                        Los campos de las unidades se muestran en el modal del lead, organizados por etapa.
                     </div>
                 </div>
                 <hr style="margin:14px 0;border-color:var(--border);" />
@@ -1479,14 +1459,7 @@ else
 
                 <hr style="margin:18px 0;border-color:var(--border);" />
 
-                @if (CfgUnitIsImage)
-                {
-                    <div class="pl-stagegroup-title">Campos del modal de atencion (salon)</div>
-                    <p class="text-muted" style="font-size:12px;">Esta unidad usa el modal de atencion del salon. Configura aqui sus campos (datos de la cita); aplican tambien a Dia del salon, Asignacion y Vista semanal.</p>
-                    <button class="btn btn-primary" @onclick="() => _apptCfgOpen = true">Configurar campos de atencion</button>
-                }
-                else
-                {
+                @{
                 <div class="pl-stagegroup-title">Campos por etapa</div>
                 <div class="field">
                     <label class="form-label">Etapa</label>
@@ -1652,13 +1625,6 @@ else
     </div>
 }
 
-@* Modal de atencion del salon (compartido): lo abre la tarjeta de "Asesoria de imagen". *@
-<BookingModal @ref="_bookingModal" Resources="_resources" OnSaved="OnBookingSavedAsync" />
-
-@* Configurador de campos del modal de atencion del salon (scope Cita), invocado desde la config del embudo
-   cuando la unidad seleccionada es de tipo Asesoria de imagen. Afecta Dia del salon / Asignacion / Vista semanal. *@
-<SalonFieldsConfig Show="_apptCfgOpen" Scopes="_apptScopes" ActorUserId="_apptCfgActor" OnClose="() => _apptCfgOpen = false" />
-
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -1694,25 +1660,15 @@ else
     private readonly HashSet<Guid> _seenLeadIds = new();
     private bool _seenLoaded;
 
-    // Unidades de negocio (canales del cliente: B2B, detal, cursos, asesoria de imagen).
+    // Unidades de negocio (canales del cliente).
     private List<BusinessUnitDto> _businessUnits = new();
     private bool _unitsOpen;
     private string? _unitsError;
     private Guid? _editingUnitId;
     private UnitForm _uf = new();
 
-    // Recursos del salon + modal de atencion compartido (BookingModal). La tarjeta de "Asesoria de imagen"
-    // abre el MISMO modal que Dia del salon / Asignacion / Vista semanal.
-    private List<ResourceDto> _resources = new();
-    private BookingModal _bookingModal = default!;
-
-    // Config del embudo: unidad de negocio cuyos campos se estan configurando + configurador de campos del salon.
+    // Config del embudo: unidad de negocio cuyos campos se estan configurando.
     private Guid? _cfgUnitId;
-    private bool _apptCfgOpen;
-    private Guid _apptCfgActor;
-    private readonly SalonFieldScope[] _apptScopes = { SalonFieldScope.Appointment };
-    private bool CfgUnitIsImage => _cfgUnitId is Guid id
-        && _businessUnits.FirstOrDefault(u => u.Id == id)?.ModalKind == Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory;
 
     private DotNetObjectReference<Pipeline>? _selfRef;
 
@@ -2084,7 +2040,6 @@ else
             _tenantId = state.User.FindFirst("tenant_id")?.Value;
         }
         var actor = await ActorAsync();
-        _apptCfgActor = actor;
         await PipelineSvc.EnsureDefaultsAsync(actor);
         await BizUnitSvc.EnsureDefaultsAsync(actor);
         await ReloadAsync();
@@ -2097,7 +2052,6 @@ else
         _stages = (await PipelineSvc.ListStagesAsync()).ToList();
         _fields = (await PipelineSvc.ListFieldsAsync()).ToList();
         _businessUnits = (await BizUnitSvc.ListAsync()).ToList();
-        _resources = (await ResourcesSvc.ListAsync()).ToList();
         if (_cfgUnitId is null || _businessUnits.All(u => u.Id != _cfgUnitId))
         {
             _cfgUnitId = _businessUnits.FirstOrDefault()?.Id;
@@ -2515,14 +2469,6 @@ else
     private async Task OpenLeadAsync(Guid leadId)
     {
         await MarkSeenAsync(leadId);
-        // Routing por unidad de negocio: la asesoria de imagen abre el MISMO modal de atencion del salon.
-        var routeLead = _leads.FirstOrDefault(l => l.Id == leadId);
-        if (UnitOf(routeLead) is { ModalKind: Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory })
-        {
-            await OpenSalonBookingAsync(routeLead!);
-            return;
-        }
-
         _leadError = null;
         var detail = await LeadsSvc.GetAsync(leadId);
         if (detail is null) { return; }
@@ -3484,22 +3430,6 @@ else
     }
 
     private void ToggleUnit(Guid id) { if (!_filterUnits.Add(id)) { _filterUnits.Remove(id); } }
-
-    // ===== Atencion de salon (asesoria de imagen) =====
-    // Reutiliza el MISMO modal del salon (BookingModal). Resuelve/crea el cliente por telefono y abre
-    // el modal de atencion prefijado con ese cliente para que el asesor elija cupo, servicios y datos.
-    private async Task OpenSalonBookingAsync(LeadDto lead)
-    {
-        var actor = await ActorAsync();
-        var clientId = await ClientSvc.EnsureByPhoneAsync(lead.ContactName, lead.ContactPhone, actor);
-        await _bookingModal.OpenForClientAsync(lead.ContactName, lead.ContactPhone ?? string.Empty, clientId);
-    }
-
-    private async Task OnBookingSavedAsync()
-    {
-        _pending = await ChatSvc.GetUnansweredByPhoneAsync();
-        StateHasChanged();
-    }
 
     // ===== Configuracion de unidades de negocio =====
     private void OpenUnits()

@@ -3,7 +3,7 @@ using Ecorex.Domain.Common;
 namespace Ecorex.Domain.Entities;
 
 /// <summary>
-/// Numero de telefono en la lista negra GLOBAL del tenant (salon): ningun agente de IA le responde.
+/// Numero de telefono en la lista negra GLOBAL del tenant: ningun agente de IA le responde.
 /// Es compartida por todos los agentes. La comparacion en el dispatcher es por digitos (tolera "+",
 /// espacios y el codigo de pais sobrante).
 /// </summary>

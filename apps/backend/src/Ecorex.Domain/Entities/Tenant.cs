@@ -17,7 +17,7 @@ public class Tenant : BaseEntity
     public TenantStatus Status { get; set; } = TenantStatus.Trial;
     public TenantKind Kind { get; set; } = TenantKind.Standard;
 
-    /// <summary>Reservas online por link publico habilitadas para este salon.</summary>
+    /// <summary>Reservas online por link publico habilitadas (columna legado del backbone; sin uso en ECOREX Tareas).</summary>
     public bool OnlineBookingEnabled { get; set; }
 
     /// <summary>Token opaco del link publico de reserva (/r/{token}). Se genera al habilitar. Unico.</summary>

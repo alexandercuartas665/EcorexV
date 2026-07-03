@@ -353,7 +353,7 @@
         return lbl;
     }
 
-    // Rellena placeholders del salon. {cliente} = nombre del cliente.
+    // Rellena placeholders de la plantilla. {cliente} = nombre del cliente.
     private string FillTemplate(string template)
     {
         var cliente = string.IsNullOrWhiteSpace(ContactName) ? "" : ContactName!.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";

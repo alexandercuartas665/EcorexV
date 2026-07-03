@@ -66,8 +66,6 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
-// Reserva publica por link (/r/{token}): resuelve tenant por token y reusa el motor bajo ambient tenant.
-builder.Services.AddScoped<Ecorex.SuperAdmin.Services.IPublicBookingService, Ecorex.SuperAdmin.Services.PublicBookingService>();
 
 var app = builder.Build();
 
@@ -115,9 +113,6 @@ else
     await seeder.SeedAsync();
     await seeder.EnsurePlatformAdminTenantAsync();
     await seeder.EnsureDemoTemplateAssetsAsync();
-    await seeder.EnsureDemoProductsAsync();
-    await seeder.EnsureDemoCoursesAsync();
-    await seeder.EnsureDemoAgentCommercialFlowAsync();
 }
 
 app.UseHttpsRedirection();
@@ -195,7 +190,7 @@ app.MapPost("/auth/login", async (
         claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
     }
 
-    // Operador de plataforma -> Dashboard; usuario de salon -> Pipeline comercial (no la pagina de cuenta).
+    // Operador de plataforma -> Dashboard; usuario de tenant -> Pipeline comercial (no la pagina de cuenta).
     redirect = isOperator ? "/" : "/pipeline";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -435,7 +430,7 @@ app.MapGet("/signin-google", async (
         }
     }
 
-    // Operador de plataforma -> Dashboard; usuario de salon -> Pipeline comercial (no la pagina de cuenta).
+    // Operador de plataforma -> Dashboard; usuario de tenant -> Pipeline comercial (no la pagina de cuenta).
     redirect = isOperator ? "/" : "/pipeline";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -574,7 +569,7 @@ app.MapPost("/webhooks/evolution", async (
 
     var payload = parsed.Payload;
     // Imagen entrante: descargamos la media (por el id del mensaje) y la guardamos como adjunto, para que
-    // el agente pueda analizarla (clasificar_largo_cabello). Fijamos el tenant para resolver el servidor.
+    // el agente y la consola puedan verla. Fijamos el tenant para resolver el servidor.
     if (payload.MessageType == "image" && payload.WhatsAppLineId is Guid lid)
     {
         using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(parsed.TenantId))
@@ -750,7 +745,7 @@ app.MapPost("/api/test/agent", async (
     if (conv is null) { return Results.Problem("No se pudo crear la conversacion de prueba."); }
 
     // Si llego una imagen, la guardamos en uploads/chat y la ingerimos como mensaje ENTRANTE de imagen,
-    // para que el agente la vea (clasificar_largo_cabello usa la ultima foto entrante de la conversacion).
+    // para que el agente la vea (las herramientas de vision usan la ultima foto entrante de la conversacion).
     if (!string.IsNullOrWhiteSpace(body.ImageBase64))
     {
         try
@@ -801,48 +796,6 @@ app.MapPost("/api/test/agent", async (
 
     return Results.Ok(new { conversationId = conv.Id, lineId = line.Id, agentId = agent.Id, agentName = agent.Name, reply });
 }).RequireAuthorization("TenantMember").DisableAntiforgery();
-
-// Sirve la FOTO PROTEGIDA de una clasificacion de cabello (almacenada fuera de wwwroot). Requiere sesion
-// de tenant; el query filter por tenant garantiza que solo se vean fotos del propio salon.
-app.MapGet("/media/hair/{id:guid}", async (
-    Guid id,
-    Ecorex.Application.Common.IApplicationDbContext db,
-    IWebHostEnvironment env,
-    CancellationToken ct) =>
-{
-    var rec = await db.HairLengthClassifications.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
-    if (rec is null || string.IsNullOrWhiteSpace(rec.PhotoFileName)) { return Results.NotFound(); }
-    // Evita traversal: solo el nombre de archivo.
-    var safe = System.IO.Path.GetFileName(rec.PhotoFileName);
-    var path = System.IO.Path.Combine(env.ContentRootPath, "protected-media", "hair", safe);
-    if (!System.IO.File.Exists(path)) { return Results.NotFound(); }
-    var ext = System.IO.Path.GetExtension(safe).ToLowerInvariant();
-    var contentType = ext switch { ".png" => "image/png", ".webp" => "image/webp", ".gif" => "image/gif", _ => "image/jpeg" };
-    return Results.File(await System.IO.File.ReadAllBytesAsync(path, ct), contentType);
-}).RequireAuthorization("TenantMember");
-
-// Sirve una imagen de REFERENCIA de medida de cabello, guardada en la BD (persiste a redeploys).
-app.MapGet("/media/hairref/{id:guid}", async (
-    Guid id,
-    Ecorex.Application.Common.IApplicationDbContext db,
-    CancellationToken ct) =>
-{
-    var img = await db.HairLengthReferenceImages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
-    if (img?.Content is null || img.Content.Length == 0) { return Results.NotFound(); }
-    return Results.File(img.Content, string.IsNullOrWhiteSpace(img.ContentType) ? "image/jpeg" : img.ContentType);
-}).RequireAuthorization("TenantMember");
-
-// Foto del asesor, guardada en la BD. ANONIMA: la consume la pagina publica de reserva (/r/{token})
-// y tambien la consola. No expone datos sensibles (solo la foto). Se busca por ResourceId sin filtro de tenant.
-app.MapGet("/media/asesor/{id:guid}", async (
-    Guid id,
-    Ecorex.Application.Common.IApplicationDbContext db,
-    CancellationToken ct) =>
-{
-    var photo = await db.ResourcePhotos.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(p => p.ResourceId == id, ct);
-    if (photo?.Content is null || photo.Content.Length == 0) { return Results.NotFound(); }
-    return Results.File(photo.Content, string.IsNullOrWhiteSpace(photo.ContentType) ? "image/jpeg" : photo.ContentType);
-}).AllowAnonymous();
 
 app.Run();
 

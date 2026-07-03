@@ -74,7 +74,7 @@ public sealed class ChatService : IChatService
         if (_tenantContext.TenantId is not Guid tenantId) { return new ChatClearResult(0, 0); }
 
         // Ids de TODAS las conversaciones del tenant (activas + archivadas). El query filter global ya
-        // restringe al tenant activo, asi que nunca toca otros salones.
+        // restringe al tenant activo, asi que nunca toca otros tenants.
         var conversationIds = await _db.Conversations.Select(c => c.Id).ToListAsync(cancellationToken);
         if (conversationIds.Count == 0) { return new ChatClearResult(0, 0); }
 

@@ -78,3 +78,48 @@ cuando llegue la fase de descubrimiento/ETL.)
 - Base del clon: rama `main` del backbone (identica a `deploy`).
 - Adminer en lugar de pgAdmin (sirve Postgres Y SQL Server con una sola UI, puerto 8092).
 - El nombre `cubotcrm` NO se renombra: identifica al repo upstream.
+
+---
+
+## 2026-07-03 - Sesion 2: Eliminacion del dominio belleza/agenda (ADR-0011)
+
+**Agentes**: agente unico (barrido + migraciones + validacion).
+
+**Hecho**:
+- Eliminadas las 22 entidades belleza de Ecorex.Domain (Service*, Resource*,
+  HairLength*, ShiftTemplate, ScheduleException, SalonFieldDefinition, Sede,
+  Appointment*, Client, Product*, Course*) + 10 enums huerfanos.
+- Eliminados 17 servicios/toolsets de Application (Agenda, Client, Course, Product,
+  Resource, SalonField, ScheduleException, Sede, ServiceCatalog, ShiftTemplate,
+  HairLength/HairClassifier, OnlineBooking y los 4 toolsets de IA belleza).
+  El motor de agentes queda solo con PipelineToolset (crear_lead);
+  AgendaToolResult -> AgentToolResult.
+- Eliminadas 15 paginas + 3 componentes Blazor belleza de Ecorex.SuperAdmin,
+  PublicBookingService (/r/{token}) y los endpoints /media/hair|hairref|asesor.
+  NavMenu: solo se quitaron las entradas muertas (sin redisenar el menu).
+- Seeders: fuera EnsureDemoProductsAsync, EnsureDemoCoursesAsync y
+  EnsureDemoAgentCommercialFlowAsync (vendia productos/cursos). Demo de agente queda
+  el one-shot TravelFans (CRM). EnsureDemoTemplateAssetsAsync se conserva.
+- Tests: eliminados AppointmentOverbookingTests y AppointmentTierBookingTests.
+  TenantIsolationTests intacto (usa TenantConfiguration, conservada): 6/6 dual verde.
+- Migraciones DAL dual: Postgres `20260703175944_RemoveBellezaDomain` (drop de 22
+  tablas, cae la exclusion GiST ck_appointments_no_overlap con la tabla); SQL Server
+  regenerada la inicial `20260703180047_InitialCreateSqlServer` desde el modelo limpio
+  (BD dev recreada). Ambas aplicadas a los contenedores dev; 55 tablas identicas por motor.
+- Validado: build 0 errores, tests Domain/Application/TenantIsolation verdes,
+  SuperAdmin arranca contra Postgres 5442 y /login responde 200.
+- ADR nuevo: docs/decisiones/0011-eliminar-dominio-belleza.md.
+
+**Siguiente**:
+- Migracion TFM net9.0 -> net10.0 (ADR propio).
+- FASE 2: menu del Prototipo Final + policies/MFA.
+- Nucleo tareas/tableros/proyectos sobre TaskBoard/TaskCard.
+
+**Bloqueos**: ninguno.
+
+**Decisiones**:
+- Tenant.PublicBooking*/OnlineBookingEnabled se conservan (regla "no tocar Tenant*"),
+  quedan sin uso; retiro en fase posterior con su propia migracion.
+- BusinessUnitModalKind.ImageAdvisory se conserva como valor legado (enum persistido
+  como texto) para leer filas existentes; la UI ya no lo ofrece y los defaults de
+  BusinessUnitService crean una sola unidad "General".

@@ -33,13 +33,10 @@ public sealed class BusinessUnitService : IBusinessUnitService
         _db = db; _tenant = tenant; _audit = audit;
     }
 
-    // Las 4 unidades del cliente. La de asesoria de imagen abre el modulo del salon.
+    // Unidad de negocio por defecto (generica); cada tenant configura las suyas.
     private static readonly (string Name, string Color, BusinessUnitModalKind Kind)[] Defaults =
     {
-        ("Productos B2B", "#2563eb", BusinessUnitModalKind.Generic),
-        ("Productos al detal", "#10b981", BusinessUnitModalKind.Generic),
-        ("Cursos", "#f59e0b", BusinessUnitModalKind.Generic),
-        ("Asesoria de imagen", "#A03DC9", BusinessUnitModalKind.ImageAdvisory)
+        ("General", "#2563eb", BusinessUnitModalKind.Generic)
     };
 
     public async Task EnsureDefaultsAsync(Guid actorUserId, CancellationToken cancellationToken = default)

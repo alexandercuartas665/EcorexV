@@ -6,7 +6,7 @@ namespace Ecorex.Domain.Entities;
 /// <summary>
 /// Unidad / canal de negocio del cliente (capa 2). Entidad TENANT-SCOPED. Clasifica los leads del
 /// pipeline (ej. productos B2B, productos al detal, cursos, asesoria de imagen), les da un color y
-/// define que modal abre su tarjeta (ModalKind). Configurable por el salon.
+/// define que modal abre su tarjeta (ModalKind). Configurable por el tenant.
 /// </summary>
 public class BusinessUnit : TenantEntity
 {

@@ -20,7 +20,7 @@ public sealed class PipelineService : IPipelineService
         _audit = audit;
     }
 
-    // Etapas y campos por defecto del embudo comercial del salon (4 canales de negocio).
+    // Etapas y campos por defecto del embudo comercial del tenant.
     private static readonly (string Stage, (string Key, string Label, PipelineFieldType Type, int Col, string? Options)[] Fields)[] Defaults =
     [
         ("LEAD",

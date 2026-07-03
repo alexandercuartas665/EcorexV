@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Tenancy;
 
-/// <summary>Una linea del salon vista desde la config de un agente: estado del binding con ESTE agente.</summary>
+/// <summary>Una linea del tenant vista desde la config de un agente: estado del binding con ESTE agente.</summary>
 public sealed record AgentLineDto(
     Guid LineId,
     string InstanceName,

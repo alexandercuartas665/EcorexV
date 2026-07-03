@@ -124,41 +124,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "appointments",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    appointment_date = table.Column<DateOnly>(type: "date", nullable: false),
-                    start_time = table.Column<TimeOnly>(type: "time", nullable: false),
-                    duration_minutes = table.Column<int>(type: "int", nullable: false),
-                    buffer_minutes = table.Column<int>(type: "int", nullable: false),
-                    client_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    status = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    punctuality = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    chain_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    chain_sequence = table.Column<int>(type: "int", nullable: true),
-                    chain_total = table.Column<int>(type: "int", nullable: true),
-                    channel = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    estimated_value = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: true),
-                    notes = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
-                    field_values_json = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    confirmed_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    completed_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    cancelled_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    rescheduled_from_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_appointments", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "automation_rules",
                 columns: table => new
                 {
@@ -210,35 +175,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "clients",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    full_name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    phone = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    email = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
-                    preferred_resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    preferences_json = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    field_values_json = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    business_unit_ids_json = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    visit_count = table.Column<int>(type: "int", nullable: false),
-                    no_show_count = table.Column<int>(type: "int", nullable: false),
-                    on_time_count = table.Column<int>(type: "int", nullable: false),
-                    late_count = table.Column<int>(type: "int", nullable: false),
-                    last_visit_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    whats_app_opt_in = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_clients", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "conversations",
                 columns: table => new
                 {
@@ -258,30 +194,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_conversations", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "courses",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    description = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    date = table.Column<DateOnly>(type: "date", nullable: false),
-                    start_time = table.Column<TimeOnly>(type: "time", nullable: true),
-                    capacity = table.Column<int>(type: "int", nullable: false),
-                    price = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: true),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    is_archived = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_courses", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -362,47 +274,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_google_auth_configs", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "hair_length_categories",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: false),
-                    description = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_hair_length_categories", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "hair_length_classifications",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    photo_file_name = table.Column<string>(type: "nvarchar(255)", maxLength: 255, nullable: true),
-                    predicted_category_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    predicted_name = table.Column<string>(type: "nvarchar(120)", maxLength: 120, nullable: true),
-                    confidence = table.Column<int>(type: "int", nullable: false),
-                    rationale = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_hair_length_classifications", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -514,30 +385,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "products",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    sku = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: true),
-                    description = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    specifications = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    price = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: true),
-                    category = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    field_values_json = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_products", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "quote_templates",
                 columns: table => new
                 {
@@ -555,32 +402,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_quote_templates", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "resources",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
-                    kind = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    color = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
-                    phone = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: true),
-                    notes = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    scheduling_mode = table.Column<int>(type: "int", nullable: false),
-                    buffer_minutes = table.Column<int>(type: "int", nullable: false),
-                    linked_tenant_user_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    sede_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_resources", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -602,101 +423,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_saas_plans", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "salon_field_definitions",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    scope = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    field_key = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: false),
-                    label = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
-                    field_type = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    options = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    description = table.Column<string>(type: "nvarchar(600)", maxLength: 600, nullable: true),
-                    column = table.Column<int>(type: "int", nullable: false),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    is_required = table.Column<bool>(type: "bit", nullable: false),
-                    show_on_board = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_salon_field_definitions", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "schedule_exceptions",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    scope = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    date_from = table.Column<DateOnly>(type: "date", nullable: false),
-                    date_to = table.Column<DateOnly>(type: "date", nullable: false),
-                    reason = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    start_time = table.Column<TimeOnly>(type: "time", nullable: true),
-                    end_time = table.Column<TimeOnly>(type: "time", nullable: true),
-                    note = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_schedule_exceptions", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "sedes",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
-                    city = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
-                    address = table.Column<string>(type: "nvarchar(300)", maxLength: 300, nullable: true),
-                    phone = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: true),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_sedes", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "services",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    name = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
-                    description = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    duration_minutes = table.Column<int>(type: "int", nullable: false),
-                    price = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: false),
-                    currency = table.Column<string>(type: "nvarchar(8)", maxLength: 8, nullable: true),
-                    category = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: true),
-                    color = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
-                    is_active = table.Column<bool>(type: "bit", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_services", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -1057,60 +783,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "appointment_messages",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    appointment_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    direction = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    body = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    sent_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    sent_by_tenant_user_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    source_template_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_appointment_messages", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_appointment_messages_appointments_appointment_id",
-                        column: x => x.appointment_id,
-                        principalTable: "appointments",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "appointment_service_items",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    appointment_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    service_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    price_snapshot = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_appointment_service_items", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_appointment_service_items_appointments_appointment_id",
-                        column: x => x.appointment_id,
-                        principalTable: "appointments",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "messages",
                 columns: table => new
                 {
@@ -1140,60 +812,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         name: "fk_messages_conversations_conversation_id",
                         column: x => x.conversation_id,
                         principalTable: "conversations",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "course_registrations",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    course_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    person_name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    phone = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: true),
-                    is_paid = table.Column<bool>(type: "bit", nullable: false),
-                    registered_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_course_registrations", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_course_registrations_courses_course_id",
-                        column: x => x.course_id,
-                        principalTable: "courses",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "hair_length_reference_images",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    category_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    content = table.Column<byte[]>(type: "varbinary(max)", nullable: true),
-                    content_type = table.Column<string>(type: "nvarchar(120)", maxLength: 120, nullable: true),
-                    file_name = table.Column<string>(type: "nvarchar(255)", maxLength: 255, nullable: true),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_hair_length_reference_images", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_hair_length_reference_images_hair_length_categories_category_id",
-                        column: x => x.category_id,
-                        principalTable: "hair_length_categories",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -1301,84 +919,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "product_images",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    product_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    url = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: false),
-                    file_name = table.Column<string>(type: "nvarchar(255)", maxLength: 255, nullable: true),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_product_images", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_product_images_products_product_id",
-                        column: x => x.product_id,
-                        principalTable: "products",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "resource_photos",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    content = table.Column<byte[]>(type: "varbinary(max)", nullable: false),
-                    content_type = table.Column<string>(type: "nvarchar(120)", maxLength: 120, nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_resource_photos", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_resource_photos_resources_resource_id",
-                        column: x => x.resource_id,
-                        principalTable: "resources",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "shift_templates",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    day_of_week = table.Column<int>(type: "int", nullable: false),
-                    start_time = table.Column<TimeOnly>(type: "time", nullable: false),
-                    end_time = table.Column<TimeOnly>(type: "time", nullable: false),
-                    slot_minutes = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_shift_templates", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_shift_templates_resources_resource_id",
-                        column: x => x.resource_id,
-                        principalTable: "resources",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "saas_plan_limits",
                 columns: table => new
                 {
@@ -1400,120 +940,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         name: "fk_saas_plan_limits_saas_plans_plan_id",
                         column: x => x.plan_id,
                         principalTable: "saas_plans",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "product_stocks",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    product_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    sede_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    stock = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_product_stocks", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_product_stocks_products_product_id",
-                        column: x => x.product_id,
-                        principalTable: "products",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "fk_product_stocks_sedes_sede_id",
-                        column: x => x.sede_id,
-                        principalTable: "sedes",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "resource_service_links",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    resource_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    service_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    price_override = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_resource_service_links", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_resource_service_links_resources_resource_id",
-                        column: x => x.resource_id,
-                        principalTable: "resources",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "fk_resource_service_links_services_service_id",
-                        column: x => x.service_id,
-                        principalTable: "services",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "service_images",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    service_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    url = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: false),
-                    file_name = table.Column<string>(type: "nvarchar(255)", maxLength: 255, nullable: true),
-                    sort_order = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_service_images", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_service_images_services_service_id",
-                        column: x => x.service_id,
-                        principalTable: "services",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "service_price_tiers",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    service_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    length = table.Column<int>(type: "int", nullable: false),
-                    price = table.Column<decimal>(type: "decimal(14,2)", precision: 14, scale: 2, nullable: false),
-                    duration_minutes = table.Column<int>(type: "int", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
-                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_service_price_tiers", x => x.id);
-                    table.ForeignKey(
-                        name: "fk_service_price_tiers_services_service_id",
-                        column: x => x.service_id,
-                        principalTable: "services",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -2052,41 +1478,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 columns: new[] { "tenant_id", "created_at" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_appointment_messages_appointment_id",
-                table: "appointment_messages",
-                column: "appointment_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointment_messages_tenant_id_appointment_id_sent_at",
-                table: "appointment_messages",
-                columns: new[] { "tenant_id", "appointment_id", "sent_at" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointment_service_items_appointment_id",
-                table: "appointment_service_items",
-                column: "appointment_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointment_service_items_tenant_id_appointment_id_sort_order",
-                table: "appointment_service_items",
-                columns: new[] { "tenant_id", "appointment_id", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointments_chain_id",
-                table: "appointments",
-                column: "chain_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointments_tenant_id_client_id_appointment_date",
-                table: "appointments",
-                columns: new[] { "tenant_id", "client_id", "appointment_date" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_appointments_tenant_id_resource_id_appointment_date",
-                table: "appointments",
-                columns: new[] { "tenant_id", "resource_id", "appointment_date" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_automation_rules_tenant_id_sort_order",
                 table: "automation_rules",
                 columns: new[] { "tenant_id", "sort_order" });
@@ -2097,36 +1488,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 columns: new[] { "tenant_id", "sort_order" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_clients_tenant_id_full_name",
-                table: "clients",
-                columns: new[] { "tenant_id", "full_name" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_clients_tenant_id_phone",
-                table: "clients",
-                columns: new[] { "tenant_id", "phone" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_conversations_tenant_id_whats_app_line_id_contact_phone",
                 table: "conversations",
                 columns: new[] { "tenant_id", "whats_app_line_id", "contact_phone" },
                 unique: true,
                 filter: "[whats_app_line_id] IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_course_registrations_course_id",
-                table: "course_registrations",
-                column: "course_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_course_registrations_tenant_id_course_id",
-                table: "course_registrations",
-                columns: new[] { "tenant_id", "course_id" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_courses_tenant_id_date",
-                table: "courses",
-                columns: new[] { "tenant_id", "date" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_follow_up_tasks_lead_id",
@@ -2142,26 +1508,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 name: "ix_follow_up_tasks_tenant_id_status",
                 table: "follow_up_tasks",
                 columns: new[] { "tenant_id", "status" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_hair_length_categories_tenant_id_sort_order",
-                table: "hair_length_categories",
-                columns: new[] { "tenant_id", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_hair_length_classifications_tenant_id_created_at",
-                table: "hair_length_classifications",
-                columns: new[] { "tenant_id", "created_at" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_hair_length_reference_images_category_id",
-                table: "hair_length_reference_images",
-                column: "category_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_hair_length_reference_images_tenant_id_category_id_sort_order",
-                table: "hair_length_reference_images",
-                columns: new[] { "tenant_id", "category_id", "sort_order" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_lead_activities_lead_id",
@@ -2281,130 +1627,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 filter: "[google_subject] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "ix_product_images_product_id",
-                table: "product_images",
-                column: "product_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_product_images_tenant_id_product_id_sort_order",
-                table: "product_images",
-                columns: new[] { "tenant_id", "product_id", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_product_stocks_product_id_sede_id",
-                table: "product_stocks",
-                columns: new[] { "product_id", "sede_id" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_product_stocks_sede_id",
-                table: "product_stocks",
-                column: "sede_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_product_stocks_tenant_id_sede_id",
-                table: "product_stocks",
-                columns: new[] { "tenant_id", "sede_id" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_products_tenant_id_name",
-                table: "products",
-                columns: new[] { "tenant_id", "name" });
-
-            migrationBuilder.CreateIndex(
                 name: "ix_quote_templates_tenant_id_is_default",
                 table: "quote_templates",
                 columns: new[] { "tenant_id", "is_default" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resource_photos_resource_id",
-                table: "resource_photos",
-                column: "resource_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resource_photos_tenant_id_resource_id",
-                table: "resource_photos",
-                columns: new[] { "tenant_id", "resource_id" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resource_service_links_resource_id",
-                table: "resource_service_links",
-                column: "resource_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resource_service_links_service_id",
-                table: "resource_service_links",
-                column: "service_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resource_service_links_tenant_id_resource_id_service_id",
-                table: "resource_service_links",
-                columns: new[] { "tenant_id", "resource_id", "service_id" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_resources_tenant_id_kind_name",
-                table: "resources",
-                columns: new[] { "tenant_id", "kind", "name" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_saas_plan_limits_plan_id_limit_key",
                 table: "saas_plan_limits",
                 columns: new[] { "plan_id", "limit_key" },
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_salon_field_definitions_tenant_id_scope_field_key",
-                table: "salon_field_definitions",
-                columns: new[] { "tenant_id", "scope", "field_key" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_salon_field_definitions_tenant_id_scope_sort_order",
-                table: "salon_field_definitions",
-                columns: new[] { "tenant_id", "scope", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_schedule_exceptions_tenant_id_resource_id_date_from_date_to",
-                table: "schedule_exceptions",
-                columns: new[] { "tenant_id", "resource_id", "date_from", "date_to" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_sedes_tenant_id_name",
-                table: "sedes",
-                columns: new[] { "tenant_id", "name" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_service_images_service_id",
-                table: "service_images",
-                column: "service_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_service_images_tenant_id_service_id_sort_order",
-                table: "service_images",
-                columns: new[] { "tenant_id", "service_id", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_service_price_tiers_service_id_length",
-                table: "service_price_tiers",
-                columns: new[] { "service_id", "length" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "ix_services_tenant_id_name",
-                table: "services",
-                columns: new[] { "tenant_id", "name" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_shift_templates_resource_id",
-                table: "shift_templates",
-                column: "resource_id");
-
-            migrationBuilder.CreateIndex(
-                name: "ix_shift_templates_tenant_id_resource_id_day_of_week",
-                table: "shift_templates",
-                columns: new[] { "tenant_id", "resource_id", "day_of_week" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_super_admin_audit_logs_created_at",
@@ -2631,22 +1862,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 name: "ai_usage_logs");
 
             migrationBuilder.DropTable(
-                name: "appointment_messages");
-
-            migrationBuilder.DropTable(
-                name: "appointment_service_items");
-
-            migrationBuilder.DropTable(
                 name: "automation_rules");
 
             migrationBuilder.DropTable(
                 name: "business_units");
-
-            migrationBuilder.DropTable(
-                name: "clients");
-
-            migrationBuilder.DropTable(
-                name: "course_registrations");
 
             migrationBuilder.DropTable(
                 name: "data_protection_keys");
@@ -2662,12 +1881,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             migrationBuilder.DropTable(
                 name: "google_auth_configs");
-
-            migrationBuilder.DropTable(
-                name: "hair_length_classifications");
-
-            migrationBuilder.DropTable(
-                name: "hair_length_reference_images");
 
             migrationBuilder.DropTable(
                 name: "lead_activities");
@@ -2694,37 +1907,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 name: "platform_brandings");
 
             migrationBuilder.DropTable(
-                name: "product_images");
-
-            migrationBuilder.DropTable(
-                name: "product_stocks");
-
-            migrationBuilder.DropTable(
                 name: "quote_templates");
 
             migrationBuilder.DropTable(
-                name: "resource_photos");
-
-            migrationBuilder.DropTable(
-                name: "resource_service_links");
-
-            migrationBuilder.DropTable(
                 name: "saas_plan_limits");
-
-            migrationBuilder.DropTable(
-                name: "salon_field_definitions");
-
-            migrationBuilder.DropTable(
-                name: "schedule_exceptions");
-
-            migrationBuilder.DropTable(
-                name: "service_images");
-
-            migrationBuilder.DropTable(
-                name: "service_price_tiers");
-
-            migrationBuilder.DropTable(
-                name: "shift_templates");
 
             migrationBuilder.DropTable(
                 name: "super_admin_audit_logs");
@@ -2775,31 +1961,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                 name: "ai_agents");
 
             migrationBuilder.DropTable(
-                name: "appointments");
-
-            migrationBuilder.DropTable(
-                name: "courses");
-
-            migrationBuilder.DropTable(
-                name: "hair_length_categories");
-
-            migrationBuilder.DropTable(
                 name: "leads");
 
             migrationBuilder.DropTable(
                 name: "conversations");
-
-            migrationBuilder.DropTable(
-                name: "products");
-
-            migrationBuilder.DropTable(
-                name: "sedes");
-
-            migrationBuilder.DropTable(
-                name: "services");
-
-            migrationBuilder.DropTable(
-                name: "resources");
 
             migrationBuilder.DropTable(
                 name: "tenant_users");

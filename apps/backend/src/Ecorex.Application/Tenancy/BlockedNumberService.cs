@@ -8,7 +8,7 @@ namespace Ecorex.Application.Tenancy;
 public sealed record BlockedNumberDto(Guid Id, string Phone, string? Note, DateTimeOffset CreatedAt);
 
 /// <summary>
-/// Lista negra GLOBAL del tenant: numeros que ningun agente de IA debe atender. La administra el salon
+/// Lista negra GLOBAL del tenant: numeros que ningun agente de IA debe atender. La administra el tenant
 /// y la consulta el dispatcher del agente antes de responder.
 /// </summary>
 public interface IBlockedNumberService

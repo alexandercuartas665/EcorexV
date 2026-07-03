@@ -10,7 +10,7 @@ namespace Ecorex.Application.Tenancy;
 /// <summary>
 /// Herramienta (function calling / "MCP") de CIERRE comercial: el agente registra al cliente como un LEAD
 /// en el pipeline cuando logra los datos clave. Mapea el canal (tipo de cliente) a la unidad de negocio
-/// correcta (Productos B2B, Productos al detal, Cursos, Asesoria de imagen) y lo coloca al inicio del embudo.
+/// correcta (por nombre) y lo coloca al inicio del embudo.
 /// </summary>
 public interface IPipelineToolset : IAgentToolset
 {
@@ -42,14 +42,13 @@ public sealed class PipelineToolset : IPipelineToolset
         new AiToolSpec(
             "crear_lead",
             "Registra (CIERRA) al cliente como un LEAD en el pipeline comercial. Usala UNA SOLA VEZ al final del " +
-            "guion de cierre, cuando ya tengas el nombre y el canal del cliente. Indica 'tipo_cliente' segun el canal: " +
-            "'b2b' (suministro/compra al por mayor para una empresa o negocio), 'productos' (producto al detal para uso " +
-            "personal), 'cursos' (formacion/capacitacion) o 'estilista' (servicio del salon / asesoria de imagen). El " +
-            "sistema asigna el lead a la unidad de negocio correcta y al inicio del embudo para que un asesor lo contacte.",
-            """{"type":"object","properties":{"cliente_nombre":{"type":"string","description":"Nombre del cliente"},"cliente_telefono":{"type":"string","description":"Telefono del cliente (opcional)"},"tipo_cliente":{"type":"string","description":"Canal del cliente: b2b | productos | cursos | estilista"},"valor_estimado":{"type":"number","description":"Valor estimado de la venta en pesos (opcional)"},"resumen":{"type":"string","description":"Resumen breve de lo que quiere el cliente: producto, cantidad, curso, servicio, etc."}},"required":["cliente_nombre","tipo_cliente"],"additionalProperties":false}"""),
+            "guion de cierre, cuando ya tengas el nombre y el canal del cliente. Indica 'tipo_cliente' con el canal o " +
+            "unidad de negocio del cliente (ej. 'b2b', 'productos', 'cursos' u otro texto descriptivo). El sistema " +
+            "asigna el lead a la unidad de negocio correcta y al inicio del embudo para que un asesor lo contacte.",
+            """{"type":"object","properties":{"cliente_nombre":{"type":"string","description":"Nombre del cliente"},"cliente_telefono":{"type":"string","description":"Telefono del cliente (opcional)"},"tipo_cliente":{"type":"string","description":"Canal del cliente (texto descriptivo, ej. b2b, productos, cursos)"},"valor_estimado":{"type":"number","description":"Valor estimado de la venta en pesos (opcional)"},"resumen":{"type":"string","description":"Resumen breve de lo que quiere el cliente: producto, cantidad, curso, servicio, etc."}},"required":["cliente_nombre","tipo_cliente"],"additionalProperties":false}"""),
     };
 
-    public async Task<AgendaToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
+    public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
     {
         JsonElement args;
         try
@@ -76,7 +75,7 @@ public sealed class PipelineToolset : IPipelineToolset
         }
     }
 
-    private async Task<AgendaToolResult> CreateLeadAsync(JsonElement args, Guid actor, CancellationToken ct)
+    private async Task<AgentToolResult> CreateLeadAsync(JsonElement args, Guid actor, CancellationToken ct)
     {
         var nombre = Str(args, "cliente_nombre");
         if (string.IsNullOrWhiteSpace(nombre)) { return Err("Falta el nombre del cliente (cliente_nombre)."); }
@@ -115,7 +114,7 @@ public sealed class PipelineToolset : IPipelineToolset
             lead_id = lead.Id,
             unidad_negocio = unit?.Name ?? "(sin unidad)",
             etapa = "LEAD",
-            mensaje = "Lead registrado en el pipeline. Un asesor del salon lo contactara para continuar."
+            mensaje = "Lead registrado en el pipeline. Un asesor lo contactara para continuar."
         });
     }
 
@@ -127,12 +126,6 @@ public sealed class PipelineToolset : IPipelineToolset
         var t = Normalize(tipo);
         bool NameHas(BusinessUnitDto u, params string[] keys) => keys.Any(k => Normalize(u.Name).Contains(k));
 
-        // Servicio del salon / asesoria de imagen: por tipo de modal o por nombre.
-        if (t.Contains("estilista") || t.Contains("asesor") || t.Contains("imagen") || t.Contains("servicio") || t.Contains("salon"))
-        {
-            return units.FirstOrDefault(u => u.ModalKind == BusinessUnitModalKind.ImageAdvisory)
-                ?? units.FirstOrDefault(u => NameHas(u, "imagen", "asesor"));
-        }
         if (t.Contains("b2b") || t.Contains("empresa") || t.Contains("mayor") || t.Contains("suministro") || t.Contains("negocio"))
         {
             return units.FirstOrDefault(u => NameHas(u, "b2b", "empresa"));
@@ -151,8 +144,8 @@ public sealed class PipelineToolset : IPipelineToolset
 
     // ===== Helpers =====
 
-    private static AgendaToolResult Ok(object payload) => new(JsonSerializer.Serialize(payload, JsonOut), BookingCreated: false);
-    private static AgendaToolResult Err(string message) => new(JsonSerializer.Serialize(new { ok = false, error = message }, JsonOut), BookingCreated: false);
+    private static AgentToolResult Ok(object payload) => new(JsonSerializer.Serialize(payload, JsonOut), SessionCompleted: false);
+    private static AgentToolResult Err(string message) => new(JsonSerializer.Serialize(new { ok = false, error = message }, JsonOut), SessionCompleted: false);
 
     private static string? Str(JsonElement el, string prop)
         => el.ValueKind == JsonValueKind.Object && el.TryGetProperty(prop, out var v)

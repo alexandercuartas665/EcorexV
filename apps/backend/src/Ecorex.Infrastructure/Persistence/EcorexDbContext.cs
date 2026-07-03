@@ -91,32 +91,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskCardActivity> TaskCardActivities => Set<TaskCardActivity>();
     public DbSet<TaskCardAttachment> TaskCardAttachments => Set<TaskCardAttachment>();
 
-    // Modulo Configuracion del salon (Capa 2): catalogo, recursos, turnos base y excepciones.
-    public DbSet<Service> Services => Set<Service>();
-    public DbSet<ServiceImage> ServiceImages => Set<ServiceImage>();
-    public DbSet<ServicePriceTier> ServicePriceTiers => Set<ServicePriceTier>();
-    public DbSet<HairLengthCategory> HairLengthCategories => Set<HairLengthCategory>();
-    public DbSet<HairLengthReferenceImage> HairLengthReferenceImages => Set<HairLengthReferenceImage>();
-    public DbSet<HairLengthClassification> HairLengthClassifications => Set<HairLengthClassification>();
-    public DbSet<Resource> Resources => Set<Resource>();
-    public DbSet<ResourcePhoto> ResourcePhotos => Set<ResourcePhoto>();
-    public DbSet<ResourceServiceLink> ResourceServiceLinks => Set<ResourceServiceLink>();
-    public DbSet<ShiftTemplate> ShiftTemplates => Set<ShiftTemplate>();
-    public DbSet<ScheduleException> ScheduleExceptions => Set<ScheduleException>();
-    public DbSet<SalonFieldDefinition> SalonFieldDefinitions => Set<SalonFieldDefinition>();
-    public DbSet<Sede> Sedes => Set<Sede>();
-    public DbSet<Product> Products => Set<Product>();
-    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
-    public DbSet<ProductStock> ProductStocks => Set<ProductStock>();
-    public DbSet<Course> Courses => Set<Course>();
-    public DbSet<CourseRegistration> CourseRegistrations => Set<CourseRegistration>();
-
-    // Modulo Citas / Agenda (Capa 2 - nucleo operativo).
-    public DbSet<Client> Clients => Set<Client>();
-    public DbSet<Appointment> Appointments => Set<Appointment>();
-    public DbSet<AppointmentServiceItem> AppointmentServiceItems => Set<AppointmentServiceItem>();
-    public DbSet<AppointmentMessage> AppointmentMessages => Set<AppointmentMessage>();
-
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Todos los enums se persisten como texto (legibles y estables ante reordenamientos).
@@ -147,15 +121,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<BusinessUnitModalKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<ResourceKind>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<ExceptionScope>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<ExceptionReason>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<AppointmentStatus>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<Punctuality>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<BookingChannel>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<SalonFieldScope>().HaveConversion<string>().HaveMaxLength(40);
-        configurationBuilder.Properties<SalonFieldType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
     }
 
@@ -449,7 +415,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.ContactPhone).HasMaxLength(40).IsRequired();
             b.Property(x => x.ContactName).HasMaxLength(200);
             // Una conversacion por (tenant, linea, contacto): permite que el mismo numero escriba a
-            // dos lineas distintas del salon como hilos separados (clave de sesion del agente de IA).
+            // dos lineas distintas del tenant como hilos separados (clave de sesion del agente de IA).
             b.HasIndex(x => new { x.TenantId, x.WhatsAppLineId, x.ContactPhone }).IsUnique();
         });
 
@@ -674,205 +640,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
         });
 
-        // ---- Modulo Configuracion del salon (Servicios, Asesores/Recursos, Turnos base, Excepciones) ----
-
-        modelBuilder.Entity<Service>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Description).HasColumnType(longTextColumnType);
-            b.Property(x => x.Currency).HasMaxLength(8);
-            b.Property(x => x.Category).HasMaxLength(80);
-            b.Property(x => x.Color).HasMaxLength(20);
-            b.Property(x => x.Price).HasPrecision(14, 2);
-            b.HasIndex(x => new { x.TenantId, x.Name });
-        });
-
-        modelBuilder.Entity<ServiceImage>(b =>
-        {
-            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
-            b.Property(x => x.FileName).HasMaxLength(255);
-            b.HasOne(x => x.Service).WithMany().HasForeignKey(x => x.ServiceId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.ServiceId, x.SortOrder });
-        });
-
-        modelBuilder.Entity<ServicePriceTier>(b =>
-        {
-            b.Property(x => x.Price).HasPrecision(14, 2);
-            b.HasOne(x => x.Service).WithMany().HasForeignKey(x => x.ServiceId).OnDelete(DeleteBehavior.Cascade);
-            // Una tarifa por (servicio, largo de cabello).
-            b.HasIndex(x => new { x.ServiceId, x.Length }).IsUnique();
-        });
-
-        modelBuilder.Entity<HairLengthCategory>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(80).IsRequired();
-            b.Property(x => x.Description).HasColumnType(longTextColumnType);
-            b.HasIndex(x => new { x.TenantId, x.SortOrder });
-        });
-
-        modelBuilder.Entity<HairLengthReferenceImage>(b =>
-        {
-            b.Property(x => x.ContentType).HasMaxLength(120);
-            b.Property(x => x.FileName).HasMaxLength(255);
-            b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.CategoryId, x.SortOrder });
-        });
-
-        modelBuilder.Entity<HairLengthClassification>(b =>
-        {
-            b.Property(x => x.PhotoFileName).HasMaxLength(255);
-            b.Property(x => x.PredictedName).HasMaxLength(120);
-            b.Property(x => x.Rationale).HasColumnType(longTextColumnType);
-            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
-        });
-
-        modelBuilder.Entity<Resource>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Color).HasMaxLength(20);
-            b.Property(x => x.Phone).HasMaxLength(40);
-            b.Property(x => x.Notes).HasMaxLength(1000);
-            b.HasIndex(x => new { x.TenantId, x.Kind, x.Name });
-        });
-
-        modelBuilder.Entity<ResourcePhoto>(b =>
-        {
-            b.Property(x => x.ContentType).HasMaxLength(120);
-            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.ResourceId }).IsUnique();
-        });
-
-        modelBuilder.Entity<ResourceServiceLink>(b =>
-        {
-            b.Property(x => x.PriceOverride).HasPrecision(14, 2);
-            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
-            b.HasOne<Service>().WithMany().HasForeignKey(x => x.ServiceId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.ServiceId }).IsUnique();
-        });
-
-        modelBuilder.Entity<ShiftTemplate>(b =>
-        {
-            b.HasOne<Resource>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.DayOfWeek });
-        });
-
-        modelBuilder.Entity<ScheduleException>(b =>
-        {
-            b.Property(x => x.Note).HasMaxLength(500);
-            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.DateFrom, x.DateTo });
-        });
-
-        // ---- Modulo Citas / Agenda (nucleo operativo) ----
-
-        modelBuilder.Entity<Client>(b =>
-        {
-            b.Property(x => x.FullName).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Phone).HasMaxLength(40).IsRequired();
-            b.Property(x => x.Email).HasMaxLength(200);
-            b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType);
-            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
-            b.Property(x => x.BusinessUnitIdsJson).HasColumnType(jsonColumnType);
-            b.HasIndex(x => new { x.TenantId, x.Phone });
-            b.HasIndex(x => new { x.TenantId, x.FullName });
-        });
-
-        modelBuilder.Entity<SalonFieldDefinition>(b =>
-        {
-            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
-            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Options).HasColumnType(longTextColumnType);
-            b.Property(x => x.Description).HasMaxLength(600);
-            b.HasIndex(x => new { x.TenantId, x.Scope, x.SortOrder });
-            // FieldKey unica por (tenant, scope): identifica el valor dentro del JSON.
-            b.HasIndex(x => new { x.TenantId, x.Scope, x.FieldKey }).IsUnique();
-        });
-
-        modelBuilder.Entity<Sede>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.City).HasMaxLength(100).IsRequired();
-            b.Property(x => x.Address).HasMaxLength(300);
-            b.Property(x => x.Phone).HasMaxLength(40);
-            b.HasIndex(x => new { x.TenantId, x.Name });
-        });
-
-        modelBuilder.Entity<Product>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Sku).HasMaxLength(80);
-            b.Property(x => x.Description).HasColumnType(longTextColumnType);
-            b.Property(x => x.Specifications).HasColumnType(longTextColumnType);
-            b.Property(x => x.Category).HasMaxLength(100);
-            b.Property(x => x.Price).HasPrecision(14, 2);
-            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
-            b.HasIndex(x => new { x.TenantId, x.Name });
-        });
-
-        modelBuilder.Entity<ProductImage>(b =>
-        {
-            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
-            b.Property(x => x.FileName).HasMaxLength(255);
-            b.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.ProductId, x.SortOrder });
-        });
-
-        modelBuilder.Entity<ProductStock>(b =>
-        {
-            b.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
-            b.HasOne(x => x.Sede).WithMany().HasForeignKey(x => x.SedeId).OnDelete(DeleteBehavior.Cascade);
-            // Una fila de stock por (producto, sede).
-            b.HasIndex(x => new { x.ProductId, x.SedeId }).IsUnique();
-            b.HasIndex(x => new { x.TenantId, x.SedeId });
-        });
-
-        modelBuilder.Entity<Course>(b =>
-        {
-            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Description).HasColumnType(longTextColumnType);
-            b.Property(x => x.Price).HasPrecision(14, 2);
-            b.HasIndex(x => new { x.TenantId, x.Date });
-        });
-
-        modelBuilder.Entity<CourseRegistration>(b =>
-        {
-            b.Property(x => x.PersonName).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Phone).HasMaxLength(40);
-            b.HasOne(x => x.Course).WithMany().HasForeignKey(x => x.CourseId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.CourseId });
-        });
-
-        modelBuilder.Entity<Appointment>(b =>
-        {
-            b.Property(x => x.Notes).HasMaxLength(1000);
-            b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
-            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
-            // ANTI-OVERBOOKING por SOLAPAMIENTO: un exclusion constraint GiST (ck_appointments_no_overlap)
-            // prohibe que dos citas activas del mismo (tenant, recurso, fecha) crucen su intervalo
-            // [inicio, inicio + duracion + buffer). Se crea por SQL crudo en la migracion (EF no modela
-            // EXCLUDE). Subsume el viejo UNIQUE(start_time): dos citas a la misma hora siempre se cruzan,
-            // pero dos pegadas (rango medio-abierto) no. Las Cancelled/Rescheduled liberan el cupo.
-            // TODO(SqlServer): SQL Server no tiene EXCLUDE/GiST; ese constraint solo existe en la
-            // migracion Npgsql. En SQL Server la defensa anti-solapamiento queda a nivel de aplicacion
-            // (AgendaService valida disponibilidad antes de guardar); evaluar un trigger o indice
-            // computado si se necesita garantia fuerte en ese motor.
-            b.HasIndex(x => new { x.TenantId, x.ResourceId, x.AppointmentDate });
-            b.HasIndex(x => new { x.TenantId, x.ClientId, x.AppointmentDate });
-            b.HasIndex(x => x.ChainId);
-        });
-
-        modelBuilder.Entity<AppointmentServiceItem>(b =>
-        {
-            b.Property(x => x.PriceSnapshot).HasPrecision(14, 2);
-            b.HasOne<Appointment>().WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.AppointmentId, x.SortOrder });
-        });
-
-        modelBuilder.Entity<AppointmentMessage>(b =>
-        {
-            b.Property(x => x.Body).HasColumnType(longTextColumnType).IsRequired();
-            b.HasOne<Appointment>().WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Cascade);
-            b.HasIndex(x => new { x.TenantId, x.AppointmentId, x.SentAt });
-        });
     }
 
     private void ApplyTenantQueryFilters(ModelBuilder modelBuilder)

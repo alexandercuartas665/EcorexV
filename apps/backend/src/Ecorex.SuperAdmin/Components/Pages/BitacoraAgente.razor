@@ -22,7 +22,7 @@
     <div style="display:flex;gap:8px;align-self:flex-start;flex-wrap:wrap;">
         <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@(_loading || _busy)">Actualizar</button>
         <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _convs.Count == 0)"
-                title="Borra TODA la bitacora del salon y el cache de datos capturados por los agentes (deja al agente en cero). No toca mensajes del chat ni leads.">
+                title="Borra TODA la bitacora de la empresa y el cache de datos capturados por los agentes (deja al agente en cero). No toca mensajes del chat ni leads.">
             @(_busy ? "Borrando..." : "Limpiar historial")
         </button>
     </div>

@@ -28,7 +28,7 @@ public interface IChatService
     /// <summary>Devuelve (o crea) la conversacion del lead segun su telefono. Null si el lead no tiene telefono.</summary>
     Task<ConversationDto?> GetOrCreateForLeadAsync(Guid leadId, CancellationToken cancellationToken = default);
 
-    /// <summary>Devuelve (o crea) la conversacion por telefono del contacto, sin lead. Para abrir el chat desde otros modulos (ej. citas del salon).</summary>
+    /// <summary>Devuelve (o crea) la conversacion por telefono del contacto, sin lead. Para abrir el chat desde otros modulos.</summary>
     Task<ConversationDto?> GetOrCreateForPhoneAsync(string phone, string? contactName, CancellationToken cancellationToken = default);
 
     /// <summary>Conversaciones con mensajes entrantes sin responder, indexadas por telefono (solo digitos). Para colorear el pipeline.</summary>

@@ -18,7 +18,7 @@ public class AiAgentRunLog : TenantEntity
     public DateTimeOffset OccurredAt { get; set; }
     public AiAgentRunLogKind Kind { get; set; }
 
-    /// <summary>Titulo corto del evento (ej. "Herramienta: reservar_cita").</summary>
+    /// <summary>Titulo corto del evento (ej. "Herramienta: crear_lead").</summary>
     public string Title { get; set; } = null!;
 
     /// <summary>Contenido principal (prompt enviado, argumentos de la herramienta, texto recibido).</summary>

@@ -26,9 +26,9 @@ public sealed class AiInferenceService : IAiInferenceService
     // Tope de vueltas del bucle de herramientas: evita ciclos infinitos si el modelo insiste en llamar tools.
     private const int MaxToolRounds = 6;
 
-    // Zona horaria del salon demo (America/Bogota = UTC-5, sin horario de verano). Mientras el Tenant no
+    // Zona horaria del tenant demo (America/Bogota = UTC-5, sin horario de verano). Mientras el Tenant no
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
-    private static readonly TimeSpan SalonOffset = TimeSpan.FromHours(-5);
+    private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
     public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IEnumerable<IAgentToolset> toolsets, TimeProvider clock)
     {
@@ -62,7 +62,7 @@ public sealed class AiInferenceService : IAiInferenceService
         => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
-    // (reservar/cancelar de verdad vs solo sugerir) la fija el binding de la linea.
+    // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea.
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default)
         => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, cancellationToken);
 
@@ -123,14 +123,14 @@ public sealed class AiInferenceService : IAiInferenceService
             new("Prompt principal del agente (enrutador + recursos + estado de cache)", DateTimeOffset.UtcNow, systemPrompt)
         };
 
-        // Bucle de herramientas (function calling): el agente puede consultar agenda/asesores/precios y
-        // reservar citas in-process. Si el modelo no llama ninguna herramienta, equivale a una respuesta normal.
+        // Bucle de herramientas (function calling): el agente puede consultar y registrar datos in-process.
+        // Si el modelo no llama ninguna herramienta, equivale a una respuesta normal.
         var actor = actorUserId;
         var disabledTools = ParseDisabledTools(agent.DisabledToolsJson);
-        // Contexto ambiental para herramientas de vision (clasificar_largo_cabello): conversacion en curso
-        // y/o imagen pendiente (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
+        // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
+        // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
         using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime);
-        var (result, bookingCreated) = await RunToolLoopAsync(
+        var (result, sessionCompleted) = await RunToolLoopAsync(
             agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 
         // Todo consumo de IA del tenant pasa por el modulo de tokens (incluido el chat de prueba).
@@ -156,9 +156,9 @@ public sealed class AiInferenceService : IAiInferenceService
             }
         }
 
-        // Cierre del proceso: si en esta vuelta se concreto una reserva, vaciamos la cache de la sesion para
-        // dejar al agente listo para atender a un nuevo cliente desde cero (objetivo cumplido: separar la cita).
-        if (bookingCreated)
+        // Cierre del proceso: si en esta vuelta se concreto un cierre, vaciamos la cache de la sesion para
+        // dejar al agente listo para atender a un nuevo cliente desde cero.
+        if (sessionCompleted)
         {
             try { await _cache.ClearValuesAsync(agentId, sessionId, actor, cancellationToken); }
             catch { /* limpiar la cache no debe romper la respuesta */ }
@@ -179,9 +179,9 @@ public sealed class AiInferenceService : IAiInferenceService
     // "hoy", "manana", "el viernes" y para el parametro fecha (AAAA-MM-DD) de las herramientas.
     private string BuildDateContextLine()
     {
-        var now = _clock.GetUtcNow().ToOffset(SalonOffset);
+        var now = _clock.GetUtcNow().ToOffset(TenantOffset);
         var dia = SpanishDay(now.DayOfWeek);
-        return $"FECHA Y HORA ACTUAL DEL SALON: hoy es {dia} {now:yyyy-MM-dd}, {now:HH:mm} (zona America/Bogota). " +
+        return $"FECHA Y HORA ACTUAL: hoy es {dia} {now:yyyy-MM-dd}, {now:HH:mm} (zona America/Bogota). " +
                "Usa SIEMPRE esta fecha como referencia para calcular dias relativos (hoy, manana, el viernes, etc.) y para el " +
                "parametro fecha (AAAA-MM-DD) de las herramientas. NUNCA uses un anio distinto al actual.";
     }
@@ -203,7 +203,7 @@ public sealed class AiInferenceService : IAiInferenceService
     /// la recepcion, con anti-overbooking) y vuelve a llamar con los resultados, hasta que el modelo da su
     /// respuesta final en texto. Devuelve el texto final y si se concreto una reserva en el camino.
     /// </summary>
-    private async Task<(AiChatResult Result, bool BookingCreated)> RunToolLoopAsync(
+    private async Task<(AiChatResult Result, bool SessionCompleted)> RunToolLoopAsync(
         AiProvider provider, string apiKey, string? baseUrl, string model, string systemPrompt,
         IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, ISet<string> disabledTools, List<AiDebugPrompt> debugPrompts, CancellationToken ct)
     {
@@ -231,18 +231,14 @@ public sealed class AiInferenceService : IAiInferenceService
 
         var totalIn = 0;
         var totalOut = 0;
-        var bookingCreated = false;
+        var sessionCompleted = false;
         string? lastText = null;
         // Red de seguridad de CIERRE: el modelo a veces afirma "ya te registre / un asesor te contactara"
         // sin invocar la herramienta de cierre, dejando al cliente FUERA del pipeline. Si detectamos ese
         // caso lo forzamos a invocarla una sola vez.
-        var closeToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "inscribir_curso", "reservar_cita" };
+        var closeToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead" };
         var closeToolInvoked = false;
         var closeNudged = false;
-        // Red de seguridad de PRECIOS: el modelo a veces da cifras sin consultar la herramienta (inventa).
-        var priceToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "consultar_servicios_precios", "consultar_productos", "consultar_cursos" };
-        var priceToolInvoked = false;
-        var priceNudged = false;
 
         for (var round = 1; round <= MaxToolRounds; round++)
         {
@@ -252,7 +248,7 @@ public sealed class AiInferenceService : IAiInferenceService
 
             if (!completion.Ok)
             {
-                return (new AiChatResult(false, null, completion.Error, totalIn, totalOut), bookingCreated);
+                return (new AiChatResult(false, null, completion.Error, totalIn, totalOut), sessionCompleted);
             }
 
             // Sin herramientas pedidas: el modelo entrega su respuesta final.
@@ -267,7 +263,7 @@ public sealed class AiInferenceService : IAiInferenceService
                     messages.Add(new AiToolMessage("assistant", completion.Text));
                     messages.Add(new AiToolMessage("user",
                         "[SISTEMA] Afirmaste que registraste/inscribiste al cliente o que un asesor lo contactara, " +
-                        "pero NO invocaste ninguna herramienta de cierre (crear_lead, inscribir_curso o reservar_cita). " +
+                        "pero NO invocaste ninguna herramienta de cierre (crear_lead). " +
                         "Es OBLIGATORIO: invoca AHORA la herramienta de cierre adecuada con los datos que ya tienes " +
                         "(nombre y canal/tipo de cliente). Si te falta el nombre, pidelo en vez de afirmar el registro. " +
                         "No respondas solo con texto."));
@@ -278,24 +274,7 @@ public sealed class AiInferenceService : IAiInferenceService
                         completion.Text));
                     continue;
                 }
-                // Si dio PRECIOS sin haber consultado la herramienta de precios, lo forzamos una vez:
-                // la regla de oro prohibe inventar precios.
-                if (!priceToolInvoked && !priceNudged && MentionsPrice(completion.Text))
-                {
-                    priceNudged = true;
-                    messages.Add(new AiToolMessage("assistant", completion.Text));
-                    messages.Add(new AiToolMessage("user",
-                        "[SISTEMA] Diste precios SIN invocar la herramienta de precios. Esta PROHIBIDO inventar precios. " +
-                        "Invoca AHORA consultar_servicios_precios (o consultar_productos / consultar_cursos segun el caso) y " +
-                        "responde usando EXACTAMENTE los precios que devuelva. Si el servicio trae precios_por_largo, usa el del largo correspondiente."));
-                    debugPrompts.Add(new AiDebugPrompt(
-                        "Red de seguridad de precios",
-                        DateTimeOffset.UtcNow,
-                        "El modelo dio precios sin consultar la herramienta; se le pidio consultarla.",
-                        completion.Text));
-                    continue;
-                }
-                return (new AiChatResult(true, completion.Text ?? lastText, null, totalIn, totalOut), bookingCreated);
+                return (new AiChatResult(true, completion.Text ?? lastText, null, totalIn, totalOut), sessionCompleted);
             }
 
             // El modelo pidio una o mas herramientas: las registramos en el log y agregamos el turno assistant.
@@ -313,12 +292,11 @@ public sealed class AiInferenceService : IAiInferenceService
             foreach (var call in completion.ToolCalls)
             {
                 if (closeToolNames.Contains(call.Name)) { closeToolInvoked = true; }
-                if (priceToolNames.Contains(call.Name)) { priceToolInvoked = true; }
                 var owner = ownerByTool.GetValueOrDefault(call.Name);
                 var exec = owner is null
-                    ? new AgendaToolResult(JsonSerializer.Serialize(new { ok = false, error = $"Herramienta no disponible o deshabilitada: {call.Name}" }), false)
+                    ? new AgentToolResult(JsonSerializer.Serialize(new { ok = false, error = $"Herramienta no disponible o deshabilitada: {call.Name}" }), false)
                     : await owner.ExecuteAsync(call.Name, call.ArgumentsJson, actorUserId, autonomous, ct);
-                if (exec.BookingCreated) { bookingCreated = true; }
+                if (exec.SessionCompleted) { sessionCompleted = true; }
 
                 debugPrompts.Add(new AiDebugPrompt(
                     $"Herramienta ejecutada: {call.Name}",
@@ -331,11 +309,11 @@ public sealed class AiInferenceService : IAiInferenceService
         }
 
         // Se agoto el tope de vueltas sin respuesta final: devolvemos el ultimo texto o un aviso.
-        return (new AiChatResult(true, lastText ?? "Estoy procesando tu solicitud, dame un momento.", null, totalIn, totalOut), bookingCreated);
+        return (new AiChatResult(true, lastText ?? "Estoy procesando tu solicitud, dame un momento.", null, totalIn, totalOut), sessionCompleted);
     }
 
-    // Detecta cuando el texto AFIRMA un cierre (registro / inscripcion / que un asesor lo contactara /
-    // cita agendada) para forzar la herramienta de cierre si el modelo no la invoco. Insensible a acentos.
+    // Detecta cuando el texto AFIRMA un cierre (registro / que un asesor lo contactara) para forzar
+    // la herramienta de cierre si el modelo no la invoco. Insensible a acentos.
     private static bool ClaimsCloseWithoutTool(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) { return false; }
@@ -344,18 +322,9 @@ public sealed class AiInferenceService : IAiInferenceService
             || n.Contains("contactar")               // un asesor te contactara / se pondra en contacto
             || n.Contains("se pondra en contacto")
             || n.Contains("se comunicar")
-            || n.Contains("inscr")                   // quedaste inscrita / inscripcion
-            || n.Contains("agendad")                 // tu cita quedo agendada
-            || n.Contains("reservad")                // cita reservada
+            || n.Contains("inscr")                   // quedaste inscrito / inscripcion
             || n.Contains("tu solicitud")
             || n.Contains("tu pedido");
-    }
-
-    // Detecta si el texto da una cifra de PRECIO ("$95.000", "$ 95,000"): un signo $ seguido de digito.
-    private static bool MentionsPrice(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) { return false; }
-        return System.Text.RegularExpressions.Regex.IsMatch(text, @"\$\s?\d");
     }
 
     private static string StripAccents(string s)
@@ -395,7 +364,7 @@ public sealed class AiInferenceService : IAiInferenceService
         if (!autonomous)
         {
             sb.AppendLine();
-            sb.AppendLine("MODO SUGERENCIA: no puedes confirmar ni cancelar citas por ti mismo. Cuando el cliente acepte, usa la herramienta correspondiente para REGISTRAR la solicitud (quedara PENDIENTE de que un asesor del salon la confirme) e informa con calidez que un asesor confirmara en breve. No afirmes que la cita ya quedo confirmada.");
+            sb.AppendLine("MODO SUGERENCIA: no puedes confirmar acciones por ti mismo. Cuando el cliente acepte, usa la herramienta correspondiente para REGISTRAR la solicitud (quedara PENDIENTE de que un asesor la confirme) e informa con calidez que un asesor confirmara en breve. No afirmes que la solicitud ya quedo confirmada.");
         }
         sb.AppendLine();
         sb.Append(ExpandResourceRefs(basePrompt, resources));
@@ -493,7 +462,7 @@ public sealed class AiInferenceService : IAiInferenceService
         var lastUser = originalTurns.LastOrDefault(t => string.Equals(t.Role, "user", StringComparison.OrdinalIgnoreCase))?.Text ?? "";
 
         var sysSb = new StringBuilder();
-        sysSb.AppendLine("Eres un extractor de datos para un salon de belleza. NO debes responder al cliente.");
+        sysSb.AppendLine("Eres un extractor de datos para una empresa. NO debes responder al cliente.");
         sysSb.AppendLine("Tu unico trabajo es leer la ultima interaccion cliente+agente y devolver un JSON plano con los campos que puedas inferir CON CERTEZA del mensaje del cliente.");
         sysSb.AppendLine("Reglas:");
         sysSb.AppendLine("- NO inventes datos. Si no esta claro, NO incluyas el campo.");
@@ -654,7 +623,7 @@ public sealed class AiInferenceService : IAiInferenceService
     }
 
     // Red de seguridad: a veces el modelo escribe la LLAMADA de una herramienta como texto dentro de la
-    // respuesta (p.ej. "crear_lead(cliente_nombre='Lina', tipo_cliente='estilista')"). Eso son "las tripas"
+    // respuesta (p.ej. "crear_lead(cliente_nombre='Lina', tipo_cliente='b2b')"). Eso son "las tripas"
     // del agente y NO debe llegar al cliente. Aqui quitamos cualquier "nombre_de_herramienta(args...)" del
     // texto saliente (con o sin backticks), y limpiamos los restos (fences vacios, lineas en blanco de mas).
     private static string StripToolCallArtifacts(string text, IReadOnlyCollection<string> toolNames)

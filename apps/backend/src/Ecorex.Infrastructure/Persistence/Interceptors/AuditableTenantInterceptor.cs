@@ -66,6 +66,15 @@ public sealed class AuditableTenantInterceptor : SaveChangesInterceptor
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = now;
                     entry.Entity.UpdatedBy = userId;
+
+                    // Concurrencia optimista portable (ADR-0013): la Version se incrementa en cada
+                    // modificacion; EF usa el valor ORIGINAL (el leido) en el WHERE del UPDATE, asi
+                    // un cambio concurrente produce DbUpdateConcurrencyException.
+                    if (entry.Entity is IVersioned versioned)
+                    {
+                        versioned.Version++;
+                    }
+
                     break;
             }
         }

@@ -91,6 +91,26 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskCardActivity> TaskCardActivities => Set<TaskCardActivity>();
     public DbSet<TaskCardAttachment> TaskCardAttachments => Set<TaskCardAttachment>();
 
+    // Nucleo de tareas/proyectos (FASE 3, ADR-0013): TaskItem de primera clase con
+    // consecutivo por tenant, estados propios, proyectos con ACL y worklogs.
+    public DbSet<ActivityType> ActivityTypes => Set<ActivityType>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+    public DbSet<TaskItemTag> TaskItemTags => Set<TaskItemTag>();
+    public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => Set<TaskItemTagAssignment>();
+    public DbSet<TaskWorkLog> TaskWorkLogs => Set<TaskWorkLog>();
+    public DbSet<TaskItemActivity> TaskItemActivities => Set<TaskItemActivity>();
+    public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
+    public DbSet<TenantSequence> TenantSequences => Set<TenantSequence>();
+
+    /// <summary>
+    /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
+    /// </summary>
+    public Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction> BeginTransactionAsync(
+        CancellationToken cancellationToken = default)
+        => Database.BeginTransactionAsync(cancellationToken);
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // Todos los enums se persisten como texto (legibles y estables ante reordenamientos).
@@ -123,6 +143,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ProjectStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TaskPriority>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TaskItemStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WorkLogKind>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -638,6 +662,113 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.UploadedByName).HasMaxLength(200);
             b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
+        });
+
+        // ---- Nucleo de tareas/proyectos (FASE 3, ADR-0013) ----
+
+        modelBuilder.Entity<ActivityType>(b =>
+        {
+            b.Property(x => x.Category).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Category, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<Project>(b =>
+        {
+            b.Property(x => x.Code).HasMaxLength(30).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(2000);
+            // Concurrencia optimista portable (ADR-0013): Version es ConcurrencyToken en
+            // ambos motores; la incrementa el AuditableTenantInterceptor en cada UPDATE.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne(x => x.OwnerTenantUser).WithMany().HasForeignKey(x => x.OwnerTenantUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+        });
+
+        modelBuilder.Entity<ProjectMember>(b =>
+        {
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            // La FK del owner del proyecto es Restrict, asi que esta cascada no crea doble
+            // ruta tenant_users->project_members en SQL Server.
+            b.HasOne(x => x.TenantUser).WithMany().HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ProjectId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        modelBuilder.Entity<TaskItem>(b =>
+        {
+            b.Property(x => x.Number).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
+            b.Property(x => x.RequesterName).HasMaxLength(200);
+            b.Property(x => x.RequesterEmail).HasMaxLength(256);
+            b.Property(x => x.RequesterPhone).HasMaxLength(40);
+            b.Property(x => x.CcEmails).HasColumnType(jsonColumnType);
+            b.Property(x => x.Color).HasMaxLength(20);
+            // Concurrencia optimista portable (ADR-0013), igual que Project.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne(x => x.ActivityType).WithMany().HasForeignKey(x => x.ActivityTypeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.AssigneeTenantUser).WithMany().HasForeignKey(x => x.AssigneeTenantUserId).OnDelete(DeleteBehavior.Restrict);
+            // Consecutivo legible unico por tenant (emitido por TenantSequence).
+            b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });
+            b.HasIndex(x => new { x.TenantId, x.ProjectId });
+            b.HasIndex(x => new { x.TenantId, x.AssigneeTenantUserId, x.Status });
+        });
+
+        modelBuilder.Entity<TaskItemTag>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20);
+            // Catalogo por TENANT (no por tablero): nombre unico por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskItemTagAssignment>(b =>
+        {
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            // A diferencia de TaskCardTagAssignment, aqui no hay doble ruta de cascada en
+            // SQL Server (tags y task_items no comparten un ancestro con cascade), por lo
+            // que ambas FKs pueden ser Cascade en los dos motores.
+            b.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskItemId, x.TagId }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskWorkLog>(b =>
+        {
+            b.Property(x => x.Note).HasMaxLength(500);
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.TenantUser).WithMany().HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TaskItemId, x.LoggedAt });
+        });
+
+        modelBuilder.Entity<TaskItemActivity>(b =>
+        {
+            b.Property(x => x.ActorName).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Text).HasColumnType(longTextColumnType).IsRequired();
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskItemId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<TaskItemAttachment>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.MimeType).HasMaxLength(120);
+            b.Property(x => x.UploadedByName).HasMaxLength(200);
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TaskItemId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<TenantSequence>(b =>
+        {
+            b.Property(x => x.Code).HasMaxLength(10).IsRequired();
+            // Un consecutivo por (tenant, codigo). SequenceService lo incrementa con
+            // UPDATE condicional atomico (CAS con retry), sin SQL crudo (ADR-0013).
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
         });
 
     }

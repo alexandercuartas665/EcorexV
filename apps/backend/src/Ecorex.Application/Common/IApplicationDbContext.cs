@@ -1,5 +1,6 @@
 using Ecorex.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Ecorex.Application.Common;
 
@@ -47,6 +48,16 @@ public interface IApplicationDbContext
     DbSet<TaskCardChecklistItem> TaskCardChecklistItems { get; }
     DbSet<TaskCardActivity> TaskCardActivities { get; }
     DbSet<TaskCardAttachment> TaskCardAttachments { get; }
+    DbSet<ActivityType> ActivityTypes { get; }
+    DbSet<Project> Projects { get; }
+    DbSet<ProjectMember> ProjectMembers { get; }
+    DbSet<TaskItem> TaskItems { get; }
+    DbSet<TaskItemTag> TaskItemTags { get; }
+    DbSet<TaskItemTagAssignment> TaskItemTagAssignments { get; }
+    DbSet<TaskWorkLog> TaskWorkLogs { get; }
+    DbSet<TaskItemActivity> TaskItemActivities { get; }
+    DbSet<TaskItemAttachment> TaskItemAttachments { get; }
+    DbSet<TenantSequence> TenantSequences { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }
@@ -64,4 +75,10 @@ public interface IApplicationDbContext
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Abre una transaccion explicita para casos de uso multi-paso (ej. emitir consecutivo +
+    /// insertar TaskItem de forma atomica). Los casos simples siguen usando SaveChangesAsync solo.
+    /// </summary>
+    Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
 }

@@ -113,6 +113,8 @@ else
     await seeder.SeedAsync();
     await seeder.EnsurePlatformAdminTenantAsync();
     await seeder.EnsureDemoTemplateAssetsAsync();
+    // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
+    await seeder.EnsureTaskCoreDemoAsync();
 }
 
 app.UseHttpsRedirection();

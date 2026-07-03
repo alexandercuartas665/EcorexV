@@ -242,4 +242,242 @@ public sealed class DatabaseSeeder
         _logger.LogInformation("Recursos demo de la galeria de plantillas registrados ({Count}).", assets.Length);
     }
 
+    /// <summary>
+    /// Datos demo del nucleo de tareas/proyectos (FASE 3, ADR-0013) para el tenant demo
+    /// SKY SYSTEM: tipos de actividad, etiquetas por tenant, proyecto PRJ-001 y 5 tareas
+    /// variadas (una con worklog y comentarios). Idempotente por tabla vacia (guard por
+    /// tenant en cada bloque). Solo Development.
+    /// </summary>
+    public async Task EnsureTaskCoreDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        // Owner del proyecto demo: el owner de SKY SYSTEM; si la base dev tiene un tenant demo
+        // anterior (sin esos correos), cae al primer usuario con rol Owner (o al primero que haya).
+        var owner = await _db.TenantUsers.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(u => u.TenantId == tenant.Id && u.Email == TenantOwnerEmail, cancellationToken)
+            ?? await _db.TenantUsers.IgnoreQueryFilters()
+                .Where(u => u.TenantId == tenant.Id)
+                .OrderBy(u => u.TenantRole == TenantRole.Owner ? 0 : 1).ThenBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+        var operatorUser = await _db.TenantUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.TenantId == tenant.Id && u.Email == TenantOperatorEmail, cancellationToken);
+        if (owner is null) { return; }
+
+        // ---- Tipos de actividad ----
+        var activityTypes = new List<ActivityType>();
+        if (!await _db.ActivityTypes.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
+        {
+            (string Category, string Name)[] types =
+            {
+                ("Direccion Comercial", "Cotizacion"),
+                ("Direccion Comercial", "Seguimiento"),
+                ("Direccion General", "Requerimiento"),
+                ("Gestion Humana", "Solicitud")
+            };
+            for (int i = 0; i < types.Length; i++)
+            {
+                activityTypes.Add(new ActivityType
+                {
+                    TenantId = tenant.Id,
+                    Category = types[i].Category,
+                    Name = types[i].Name,
+                    SortOrder = i
+                });
+            }
+            _db.ActivityTypes.AddRange(activityTypes);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            activityTypes = await _db.ActivityTypes.IgnoreQueryFilters()
+                .Where(t => t.TenantId == tenant.Id)
+                .OrderBy(t => t.SortOrder)
+                .ToListAsync(cancellationToken);
+        }
+
+        // ---- Etiquetas por tenant ----
+        var tags = new List<TaskItemTag>();
+        if (!await _db.TaskItemTags.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
+        {
+            (string Name, string Color)[] tagDefs =
+            {
+                ("#urgente", "#ef4444"),
+                ("#proveedor", "#3b82f6"),
+                ("#facturacion", "#22c55e")
+            };
+            foreach (var (name, color) in tagDefs)
+            {
+                tags.Add(new TaskItemTag { TenantId = tenant.Id, Name = name, Color = color });
+            }
+            _db.TaskItemTags.AddRange(tags);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            tags = await _db.TaskItemTags.IgnoreQueryFilters()
+                .Where(t => t.TenantId == tenant.Id)
+                .OrderBy(t => t.Name)
+                .ToListAsync(cancellationToken);
+        }
+
+        // ---- Proyecto demo ----
+        Project? project;
+        if (!await _db.Projects.IgnoreQueryFilters().AnyAsync(p => p.TenantId == tenant.Id, cancellationToken))
+        {
+            project = new Project
+            {
+                TenantId = tenant.Id,
+                Code = "PRJ-001",
+                Name = "Implantacion ECOREX",
+                Description = "Proyecto demo de implantacion del sistema de tareas.",
+                Status = ProjectStatus.Active,
+                StartDate = DateOnly.FromDateTime(DateTime.UtcNow.Date),
+                OwnerTenantUserId = owner.Id
+            };
+            _db.Projects.Add(project);
+            if (operatorUser is not null)
+            {
+                _db.ProjectMembers.Add(new ProjectMember
+                {
+                    TenantId = tenant.Id,
+                    ProjectId = project.Id,
+                    TenantUserId = operatorUser.Id,
+                    CanEdit = true
+                });
+            }
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            project = await _db.Projects.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(p => p.TenantId == tenant.Id, cancellationToken);
+        }
+
+        // ---- Tareas demo (con consecutivo + secuencia coherente) ----
+        if (await _db.TaskItems.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var typeAt = (int i) => activityTypes[i % activityTypes.Count];
+        var tagAt = (string name) => tags.FirstOrDefault(t => t.Name == name);
+
+        (string Title, int TypeIdx, TaskPriority Priority, TaskItemStatus Status, Guid? Assignee,
+         DateTimeOffset? Due, Guid? ProjectId, string? TagName)[] taskDefs =
+        {
+            ("Cotizar renovacion de licencias", 0, TaskPriority.High, TaskItemStatus.InProgress,
+                owner.Id, now.AddDays(2), project?.Id, "#urgente"),
+            ("Seguimiento a cliente Alfa", 1, TaskPriority.Medium, TaskItemStatus.Active,
+                operatorUser?.Id ?? owner.Id, now.AddDays(5), null, "#proveedor"),
+            ("Requerimiento de tablero gerencial", 2, TaskPriority.Medium, TaskItemStatus.Pending,
+                null, now.AddDays(10), project?.Id, null),
+            ("Solicitud de vacaciones equipo", 3, TaskPriority.Low, TaskItemStatus.Suspended,
+                operatorUser?.Id ?? owner.Id, null, null, null),
+            ("Conciliar facturacion de junio", 0, TaskPriority.High, TaskItemStatus.Done,
+                owner.Id, now.AddDays(-1), project?.Id, "#facturacion")
+        };
+
+        var createdTasks = new List<TaskItem>();
+        for (int i = 0; i < taskDefs.Length; i++)
+        {
+            var def = taskDefs[i];
+            var task = new TaskItem
+            {
+                TenantId = tenant.Id,
+                Number = "T" + (i + 1).ToString().PadLeft(5, '0'),
+                Title = def.Title,
+                ActivityTypeId = typeAt(def.TypeIdx).Id,
+                Priority = def.Priority,
+                Status = def.Status,
+                AssigneeTenantUserId = def.Assignee,
+                DueDate = def.Due,
+                ProjectId = def.ProjectId,
+                RequesterName = i == 0 ? "Cliente Alfa SAS" : null,
+                RequesterEmail = i == 0 ? "compras@cliente-alfa.example" : null
+            };
+            createdTasks.Add(task);
+            _db.TaskItems.Add(task);
+            _db.TaskItemActivities.Add(new TaskItemActivity
+            {
+                TenantId = tenant.Id,
+                TaskItemId = task.Id,
+                Type = TaskActivityType.Action,
+                ActorUserId = owner.PlatformUserId,
+                ActorName = "Owner SKY SYSTEM",
+                Text = $"creo la tarea {task.Number}"
+            });
+            if (def.TagName is not null && tagAt(def.TagName) is TaskItemTag tag)
+            {
+                _db.TaskItemTagAssignments.Add(new TaskItemTagAssignment
+                {
+                    TenantId = tenant.Id,
+                    TaskItemId = task.Id,
+                    TagId = tag.Id
+                });
+            }
+        }
+
+        // La primera tarea lleva worklog y comentarios de ejemplo.
+        var richTask = createdTasks[0];
+        _db.TaskWorkLogs.Add(new TaskWorkLog
+        {
+            TenantId = tenant.Id,
+            TaskItemId = richTask.Id,
+            TenantUserId = owner.Id,
+            Seconds = 3600,
+            Note = "Revision inicial de la cotizacion",
+            Kind = WorkLogKind.Manual,
+            LoggedAt = now.AddHours(-4)
+        });
+        _db.TaskWorkLogs.Add(new TaskWorkLog
+        {
+            TenantId = tenant.Id,
+            TaskItemId = richTask.Id,
+            TenantUserId = owner.Id,
+            Seconds = 1800,
+            Note = "Llamada con el proveedor",
+            Kind = WorkLogKind.Timer,
+            LoggedAt = now.AddHours(-2)
+        });
+        _db.TaskItemActivities.Add(new TaskItemActivity
+        {
+            TenantId = tenant.Id,
+            TaskItemId = richTask.Id,
+            Type = TaskActivityType.Comment,
+            ActorUserId = owner.PlatformUserId,
+            ActorName = "Owner SKY SYSTEM",
+            Text = "El proveedor envia la propuesta el jueves."
+        });
+        _db.TaskItemActivities.Add(new TaskItemActivity
+        {
+            TenantId = tenant.Id,
+            TaskItemId = richTask.Id,
+            Type = TaskActivityType.Comment,
+            ActorUserId = operatorUser?.PlatformUserId,
+            ActorName = "Operator SKY SYSTEM",
+            Text = "Confirmado: incluir soporte extendido en la cotizacion."
+        });
+
+        // Secuencia coherente con los numeros sembrados (proximo: T00006).
+        if (!await _db.TenantSequences.IgnoreQueryFilters()
+                .AnyAsync(s => s.TenantId == tenant.Id && s.Code == "T05", cancellationToken))
+        {
+            _db.TenantSequences.Add(new TenantSequence
+            {
+                TenantId = tenant.Id,
+                Code = "T05",
+                NextValue = taskDefs.Length + 1
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Seed del nucleo de tareas creado para {Tenant}: {Types} tipos, {Tags} etiquetas, 1 proyecto, {Tasks} tareas.",
+            tenant.Name, activityTypes.Count, tags.Count, taskDefs.Length);
+    }
+
 }

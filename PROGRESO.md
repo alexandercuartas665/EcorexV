@@ -207,3 +207,69 @@ cuando llegue la fase de descubrimiento/ETL.)
 - Todo el stack EF/AspNetCore queda en la misma major (10.x); EFCore.NamingConventions
   10.0.1 existia estable, asi que no aplico el plan B de quedarse en 9.x sobre net10.
 - Sin commit (pedido explicito de la sesion): cambios en working tree.
+
+---
+
+## 2026-07-03 - Sesion 5: FASE 3 ola 1 - dominio + servicios del nucleo de tareas/proyectos (ADR-0013)
+
+**Agentes**: 1 agente constructor.
+
+**Hecho**:
+- Dominio nuevo (Ecorex.Domain): entidades ActivityType, Project, ProjectMember,
+  TaskItem, TaskItemTag (catalogo POR TENANT), TaskItemTagAssignment, TaskWorkLog,
+  TaskItemActivity (reusa enum TaskActivityType), TaskItemAttachment y TenantSequence;
+  enums ProjectStatus, TaskPriority, TaskItemStatus, WorkLogKind; maquina de estados
+  TaskItemStateMachine (Domain/Rules) con Closed terminal e inmutable.
+- Concurrencia optimista PORTABLE (decision del ADR-0013): columna Version (long) como
+  ConcurrencyToken en TaskItem y Project via interfaz IVersioned; la incrementa
+  AuditableTenantInterceptor en cada UPDATE. Elegida sobre xmin/rowversion para que
+  modelo, migraciones y token de API sean identicos en ambos motores.
+- Consecutivos: TenantSequence (TenantId+Code unico) + SequenceService con UPDATE
+  condicional atomico (CAS con retry) via ExecuteUpdateAsync LINQ, sin SQL crudo,
+  dentro de la transaccion del caso de uso. Reemplaza el MAX+1 legacy.
+- Servicios (Application/Tenancy, patron interfaz+impl+DTOs, registrados en DI):
+  ISequenceService, IActivityTypeService (CRUD + archivado), IProjectService (CRUD,
+  soft-archive, miembros con CanEdit, CheckAccessAsync) e ITaskItemService (CreateAsync
+  transaccional con consecutivo T00001.., UpdateAsync con token de concurrencia ->
+  Conflict tipado, ChangeStatusAsync con maquina de estados -> InvalidTransition tipado,
+  Assign/Unassign, tags attach/detach + catalogo, comentarios, adjuntos, worklogs con
+  validacion 1..86400 s, ListAsync con filtros AND combinables + paginacion,
+  GetDetailAsync compuesto). Resultados via TaskCoreResult<T>; IApplicationDbContext
+  gana BeginTransactionAsync.
+- Migraciones duales AddTaskCore generadas y APLICADAS: Postgres 5442 y SQL Server 1443
+  (10 tablas nuevas verificadas en ambos; cc_emails jsonb vs nvarchar(max)).
+- Seeder EnsureTaskCoreDemoAsync (Development, idempotente por tabla y por tenant):
+  4 ActivityTypes, 3 tags (#urgente/#proveedor/#facturacion), proyecto PRJ-001
+  "Implantacion ECOREX" (owner del tenant demo) y 5 TaskItems variados (uno con 2
+  worklogs y 2 comentarios) + TenantSequence T05 en 6. Ejecutado y verificado con
+  datos reales en AMBOS motores via SuperAdmin.
+- Tests: Domain.Tests 35/35 (maquina de estados: validas, invalidas, Closed terminal);
+  Integration TaskCoreTests base + clases Postgres/SqlServer (mismo patron que
+  TenantIsolation): 10 creaciones CONCURRENTES -> T00001..T00010 sin duplicados,
+  aislamiento cross-tenant de TaskItems, conflicto tipado con token viejo, y
+  transiciones invalidas end-to-end. TaskCore 8/8 + TenantIsolation 6/6 verdes en
+  ambos motores.
+- ADR-0013 (docs/decisiones/0013-nucleo-taskitem.md): TaskItem primera clase,
+  TaskBoard/TaskCard queda como kanban generico CRM (destino a decidir), estrategia
+  Version portable, TenantSequence, hooks FASE 4 (WorkflowDefinitionId/RequiresForm).
+
+**Validacion**:
+- dotnet build Ecorex.sln: 0 errores.
+- Unit + integracion nuevas verdes en matriz dual (Testcontainers).
+- Migraciones aplicadas y seed verificado por SQL directo en los 2 contenedores dev.
+
+**Bloqueos / hallazgos**:
+- PREEXISTENTE (verificado en worktree limpio sobre HEAD 0c1c3b0): los 27 tests de
+  Integration.Tests/Auth fallan porque el host Ecorex.Api no registra
+  IAgentAssetReader (solo lo registra SuperAdmin) y ValidateOnBuild revienta. No es de
+  esta sesion; fix sugerido: no-op por defecto en Application/DependencyInjection
+  (patron NoOpChatBroadcaster).
+- La BD dev de Postgres aun tiene el tenant demo legacy "Agencia Demo" (seed FASE 0);
+  el seeder de tareas cae al primer Owner del tenant demo si no encuentra
+  owner@sky-system.local.
+
+**Decisiones**:
+- Concurrencia: columna Version portable (NO xmin/rowversion condicional) - ADR-0013.
+- Consecutivo con CAS + retry y EnsureSequenceAsync fuera de la transaccion (un error
+  de unicidad en PG envenenaria la transaccion del caso de uso).
+- Sin commit (pedido explicito): cambios en working tree.

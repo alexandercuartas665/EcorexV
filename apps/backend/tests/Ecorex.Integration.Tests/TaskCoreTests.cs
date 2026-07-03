@@ -1,0 +1,233 @@
+using Ecorex.Application.Common;
+using Ecorex.Application.Tenancy;
+using Ecorex.Domain.Entities;
+using Ecorex.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace Ecorex.Integration.Tests;
+
+/// <summary>
+/// Tests de integracion del nucleo de tareas (FASE 3, ADR-0013) en matriz dual
+/// PostgreSQL / SQL Server, reutilizando los fixtures de TenantIsolation. Cubre:
+/// consecutivo unico y correlativo bajo 10 creaciones CONCURRENTES (TenantSequence con
+/// UPDATE condicional atomico), aislamiento cross-tenant de TaskItems y concurrencia
+/// optimista portable (dos updates con token viejo -> el segundo recibe Conflict tipado).
+/// </summary>
+public abstract class TaskCoreTestsBase
+{
+    private readonly TenantIsolationDbFixture _fixture;
+
+    protected TaskCoreTestsBase(TenantIsolationDbFixture fixture) => _fixture = fixture;
+
+    [Fact]
+    public async Task ConcurrentCreates_YieldUniqueCorrelativeNumbers()
+    {
+        var seed = await SeedTenantAsync("Nucleo Concurrencia");
+
+        // 10 creaciones CONCURRENTES, cada una con su propio DbContext (no es thread-safe).
+        var creations = Enumerable.Range(0, 10).Select(async i =>
+        {
+            await using var ctx = _fixture.CreateContext(seed.TenantId);
+            var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+            var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+            return await service.CreateAsync(
+                new CreateTaskItemRequest($"Tarea concurrente {i}", seed.ActivityTypeId),
+                seed.PlatformUserId, "Tester");
+        }).ToList();
+
+        var results = await Task.WhenAll(creations);
+
+        Assert.All(results, r => Assert.True(r.IsOk, r.Error));
+        var numbers = results.Select(r => r.Value!.Item.Number).ToList();
+        // Sin duplicados y correlativos exactos T00001..T00010.
+        Assert.Equal(10, numbers.Distinct(StringComparer.Ordinal).Count());
+        var expected = Enumerable.Range(1, 10).Select(n => "T" + n.ToString().PadLeft(5, '0'));
+        Assert.Equal(expected.OrderBy(x => x), numbers.OrderBy(x => x));
+
+        // La secuencia quedo apuntando al siguiente valor.
+        await using var verify = _fixture.CreateContext(seed.TenantId);
+        var next = await verify.TenantSequences.SingleAsync(s => s.Code == TaskItemService.SequenceCode);
+        Assert.Equal(11, next.NextValue);
+    }
+
+    [Fact]
+    public async Task TaskItems_AreIsolatedBetweenTenants()
+    {
+        var seedA = await SeedTenantAsync("Nucleo Tenant A");
+        var seedB = await SeedTenantAsync("Nucleo Tenant B");
+
+        var createdA = await CreateTaskAsync(seedA, "Tarea privada de A");
+        Assert.True(createdA.IsOk, createdA.Error);
+
+        // Tenant B no ve los TaskItems de A (filtro global por TenantId).
+        await using (var ctxB = _fixture.CreateContext(seedB.TenantId))
+        {
+            Assert.Empty(await ctxB.TaskItems.ToListAsync());
+            // Ni siquiera consultando el detalle por id directo.
+            var tenantContext = new TestTenantContext(seedB.TenantId, seedB.PlatformUserId);
+            var serviceB = new TaskItemService(ctxB, tenantContext, new SequenceService(ctxB, tenantContext));
+            Assert.Null(await serviceB.GetDetailAsync(createdA.Value!.Item.Id));
+        }
+
+        // Tenant A si ve su tarea.
+        await using (var ctxA = _fixture.CreateContext(seedA.TenantId))
+        {
+            var items = await ctxA.TaskItems.ToListAsync();
+            var item = Assert.Single(items);
+            Assert.Equal(seedA.TenantId, item.TenantId);
+        }
+    }
+
+    [Fact]
+    public async Task OptimisticConcurrency_SecondStaleUpdate_GetsTypedConflict()
+    {
+        var seed = await SeedTenantAsync("Nucleo Conflicto");
+        var created = await CreateTaskAsync(seed, "Tarea disputada");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+        var staleVersion = created.Value.Item.Version; // token leido por "ambos usuarios"
+
+        // Primer usuario actualiza con el token vigente: OK (la Version avanza).
+        var first = await UpdateTitleAsync(seed, taskId, "Titulo del primer usuario", staleVersion);
+        Assert.True(first.IsOk, first.Error);
+        Assert.True(first.Value!.Item.Version > staleVersion);
+
+        // Segundo usuario llega con el MISMO token viejo: conflicto tipado, no excepcion.
+        var second = await UpdateTitleAsync(seed, taskId, "Titulo del segundo usuario", staleVersion);
+        Assert.Equal(TaskCoreStatus.Conflict, second.Status);
+
+        // La edicion del primero se conserva.
+        await using var verify = _fixture.CreateContext(seed.TenantId);
+        var task = await verify.TaskItems.SingleAsync(t => t.Id == taskId);
+        Assert.Equal("Titulo del primer usuario", task.Title);
+    }
+
+    [Fact]
+    public async Task ChangeStatus_InvalidTransition_GetsTypedError_AndClosedIsReadOnly()
+    {
+        var seed = await SeedTenantAsync("Nucleo Estados");
+        var created = await CreateTaskAsync(seed, "Tarea con estados");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+
+        // Pending -> Closed es invalido (error tipado, no excepcion).
+        var invalid = await service.ChangeStatusAsync(taskId, TaskItemStatus.Closed, null, seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.InvalidTransition, invalid.Status);
+
+        // Camino valido: Pending -> InProgress -> Done -> Closed (setea ClosedAt).
+        Assert.True((await service.ChangeStatusAsync(taskId, TaskItemStatus.InProgress, null, seed.PlatformUserId, "Tester")).IsOk);
+        Assert.True((await service.ChangeStatusAsync(taskId, TaskItemStatus.Done, null, seed.PlatformUserId, "Tester")).IsOk);
+        var closed = await service.ChangeStatusAsync(taskId, TaskItemStatus.Closed, "cierre de prueba", seed.PlatformUserId, "Tester");
+        Assert.True(closed.IsOk, closed.Error);
+        Assert.NotNull(closed.Value!.ClosedAt);
+
+        // Closed es terminal: ni cambia de estado ni admite edicion.
+        var reopen = await service.ChangeStatusAsync(taskId, TaskItemStatus.Active, null, seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.InvalidTransition, reopen.Status);
+        var edit = await service.UpdateAsync(taskId, new UpdateTaskItemRequest(
+            "No deberia", null, seed.ActivityTypeId, TaskPriority.Low, null, null, null, null, null, null, null,
+            closed.Value.Version), seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.Invalid, edit.Status);
+    }
+
+    // ---- Helpers ----
+
+    private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskAsync(SeedData seed, string title)
+    {
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+        return await service.CreateAsync(new CreateTaskItemRequest(title, seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+    }
+
+    private async Task<TaskCoreResult<TaskItemDetailDto>> UpdateTitleAsync(SeedData seed, Guid taskId, string title, long version)
+    {
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+        return await service.UpdateAsync(taskId, new UpdateTaskItemRequest(
+            title, null, seed.ActivityTypeId, TaskPriority.Medium, null, null, null, null, null, null, null, version),
+            seed.PlatformUserId, "Tester");
+    }
+
+    /// <summary>
+    /// Siembra un tenant fresco (GUIDs nuevos, seguro ante el contenedor compartido) con un
+    /// TenantUser y un ActivityType, minimo necesario para crear TaskItems.
+    /// </summary>
+    private async Task<SeedData> SeedTenantAsync(string name)
+    {
+        var tenantId = Guid.CreateVersion7();
+
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            ctx.Tenants.Add(new Tenant { Id = tenantId, Name = name });
+            await ctx.SaveChangesAsync();
+        }
+
+        Guid tenantUserId;
+        Guid platformUserId;
+        Guid activityTypeId;
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var platformUser = new PlatformUser
+            {
+                Email = $"user-{tenantId:N}@taskcore.test",
+                EmailVerified = true,
+                Status = PlatformUserStatus.Active
+            };
+            ctx.PlatformUsers.Add(platformUser);
+            var tenantUser = new TenantUser
+            {
+                TenantId = tenantId,
+                PlatformUserId = platformUser.Id,
+                Email = platformUser.Email
+            };
+            ctx.TenantUsers.Add(tenantUser);
+            var activityType = new ActivityType
+            {
+                TenantId = tenantId,
+                Category = "General",
+                Name = "Prueba"
+            };
+            ctx.ActivityTypes.Add(activityType);
+            await ctx.SaveChangesAsync();
+            tenantUserId = tenantUser.Id;
+            platformUserId = platformUser.Id;
+            activityTypeId = activityType.Id;
+        }
+
+        return new SeedData(tenantId, tenantUserId, platformUserId, activityTypeId);
+    }
+
+    private sealed record SeedData(Guid TenantId, Guid TenantUserId, Guid PlatformUserId, Guid ActivityTypeId);
+
+    private sealed class TestTenantContext(Guid? tenantId, Guid? userId = null) : ITenantContext
+    {
+        public Guid? TenantId { get; } = tenantId;
+        public Guid? UserId { get; } = userId;
+    }
+}
+
+/// <summary>Matriz dual, motor PostgreSQL (contenedor efimero postgres:16-alpine).</summary>
+public sealed class TaskCoreTests_Postgres
+    : TaskCoreTestsBase, IClassFixture<PostgresTenantIsolationFixture>
+{
+    public TaskCoreTests_Postgres(PostgresTenantIsolationFixture fixture)
+        : base(fixture)
+    {
+    }
+}
+
+/// <summary>Matriz dual, motor SQL Server (contenedor efimero mssql/server:2022-latest).</summary>
+public sealed class TaskCoreTests_SqlServer
+    : TaskCoreTestsBase, IClassFixture<SqlServerTenantIsolationFixture>
+{
+    public TaskCoreTests_SqlServer(SqlServerTenantIsolationFixture fixture)
+        : base(fixture)
+    {
+    }
+}

@@ -61,6 +61,11 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();
         services.AddScoped<Tenancy.ITaskBoardService, Tenancy.TaskBoardService>();
         services.AddScoped<Tenancy.ITaskCardService, Tenancy.TaskCardService>();
+        // Nucleo de tareas/proyectos (FASE 3, ADR-0013).
+        services.AddScoped<Tenancy.ISequenceService, Tenancy.SequenceService>();
+        services.AddScoped<Tenancy.IActivityTypeService, Tenancy.ActivityTypeService>();
+        services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
+        services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.

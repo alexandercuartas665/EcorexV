@@ -94,7 +94,10 @@ if (app.Environment.IsDevelopment())
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Ecorex.Infrastructure.Persistence.EcorexDbContext>();
         await db.Database.MigrateAsync();
-        await scope.ServiceProvider.GetRequiredService<Ecorex.Infrastructure.Persistence.DatabaseSeeder>().SeedAsync();
+        var seeder = scope.ServiceProvider.GetRequiredService<Ecorex.Infrastructure.Persistence.DatabaseSeeder>();
+        await seeder.SeedAsync();
+        // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
+        await seeder.EnsureTaskCoreDemoAsync();
     }
 }
 

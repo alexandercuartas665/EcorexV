@@ -18,6 +18,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         _tenantContext = tenantContext;
     }
 
+    /// <summary>
+    /// Constructor para contextos derivados por proveedor (p.ej. SqlServerEcorexDbContext),
+    /// que existen unicamente para separar las migraciones por motor (ADR-001).
+    /// </summary>
+    protected EcorexDbContext(DbContextOptions options, ITenantContext tenantContext)
+        : base(options)
+    {
+        _tenantContext = tenantContext;
+    }
+
     // Globales (administradas por Super Admin / plataforma)
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<SaasPlan> SaasPlans => Set<SaasPlan>();
@@ -153,12 +163,21 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     {
         base.OnModelCreating(modelBuilder);
 
-        ConfigureEntities(modelBuilder);
+        // DAL dual (ADR-001): el modelo es neutro salvo los puntos marcados con este flag,
+        // donde cada proveedor (PostgreSQL / SQL Server) recibe su tipo o sintaxis equivalente.
+        var isNpgsql = Database.IsNpgsql();
+
+        ConfigureEntities(modelBuilder, isNpgsql);
         ApplyTenantQueryFilters(modelBuilder);
     }
 
-    private static void ConfigureEntities(ModelBuilder modelBuilder)
+    private static void ConfigureEntities(ModelBuilder modelBuilder, bool isNpgsql)
     {
+        // jsonb existe solo en PostgreSQL; en SQL Server el equivalente practico es nvarchar(max).
+        var jsonColumnType = isNpgsql ? "jsonb" : "nvarchar(max)";
+        // "text" en SQL Server esta deprecado y no soporta operadores de comparacion (=);
+        // el equivalente correcto es nvarchar(max).
+        var longTextColumnType = isNpgsql ? "text" : "nvarchar(max)";
         modelBuilder.Entity<Tenant>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
@@ -169,7 +188,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.LogoUrl).HasMaxLength(500);
             b.Property(x => x.PublicBookingToken).HasMaxLength(64);
             b.Property(x => x.PublicBookingBaseUrl).HasMaxLength(300);
-            b.HasIndex(x => x.PublicBookingToken).IsUnique().HasFilter("public_booking_token IS NOT NULL");
+            b.HasIndex(x => x.PublicBookingToken).IsUnique()
+                .HasFilter(isNpgsql ? "public_booking_token IS NOT NULL" : "[public_booking_token] IS NOT NULL");
         });
 
         modelBuilder.Entity<SaasPlan>(b =>
@@ -216,7 +236,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.GoogleSubject).HasMaxLength(255);
             b.Property(x => x.AuthProvider).HasMaxLength(50).IsRequired();
             b.HasIndex(x => x.Email).IsUnique();
-            b.HasIndex(x => x.GoogleSubject).IsUnique().HasFilter("google_subject IS NOT NULL");
+            b.HasIndex(x => x.GoogleSubject).IsUnique()
+                .HasFilter(isNpgsql ? "google_subject IS NOT NULL" : "[google_subject] IS NOT NULL");
         });
 
         modelBuilder.Entity<SuperAdminAuditLog>(b =>
@@ -224,8 +245,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.ActionName).HasMaxLength(200).IsRequired();
             b.Property(x => x.EntityName).HasMaxLength(150).IsRequired();
             b.Property(x => x.IpAddress).HasMaxLength(80);
-            b.Property(x => x.PreviousValue).HasColumnType("jsonb");
-            b.Property(x => x.NewValue).HasColumnType("jsonb");
+            b.Property(x => x.PreviousValue).HasColumnType(jsonColumnType);
+            b.Property(x => x.NewValue).HasColumnType(jsonColumnType);
             b.HasIndex(x => x.TenantId);
             b.HasIndex(x => x.CreatedAt);
         });
@@ -301,7 +322,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.TransactionId).HasMaxLength(200);
             b.Property(x => x.Reference).HasMaxLength(200);
             b.Property(x => x.Note).HasMaxLength(500);
-            b.Property(x => x.RawPayload).HasColumnType("jsonb");
+            b.Property(x => x.RawPayload).HasColumnType(jsonColumnType);
             // Idempotencia: un evento (transaction + timestamp) no se procesa dos veces.
             b.HasIndex(x => x.ProviderEventId).IsUnique();
         });
@@ -338,7 +359,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.PhoneNumber).HasMaxLength(40);
             b.Property(x => x.CloudPhoneNumberId).HasMaxLength(60);
             b.Property(x => x.CloudBusinessAccountId).HasMaxLength(60);
-            b.Property(x => x.CloudAccessTokenEncrypted).HasColumnType("text");
+            b.Property(x => x.CloudAccessTokenEncrypted).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.InstanceName }).IsUnique();
             b.HasIndex(x => x.AssignedToTenantUserId);
             // El webhook entrante de Meta resuelve la linea por phone_number_id.
@@ -379,7 +400,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Currency).HasMaxLength(10);
             b.Property(x => x.LossReason).HasMaxLength(500);
             b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
-            b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
             b.Property(x => x.ArchiveReason).HasMaxLength(80);
             b.Property(x => x.ArchiveNote).HasMaxLength(1000);
             b.Property(x => x.ArchivedByName).HasMaxLength(200);
@@ -444,7 +465,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.ConversationId });
             // Idempotencia de ingesta: un mensaje externo no se inserta dos veces.
-            b.HasIndex(x => new { x.TenantId, x.ExternalId }).IsUnique().HasFilter("external_id IS NOT NULL");
+            b.HasIndex(x => new { x.TenantId, x.ExternalId }).IsUnique()
+                .HasFilter(isNpgsql ? "external_id IS NOT NULL" : "[external_id] IS NOT NULL");
         });
 
         modelBuilder.Entity<TenantBlockedNumber>(b =>
@@ -467,7 +489,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<QuoteTemplate>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.HtmlContent).HasColumnType("text");
+            b.Property(x => x.HtmlContent).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.IsDefault });
         });
 
@@ -484,16 +506,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Role).HasMaxLength(100);
             b.Property(x => x.Model).HasMaxLength(100);
-            b.Property(x => x.SystemPrompt).HasColumnType("text");
-            b.Property(x => x.DisabledToolsJson).HasColumnType("jsonb");
-            b.Property(x => x.PromptHistoryJson).HasColumnType("text");
+            b.Property(x => x.SystemPrompt).HasColumnType(longTextColumnType);
+            b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
         modelBuilder.Entity<AiAgentResource>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Detail).HasColumnType("text");
+            b.Property(x => x.Detail).HasColumnType(longTextColumnType);
             b.Property(x => x.FileUrl).HasMaxLength(500);
             b.Property(x => x.FileName).HasMaxLength(255);
             b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
@@ -504,7 +526,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Rule).HasMaxLength(500);
-            b.Property(x => x.Body).HasColumnType("text");
+            b.Property(x => x.Body).HasColumnType(longTextColumnType);
             b.HasOne(x => x.Agent).WithMany().HasForeignKey(x => x.AgentId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.AgentId, x.SortOrder });
         });
@@ -545,8 +567,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<AiAgentRunLog>(b =>
         {
             b.Property(x => x.Title).HasMaxLength(300).IsRequired();
-            b.Property(x => x.Content).HasColumnType("text");
-            b.Property(x => x.Response).HasColumnType("text");
+            b.Property(x => x.Content).HasColumnType(longTextColumnType);
+            b.Property(x => x.Response).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.ConversationId, x.OccurredAt });
         });
 
@@ -591,7 +613,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<TaskCard>(b =>
         {
             b.Property(x => x.Title).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Description).HasColumnType("text");
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
             b.HasOne(x => x.Board).WithMany().HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Column).WithMany().HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.BoardId, x.ColumnId, x.SortOrder });
@@ -618,7 +640,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<TaskCardTagAssignment>(b =>
         {
             b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
-            b.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Cascade);
+            // SQL Server no admite dos rutas de cascada hacia esta tabla (error 1785:
+            // board->cards->tag_assignments y board->tags->tag_assignments). En ese motor la FK
+            // hacia la etiqueta queda NO ACTION en BD (ClientCascade) y la limpieza explicita la
+            // hacen TaskBoardService.DeleteBoardTagAsync/DeleteBoardAsync (neutra entre motores).
+            b.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.ClientCascade);
             b.HasIndex(x => new { x.TaskCardId, x.TagId }).IsUnique();
         });
 
@@ -632,7 +659,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<TaskCardActivity>(b =>
         {
             b.Property(x => x.ActorName).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Text).HasColumnType("text").IsRequired();
+            b.Property(x => x.Text).HasColumnType(longTextColumnType).IsRequired();
             b.HasOne(x => x.TaskCard).WithMany().HasForeignKey(x => x.TaskCardId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TaskCardId, x.CreatedAt });
         });
@@ -652,7 +679,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<Service>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Description).HasColumnType("text");
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
             b.Property(x => x.Currency).HasMaxLength(8);
             b.Property(x => x.Category).HasMaxLength(80);
             b.Property(x => x.Color).HasMaxLength(20);
@@ -679,7 +706,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<HairLengthCategory>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(80).IsRequired();
-            b.Property(x => x.Description).HasColumnType("text");
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
@@ -695,7 +722,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.PhotoFileName).HasMaxLength(255);
             b.Property(x => x.PredictedName).HasMaxLength(120);
-            b.Property(x => x.Rationale).HasColumnType("text");
+            b.Property(x => x.Rationale).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
@@ -742,9 +769,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.FullName).HasMaxLength(200).IsRequired();
             b.Property(x => x.Phone).HasMaxLength(40).IsRequired();
             b.Property(x => x.Email).HasMaxLength(200);
-            b.Property(x => x.PreferencesJson).HasColumnType("jsonb");
-            b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
-            b.Property(x => x.BusinessUnitIdsJson).HasColumnType("jsonb");
+            b.Property(x => x.PreferencesJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.BusinessUnitIdsJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Phone });
             b.HasIndex(x => new { x.TenantId, x.FullName });
         });
@@ -753,7 +780,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
             b.Property(x => x.Label).HasMaxLength(150).IsRequired();
-            b.Property(x => x.Options).HasColumnType("text");
+            b.Property(x => x.Options).HasColumnType(longTextColumnType);
             b.Property(x => x.Description).HasMaxLength(600);
             b.HasIndex(x => new { x.TenantId, x.Scope, x.SortOrder });
             // FieldKey unica por (tenant, scope): identifica el valor dentro del JSON.
@@ -773,11 +800,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.Sku).HasMaxLength(80);
-            b.Property(x => x.Description).HasColumnType("text");
-            b.Property(x => x.Specifications).HasColumnType("text");
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
+            b.Property(x => x.Specifications).HasColumnType(longTextColumnType);
             b.Property(x => x.Category).HasMaxLength(100);
             b.Property(x => x.Price).HasPrecision(14, 2);
-            b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Name });
         });
 
@@ -801,7 +828,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<Course>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-            b.Property(x => x.Description).HasColumnType("text");
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
             b.Property(x => x.Price).HasPrecision(14, 2);
             b.HasIndex(x => new { x.TenantId, x.Date });
         });
@@ -818,12 +845,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Notes).HasMaxLength(1000);
             b.Property(x => x.EstimatedValue).HasPrecision(14, 2);
-            b.Property(x => x.FieldValuesJson).HasColumnType("jsonb");
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
             // ANTI-OVERBOOKING por SOLAPAMIENTO: un exclusion constraint GiST (ck_appointments_no_overlap)
             // prohibe que dos citas activas del mismo (tenant, recurso, fecha) crucen su intervalo
             // [inicio, inicio + duracion + buffer). Se crea por SQL crudo en la migracion (EF no modela
             // EXCLUDE). Subsume el viejo UNIQUE(start_time): dos citas a la misma hora siempre se cruzan,
             // pero dos pegadas (rango medio-abierto) no. Las Cancelled/Rescheduled liberan el cupo.
+            // TODO(SqlServer): SQL Server no tiene EXCLUDE/GiST; ese constraint solo existe en la
+            // migracion Npgsql. En SQL Server la defensa anti-solapamiento queda a nivel de aplicacion
+            // (AgendaService valida disponibilidad antes de guardar); evaluar un trigger o indice
+            // computado si se necesita garantia fuerte en ese motor.
             b.HasIndex(x => new { x.TenantId, x.ResourceId, x.AppointmentDate });
             b.HasIndex(x => new { x.TenantId, x.ClientId, x.AppointmentDate });
             b.HasIndex(x => x.ChainId);
@@ -838,7 +869,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
 
         modelBuilder.Entity<AppointmentMessage>(b =>
         {
-            b.Property(x => x.Body).HasColumnType("text").IsRequired();
+            b.Property(x => x.Body).HasColumnType(longTextColumnType).IsRequired();
             b.HasOne<Appointment>().WithMany().HasForeignKey(x => x.AppointmentId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.AppointmentId, x.SentAt });
         });

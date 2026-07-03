@@ -1,4 +1,4 @@
-
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -32,6 +32,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ecorex.Web", "src\Ecorex.Web\Ecorex.Web\Ecorex.Web.csproj", "{E5396D8C-6391-4CE8-97FB-755A4335E7B7}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ecorex.Web.Client", "src\Ecorex.Web\Ecorex.Web.Client\Ecorex.Web.Client.csproj", "{7E75A644-E0E6-47BC-9FF0-21E66059B442}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ecorex.Infrastructure.SqlServer", "src\Ecorex.Infrastructure.SqlServer\Ecorex.Infrastructure.SqlServer.csproj", "{40DD609B-1261-42E7-B5CC-A4D5E7E24137}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -187,6 +189,18 @@ Global
 		{7E75A644-E0E6-47BC-9FF0-21E66059B442}.Release|x64.Build.0 = Release|Any CPU
 		{7E75A644-E0E6-47BC-9FF0-21E66059B442}.Release|x86.ActiveCfg = Release|Any CPU
 		{7E75A644-E0E6-47BC-9FF0-21E66059B442}.Release|x86.Build.0 = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|x64.Build.0 = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Debug|x86.Build.0 = Debug|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|Any CPU.Build.0 = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|x64.ActiveCfg = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|x64.Build.0 = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|x86.ActiveCfg = Release|Any CPU
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -205,5 +219,6 @@ Global
 		{5771F40E-8DA4-C0C8-48AF-A44DF9361AD3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{E5396D8C-6391-4CE8-97FB-755A4335E7B7} = {5771F40E-8DA4-C0C8-48AF-A44DF9361AD3}
 		{7E75A644-E0E6-47BC-9FF0-21E66059B442} = {5771F40E-8DA4-C0C8-48AF-A44DF9361AD3}
+		{40DD609B-1261-42E7-B5CC-A4D5E7E24137} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Proyecto de migraciones para el proveedor SQL Server (ADR-001: DAL dual).
+    Contiene el factory design-time y la carpeta Migrations/ propia del motor.
+    El contexto SqlServerEcorexDbContext vive en Ecorex.Infrastructure (lo necesita
+    DependencyInjection en compilacion); este ensamblado es su MigrationsAssembly.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ecorex.Infrastructure\Ecorex.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

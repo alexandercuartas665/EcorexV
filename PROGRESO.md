@@ -36,8 +36,24 @@
     con reglas inviolables, puertos dedicados y orden de fases.
   - PROGRESO.md creado (este archivo).
 
+**Validacion FASE 0 (completada)**:
+- Commit a482b47 con todo el renombrado + infra. Push a origin como rama
+  `fase-0/clon-backbone` (push directo a main bloqueado por politica; merge a main
+  queda como decision del usuario en GitHub).
+- Pre-flight OK (6 puertos libres, Docker 15.6 GB RAM). `docker compose up -d`
+  levanto los 5 servicios `ecorex-tareas-*` con healthchecks verdes
+  (Postgres 5442, SQL Server 1443, Redis 6389, RabbitMQ 5682/15682, Adminer 8092).
+- Consola Ecorex.SuperAdmin arranco contra la pila nueva: aplico las 72 migraciones,
+  sembro PlatformAdmin + tenants (Agencia Demo, Plataforma ECOREX) + plan. /login 200.
+
+**FASE 1 en curso** (2 subagentes en paralelo):
+- Agente A: seeders segun vault (tenant demo -> SKY SYSTEM, credenciales por rol
+  admin@ecorex.local / owner|admin|operator|viewer@sky-system.local, plan "Plan Empresa").
+- Agente B: proveedor SQL Server (Ecorex.Infrastructure.SqlServer, SqlServerEcorexDbContext,
+  seleccion por Database:Provider, migracion inicial, verificacion contra el contenedor 1443).
+- Pendiente tras A+B: test de aislamiento cross-tenant en matriz dual (Postgres Y SQL Server).
+
 **Siguiente**:
-- Commit de FASE 0 y revision de appsettings con puertos/nombres heredados.
 - FASE 1: verificar arranque de la consola Super Admin; seeders PlatformAdmin +
   tenant demo SKY SYSTEM + planes; agregar proveedor SQL Server
   (Ecorex.Infrastructure.SqlServer) para el DAL dual; test de aislamiento

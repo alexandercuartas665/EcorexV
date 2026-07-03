@@ -113,6 +113,12 @@ public sealed class TaskBoardService : ITaskBoardService
     {
         var board = await _db.TaskBoards.FirstOrDefaultAsync(b => b.Id == boardId, cancellationToken);
         if (board is null) { return false; }
+        // Limpieza explicita de asignaciones de etiquetas del tablero: en SQL Server la FK
+        // tag_assignment->tag es NO ACTION y el orden interno de la cascada del board no esta
+        // garantizado; en PostgreSQL es redundante e inocua.
+        await _db.TaskCardTagAssignments
+            .Where(a => _db.TaskCardTags.Any(t => t.Id == a.TagId && t.BoardId == boardId))
+            .ExecuteDeleteAsync(cancellationToken);
         _db.TaskBoards.Remove(board);
         _audit.Write(actorUserId, "task-board.delete", nameof(TaskBoard), board.Id,
             previousValue: new { board.Name }, newValue: null, tenantId: board.TenantId);
@@ -244,6 +250,9 @@ public sealed class TaskBoardService : ITaskBoardService
     {
         var tag = await _db.TaskCardTags.FirstOrDefaultAsync(t => t.Id == tagId, cancellationToken);
         if (tag is null) { return false; }
+        // Limpieza explicita de asignaciones: en SQL Server la FK tag_assignment->tag es
+        // NO ACTION (no admite la doble ruta de cascada); en PostgreSQL es redundante e inocua.
+        await _db.TaskCardTagAssignments.Where(a => a.TagId == tagId).ExecuteDeleteAsync(cancellationToken);
         _db.TaskCardTags.Remove(tag);
         await _db.SaveChangesAsync(cancellationToken);
         return true;

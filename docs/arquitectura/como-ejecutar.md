@@ -25,16 +25,20 @@ dotnet run --project apps\backend\src\Ecorex.Api\Ecorex.Api.csproj --launch-prof
 # Escucha en http://localhost:5280
 ```
 
-En Development aplica migraciones y siembra datos automaticamente. Credenciales sembradas:
+En Development aplica migraciones y siembra datos automaticamente (tenant demo
+"SKY SYSTEM", plan "Plan Empresa"). Credenciales sembradas (solo Development):
 
-- Super Admin: `admin@ecorex.tareas` / `Admin123*`
-- Admin agencia demo: `demo-admin@ecorex.tareas` / `Demo123*`
+- Platform Admin: `admin@ecorex.local` / `Admin123*`
+- Owner tenant SKY SYSTEM: `owner@sky-system.local` / `Demo123*`
+- Admin tenant: `admin@sky-system.local` / `Demo123*`
+- Operator tenant: `operator@sky-system.local` / `Demo123*`
+- Viewer tenant: `viewer@sky-system.local` / `Demo123*`
 
 Ejemplos:
 
 ```powershell
 # Login (devuelve JWT propio)
-curl -X POST http://localhost:5280/connect/token -H "Content-Type: application/json" -d '{"email":"admin@ecorex.tareas","password":"Admin123*"}'
+curl -X POST http://localhost:5280/connect/token -H "Content-Type: application/json" -d '{"email":"admin@ecorex.local","password":"Admin123*"}'
 # Endpoints admin protegidos por SuperAdminOnly: /admin/tenants, /admin/plans, /admin/subscriptions, /admin/payments
 ```
 
@@ -43,7 +47,7 @@ curl -X POST http://localhost:5280/connect/token -H "Content-Type: application/j
 ```powershell
 $env:ECOREX_DB_CONNECTION = "Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=TU_PASSWORD"
 dotnet run --project apps\backend\src\Ecorex.SuperAdmin\Ecorex.SuperAdmin.csproj --launch-profile http
-# http://localhost:5232  -> login con admin@ecorex.tareas / Admin123*
+# http://localhost:5232  -> login con admin@ecorex.local / Admin123*
 ```
 
 Paginas: Dashboard (metricas), Agencias (alta + activar/suspender), Planes (alta + listado).

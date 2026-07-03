@@ -30,12 +30,47 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<AuditableTenantInterceptor>();
 
-        services.AddDbContext<EcorexDbContext>((sp, options) =>
+        // DAL dual (ADR-001): proveedor elegible por configuracion. Database:Provider (o la
+        // variable ECOREX_DB_PROVIDER) acepta "Postgres" (default) o "SqlServer". Los
+        // consumidores siguen inyectando EcorexDbContext / IApplicationDbContext sin cambios.
+        var provider = configuration["Database:Provider"];
+        if (string.IsNullOrWhiteSpace(provider))
         {
-            options.UseNpgsql(connectionString)
-                   .UseSnakeCaseNamingConvention()
-                   .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
-        });
+            provider = Environment.GetEnvironmentVariable("ECOREX_DB_PROVIDER");
+        }
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            provider = "Postgres";
+        }
+
+        if (string.Equals(provider, "SqlServer", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddDbContext<SqlServerEcorexDbContext>((sp, options) =>
+            {
+                options.UseSqlServer(
+                            connectionString,
+                            sql => sql.MigrationsAssembly("Ecorex.Infrastructure.SqlServer"))
+                       .UseSnakeCaseNamingConvention()
+                       .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
+            });
+            // EcorexDbContext se resuelve hacia el contexto SQL Server: mismos filtros
+            // multi-tenant, mismas entidades, solo cambian proveedor y migraciones.
+            services.AddScoped<EcorexDbContext>(sp => sp.GetRequiredService<SqlServerEcorexDbContext>());
+        }
+        else if (string.Equals(provider, "Postgres", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddDbContext<EcorexDbContext>((sp, options) =>
+            {
+                options.UseNpgsql(connectionString)
+                       .UseSnakeCaseNamingConvention()
+                       .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
+            });
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"Proveedor de base de datos no soportado: '{provider}' (usa 'Postgres' o 'SqlServer').");
+        }
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<EcorexDbContext>());
 

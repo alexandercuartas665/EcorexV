@@ -7,15 +7,21 @@ using Microsoft.Extensions.Logging;
 namespace Ecorex.Infrastructure.Persistence;
 
 /// <summary>
-/// Siembra datos iniciales de desarrollo de forma idempotente: un Super Admin, un plan,
-/// una agencia demo con su administrador y una suscripcion. Solo crea si la base esta vacia.
+/// Siembra datos iniciales de desarrollo de forma idempotente: un Platform Admin, el plan
+/// "Plan Empresa", el tenant demo "SKY SYSTEM" (replica del tenant legacy sucursal 01 = BITCODE)
+/// con sus usuarios por rol y una suscripcion. Solo crea si la base esta vacia.
+/// Credenciales SOLO de Development (throwaway), segun el vault del proyecto.
 /// </summary>
 public sealed class DatabaseSeeder
 {
-    public const string SuperAdminEmail = "admin@ecorex.tareas";
+    public const string SuperAdminEmail = "admin@ecorex.local";
     public const string SuperAdminPassword = "Admin123*";
-    public const string TenantAdminEmail = "demo-admin@ecorex.tareas";
-    public const string TenantAdminPassword = "Demo123*";
+    public const string DemoTenantName = "SKY SYSTEM";
+    public const string TenantOwnerEmail = "owner@sky-system.local";
+    public const string TenantAdminEmail = "admin@sky-system.local";
+    public const string TenantOperatorEmail = "operator@sky-system.local";
+    public const string TenantViewerEmail = "viewer@sky-system.local";
+    public const string TenantUsersPassword = "Demo123*";
 
     private readonly EcorexDbContext _db;
     private readonly IPasswordHasher _hasher;
@@ -47,7 +53,7 @@ public sealed class DatabaseSeeder
 
         var plan = new SaasPlan
         {
-            Name = "Plan Inicial",
+            Name = "Plan Empresa",
             Description = "Plan de arranque para agencias pequenas.",
             MonthlyPrice = 99000m,
             YearlyPrice = 990000m,
@@ -61,10 +67,11 @@ public sealed class DatabaseSeeder
             ]
         };
 
+        // Tenant demo SKY SYSTEM: replica del tenant legacy sucursal 01 = BITCODE.
         var tenant = new Tenant
         {
-            Name = "Agencia Demo",
-            LegalName = "Agencia Demo SAS",
+            Name = DemoTenantName,
+            LegalName = "SKY SYSTEM SAS",
             TaxId = "900123456-7",
             Country = "CO",
             Currency = "COP",
@@ -72,16 +79,18 @@ public sealed class DatabaseSeeder
             Kind = TenantKind.Demo
         };
 
-        var tenantAdmin = new PlatformUser
+        // Usuarios del tenant demo por rol, segun el vault. El enum TenantRole actual solo tiene
+        // Owner/Admin/Supervisor/Advisor: Operator y Viewer se mapean a Advisor.
+        // TODO: cuando TenantRole tenga roles Operator/Viewer (o equivalentes), ajustar este mapeo.
+        (string Email, string DisplayName, TenantRole Role)[] tenantMembers =
         {
-            Email = TenantAdminEmail,
-            EmailVerified = true,
-            DisplayName = "Administrador Agencia Demo",
-            Status = PlatformUserStatus.Active,
-            PasswordHash = _hasher.Hash(TenantAdminPassword)
+            (TenantOwnerEmail, "Owner SKY SYSTEM", TenantRole.Owner),
+            (TenantAdminEmail, "Admin SKY SYSTEM", TenantRole.Admin),
+            (TenantOperatorEmail, "Operator SKY SYSTEM", TenantRole.Advisor),
+            (TenantViewerEmail, "Viewer SKY SYSTEM", TenantRole.Advisor)
         };
 
-        _db.PlatformUsers.AddRange(superAdmin, tenantAdmin);
+        _db.PlatformUsers.Add(superAdmin);
         _db.SaasPlans.Add(plan);
         _db.Tenants.Add(tenant);
 
@@ -95,14 +104,26 @@ public sealed class DatabaseSeeder
             CurrentPeriodEndsAt = DateTimeOffset.UtcNow.AddMonths(1)
         });
 
-        _db.TenantUsers.Add(new TenantUser
+        foreach (var (email, displayName, role) in tenantMembers)
         {
-            TenantId = tenant.Id,
-            PlatformUserId = tenantAdmin.Id,
-            Email = TenantAdminEmail,
-            TenantRole = TenantRole.Owner,
-            Status = PlatformUserStatus.Active
-        });
+            var member = new PlatformUser
+            {
+                Email = email,
+                EmailVerified = true,
+                DisplayName = displayName,
+                Status = PlatformUserStatus.Active,
+                PasswordHash = _hasher.Hash(TenantUsersPassword)
+            };
+            _db.PlatformUsers.Add(member);
+            _db.TenantUsers.Add(new TenantUser
+            {
+                TenantId = tenant.Id,
+                PlatformUserId = member.Id,
+                Email = email,
+                TenantRole = role,
+                Status = PlatformUserStatus.Active
+            });
+        }
 
         _db.TenantConfigurations.AddRange(
             new TenantConfiguration { TenantId = tenant.Id, ConfigKey = "tono", ConfigValue = "cordial" },
@@ -111,8 +132,8 @@ public sealed class DatabaseSeeder
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogWarning(
-            "Seed inicial creado. Super Admin: {SuperAdmin} / {SuperPass}. Admin agencia: {TenantAdmin} / {TenantPass}",
-            SuperAdminEmail, SuperAdminPassword, TenantAdminEmail, TenantAdminPassword);
+            "Seed inicial creado. Platform Admin: {SuperAdmin} / {SuperPass}. Tenant {Tenant}: owner/admin/operator/viewer@sky-system.local / {TenantPass}",
+            SuperAdminEmail, SuperAdminPassword, DemoTenantName, TenantUsersPassword);
     }
 
     /// <summary>
@@ -137,7 +158,7 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
-    /// Asegura que el Super Admin (admin@ecorex.tareas) tambien sea Owner de un tenant interno
+    /// Asegura que el Super Admin (admin@ecorex.local) tambien sea Owner de un tenant interno
     /// "Plataforma ECOREX". Asi el Super Admin puede usar Pipeline y los modulos comerciales como
     /// si fuera una agencia mas, sin perder su rol de gobierno de la plataforma. Idempotente: si
     /// el tenant interno o la membresia ya existen, no hace nada.

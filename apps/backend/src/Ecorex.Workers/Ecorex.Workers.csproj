@@ -13,6 +13,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ecorex.Infrastructure\Ecorex.Infrastructure.csproj" />
+    <!-- Migraciones del proveedor SQL Server: necesarias en el output para MigrateAsync
+         cuando Database:Provider=SqlServer (ADR-001). -->
+    <ProjectReference Include="..\Ecorex.Infrastructure.SqlServer\Ecorex.Infrastructure.SqlServer.csproj" />
     <ProjectReference Include="..\Ecorex.Application\Ecorex.Application.csproj" />
   </ItemGroup>
 </Project>

@@ -69,6 +69,10 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
         services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
+        // Motor de flujos BPMN (FASE 4, ADR-0014). El hook de reglas es No-Op hasta que
+        // llegue la ola RulesEngine, que lo reemplazara en este registro.
+        services.AddScoped<Workflows.IWorkflowEngine, Workflows.WorkflowEngine>();
+        services.AddScoped<Workflows.IWorkflowRuleHook, Workflows.NoOpWorkflowRuleHook>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

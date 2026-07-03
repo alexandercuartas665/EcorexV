@@ -351,3 +351,91 @@ cuando llegue la fase de descubrimiento/ETL.)
 - .claude/launch.json: nueva config "superadmin-tasks" (pwsh + ECOREX_DB_CONNECTION
   dev 5442, puerto 5234) usada para la validacion en navegador.
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-03 - Sesion 7: FASE 4 ola 1 - WorkflowEngine (BPMN 2.0, ADR-0014)
+
+**Agentes**: agente unico (port del AdmWorkflow legacy segun el vault, Capa 3).
+
+**Hecho**:
+- Dominio (5 entidades TenantEntity + 3 enums): WorkflowDefinition (ProcessCode,
+  BpmnXml tal cual, versionado con unico (TenantId, ProcessCode, Version)),
+  WorkflowNode (BpmnElementId, NodeType, RestartNodeId self-FK NO ACTION),
+  WorkflowEdge (ConditionExpression; FKs a nodos Cascade en PG / ClientCascade en
+  SQL Server, patron TaskCardTagAssignment), WorkflowInstance (Status
+  Running/Completed/Cancelled/Stuck, CurrentCycle, Version IVersioned, TaskItemId
+  unico filtrado) y WorkflowStepHistory APPEND-ONLY (CycleIndex, IsCurrent,
+  IsCycleStart, ApprovalResult/Comment; indices (InstanceId, IsCurrent) e
+  (InstanceId, NodeId, CycleIndex)). TaskItem.WorkflowInstanceId (FK sin cascada) y
+  ActivityType.WorkflowDefinitionId pasa de placeholder a FK real NO ACTION.
+- Motor (Ecorex.Application/Workflows): IWorkflowEngine + WorkflowEngine con
+  ImportBpmnAsync (XDocument sobre el namespace OMG, acepta prefijos bpmn:/bpmn2:,
+  valida 1 startEvent / >=1 endEvent / ids unicos / aristas coherentes; XML guardado
+  SIN modificar para round-trip bpmn.io; reimportar = version max+1 NO publicada),
+  PublishAsync (una sola version publicada por ProcessCode), SetRestartTargetAsync
+  (ID_REINICIO legacy, fuera del XML estandar), StartInstanceAsync (startEvent se
+  completa solo; enlaza TaskItem -> Active via TaskItemStateMachine + actividad
+  "inicio el flujo"), GetCurrentStepsAsync, CompleteStepAsync y RejectStepAsync
+  (reactiva el paso anterior como fila NUEVA, append-only). Avance interno (port de
+  SiguienteEstado): while con tope de 50 iteraciones, compuertas exclusivas evaluadas
+  contra ApprovalResult (WorkflowConditionEvaluator: "approval == 'X'"/"!=", vacio =
+  default, fail-closed), ramas paralelas en nodos no-gateway, REINICIOS en LINQ/memoria
+  (sin SQL crudo ni CTE: grafo completo en memoria; nodo alcanzado con RestartNodeId
+  abre CycleIndex+1 con IsCycleStart), endEvent completa la instancia y pasa la tarea
+  a Done + actividad "flujo completado" + ITaskBroadcaster.TaskChanged; tope de 50 ->
+  instancia Stuck + resultado tipado StuckDetected (WorkflowResults, patron
+  TaskCoreResults). Hook de reglas IWorkflowRuleHook (OnNodeActivatedAsync ->
+  AutoComplete) con NoOpWorkflowRuleHook en DI para la ola RulesEngine.
+- Integracion con creacion de tareas: TaskItemService.CreateAsync arranca la instancia
+  si el ActivityType tiene definicion PUBLICADA, dentro de la MISMA transaccion
+  (IApplicationDbContext.HasActiveTransaction nuevo: el motor se une a la transaccion
+  del llamador; fallo del flujo -> rollback total de la tarea).
+- Migraciones duales AddWorkflowEngine (Postgres 20260703215437, SqlServer
+  20260703215556) generadas y APLICADAS a los contenedores dev (PG 5442 y MSSQL 1443,
+  5 tablas workflow_* verificadas en ambos).
+- Seeder Development idempotente EnsureWorkflowDemoAsync: flujo demo "Cotizacion
+  Comercial" (COT-COM) construido via ImportBpmnAsync con XML BPMN embebido
+  (start -> Requerimiento -> Cotizacion -> gateway Aprobacion; Approved ->
+  Facturacion -> Entrega -> end; Rejected -> endEvent con RestartNodeId hacia
+  Cotizacion), publicado y vinculado al ActivityType "Direccion Comercial/Cotizacion".
+  Program.cs (SuperAdmin) lo invoca con AmbientTenantContext.Begin(tenant demo).
+- Fixture BPMN real del vault copiado a tests/Ecorex.Integration.Tests/Fixtures/
+  (ejemplo-bpmn-flujo-00001.bpmn, CopyToOutputDirectory).
+- ADR-0014 (docs/decisiones/0014-workflow-engine.md): motor propio, XML estandar sin
+  extensiones, tope 50 heredado, append-only, reinicios en LINQ sin CTE, hook de
+  reglas, versionado que fija la version por instancia.
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores.
+- Tests TODOS verdes: Domain 35, Application 26 (1 previa + 8 parser BPMN + 17 casos
+  del evaluador de condiciones), Integration 57 (41 previas + 16 nuevas: 8 tests
+  WorkflowEngine x 2 motores via Testcontainers PG/MSSQL): import del fixture real
+  00001 (14 nodos = 1 start + 8 tasks + 3 gateways + 2 ends, 13 aristas, XML
+  round-trip identico), versionado/publicacion exclusiva, flujo lineal con TaskItem
+  auto-arrancado desde CreateAsync que termina Done, gateway Approved/Rejected con
+  reinicio (CycleIndex=1, IsCycleStart, CurrentCycle=1), RejectStep reactivando el
+  paso previo append-only, loop autonomo sin salida -> Stuck al tope de 50 (hook
+  AutoComplete de prueba), aislamiento cross-tenant de definiciones/instancias/pasos
+  e historial append-only tras reinicio (filas del ciclo 0 intactas).
+- Seeder verificado contra el dev PG real (SuperAdmin arrancado en 5237): COT-COM v1
+  publicado, 8 nodos con restart en End_Reinicio, ActivityType Cotizacion vinculado.
+
+**Desviaciones del diseno pedido (con su porque)**:
+- El fixture 00001 tiene 27 elementos ejecutables reales (14 nodos + 13 flows), no 42
+  (ese conteo incluia anotaciones/asociaciones/DI, que el motor ignora); el test
+  asegura los conteos reales y que endEvents son 2 (no "varios").
+- Ademas del Stuck por tope de 50, se marca Stuck el caso "sin pasos vigentes y sin
+  endEvent alcanzado" (ramas muertas del legacy, ej. tasks sin salida del fixture):
+  evita instancias Running zombis.
+- RejectStepAsync no reactiva un startEvent (no es reactivable por un humano):
+  devuelve Invalid "no hay paso anterior reactivable".
+
+**Deudas / TODO (proximas olas de FASE 4)**:
+- Editor visual bpmn-js + UI de bandeja de pasos (esta ola es solo motor + seeder).
+- RulesEngine reemplazando NoOpWorkflowRuleHook; condiciones de gateway sobre datos
+  de formulario dinamico.
+- Asignacion de encargados por paso (AssignedToTenantUserId existe pero nada lo
+  puebla aun; el legacy lo resolvia con PERMISO_CARGO).
+- Cancelacion manual de instancias (WorkflowInstanceStatus.Cancelled sin caso de uso).
+- Sin commit (pedido explicito): cambios en working tree.

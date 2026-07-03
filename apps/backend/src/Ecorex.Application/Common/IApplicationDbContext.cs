@@ -58,6 +58,11 @@ public interface IApplicationDbContext
     DbSet<TaskItemActivity> TaskItemActivities { get; }
     DbSet<TaskItemAttachment> TaskItemAttachments { get; }
     DbSet<TenantSequence> TenantSequences { get; }
+    DbSet<WorkflowDefinition> WorkflowDefinitions { get; }
+    DbSet<WorkflowNode> WorkflowNodes { get; }
+    DbSet<WorkflowEdge> WorkflowEdges { get; }
+    DbSet<WorkflowInstance> WorkflowInstances { get; }
+    DbSet<WorkflowStepHistory> WorkflowStepHistories { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }
@@ -81,4 +86,11 @@ public interface IApplicationDbContext
     /// insertar TaskItem de forma atomica). Los casos simples siguen usando SaveChangesAsync solo.
     /// </summary>
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Indica si ya hay una transaccion abierta sobre la conexion. Permite que un caso de
+    /// uso anidado (ej. WorkflowEngine.StartInstanceAsync dentro de TaskItemService.CreateAsync)
+    /// se una a la transaccion del llamador en vez de intentar abrir otra.
+    /// </summary>
+    bool HasActiveTransaction { get; }
 }

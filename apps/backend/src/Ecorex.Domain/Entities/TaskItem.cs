@@ -51,6 +51,13 @@ public class TaskItem : TenantEntity, IVersioned
     /// <summary>Momento en que la tarea paso a Closed (estado terminal).</summary>
     public DateTimeOffset? ClosedAt { get; set; }
 
+    /// <summary>
+    /// Instancia de flujo que gobierna esta tarea (FASE 4). Null = tarea sin flujo
+    /// (estados libres via TaskItemStateMachine). FK sin cascada.
+    /// </summary>
+    public Guid? WorkflowInstanceId { get; set; }
+    public WorkflowInstance? WorkflowInstance { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
 }

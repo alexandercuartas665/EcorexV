@@ -24,6 +24,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Fixture BPMN real del vault (flujo 00001) para los tests de import del WorkflowEngine. -->
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Ecorex.Infrastructure\Ecorex.Infrastructure.csproj" />
     <!-- Migraciones del proveedor SQL Server: MigrateAsync con MigrationsAssembly
          "Ecorex.Infrastructure.SqlServer" necesita el ensamblado en el output (ADR-001). -->

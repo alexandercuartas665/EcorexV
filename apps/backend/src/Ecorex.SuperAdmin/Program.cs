@@ -117,6 +117,21 @@ else
     await seeder.EnsureDemoTemplateAssetsAsync();
     // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
     await seeder.EnsureTaskCoreDemoAsync();
+    // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del
+    // filtro global de tenant, asi que la siembra fija el ambient del tenant demo.
+    var workflowDemoTenantId = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind == TenantKind.Demo)
+        .Select(t => (Guid?)t.Id)
+        .FirstOrDefaultAsync();
+    if (workflowDemoTenantId is Guid workflowTenantId)
+    {
+        using (AmbientTenantContext.Begin(workflowTenantId))
+        {
+            var workflowEngine = scope.ServiceProvider
+                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
+            await seeder.EnsureWorkflowDemoAsync(workflowEngine);
+        }
+    }
 }
 
 app.UseHttpsRedirection();

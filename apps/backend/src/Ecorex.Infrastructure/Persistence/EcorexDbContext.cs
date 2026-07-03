@@ -104,12 +104,23 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
     public DbSet<TenantSequence> TenantSequences => Set<TenantSequence>();
 
+    // Motor de flujos BPMN (FASE 4, ADR-0014): definiciones versionadas, grafo materializado
+    // (nodos + aristas), instancias por caso y historial de pasos append-only.
+    public DbSet<WorkflowDefinition> WorkflowDefinitions => Set<WorkflowDefinition>();
+    public DbSet<WorkflowNode> WorkflowNodes => Set<WorkflowNode>();
+    public DbSet<WorkflowEdge> WorkflowEdges => Set<WorkflowEdge>();
+    public DbSet<WorkflowInstance> WorkflowInstances => Set<WorkflowInstance>();
+    public DbSet<WorkflowStepHistory> WorkflowStepHistories => Set<WorkflowStepHistory>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
     public Task<Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction> BeginTransactionAsync(
         CancellationToken cancellationToken = default)
         => Database.BeginTransactionAsync(cancellationToken);
+
+    /// <summary>Hay una transaccion abierta (los casos de uso anidados se unen a ella).</summary>
+    public bool HasActiveTransaction => Database.CurrentTransaction is not null;
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -147,6 +158,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TaskPriority>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskItemStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkLogKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WorkflowNodeType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WorkflowInstanceStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WorkflowStepStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -672,6 +686,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(600);
             b.HasIndex(x => new { x.TenantId, x.Category, x.Name }).IsUnique();
+            // FASE 4 (ADR-0014): FK real hacia la definicion de flujo, NO ACTION (borrar o
+            // archivar definiciones nunca toca el catalogo de tipos).
+            b.HasOne(x => x.WorkflowDefinition).WithMany()
+                .HasForeignKey(x => x.WorkflowDefinitionId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Project>(b =>
@@ -712,6 +730,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ActivityType).WithMany().HasForeignKey(x => x.ActivityTypeId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.AssigneeTenantUser).WithMany().HasForeignKey(x => x.AssigneeTenantUserId).OnDelete(DeleteBehavior.Restrict);
+            // FASE 4 (ADR-0014): la instancia de flujo que gobierna la tarea; sin cascada
+            // (referencia circular controlada con workflow_instances.task_item_id).
+            b.HasOne(x => x.WorkflowInstance).WithMany()
+                .HasForeignKey(x => x.WorkflowInstanceId).OnDelete(DeleteBehavior.Restrict);
             // Consecutivo legible unico por tenant (emitido por TenantSequence).
             b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });
@@ -769,6 +791,80 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Un consecutivo por (tenant, codigo). SequenceService lo incrementa con
             // UPDATE condicional atomico (CAS con retry), sin SQL crudo (ADR-0013).
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+        });
+
+        // ---- Motor de flujos BPMN (FASE 4, ADR-0014) ----
+
+        modelBuilder.Entity<WorkflowDefinition>(b =>
+        {
+            b.Property(x => x.ProcessCode).HasMaxLength(25).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // El XML BPMN original, sin modificar (round-trip con bpmn.io).
+            b.Property(x => x.BpmnXml).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.Version).HasDefaultValue(1);
+            // Versionado inmutable: una fila por version del proceso.
+            b.HasIndex(x => new { x.TenantId, x.ProcessCode, x.Version }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsPublished });
+        });
+
+        modelBuilder.Entity<WorkflowNode>(b =>
+        {
+            b.Property(x => x.BpmnElementId).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(300);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Self-FK del reinicio (ID_REINICIO legacy): NO ACTION siempre (nunca cascada).
+            b.HasOne(x => x.RestartNode).WithMany()
+                .HasForeignKey(x => x.RestartNodeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.DefinitionId, x.BpmnElementId }).IsUnique();
+        });
+
+        modelBuilder.Entity<WorkflowEdge>(b =>
+        {
+            b.Property(x => x.BpmnElementId).HasMaxLength(100);
+            b.Property(x => x.Name).HasMaxLength(300);
+            b.Property(x => x.ConditionExpression).HasMaxLength(400);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // SQL Server no admite dos rutas de cascada hacia esta tabla (error 1785:
+            // definition->edges y definition->nodes->edges). Igual que TaskCardTagAssignment,
+            // en ese motor las FKs hacia los nodos quedan NO ACTION en BD (ClientCascade);
+            // los nodos y aristas de una definicion viven y mueren juntos via la FK de la
+            // definicion, asi que no queda basura.
+            b.HasOne(x => x.SourceNode).WithMany().HasForeignKey(x => x.SourceNodeId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.ClientCascade);
+            b.HasOne(x => x.TargetNode).WithMany().HasForeignKey(x => x.TargetNodeId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.ClientCascade);
+            b.HasIndex(x => new { x.DefinitionId, x.SourceNodeId });
+        });
+
+        modelBuilder.Entity<WorkflowInstance>(b =>
+        {
+            // Concurrencia optimista portable (ADR-0013), igual que TaskItem.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+            // Vinculo 1:1 opcional con la tarea del nucleo; sin cascada en ninguna direccion.
+            b.HasOne(x => x.TaskItem).WithMany()
+                .HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.TaskItemId).IsUnique()
+                .HasFilter(isNpgsql ? "task_item_id IS NOT NULL" : "[task_item_id] IS NOT NULL");
+            b.HasIndex(x => new { x.TenantId, x.Status });
+        });
+
+        modelBuilder.Entity<WorkflowStepHistory>(b =>
+        {
+            b.Property(x => x.ApprovalResult).HasMaxLength(20);
+            b.Property(x => x.ApprovalComment).HasMaxLength(2000);
+            b.HasOne(x => x.Instance).WithMany()
+                .HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
+            // NO ACTION hacia el nodo: el historial es append-only y sobrevive a la
+            // definicion (que de todos modos solo se archiva, nunca se borra).
+            b.HasOne(x => x.Node).WithMany()
+                .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.InstanceId, x.IsCurrent });
+            b.HasIndex(x => new { x.InstanceId, x.NodeId, x.CycleIndex });
         });
 
     }

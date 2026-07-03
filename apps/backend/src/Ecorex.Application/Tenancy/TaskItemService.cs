@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Domain.Rules;
@@ -24,12 +25,14 @@ public sealed class TaskItemService : ITaskItemService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly ISequenceService _sequences;
+    private readonly IWorkflowEngine _workflowEngine;
 
-    public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences)
+    public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences, IWorkflowEngine workflowEngine)
     {
         _db = db;
         _tenantContext = tenantContext;
         _sequences = sequences;
+        _workflowEngine = workflowEngine;
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -119,6 +122,24 @@ public sealed class TaskItemService : ITaskItemService
             TaskActivityType.Action, $"creo la tarea {number}"));
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // FASE 4 (ADR-0014): si el tipo de actividad tiene flujo PUBLICADO, arrancar la
+        // instancia dentro de la MISMA transaccion (el motor detecta la transaccion abierta
+        // y se une; un fallo del flujo revierte tambien la tarea).
+        if (activityType.WorkflowDefinitionId is Guid workflowDefinitionId
+            && await _db.WorkflowDefinitions.AnyAsync(
+                d => d.Id == workflowDefinitionId && d.IsPublished && !d.IsArchived, cancellationToken))
+        {
+            var started = await _workflowEngine.StartInstanceAsync(
+                workflowDefinitionId, task.Id, actorUserId, actorName, cancellationToken);
+            if (started.Status is not (WorkflowEngineStatus.Ok or WorkflowEngineStatus.StuckDetected))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return TaskCoreResult<TaskItemDetailDto>.Invalid(
+                    $"No se pudo iniciar el flujo del tipo de actividad: {started.Error}");
+            }
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(task.Id, cancellationToken))!);

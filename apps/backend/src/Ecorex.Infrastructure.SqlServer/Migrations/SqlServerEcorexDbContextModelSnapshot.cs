@@ -135,6 +135,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasKey("Id")
                         .HasName("pk_activity_types");
 
+                    b.HasIndex("WorkflowDefinitionId")
+                        .HasDatabaseName("ix_activity_types_workflow_definition_id");
+
                     b.HasIndex("TenantId", "Category", "Name")
                         .IsUnique()
                         .HasDatabaseName("ix_activity_types_tenant_id_category_name");
@@ -3132,6 +3135,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("version");
 
+                    b.Property<Guid?>("WorkflowInstanceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("workflow_instance_id");
+
                     b.HasKey("Id")
                         .HasName("pk_task_items");
 
@@ -3143,6 +3150,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_task_items_project_id");
+
+                    b.HasIndex("WorkflowInstanceId")
+                        .HasDatabaseName("ix_task_items_workflow_instance_id");
 
                     b.HasIndex("TenantId", "Number")
                         .IsUnique()
@@ -4365,6 +4375,389 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("wompi_webhook_events", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BpmnXml")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("bpmn_xml");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsPublished")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_published");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ProcessCode")
+                        .IsRequired()
+                        .HasMaxLength(25)
+                        .HasColumnType("nvarchar(25)")
+                        .HasColumnName("process_code");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1)
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_definitions");
+
+                    b.HasIndex("TenantId", "IsPublished")
+                        .HasDatabaseName("ix_workflow_definitions_tenant_id_is_published");
+
+                    b.HasIndex("TenantId", "ProcessCode", "Version")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_definitions_tenant_id_process_code_version");
+
+                    b.ToTable("workflow_definitions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowEdge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BpmnElementId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("bpmn_element_id");
+
+                    b.Property<string>("ConditionExpression")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)")
+                        .HasColumnName("condition_expression");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("definition_id");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("SourceNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("source_node_id");
+
+                    b.Property<Guid>("TargetNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("target_node_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_edges");
+
+                    b.HasIndex("SourceNodeId")
+                        .HasDatabaseName("ix_workflow_edges_source_node_id");
+
+                    b.HasIndex("TargetNodeId")
+                        .HasDatabaseName("ix_workflow_edges_target_node_id");
+
+                    b.HasIndex("DefinitionId", "SourceNodeId")
+                        .HasDatabaseName("ix_workflow_edges_definition_id_source_node_id");
+
+                    b.ToTable("workflow_edges", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowInstance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("CurrentCycle")
+                        .HasColumnType("int")
+                        .HasColumnName("current_cycle");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("definition_id");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_instances");
+
+                    b.HasIndex("DefinitionId")
+                        .HasDatabaseName("ix_workflow_instances_definition_id");
+
+                    b.HasIndex("TaskItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_instances_task_item_id")
+                        .HasFilter("[task_item_id] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_workflow_instances_tenant_id_status");
+
+                    b.ToTable("workflow_instances", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowsAssignment")
+                        .HasColumnType("bit")
+                        .HasColumnName("allows_assignment");
+
+                    b.Property<string>("BpmnElementId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("bpmn_element_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("definition_id");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NodeType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("node_type");
+
+                    b.Property<Guid?>("RestartNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("restart_node_id");
+
+                    b.Property<int?>("StepNumber")
+                        .HasColumnType("int")
+                        .HasColumnName("step_number");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_nodes");
+
+                    b.HasIndex("RestartNodeId")
+                        .HasDatabaseName("ix_workflow_nodes_restart_node_id");
+
+                    b.HasIndex("DefinitionId", "BpmnElementId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_nodes_definition_id_bpmn_element_id");
+
+                    b.ToTable("workflow_nodes", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApprovalComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("approval_comment");
+
+                    b.Property<string>("ApprovalResult")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("approval_result");
+
+                    b.Property<Guid?>("AssignedToTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("assigned_to_tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("CycleIndex")
+                        .HasColumnType("int")
+                        .HasColumnName("cycle_index");
+
+                    b.Property<Guid?>("ExecutedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("executed_by_tenant_user_id");
+
+                    b.Property<Guid>("InstanceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("instance_id");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_current");
+
+                    b.Property<bool>("IsCycleStart")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_cycle_start");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_step_histories");
+
+                    b.HasIndex("NodeId")
+                        .HasDatabaseName("ix_workflow_step_histories_node_id");
+
+                    b.HasIndex("InstanceId", "IsCurrent")
+                        .HasDatabaseName("ix_workflow_step_histories_instance_id_is_current");
+
+                    b.HasIndex("InstanceId", "NodeId", "CycleIndex")
+                        .HasDatabaseName("ix_workflow_step_histories_instance_id_node_id_cycle_index");
+
+                    b.ToTable("workflow_step_histories", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
                 {
                     b.Property<int>("Id")
@@ -4386,6 +4779,17 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasName("pk_data_protection_keys");
 
                     b.ToTable("data_protection_keys", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActivityType", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowDefinition", "WorkflowDefinition")
+                        .WithMany()
+                        .HasForeignKey("WorkflowDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_activity_types_workflow_definitions_workflow_definition_id");
+
+                    b.Navigation("WorkflowDefinition");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgentCacheField", b =>
@@ -4730,11 +5134,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_projects_project_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowInstance", "WorkflowInstance")
+                        .WithMany()
+                        .HasForeignKey("WorkflowInstanceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_workflow_instances_workflow_instance_id");
+
                     b.Navigation("ActivityType");
 
                     b.Navigation("AssigneeTenantUser");
 
                     b.Navigation("Project");
+
+                    b.Navigation("WorkflowInstance");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemActivity", b =>
@@ -4846,6 +5258,97 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_tenant_users_platform_users_platform_user_id");
 
                     b.Navigation("PlatformUser");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowEdge", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_edges_workflow_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "SourceNode")
+                        .WithMany()
+                        .HasForeignKey("SourceNodeId")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_edges_workflow_nodes_source_node_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "TargetNode")
+                        .WithMany()
+                        .HasForeignKey("TargetNodeId")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_edges_workflow_nodes_target_node_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("SourceNode");
+
+                    b.Navigation("TargetNode");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowInstance", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_instances_workflow_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_instances_task_items_task_item_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNode", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_nodes_workflow_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "RestartNode")
+                        .WithMany()
+                        .HasForeignKey("RestartNodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_nodes_workflow_nodes_restart_node_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("RestartNode");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowInstance", "Instance")
+                        .WithMany()
+                        .HasForeignKey("InstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_step_histories_workflow_instances_instance_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
+                        .WithMany()
+                        .HasForeignKey("NodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_step_histories_workflow_nodes_node_id");
+
+                    b.Navigation("Instance");
+
+                    b.Navigation("Node");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlan", b =>

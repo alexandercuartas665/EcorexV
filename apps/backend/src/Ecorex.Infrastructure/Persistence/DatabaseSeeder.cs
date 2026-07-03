@@ -1,4 +1,5 @@
 using Ecorex.Application.Common.Auth;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -478,6 +479,100 @@ public sealed class DatabaseSeeder
         _logger.LogInformation(
             "Seed del nucleo de tareas creado para {Tenant}: {Types} tipos, {Tags} etiquetas, 1 proyecto, {Tasks} tareas.",
             tenant.Name, activityTypes.Count, tags.Count, taskDefs.Length);
+    }
+
+    // ---- Flujo demo del WorkflowEngine (FASE 4, ADR-0014) ----
+
+    public const string DemoWorkflowProcessCode = "COT-COM";
+    public const string DemoWorkflowName = "Cotizacion Comercial";
+
+    /// <summary>
+    /// XML BPMN 2.0 estandar del flujo demo: start -> Requerimiento -> Cotizacion ->
+    /// gateway Aprobacion (Approved -> Facturacion -> Entrega -> end; Rejected -> endEvent
+    /// de reinicio, cuyo RestartNodeId se configura tras importar porque los reinicios no
+    /// forman parte del estandar BPMN). Compatible con bpmn.io (sin extensiones).
+    /// </summary>
+    private const string DemoWorkflowBpmnXml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                          id="ecorex-demo-cotizacion" targetNamespace="http://ecorex.local/bpmn">
+          <bpmn:process id="Process_CotizacionComercial" isExecutable="false">
+            <bpmn:startEvent id="Start_Inicio" name="Inicio" />
+            <bpmn:task id="Task_Requerimiento" name="Requerimiento" />
+            <bpmn:task id="Task_Cotizacion" name="Cotizacion" />
+            <bpmn:exclusiveGateway id="Gateway_Aprobacion" name="Aprobacion" />
+            <bpmn:task id="Task_Facturacion" name="Facturacion" />
+            <bpmn:task id="Task_Entrega" name="Entrega" />
+            <bpmn:endEvent id="End_Fin" name="Fin" />
+            <bpmn:endEvent id="End_Reinicio" name="Rechazada: reinicia cotizacion" />
+            <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_Inicio" targetRef="Task_Requerimiento" />
+            <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_Requerimiento" targetRef="Task_Cotizacion" />
+            <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_Cotizacion" targetRef="Gateway_Aprobacion" />
+            <bpmn:sequenceFlow id="Flow_4" name="Aprobada" sourceRef="Gateway_Aprobacion" targetRef="Task_Facturacion">
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Approved'</bpmn:conditionExpression>
+            </bpmn:sequenceFlow>
+            <bpmn:sequenceFlow id="Flow_5" name="Rechazada" sourceRef="Gateway_Aprobacion" targetRef="End_Reinicio">
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Rejected'</bpmn:conditionExpression>
+            </bpmn:sequenceFlow>
+            <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_Facturacion" targetRef="Task_Entrega" />
+            <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_Entrega" targetRef="End_Fin" />
+          </bpmn:process>
+        </bpmn:definitions>
+        """;
+
+    /// <summary>
+    /// Siembra el flujo demo "Cotizacion Comercial" para el tenant demo (SKY SYSTEM) usando
+    /// el propio motor (ImportBpmnAsync + SetRestartTargetAsync + PublishAsync) y vincula el
+    /// ActivityType "Direccion Comercial/Cotizacion" a la definicion. Idempotente por
+    /// ProcessCode. REQUIERE tenant activo en el ITenantContext del scope (el motor consulta
+    /// a traves del filtro global): el llamador debe fijar el ambient del tenant demo.
+    /// Solo Development.
+    /// </summary>
+    public async Task EnsureWorkflowDemoAsync(IWorkflowEngine engine, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.WorkflowDefinitions.IgnoreQueryFilters()
+                .AnyAsync(d => d.TenantId == tenant.Id && d.ProcessCode == DemoWorkflowProcessCode, cancellationToken))
+        {
+            return;
+        }
+
+        var imported = await engine.ImportBpmnAsync(new ImportBpmnRequest(
+            DemoWorkflowProcessCode, DemoWorkflowName, DemoWorkflowBpmnXml,
+            "Flujo demo de cotizacion comercial con aprobacion y reinicio por rechazo."), cancellationToken);
+        if (!imported.IsOk)
+        {
+            _logger.LogWarning("No se pudo sembrar el flujo demo: {Error}", imported.Error);
+            return;
+        }
+        var definition = imported.Value!;
+
+        // Reinicio (no es parte del XML BPMN estandar): el endEvent "Rechazada" reabre la
+        // Cotizacion en un ciclo nuevo (CycleIndex+1).
+        var restartTrigger = definition.Nodes.First(n => n.BpmnElementId == "End_Reinicio");
+        var restartTarget = definition.Nodes.First(n => n.BpmnElementId == "Task_Cotizacion");
+        await engine.SetRestartTargetAsync(restartTrigger.Id, restartTarget.Id, cancellationToken);
+
+        await engine.PublishAsync(definition.Id, cancellationToken);
+
+        // Las tareas nuevas de "Direccion Comercial/Cotizacion" arrancan este flujo.
+        var activityType = await _db.ActivityTypes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.TenantId == tenant.Id
+                && t.Category == "Direccion Comercial" && t.Name == "Cotizacion", cancellationToken);
+        if (activityType is not null)
+        {
+            activityType.WorkflowDefinitionId = definition.Id;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Flujo demo {Process} v{Version} sembrado y publicado para {Tenant} ({Nodes} nodos, {Edges} aristas).",
+            DemoWorkflowProcessCode, definition.Version, tenant.Name,
+            definition.Nodes.Count, definition.Edges.Count);
     }
 
 }

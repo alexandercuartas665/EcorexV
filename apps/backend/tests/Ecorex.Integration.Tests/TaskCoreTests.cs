@@ -1,7 +1,9 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
+using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Integration.Tests;
@@ -29,7 +31,7 @@ public abstract class TaskCoreTestsBase
         {
             await using var ctx = _fixture.CreateContext(seed.TenantId);
             var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-            var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+            var service = BuildService(ctx, tenantContext);
             return await service.CreateAsync(
                 new CreateTaskItemRequest($"Tarea concurrente {i}", seed.ActivityTypeId),
                 seed.PlatformUserId, "Tester");
@@ -65,7 +67,7 @@ public abstract class TaskCoreTestsBase
             Assert.Empty(await ctxB.TaskItems.ToListAsync());
             // Ni siquiera consultando el detalle por id directo.
             var tenantContext = new TestTenantContext(seedB.TenantId, seedB.PlatformUserId);
-            var serviceB = new TaskItemService(ctxB, tenantContext, new SequenceService(ctxB, tenantContext));
+            var serviceB = BuildService(ctxB, tenantContext);
             Assert.Null(await serviceB.GetDetailAsync(createdA.Value!.Item.Id));
         }
 
@@ -112,7 +114,7 @@ public abstract class TaskCoreTestsBase
 
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+        var service = BuildService(ctx, tenantContext);
 
         // Pending -> Closed es invalido (error tipado, no excepcion).
         var invalid = await service.ChangeStatusAsync(taskId, TaskItemStatus.Closed, null, seed.PlatformUserId, "Tester");
@@ -136,11 +138,16 @@ public abstract class TaskCoreTestsBase
 
     // ---- Helpers ----
 
+    /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>
+    private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext)
+        => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
+            new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()));
+
     private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskAsync(SeedData seed, string title)
     {
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+        var service = BuildService(ctx, tenantContext);
         return await service.CreateAsync(new CreateTaskItemRequest(title, seed.ActivityTypeId), seed.PlatformUserId, "Tester");
     }
 
@@ -148,7 +155,7 @@ public abstract class TaskCoreTestsBase
     {
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        var service = new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext));
+        var service = BuildService(ctx, tenantContext);
         return await service.UpdateAsync(taskId, new UpdateTaskItemRequest(
             title, null, seed.ActivityTypeId, TaskPriority.Medium, null, null, null, null, null, null, null, version),
             seed.PlatformUserId, "Tester");

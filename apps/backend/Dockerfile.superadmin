@@ -1,4 +1,4 @@
-# CUBOT.nails - imagen de produccion de la consola web unificada (SuperAdmin:
+# ECOREX.tareas - imagen de produccion de la consola web unificada (SuperAdmin:
 # sirve al super admin de plataforma Y a los clientes/agencias). .NET 9.
 # Contexto de build esperado: raiz del repo (Railway Root Directory = /).
 
@@ -6,7 +6,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 COPY apps/backend/ ./
-RUN dotnet publish src/CubotNails.SuperAdmin/CubotNails.SuperAdmin.csproj \
+RUN dotnet publish src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj \
     -c Release -o /app/publish /p:UseAppHost=false
 
 # --- runtime ---
@@ -22,7 +22,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        chromium fonts-liberation fonts-noto-color-emoji ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-# (Sin CUBOT_CHROME_PATH a proposito: que PuppeteerSharp use el Chromium que descarga, compatible.)
+# (Sin ECOREX_CHROME_PATH a proposito: que PuppeteerSharp use el Chromium que descarga, compatible.)
 
 WORKDIR /app
 COPY --from=build /app/publish ./
@@ -30,4 +30,4 @@ COPY --from=build /app/publish ./
 # Este valor es solo fallback local.
 ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "CubotNails.SuperAdmin.dll"]
+ENTRYPOINT ["dotnet", "Ecorex.SuperAdmin.dll"]

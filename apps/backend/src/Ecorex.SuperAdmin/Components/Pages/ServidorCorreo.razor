@@ -1,0 +1,158 @@
+@page "/servidor-correo"
+@attribute [Authorize(Policy = "PlatformOperator")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Admin
+@using Ecorex.Application.Common
+@inject IEmailConfigService EmailSvc
+@inject IEmailSender EmailSender
+
+<PageTitle>Servidor de correo - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Servidor de <span>correo</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Configura el SMTP que envia los correos transaccionales (reseteo de contrasena, etc.). Compatible con SendGrid, Gmail, Mailgun. La clave se guarda cifrada.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="card-soft" style="max-width:640px;padding:22px;">
+        <div class="row g-3">
+            <div class="col-8 auth-field">
+                <label>Host SMTP</label>
+                <input class="form-control" @bind="_host" placeholder="smtp.sendgrid.net" />
+            </div>
+            <div class="col-4 auth-field">
+                <label>Puerto</label>
+                <input class="form-control" type="number" @bind="_port" placeholder="587" />
+            </div>
+        </div>
+
+        <div class="auth-field" style="margin-top:14px;">
+            <label>Usuario SMTP</label>
+            <input class="form-control" @bind="_user" placeholder="apikey (en SendGrid) o tu usuario" />
+        </div>
+        <div class="auth-field" style="margin-top:14px;">
+            <label>Clave SMTP @(_hasPassword ? "(guardada; deja vacio para conservarla)" : "")</label>
+            <input class="form-control" type="password" @bind="_password" placeholder="@(_hasPassword ? "********" : "Tu clave o API key")" />
+        </div>
+
+        <div class="row g-3" style="margin-top:4px;">
+            <div class="col-6 auth-field">
+                <label>Remitente (From)</label>
+                <input class="form-control" @bind="_fromEmail" placeholder="no-responder@tudominio.com" />
+            </div>
+            <div class="col-6 auth-field">
+                <label>Nombre del remitente</label>
+                <input class="form-control" @bind="_fromName" placeholder="ECOREX.tareas" />
+            </div>
+        </div>
+
+        <div class="form-check form-switch" style="margin-top:16px;">
+            <input class="form-check-input" type="checkbox" id="ssl" @bind="_useSsl" />
+            <label class="form-check-label" for="ssl">Usar SSL/TLS</label>
+        </div>
+        <div class="form-check form-switch" style="margin-top:6px;">
+            <input class="form-check-input" type="checkbox" id="enabled" @bind="_enabled" />
+            <label class="form-check-label" for="enabled">Habilitar envio de correo</label>
+        </div>
+
+        <div style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Guardando..." : "Guardar")</button>
+            <button class="btn btn-outline-secondary" @onclick="OpenTest" disabled="@(!_enabled)">Enviar correo de prueba</button>
+            @if (_savedOk) { <span class="text-success" style="font-size:.9rem;">Guardado.</span> }
+            @if (!string.IsNullOrWhiteSpace(_error)) { <span class="text-danger" style="font-size:.9rem;">@_error</span> }
+        </div>
+    </div>
+
+    @if (_testing)
+    {
+        <div class="card-soft" style="max-width:640px;padding:18px;margin-top:16px;">
+            <h6 style="font-weight:700;">Enviar correo de prueba</h6>
+            <div class="auth-field" style="margin-top:8px;">
+                <label>Correo destino</label>
+                <input class="form-control" type="email" @bind="_testTo" placeholder="tu.correo@ejemplo.com" />
+            </div>
+            <div style="margin-top:12px;display:flex;gap:10px;align-items:center;">
+                <button class="btn btn-primary btn-sm" @onclick="SendTestAsync" disabled="@_sending">@(_sending ? "Enviando..." : "Enviar prueba")</button>
+                <button class="btn btn-link btn-sm" @onclick="() => _testing = false">Cancelar</button>
+                @if (!string.IsNullOrWhiteSpace(_testResult)) { <span style="font-size:.9rem;" class="@(_testOk ? "text-success" : "text-danger")">@_testResult</span> }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true, _saving, _savedOk, _testing, _sending, _testOk;
+    private string? _error, _testResult;
+
+    private string? _host, _user, _password, _fromEmail, _fromName, _testTo;
+    private int _port = 587;
+    private bool _useSsl = true, _enabled, _hasPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var c = await EmailSvc.GetAsync();
+        if (c is not null)
+        {
+            _host = c.SmtpHost; _port = c.SmtpPort; _user = c.SmtpUser;
+            _useSsl = c.UseSsl; _fromEmail = c.FromEmail; _fromName = c.FromName;
+            _enabled = c.IsEnabled; _hasPassword = c.HasPassword;
+        }
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true; _savedOk = false; _error = null;
+        try
+        {
+            await EmailSvc.SaveAsync(
+                new SaveEmailConfigRequest(_host, _port, _user, _password, _useSsl, _fromEmail, _fromName, _enabled),
+                await ActorAsync());
+            _password = null;
+            _hasPassword = _hasPassword || true;
+            _savedOk = true;
+        }
+        catch { _error = "No se pudo guardar."; }
+        finally { _saving = false; }
+    }
+
+    private void OpenTest() { _testing = true; _testResult = null; }
+
+    private async Task SendTestAsync()
+    {
+        _sending = true; _testResult = null;
+        var to = (_testTo ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(to) || !to.Contains('@'))
+        {
+            _testOk = false; _testResult = "Escribe un correo valido."; _sending = false; return;
+        }
+        var html = "<p>Este es un correo de prueba de ECOREX.tareas. Si lo recibiste, el SMTP funciona.</p>";
+        var r = await EmailSender.SendAsync(to, "Prueba de correo - ECOREX.tareas", html);
+        _testOk = r.Ok;
+        _testResult = r.Ok ? "Enviado. Revisa la bandeja." : (r.Error ?? "No se pudo enviar.");
+        _sending = false;
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

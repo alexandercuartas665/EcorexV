@@ -1,0 +1,331 @@
+@page "/automatizaciones"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IAutomationService AutoSvc
+@inject IPipelineService PipelineSvc
+
+<PageTitle>Automatizaciones - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>
+            </div>
+            <span>Workflows</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Automatizaciones</h1>
+        <p class="page-sub" style="margin-bottom:0;">Reglas event-driven sobre el embudo y los chats. Cada agencia define sus propios disparadores y acciones.</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline-secondary" @onclick="RunNowAsync" disabled="@_busy">Ejecutar ahora</button>
+        <button class="btn btn-primary" @onclick="OpenNew">+ Nueva regla</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    @* KPIs *@
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));max-width:980px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Reglas activas</div>
+            <div class="kpi-value">@_rules.Count(r => r.IsActive)</div>
+            <div class="kpi-hint">@_rules.Count(r => !r.IsActive) pausadas</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Ejecuciones</div>
+            <div class="kpi-value">@_rules.Sum(r => r.ExecutionCount)</div>
+            <div class="kpi-hint">Acumuladas</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Tiempo ahorrado</div>
+            <div class="kpi-value">@SavedHours()h</div>
+            <div class="kpi-hint">Estimado (~3 min/ejecucion)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Errores</div>
+            <div class="kpi-value">0</div>
+            <div class="kpi-hint">Ultimas 24h</div>
+        </div>
+    </div>
+
+    @if (_runMsg is not null)
+    {
+        <div class="card" style="padding:10px 14px;max-width:980px;margin-bottom:14px;border-left:3px solid var(--primary);font-size:13px;">@_runMsg</div>
+    }
+
+    @if (_rules.Count == 0)
+    {
+        <div class="card" style="padding:28px;max-width:680px;text-align:center;color:var(--muted-foreground);">
+            Aun no hay reglas. Crea la primera con "+ Nueva regla".
+        </div>
+    }
+    else
+    {
+        <div class="auto-grid">
+            @foreach (var r in _rules)
+            {
+                <div class="auto-card" @onclick="() => OpenEdit(r)">
+                    <div class="auto-card-top">
+                        <span class="auto-name">@r.Name</span>
+                        <label class="ag-switch" @onclick:stopPropagation="true" title="@(r.IsActive ? "Pausar" : "Activar")">
+                            <input type="checkbox" checked="@r.IsActive" @onchange="@(e => ToggleAsync(r, (bool)e.Value!))" disabled="@_busy" />
+                            <span class="ag-slider"></span>
+                        </label>
+                    </div>
+                    <div class="auto-flow">
+                        <span class="auto-trig">@TriggerText(r)</span>
+                        <span class="auto-arrow">&rarr;</span>
+                        <span class="auto-act">@ActionText(r)</span>
+                    </div>
+                    <div class="auto-exec">@r.ExecutionCount ejecuciones &middot; @(r.IsActive ? "activa" : "pausada")</div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@if (_editorOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:560px;">
+            <div class="modal-head">
+                <h3>@(_editId is null ? "Nueva regla" : "Editar regla")</h3>
+                <button class="modal-close" @onclick="() => _editorOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Disparador (cuando...)</label>
+                    <select class="form-control" @bind="_fTrigger">
+                        <option value="@AutomationTrigger.IncomingNoLead">Mensaje entrante sin lead</option>
+                        <option value="@AutomationTrigger.NoReply">Chat sin respuesta &gt; X min</option>
+                        <option value="@AutomationTrigger.ChatInTimeWindow">Chat entra en franja horaria</option>
+                        <option value="@AutomationTrigger.StageEntered">Lead pasa a una etapa</option>
+                        <option value="@AutomationTrigger.LeadCreated">Lead nuevo</option>
+                    </select>
+                </div>
+                @if (_fTrigger == AutomationTrigger.NoReply)
+                {
+                    <div class="field">
+                        <label class="form-label">Minutos sin respuesta</label>
+                        <input class="form-control" type="number" min="1" @bind="_fMinutes" style="max-width:160px;" />
+                    </div>
+                }
+                else if (_fTrigger == AutomationTrigger.ChatInTimeWindow)
+                {
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Desde (HH:mm)</label>
+                            <input class="form-control" @bind="_fWinStart" placeholder="22:00" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Hasta (HH:mm)</label>
+                            <input class="form-control" @bind="_fWinEnd" placeholder="06:00" />
+                        </div>
+                    </div>
+                }
+                else if (_fTrigger == AutomationTrigger.StageEntered)
+                {
+                    <div class="field">
+                        <label class="form-label">Etapa</label>
+                        <select class="form-control" @bind="_fStageId">
+                            <option value="">Selecciona...</option>
+                            @foreach (var s in _stages)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="field">
+                    <label class="form-label">Accion (entonces...)</label>
+                    <select class="form-control" @bind="_fAction">
+                        <option value="@AutomationAction.CreateLeadAndReply">Crear lead + responder plantilla</option>
+                        <option value="@AutomationAction.CreateFollowUp">Crear tarea de seguimiento</option>
+                        <option value="@AutomationAction.NotifyAdvisor">Alertar al asesor</option>
+                        <option value="@AutomationAction.NotifySupervisor">Notificar supervisor</option>
+                        <option value="@AutomationAction.AssignToShift">Asignar a turno</option>
+                        <option value="@AutomationAction.GenerateWompiLink">Generar link Wompi</option>
+                    </select>
+                </div>
+                @if (_fAction == AutomationAction.CreateFollowUp)
+                {
+                    <div class="field">
+                        <label class="form-label">Titulo del seguimiento</label>
+                        <input class="form-control" @bind="_fTitle" placeholder="Cliente sin respuesta - dar seguimiento" autocomplete="off" />
+                    </div>
+                }
+                else if (_fAction == AutomationAction.CreateLeadAndReply)
+                {
+                    <div class="field">
+                        <label class="form-label">Categoria de pregrabado a responder</label>
+                        <input class="form-control" @bind="_fTemplateCategory" placeholder="saludo" autocomplete="off" />
+                    </div>
+                }
+                else if (_fAction == AutomationAction.AssignToShift)
+                {
+                    <div class="field">
+                        <label class="form-label">Turno</label>
+                        <input class="form-control" @bind="_fShift" placeholder="turno noche" autocomplete="off" />
+                    </div>
+                }
+                @if (_editorError is not null)
+                {
+                    <div class="text-danger small">@_editorError</div>
+                }
+            </div>
+            <div class="modal-foot" style="justify-content:space-between;">
+                @if (_editId is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="DeleteCurrentAsync" disabled="@_busy">Eliminar</button>
+                }
+                else { <span></span> }
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-outline-secondary" @onclick="() => _editorOpen = false">Cancelar</button>
+                    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editId is null ? "Crear" : "Guardar")</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _runMsg;
+    private List<AutomationRuleDto> _rules = new();
+    private List<PipelineStageDto> _stages = new();
+
+    private bool _editorOpen;
+    private Guid? _editId;
+    private string? _editorError;
+    private string _fName = "";
+    private AutomationTrigger _fTrigger = AutomationTrigger.NoReply;
+    private int _fMinutes = 30;
+    private string? _fWinStart;
+    private string? _fWinEnd;
+    private string? _fStageId;
+    private AutomationAction _fAction = AutomationAction.CreateFollowUp;
+    private string? _fTitle;
+    private string? _fTemplateCategory;
+    private string? _fShift;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stages = (await PipelineSvc.ListStagesAsync()).ToList();
+        await AutoSvc.SeedDefaultsAsync();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _rules = (await AutoSvc.ListAsync()).ToList();
+
+    private int SavedHours() => (int)Math.Round(_rules.Sum(r => r.ExecutionCount) * 3.0 / 60.0);
+
+    private void OpenNew()
+    {
+        _editId = null; _editorError = null;
+        _fName = ""; _fTrigger = AutomationTrigger.NoReply; _fMinutes = 30; _fWinStart = null; _fWinEnd = null; _fStageId = null;
+        _fAction = AutomationAction.CreateFollowUp; _fTitle = null; _fTemplateCategory = null; _fShift = null;
+        _editorOpen = true;
+    }
+
+    private void OpenEdit(AutomationRuleDto r)
+    {
+        _editId = r.Id; _editorError = null;
+        _fName = r.Name; _fTrigger = r.Trigger; _fMinutes = r.ThresholdMinutes;
+        _fWinStart = r.TimeWindowStart; _fWinEnd = r.TimeWindowEnd; _fStageId = r.StageId?.ToString();
+        _fAction = r.Action; _fTitle = r.FollowUpTitle; _fTemplateCategory = r.TemplateCategory; _fShift = r.ShiftName;
+        _editorOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _editorError = null;
+        if (string.IsNullOrWhiteSpace(_fName)) { _editorError = "El nombre es obligatorio."; return; }
+        Guid? stageId = _fTrigger == AutomationTrigger.StageEntered && Guid.TryParse(_fStageId, out var sid) ? sid : null;
+        if (_fTrigger == AutomationTrigger.StageEntered && stageId is null) { _editorError = "Selecciona una etapa."; return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var req = new SaveAutomationRuleRequest(_fName, _fTrigger, _fMinutes, stageId, _fWinStart, _fWinEnd, _fAction, _fTitle, _fTemplateCategory, _fShift);
+            if (_editId is null) { await AutoSvc.CreateAsync(req, actor); }
+            else { await AutoSvc.UpdateAsync(_editId.Value, req, actor); }
+            _editorOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleAsync(AutomationRuleDto r, bool active)
+    {
+        _busy = true;
+        try { var actor = await ActorAsync(); await AutoSvc.SetActiveAsync(r.Id, active, actor); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCurrentAsync()
+    {
+        if (_editId is null) { return; }
+        _busy = true;
+        try { var actor = await ActorAsync(); await AutoSvc.DeleteAsync(_editId.Value, actor); _editorOpen = false; await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task RunNowAsync()
+    {
+        _busy = true; _runMsg = null;
+        try
+        {
+            var actor = await ActorAsync();
+            var res = await AutoSvc.RunNowAsync(actor);
+            _runMsg = res.RulesEvaluated == 0
+                ? "No hay reglas activas de 'sin respuesta -> crear seguimiento' para ejecutar ahora."
+                : $"Se evaluaron {res.RulesEvaluated} regla(s) y se crearon {res.FollowUpsCreated} tarea(s) de seguimiento.";
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private string TriggerText(AutomationRuleDto r) => r.Trigger switch
+    {
+        AutomationTrigger.IncomingNoLead => "Mensaje entrante sin lead",
+        AutomationTrigger.NoReply => $"Chat sin respuesta > {r.ThresholdMinutes} min",
+        AutomationTrigger.ChatInTimeWindow => $"Chat entra entre {r.TimeWindowStart ?? "?"}-{r.TimeWindowEnd ?? "?"}",
+        AutomationTrigger.StageEntered => $"Lead pasa a {_stages.FirstOrDefault(s => s.Id == r.StageId)?.Name ?? "etapa"}",
+        AutomationTrigger.LeadCreated => "Lead nuevo",
+        _ => r.Trigger.ToString()
+    };
+
+    private string ActionText(AutomationRuleDto r) => r.Action switch
+    {
+        AutomationAction.CreateLeadAndReply => "Crear lead + responder plantilla",
+        AutomationAction.CreateFollowUp => "Crear seguimiento",
+        AutomationAction.NotifyAdvisor => "Alertar al asesor",
+        AutomationAction.NotifySupervisor => "Notificar supervisor",
+        AutomationAction.AssignToShift => $"Asignar a {r.ShiftName ?? "turno"}",
+        AutomationAction.GenerateWompiLink => "Generar link Wompi",
+        _ => r.Action.ToString()
+    };
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

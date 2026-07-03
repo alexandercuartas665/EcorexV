@@ -7,7 +7,7 @@
       "runtimeArgs": [
         "run",
         "--project",
-        "apps/backend/src/CubotNails.SuperAdmin/CubotNails.SuperAdmin.csproj",
+        "apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj",
         "--launch-profile",
         "http"
       ],
@@ -19,7 +19,7 @@
       "runtimeArgs": [
         "run",
         "--project",
-        "apps/backend/src/CubotNails.Web/CubotNails.Web/CubotNails.Web.csproj",
+        "apps/backend/src/Ecorex.Web/Ecorex.Web/Ecorex.Web.csproj",
         "--launch-profile",
         "http"
       ],

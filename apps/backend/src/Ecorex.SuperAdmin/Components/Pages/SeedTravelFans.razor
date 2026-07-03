@@ -1,0 +1,94 @@
+@page "/admin/seed-travelfans"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Seeders
+@inject TravelFansAgentSeeder Seeder
+@inject NavigationManager Nav
+
+<PageTitle>Sembrar agente TravelFans - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" /><path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" /></svg>
+            </div>
+            <span>Herramienta de carga</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Sembrar <span>TravelFans</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Carga el agente "TravelFans - Asistente Comercial" con su prompt base, 2 prompts enrutados (Planes generales y Planes especiales), su banco de recursos y sus campos de DATOS CACHE.</p>
+    </div>
+</div>
+
+<div class="card" style="padding:22px;max-width:760px;">
+    <div style="font-size:13px;color:var(--muted-foreground);margin-bottom:14px;">
+        El sembrador es <strong>idempotente</strong>: si el agente ya existe, solo agrega los items que falten. No reescribe lo que ya esta cargado.
+    </div>
+
+    @if (_result is null)
+    {
+        <button class="btn btn-primary" @onclick="RunAsync" disabled="@_busy">
+            @(_busy ? "Sembrando..." : "Sembrar agente TravelFans")
+        </button>
+    }
+    else
+    {
+        <div style="font-size:14px;margin-bottom:14px;">
+            <strong>@(_result.AgentCreated ? "Agente creado." : "Agente ya existia (actualizado).")</strong>
+            @if (_result.SystemPromptUpdated && !_result.AgentCreated)
+            {
+                <span class="text-muted" style="margin-left:6px;">SystemPrompt actualizado.</span>
+            }
+        </div>
+        <table class="table" style="font-size:13px;max-width:560px;">
+            <thead><tr><th>Tipo</th><th class="text-end">Creados</th><th class="text-end">Actualizados</th><th class="text-end">Sin cambio</th></tr></thead>
+            <tbody>
+                <tr><td>Prompts enrutados</td><td class="text-end">@_result.PromptsAdded</td><td class="text-end">@_result.PromptsUpdated</td><td class="text-end">-</td></tr>
+                <tr><td>Recursos</td><td class="text-end">@_result.ResourcesAdded</td><td class="text-end">-</td><td class="text-end">@_result.ResourcesSkipped</td></tr>
+                <tr><td>Campos de cache</td><td class="text-end">@_result.CacheFieldsAdded</td><td class="text-end">-</td><td class="text-end">@_result.CacheFieldsSkipped</td></tr>
+            </tbody>
+        </table>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+            <button class="btn btn-primary" @onclick="GoToAgents">Abrir Agentes IA</button>
+            <button class="btn btn-outline-secondary" @onclick="RunAsync" disabled="@_busy">Volver a ejecutar</button>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="text-danger small" style="margin-top:12px;">@_error</div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _busy;
+    private string? _error;
+    private TravelFansAgentSeeder.Result? _result;
+
+    private async Task RunAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            _result = await Seeder.SeedAsync(actor);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+
+    private void GoToAgents() => Nav.NavigateTo("/agentes");
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

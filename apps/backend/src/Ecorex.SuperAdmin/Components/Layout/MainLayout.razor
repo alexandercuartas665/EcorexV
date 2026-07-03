@@ -1,0 +1,52 @@
+@inherits LayoutComponentBase
+
+<div class="ecorex-shell">
+    <!-- Toggle solo-CSS del menu (off-canvas en movil). Funciona en cualquier render mode. -->
+    <input type="checkbox" id="ecorex-nav-toggle" class="ecorex-nav-toggle" autocomplete="off" />
+
+    <aside class="ecorex-sidebar">
+        <NavMenu />
+    </aside>
+
+    <!-- Capa oscura: al tocarla se cierra el menu (es un label del checkbox). -->
+    <label for="ecorex-nav-toggle" class="ecorex-nav-overlay" aria-hidden="true"></label>
+
+    <div class="ecorex-main">
+        <div class="ecorex-topbar">
+            <label for="ecorex-nav-toggle" class="ecorex-hamburger" aria-label="Abrir menu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+            </label>
+            <span class="ecorex-topbar-brand">ECOREX<span>.tareas</span></span>
+
+            <AuthorizeView>
+                <Authorized>
+                    <span class="ecorex-user-chip">@(context.User.FindFirst("platform_role") is not null ? "Operador" : "Agencia") · <strong>@context.User.Identity?.Name</strong></span>
+                    <form method="post" action="/auth/logout" class="m-0">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Salir</button>
+                    </form>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+
+        <div class="ecorex-content">
+            @Body
+        </div>
+    </div>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Ha ocurrido un error.
+    <a href="." class="reload">Recargar</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+<script>
+    // Cierra el menu movil al tocar un enlace de navegacion (complementa el cierre por overlay
+    // y el reseteo en navegaciones de pagina completa).
+    document.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('.ecorex-nav-link')) {
+            var t = document.getElementById('ecorex-nav-toggle');
+            if (t) t.checked = false;
+        }
+    });
+</script>

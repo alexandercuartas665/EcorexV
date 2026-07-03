@@ -8,7 +8,7 @@
 
 La seccion 6 pide login, selector de tenant, claims (sub, tenant_id, platform_role, tenant_role, permissions), politicas de autorizacion y pruebas de acceso cruzado. Las Notas de desarrollo describen login con Google (OIDC) en profundidad, pero eso requiere credenciales de Google Cloud (client id/secret, redirect URIs) que aun no estan provisionadas.
 
-Tanto el login local como el de Google terminan igual: CUBOT.nails emite su propio JWT tras validar la identidad. Esa parte (emision de token, claims, /connect/me, switch-tenant, politicas) es agnostica al proveedor.
+Tanto el login local como el de Google terminan igual: ECOREX.tareas emite su propio JWT tras validar la identidad. Esa parte (emision de token, claims, /connect/me, switch-tenant, politicas) es agnostica al proveedor.
 
 ## Decision
 

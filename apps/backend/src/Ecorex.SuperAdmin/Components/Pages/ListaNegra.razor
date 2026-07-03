@@ -1,0 +1,117 @@
+@page "/lista-negra"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Tenancy
+@inject IBlockedNumberService BlockedSvc
+
+<PageTitle>Lista negra - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+            </div>
+            <span>Comunicacion e IA</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Lista negra</h1>
+        <p class="page-sub" style="margin-bottom:0;">Numeros que el agente de IA NO debe atender (proveedores, spam, contactos internos). El bot deja de responderles.</p>
+    </div>
+</div>
+
+<div class="card" style="max-width:760px;padding:18px 20px;margin-bottom:18px;">
+    <div class="field-row" style="align-items:flex-end;">
+        <div class="field" style="flex:1 1 auto;">
+            <label class="form-label">Telefono *</label>
+            <input class="form-control" @bind="_phone" placeholder="Ej. +57 300 111 2233" autocomplete="off" />
+        </div>
+        <div class="field" style="flex:2 1 auto;">
+            <label class="form-label">Nota (opcional)</label>
+            <input class="form-control" @bind="_note" placeholder="Ej. Proveedor de insumos" maxlength="120" autocomplete="off" />
+        </div>
+        <div class="field" style="flex:0 0 auto;">
+            <button class="btn btn-danger" @onclick="AddAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_phone))">Agregar</button>
+        </div>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="text-danger small">@_error</div>
+    }
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_items.Count == 0)
+{
+    <div class="card" style="padding:24px;text-align:center;color:var(--muted-foreground);max-width:760px;">No hay numeros en la lista negra.</div>
+}
+else
+{
+    <div class="card" style="max-width:760px;padding:0;overflow:hidden;">
+        <table class="data-table" style="width:100%;font-size:13.5px;">
+            <thead><tr><th style="text-align:left;">Telefono</th><th style="text-align:left;">Nota</th><th>Agregado</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var b in _items)
+                {
+                    <tr>
+                        <td style="text-align:left;font-weight:600;">@b.Phone</td>
+                        <td style="text-align:left;color:var(--muted-foreground);">@(string.IsNullOrWhiteSpace(b.Note) ? "-" : b.Note)</td>
+                        <td style="white-space:nowrap;color:var(--muted-foreground);">@b.CreatedAt.LocalDateTime.ToString("dd MMM yyyy")</td>
+                        <td style="text-align:right;"><button class="btn btn-sm btn-outline-secondary" @onclick="() => RemoveAsync(b.Id)" disabled="@_busy">Quitar</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _phone;
+    private string? _note;
+    private string? _error;
+    private List<BlockedNumberDto> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _items = (await BlockedSvc.ListAsync()).ToList();
+
+    private async Task AddAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_phone)) { return; }
+        _busy = true;
+        try
+        {
+            var added = await BlockedSvc.AddAsync(_phone!, _note, await ActorAsync());
+            if (added is null) { _error = "Telefono invalido (minimo 7 digitos)."; return; }
+            _phone = null; _note = null;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveAsync(Guid id)
+    {
+        _busy = true;
+        try { await BlockedSvc.RemoveAsync(id, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

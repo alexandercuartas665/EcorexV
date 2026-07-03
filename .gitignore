@@ -52,7 +52,7 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
-# CUBOT.nails - secretos y datos locales
+# ECOREX.tareas - secretos y datos locales
 .claude/scheduled_tasks.lock
 .env
 .env.local
@@ -65,18 +65,18 @@ deploy/docker/redis-data/
 deploy/docker/pgadmin-data/
 
 # Archivos subidos en tiempo de ejecucion (logos, avatares, media de chat/agentes)
-apps/backend/src/CubotNails.SuperAdmin/wwwroot/uploads/
+apps/backend/src/Ecorex.SuperAdmin/wwwroot/uploads/
 
 # Binarios/herramientas locales (cloudflared para el tunel de desarrollo)
 tools/
 
 # Excepcion: Bootstrap vendorizado del backend (la regla generica `dist` de arriba,
 # pensada para el prototipo JS, lo estaba ignorando y rompia el CSS en produccion).
-!apps/backend/src/CubotNails.SuperAdmin/wwwroot/lib/
-!apps/backend/src/CubotNails.SuperAdmin/wwwroot/lib/**
+!apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/
+!apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/**
 
 # Artefacto de runtime del script start local.
-.cubot-pid
+.ecorex-pid
 
 # Fotos protegidas (clasificacion de cabello) - nunca versionar
-apps/backend/src/CubotNails.SuperAdmin/protected-media/
+apps/backend/src/Ecorex.SuperAdmin/protected-media/

@@ -9,7 +9,7 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "CUBOT.nails — Dashboard de tu Agencia" },
+      { title: "ECOREX.tareas — Dashboard de tu Agencia" },
       { name: "description", content: "Pipeline, conversaciones WhatsApp, agentes IA y métricas comerciales de tu agencia turística en un solo lugar." },
     ],
   }),
@@ -137,7 +137,7 @@ function Dashboard() {
               <div className="size-7 rounded-lg bg-gold grid place-items-center">
                 <Sparkles className="size-4 text-gold-foreground" />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary-foreground/80">Copiloto IA · CUBOT</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary-foreground/80">Copiloto IA · ECOREX</span>
             </div>
             <h3 className="font-bold text-lg tracking-tight mt-3">3 oportunidades detectadas hoy</h3>
             <p className="text-sm text-primary-foreground/80 mt-1">El agente analizó 247 conversaciones esta mañana.</p>
@@ -268,7 +268,7 @@ function Dashboard() {
       </section>
 
       <footer className="text-center text-[11px] text-muted-foreground pt-2 pb-4">
-        CUBOT.nails v0.1 · CRM Conversacional Multi-Tenant para Agencias Turísticas
+        ECOREX.tareas v0.1 · CRM Conversacional Multi-Tenant para Agencias Turísticas
       </footer>
     </div>
   );

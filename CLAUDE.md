@@ -1,4 +1,4 @@
-# CLAUDE.md - Memoria del agente de desarrollo para CUBOT.nails
+# CLAUDE.md - Memoria del agente de desarrollo para ECOREX.tareas
 
 > Primera lectura obligatoria para cualquier agente (Claude Code u otro) antes de
 > modificar codigo en este repositorio. Reglas pequenas, concretas y verificables.
@@ -8,31 +8,30 @@
 
 ## 1. Contexto del proyecto
 
-CUBOT.nails es un **SaaS multi-tenant de agenda y turnos para centros de belleza**
-(salones de unas, peluquerias, spas, barberias). El activo critico del negocio es
-el **tiempo disponible de cada profesional y cada estacion**, no un catalogo ni un
-embudo de ventas. El corazon del producto es un **motor de agenda** que calcula
-disponibilidad real, evita choques de horario y permite reservar, reprogramar y
-liberar citas con trazabilidad completa.
+ECOREX - Sistema de Tareas es la **reconstruccion sobre .NET 10** de un gestor de
+**tareas, proyectos, tableros Kanban, flujos de proceso BPMN 2.0, formularios
+dinamicos y reglas de negocio** que hoy corre en WebForms/VB.NET (GestionMovil,
+legacy en `C:\Desarrollo\core`, SOLO referencia). Es un SaaS multi-tenant donde
+**el proceso, el formulario y la regla se configuran sin codigo**.
 
 Pilares:
 
-- Reservas y confirmaciones por **WhatsApp** via Evolution API.
-- Recordatorios automaticos y control de **no-show**.
-- **Agentes de IA** (recepcionista virtual que propone horarios reales, nunca inventa).
-- **Facturacion SaaS** con Wompi maestro y planes con limites.
-- **Super Admin** de plataforma separado del admin de tenant (salon).
+- **Multi-tenant real**: `TenantId` (Guid v7) + `HasQueryFilter` global + RLS en BD.
+- **DAL dual**: PostgreSQL y SQL Server tras `IEcorexDbContext`, elegido por `Database:Provider`.
+- **Tres motores**: WorkflowEngine (BPMN, bpmn-js), DynamicFormRenderer (EAV -> jsonb), RulesEngine (verbos tipados).
+- **PlatformAdmin** (Super Admin) separado del admin de tenant, con MFA y auditoria inmutable.
+- **Agentes de IA gobernados** (AI Provider Gateway multi-proveedor, cupos por plan).
 
 ### Origen del codigo (importante)
 
-Este repo se **clono desde `cubotcrm.git`** (codigo de CUBOT.travels, el hermano
-mayor de la familia CUBOT) y se renombro `CubotTravels` -> `CubotNails`. Toda la
-columna vertebral SaaS (Super Admin, IA, Evolution, identidad, marca, Wompi) **ya
-viene funcionando**; lo que se construye nuevo es el **nucleo operativo del salon**
-(agenda, turnos, citas, asesores, cadenas, puntualidad).
+Este repo se **clono del backbone `CUBOT.nails`** (a su vez derivado de `cubotcrm.git`,
+la familia SaaS ECOREX) y se renombro `CubotNails.*` -> `Ecorex.*`. La columna
+vertebral SaaS (Super Admin, identidad JWT, planes, integraciones, AI Gateway)
+**ya viene funcionando**; lo que se construye nuevo es el **nucleo de tareas,
+tableros y proyectos + los tres motores**, y se ELIMINA el dominio belleza/agenda.
 
-- `origin`   -> https://github.com/alexandercuartas665/CUBOT.nails.git (push del proyecto nails)
-- `upstream` -> https://github.com/alexandercuartas665/cubotcrm.git (backports de la columna vertebral hermana via fetch + cherry-pick)
+- `origin`   -> https://github.com/alexandercuartas665/EcorexV.git (push del proyecto)
+- `upstream` -> https://github.com/alexandercuartas665/cubotcrm.git (backports del backbone via fetch + cherry-pick)
 
 ---
 
@@ -41,20 +40,23 @@ viene funcionando**; lo que se construye nuevo es el **nucleo operativo del salo
 Las especificaciones funcionales viven en:
 
 ```
-C:\Users\acuartas\Documents\Personal\OneDrive\Proyectos\08. Agente Belleza\CUBOT.nails
+C:\Users\acuartas\OneDrive - Bitcode IT Services S.A.S\Bitcode\13. Proyectos\044. Tareas\OBSIDIAN.tareas
 ```
+
+Repo del vault: https://github.com/alexandercuartas665/EcorexV_obsidian.git
+(empezar SIEMPRE por `00 - INDICE.md`).
 
 Documentos maestros (leer en este orden):
 
-1. `02. Inventario de modulos/INVENTARIO GENERAL.md` - modulos, capas, dependencias, tracker
-2. `03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md` - plan paso a paso (contrato de trabajo)
-3. `01. Requerimiento/Capa 0 Vision General/CUBOT.nails.md` - arquitectura general
-4. `01. Requerimiento/Capa 2 Agenda y Turnos/Agenda, Turnos y Citas - Nucleo Operativo.md` - el corazon
-5. `01. Requerimiento/Capa 1 Gestion de tenant/Gestion de Tenant - Super Admin SaaS.md` - gobierno SaaS
-6. `01. Requerimiento/Capa 3 Agentes de IA/Agentes de IA - Arquitectura y Operacion.md` - capa IA
-7. `02. Inventario de modulos/Modelo de Datos - Entidades y Tablas.md` - modelo de datos
-8. `04. Notas para desarrollador/Notas de desarrollo.md` - concurrencia, anti-overbooking, login
-9. `05. Pruebas/Modelo de pruebas/CREDENCIALES - Usuarios y claves por perfil.md` - credenciales demo
+1. `01. Requerimiento/Capa 0 Vision General/Vision y entorno.md` - que es ECOREX Tareas, stack, shell
+2. `01. Requerimiento/Prototipo/00 - Prototipo Final ECOREX.md` - aspecto y navegacion DEFINITIVOS (abrir el HTML)
+3. `03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md` - plan de construccion (contrato de trabajo)
+4. `01. Requerimiento/Capa 1 Gestion de tenant/Gestion de Empresas - Admin multi-tenant.md` - los 9 errores heredados
+5. `01. Requerimiento/Capa 5 Librerias Base/00 - Vision MotherData.md` - DAL dual (origen del concepto)
+6. `04. Notas para desarrollador/Seguridad y Autenticacion multi-tenant.md` - JWT, MFA, policies, RLS
+7. `04. Notas para desarrollador/ADRs - Decisiones de arquitectura.md` - 10 ADRs con su porque
+8. `05. Pruebas/Modelo de pruebas/Estrategia de Testing (.NET 10).md` + `CREDENCIALES - Usuarios y claves.md`
+9. `02. Inventario de modulos/` (INVENTARIO GENERAL + Modelo Entidad-Relacion logico) - plano del ETL
 
 Antes de implementar un modulo, leer su documento. No reinterpretar requerimientos de memoria.
 
@@ -63,184 +65,158 @@ Antes de implementar un modulo, leer su documento. No reinterpretar requerimient
 ## 3. Estructura del repositorio
 
 ```txt
-CUBOT.nails/
+ECOREX.tareas/
 +-- apps/
-|   +-- web-prototype/                # prototipo React/TanStack (SOLO referencia visual, no es el producto)
+|   +-- web-prototype/                # prototipo React heredado (SOLO referencia, no es el producto)
 |   +-- backend/
-|       +-- CubotNails.sln
+|       +-- Ecorex.sln
 |       +-- src/
-|       |   +-- CubotNails.Domain/            (entidades + enums)
-|       |   +-- CubotNails.Application/        (servicios, DTOs, casos de uso)
-|       |   +-- CubotNails.Infrastructure/     (EF Core, migraciones, integraciones)
-|       |   +-- CubotNails.Shared/             (contratos compartidos)
-|       |   +-- CubotNails.Api/                (Minimal API + JWT)
-|       |   +-- CubotNails.SuperAdmin/         (CONSOLA UNIFICADA Blazor: super admin Y tenant)
-|       |   +-- CubotNails.Web/                (Blazor Web App heredado + .Client WASM)
-|       |   +-- CubotNails.Workers/            (BackgroundServices)
+|       |   +-- Ecorex.Domain/             (entidades + enums)
+|       |   +-- Ecorex.Application/        (servicios, DTOs, casos de uso)
+|       |   +-- Ecorex.Infrastructure/     (EF Core, migraciones, integraciones)
+|       |   +-- Ecorex.Shared/             (contratos compartidos)
+|       |   +-- Ecorex.Api/                (Minimal API + JWT)
+|       |   +-- Ecorex.SuperAdmin/         (CONSOLA UNIFICADA Blazor: PlatformAdmin Y tenant, separados por policies)
+|       |   +-- Ecorex.Web/                (Blazor Web App heredado + .Client WASM; rol final por decidir)
+|       |   +-- Ecorex.Workers/            (BackgroundServices)
 |       +-- tests/
-|           +-- CubotNails.Domain.Tests/
-|           +-- CubotNails.Application.Tests/
-|           +-- CubotNails.Integration.Tests/  (Testcontainers - requiere Docker)
-+-- deploy/docker/                    # docker-compose, .env.example, README
-+-- docs/decisiones/                  # ADRs
-+-- docs/arquitectura/
+|           +-- Ecorex.Domain.Tests/
+|           +-- Ecorex.Application.Tests/
+|           +-- Ecorex.Integration.Tests/  (Testcontainers - requiere Docker)
++-- deploy/docker/                    # docker-compose, .env.example, preflight, README
++-- docs/decisiones/                  # ADRs del repo
++-- PROGRESO.md                       # bitacora de avance por sesion (OBLIGATORIA)
 +-- CLAUDE.md                         # este archivo
 ```
 
-**Decision clave (heredada de CUBOT.travels):** la consola es **UNA SOLA** app Blazor
-(`CubotNails.SuperAdmin`) que sirve paginas de super admin Y de tenant, separadas por
-**politicas** (`PlatformOperator` vs `TenantMember`), no por aplicaciones distintas.
-
-`CubotNails.Web` viene heredado; su rol final aun se decide (ver pendientes). No borrarlo
-sin un ADR.
+Pendientes de adaptacion del backbone (ver PROGRESO.md): agregar
+`Ecorex.Infrastructure.SqlServer` (DAL dual), eliminar dominio belleza/agenda,
+construir nucleo tareas/tableros/proyectos + motores, menu del Prototipo Final.
 
 ---
 
 ## 4. Stack tecnico
 
-- **.NET**: el codigo apunta hoy a **net9.0** (puente). Objetivo declarado .NET 10;
-  migrar a `net10.0` es un cambio aparte que requiere su propio ADR y validacion.
-  En esta maquina hay SDK 10.0.300 y 9.0.314.
-- Blazor (Server interactivo) para consola y web del salon. SignalR para tiempo real.
-- EF Core + PostgreSQL (snake_case, jsonb, query filters por tenant).
-- Redis: cache de disponibilidad, **locks de reserva**, rate limiting.
-- RabbitMQ + MassTransit para eventos/recordatorios (en MVP pueden ser in-process via MediatR).
+- **.NET**: el codigo heredado apunta a **net9.0**; el objetivo del proyecto es
+  **.NET 10** (SDK 10.0.301 instalado en esta maquina). La migracion de TFM es un
+  cambio explicito con su propio commit + ADR.
+- Blazor (Server interactivo) para consola. SignalR para tableros/notificaciones en vivo.
+- EF Core: PostgreSQL (snake_case, jsonb) Y SQL Server (DAL dual). Query filters por tenant.
+- Redis: cache, locks, rate limiting. RabbitMQ + MassTransit para eventos de negocio.
 - Serilog + OpenTelemetry. Docker para infraestructura local.
 - Clean Architecture + monolito modular preparado para microservicios.
 
 **Frontend del producto: 100% .NET / Blazor (regla firme).** Prohibido Node/npm/React/Vue/Vite
 para construir o desplegar la UI del producto. E2E con Playwright para .NET. El `web-prototype`
-React solo es guia visual; no se evoluciona como producto.
+React y el `ECOREX - Prototipo Final.html` del vault son solo guia visual.
 
-**Infraestructura local (puertos reasignados, ver docker-compose):**
-Postgres 5434 (`cubot_nails_dev`), Redis 6381, RabbitMQ 5673 / UI 15673, pgAdmin 5051.
+**Infraestructura local (bloque de puertos DEDICADO, prefijo `ecorex-tareas-`):**
+
+| Servicio        | Puerto host | Contenedor                |
+|-----------------|-------------|---------------------------|
+| PostgreSQL 16   | 5442        | ecorex-tareas-postgres    |
+| SQL Server 2022 | 1443        | ecorex-tareas-sqlserver   |
+| Redis           | 6389        | ecorex-tareas-redis       |
+| RabbitMQ        | 5682/15682  | ecorex-tareas-rabbitmq    |
+| Adminer         | 8092        | ecorex-tareas-adminer     |
+
+Correr `deploy/docker/preflight.ps1` ANTES de `docker compose up -d`.
 
 ---
 
-## 5. REGLA DE ORO DEL DOMINIO: nunca overbooking
+## 5. REGLAS INVIOLABLES (los 9 errores heredados que NO se heredan)
 
-El motor de agenda **jamas** puede permitir dos citas en el mismo cupo. Defensa de dos capas,
-ambas obligatorias (ver `04. Notas para desarrollador/Notas de desarrollo.md`):
-
-1. **Base de datos (fuente de verdad):** `UNIQUE(tenant_id, resource_id, appointment_date, start_time)`.
-   Si dos transacciones chocan, Postgres deja pasar una y rechaza la otra; el servicio traduce
-   la violacion a un mensaje amable ("ese horario acaba de ocuparse").
-2. **Aplicacion (mejor experiencia):** lock corto en Redis (`SET NX EX ~10s`) antes de tocar la BD.
-
-Reprogramar = liberar origen + ocupar destino en **una sola transaccion** (rollback si el destino
-viola el unique; registrar `RescheduledFromId`). La IA usa la **misma** ruta de reserva: no tiene
-atajos que salten estas defensas. El **test de concurrencia** que prueba la imposibilidad de doble
-reserva es el hito mas critico del producto.
-
-Zona horaria: la cita se guarda con fecha/hora **local del salon** (`DateOnly`+`TimeOnly`) + `Tenant.TimeZone`.
-UTC solo para auditoria.
+1. **Multi-tenant REAL**: `TenantId` + `HasQueryFilter` global + RLS. PROHIBIDO filtrar
+   a mano por columna. Una query cross-tenant debe ser imposible por construccion.
+2. **DAL dual**: nunca SQL crudo fuera de repositorios por proveedor. Toda prueba de
+   integracion corre en Postgres Y SQL Server (Testcontainers).
+3. **SQL parametrizado** (cero concatenacion). Prohibido `FromSqlRaw` con interpolacion de usuario.
+4. **Transacciones** en toda operacion multi-tabla; rollback total si un paso falla.
+5. **Soft-delete + cascada diferida** (nunca DELETE directo de agregados). Auditoria
+   inmutable (`AdminAuditLog`) en cada accion de PlatformAdmin, dentro de la transaccion.
+6. **Secretos SOLO en `.env` local / Key Vault / DataProtection.** El repo es PUBLICO:
+   nunca commitear credenciales, tokens ni cadenas de conexion.
+7. **db3dev (BD legacy): SOLO LECTURA.** Pedir autorizacion al usuario antes de usarla.
+   La conexion NO esta en el repo (ver nota del vault).
+8. **Concurrencia optimista** (rowversion / xmin) en tareas y flujos.
+9. **Zona horaria del tenant + UTC** para toda fecha; nada de GETDATE() implicito.
 
 ---
 
 ## 6. Multi-tenancy (regla bloqueante)
 
-- Toda entidad operativa de tenant lleva `TenantId` obligatorio.
-- Toda consulta tenant-scoped filtra por tenant (Query Filters de EF Core).
-- Sin fuga de datos entre salones. Tests de aislamiento desde el primer modulo.
-- Super Admin no se mezcla con admin de tenant: endpoints, politicas, UI y auditoria separados.
-- Roles de salon: **Owner, Admin, Reception, Professional**. Un `Professional` se vincula a su
-  `Resource` (`LinkedResourceId`) para ver solo su agenda.
+- Toda entidad de negocio implementa `ITenantScoped { Guid TenantId }`.
+- `HasQueryFilter` global aplicado por reflexion en `OnModelCreating` a toda entidad scoped.
+- RLS en BD como defensa en profundidad (Postgres `CREATE POLICY`; SQL Server `SECURITY POLICY`).
+- Resolucion de tenant: claim JWT `tenant_id` -> subdominio/header -> 400 (nunca default silencioso).
+- PlatformAdmin es el UNICO acceso cross-tenant, via `IPlatformDbContext` auditado, con MFA.
+- **El test de aislamiento cross-tenant DEBE fallar si algo de esto se rompe** y corre
+  en AMBOS motores. Es condicion de merge.
 
 ---
 
-## 7. Seguridad (regla no negociable)
-
-- Secretos en `.env` / user-secrets / DataProtection cifrado en BD - **nunca** versionados ni en claro.
-- No loggear: tokens Evolution API, llaves Wompi, llaves IA, credenciales, mensajes privados, id/refresh tokens.
-- HTTPS obligatorio fuera de localhost. JWT propio de CUBOT.nails (Google es identidad, no permisos).
-- Rate limiting en auth. Auditoria de acciones sensibles (Super Admin, estado de tenant, Evolution, Wompi).
-
----
-
-## 8. IA (regla no negociable)
-
-- Ningun agente se ejecuta sin tenant activo ni si el plan no lo permite.
-- Toda ejecucion registra `AiUsageLog`: proveedor, modelo, tokens in/out, costo, agente, tenant, correlation id.
-- La IA **no inventa** disponibilidad, precios, reservas ni condiciones. Solo ofrece cupos que el motor valido.
-- La IA inicia en **modo sugerencia**; auto-confirmar solo con configuracion explicita del salon.
-
----
-
-## 9. Orden de construccion (hoja de ruta nails, seccion 4.5)
-
-Como el clon ya trae Super Admin + IA + Evolution + identidad + marca, el 80% del trabajo nuevo
-esta en el **Nucleo Operativo (Capa 2)**:
+## 7. Orden de construccion (hoja de ruta del vault)
 
 ```
-YA VIENE (renombrar/sembrar/rebrandear):
-  Plataforma multi-tenant, Super Admin, Onboarding, Usuarios/Roles,
-  Lineas WhatsApp + Evolution + SignalR, AI Gateway + Agentes, Branding, Auditoria,
-  Conversaciones, Plantillas, Automatizaciones.
-
-CONSTRUIR NUEVO (en este orden):
-  Menu del sistema (bloqueante de Fase 1)
-   -> Servicios -> Recursos (Asesores de imagen) -> Turnos base
-    -> Motor de disponibilidad -> Citas (ANTI-OVERBOOKING, hito critico)
-     -> Excepciones (globales + por asesor) -> Vista Dia / Semana / Asignacion
-      -> Cadena multi-estacion + Puntualidad 3 estados -> Reprogramaciones
-       -> Recordatorios 24h/2h + No-Show worker -> Dashboard -> Capa IA de reservas
-
-ELIMINAR del menu (son del CRM, no aplican a un salon):
-  Pipeline.razor, Tableros.razor, TableroDetalle.razor y reportes de embudo.
+FASE 0  Setup: clon del backbone, renombrado, docker dedicado, CLAUDE.md, PROGRESO.md   [esta fase]
+FASE 1  Multi-tenancy + Super Admin operativo (PRIMER ENTREGABLE):
+        seeders PlatformAdmin + tenant demo SKY SYSTEM + planes,
+        proveedor SQL Server (DAL dual), test de aislamiento dual  [BLOQUEANTE]
+FASE 2  Auth (JWT + refresh + policies + MFA) y MENU del Prototipo Final (stubs por policy)
+FASE 3  Nucleo operativo: TaskItem -> detalle + worklog -> tableros Kanban SignalR -> proyectos
+FASE 4  Motores: WorkflowEngine (BPMN) -> DynamicFormRenderer (jsonb) -> RulesEngine
+FASE 5  Modulos de sistema: Dependencias (000850) y Modulos web (000109)
+FASE 6  ETL desde db3dev (tenant 01=BITCODE), idempotente, round-trip + conteos
+FASE 7  CI/CD: matriz dual, gates de merge, blue/green
 ```
 
-**Primera tarea funcional (antes de cualquier modulo de negocio):** reorganizar el menu/`NavMenu.razor`
-por secciones (Operacion diaria / Configuracion del salon / Comunicacion e IA / Gestion del negocio),
-con stubs de paginas y politicas. Detalle en la Hoja de Ruta.
+ELIMINAR del backbone (dominio belleza, no aplica): agenda, citas, turnos, asesores,
+disponibilidad, no-show, Wompi de salon. Hacerlo con ADR y en commits separados.
 
 ---
 
-## 10. Checklist antes de cada commit
+## 8. Checklist antes de cada commit
 
-- [ ] `dotnet build` verde en `apps/backend/CubotNails.sln`.
-- [ ] `dotnet test` verde en proyectos tocados (Integration.Tests requiere Docker).
-- [ ] Sin secretos versionados; sin credenciales/tokens/mensajes privados en logs.
-- [ ] Sin queries tenant-scoped sin filtro de tenant.
-- [ ] Ninguna ruta de reserva puede producir overbooking (unique + lock presentes).
-- [ ] Si toca Super Admin: auditoria. Si toca IA: medicion de tokens. Si toca Wompi/Evolution: webhooks idempotentes.
-- [ ] Si cierra un modulo: actualizar `INVENTARIO GENERAL.md`. Si hay decision nueva: ADR en `docs/decisiones/`.
+- [ ] `dotnet build` verde en `apps/backend/Ecorex.sln`.
+- [ ] `dotnet test` verde en proyectos tocados (Integration.Tests requiere Docker, corre dual).
+- [ ] Test de aislamiento cross-tenant pasa (cuando exista, en AMBOS motores).
+- [ ] Sin secretos versionados; sin credenciales/tokens en logs.
+- [ ] Sin queries tenant-scoped sin filtro global; sin SQL crudo fuera de repos por proveedor.
+- [ ] Operaciones multi-tabla en transaccion; borrados como soft-delete.
+- [ ] Si toca PlatformAdmin: auditoria. Si toca IA: `AiUsageLog`.
+- [ ] Actualizar `PROGRESO.md` (cada sesion) y, si cierra modulo, `INVENTARIO GENERAL.md` del vault.
+- [ ] Decision arquitectonica nueva -> ADR en `docs/decisiones/` + reflejo en el vault.
 - [ ] Archivos nuevos en ASCII.
 
 ---
 
-## 11. Comandos clave del entorno local
+## 9. Comandos clave del entorno local
 
 ```powershell
 # Build / test
-cd C:\DesarrolloIA\CUBOT.nails\apps\backend
-dotnet build CubotNails.sln
-dotnet test  CubotNails.sln
+cd C:\DesarrolloIA\ECOREX.tareas\apps\backend
+dotnet build Ecorex.sln
+dotnet test  Ecorex.sln
 
-# Infraestructura local
-cd C:\DesarrolloIA\CUBOT.nails\deploy\docker
-docker compose up -d ; docker compose ps
+# Infraestructura local (pre-flight primero)
+cd C:\DesarrolloIA\ECOREX.tareas\deploy\docker
+.\preflight.ps1 ; docker compose up -d ; docker compose ps
 
-# Migraciones EF. startup-project = Infrastructure (tiene el IDesignTimeDbContextFactory y
-# referencia EFCore.Design; SuperAdmin NO referencia Design). Ejecutar desde apps/backend.
+# Migraciones EF (startup-project = Infrastructure, ejecutar desde apps/backend)
 dotnet ef migrations add NombreMigracion `
-  --project src/CubotNails.Infrastructure --startup-project src/CubotNails.Infrastructure
+  --project src/Ecorex.Infrastructure --startup-project src/Ecorex.Infrastructure
 dotnet ef database update `
-  --project src/CubotNails.Infrastructure --startup-project src/CubotNails.Infrastructure
+  --project src/Ecorex.Infrastructure --startup-project src/Ecorex.Infrastructure
 
 # Levantar la consola unificada
-dotnet run --project apps/backend/src/CubotNails.SuperAdmin --launch-profile https
+.\start-ecorex.ps1        # desde la raiz del repo
 ```
 
 ---
 
-## 12. Riesgos a no romper
+## 10. Registro de avance (OBLIGATORIO, cada sesion)
 
-1. **Overbooking** (la regla de oro): unique + lock Redis + test de concurrencia.
-2. Fuga de datos entre salones: tests de aislamiento desde el primer modulo.
-3. IA inventando horarios: solo ofrece lo que el motor de disponibilidad valida.
-4. Costos IA sin control: validar plan, registrar `AiUsageLog`, modo sugerencia.
-5. Citas huerfanas al recortar turnos: validacion + confirmacion explicita.
-6. No-show alto: recordatorios + confirmacion + sena opcional.
-7. Zona horaria: fecha/hora local del salon + `Tenant.TimeZone`.
-8. Super Admin mezclado con tenant: roles/politicas/UI/auditoria separados.
-9. Wompi duplicando pagos: idempotencia por `provider_event_id`.
+- **En este repo**: agregar entrada a `PROGRESO.md` (fecha, agentes, hecho, siguiente,
+  bloqueos, decisiones) y ADRs nuevos en `docs/decisiones/`.
+- **En el vault** (repo aparte, commit + push): INVENTARIO GENERAL al cerrar modulo,
+  ADRs al decidir, `05. Pruebas/Historial de pruebas/00 - Registro de corridas.md` al testear.

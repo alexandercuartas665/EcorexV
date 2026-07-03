@@ -6,7 +6,7 @@
 
 ## Contexto
 
-Los mensajes entrantes llegan desde Evolution API mediante webhooks. Estas peticiones NO traen el JWT propio de CUBOT.nails, por lo que no aplican las politicas ni el `ITenantContext` basado en claims. Hay que resolver el tenant y aislar los datos de otra forma, y garantizar idempotencia (Evolution puede reenviar el mismo evento).
+Los mensajes entrantes llegan desde Evolution API mediante webhooks. Estas peticiones NO traen el JWT propio de ECOREX.tareas, por lo que no aplican las politicas ni el `ITenantContext` basado en claims. Hay que resolver el tenant y aislar los datos de otra forma, y garantizar idempotencia (Evolution puede reenviar el mismo evento).
 
 ## Decision
 

@@ -1,0 +1,6 @@
+@Ecorex.Api_HostAddress = http://localhost:5280
+
+GET {{Ecorex.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

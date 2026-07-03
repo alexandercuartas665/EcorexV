@@ -1,12 +1,12 @@
 # ADR-0001: Puertos Docker locales reasignados
 
 **Fecha:** 2026-05-19
-**Estado:** Aceptado
-**Contexto del proyecto:** CUBOT.nails - Fase de scaffolding inicial
+**Estado:** REEMPLAZADO por ADR-0010 (2026-07-03, bloque dedicado ECOREX Tareas)
+**Contexto del proyecto:** heredado del backbone CUBOT.nails - scaffolding inicial
 
 ## Contexto
 
-La maquina de desarrollo (`C:\DesarrolloIA\CUBOT.nails`) ya tiene una pila Docker activa (`propia-*`) que ocupa los puertos host estandar de la hoja de ruta:
+La maquina de desarrollo (`C:\DesarrolloIA\ECOREX.tareas`) ya tiene una pila Docker activa (`propia-*`) que ocupa los puertos host estandar de la hoja de ruta:
 
 - `propia-pgadmin` -> 5050
 - `propia-postgres` -> 5433
@@ -16,7 +16,7 @@ El usuario pidio explicitamente "valida puertos antes de crear los nuevos servic
 
 ## Decision
 
-Asignar a CUBOT.nails un rango de puertos hermano de la pila `propia-*` para mantener simetria y evitar colisiones:
+Asignar a ECOREX.tareas un rango de puertos hermano de la pila `propia-*` para mantener simetria y evitar colisiones:
 
 | Servicio | Hoja de ruta | Asignado |
 |----------|--------------|----------|

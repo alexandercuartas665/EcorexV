@@ -1,0 +1,400 @@
+@page "/tenants"
+@attribute [Authorize(Policy = "PlatformOperator")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject ITenantAdminService TenantsSvc
+@inject ISubscriptionAdminService SubsSvc
+@inject IPlanAdminService PlansSvc
+@inject IOnboardingService OnboardingSvc
+
+<PageTitle>Agencias - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Agencias</h1>
+        <p class="page-sub" style="margin-bottom:0;">Cada agencia es un tenant aislado con sus propios usuarios, lineas WhatsApp, pipelines y datos.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ Nueva agencia</button>
+</div>
+
+@if (_tenants is null)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));max-width:1040px;">
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg></div></div>
+            <div class="kpi-label">Total agencias</div>
+            <div class="kpi-value">@_tenants.Count</div>
+            <div class="kpi-hint">Tenants registrados</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div></div>
+            <div class="kpi-label">Activas</div>
+            <div class="kpi-value">@Count(TenantStatus.Active)</div>
+            <div class="kpi-hint">Operando hoy</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+            <div class="kpi-label">En trial</div>
+            <div class="kpi-value">@Count(TenantStatus.Trial)</div>
+            <div class="kpi-hint">Periodo de prueba</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg></div></div>
+            <div class="kpi-label">Suspendidas</div>
+            <div class="kpi-value">@(Count(TenantStatus.Suspended) + Count(TenantStatus.Blocked))</div>
+            <div class="kpi-hint">Sin acceso</div>
+        </div>
+    </div>
+
+    @if (_tenants.Count == 0)
+    {
+        <p class="text-muted">No hay agencias todavia. Crea la primera con "Nueva agencia".</p>
+    }
+    else
+    {
+        <div class="card" style="max-width:1100px;padding:6px 16px;">
+            <table class="table table-hover align-middle" style="margin-bottom:0;">
+                <thead>
+                    <tr><th>Agencia</th><th>Pais</th><th>Estado</th><th>Plan / Suscripcion</th><th>Tipo</th><th>Creada</th><th class="text-end">Acciones</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in _tenants)
+                    {
+                        <tr>
+                            <td style="font-weight:600;">@t.Name</td>
+                            <td>@(t.Country ?? "-")</td>
+                            <td><span class="badge bg-@StatusColor(t.Status)">@t.Status</span></td>
+                            <td>
+                                @if (_subs.TryGetValue(t.Id, out var sub) && sub is not null)
+                                {
+                                    <span style="font-weight:600;">@PlanName(sub.PlanId)</span>
+                                    <span class="badge bg-@SubStatusColor(sub.Status)" style="margin-left:6px;">@sub.Status</span>
+                                    <div class="text-muted" style="font-size:11px;">@sub.BillingFrequency · corte @sub.CurrentPeriodEndsAt.LocalDateTime.ToString("yyyy-MM-dd")</div>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Sin plan</span>
+                                }
+                            </td>
+                            <td>@t.Kind</td>
+                            <td>@t.CreatedAt.LocalDateTime.ToString("yyyy-MM-dd")</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenSubscription(t)">Suscripcion</button>
+                                @if (t.Status != TenantStatus.Active)
+                                {
+                                    <button class="btn btn-sm btn-outline-success" @onclick="() => ChangeStatusAsync(t.Id, TenantStatus.Active)">Activar</button>
+                                }
+                                @if (t.Status != TenantStatus.Suspended)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ChangeStatusAsync(t.Id, TenantStatus.Suspended)">Suspender</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@if (_modalOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Nueva agencia</h3>
+                <button class="modal-close" @onclick="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre</label>
+                    <input class="form-control" @bind="_name" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Pais</label>
+                        <input class="form-control" @bind="_country" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Moneda</label>
+                        <input class="form-control" @bind="_currency" />
+                    </div>
+                </div>
+
+                <div class="pl-stagegroup-title" style="margin-top:6px;">Usuario administrador</div>
+                <div class="field">
+                    <label class="form-label">Correo del administrador</label>
+                    <input class="form-control" type="email" @bind="_adminEmail" autocomplete="off" placeholder="admin@agencia.com" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Nombre a mostrar</label>
+                        <input class="form-control" @bind="_adminName" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Contraseña inicial</label>
+                        <input class="form-control" type="password" @bind="_adminPassword" autocomplete="new-password" />
+                    </div>
+                </div>
+
+                <div class="pl-stagegroup-title" style="margin-top:6px;">Plan inicial (opcional)</div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Plan</label>
+                        <select class="form-control" @bind="_createPlanId">
+                            <option value="@Guid.Empty">Sin plan (lo elige el cliente)</option>
+                            @foreach (var p in _plans)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Frecuencia</label>
+                        <select class="form-control" @bind="_createFreq">
+                            <option value="@BillingFrequency.Monthly">Mensual</option>
+                            <option value="@BillingFrequency.Yearly">Anual</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (_error is not null)
+                {
+                    <div class="text-danger small">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="Close">Cancelar</button>
+                <button class="btn btn-primary" @onclick="CreateAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_adminEmail) || string.IsNullOrWhiteSpace(_adminPassword))">Crear agencia</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_subModalOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Suscripcion &mdash; @_subTenantName</h3>
+                <button class="modal-close" @onclick="CloseSubscription">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_plans.Count == 0)
+                {
+                    <p class="text-muted">No hay planes todavia. Crea uno primero en el modulo Planes.</p>
+                }
+                else
+                {
+                    <div class="field">
+                        <label class="form-label">Plan</label>
+                        <select class="form-control" @bind="_subPlanId">
+                            @foreach (var p in _plans)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Frecuencia de cobro</label>
+                        <select class="form-control" @bind="_subFreq">
+                            <option value="@BillingFrequency.Monthly">Mensual</option>
+                            <option value="@BillingFrequency.Yearly">Anual</option>
+                        </select>
+                    </div>
+                    <p class="text-muted" style="font-size:12px;">Se crea una suscripcion activa y se calcula la fecha de corte segun la frecuencia.</p>
+                }
+                @if (_subError is not null)
+                {
+                    <div class="text-danger small">@_subError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseSubscription">Cancelar</button>
+                <button class="btn btn-primary" @onclick="AssignSubscriptionAsync" disabled="@(_subBusy || _plans.Count == 0)">Asignar plan</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<TenantListItem>? _tenants;
+    private bool _modalOpen;
+    private string _name = string.Empty;
+    private string _country = "CO";
+    private string _currency = "COP";
+    private string _adminEmail = string.Empty;
+    private string _adminName = string.Empty;
+    private string _adminPassword = string.Empty;
+    private Guid _createPlanId = Guid.Empty;
+    private BillingFrequency _createFreq = BillingFrequency.Monthly;
+    private bool _busy;
+    private string? _error;
+
+    private List<PlanDetail> _plans = new();
+    private Dictionary<Guid, string> _planNames = new();
+    private Dictionary<Guid, SubscriptionDetail?> _subs = new();
+
+    private bool _subModalOpen;
+    private bool _subBusy;
+    private string? _subError;
+    private Guid _subTenantId;
+    private string _subTenantName = string.Empty;
+    private Guid _subPlanId;
+    private BillingFrequency _subFreq = BillingFrequency.Monthly;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _tenants = (await TenantsSvc.ListAsync()).ToList();
+        _plans = (await PlansSvc.ListAsync()).ToList();
+        _planNames = _plans.ToDictionary(p => p.Id, p => p.Name);
+        _subs = new Dictionary<Guid, SubscriptionDetail?>();
+        foreach (var t in _tenants)
+        {
+            _subs[t.Id] = (await SubsSvc.ListByTenantAsync(t.Id)).FirstOrDefault();
+        }
+    }
+
+    private int Count(TenantStatus status) => _tenants?.Count(t => t.Status == status) ?? 0;
+
+    private void OpenCreate()
+    {
+        _error = null;
+        _name = string.Empty;
+        _country = "CO";
+        _currency = "COP";
+        _adminEmail = string.Empty;
+        _adminName = string.Empty;
+        _adminPassword = string.Empty;
+        _createPlanId = Guid.Empty;
+        _createFreq = BillingFrequency.Monthly;
+        _modalOpen = true;
+    }
+
+    // El modal solo se cierra con la "X" o "Cancelar" (no al hacer clic fuera/dentro).
+    private void Close() => _modalOpen = false;
+
+    private async Task CreateAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var outcome = await OnboardingSvc.OnboardAsync(new OnboardTenantRequest(
+                TenantName: _name,
+                AdminEmail: _adminEmail.Trim(),
+                AdminPassword: _adminPassword,
+                AdminDisplayName: string.IsNullOrWhiteSpace(_adminName) ? null : _adminName.Trim(),
+                Country: _country,
+                Currency: _currency,
+                PlanId: _createPlanId == Guid.Empty ? null : _createPlanId,
+                BillingFrequency: _createFreq), actor);
+            if (!outcome.Success)
+            {
+                _error = outcome.Error ?? "No se pudo crear la agencia.";
+                return;
+            }
+            _modalOpen = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ChangeStatusAsync(Guid id, TenantStatus status)
+    {
+        var actor = await ActorAsync();
+        await TenantsSvc.ChangeStatusAsync(id, new ChangeTenantStatusRequest(status), actor);
+        await ReloadAsync();
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) return Guid.Empty;
+        var state = await AuthState;
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private string PlanName(Guid planId) => _planNames.TryGetValue(planId, out var n) ? n : "Plan";
+
+    private void OpenSubscription(TenantListItem t)
+    {
+        _subError = null;
+        _subTenantId = t.Id;
+        _subTenantName = t.Name;
+        _subPlanId = _plans.FirstOrDefault()?.Id ?? Guid.Empty;
+        _subFreq = BillingFrequency.Monthly;
+        _subModalOpen = true;
+    }
+
+    private void CloseSubscription() => _subModalOpen = false;
+
+    private async Task AssignSubscriptionAsync()
+    {
+        _subError = null;
+        _subBusy = true;
+        try
+        {
+            if (_subPlanId == Guid.Empty)
+            {
+                _subError = "Selecciona un plan.";
+                return;
+            }
+            var actor = await ActorAsync();
+            var result = await SubsSvc.AssignAsync(new AssignSubscriptionRequest(_subTenantId, _subPlanId, _subFreq), actor);
+            if (result is null)
+            {
+                _subError = "No se pudo asignar la suscripcion (tenant o plan inexistente).";
+                return;
+            }
+            _subModalOpen = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _subError = ex.Message;
+        }
+        finally
+        {
+            _subBusy = false;
+        }
+    }
+
+    private static string SubStatusColor(SubscriptionStatus status) => status switch
+    {
+        SubscriptionStatus.Active => "success",
+        SubscriptionStatus.Trialing => "info",
+        SubscriptionStatus.PendingPayment or SubscriptionStatus.PastDue or SubscriptionStatus.GracePeriod => "warning",
+        SubscriptionStatus.Suspended or SubscriptionStatus.Cancelled => "danger",
+        _ => "secondary"
+    };
+
+    private static string StatusColor(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "success",
+        TenantStatus.Trial => "info",
+        TenantStatus.Suspended or TenantStatus.Blocked => "danger",
+        TenantStatus.PastDue or TenantStatus.PendingPayment => "warning",
+        _ => "secondary"
+    };
+}

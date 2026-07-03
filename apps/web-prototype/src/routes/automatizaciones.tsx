@@ -5,7 +5,7 @@ import { Zap, Plus, ArrowRight } from "lucide-react";
 export const Route = createFileRoute("/automatizaciones")({
   head: () => ({
     meta: [
-      { title: "Automatizaciones · CUBOT.nails" },
+      { title: "Automatizaciones · ECOREX.tareas" },
       { name: "description", content: "Reglas y workflows event-driven para responder, asignar, alertar y cobrar automáticamente." },
     ],
   }),

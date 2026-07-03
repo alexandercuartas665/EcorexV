@@ -5,7 +5,7 @@ import { ScrollText } from "lucide-react";
 export const Route = createFileRoute("/admin/auditoria")({
   head: () => ({
     meta: [
-      { title: "Auditoría · CUBOT Super Admin" },
+      { title: "Auditoría · ECOREX Super Admin" },
       { name: "description", content: "Trazabilidad de acciones críticas por tenant: cambios de plan, suspensiones, accesos y errores." },
     ],
   }),

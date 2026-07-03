@@ -5,7 +5,7 @@
     "dockerfilePath": "apps/backend/Dockerfile.superadmin"
   },
   "deploy": {
-    "startCommand": "dotnet CubotNails.SuperAdmin.dll",
+    "startCommand": "dotnet Ecorex.SuperAdmin.dll",
     "healthcheckPath": "/login",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",

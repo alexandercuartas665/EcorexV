@@ -1,9 +1,9 @@
-name: cubot
+name: ecorex-tareas
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cubot-postgres
+    container_name: ecorex-tareas-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -11,9 +11,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "${POSTGRES_PORT:-5442}:5432"
     volumes:
-      - cubot-postgres-data:/var/lib/postgresql/data
+      - ecorex-tareas-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -21,17 +21,38 @@ services:
       retries: 10
       start_period: 20s
     networks:
-      - cubot-net
+      - ecorex-tareas-net
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ecorex-tareas-sqlserver
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "${SQLSERVER_PORT:-1443}:1433"
+    volumes:
+      - ecorex-tareas-sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - ecorex-tareas-net
 
   redis:
     image: redis:7-alpine
-    container_name: cubot-redis
+    container_name: ecorex-tareas-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     ports:
-      - "${REDIS_PORT:-6381}:6379"
+      - "${REDIS_PORT:-6389}:6379"
     volumes:
-      - cubot-redis-data:/data
+      - ecorex-tareas-redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -39,20 +60,20 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - cubot-net
+      - ecorex-tareas-net
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: cubot-rabbitmq
+    container_name: ecorex-tareas-rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     ports:
-      - "${RABBITMQ_PORT:-5673}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15673}:15672"
+      - "${RABBITMQ_PORT:-5682}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15682}:15672"
     volumes:
-      - cubot-rabbitmq-data:/var/lib/rabbitmq
+      - ecorex-tareas-rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 15s
@@ -60,48 +81,27 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - cubot-net
+      - ecorex-tareas-net
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: cubot-pgadmin
+  adminer:
+    image: adminer:latest
+    container_name: ecorex-tareas-adminer
     restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
     ports:
-      - "${PGADMIN_PORT:-5051}:80"
-    volumes:
-      - cubot-pgadmin-data:/var/lib/pgadmin
+      - "${ADMINER_PORT:-8092}:8080"
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - cubot-net
-
-  # evolution-api:
-  #   image: atendai/evolution-api:latest
-  #   container_name: cubot-evolution-api
-  #   restart: unless-stopped
-  #   environment:
-  #     SERVER_URL: http://localhost:8080
-  #     AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
-  #   ports:
-  #     - "${EVOLUTION_PORT:-8080}:8080"
-  #   volumes:
-  #     - cubot-evolution-data:/evolution/instances
-  #   networks:
-  #     - cubot-net
+      - ecorex-tareas-net
 
 volumes:
-  cubot-postgres-data:
-  cubot-redis-data:
-  cubot-rabbitmq-data:
-  cubot-pgadmin-data:
+  ecorex-tareas-postgres-data:
+  ecorex-tareas-sqlserver-data:
+  ecorex-tareas-redis-data:
+  ecorex-tareas-rabbitmq-data:
 
 networks:
-  cubot-net:
-    name: cubot-net
+  ecorex-tareas-net:
+    name: ecorex-tareas-net
     driver: bridge

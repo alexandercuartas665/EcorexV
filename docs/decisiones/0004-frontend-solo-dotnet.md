@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-05-19
 **Estado:** Aceptado
-**Contexto del proyecto:** CUBOT.nails - Definicion de stack frontend
+**Contexto del proyecto:** ECOREX.tareas - Definicion de stack frontend
 
 ## Contexto
 
@@ -12,11 +12,11 @@ El dueno del proyecto detecto la anomalia y decidio cerrar la ambiguedad: el fro
 
 ## Decision
 
-El frontend del producto CUBOT.nails se construye **exclusivamente** con .NET Core: Blazor (Web App / WebAssembly / Server segun el caso) y componentes Razor, sobre la misma solucion .NET del backend.
+El frontend del producto ECOREX.tareas se construye **exclusivamente** con .NET Core: Blazor (Web App / WebAssembly / Server segun el caso) y componentes Razor, sobre la misma solucion .NET del backend.
 
 **Queda prohibido en el producto:** Node.js, npm/pnpm/bun, React, Vue, Vite, Webpack o cualquier toolchain JavaScript para desarrollar, compilar o desplegar la interfaz.
 
-- DTOs, contratos y validaciones se comparten via `CubotNails.Shared` entre `CubotNails.Web` y `CubotNails.Api`.
+- DTOs, contratos y validaciones se comparten via `Ecorex.Shared` entre `Ecorex.Web` y `Ecorex.Api`.
 - Tiempo real con SignalR (cliente .NET), no librerias JS.
 - Pruebas E2E con **Playwright para .NET** (`Microsoft.Playwright`); los navegadores se instalan con el script `playwright.ps1` generado, sin Node.
 
@@ -33,5 +33,5 @@ El prototipo `apps/web-prototype` (React/TanStack) se conserva **solo como refer
 ## Documentos actualizados
 
 - `03. Hoja de Ruta desarrollo/HOJA DE RUTA DESARROLLO.md` (stack + prerequisitos + nota "Frontend sin Node.js").
-- `01. Requerimiento/Capa 0 Vision General/CUBOT.nails.md` (decision definitiva + estructura de carpetas Blazor).
+- `01. Requerimiento/Capa 0 Vision General/ECOREX.tareas.md` (decision definitiva + estructura de carpetas Blazor).
 - `CLAUDE.md` (seccion 4: frontend del producto vs prototipo de referencia).

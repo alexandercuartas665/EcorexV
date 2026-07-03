@@ -1,0 +1,287 @@
+@page "/medidas-cabello"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@inject IHairLengthService Svc
+@inject IHairClassifierService Classifier
+@inject IJSRuntime JS
+@inject IWebHostEnvironment Env
+
+<PageTitle>Medidas de cabello - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+            </div>
+            <span>Configuracion del salon</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Medidas de cabello</h1>
+        <p class="page-sub" style="margin-bottom:0;">Define tu escala de largo y sube fotos de referencia de cada medida. Esas fotos le ensenan a la IA a reconocer el largo del cabello de una clienta.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="() => OpenForm(null)">+ Nueva medida</button>
+</div>
+
+@if (!_loading && _items.Any(c => c.IsActive && c.Images.Count > 0))
+{
+    <div class="card" style="padding:16px;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+                <div style="font-weight:800;font-size:15px;">Clasificar el largo de una clienta (IA)</div>
+                <div class="text-muted" style="font-size:12px;">Sube una foto de la clienta y la IA estima a que medida corresponde, comparando con tus fotos de referencia. Es una sugerencia: confirmala con tu criterio.</div>
+            </div>
+            <label class="btn btn-primary" style="cursor:pointer;@(_classifying ? "opacity:.6;pointer-events:none;" : "")">
+                @(_classifying ? "Analizando..." : "Subir foto y clasificar")
+                <InputFile OnChange="OnClientPhotoAsync" accept="image/*" style="display:none;" />
+            </label>
+        </div>
+        @if (_classifyMsg is not null)
+        {
+            <div class="text-danger small" style="margin-top:10px;">@_classifyMsg</div>
+        }
+        @if (_classifyResult is { Ok: true } r)
+        {
+            var matched = _items.FirstOrDefault(c => c.Id == r.CategoryId);
+            <div style="display:flex;gap:16px;align-items:flex-start;margin-top:14px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px;">
+                @if (!string.IsNullOrWhiteSpace(r.PhotoUrl))
+                {
+                    <img src="@r.PhotoUrl" alt="Foto clienta" style="width:120px;height:120px;object-fit:cover;border-radius:12px;border:1px solid var(--border);" />
+                }
+                <div style="flex:1;min-width:220px;">
+                    <div style="font-size:12px;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.04em;">Medida detectada</div>
+                    <div style="font-size:20px;font-weight:800;">@r.CategoryName <span style="font-size:13px;font-weight:600;color:var(--primary,#6c4cf1);">· @r.Confidence% confianza</span></div>
+                    @if (!string.IsNullOrWhiteSpace(r.Rationale))
+                    {
+                        <div class="text-muted" style="font-size:12.5px;margin-top:6px;">@r.Rationale</div>
+                    }
+                    @if (matched is not null && matched.Images.Count > 0)
+                    {
+                        <div class="text-muted" style="font-size:11px;margin-top:10px;">Referencia de "@matched.Name":</div>
+                        <div style="display:flex;gap:6px;margin-top:4px;">
+                            @foreach (var img in matched.Images)
+                            {
+                                <img src="@img.Url" alt="ref" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" />
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_items.Count == 0)
+{
+    <p class="text-muted">Aun no defines medidas de cabello. Crea la primera con "+ Nueva medida" (ej. Corto, Medio, Largo, Muy largo) y sube fotos de referencia.</p>
+}
+else
+{
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;">
+        @foreach (var c in _items)
+        {
+            <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px;@(c.IsActive ? "" : "opacity:.65;")">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                    <div style="font-weight:800;font-size:15px;min-width:0;">@c.Name</div>
+                    <span style="flex:none;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;@(c.IsActive ? "background:#10b98122;color:#10b981;" : "background:var(--muted);color:var(--muted-foreground);")">@(c.IsActive ? "Activa" : "Inactiva")</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(c.Description))
+                {
+                    <div class="text-muted" style="font-size:12px;">@c.Description</div>
+                }
+
+                <div>
+                    <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Fotos de referencia (@c.Images.Count)</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                        @foreach (var img in c.Images)
+                        {
+                            <div style="position:relative;width:74px;height:74px;border-radius:10px;overflow:hidden;border:1px solid var(--border);">
+                                <img src="@img.Url" alt="@img.FileName" style="width:100%;height:100%;object-fit:cover;" />
+                                <button type="button" title="Quitar" @onclick="() => RemoveImageAsync(img.Id)" disabled="@_busy"
+                                        style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;line-height:1;">&times;</button>
+                            </div>
+                        }
+                        <label style="width:74px;height:74px;border-radius:10px;border:1px dashed var(--border);display:grid;place-items:center;cursor:pointer;color:var(--muted-foreground);font-size:11px;text-align:center;">
+                            + Foto
+                            <InputFile OnChange="@(e => OnImagesSelectedAsync(e, c.Id))" accept="image/*" multiple style="display:none;" />
+                        </label>
+                    </div>
+                    @if (_imgMsgFor == c.Id && _imgMsg is not null) { <div class="text-muted small" style="margin-top:4px;">@_imgMsg</div> }
+                </div>
+
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:4px;">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenForm(c)">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleActiveAsync(c)" disabled="@_busy">@(c.IsActive ? "Desactivar" : "Activar")</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(c)" disabled="@_busy" title="Eliminar medida">&times;</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_formOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:460px;">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nueva medida" : "Editar medida")</h3>
+                <button class="modal-close" @onclick="() => _formOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" placeholder="Corto, Medio, Largo, Muy largo..." />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion (referencia para la IA)</label>
+                    <textarea class="form-control" rows="3" @bind="_fDescription" placeholder="Ej. El cabello llega hasta los hombros / debajo de la cintura..."></textarea>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="text-danger small">@_error</div>
+                }
+                <div class="text-muted" style="font-size:11.5px;">Despues de crear la medida podras subir las fotos de referencia desde su tarjeta.</div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _formOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_fName))">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _formOpen;
+    private string? _error;
+    private Guid? _editingId;
+    private string _fName = "";
+    private string? _fDescription;
+    private string? _imgMsg;
+    private Guid? _imgMsgFor;
+    private List<HairLengthCategoryDto> _items = new();
+    // Clasificacion por IA
+    private bool _classifying;
+    private string? _classifyMsg;
+    private HairClassificationResultDto? _classifyResult;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _items = (await Svc.ListAsync(includeInactive: true)).ToList();
+        _loading = false;
+    }
+
+    private void OpenForm(HairLengthCategoryDto? c)
+    {
+        _error = null;
+        _editingId = c?.Id;
+        _fName = c?.Name ?? "";
+        _fDescription = c?.Description;
+        _formOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_fName)) { _error = "Escribe el nombre de la medida."; return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var req = new SaveHairLengthCategoryRequest(_fName, _fDescription);
+            var result = _editingId is Guid id ? await Svc.UpdateCategoryAsync(id, req, actor) : await Svc.CreateCategoryAsync(req, actor);
+            if (result is null) { _error = "No se pudo guardar."; return; }
+            _formOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleActiveAsync(HairLengthCategoryDto c)
+    {
+        _busy = true;
+        try { await Svc.SetActiveAsync(c.Id, !c.IsActive, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(HairLengthCategoryDto c)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar la medida \"{c.Name}\" y sus fotos de referencia?")) { return; }
+        _busy = true;
+        try { await Svc.DeleteCategoryAsync(c.Id, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task OnImagesSelectedAsync(InputFileChangeEventArgs e, Guid categoryId)
+    {
+        _busy = true; _imgMsg = null; _imgMsgFor = categoryId;
+        try
+        {
+            var actor = await ActorAsync();
+            const long max = 10L * 1024 * 1024;
+            foreach (var file in e.GetMultipleFiles(8))
+            {
+                if (file.Size <= 0 || file.Size > max) { _imgMsg = "Alguna imagen no se pudo subir (max 10MB)."; continue; }
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(max).CopyToAsync(ms);
+                var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+                // Las fotos de referencia se guardan EN LA BD (persisten aunque el contenedor se recree).
+                await Svc.AddImageAsync(categoryId, ms.ToArray(), mime, file.Name, actor);
+            }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveImageAsync(Guid imageId)
+    {
+        _busy = true;
+        try { await Svc.RemoveImageAsync(imageId, await ActorAsync()); await ReloadAsync(); }
+        finally { _busy = false; }
+    }
+
+    // ===== Clasificar foto de clienta (IA de vision) =====
+    private async Task OnClientPhotoAsync(InputFileChangeEventArgs e)
+    {
+        _classifyMsg = null; _classifyResult = null;
+        var file = e.File;
+        const long max = 10L * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max) { _classifyMsg = "La foto no es valida o supera 10MB."; return; }
+        _classifying = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            var ext = System.IO.Path.GetExtension(file.Name);
+            if (string.IsNullOrWhiteSpace(ext)) { ext = ".jpg"; }
+            // Almacenamiento PROTEGIDO: fuera de wwwroot. Se sirve por /media/hair/{id} con autorizacion.
+            var dir = System.IO.Path.Combine(Env.ContentRootPath, "protected-media", "hair");
+            System.IO.Directory.CreateDirectory(dir);
+            var name = $"client-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), bytes);
+            var b64 = Convert.ToBase64String(bytes);
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+            var actor = await ActorAsync();
+            var res = await Classifier.ClassifyAsync(b64, mime, name, actor);
+            if (res.Ok) { _classifyResult = res; }
+            else { _classifyMsg = res.Error ?? "No se pudo clasificar la foto."; }
+        }
+        finally { _classifying = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

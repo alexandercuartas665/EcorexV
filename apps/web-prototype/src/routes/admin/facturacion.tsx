@@ -5,7 +5,7 @@ import { Receipt } from "lucide-react";
 export const Route = createFileRoute("/admin/facturacion")({
   head: () => ({
     meta: [
-      { title: "Facturación · CUBOT Super Admin" },
+      { title: "Facturación · ECOREX Super Admin" },
       { name: "description", content: "Cobros, recaudos vía Wompi y estado financiero de los tenants." },
     ],
   }),

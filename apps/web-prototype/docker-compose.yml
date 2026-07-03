@@ -1,11 +1,11 @@
-name: cubot-prototype
+name: ecorex-prototype
 
 services:
   web-prototype:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cubot-web-prototype
+    container_name: ecorex-web-prototype
     ports:
       # Host 8090 -> contenedor 8080 (8080 del host lo usa la app Blazor SuperAdmin).
       - "8090:8080"

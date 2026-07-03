@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ecorex.Shared\Ecorex.Shared.csproj" />
+    <ProjectReference Include="..\Ecorex.Application\Ecorex.Application.csproj" />
+    <ProjectReference Include="..\Ecorex.Infrastructure\Ecorex.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Desactiva la compresion al build de static assets: MapStaticAssets sirve 0 bytes para
+         los .gz alternativos en este entorno, asi que mejor servir CSS/JS sin precomprimir. -->
+    <CompressionEnabled>false</CompressionEnabled>
+  </PropertyGroup>
+
+</Project>

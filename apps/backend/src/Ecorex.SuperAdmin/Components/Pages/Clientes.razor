@@ -1,0 +1,304 @@
+@page "/clientes"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IClientService Clients
+@inject IAgendaService Agenda
+@inject ISalonFieldService Fields
+@inject IBusinessUnitService Units
+
+<PageTitle>Clientes - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <span>Operacion diaria</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Clientes</h1>
+        <p class="page-sub" style="margin-bottom:0;">Ficha de cada cliente: historial, puntualidad, servicios frecuentes y asesor preferido.</p>
+    </div>
+    <div style="display:flex;align-items:flex-start;">
+        <button class="btn btn-outline-secondary" @onclick="() => _showFieldsConfig = true">&#9881; Configurar campos</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div style="display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:22px;align-items:start;" class="cli-cols">
+        <div class="card" style="padding:14px;">
+            <input class="form-control" style="margin-bottom:12px;" placeholder="Buscar por nombre o telefono..." value="@_search" @oninput="OnSearch" />
+            @if (_list.Count == 0)
+            {
+                <p class="text-muted" style="padding:8px 2px;">Sin clientes.</p>
+            }
+            else
+            {
+                <div style="display:flex;flex-direction:column;gap:4px;max-height:62vh;overflow-y:auto;">
+                    @foreach (var c in _list)
+                    {
+                        <div style="display:flex;align-items:center;gap:10px;padding:9px;border-radius:10px;cursor:pointer;@(_selectedId == c.Id ? "background:var(--primary-soft);" : "")" @onclick="() => SelectAsync(c.Id)">
+                            <span style="width:38px;height:38px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;color:#fff;font-weight:800;font-size:12px;background:var(--gradient-violet);">@Initials(c.FullName)</span>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:700;font-size:13px;">@c.FullName</div>
+                                <div class="text-muted" style="font-size:11px;">@c.Phone</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <span class="badge bg-secondary">@c.VisitCount visitas</span>
+                                <div style="font-size:11px;font-weight:700;color:@RateColor(c.PunctualityRate);">@RateText(c.PunctualityRate) puntual</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="card" style="padding:22px;">
+            @if (_detail is null)
+            {
+                <p class="text-muted" style="padding:24px 0;text-align:center;">Selecciona un cliente para ver su ficha.</p>
+            }
+            else
+            {
+                <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+                    <span style="width:60px;height:60px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:1.3rem;background:var(--gradient-violet);">@Initials(_detail.FullName)</span>
+                    <div>
+                        <h3 style="margin:0;">@_detail.FullName</h3>
+                        <div class="text-muted" style="font-size:13px;">@_detail.Phone</div>
+                    </div>
+                </div>
+
+                <div class="kpi-grid" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));">
+                    <div class="kpi-card"><div class="kpi-label">Visitas</div><div class="kpi-value">@_detail.VisitCount</div></div>
+                    <div class="kpi-card"><div class="kpi-label">Gastado</div><div class="kpi-value">$@_detail.TotalSpent.ToString("N0")</div></div>
+                    <div class="kpi-card"><div class="kpi-label">Puntualidad</div><div class="kpi-value" style="color:@RateColor(_detail.PunctualityRate);">@RateText(_detail.PunctualityRate)</div></div>
+                    <div class="kpi-card"><div class="kpi-label">No-show</div><div class="kpi-value" style="color:@(_detail.NoShowCount > 0 ? "var(--destructive)" : "var(--success)");">@_detail.NoShowCount</div></div>
+                </div>
+
+                <div style="font-size:14px;margin-bottom:6px;"><strong>Asesor preferido:</strong> @(_detail.PreferredResourceName ?? "-")</div>
+                <div style="font-size:14px;margin-bottom:16px;"><strong>Servicio top:</strong> @(_detail.TopServiceName ?? "-")</div>
+
+                @if (_businessUnits.Count > 0)
+                {
+                    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <h4 style="font-size:1rem;margin:0;">Canales de negocio <span class="text-muted" style="font-weight:400;font-size:12px;">- el cliente puede pertenecer a uno o varios</span></h4>
+                            <button class="btn btn-sm btn-primary" @onclick="SaveChannelsAsync" disabled="@_busy">Guardar canales</button>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            @foreach (var bu in _businessUnits)
+                            {
+                                var on = _selectedUnitIds.Contains(bu.Id);
+                                <button type="button" @onclick="() => ToggleChannel(bu.Id)"
+                                        style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid @bu.Color;@(on ? $"background:{bu.Color};color:#fff;" : $"background:transparent;color:{bu.Color};")">
+                                    <span style="width:8px;height:8px;border-radius:50%;background:@(on ? "#fff" : bu.Color);"></span>@bu.Name
+                                </button>
+                            }
+                        </div>
+                        @if (_channelsSaved) { <div class="text-success small" style="margin-top:6px;">Canales guardados.</div> }
+                    </div>
+                }
+
+                @if (_clientFields.Count > 0)
+                {
+                    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <h4 style="font-size:1rem;margin:0;">Datos del cliente</h4>
+                            <button class="btn btn-sm btn-primary" @onclick="SaveClientFieldsAsync" disabled="@_busy">Guardar datos</button>
+                        </div>
+                        <SalonFieldsEditor Fields="_clientFields" Values="_clientFieldValues" />
+                        @if (_fieldsSaved) { <div class="text-success small" style="margin-top:6px;">Datos guardados.</div> }
+                    </div>
+                }
+
+                <h4 style="font-size:1rem;border-top:1px solid var(--border);padding-top:14px;">Historial de citas <span class="text-muted" style="font-weight:400;font-size:12px;">- marca la puntualidad de cada visita</span></h4>
+                @if (_detail.History.Count == 0)
+                {
+                    <p class="text-muted">Sin citas registradas.</p>
+                }
+                else
+                {
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        @foreach (var h in _detail.History)
+                        {
+                            <div style="border-left:3px solid var(--primary);padding:6px 0 6px 14px;">
+                                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;">
+                                    <div><strong>@h.Date.ToString("dd MMM yyyy") @h.StartTime.ToString("HH\\:mm")</strong> <span class="text-muted" style="font-size:12px;margin-left:6px;">@h.ResourceName</span></div>
+                                    <div style="display:flex;gap:6px;align-items:center;">
+                                        <span class="badge bg-@StatusBadge(h.Status)">@StatusText(h.Status)</span>
+                                        @if (h.Status == AppointmentStatus.Completed || h.Status == AppointmentStatus.Confirmed)
+                                        {
+                                            <div style="display:flex;gap:3px;">
+                                                <button class="btn btn-sm @(h.Punctuality == Punctuality.Early ? "btn-success" : "btn-outline-secondary")" title="Temprano" @onclick="() => MarkAsync(h.AppointmentId, Punctuality.Early)" disabled="@_busy">Temprano</button>
+                                                <button class="btn btn-sm @(h.Punctuality == Punctuality.OnTime ? "btn-primary" : "btn-outline-secondary")" title="Puntual" @onclick="() => MarkAsync(h.AppointmentId, Punctuality.OnTime)" disabled="@_busy">Puntual</button>
+                                                <button class="btn btn-sm @(h.Punctuality == Punctuality.Late ? "btn-warning" : "btn-outline-secondary")" title="Tarde" @onclick="() => MarkAsync(h.AppointmentId, Punctuality.Late)" disabled="@_busy">Tarde</button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="text-muted" style="font-size:12.5px;">@h.ServicesText &middot; $@h.EstimatedValue.ToString("N0")</div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@* Configurador propio del modulo de clientes (scope Cliente). No queda en ningun otro lado. *@
+<SalonFieldsConfig Show="_showFieldsConfig" Scopes="_clientScopes" ActorUserId="_actorId" OnClose="OnFieldsConfigClosedAsync" />
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private string _search = "";
+    private List<ClientListItemDto> _list = new();
+    [Parameter, SupplyParameterFromQuery(Name = "cid")] public Guid? InitialClientId { get; set; }
+
+    private Guid? _selectedId;
+    private ClientDetailDto? _detail;
+    // Campos configurables del cliente + valores del cliente seleccionado.
+    private List<SalonFieldDto> _clientFields = new();
+    private Dictionary<string, string?> _clientFieldValues = new();
+    private bool _fieldsSaved;
+
+    // Configurador de campos del cliente (propio de este modulo, scope Cliente).
+    private bool _showFieldsConfig;
+    private Guid _actorId;
+    private readonly SalonFieldScope[] _clientScopes = { SalonFieldScope.Client };
+
+    // Canales / unidades de negocio del cliente (multi-canal).
+    private List<BusinessUnitDto> _businessUnits = new();
+    private readonly HashSet<Guid> _selectedUnitIds = new();
+    private bool _channelsSaved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actorId = await ActorAsync();
+        _clientFields = (await Fields.ListAsync(SalonFieldScope.Client)).ToList();
+        _businessUnits = (await Units.ListAsync(includeInactive: false)).ToList();
+        await ReloadListAsync();
+        _loading = false;
+        // Abre directo la ficha cuando se llega desde el pipeline (/clientes?cid=...).
+        if (InitialClientId is Guid cid) { await SelectAsync(cid); }
+    }
+
+    private async Task OnSearch(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        await ReloadListAsync();
+    }
+
+    private async Task ReloadListAsync() => _list = (await Clients.ListAsync(_search)).ToList();
+
+    private async Task SelectAsync(Guid id)
+    {
+        _selectedId = id;
+        _detail = await Clients.GetDetailAsync(id);
+        _fieldsSaved = false;
+        _channelsSaved = false;
+        _clientFieldValues = _detail?.FieldValues is { } fv ? new Dictionary<string, string?>(fv) : new();
+        _selectedUnitIds.Clear();
+        foreach (var uid in _detail?.BusinessUnitIds ?? Array.Empty<Guid>()) { _selectedUnitIds.Add(uid); }
+    }
+
+    private void ToggleChannel(Guid id)
+    {
+        if (!_selectedUnitIds.Add(id)) { _selectedUnitIds.Remove(id); }
+        _channelsSaved = false;
+    }
+
+    private async Task SaveChannelsAsync()
+    {
+        if (_selectedId is not Guid id) { return; }
+        _busy = true;
+        try
+        {
+            await Clients.SaveBusinessUnitsAsync(id, _selectedUnitIds.ToList(), await ActorAsync());
+            _channelsSaved = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task OnFieldsConfigClosedAsync()
+    {
+        _showFieldsConfig = false;
+        _clientFields = (await Fields.ListAsync(SalonFieldScope.Client)).ToList();
+    }
+
+    private async Task SaveClientFieldsAsync()
+    {
+        if (_selectedId is not Guid id) { return; }
+        _busy = true;
+        try
+        {
+            await Clients.SaveFieldValuesAsync(id, new Dictionary<string, string?>(_clientFieldValues), await ActorAsync());
+            _fieldsSaved = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MarkAsync(Guid appointmentId, Punctuality p)
+    {
+        _busy = true;
+        try
+        {
+            await Agenda.MarkPunctualityAsync(appointmentId, p, await ActorAsync());
+            if (_selectedId is Guid id) { _detail = await Clients.GetDetailAsync(id); }
+            await ReloadListAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string RateText(int? rate) => rate is int r ? $"{r}%" : "-";
+    private static string RateColor(int? rate) => rate switch
+    {
+        null => "var(--muted-foreground)",
+        >= 80 => "var(--success)",
+        >= 50 => "var(--warning)",
+        _ => "var(--destructive)"
+    };
+
+    private static string StatusText(AppointmentStatus s) => s switch
+    {
+        AppointmentStatus.Scheduled => "Programada",
+        AppointmentStatus.Confirmed => "Confirmada",
+        AppointmentStatus.Completed => "Completada",
+        AppointmentStatus.NoShow => "No-show",
+        AppointmentStatus.Cancelled => "Cancelada",
+        AppointmentStatus.Rescheduled => "Reprogramada",
+        _ => s.ToString()
+    };
+
+    private static string StatusBadge(AppointmentStatus s) => s switch
+    {
+        AppointmentStatus.Confirmed => "info",
+        AppointmentStatus.Completed => "success",
+        AppointmentStatus.NoShow or AppointmentStatus.Cancelled => "danger",
+        _ => "secondary"
+    };
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "C"; }
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1 ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant() : $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+    }
+}

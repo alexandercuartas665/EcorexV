@@ -5,7 +5,7 @@ import { Building2, Plus } from "lucide-react";
 export const Route = createFileRoute("/admin/tenants")({
   head: () => ({
     meta: [
-      { title: "Tenants · CUBOT Super Admin" },
+      { title: "Tenants · ECOREX Super Admin" },
       { name: "description", content: "Gestión maestra de agencias clientes del SaaS: planes, estado contractual y consumo." },
     ],
   }),

@@ -1,0 +1,409 @@
+@page "/equipo"
+@attribute [Authorize(Policy = "SuperAdminOnly")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Admin
+@using Ecorex.Domain.Enums
+@inject IPlatformOperatorService OperatorsSvc
+@inject NavigationManager Nav
+
+<PageTitle>Equipo plataforma - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Equipo <span>plataforma</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Crea y gestiona operadores internos del SaaS: Super Admins, Soporte, Finanzas, Tecnicos, Auditores y Analistas.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate" disabled="@_busy">+ Nuevo operador</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_operators.Count == 0)
+{
+    <div class="card" style="padding:32px;max-width:680px;text-align:center;color:var(--muted-foreground);">
+        Aun no hay operadores. Crea el primero con "+ Nuevo operador".
+    </div>
+}
+else
+{
+    <div class="card" style="overflow:hidden;">
+        <table class="table" style="margin:0;">
+            <thead>
+                <tr>
+                    <th>Operador</th>
+                    <th>Email</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Ultimo login</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var op in _operators)
+                {
+                    <tr>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <div class="tb-avatar lg" style="background:@AvatarColor(op);color:#fff;">@InitialsOf(op.DisplayName ?? op.Email)</div>
+                                <div>
+                                    <strong>@(op.DisplayName ?? "(Sin nombre)")</strong>
+                                    @if (op.Id == _selfId)
+                                    {
+                                        <span class="badge bg-primary" style="margin-left:6px;font-size:9.5px;">TU</span>
+                                    }
+                                </div>
+                            </div>
+                        </td>
+                        <td><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;">@op.Email</span></td>
+                        <td><span class="badge" style="background:@RoleColor(op.Role);color:#fff;">@RoleLabel(op.Role)</span></td>
+                        <td>
+                            @if (op.Status == PlatformUserStatus.Active)
+                            {
+                                <span class="text-success">Activo</span>
+                            }
+                            else if (op.Status == PlatformUserStatus.Suspended)
+                            {
+                                <span class="text-danger">Suspendido</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">@op.Status</span>
+                            }
+                        </td>
+                        <td style="font-size:12.5px;color:var(--muted-foreground);">
+                            @(op.LastLoginAt is null ? "Nunca" : op.LastLoginAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm"))
+                        </td>
+                        <td style="text-align:right;white-space:nowrap;">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(op))">Editar</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenPassword(op))">Clave</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteAsync(op))" disabled="@(op.Id == _selfId || _busy)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger" style="margin-top:16px;">@_error</div>
+}
+
+@* ===== Modal crear/editar ===== *@
+@if (_modalOpen)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nuevo operador" : "Editar operador")</h3>
+                <button class="modal-close" @onclick="CloseModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Email *</label>
+                    <input class="form-control" type="email" @bind="_fEmail" disabled="@(_editingId is not null)" placeholder="usuario@ecorex.tareas" autocomplete="off" />
+                    @if (_editingId is not null)
+                    {
+                        <small class="text-muted">El email no se puede cambiar despues de creado.</small>
+                    }
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre para mostrar</label>
+                    <input class="form-control" @bind="_fDisplayName" placeholder="Nombre Apellido" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Rol *</label>
+                    <select class="form-control" @bind="_fRole">
+                        <option value="@PlatformRole.SuperAdmin">Super Admin (gobierno total)</option>
+                        <option value="@PlatformRole.FinanceOperator">Finanzas (facturacion, planes)</option>
+                        <option value="@PlatformRole.SupportOperator">Soporte (atencion a tenants)</option>
+                        <option value="@PlatformRole.TechnicalOperator">Tecnico (Evolution, IA, integraciones)</option>
+                        <option value="@PlatformRole.Auditor">Auditor (solo lectura + audit log)</option>
+                        <option value="@PlatformRole.Analyst">Analista (metricas)</option>
+                    </select>
+                </div>
+                @if (_editingId is null)
+                {
+                    <div class="field">
+                        <label class="form-label">Clave temporal *</label>
+                        <div style="display:flex;gap:6px;">
+                            <input class="form-control" type="@(_showPassword ? "text" : "password")" @bind="_fPassword" placeholder="Minimo 6 caracteres" autocomplete="new-password" />
+                            <button type="button" class="btn btn-outline-secondary" @onclick="@(() => _showPassword = !_showPassword)" title="Mostrar/ocultar">@(_showPassword ? "Ocultar" : "Ver")</button>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="GenerateRandomPassword" title="Generar al azar">Generar</button>
+                        </div>
+                        <small class="text-muted">El operador debera cambiarla en su primer login (proximamente).</small>
+                    </div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label class="form-label">Estado</label>
+                        <select class="form-control" @bind="_fStatus">
+                            <option value="@PlatformUserStatus.Active">Activo</option>
+                            <option value="@PlatformUserStatus.Suspended">Suspendido</option>
+                            <option value="@PlatformUserStatus.Invited">Invitado</option>
+                        </select>
+                    </div>
+                }
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseModal">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editingId is null ? "Crear operador" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal cambiar clave ===== *@
+@if (_passwordOpen && _passwordTarget is not null)
+{
+    <div class="modal-overlay" @onclick="ClosePasswordModal">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Cambiar clave</h3>
+                <button class="modal-close" @onclick="ClosePasswordModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--muted-foreground);font-size:13px;margin-bottom:14px;">Asigna una nueva clave a <strong>@_passwordTarget.Email</strong>.</p>
+                <div class="field">
+                    <label class="form-label">Nueva clave *</label>
+                    <div style="display:flex;gap:6px;">
+                        <input class="form-control" type="@(_showPassword ? "text" : "password")" @bind="_fPassword" placeholder="Minimo 6 caracteres" autocomplete="new-password" />
+                        <button type="button" class="btn btn-outline-secondary" @onclick="@(() => _showPassword = !_showPassword)">@(_showPassword ? "Ocultar" : "Ver")</button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="GenerateRandomPassword">Generar</button>
+                    </div>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="ClosePasswordModal">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ChangePasswordAsync" disabled="@_busy">Cambiar clave</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _formError;
+    private List<PlatformOperatorDto> _operators = new();
+    private Guid _selfId;
+
+    // Form (create / edit)
+    private bool _modalOpen;
+    private Guid? _editingId;
+    private string _fEmail = "";
+    private string _fDisplayName = "";
+    private PlatformRole _fRole = PlatformRole.SupportOperator;
+    private PlatformUserStatus _fStatus = PlatformUserStatus.Active;
+    private string _fPassword = "";
+    private bool _showPassword;
+
+    // Cambiar clave
+    private bool _passwordOpen;
+    private PlatformOperatorDto? _passwordTarget;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selfId = await ResolveSelfIdAsync();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _operators = (await OperatorsSvc.ListAsync()).ToList();
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = "No se pudo cargar la lista: " + ex.Message;
+        }
+    }
+
+    private void OpenCreate()
+    {
+        _editingId = null;
+        _fEmail = "";
+        _fDisplayName = "";
+        _fRole = PlatformRole.SupportOperator;
+        _fStatus = PlatformUserStatus.Active;
+        _fPassword = "";
+        _formError = null;
+        _modalOpen = true;
+    }
+
+    private void OpenEdit(PlatformOperatorDto op)
+    {
+        _editingId = op.Id;
+        _fEmail = op.Email;
+        _fDisplayName = op.DisplayName ?? "";
+        _fRole = op.Role;
+        _fStatus = op.Status;
+        _fPassword = "";
+        _formError = null;
+        _modalOpen = true;
+    }
+
+    private void CloseModal()
+    {
+        _modalOpen = false;
+        _formError = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _formError = null;
+        _busy = true;
+        try
+        {
+            var actorId = await ResolveSelfIdAsync();
+            if (_editingId is null)
+            {
+                var (created, err) = await OperatorsSvc.CreateAsync(
+                    new CreatePlatformOperatorRequest(_fEmail, _fDisplayName, _fRole, _fPassword), actorId);
+                if (err is not null) { _formError = err; return; }
+                _modalOpen = false;
+                await ReloadAsync();
+            }
+            else
+            {
+                var updated = await OperatorsSvc.UpdateAsync(_editingId.Value,
+                    new UpdatePlatformOperatorRequest(_fDisplayName, _fRole, _fStatus), actorId);
+                if (updated is null) { _formError = "No se pudo actualizar."; return; }
+                _modalOpen = false;
+                await ReloadAsync();
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private void OpenPassword(PlatformOperatorDto op)
+    {
+        _passwordTarget = op;
+        _fPassword = "";
+        _formError = null;
+        _passwordOpen = true;
+    }
+
+    private void ClosePasswordModal()
+    {
+        _passwordOpen = false;
+        _passwordTarget = null;
+        _formError = null;
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        if (_passwordTarget is null) { return; }
+        if (string.IsNullOrWhiteSpace(_fPassword) || _fPassword.Length < 6)
+        {
+            _formError = "La clave debe tener al menos 6 caracteres.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actorId = await ResolveSelfIdAsync();
+            var ok = await OperatorsSvc.ChangePasswordAsync(
+                new ChangeOperatorPasswordRequest(_passwordTarget.Id, _fPassword), actorId);
+            if (!ok) { _formError = "No se pudo cambiar la clave."; return; }
+            _passwordOpen = false;
+            _passwordTarget = null;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(PlatformOperatorDto op)
+    {
+        if (op.Id == _selfId) { return; }
+        _busy = true;
+        try
+        {
+            var actorId = await ResolveSelfIdAsync();
+            var (deleted, err) = await OperatorsSvc.DeleteAsync(op.Id, actorId);
+            if (!deleted) { _error = err ?? "No se pudo eliminar."; return; }
+            _error = null;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Genera una clave aleatoria legible para usar como temporal.</summary>
+    private void GenerateRandomPassword()
+    {
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        var buf = new byte[12];
+        rng.GetBytes(buf);
+        var pwd = new char[12];
+        for (var i = 0; i < pwd.Length; i++) { pwd[i] = chars[buf[i] % chars.Length]; }
+        _fPassword = new string(pwd);
+        _showPassword = true;
+    }
+
+    private async Task<Guid> ResolveSelfIdAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string RoleLabel(PlatformRole role) => role switch
+    {
+        PlatformRole.SuperAdmin => "Super Admin",
+        PlatformRole.FinanceOperator => "Finanzas",
+        PlatformRole.SupportOperator => "Soporte",
+        PlatformRole.TechnicalOperator => "Tecnico",
+        PlatformRole.Auditor => "Auditor",
+        PlatformRole.Analyst => "Analista",
+        _ => role.ToString(),
+    };
+
+    private static string RoleColor(PlatformRole role) => role switch
+    {
+        PlatformRole.SuperAdmin => "#7c4dff",
+        PlatformRole.FinanceOperator => "#10b981",
+        PlatformRole.SupportOperator => "#06b6d4",
+        PlatformRole.TechnicalOperator => "#f97316",
+        PlatformRole.Auditor => "#475569",
+        PlatformRole.Analyst => "#ec4899",
+        _ => "#94a3b8",
+    };
+
+    private static string AvatarColor(PlatformOperatorDto op) => RoleColor(op.Role);
+
+    private static string InitialsOf(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "??";
+        var trimmed = name.Trim();
+        var atIdx = trimmed.IndexOf('@');
+        if (atIdx > 0) trimmed = trimmed[..atIdx];
+        var parts = trimmed.Split(new[] { ' ', '.', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return trimmed.Length >= 2 ? trimmed[..2].ToUpperInvariant() : trimmed.ToUpperInvariant();
+        if (parts.Length == 1) return parts[0].Length >= 2 ? parts[0][..2].ToUpperInvariant() : parts[0].ToUpperInvariant();
+        return (parts[0][0].ToString() + parts[1][0]).ToUpperInvariant();
+    }
+}

@@ -1,0 +1,281 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject ISalonFieldService FieldsSvc
+
+@* Modal para configurar los campos personalizados del salon (citas y clientes). El padre controla
+   Show/OnClose y pasa el actor. Sin etapas/kanban: lista + alta/edicion/orden/borrado por scope. *@
+
+@if (Show)
+{
+    <div class="modal-overlay" style="z-index:1300;">
+        <div class="modal-dialog" style="max-width:720px;">
+            <div class="modal-head">
+                <h3>Configurar campos</h3>
+                <button class="modal-close" @onclick="CloseAsync">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="text-muted" style="font-size:12.5px;margin-bottom:12px;">Agrega los campos que quieres capturar. Los de la cita se llenan al reservar/editar una cita; los del cliente quedan en su ficha. Marca "ver en tablero" para que un campo de cita aparezca compacto en Dia del salon.</div>
+
+                @if (EffectiveScopes.Count > 1)
+                {
+                    <div class="sfc-tabs">
+                        @foreach (var sc in EffectiveScopes)
+                        {
+                            <button class="sfc-tab @(_scope == sc ? "on" : "")" @onclick="() => SwitchScopeAsync(sc)">@ScopeLabel(sc)</button>
+                        }
+                    </div>
+                }
+
+                @if (_fields.Count == 0)
+                {
+                    <div class="text-muted small" style="padding:6px 0;">Sin campos. Agrega el primero abajo.</div>
+                }
+                else
+                {
+                    <div class="sfc-list">
+                        @for (int i = 0; i < _fields.Count; i++)
+                        {
+                            var f = _fields[i];
+                            var idx = i;
+                            <div class="sfc-item">
+                                <div class="sfc-move">
+                                    <button class="sfc-mini" disabled="@(_busy || idx == 0)" @onclick="() => MoveAsync(idx, idx - 1)">&#9650;</button>
+                                    <button class="sfc-mini" disabled="@(_busy || idx == _fields.Count - 1)" @onclick="() => MoveAsync(idx, idx + 1)">&#9660;</button>
+                                </div>
+                                <div class="sfc-item-main">
+                                    <div class="sfc-item-name">@f.Label <span class="text-muted" style="font-size:11px;">(@f.FieldKey)</span></div>
+                                    <div class="sfc-item-sub">
+                                        @TypeLabel(f.FieldType) &middot; col @f.Column
+                                        @if (f.IsRequired) { <span class="sfc-pill">obligatorio</span> }
+                                        @if (f.ShowOnBoard && _scope == SalonFieldScope.Appointment) { <span class="sfc-pill">tablero</span> }
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditField(f)" disabled="@_busy">Editar</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(f.Id)" disabled="@_busy">&times;</button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="sfc-form">
+                    <div style="font-weight:700;font-size:13px;margin-bottom:8px;">@(_editId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Etiqueta *</label>
+                            <input class="form-control" @bind="_fLabel" placeholder="Ej. Formula de color, Alergias" autocomplete="off" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-control" @bind="_fType">
+                                <option value="@SalonFieldType.Text">Texto</option>
+                                <option value="@SalonFieldType.TextArea">Texto largo</option>
+                                <option value="@SalonFieldType.Number">Numero</option>
+                                <option value="@SalonFieldType.Currency">Monto ($)</option>
+                                <option value="@SalonFieldType.Select">Lista</option>
+                                <option value="@SalonFieldType.Date">Fecha</option>
+                                <option value="@SalonFieldType.Time">Hora</option>
+                                <option value="@SalonFieldType.Phone">Telefono</option>
+                                <option value="@SalonFieldType.Boolean">Si / No</option>
+                                <option value="@SalonFieldType.Separator">Separador</option>
+                            </select>
+                        </div>
+                    </div>
+                    @if (_fType == SalonFieldType.Select)
+                    {
+                        <div class="field">
+                            <label class="form-label">Opciones (una por linea)</label>
+                            <textarea class="form-control" rows="3" @bind="_fOptions" placeholder="Rizado&#10;Liso&#10;Ondulado"></textarea>
+                        </div>
+                    }
+                    <div class="field">
+                        <label class="form-label">Ayuda / descripcion</label>
+                        <input class="form-control" @bind="_fDescription" placeholder="Pista para quien captura el dato" autocomplete="off" />
+                    </div>
+                    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:6px 0;">
+                        <label class="form-label" style="margin:0;">Columna
+                            <select class="form-control form-control-sm" style="width:auto;display:inline-block;margin-left:6px;" @bind="_fColumn">
+                                <option value="1">1 (media)</option>
+                                <option value="2">2 (completa)</option>
+                            </select>
+                        </label>
+                        <label class="sfc-check"><input type="checkbox" checked="@_fRequired" @onchange="e => _fRequired = (bool)e.Value!" /> Obligatorio</label>
+                        @if (_scope == SalonFieldScope.Appointment)
+                        {
+                            <label class="sfc-check"><input type="checkbox" checked="@_fShowOnBoard" @onchange="e => _fShowOnBoard = (bool)e.Value!" /> Ver en tablero del dia</label>
+                        }
+                    </div>
+                    @if (_error is not null)
+                    {
+                        <div class="text-danger small">@_error</div>
+                    }
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" @onclick="SaveAsync" disabled="@_busy">@(_editId is null ? "+ Agregar campo" : "Guardar cambios")</button>
+                        @if (_editId is not null)
+                        {
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="ResetForm" disabled="@_busy">Cancelar</button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseAsync">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public Guid ActorUserId { get; set; }
+    /// <summary>Scopes a gestionar (pestanas). Por defecto cita + cliente.</summary>
+    [Parameter] public IReadOnlyList<SalonFieldScope>? Scopes { get; set; }
+
+    private IReadOnlyList<SalonFieldScope> EffectiveScopes =>
+        Scopes is { Count: > 0 } ? Scopes : new[] { SalonFieldScope.Appointment, SalonFieldScope.Client };
+
+    private SalonFieldScope _scope = SalonFieldScope.Appointment;
+    private List<SalonFieldDto> _fields = new();
+    private bool _busy;
+    private bool _loaded;
+
+    private Guid? _editId;
+    private string _fLabel = "";
+    private SalonFieldType _fType = SalonFieldType.Text;
+    private string? _fOptions;
+    private string? _fDescription;
+    private int _fColumn = 1;
+    private bool _fRequired;
+    private bool _fShowOnBoard;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Show && !_loaded)
+        {
+            _loaded = true;
+            if (!EffectiveScopes.Contains(_scope)) { _scope = EffectiveScopes[0]; }
+            await ReloadAsync();
+        }
+        else if (!Show)
+        {
+            _loaded = false;
+        }
+    }
+
+    private async Task SwitchScopeAsync(SalonFieldScope scope)
+    {
+        if (_scope == scope) { return; }
+        _scope = scope;
+        ResetForm();
+        if (_scope == SalonFieldScope.Client) { _fShowOnBoard = false; }
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync() => _fields = (await FieldsSvc.ListAsync(_scope)).ToList();
+
+    private void EditField(SalonFieldDto f)
+    {
+        _editId = f.Id;
+        _fLabel = f.Label;
+        _fType = f.FieldType;
+        _fOptions = f.Options;
+        _fDescription = f.Description;
+        _fColumn = f.Column;
+        _fRequired = f.IsRequired;
+        _fShowOnBoard = f.ShowOnBoard;
+        _error = null;
+    }
+
+    private void ResetForm()
+    {
+        _editId = null;
+        _fLabel = "";
+        _fType = SalonFieldType.Text;
+        _fOptions = null;
+        _fDescription = null;
+        _fColumn = 1;
+        _fRequired = false;
+        _fShowOnBoard = false;
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_fLabel)) { _error = "La etiqueta es obligatoria."; return; }
+        _busy = true;
+        try
+        {
+            if (_editId is Guid editId)
+            {
+                await FieldsSvc.UpdateAsync(editId, new UpdateSalonFieldRequest(_fLabel, _fType, _fOptions, _fDescription, _fColumn, _fRequired, _fShowOnBoard), ActorUserId);
+            }
+            else
+            {
+                var created = await FieldsSvc.CreateAsync(new CreateSalonFieldRequest(_scope, _fLabel, _fType, _fOptions, _fDescription, _fColumn, _fRequired, _fShowOnBoard), ActorUserId);
+                if (created is null) { _error = "No se pudo crear el campo."; return; }
+            }
+            ResetForm();
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            await FieldsSvc.DeleteAsync(id, ActorUserId);
+            if (_editId == id) { ResetForm(); }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveAsync(int from, int to)
+    {
+        if (to < 0 || to >= _fields.Count) { return; }
+        _busy = true;
+        try
+        {
+            var ordered = _fields.Select(f => f.Id).ToList();
+            var moved = ordered[from];
+            ordered.RemoveAt(from);
+            ordered.Insert(to, moved);
+            await FieldsSvc.ReorderAsync(new ReorderSalonFieldsRequest(ordered), ActorUserId);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CloseAsync()
+    {
+        ResetForm();
+        if (OnClose.HasDelegate) { await OnClose.InvokeAsync(); }
+    }
+
+    private static string ScopeLabel(SalonFieldScope s) => s switch
+    {
+        SalonFieldScope.Appointment => "Campos de la cita",
+        SalonFieldScope.Client => "Campos del cliente",
+        SalonFieldScope.Product => "Campos del producto",
+        _ => s.ToString()
+    };
+
+    private static string TypeLabel(SalonFieldType t) => t switch
+    {
+        SalonFieldType.Text => "Texto",
+        SalonFieldType.TextArea => "Texto largo",
+        SalonFieldType.Number => "Numero",
+        SalonFieldType.Currency => "Monto",
+        SalonFieldType.Select => "Lista",
+        SalonFieldType.Date => "Fecha",
+        SalonFieldType.Time => "Hora",
+        SalonFieldType.Phone => "Telefono",
+        SalonFieldType.Boolean => "Si/No",
+        SalonFieldType.Separator => "Separador",
+        _ => t.ToString()
+    };
+}

@@ -1,0 +1,222 @@
+@page "/metricas"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@inject IDashboardService DashboardSvc
+
+<PageTitle>Metricas - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            </div>
+            <span>Inteligencia Comercial</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Metricas <span>y reportes</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Indicadores de conversion, ventas, asesores, motivos de perdida, destinos y actividad de WhatsApp.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando reportes...</em></p>
+}
+else if (_r is null)
+{
+    <p class="text-muted">No hay datos para mostrar todavia.</p>
+}
+else
+{
+    @* ===== KPIs ===== *@
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
+        <div class="kpi-card">
+            <div class="kpi-label">Total leads</div>
+            <div class="kpi-value">@_r.TotalLeads</div>
+            <div class="kpi-hint">@_r.OpenLeads abiertos</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Tasa de cierre</div>
+            <div class="kpi-value">@_r.WinRate.ToString("0.#")%</div>
+            <div class="kpi-hint">@_r.WonLeads ganados / @_r.LostLeads perdidos</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Valor en pipeline</div>
+            <div class="kpi-value">@Money(_r.PipelineValue)</div>
+            <div class="kpi-hint">leads abiertos</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Valor ganado</div>
+            <div class="kpi-value">@Money(_r.WonValue)</div>
+            <div class="kpi-hint">ticket prom. @Money(_r.AvgTicket)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Conversaciones</div>
+            <div class="kpi-value">@_r.TotalConversations</div>
+            <div class="kpi-hint">@_r.UnansweredConversations sin responder</div>
+        </div>
+    </div>
+
+    <div class="rep-grid">
+        @* ===== 1. Embudo de conversion ===== *@
+        <div class="rep-card">
+            <div class="rep-title">Embudo de conversion</div>
+            <div class="rep-sub">Leads activos por etapa</div>
+            @{ var maxStage = _r.Funnel.Count > 0 ? Math.Max(1, _r.Funnel.Max(f => f.Count)) : 1; }
+            <div class="rep-bars">
+                @foreach (var f in _r.Funnel)
+                {
+                    <div class="rep-bar-row">
+                        <div class="rep-bar-lbl">@f.StageName</div>
+                        <div class="rep-bar-track">
+                            <div class="rep-bar @($"k-{f.Kind}")" style="width:@(Pct(f.Count, maxStage))%;"></div>
+                        </div>
+                        <div class="rep-bar-val">@f.Count</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ===== 4. Motivos de perdida ===== *@
+        <div class="rep-card">
+            <div class="rep-title">Motivos de salida (historial)</div>
+            <div class="rep-sub">Por que se enviaron a historial</div>
+            @if (_r.LossReasons.Count == 0)
+            {
+                <div class="rep-empty">Aun no hay clientes en historial.</div>
+            }
+            else
+            {
+                var maxLoss = Math.Max(1, _r.LossReasons.Max(x => x.Count));
+                <div class="rep-bars">
+                    @foreach (var l in _r.LossReasons)
+                    {
+                        <div class="rep-bar-row">
+                            <div class="rep-bar-lbl" title="@l.Reason">@l.Reason</div>
+                            <div class="rep-bar-track"><div class="rep-bar k-loss" style="width:@(Pct(l.Count, maxLoss))%;"></div></div>
+                            <div class="rep-bar-val">@l.Count</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* ===== 3. Ventas por mes ===== *@
+        <div class="rep-card rep-wide">
+            <div class="rep-title">Leads y valor por mes</div>
+            <div class="rep-sub">Ultimos 6 meses (por fecha de creacion)</div>
+            @{ var maxMonth = _r.Monthly.Count > 0 ? Math.Max(1m, _r.Monthly.Max(m => m.Value)) : 1m; }
+            <div class="rep-cols">
+                @foreach (var m in _r.Monthly)
+                {
+                    <div class="rep-col">
+                        <div class="rep-col-val">@MoneyShort(m.Value)</div>
+                        <div class="rep-col-bar-track">
+                            <div class="rep-col-bar" style="height:@(Pct((double)m.Value, (double)maxMonth))%;"></div>
+                        </div>
+                        <div class="rep-col-lbl">@m.Label</div>
+                        <div class="rep-col-sub">@m.Leads leads</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ===== 2. Rendimiento por asesor ===== *@
+        <div class="rep-card rep-wide">
+            <div class="rep-title">Rendimiento por asesor</div>
+            @if (_r.Advisors.Count == 0)
+            {
+                <div class="rep-empty">Aun no hay leads asignados a asesores.</div>
+            }
+            else
+            {
+                <table class="data-table" style="width:100%;font-size:12.5px;">
+                    <thead>
+                        <tr><th>Asesor</th><th>Asignados</th><th>Ganados</th><th>Perdidos</th><th>Abiertos</th><th>Conversion</th><th>Valor ganado</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in _r.Advisors)
+                        {
+                            <tr>
+                                <td style="font-weight:600;">@a.Name</td>
+                                <td>@a.Assigned</td>
+                                <td>@a.Won</td>
+                                <td>@a.Lost</td>
+                                <td>@a.Open</td>
+                                <td>@a.ConversionPct.ToString("0.#")%</td>
+                                <td>@Money(a.WonValue)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        @* ===== 5. Destinos mas solicitados ===== *@
+        <div class="rep-card">
+            <div class="rep-title">Destinos mas solicitados</div>
+            @if (_r.Destinations.Count == 0)
+            {
+                <div class="rep-empty">Aun no hay destinos registrados.</div>
+            }
+            else
+            {
+                var maxDest = Math.Max(1, _r.Destinations.Max(d => d.Count));
+                <div class="rep-bars">
+                    @foreach (var d in _r.Destinations)
+                    {
+                        <div class="rep-bar-row">
+                            <div class="rep-bar-lbl" title="@d.Destination">@d.Destination</div>
+                            <div class="rep-bar-track"><div class="rep-bar k-dest" style="width:@(Pct(d.Count, maxDest))%;"></div></div>
+                            <div class="rep-bar-val">@d.Count</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* ===== 6. Actividad de WhatsApp ===== *@
+        <div class="rep-card">
+            <div class="rep-title">Actividad de WhatsApp</div>
+            <div class="rep-mini-kpis">
+                <div><span class="n">@_r.InboundMessages</span><span class="l">Entrantes</span></div>
+                <div><span class="n">@_r.OutboundMessages</span><span class="l">Salientes</span></div>
+                <div><span class="n">@_r.UnansweredConversations</span><span class="l">Sin responder</span></div>
+            </div>
+            @if (_r.LineActivity.Count > 0)
+            {
+                <table class="data-table" style="width:100%;font-size:12.5px;margin-top:10px;">
+                    <thead><tr><th>Linea</th><th>Entrantes</th><th>Salientes</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in _r.LineActivity)
+                        {
+                            <tr><td>@l.Line</td><td>@l.Inbound</td><td>@l.Outbound</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private TenantReportsDto? _r;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _r = await DashboardSvc.GetReportsAsync();
+        _loading = false;
+    }
+
+    private static int Pct(int value, int max) => max <= 0 ? 0 : (int)Math.Round(100.0 * value / max);
+    private static int Pct(double value, double max) => max <= 0 ? 0 : (int)Math.Round(100.0 * value / max);
+    private static string Money(decimal v) => $"$ {v:N0}";
+    private static string MoneyShort(decimal v)
+    {
+        if (v >= 1_000_000m) { return $"${Math.Round(v / 1_000_000m, 1)}M"; }
+        if (v >= 1_000m) { return $"${Math.Round(v / 1_000m, 0)}K"; }
+        return $"${v:N0}";
+    }
+}

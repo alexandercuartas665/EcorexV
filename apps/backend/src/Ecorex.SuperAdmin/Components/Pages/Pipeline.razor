@@ -1,0 +1,3806 @@
+@page "/pipeline"
+@attribute [Authorize]
+@* prerender:false evita que OnInitializedAsync corra dos veces (SSR + circuito) y choque el DbContext scoped al cargar por URL directa. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@implements IDisposable
+@inject IPipelineService PipelineSvc
+@inject ILeadService LeadsSvc
+@inject ITenantUserService UsersSvc
+@inject IChatService ChatSvc
+@inject IMessageTemplateService TemplatesSvc
+@inject IWhatsAppLineService LinesSvc
+@inject IWebHostEnvironment Env
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject Ecorex.Application.Common.IQuotePdfRenderer PdfRenderer
+@inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
+@inject Ecorex.Application.Tenancy.IBusinessUnitService BizUnitSvc
+@inject Ecorex.Application.Tenancy.IClientService ClientSvc
+@inject Ecorex.Application.Tenancy.IResourceService ResourcesSvc
+@inject Ecorex.Application.Tenancy.ISalonFieldService SalonFieldsSvc
+@using Microsoft.AspNetCore.SignalR.Client
+
+<PageTitle>Pipeline - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/></svg>
+            </div>
+            <span>Operacion Comercial</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Pipeline <span>comercial</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Embudo Kanban con etapas configurables por agencia para mover leads hasta el cierre.</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+        @if (_canManage)
+        {
+            <button class="btn btn-outline-secondary" @onclick="OpenConfig">Configurar embudo</button>
+            <button class="btn btn-outline-secondary" @onclick="OpenUnits">Unidades de negocio</button>
+        }
+        <button class="btn btn-outline-secondary" @onclick="OpenHistoryAsync">Historial</button>
+        <button class="btn btn-primary" @onclick="() => OpenNewLead(null)" disabled="@(_stages.Count == 0)">+ Nuevo lead</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_stages.Count == 0)
+{
+    <p class="text-muted">No hay etapas configuradas todavia.</p>
+}
+else
+{
+    <div class="kpi-grid" style="margin-bottom:22px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));max-width:840px;">
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div></div>
+            <div class="kpi-label">Total leads</div>
+            <div class="kpi-value">@_leads.Count</div>
+            <div class="kpi-hint">@CountOpen() abiertos en el embudo</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg></div></div>
+            <div class="kpi-label">Tasa de conversion</div>
+            <div class="kpi-value">@_conversion%</div>
+            <div class="kpi-hint">@CountWon() ganados de @_leads.Count</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-top"><div class="kpi-icon tone-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div></div>
+            <div class="kpi-label">Valor del pipeline</div>
+            <div class="kpi-value">@PipelineValue()</div>
+            <div class="kpi-hint">Suma de leads abiertos</div>
+        </div>
+    </div>
+
+    @* ===== Barra: busqueda + orden + filtros ===== *@
+    <div class="pl-toolbar">
+        <div class="pl-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input placeholder="Buscar cliente o destino..." @bind="_search" @bind:event="oninput" />
+            @if (!string.IsNullOrEmpty(_search))
+            {
+                <button class="pl-search-clear" @onclick="() => _search = string.Empty" title="Limpiar">&times;</button>
+            }
+        </div>
+        <div class="pl-sort">
+            <span class="pl-sort-lbl">Ordenar:</span>
+            <select @bind="_sortBy">
+                <option value="time">Tiempo en columna</option>
+                <option value="recent">Mas recientes primero</option>
+                <option value="arrival">Mas antiguos primero</option>
+                <option value="name">Nombre (A-Z)</option>
+                <option value="unanswered">Sin responder primero</option>
+            </select>
+        </div>
+        <div class="pl-view" role="group" aria-label="Modo de vista">
+            <button class="pl-view-btn @(_boardView == "kanban" ? "on" : "")" @onclick='() => _boardView = "kanban"' title="Vista Kanban">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="18" rx="1"/><rect x="9" y="3" width="6" height="12" rx="1"/><rect x="15" y="3" width="6" height="9" rx="1"/></svg>
+                Kanban
+            </button>
+            <button class="pl-view-btn @(_boardView == "list" ? "on" : "")" @onclick='() => _boardView = "list"' title="Vista lista">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Lista
+            </button>
+        </div>
+        <div class="pl-filt-anchor">
+            <button class="btn btn-outline-secondary @(FiltersActive ? "pl-filt-on" : "")" @onclick="() => _filtersOpen = !_filtersOpen">
+                Filtros@(FiltersActive ? $" ({ActiveFilterCount})" : "")
+            </button>
+            @if (_filtersOpen)
+            {
+                <div class="pl-filters">
+                    <div class="pl-filters-head">
+                <span>Filtros avanzados</span>
+                <button class="pl-link" @onclick="ClearFilters">Limpiar</button>
+            </div>
+            <div class="pl-filt-group">
+                <div class="pl-filt-lbl">Asesor</div>
+                <div class="pl-chips">
+                    @foreach (var u in _team)
+                    {
+                        <button class="pl-fchip @(_filterAsesores.Contains(u.Id) ? "on" : "")" @onclick="() => ToggleAsesor(u.Id)">
+                            <span class="dot" style="background:@AseColor(TeamLabel(u))"></span>@FirstName(TeamLabel(u))
+                        </button>
+                    }
+                    <button class="pl-fchip @(_filterSinAsesor ? "on" : "")" @onclick="() => _filterSinAsesor = !_filterSinAsesor">
+                        <span class="dot" style="background:var(--muted-foreground);"></span>Sin asesor
+                    </button>
+                </div>
+            </div>
+            <div class="pl-filt-group">
+                <div class="pl-filt-lbl">Etapa</div>
+                <div class="pl-chips">
+                    @foreach (var s in _stages)
+                    {
+                        <button class="pl-fchip @(_filterStages.Contains(s.Id) ? "on" : "")" @onclick="() => ToggleStage(s.Id)">@s.Name</button>
+                    }
+                </div>
+            </div>
+            @if (_businessUnits.Count > 0)
+            {
+                <div class="pl-filt-group">
+                    <div class="pl-filt-lbl">Unidad de negocio</div>
+                    <div class="pl-chips">
+                        @foreach (var bu in _businessUnits)
+                        {
+                            <button class="pl-fchip @(_filterUnits.Contains(bu.Id) ? "on" : "")" @onclick="() => ToggleUnit(bu.Id)">
+                                <span class="dot" style="background:@bu.Color"></span>@bu.Name
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+            @if (DistinctDestinations().Count > 0)
+            {
+                <div class="pl-filt-group">
+                    <div class="pl-filt-lbl">Destino</div>
+                    <div class="pl-chips">
+                        @foreach (var dest in DistinctDestinations())
+                        {
+                            <button class="pl-fchip @(_filterDestinos.Contains(dest) ? "on" : "")" @onclick="() => ToggleDestino(dest)">@dest</button>
+                        }
+                    </div>
+                </div>
+            }
+            @foreach (var ff in FilterableFields())
+            {
+                var ffVals = DistinctFieldValues(ff.FieldKey);
+                @if (ffVals.Count > 0)
+                {
+                    <div class="pl-filt-group">
+                        <div class="pl-filt-lbl">@ff.Label</div>
+                        <div class="pl-chips">
+                            @foreach (var val in ffVals)
+                            {
+                                <button class="pl-fchip @(FieldFilterOn(ff.FieldKey, val) ? "on" : "")" @onclick="() => ToggleFieldFilter(ff.FieldKey, val)">@val</button>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+            <div class="pl-filt-group">
+                <div class="pl-filt-lbl">Atencion</div>
+                <label class="pl-toggle">
+                    <input type="checkbox" checked="@_onlyUnanswered" @onchange="@(e => _onlyUnanswered = (bool)e.Value!)" />
+                    <span>Solo clientes sin respuesta</span>
+                </label>
+            </div>
+            <div class="pl-filt-group">
+                <div class="pl-filt-lbl">Valor del pipeline</div>
+                <div class="pl-chips">
+                    <button class="pl-fchip @(_filterValue.Contains("lt2") ? "on" : "")" @onclick="@(() => ToggleValue("lt2"))">&lt; $2M</button>
+                    <button class="pl-fchip @(_filterValue.Contains("2to5") ? "on" : "")" @onclick="@(() => ToggleValue("2to5"))">$2M - $5M</button>
+                    <button class="pl-fchip @(_filterValue.Contains("gt5") ? "on" : "")" @onclick="@(() => ToggleValue("gt5"))">$5M+</button>
+                </div>
+            </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_boardView == "list")
+    {
+        var listLeads = AllFilteredLeads();
+        <div class="pl-list">
+            @if (listLeads.Count == 0)
+            {
+                <div class="text-muted" style="font-size:13px;padding:18px 2px;">No hay leads que coincidan con la busqueda o los filtros.</div>
+            }
+            else
+            {
+                <table class="data-table pl-list-table">
+                    <thead>
+                        <tr>
+                            <th>Cliente</th><th>Etapa</th><th>Destino</th><th>Fecha</th><th>Pax</th>
+                            <th>Valor</th><th>Asesor</th><th>Estado</th><th>En etapa</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var lead in listLeads)
+                        {
+                            var lpend = PendingFor(lead);
+                            <tr class="@(lpend is not null ? "pl-row-reply" : "")" style="cursor:pointer;" @onclick="() => OpenLeadAsync(lead.Id)">
+                                <td>
+                                    <div style="font-weight:600;">@lead.ContactName</div>
+                                    @if (!string.IsNullOrWhiteSpace(lead.ContactPhone))
+                                    {
+                                        <div class="text-muted" style="font-size:11.5px;">@lead.ContactPhone</div>
+                                    }
+                                    @if (lpend is { } lp)
+                                    {
+                                        <div class="pl-row-tag">@lp.UnansweredCount sin responder · @WaitingLabel(lp.WaitingSince)</div>
+                                    }
+                                </td>
+                                <td>@StageName(lead.StageId)</td>
+                                <td>@RouteFrom(lead)@(RouteTo(lead) is { } rt ? $" → {rt}" : "")</td>
+                                <td>@(Field(lead, "fechaTentativa") ?? "—")</td>
+                                <td>@(PaxLabel(lead) ?? "—")</td>
+                                <td>@(lead.EstimatedValue is decimal v ? Money(v, lead.Currency) : "—")</td>
+                                <td>@(AsesorName(lead) ?? "Sin asesor")</td>
+                                <td><span class="pl-chip">@StatusText(lead.Status)</span></td>
+                                <td class="text-muted">@TimeInStageLabel(lead)</td>
+                                <td>
+                                    <button class="btn-icon" title="Llevar a historial" @onclick="() => OpenArchive(lead)" @onclick:stopPropagation="true">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+    else
+    {
+    <div class="kanban">
+        @foreach (var stage in _stages)
+        {
+            if (_filterStages.Count > 0 && !_filterStages.Contains(stage.Id)) { continue; }
+            var leadsInStage = VisibleLeads(stage.Id);
+            <div class="kb-col" data-stage-id="@stage.Id">
+                <div class="kb-col-head">
+                    <div>
+                        <div class="kb-col-title">@stage.Name</div>
+                        <div class="kb-col-meta">@StageTag(stage)</div>
+                    </div>
+                    <span class="kb-col-count">@leadsInStage.Count</span>
+                </div>
+                <div class="kb-body">
+                    @if (leadsInStage.Count == 0)
+                    {
+                        <div class="kb-empty">Sin leads en esta etapa</div>
+                    }
+                    else
+                    {
+                        @foreach (var lead in leadsInStage)
+                        {
+                            var pend = PendingFor(lead);
+                            <div class="@CardCss(lead, pend)" draggable="true" data-lead-id="@lead.Id"
+                                 style="@CardStyle(lead)"
+                                 @onclick="() => OpenLeadAsync(lead.Id)">
+                                <div class="kb-top">
+                                    <span class="kb-time">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        @TimeInStageLabel(lead) aqui
+                                    </span>
+                                    @if (pend is { } p)
+                                    {
+                                        <span class="kb-badge reply">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                            @WaitingLabel(p.WaitingSince)
+                                        </span>
+                                    }
+                                    else if (IsStale(lead))
+                                    {
+                                        <span class="kb-badge stale">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                            @StaleLabel(lead)
+                                        </span>
+                                    }
+                                    <button class="kb-archive" title="Llevar a historial" @onclick="() => OpenArchive(lead)" @onclick:stopPropagation="true">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+                                    </button>
+                                </div>
+
+                                <div class="nm">@lead.ContactName</div>
+
+                                @if (UnitOf(lead) is { } bu)
+                                {
+                                    <div style="display:inline-flex;align-items:center;gap:5px;margin:0 0 7px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:@(bu.Color)22;color:@bu.Color;">
+                                        <span style="width:7px;height:7px;border-radius:50%;background:@bu.Color;"></span>@bu.Name
+                                    </div>
+                                }
+
+                                @if (pend is { } pc)
+                                {
+                                    <div class="kb-unread">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                        @pc.UnansweredCount @(pc.UnansweredCount == 1 ? "mensaje sin responder" : "mensajes sin responder")
+                                    </div>
+                                }
+
+                                <div class="kb-route">
+                                    <span class="codes">
+                                        @RouteFrom(lead)
+                                        @if (RouteTo(lead) is { } rt)
+                                        {
+                                            <span class="arr">&rarr;</span> @rt
+                                        }
+                                    </span>
+                                    <span class="date">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                                        @(Field(lead, "fechaTentativa") ?? "Sin fecha")
+                                    </span>
+                                </div>
+
+                                @if (Field(lead, "comentarios") is { } cm)
+                                {
+                                    <div class="kb-comment">@cm</div>
+                                }
+
+                                @if (lead.EstimatedValue is decimal v)
+                                {
+                                    <div class="val" style="margin-bottom:8px;">@Money(v, lead.Currency)</div>
+                                }
+
+                                <div class="kb-foot">
+                                    <span class="kb-ase">
+                                        <span class="kb-ase-dot" style="background:@AseColor(AsesorName(lead))"></span>
+                                        <span class="nmtxt">@(AsesorName(lead) ?? "Sin asesor")</span>
+                                    </span>
+                                    @if (PaxLabel(lead) is { } px)
+                                    {
+                                        <span class="kb-pax">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                                            @px
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+                <button class="add-card-btn" style="margin:8px;padding:8px;border:1px dashed var(--border);border-radius:8px;background:none;color:var(--muted-foreground);font-size:12px;font-weight:600;cursor:pointer;width:calc(100% - 16px);"
+                        @onclick="() => OpenNewLead(stage.Id)">
+                    + Agregar lead
+                </button>
+            </div>
+        }
+    </div>
+    }
+}
+
+@* ===== Modal: nuevo lead ===== *@
+@if (_newLeadOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Nuevo lead</h3>
+                <button class="modal-close" @onclick="() => _newLeadOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre del contacto *</label>
+                    <input class="form-control" @bind="_nl.ContactName" autocomplete="off" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Telefono</label>
+                        <input class="form-control" @bind="_nl.ContactPhone" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Destino</label>
+                        <input class="form-control" @bind="_nl.Destination" autocomplete="off" />
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Valor estimado</label>
+                        <input class="form-control" type="text" inputmode="numeric" value="@FormatMoneyDecimal(_nl.EstimatedValue)" @onchange="e => _nl.EstimatedValue = ParseMoneyNullable(e.Value?.ToString())" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Moneda</label>
+                        <select class="form-control" @bind="_nl.Currency">
+                            @if (!string.IsNullOrWhiteSpace(_nl.Currency) && !CommonCurrencies.Any(c => c.Code == _nl.Currency))
+                            {
+                                <option value="@_nl.Currency">@_nl.Currency</option>
+                            }
+                            @foreach (var c in CommonCurrencies)
+                            {
+                                <option value="@c.Code">@c.Label</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Etapa inicial</label>
+                        <select class="form-control" @bind="_nl.StageId">
+                            @foreach (var s in _stages)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Unidad de negocio</label>
+                        <select class="form-control" value="@(_nl.BusinessUnitId?.ToString() ?? "")" @onchange="e => _nl.BusinessUnitId = ParseGuid(e.Value?.ToString())">
+                            <option value="">Sin unidad</option>
+                            @foreach (var bu in _businessUnits)
+                            {
+                                <option value="@bu.Id">@bu.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                @if (_newLeadError is not null)
+                {
+                    <div class="text-danger small">@_newLeadError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _newLeadOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveNewLeadAsync" disabled="@_busy">Crear lead</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* El modal de "Asesoria de imagen" reutiliza el BookingModal del salon (ver al final del archivo). *@
+
+@* ===== Modal: unidades de negocio ===== *@
+@if (_unitsOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Unidades de negocio</h3>
+                <button class="modal-close" @onclick="() => _unitsOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" style="margin-top:0;">Canales del cliente. El color clasifica las tarjetas del pipeline. El tipo "Asesoria de imagen" abre la ficha del salon al hacer clic en la tarjeta.</p>
+                <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
+                    @foreach (var u in _businessUnits)
+                    {
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);">
+                            <span style="width:14px;height:14px;border-radius:4px;background:@u.Color;flex:0 0 auto;"></span>
+                            <span style="font-weight:600;flex:1 1 auto;@(u.IsActive ? "" : "opacity:.5;text-decoration:line-through;")">@u.Name</span>
+                            <span class="text-muted" style="font-size:11px;">@(u.ModalKind == Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory ? "Asesoria de imagen" : "Generico")</span>
+                            <button class="pl-link" @onclick="() => EditUnit(u)">Editar</button>
+                            <button class="pl-link" @onclick="() => ToggleUnitActiveAsync(u)">@(u.IsActive ? "Ocultar" : "Activar")</button>
+                            <button class="pl-link" style="color:#C7398B;" @onclick="() => DeleteUnitAsync(u)">Eliminar</button>
+                        </div>
+                    }
+                    @if (_businessUnits.Count == 0)
+                    {
+                        <div class="text-muted small" style="padding:10px;">No hay unidades configuradas.</div>
+                    }
+                </div>
+                <div class="pl-stagegroup-title" style="margin-bottom:8px;">@(_editingUnitId is null ? "Nueva unidad" : "Editar unidad")</div>
+                <div class="field-row">
+                    <div class="field" style="flex:2 1 auto;">
+                        <label class="form-label">Nombre *</label>
+                        <input class="form-control" @bind="_uf.Name" autocomplete="off" />
+                    </div>
+                    <div class="field" style="flex:0 0 90px;">
+                        <label class="form-label">Color</label>
+                        <input class="form-control" type="color" @bind="_uf.Color" style="padding:2px;height:38px;" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Tipo de modal al abrir la tarjeta</label>
+                    <select class="form-control" @bind="_uf.ModalKind">
+                        <option value="Generic">Generico (ficha del lead)</option>
+                        <option value="ImageAdvisory">Asesoria de imagen (ficha del salon)</option>
+                    </select>
+                </div>
+                @if (_unitsError is not null)
+                {
+                    <div class="text-danger small">@_unitsError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editingUnitId is not null)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="CancelUnitEdit">Cancelar edicion</button>
+                }
+                <button class="btn btn-outline-secondary" @onclick="() => _unitsOpen = false">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SaveUnitAsync">@(_editingUnitId is null ? "Agregar" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: detalle del lead ===== *@
+@if (_leadOpen && _editLead is not null)
+{
+    var curIdx = _stages.FindIndex(s => s.Id == _editStageId);
+    <div class="modal-overlay">
+        <div class="modal-dialog pl-lead-dialog mob-@_leadMobileView">
+          <div class="pl-lead-mobtabs">
+              <button class="@(_leadMobileView == "datos" ? "active" : "")" @onclick='() => _leadMobileView = "datos"'>Datos</button>
+              <button class="@(_leadMobileView == "chat" ? "active" : "")" @onclick='() => _leadMobileView = "chat"'>Chat</button>
+          </div>
+          <div class="pl-lead-left">
+            <div class="modal-head">
+                <div style="min-width:0;">
+                    <h3>@(_el.ContactName)</h3>
+                    <div class="pl-tags">
+                        <span class="pl-state-pill">@StageName(_editStageId)</span>
+                        @if (!string.IsNullOrWhiteSpace(_el.Destination))
+                        {
+                            <span class="pl-chip">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+                                @_el.Destination
+                            </span>
+                        }
+                        @if (_el.EstimatedValue is decimal ev && ev > 0)
+                        {
+                            <span class="pl-chip">@ev.ToString("N0") @(_el.Currency ?? "COP")</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_el.ContactPhone))
+                        {
+                            <span class="pl-chip">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                                @_el.ContactPhone
+                            </span>
+                        }
+                    </div>
+                </div>
+                <button class="modal-close" @onclick="CloseLead">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="pl-lead-tabs">
+                    <button class="pl-lead-tab @(_leadTab == "datos" ? "active" : "")" @onclick='() => _leadTab = "datos"'>Datos</button>
+                    <button class="pl-lead-tab @(_leadTab == "notas" ? "active" : "")" @onclick='() => _leadTab = "notas"'>Notas @(_notes.Count > 0 ? $"({_notes.Count})" : "")</button>
+                    <button class="pl-lead-tab @(_leadTab == "archivos" ? "active" : "")" @onclick='() => _leadTab = "archivos"'>Archivos @(_files.Count > 0 ? $"({_files.Count})" : "")</button>
+                    <button class="pl-lead-tab @(_leadTab == "actividad" ? "active" : "")" @onclick='() => _leadTab = "actividad"'>Actividad @(_activities.Count > 0 ? $"({_activities.Count})" : "")</button>
+                </div>
+
+                @if (_leadTab == "datos")
+                {
+                <div @oninput="MarkLeadDirty">
+                @* Stepper de etapas *@
+                <div style="display:grid;grid-template-columns:repeat(@_stages.Count,1fr);gap:4px;margin-bottom:18px;">
+                    @for (var i = 0; i < _stages.Count; i++)
+                    {
+                        var s = _stages[i];
+                        var done = i < curIdx;
+                        var current = i == curIdx;
+                        <button @onclick="() => MoveToStageAsync(s.Id)" title="Mover a @s.Name"
+                                style="background:none;border:none;cursor:pointer;text-align:center;padding:2px;">
+                            <div style="height:4px;border-radius:999px;margin-bottom:5px;background:@((done || current) ? "var(--primary)" : "var(--border)");"></div>
+                            <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;color:@(current ? "var(--primary)" : "var(--muted-foreground)");">@s.Name</div>
+                        </button>
+                    }
+                </div>
+
+                @* Datos de contacto (core) *@
+                <div class="pl-stagegroup">
+                    <div class="pl-stagegroup-title">Datos de contacto</div>
+                    <div class="pl-fields">
+                        <div class="pl-field col2">
+                            <label class="form-label">Nombre *</label>
+                            <input class="form-control" @bind="_el.ContactName" />
+                        </div>
+                        <div class="pl-field">
+                            <label class="form-label">Telefono</label>
+                            <input class="form-control" @bind="_el.ContactPhone" />
+                        </div>
+                        <div class="pl-field">
+                            <label class="form-label">Origen destino</label>
+                            <input class="form-control" @bind="_el.Destination" />
+                        </div>
+                        <div class="pl-field">
+                            <label class="form-label">Moneda</label>
+                            <select class="form-control" @bind="_el.Currency">
+                                @if (!string.IsNullOrWhiteSpace(_el.Currency) && !CommonCurrencies.Any(c => c.Code == _el.Currency))
+                                {
+                                    <option value="@_el.Currency">@_el.Currency</option>
+                                }
+                                @foreach (var c in CommonCurrencies)
+                                {
+                                    <option value="@c.Code">@c.Label</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="pl-field col2">
+                            <label class="form-label">Asesor asignado</label>
+                            @if (_canManage)
+                            {
+                                <select class="form-control" value="@(_editLead.AssignedToTenantUserId?.ToString() ?? "")" @onchange="OnAssignChangedAsync">
+                                    <option value="">Sin asignar</option>
+                                    @foreach (var u in _team)
+                                    {
+                                        <option value="@u.Id">@TeamLabel(u)</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="form-control" value="@AssignedLabel()" disabled />
+                            }
+                        </div>
+                        <div class="pl-field col2">
+                            <label class="form-label">Unidad de negocio</label>
+                            <select class="form-control" value="@(_el.BusinessUnitId?.ToString() ?? "")" @onchange="OnEditUnitChanged">
+                                <option value="">Sin unidad</option>
+                                @foreach (var bu in _businessUnits)
+                                {
+                                    <option value="@bu.Id">@bu.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                @* Campos configurables por etapa (hasta la etapa actual) *@
+                @for (var i = 0; i <= curIdx && i < _stages.Count; i++)
+                {
+                    var s = _stages[i];
+                    var stageFields = _fields.Where(f => f.StageId == s.Id).OrderBy(f => f.SortOrder).ToList();
+                    if (stageFields.Count == 0) { continue; }
+                    <div class="pl-stagegroup">
+                        <div class="pl-stagegroup-title">@s.Name</div>
+                        <div class="pl-fields">
+                            @foreach (var f in stageFields)
+                            {
+                                if (f.FieldType == PipelineFieldType.Separator)
+                                {
+                                    <div class="pl-field-separator col2"><span>@f.Label</span></div>
+                                    continue;
+                                }
+                                <div class="pl-field @(f.Column == 2 ? "col2" : "")">
+                                    <label class="form-label">@f.Label</label>
+                                    @if (!string.IsNullOrWhiteSpace(f.Description))
+                                    {
+                                        <div class="pl-field-help">@f.Description</div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(f.RepeatWithFieldKey))
+                                    {
+                                        var rc = RepeatCount(f.RepeatWithFieldKey!);
+                                        if (rc <= 0)
+                                        {
+                                            <div class="text-muted" style="font-size:11.5px;">Indica "@FieldLabel(f.RepeatWithFieldKey!)" para capturar @f.Label.</div>
+                                        }
+                                        else
+                                        {
+                                            var rlist = MultiList(f.FieldKey, rc);
+                                            for (int ri = 0; ri < rc; ri++)
+                                            {
+                                                var ci = ri;
+                                                <div class="pl-multi-row">
+                                                    <span class="pl-multi-idx">@(ci + 1)</span>
+                                                    @if (f.FieldType == PipelineFieldType.Currency)
+                                                    {
+                                                        <div class="pl-money-input" style="flex:1;">
+                                                            <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                            <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(rlist[ci])" @onchange="e => rlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                        </div>
+                                                    }
+                                                    else if (f.FieldType == PipelineFieldType.Number)
+                                                    {
+                                                        <input class="form-control" type="number" @bind="rlist[ci]" />
+                                                    }
+                                                    else if (f.FieldType == PipelineFieldType.Date)
+                                                    {
+                                                        <input class="form-control" type="date" value="@rlist[ci]" @onchange="e => rlist[ci] = e.Value?.ToString()" />
+                                                    }
+                                                    else if (f.FieldType == PipelineFieldType.Phone)
+                                                    {
+                                                        <input class="form-control" type="tel" @bind="rlist[ci]" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <input class="form-control" @bind="rlist[ci]" />
+                                                    }
+                                                </div>
+                                            }
+                                        }
+                                    }
+                                    else if (f.AllowMultiple)
+                                    {
+                                        var mlist = MultiList(f.FieldKey, -1);
+                                        var dlist = f.MultiWithDetail ? DetailList(f.FieldKey, mlist.Count) : null;
+                                        for (int mi = 0; mi < mlist.Count; mi++)
+                                        {
+                                            var ci = mi;
+                                            <div class="pl-multi-row">
+                                                @if (f.MultiWithDetail && dlist is not null)
+                                                {
+                                                    <input class="form-control pl-multi-detail" placeholder="Detalle" @bind="dlist[ci]" />
+                                                }
+                                                @if (f.FieldType == PipelineFieldType.Currency)
+                                                {
+                                                    <div class="pl-money-input" style="flex:1;">
+                                                        <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                        <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(mlist[ci])" @onchange="e => mlist[ci] = DigitsToRaw(e.Value?.ToString())" />
+                                                    </div>
+                                                }
+                                                else if (f.FieldType == PipelineFieldType.Number)
+                                                {
+                                                    <input class="form-control" type="number" @bind="mlist[ci]" />
+                                                }
+                                                else if (f.FieldType == PipelineFieldType.Date)
+                                                {
+                                                    <input class="form-control" type="date" value="@mlist[ci]" @onchange="e => mlist[ci] = e.Value?.ToString()" />
+                                                }
+                                                else if (f.FieldType == PipelineFieldType.Phone)
+                                                {
+                                                    <input class="form-control" type="tel" @bind="mlist[ci]" />
+                                                }
+                                                else
+                                                {
+                                                    <input class="form-control" @bind="mlist[ci]" />
+                                                }
+                                                <button type="button" class="pl-multi-del" title="Quitar" @onclick="() => RemoveMulti(f.FieldKey, ci)">&times;</button>
+                                            </div>
+                                        }
+                                        <button type="button" class="pl-multi-add" @onclick="() => AddMulti(f.FieldKey)">+ Agregar</button>
+                                    }
+                                    else
+                                    {
+                                        @switch (f.FieldType)
+                                        {
+                                            case PipelineFieldType.TextArea:
+                                                <textarea class="form-control" rows="2" @bind="_editValues[f.FieldKey]"></textarea>
+                                                break;
+                                            case PipelineFieldType.Number:
+                                                <input class="form-control" type="number" @bind="_editValues[f.FieldKey]" />
+                                                break;
+                                            case PipelineFieldType.Currency:
+                                                <div class="pl-money-input">
+                                                    <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                    <input class="form-control" type="text" inputmode="numeric" value="@FormatThousands(_editValues[f.FieldKey])" @onchange="e => _editValues[f.FieldKey] = DigitsToRaw(e.Value?.ToString())" />
+                                                </div>
+                                                break;
+                                            case PipelineFieldType.Date:
+                                                <input class="form-control" type="date" value="@_editValues[f.FieldKey]" @onchange="e => _editValues[f.FieldKey] = e.Value?.ToString()" />
+                                                break;
+                                            case PipelineFieldType.Time:
+                                                <input class="form-control" type="time" value="@_editValues[f.FieldKey]" @onchange="e => _editValues[f.FieldKey] = e.Value?.ToString()" />
+                                                break;
+                                            case PipelineFieldType.TimeRange:
+                                                <div style="display:flex;gap:6px;align-items:center;">
+                                                    <input class="form-control" type="time" title="Salida" value="@TimeRangePart(_editValues[f.FieldKey], 0)" @onchange="e => _editValues[f.FieldKey] = SetTimeRange(_editValues[f.FieldKey], 0, e.Value?.ToString())" />
+                                                    <span class="text-muted" style="font-size:12px;">a</span>
+                                                    <input class="form-control" type="time" title="Llegada" value="@TimeRangePart(_editValues[f.FieldKey], 1)" @onchange="e => _editValues[f.FieldKey] = SetTimeRange(_editValues[f.FieldKey], 1, e.Value?.ToString())" />
+                                                </div>
+                                                break;
+                                            case PipelineFieldType.Phone:
+                                                <input class="form-control" type="tel" @bind="_editValues[f.FieldKey]" placeholder="+57 300 000 0000" />
+                                                break;
+                                            case PipelineFieldType.Select:
+                                                <select class="form-control" @bind="_editValues[f.FieldKey]">
+                                                    <option value="">—</option>
+                                                    @foreach (var opt in SelectOptions(f))
+                                                    {
+                                                        <option value="@opt">@opt</option>
+                                                    }
+                                                </select>
+                                                break;
+                                            case PipelineFieldType.Total:
+                                                <div class="pl-money-input">
+                                                    <span class="pl-money-sign">@CurrencySymbol(_el.Currency)</span>
+                                                    <input class="form-control pl-total-field" type="text" readonly value="@FormatMoneyDecimal(ComputeTotal(f))" />
+                                                </div>
+                                                break;
+                                            default:
+                                                <input class="form-control" @bind="_editValues[f.FieldKey]" />
+                                                break;
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                </div>
+                }
+
+                @if (_leadTab == "notas")
+                {
+                    <div class="pl-notes-composer">
+                        <textarea class="form-control" rows="2" placeholder="Escribe una observacion sobre el cliente..." @bind="_noteText" @bind:event="oninput"></textarea>
+                        <div class="pl-notes-bar">
+                            <div class="pl-notes-colors">
+                                @foreach (var c in NoteColors)
+                                {
+                                    <button type="button" class="pl-note-swatch @(c == _noteColor ? "on" : "")"
+                                            style="background:@NoteColorHex(c);" title="@c" @onclick="() => _noteColor = c"></button>
+                                }
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="AddNoteAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_noteText))">Agregar nota</button>
+                        </div>
+                    </div>
+
+                    @if (_notes.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Aun no hay notas de seguimiento para este lead.</div>
+                    }
+                    else
+                    {
+                        <div class="pl-notes-list">
+                            @foreach (var n in _notes)
+                            {
+                                <div class="pl-note" style="background:@NoteColorHex(n.Color);border-color:@NoteColorBorder(n.Color);">
+                                    <button class="pl-note-del" title="Eliminar nota" @onclick="() => DeleteNoteAsync(n.Id)">&times;</button>
+                                    <div class="pl-note-text">@n.Content</div>
+                                    <div class="pl-note-meta">
+                                        <span>@(string.IsNullOrWhiteSpace(n.ActorName) ? "Sistema" : n.ActorName)</span>
+                                        &middot; @n.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_leadTab == "archivos")
+                {
+                    <div class="pl-files-upload">
+                        <label class="pl-files-drop">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span>@(_fileBusy ? "Subiendo..." : "Subir documento del cliente (PDF, imagen, etc.)")</span>
+                            <InputFile OnChange="OnLeadFileAsync" accept="*/*" style="display:none;" disabled="@_fileBusy" />
+                        </label>
+                        @if (_fileError is not null)
+                        {
+                            <div class="text-danger small" style="margin-top:6px;">@_fileError</div>
+                        }
+                    </div>
+
+                    @if (_files.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Aun no hay documentos adjuntos para este lead.</div>
+                    }
+                    else
+                    {
+                        <div class="pl-files-list">
+                            @foreach (var f in _files)
+                            {
+                                <div class="pl-file">
+                                    <div class="pl-file-ico">@FileExt(f.FileName)</div>
+                                    <div class="pl-file-info">
+                                        <a href="@f.Url" target="_blank" class="pl-file-name" title="@f.FileName">@f.FileName</a>
+                                        <div class="pl-file-meta">
+                                            @FileSize(f.SizeBytes)
+                                            &middot; @(string.IsNullOrWhiteSpace(f.ActorName) ? "Sistema" : f.ActorName)
+                                            &middot; @f.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+                                        </div>
+                                    </div>
+                                    <a href="@f.Url" target="_blank" class="btn-icon" title="Descargar" download>
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    </a>
+                                    <button class="btn-icon" title="Eliminar archivo" @onclick="() => DeleteLeadFileAsync(f.Id)">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_leadTab == "actividad")
+                {
+                    @if (_activities.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Aun no hay actividad registrada para este lead.</div>
+                    }
+                    else
+                    {
+                        <div class="pl-timeline">
+                            @foreach (var a in _activities)
+                            {
+                                <div class="pl-tl-item">
+                                    <div class="pl-tl-dot"></div>
+                                    <div class="pl-tl-body">
+                                        <div class="pl-tl-desc">@a.Description</div>
+                                        <div class="pl-tl-meta">
+                                            <span class="pl-tl-actor">@(string.IsNullOrWhiteSpace(a.ActorName) ? "Sistema" : a.ActorName)</span>
+                                            &middot; @a.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_leadError is not null)
+                {
+                    <div class="text-danger small">@_leadError</div>
+                }
+            </div>
+            <div class="modal-foot" style="justify-content:space-between;">
+                <div style="display:flex;gap:6px;">
+                    @if (curIdx > 0)
+                    {
+                        <button class="btn btn-outline-secondary" @onclick="() => MoveToStageAsync(_stages[curIdx - 1].Id)" disabled="@_busy">&larr; @_stages[curIdx - 1].Name</button>
+                    }
+                    @if (curIdx >= 0 && curIdx < _stages.Count - 1)
+                    {
+                        <button class="btn btn-outline-secondary" @onclick="() => MoveToStageAsync(_stages[curIdx + 1].Id)" disabled="@_busy">@_stages[curIdx + 1].Name &rarr;</button>
+                    }
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    @if (_leadSaved && !_leadDirty)
+                    {
+                        <span class="pl-saved-flag">Guardado</span>
+                    }
+                    <button class="btn btn-outline-secondary" @onclick="CloseLead">Cerrar</button>
+                    <button class="btn @(_leadDirty ? "pl-save-dirty" : "btn-primary")" @onclick="SaveLeadAsync" disabled="@_busy">@(_busy ? "Guardando..." : _leadDirty ? "Guardar cambios" : "Guardar")</button>
+                </div>
+            </div>
+          </div>
+
+          @* ===== Panel de chat WhatsApp ===== *@
+          <div class="pl-chat">
+            <div class="pl-chat-head">
+                <div class="pl-chat-avatar">@Initials(_el.ContactName)</div>
+                <div style="flex:1;min-width:0;">
+                    <div class="nm">@(_el.ContactName)</div>
+                    <div class="sub">En linea &middot; WhatsApp</div>
+                    @if (_chatLines.Count > 0)
+                    {
+                        <div class="pl-chat-line">
+                            <select @bind="_chatLineId" title="Linea WhatsApp para responder">
+                                @foreach (var ln in _chatLines)
+                                {
+                                    <option value="@ln.Id">@(string.IsNullOrWhiteSpace(ln.PhoneNumber) ? ln.InstanceName : $"{ln.InstanceName} ({ln.PhoneNumber})")</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+                <span class="pl-chat-more">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                    Mas
+                </span>
+            </div>
+            <div class="pl-chat-bodywrap" id="pl-chat-drop">
+              <div class="pl-chat-dropmask">Suelta el documento para enviarlo</div>
+              <div class="pl-chat-body">
+                @if (string.IsNullOrWhiteSpace(_el.ContactPhone))
+                {
+                    <div class="pl-chat-empty">Agrega un telefono al lead para iniciar la conversacion por WhatsApp.</div>
+                }
+                else if (_chatLines.Count == 0)
+                {
+                    <div class="pl-chat-empty">No hay lineas WhatsApp conectadas. Conecta una en el modulo Lineas.</div>
+                }
+                else if (_messages.Count == 0)
+                {
+                    <div class="pl-chat-empty">Aun no hay mensajes. Escribe el primero abajo.</div>
+                }
+                else
+                {
+                    DateTime? lastDay = null;
+                    @foreach (var m in _messages)
+                    {
+                        var day = m.SentAt.LocalDateTime.Date;
+                        if (lastDay != day)
+                        {
+                            lastDay = day;
+                            <div class="pl-date-divider">@day.ToString("dd 'DE' MMMM").ToUpperInvariant()</div>
+                        }
+                        <div class="pl-bubble @(m.Direction == MessageDirection.Outbound ? "out" : "in")">
+                            @switch (m.MediaType)
+                            {
+                                case MessageMediaType.Image:
+                                    <img class="pl-media-img" src="@m.MediaUrl" alt="imagen" />
+                                    break;
+                                case MessageMediaType.Video:
+                                    <video class="pl-media-img" src="@m.MediaUrl" controls></video>
+                                    break;
+                                case MessageMediaType.Audio:
+                                    <audio src="@m.MediaUrl" controls style="max-width:220px;"></audio>
+                                    break;
+                                case MessageMediaType.Document:
+                                    <a class="pl-media-doc" href="@m.MediaUrl" target="_blank">Documento adjunto</a>
+                                    break;
+                                case MessageMediaType.Location:
+                                    <a class="pl-media-doc" href="@MapsLink(m.MediaUrl)" target="_blank">Ver ubicacion en el mapa</a>
+                                    break;
+                            }
+                            @if (!string.IsNullOrWhiteSpace(m.Body))
+                            {
+                                <div>@m.Body</div>
+                            }
+                            <div class="t">
+                                @if (m.Direction == MessageDirection.Outbound && !string.IsNullOrWhiteSpace(m.SentByName))
+                                {
+                                    <span>@m.SentByName &middot; </span>
+                                }
+                                @m.SentAt.LocalDateTime.ToString("hh:mm tt")
+                            </div>
+                        </div>
+                    }
+                }
+              </div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_el.ContactPhone) && _chatLines.Count > 0)
+            {
+                <div class="pl-chat-quick">
+                    <div class="pl-qr-head">
+                        <span>Mensajes pregrabados</span>
+                        <div class="pl-qr-tabs">
+                            @foreach (var cat in QrCategories)
+                            {
+                                <button class="pl-qr-tab @(cat.Key == _qrCategory ? "active" : "")" @onclick="() => _qrCategory = cat.Key">@cat.Label</button>
+                            }
+                            <button class="pl-qr-tab" style="border:1px solid var(--border);" @onclick="OpenTemplateManager" title="Crear/editar pregrabados">+ Gestionar</button>
+                        </div>
+                    </div>
+                    <div class="pl-qr-list">
+                        @foreach (var tpl in CurrentTemplates())
+                        {
+                            var filled = FillTemplate(tpl.Body);
+                            var label = tpl.MediaType == MessageMediaType.None ? filled : $"{MediaIcon(tpl.MediaType)} {(string.IsNullOrWhiteSpace(filled) ? tpl.MediaType.ToString() : filled)}";
+                            <button class="pl-quick-chip" title="@filled" @onclick="() => UseTemplateAsync(tpl)">@label</button>
+                        }
+                        @if (CurrentTemplates().Count == 0)
+                        {
+                            <span class="text-muted" style="font-size:11px;">Sin pregrabados en esta categoria. Usa "+ Gestionar".</span>
+                        }
+                    </div>
+                </div>
+                <div class="pl-chat-input">
+                    <div class="pl-attach">
+                        <button class="pl-attach-btn" title="Adjuntar" @onclick="() => _attachOpen = !_attachOpen" disabled="@_chatBusy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                        </button>
+                        @if (_attachOpen)
+                        {
+                            <div class="pl-attach-menu">
+                                <label class="pl-attach-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+                                    Imagen
+                                    <InputFile OnChange="@(e => OnAttachAsync(e, MessageMediaType.Image))" accept="image/*" style="display:none;" />
+                                </label>
+                                <label class="pl-attach-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+                                    Video
+                                    <InputFile OnChange="@(e => OnAttachAsync(e, MessageMediaType.Video))" accept="video/*" style="display:none;" />
+                                </label>
+                                <label class="pl-attach-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                                    Audio
+                                    <InputFile OnChange="@(e => OnAttachAsync(e, MessageMediaType.Audio))" accept="audio/*" style="display:none;" />
+                                </label>
+                                <label class="pl-attach-item">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+                                    Documento
+                                    <InputFile OnChange="@(e => OnAttachAsync(e, MessageMediaType.Document))" accept="*/*" style="display:none;" />
+                                </label>
+                                <button class="pl-attach-item" @onclick="OpenLocation">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                                    Ubicacion
+                                </button>
+                            </div>
+                        }
+                    </div>
+                    <input placeholder="Escribe un mensaje..." @bind="_chatDraft" @bind:event="oninput" @onkeydown="ChatKeyDown" disabled="@_chatBusy" />
+                    <button class="pl-chat-send" @onclick="SendChatAsync" disabled="@(_chatBusy || string.IsNullOrWhiteSpace(_chatDraft))" title="Enviar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                </div>
+                @if (_chatError is not null)
+                {
+                    <div class="text-danger small" style="padding:0 12px 8px;">@_chatError</div>
+                }
+            }
+            <div class="pl-quote-actions">
+                @if (_quoteTemplates.Count > 0)
+                {
+                    <select class="form-control pl-quote-tplsel" @bind="_selectedQuoteTemplateId" disabled="@_quoteBusy" title="Plantilla de cotizacion a usar">
+                        @foreach (var t in _quoteTemplates)
+                        {
+                            <option value="@t.Id">@t.Name @(t.IsDefault ? "(predeterminada)" : "")</option>
+                        }
+                    </select>
+                }
+                <button class="btn btn-outline-secondary" @onclick="VerCotizacionAsync" disabled="@_quoteBusy">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Ver cotizacion
+                </button>
+                @if (!_sendConfirm)
+                {
+                    <button class="btn btn-primary" @onclick="() => { _sendConfirm = true; _quoteMsg = null; }"
+                            disabled="@(_quoteBusy || _conversation is null || _chatLineId == Guid.Empty)"
+                            title="@(_conversation is null || _chatLineId == Guid.Empty ? "Necesitas una linea activa en la conversacion" : "")">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        Enviar cotizacion
+                    </button>
+                }
+                else
+                {
+                    <span class="pl-quote-confirm">Enviar la cotizacion al cliente por WhatsApp?</span>
+                    <button class="btn btn-primary" @onclick="EnviarCotizacionAsync" disabled="@_quoteBusy">@(_quoteBusy ? "Enviando..." : "Si, enviar")</button>
+                    <button class="btn btn-link" @onclick="() => _sendConfirm = false" disabled="@_quoteBusy">Cancelar</button>
+                }
+                @if (_quoteMsg is not null) { <span class="pl-quote-msg">@_quoteMsg</span> }
+            </div>
+          </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: gestor de mensajes pregrabados ===== *@
+@if (_tplManagerOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:620px;">
+            <div class="modal-head">
+                <h3>Mensajes pregrabados</h3>
+                <button class="modal-close" @onclick="() => _tplManagerOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Categoria</label>
+                    <input class="form-control" list="pl-tpl-cats" @bind="_tplFormCategory" placeholder="Elige una o escribe una nueva" autocomplete="off" />
+                    <datalist id="pl-tpl-cats">
+                        @foreach (var cat in QrCategories)
+                        {
+                            <option value="@cat.Key">@cat.Label</option>
+                        }
+                    </datalist>
+                    <div class="text-muted" style="font-size:11px;margin-top:3px;">Escribe un nombre nuevo para crear otra categoria.</div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Mensaje</label>
+                    <textarea class="form-control" rows="2" @bind="_tplFormBody" placeholder="Usa {asesor} y {destino} para personalizar"></textarea>
+                </div>
+                <div class="field">
+                    <label class="form-label">Adjunto (opcional)</label>
+                    @if (_tplFormMediaUrl is not null)
+                    {
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="pl-chip">@MediaIcon(_tplFormMediaType) @_tplFormMediaType</span>
+                            <button class="btn btn-outline-danger" style="padding:2px 8px;" @onclick="ClearTemplateMedia">Quitar</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <InputFile OnChange="OnTemplateMediaAsync" accept="image/*,video/*,audio/*" class="form-control" style="max-width:280px;" />
+                    }
+                </div>
+                @if (_tplFormError is not null)
+                {
+                    <div class="text-danger small">@_tplFormError</div>
+                }
+                <div style="display:flex;gap:8px;margin:4px 0 14px;">
+                    <button class="btn btn-primary" @onclick="SaveTemplateAsync" disabled="@_tplBusy">@(_tplEditId is null ? "+ Agregar" : "Guardar cambios")</button>
+                    @if (_tplEditId is not null)
+                    {
+                        <button class="btn btn-outline-secondary" @onclick="ResetTemplateForm">Cancelar edicion</button>
+                    }
+                </div>
+
+                <hr style="border-color:var(--border);" />
+                @foreach (var cat in QrCategories)
+                {
+                    var items = _templates.Where(t => t.Category == cat.Key).OrderBy(t => t.SortOrder).ToList();
+                    <div class="pl-stagegroup-title" style="margin-top:10px;">@cat.Label (@items.Count)</div>
+                    @foreach (var t in items)
+                    {
+                        <div class="cfg-row">
+                            <div class="grow">
+                                <div style="font-size:13px;">
+                                    @if (t.MediaType != MessageMediaType.None) { <span>@MediaIcon(t.MediaType) </span> }
+                                    @(string.IsNullOrWhiteSpace(t.Body) ? "(solo adjunto)" : t.Body)
+                                </div>
+                            </div>
+                            <button class="btn btn-outline-secondary" style="padding:2px 8px;" @onclick="() => EditTemplate(t)">Editar</button>
+                            <button class="btn btn-outline-danger" style="padding:2px 8px;" @onclick="() => DeleteTemplateAsync(t.Id)" disabled="@_tplBusy">Eliminar</button>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _tplManagerOpen = false">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: enviar ubicacion ===== *@
+@if (_locationOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:420px;">
+            <div class="modal-head">
+                <h3>Enviar ubicacion</h3>
+                <button class="modal-close" @onclick="() => _locationOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre del lugar (opcional)</label>
+                    <input class="form-control" @bind="_locName" placeholder="Hotel, aeropuerto, oficina..." />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Latitud *</label>
+                        <input class="form-control" @bind="_locLat" placeholder="10.3997" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Longitud *</label>
+                        <input class="form-control" @bind="_locLng" placeholder="-75.5144" />
+                    </div>
+                </div>
+                <div class="text-muted" style="font-size:11px;">Pega coordenadas desde Google Maps (clic derecho &rarr; copiar).</div>
+                @if (_locError is not null)
+                {
+                    <div class="text-danger small">@_locError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _locationOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SendLocationAsync" disabled="@_chatBusy">Enviar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: llevar a historial ===== *@
+@if (_archiveLead is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:460px;">
+            <div class="modal-head">
+                <h3>Llevar a historial</h3>
+                <button class="modal-close" @onclick="() => _archiveLead = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13px;color:var(--muted-foreground);margin-top:0;">
+                    <strong>@_archiveLead.ContactName</strong> se quitara del tablero y quedara en el historial. Indica el motivo.
+                </p>
+                <div class="field">
+                    <label class="form-label">Motivo *</label>
+                    <select class="form-control" @bind="_archiveReason">
+                        @foreach (var m in ArchiveReasons)
+                        {
+                            <option value="@m">@m</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Observacion</label>
+                    <textarea class="form-control" rows="3" @bind="_archiveNote" placeholder="Detalle del motivo (opcional)"></textarea>
+                </div>
+                @if (_archiveError is not null)
+                {
+                    <div class="text-danger small">@_archiveError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _archiveLead = null">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ConfirmArchiveAsync" disabled="@_busy">Enviar a historial</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: historial ===== *@
+@if (_historyOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:1180px;">
+            <div class="modal-head">
+                <h3>Historial de clientes</h3>
+                <button class="modal-close" @onclick="() => _historyOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">Clientes enviados a historial. @( _canManage ? "Ves todos los del equipo." : "Ves los que te corresponden segun tu rol.")</div>
+
+                @* Borrado total del historial: SOLO administrador del tenant, con doble comprobacion. *@
+                @if (_isTenantAdmin && _history.Count > 0)
+                {
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;border:1px solid #f1c9c4;background:#fdf3f2;border-radius:8px;">
+                        @if (_purgeStep == 0)
+                        {
+                            <button style="border:1px solid #d92d20;background:#fff;color:#b42318;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" @onclick="() => { _purgeStep = 1; _purgeMsg = null; }">Borrar todo el historial</button>
+                        }
+                        else if (_purgeStep == 1)
+                        {
+                            <span style="color:#b42318;font-size:12px;font-weight:600;flex:1;min-width:220px;">Vas a borrar PERMANENTEMENTE @_history.Count cliente(s) del historial y todos sus datos (notas, archivos, tareas). Es irreversible.</span>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _purgeStep = 0" disabled="@_purgeBusy">Cancelar</button>
+                            <button style="border:none;background:#d92d20;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" @onclick="() => _purgeStep = 2" disabled="@_purgeBusy">Entiendo, continuar</button>
+                        }
+                        else
+                        {
+                            <span style="color:#b42318;font-size:12px;font-weight:700;flex:1;min-width:220px;">Confirmacion final: se eliminara TODO el historial sin posibilidad de recuperarlo.</span>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _purgeStep = 0" disabled="@_purgeBusy">Cancelar</button>
+                            <button style="border:none;background:#b42318;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700;" @onclick="PurgeHistoryAsync" disabled="@_purgeBusy">@(_purgeBusy ? "Borrando..." : "Si, borrar definitivamente")</button>
+                        }
+                    </div>
+                }
+                @if (_purgeMsg is not null)
+                {
+                    <div class="text-muted" style="font-size:12px;margin-bottom:10px;color:#0a7d33;">@_purgeMsg</div>
+                }
+
+                @if (_history.Count == 0)
+                {
+                    <div class="text-muted" style="font-size:13px;padding:14px 2px;">No hay clientes en historial todavia.</div>
+                }
+                else
+                {
+                    <div class="pl-hist-filters">
+                        <div class="pl-search" style="flex:1;min-width:200px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <input placeholder="Buscar cliente, telefono o destino..." @bind="_histSearch" @bind:event="oninput" />
+                            @if (!string.IsNullOrEmpty(_histSearch))
+                            {
+                                <button class="pl-search-clear" @onclick="() => _histSearch = string.Empty" title="Limpiar">&times;</button>
+                            }
+                        </div>
+                        <select class="form-control" style="max-width:220px;" @bind="_histReason">
+                            <option value="">Todos los motivos</option>
+                            @foreach (var r in _history.Where(h => !string.IsNullOrWhiteSpace(h.ArchiveReason)).Select(h => h.ArchiveReason!).Distinct())
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <select class="form-control" style="max-width:220px;" @bind="_histAsesor">
+                            <option value="">Todos los asesores</option>
+                            @foreach (var u in _team)
+                            {
+                                <option value="@u.Id">@u.Email</option>
+                            }
+                        </select>
+                    </div>
+
+                    var histRows = FilteredHistory();
+                    @if (!histRows.Any())
+                    {
+                        <div class="text-muted" style="font-size:13px;padding:14px 2px;">Ningun cliente del historial coincide con los filtros.</div>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto;">
+                            <table class="data-table pl-hist-table" style="width:100%;font-size:12.5px;">
+                                <thead>
+                                    <tr>
+                                        <th>Cliente</th><th>Destino</th><th>Etapa</th><th>Valor</th><th>Asesor</th>
+                                        <th>Datos</th><th>Motivo</th><th>Observacion</th><th>Archivado</th><th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var h in histRows)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div style="font-weight:600;">@h.ContactName</div>
+                                                @if (!string.IsNullOrWhiteSpace(h.ContactPhone))
+                                                {
+                                                    <div class="text-muted" style="font-size:11.5px;">@h.ContactPhone</div>
+                                                }
+                                            </td>
+                                            <td>@(string.IsNullOrWhiteSpace(h.Destination) ? "—" : h.Destination)</td>
+                                            <td>@StageName(h.StageId)</td>
+                                            <td>@(h.EstimatedValue is decimal v ? Money(v, h.Currency) : "—")</td>
+                                            <td>@ArchAsesor(h)</td>
+                                            <td class="text-muted" style="max-width:220px;">@HistDatos(h)</td>
+                                            <td><span class="pl-chip">@(h.ArchiveReason ?? "—")</span></td>
+                                            <td style="color:var(--muted-foreground);max-width:200px;">@(string.IsNullOrWhiteSpace(h.ArchiveNote) ? "—" : h.ArchiveNote)</td>
+                                            <td style="color:var(--muted-foreground);white-space:nowrap;">
+                                                @(h.ArchivedAt is { } a ? a.LocalDateTime.ToString("dd MMM yyyy") : "—")
+                                                @if (!string.IsNullOrWhiteSpace(h.ArchivedByName)) { <text><br />&middot; @h.ArchivedByName</text> }
+                                            </td>
+                                            <td style="white-space:nowrap;">
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => RestoreFromHistoryAsync(h)" disabled="@_busy" title="Quitar del historial y regresar al tablero">
+                                                    Regresar al tablero
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _historyOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: configurar embudo ===== *@
+@if (_configOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:640px;">
+            <div class="modal-head">
+                <h3>Configurar embudo</h3>
+                <button class="modal-close" @onclick="() => _configOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Unidad de negocio a configurar</label>
+                    <select class="form-control" value="@(_cfgUnitId?.ToString() ?? "")" @onchange="e => _cfgUnitId = ParseGuid(e.Value?.ToString())">
+                        @foreach (var bu in _businessUnits)
+                        {
+                            <option value="@bu.Id">@bu.Name</option>
+                        }
+                    </select>
+                    <div class="text-muted" style="font-size:11px;margin-top:4px;">
+                        @if (CfgUnitIsImage)
+                        {
+                            <text>Esta unidad abre el modal de atencion del salon. Sus campos se comparten con Dia del salon, Asignacion y Vista semanal.</text>
+                        }
+                        else
+                        {
+                            <text>Los campos de las unidades genericas se muestran en el modal del lead, organizados por etapa.</text>
+                        }
+                    </div>
+                </div>
+                <hr style="margin:14px 0;border-color:var(--border);" />
+                <div class="pl-stagegroup-title">Etapas</div>
+                @for (var i = 0; i < _stages.Count; i++)
+                {
+                    var s = _stages[i];
+                    var idx = i;
+                    <div class="cfg-row">
+                        <div style="display:flex;flex-direction:column;gap:2px;">
+                            <button class="btn btn-outline-secondary" style="padding:0 6px;line-height:1.4;" disabled="@(idx == 0 || _busy)" @onclick="() => MoveStageAsync(idx, idx - 1)">&uarr;</button>
+                            <button class="btn btn-outline-secondary" style="padding:0 6px;line-height:1.4;" disabled="@(idx == _stages.Count - 1 || _busy)" @onclick="() => MoveStageAsync(idx, idx + 1)">&darr;</button>
+                        </div>
+                        <div class="grow">
+                            <input class="form-control" value="@s.Name" @onchange="@(e => RenameStageAsync(s, e.Value?.ToString()))" />
+                            <div style="display:flex;gap:14px;margin-top:6px;font-size:12px;">
+                                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+                                    <input type="checkbox" checked="@s.IsClosedWon" @onchange="@(e => ToggleStageFlagAsync(s, won: (bool)e.Value!))" /> Cierre ganado
+                                </label>
+                                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+                                    <input type="checkbox" checked="@s.IsClosedLost" @onchange="@(e => ToggleStageFlagAsync(s, lost: (bool)e.Value!))" /> Cierre perdido
+                                </label>
+                            </div>
+                        </div>
+                        <button class="btn btn-outline-danger" style="padding:2px 8px;" disabled="@_busy" @onclick="() => DeleteStageAsync(s)">Eliminar</button>
+                    </div>
+                }
+                <div style="display:flex;gap:8px;margin:10px 0 4px;">
+                    <input class="form-control" placeholder="Nueva etapa" @bind="_newStageName" />
+                    <button class="btn btn-primary" style="white-space:nowrap;" disabled="@_busy" @onclick="AddStageAsync">+ Etapa</button>
+                </div>
+                @if (_cfgStageMsg is not null)
+                {
+                    <div class="text-danger small">@_cfgStageMsg</div>
+                }
+
+                <hr style="margin:18px 0;border-color:var(--border);" />
+
+                @if (CfgUnitIsImage)
+                {
+                    <div class="pl-stagegroup-title">Campos del modal de atencion (salon)</div>
+                    <p class="text-muted" style="font-size:12px;">Esta unidad usa el modal de atencion del salon. Configura aqui sus campos (datos de la cita); aplican tambien a Dia del salon, Asignacion y Vista semanal.</p>
+                    <button class="btn btn-primary" @onclick="() => _apptCfgOpen = true">Configurar campos de atencion</button>
+                }
+                else
+                {
+                <div class="pl-stagegroup-title">Campos por etapa</div>
+                <div class="field">
+                    <label class="form-label">Etapa</label>
+                    <select class="form-control" @bind="_cfgStageId">
+                        @foreach (var s in _stages)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                var cfgFields = _fields.Where(f => f.StageId == _cfgStageId).OrderBy(f => f.SortOrder).ToList();
+                var numericFields = cfgFields.Where(x => x.FieldType is PipelineFieldType.Number && (_editingFieldId is null || x.Id != _editingFieldId)).ToList();
+                @for (int fi = 0; fi < cfgFields.Count; fi++)
+                {
+                    var f = cfgFields[fi];
+                    var idx = fi;
+                    <div class="cfg-row">
+                        <div style="display:flex;flex-direction:column;gap:2px;flex:none;">
+                            <button class="btn btn-outline-secondary" style="padding:0 6px;line-height:1.3;" disabled="@(idx == 0 || _busy)" @onclick="() => MoveFieldAsync(cfgFields, idx, idx - 1)" title="Subir">&uarr;</button>
+                            <button class="btn btn-outline-secondary" style="padding:0 6px;line-height:1.3;" disabled="@(idx == cfgFields.Count - 1 || _busy)" @onclick="() => MoveFieldAsync(cfgFields, idx, idx + 1)" title="Bajar">&darr;</button>
+                        </div>
+                        <div class="grow">
+                            <div style="font-weight:600;font-size:13px;">
+                                @f.Label
+                                @if (f.AllowMultiple) { <span class="cfg-tag">multiple</span> }
+                                @if (!string.IsNullOrEmpty(f.RepeatWithFieldKey)) { <span class="cfg-tag">x @FieldLabel(f.RepeatWithFieldKey!)</span> }
+                            </div>
+                            <div class="text-muted" style="font-size:11px;">@f.FieldType &middot; col @f.Column &middot; @f.FieldKey</div>
+                            @if (!string.IsNullOrWhiteSpace(f.Description))
+                            {
+                                <div class="text-muted" style="font-size:11px;font-style:italic;">@f.Description</div>
+                            }
+                        </div>
+                        <button class="btn btn-outline-secondary" style="padding:2px 8px;" disabled="@_busy" @onclick="() => MoveFieldColumnAsync(f)" title="Mover a la otra columna">&#8644; col @(f.Column == 2 ? 1 : 2)</button>
+                        @if (_stages.Count > 1)
+                        {
+                            <select class="form-control" style="padding:2px 6px;max-width:150px;font-size:11.5px;flex:none;" disabled="@_busy" title="Mover el campo a otra etapa" @onchange="e => MoveFieldStageAsync(f, e.Value?.ToString())">
+                                <option value="">Mover a etapa...</option>
+                                @foreach (var st in _stages.Where(s => s.Id != f.StageId))
+                                {
+                                    <option value="@st.Id">@st.Name</option>
+                                }
+                            </select>
+                        }
+                        <button class="btn btn-outline-secondary" style="padding:2px 8px;" disabled="@_busy" @onclick="() => EditField(f)">Editar</button>
+                        <button class="btn btn-outline-danger" style="padding:2px 8px;" disabled="@_busy" @onclick="() => DeleteFieldAsync(f.Id)">Eliminar</button>
+                    </div>
+                }
+                <div style="border:1px solid var(--border);border-radius:0.6rem;padding:12px;margin-top:8px;">
+                    <div style="font-weight:600;font-size:12px;margin-bottom:8px;">@(_editingFieldId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Etiqueta</label>
+                            <input class="form-control" @bind="_nf.Label" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-control" @bind="_nf.FieldType">
+                                <option value="@PipelineFieldType.Text">Texto</option>
+                                <option value="@PipelineFieldType.Number">Numero</option>
+                                <option value="@PipelineFieldType.Currency">Moneda</option>
+                                <option value="@PipelineFieldType.Date">Fecha</option>
+                                <option value="@PipelineFieldType.Time">Hora</option>
+                                <option value="@PipelineFieldType.TimeRange">Hora salida/llegada</option>
+                                <option value="@PipelineFieldType.Phone">Telefono</option>
+                                <option value="@PipelineFieldType.TextArea">Texto largo</option>
+                                <option value="@PipelineFieldType.Select">Lista</option>
+                                <option value="@PipelineFieldType.Total">Total (suma de campos)</option>
+                                <option value="@PipelineFieldType.Separator">Separador (linea divisoria)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Columna</label>
+                            <select class="form-control" @bind="_nf.Column">
+                                <option value="1">1 (media)</option>
+                                <option value="2">2 (completa)</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Opciones (una por linea)</label>
+                            <input class="form-control" @bind="_nf.Options" placeholder="solo para tipo Lista" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Descripcion / contexto <span class="text-muted" style="font-weight:400;">(para que sirve; ayuda al asesor y a la IA)</span></label>
+                        <textarea class="form-control" rows="2" @bind="_nf.Description" placeholder="Ej: Edad de cada nino para calcular tarifas y cupos."></textarea>
+                    </div>
+                    <div class="field-row" style="align-items:end;">
+                        <div class="field">
+                            <label class="form-label">Repetir segun campo</label>
+                            <select class="form-control" @bind="_nf.RepeatWithFieldKey">
+                                <option value="">(no repetir)</option>
+                                @foreach (var nfield in numericFields)
+                                {
+                                    <option value="@nfield.FieldKey">@nfield.Label</option>
+                                }
+                            </select>
+                            <div class="text-muted" style="font-size:11px;">Genera un input por cada unidad del campo numerico elegido (ej. edades x ninos).</div>
+                        </div>
+                        <div class="field">
+                            <label class="form-check" style="display:flex;align-items:center;gap:8px;font-weight:500;">
+                                <input type="checkbox" @bind="_nf.AllowMultiple" />
+                                Permitir varios valores (ej. varios telefonos)
+                            </label>
+                            @if (_nf.AllowMultiple)
+                            {
+                                <label class="form-check" style="display:flex;align-items:center;gap:8px;font-weight:500;margin-top:8px;">
+                                    <input type="checkbox" @bind="_nf.MultiWithDetail" />
+                                    Incluir detalle por valor (un texto antes de cada valor)
+                                </label>
+                            }
+                            <label class="form-check" style="display:flex;align-items:center;gap:8px;font-weight:500;margin-top:8px;">
+                                <input type="checkbox" @bind="_nf.ShowInFilter" />
+                                Mostrar como filtro en el tablero (un chip por cada valor)
+                            </label>
+                        </div>
+                    </div>
+                    @if (_nf.FieldType == PipelineFieldType.Total)
+                    {
+                        var summables = cfgFields.Where(x => x.FieldType is PipelineFieldType.Number or PipelineFieldType.Currency && (_editingFieldId is null || x.Id != _editingFieldId)).ToList();
+                        <div class="field">
+                            <label class="form-label">Campos a sumar</label>
+                            @if (summables.Count == 0)
+                            {
+                                <div class="text-muted" style="font-size:11.5px;">No hay campos numericos o de moneda en esta etapa. Crea primero los campos a sumar.</div>
+                            }
+                            else
+                            {
+                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                    @foreach (var sf in summables)
+                                    {
+                                        var skey = sf.FieldKey;
+                                        <label class="form-check" style="display:flex;align-items:center;gap:8px;font-weight:500;">
+                                            <input type="checkbox" checked="@_nf.TotalSourceKeys.Contains(skey)" @onchange="e => ToggleTotalSource(skey, (bool)(e.Value ?? false))" />
+                                            @sf.Label @(sf.AllowMultiple ? "(suma todos los registros)" : "")
+                                        </label>
+                                    }
+                                </div>
+                                <div class="text-muted" style="font-size:11px;">El total se calcula solo y es de solo lectura.</div>
+                            }
+                        </div>
+                    }
+                    @if (_cfgFieldMsg is not null)
+                    {
+                        <div class="text-danger small">@_cfgFieldMsg</div>
+                    }
+                    <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-primary" disabled="@_busy" @onclick="AddFieldAsync">@(_editingFieldId is null ? "+ Agregar campo" : "Guardar cambios")</button>
+                        @if (_editingFieldId is not null)
+                        {
+                            <button class="btn btn-link" disabled="@_busy" @onclick="CancelEditField">Cancelar</button>
+                        }
+                    </div>
+                </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _configOpen = false">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Modal de atencion del salon (compartido): lo abre la tarjeta de "Asesoria de imagen". *@
+<BookingModal @ref="_bookingModal" Resources="_resources" OnSaved="OnBookingSavedAsync" />
+
+@* Configurador de campos del modal de atencion del salon (scope Cita), invocado desde la config del embudo
+   cuando la unidad seleccionada es de tipo Asesoria de imagen. Afecta Dia del salon / Asignacion / Vista semanal. *@
+<SalonFieldsConfig Show="_apptCfgOpen" Scopes="_apptScopes" ActorUserId="_apptCfgActor" OnClose="() => _apptCfgOpen = false" />
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private List<PipelineStageDto> _stages = new();
+    private List<PipelineFieldDto> _fields = new();
+    private List<LeadDto> _leads = new();
+    private Dictionary<Guid, string> _userEmails = new();
+    private List<TenantUserDto> _team = new();
+    private bool _canManage;
+    private bool _isTenantAdmin;        // Owner/Admin: pueden vaciar el historial.
+    private int _purgeStep;             // 0 oculto, 1 primer aviso, 2 confirmacion final.
+    private bool _purgeBusy;
+    private string? _purgeMsg;
+    private int _conversion;
+
+    // Busqueda, orden y filtros del tablero
+    private string? _search;
+    private string _sortBy = "time";
+    private bool _filtersOpen;
+    private readonly HashSet<Guid> _filterAsesores = new();
+    private bool _filterSinAsesor;
+    private readonly HashSet<Guid> _filterStages = new();
+    private readonly HashSet<string> _filterValue = new();
+    private readonly HashSet<string> _filterDestinos = new();
+    private readonly HashSet<Guid> _filterUnits = new();
+    // Filtros por campo dinamico marcado "mostrar en filtro": clave de campo -> valores seleccionados.
+    private readonly Dictionary<string, HashSet<string>> _filterFields = new();
+    private bool _onlyUnanswered;
+
+    // Tarjetas "no vistas": leads que este navegador aun no abrio se resaltan. Persistido en localStorage por tenant.
+    private readonly HashSet<Guid> _seenLeadIds = new();
+    private bool _seenLoaded;
+
+    // Unidades de negocio (canales del cliente: B2B, detal, cursos, asesoria de imagen).
+    private List<BusinessUnitDto> _businessUnits = new();
+    private bool _unitsOpen;
+    private string? _unitsError;
+    private Guid? _editingUnitId;
+    private UnitForm _uf = new();
+
+    // Recursos del salon + modal de atencion compartido (BookingModal). La tarjeta de "Asesoria de imagen"
+    // abre el MISMO modal que Dia del salon / Asignacion / Vista semanal.
+    private List<ResourceDto> _resources = new();
+    private BookingModal _bookingModal = default!;
+
+    // Config del embudo: unidad de negocio cuyos campos se estan configurando + configurador de campos del salon.
+    private Guid? _cfgUnitId;
+    private bool _apptCfgOpen;
+    private Guid _apptCfgActor;
+    private readonly SalonFieldScope[] _apptScopes = { SalonFieldScope.Appointment };
+    private bool CfgUnitIsImage => _cfgUnitId is Guid id
+        && _businessUnits.FirstOrDefault(u => u.Id == id)?.ModalKind == Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory;
+
+    private DotNetObjectReference<Pipeline>? _selfRef;
+
+    // Nuevo lead
+    private bool _newLeadOpen;
+    private string? _newLeadError;
+    private NewLeadForm _nl = new();
+
+    // Detalle de lead
+    private bool _leadOpen;
+    private bool _leadDirty;   // hay cambios sin guardar (resalta el boton Guardar)
+    private bool _leadSaved;   // se guardo al menos una vez en esta apertura (muestra "Guardado")
+    private string? _leadError;
+    private LeadDto? _editLead;
+    private Guid _editStageId;
+    private EditLeadForm _el = new();
+    private Dictionary<string, string?> _editValues = new();
+    // Valores de campos "multiples" o "repetidos" (lista por FieldKey); se guardan como arreglo JSON.
+    private Dictionary<string, List<string?>> _multiValues = new();
+    // Detalles paralelos a _multiValues para campos "multiples con detalle" (texto antes de cada valor).
+    private Dictionary<string, List<string?>> _multiDetails = new();
+    private List<LeadActivityDto> _activities = new();
+    private List<LeadNoteDto> _notes = new();
+    private string _noteText = string.Empty;
+    private string _noteColor = "yellow";
+    private List<LeadFileDto> _files = new();
+    private bool _fileBusy;
+    private string? _fileError;
+    private string _leadTab = "datos";
+    private string _leadMobileView = "datos";   // en movil alterna entre panel de datos y chat
+    private static readonly string[] NoteColors = { "yellow", "green", "blue", "pink", "purple", "gray" };
+
+    // Historial / archivar
+    private LeadDto? _archiveLead;
+    private string _archiveReason = "No interesado / no compro";
+    private string? _archiveNote;
+    private string? _archiveError;
+    private bool _historyOpen;
+    private List<ArchivedLeadDto> _history = new();
+    private string _histSearch = string.Empty;
+    private string _histReason = string.Empty;
+    private string _histAsesor = string.Empty;
+    private string _boardView = "kanban";
+    private static readonly string[] ArchiveReasons =
+    {
+        "No interesado / no compro",
+        "Compro (facturado)",
+        "Datos incorrectos / invalido",
+        "Duplicado",
+        "Sin respuesta prolongada",
+        "Otro"
+    };
+
+    // Chat WhatsApp del lead
+    private ConversationDto? _conversation;
+    private HubConnection? _hub;
+    private string? _joinedConversation;
+    private bool _scrollChatPending;
+    private List<MessageDto> _messages = new();
+
+    // Estado "sin responder" por telefono (digitos) para colorear las tarjetas.
+    private IReadOnlyDictionary<string, LeadChatStateDto> _pending = new Dictionary<string, LeadChatStateDto>();
+    private string? _tenantId;
+    private List<WhatsAppLineDto> _chatLines = new();
+    private Guid _chatLineId;
+    private string? _chatDraft;
+    private string? _chatError;
+    private bool _chatBusy;
+    // Cotizacion (ver / enviar por WhatsApp)
+    private bool _sendConfirm, _quoteBusy;
+    private string? _quoteMsg;
+    // Plantillas de cotizacion del tenant + la seleccionada para ver/enviar.
+    private List<QuoteTemplateDto> _quoteTemplates = new();
+    private Guid _selectedQuoteTemplateId;
+    private string _qrCategory = "saludo";
+    private List<MessageTemplateDto> _templates = new();
+    private bool _attachOpen;
+
+    // Gestor de pregrabados
+    private bool _tplManagerOpen;
+    private bool _tplBusy;
+    private string? _tplFormError;
+    private Guid? _tplEditId;
+    private string _tplFormCategory = "saludo";
+    private string? _tplFormBody;
+    private MessageMediaType _tplFormMediaType = MessageMediaType.None;
+    private string? _tplFormMediaUrl;
+    private string? _tplFormMediaMime;
+
+    // Envio de ubicacion
+    private bool _locationOpen;
+    private string? _locName;
+    private string? _locLat;
+    private string? _locLng;
+    private string? _locError;
+
+    // Categorias = las estandar + las personalizadas que existan en las plantillas del tenant.
+    private List<(string Key, string Label)> QrCategories
+    {
+        get
+        {
+            var keys = MessageTemplateCategories.All.Select(c => c.Key).ToList();
+            foreach (var t in _templates)
+            {
+                if (!keys.Contains(t.Category)) { keys.Add(t.Category); }
+            }
+            return keys.Select(k => (k, CategoryLabel(k))).ToList();
+        }
+    }
+
+    private static string CategoryLabel(string key)
+    {
+        var lbl = MessageTemplateCategories.Label(key);
+        if (lbl == key && key.Length > 0) { return char.ToUpperInvariant(key[0]) + key[1..]; }
+        return lbl;
+    }
+
+    private List<MessageTemplateDto> CurrentTemplates()
+        => _templates.Where(t => t.Category == _qrCategory).OrderBy(t => t.SortOrder).ToList();
+
+    private string FillTemplate(string template)
+    {
+        var destino = string.IsNullOrWhiteSpace(_el.Destination)
+            ? "tu destino"
+            : _el.Destination!.Split('→', '>').Last().Trim();
+        var asesor = AssignedFirstName() ?? "tu asesor";
+        return template
+            .Replace("{destino}", destino)
+            .Replace("{asesor}", asesor);
+    }
+
+    private string? AssignedFirstName()
+    {
+        if (_editLead?.AssignedToTenantUserId is not Guid id) { return null; }
+        var u = _team.FirstOrDefault(t => t.Id == id);
+        var label = u is null ? null : TeamLabel(u);
+        return string.IsNullOrWhiteSpace(label) ? null : label.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+    }
+
+    private static string MediaIcon(MessageMediaType t) => t switch
+    {
+        MessageMediaType.Image => "Imagen",
+        MessageMediaType.Video => "Video",
+        MessageMediaType.Audio => "Audio",
+        MessageMediaType.Document => "Doc",
+        MessageMediaType.Location => "Ubicacion",
+        _ => ""
+    };
+
+    private static string MapsLink(string? coords) => $"https://www.google.com/maps?q={coords}";
+
+    // ===== Adjuntos del chat =====
+    private async Task UseTemplateAsync(MessageTemplateDto t)
+    {
+        _chatError = null;
+        if (t.MediaType == MessageMediaType.None)
+        {
+            _chatDraft = FillTemplate(t.Body);
+            return;
+        }
+        if (_conversation is null || _chatLineId == Guid.Empty || t.MediaUrl is null) { return; }
+        _chatBusy = true;
+        try
+        {
+            var b64 = await ReadLocalBase64Async(t.MediaUrl);
+            if (b64 is null) { _chatError = "No se encontro el archivo del pregrabado."; return; }
+            var actor = await ActorAsync();
+            var caption = FillTemplate(t.Body);
+            var r = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, t.MediaType, b64, t.MediaUrl, t.MediaMimeType, System.IO.Path.GetFileName(t.MediaUrl), caption, actor);
+            if (!r.Ok) { _chatError = r.Error; return; }
+            if (r.Message is not null) { _messages.Add(r.Message); }
+        }
+        finally { _chatBusy = false; }
+    }
+
+    private async Task OnAttachAsync(InputFileChangeEventArgs e, MessageMediaType type)
+    {
+        _attachOpen = false;
+        _chatError = null;
+        if (_conversation is null || _chatLineId == Guid.Empty) { return; }
+        var saved = await SaveChatFileAsync(e.File, type);
+        if (saved is null) { _chatError = "Archivo invalido o supera 16 MB."; return; }
+        _chatBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var caption = string.IsNullOrWhiteSpace(_chatDraft) ? null : _chatDraft!.Trim();
+            var r = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, type, saved.Value.Base64, saved.Value.Url, saved.Value.Mime, saved.Value.Name, caption, actor);
+            if (!r.Ok) { _chatError = r.Error; return; }
+            if (r.Message is not null) { _messages.Add(r.Message); }
+            _chatDraft = null;
+        }
+        finally { _chatBusy = false; }
+    }
+
+    private void OpenLocation()
+    {
+        _attachOpen = false;
+        _locName = null; _locLat = null; _locLng = null; _locError = null;
+        _locationOpen = true;
+    }
+
+    private async Task SendLocationAsync()
+    {
+        _locError = null;
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!double.TryParse(_locLat, System.Globalization.NumberStyles.Any, ci, out var lat)
+            || !double.TryParse(_locLng, System.Globalization.NumberStyles.Any, ci, out var lng))
+        {
+            _locError = "Latitud y longitud invalidas.";
+            return;
+        }
+        if (_conversation is null || _chatLineId == Guid.Empty) { _locError = "Selecciona una linea."; return; }
+        _chatBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var r = await ChatSvc.SendLocationViaLineAsync(_conversation.Id, _chatLineId, lat, lng, _locName, actor);
+            if (!r.Ok) { _locError = r.Error; return; }
+            if (r.Message is not null) { _messages.Add(r.Message); }
+            _locationOpen = false;
+        }
+        finally { _chatBusy = false; }
+    }
+
+    // ===== Gestor de pregrabados =====
+    private void OpenTemplateManager()
+    {
+        _attachOpen = false;
+        ResetTemplateForm();
+        _tplFormCategory = _qrCategory;
+        _tplManagerOpen = true;
+    }
+
+    private void EditTemplate(MessageTemplateDto t)
+    {
+        _tplEditId = t.Id;
+        _tplFormCategory = t.Category;
+        _tplFormBody = t.Body;
+        _tplFormMediaType = t.MediaType;
+        _tplFormMediaUrl = t.MediaUrl;
+        _tplFormMediaMime = t.MediaMimeType;
+        _tplFormError = null;
+    }
+
+    private void ResetTemplateForm()
+    {
+        _tplEditId = null;
+        _tplFormBody = null;
+        _tplFormMediaType = MessageMediaType.None;
+        _tplFormMediaUrl = null;
+        _tplFormMediaMime = null;
+        _tplFormError = null;
+    }
+
+    private void ClearTemplateMedia()
+    {
+        _tplFormMediaType = MessageMediaType.None;
+        _tplFormMediaUrl = null;
+        _tplFormMediaMime = null;
+    }
+
+    private async Task OnTemplateMediaAsync(InputFileChangeEventArgs e)
+    {
+        _tplFormError = null;
+        var mime = e.File.ContentType ?? "";
+        var type = mime.StartsWith("image") ? MessageMediaType.Image
+            : mime.StartsWith("video") ? MessageMediaType.Video
+            : mime.StartsWith("audio") ? MessageMediaType.Audio
+            : MessageMediaType.Document;
+        var saved = await SaveChatFileAsync(e.File, type);
+        if (saved is null) { _tplFormError = "Archivo invalido o supera 16 MB."; return; }
+        _tplFormMediaType = type;
+        _tplFormMediaUrl = saved.Value.Url;
+        _tplFormMediaMime = saved.Value.Mime;
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        _tplFormError = null;
+        if (string.IsNullOrWhiteSpace(_tplFormBody) && _tplFormMediaUrl is null)
+        {
+            _tplFormError = "Escribe un mensaje o adjunta un archivo.";
+            return;
+        }
+        _tplBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            if (_tplEditId is null)
+            {
+                await TemplatesSvc.CreateAsync(new CreateMessageTemplateRequest(_tplFormCategory, _tplFormBody ?? "", _tplFormMediaType, _tplFormMediaUrl, _tplFormMediaMime), actor);
+            }
+            else
+            {
+                await TemplatesSvc.UpdateAsync(_tplEditId.Value, new UpdateMessageTemplateRequest(_tplFormCategory, _tplFormBody ?? "", _tplFormMediaType, _tplFormMediaUrl, _tplFormMediaMime), actor);
+            }
+            _templates = (await TemplatesSvc.ListAsync()).ToList();
+            ResetTemplateForm();
+        }
+        finally { _tplBusy = false; }
+    }
+
+    private async Task DeleteTemplateAsync(Guid id)
+    {
+        _tplBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await TemplatesSvc.DeleteAsync(id, actor);
+            _templates = (await TemplatesSvc.ListAsync()).ToList();
+            if (_tplEditId == id) { ResetTemplateForm(); }
+        }
+        finally { _tplBusy = false; }
+    }
+
+    // Guarda el archivo en wwwroot/uploads/chat y devuelve url local + base64 para Evolution.
+    private async Task<(string Url, string Base64, string Mime, string Name)?> SaveChatFileAsync(IBrowserFile file, MessageMediaType type)
+    {
+        const long max = 16L * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max) { return null; }
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(max).CopyToAsync(ms);
+        var bytes = ms.ToArray();
+        var ext = System.IO.Path.GetExtension(file.Name);
+        if (string.IsNullOrWhiteSpace(ext))
+        {
+            ext = type switch
+            {
+                MessageMediaType.Image => ".jpg",
+                MessageMediaType.Video => ".mp4",
+                MessageMediaType.Audio => ".ogg",
+                _ => ".bin"
+            };
+        }
+        var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "chat");
+        System.IO.Directory.CreateDirectory(dir);
+        var name = $"chat-{Guid.NewGuid():N}{ext}";
+        await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), bytes);
+        var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+        return ($"/uploads/chat/{name}", Convert.ToBase64String(bytes), mime, file.Name);
+    }
+
+    private async Task<string?> ReadLocalBase64Async(string localUrl)
+    {
+        var rel = localUrl.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar);
+        var path = System.IO.Path.Combine(Env.WebRootPath, rel);
+        if (!System.IO.File.Exists(path)) { return null; }
+        return Convert.ToBase64String(await System.IO.File.ReadAllBytesAsync(path));
+    }
+
+    // Configuracion
+    private bool _configOpen;
+    private string? _newStageName;
+    private string? _cfgStageMsg;
+    private Guid _cfgStageId;
+    private string? _cfgFieldMsg;
+    private NewFieldForm _nf = new();
+    private Guid? _editingFieldId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var role = state.User.FindFirst("tenant_role")?.Value;
+            _canManage = role is "Owner" or "Admin" or "Supervisor";
+            _isTenantAdmin = role is "Owner" or "Admin";
+            _tenantId = state.User.FindFirst("tenant_id")?.Value;
+        }
+        var actor = await ActorAsync();
+        _apptCfgActor = actor;
+        await PipelineSvc.EnsureDefaultsAsync(actor);
+        await BizUnitSvc.EnsureDefaultsAsync(actor);
+        await ReloadAsync();
+        _loading = false;
+        await EnsureHubAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _stages = (await PipelineSvc.ListStagesAsync()).ToList();
+        _fields = (await PipelineSvc.ListFieldsAsync()).ToList();
+        _businessUnits = (await BizUnitSvc.ListAsync()).ToList();
+        _resources = (await ResourcesSvc.ListAsync()).ToList();
+        if (_cfgUnitId is null || _businessUnits.All(u => u.Id != _cfgUnitId))
+        {
+            _cfgUnitId = _businessUnits.FirstOrDefault()?.Id;
+        }
+        _leads = (await LeadsSvc.ListAsync()).ToList();
+        _team = (await UsersSvc.ListAsync()).ToList();
+        _userEmails = _team.ToDictionary(u => u.Id, u => u.Email);
+        _pending = await ChatSvc.GetUnansweredByPhoneAsync();
+        if (_cfgStageId == Guid.Empty && _stages.Count > 0)
+        {
+            _cfgStageId = _stages[0].Id;
+        }
+        RecalcKpis();
+    }
+
+    private void RecalcKpis()
+    {
+        var won = CountWon();
+        _conversion = _leads.Count == 0 ? 0 : (int)Math.Round(100.0 * won / _leads.Count);
+    }
+
+    // ===== Drag & drop (interop JS: ver wwwroot/js/pipeline-dnd.js) =====
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ecorexPipeline.init", _selfRef);
+        }
+        // Carga el set de "no vistos" una sola vez, ya con los leads cargados (no en el render de loading).
+        if (!_seenLoaded && !_loading)
+        {
+            await LoadSeenLeadsAsync();
+            StateHasChanged();
+        }
+        if (_scrollChatPending)
+        {
+            _scrollChatPending = false;
+            try { await JS.InvokeVoidAsync("ecorexScrollChat"); } catch { }
+        }
+        // Activa el arrastrar-y-soltar de archivos sobre la conversacion (idempotente).
+        if (_leadOpen && _selfRef is not null)
+        {
+            try { await JS.InvokeVoidAsync("ecorexPipeline.initChatDrop", "pl-chat-drop", _selfRef); } catch { }
+        }
+    }
+
+    // Recibe un archivo soltado sobre la conversacion (desde JS) y lo envia por la linea activa.
+    [JSInvokable]
+    public async Task OnChatFileDropped(string fileName, string mime, string base64)
+    {
+        _chatError = null;
+        if (_conversation is null || _chatLineId == Guid.Empty) { _chatError = "Selecciona una linea activa para enviar."; await InvokeAsync(StateHasChanged); return; }
+        if (string.IsNullOrEmpty(base64)) { return; }
+
+        var type = (mime ?? "").StartsWith("image/") ? MessageMediaType.Image
+            : (mime ?? "").StartsWith("video/") ? MessageMediaType.Video
+            : (mime ?? "").StartsWith("audio/") ? MessageMediaType.Audio
+            : MessageMediaType.Document;
+
+        _chatBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(base64); } catch { _chatError = "Archivo invalido."; return; }
+            const long max = 16L * 1024 * 1024;
+            if (bytes.Length == 0 || bytes.Length > max) { _chatError = "Archivo invalido o supera 16 MB."; return; }
+
+            var ext = System.IO.Path.GetExtension(fileName);
+            if (string.IsNullOrWhiteSpace(ext)) { ext = ".bin"; }
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "chat");
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = $"chat-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            var localUrl = $"/uploads/chat/{stored}";
+            var safeMime = string.IsNullOrWhiteSpace(mime) ? "application/octet-stream" : mime;
+
+            var actor = await ActorAsync();
+            var caption = string.IsNullOrWhiteSpace(_chatDraft) ? null : _chatDraft!.Trim();
+            var r = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, type, base64, localUrl, safeMime, fileName, caption, actor);
+            if (!r.Ok) { _chatError = r.Error; return; }
+            if (r.Message is not null) { _messages.Add(r.Message); }
+            _chatDraft = null;
+            _scrollChatPending = true;
+        }
+        catch (Exception ex)
+        {
+            _chatError = "No se pudo enviar el archivo: " + ex.Message;
+        }
+        finally
+        {
+            _chatBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task MoveLeadFromJs(string leadId, string stageId)
+    {
+        if (!Guid.TryParse(leadId, out var lid) || !Guid.TryParse(stageId, out var sid)) { return; }
+        var lead = _leads.FirstOrDefault(l => l.Id == lid);
+        if (lead is null || lead.StageId == sid) { return; }
+
+        var actor = await ActorAsync();
+        var updated = await LeadsSvc.MoveAsync(lid, new MoveLeadRequest(sid), actor);
+        if (updated is not null)
+        {
+            ReplaceLead(updated);
+            RecalcKpis();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        _selfRef?.Dispose();
+        if (_hub is not null)
+        {
+            _ = _hub.DisposeAsync();
+        }
+    }
+
+    // ===== Nuevo lead =====
+    private void OpenNewLead(Guid? stageId)
+    {
+        _newLeadError = null;
+        _nl = new NewLeadForm { StageId = stageId ?? _stages.FirstOrDefault()?.Id ?? Guid.Empty, Currency = "COP" };
+        _newLeadOpen = true;
+    }
+
+    private async Task SaveNewLeadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nl.ContactName))
+        {
+            _newLeadError = "El nombre del contacto es obligatorio.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var req = new CreateLeadRequest(_nl.ContactName, _nl.ContactPhone, _nl.Destination,
+                _nl.EstimatedValue, _nl.Currency, _nl.StageId == Guid.Empty ? null : _nl.StageId, _nl.BusinessUnitId);
+            var created = await LeadsSvc.CreateAsync(req, actor);
+            if (created is null)
+            {
+                _newLeadError = "No se pudo crear el lead.";
+                return;
+            }
+            _leads.Add(created);
+            RecalcKpis();
+            _newLeadOpen = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ===== Historial / archivar =====
+    private void OpenArchive(LeadDto lead)
+    {
+        _archiveLead = lead;
+        _archiveReason = ArchiveReasons[0];
+        _archiveNote = null;
+        _archiveError = null;
+    }
+
+    private async Task ConfirmArchiveAsync()
+    {
+        if (_archiveLead is null) { return; }
+        _archiveError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var ok = await LeadsSvc.ArchiveAsync(_archiveLead.Id, _archiveReason, _archiveNote, actor);
+            if (!ok) { _archiveError = "No se pudo enviar a historial."; return; }
+            _leads.RemoveAll(l => l.Id == _archiveLead.Id);
+            RecalcKpis();
+            _archiveLead = null;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task OpenHistoryAsync()
+    {
+        _history = (await LeadsSvc.ListArchivedAsync()).ToList();
+        _histSearch = string.Empty;
+        _histReason = string.Empty;
+        _histAsesor = string.Empty;
+        _purgeStep = 0;
+        _purgeMsg = null;
+        _historyOpen = true;
+    }
+
+    // Borrado total del historial (solo admin del tenant; el backend revalida el rol). Tras borrar
+    // en BD, elimina los binarios de los archivos del disco (best-effort).
+    private async Task PurgeHistoryAsync()
+    {
+        _purgeBusy = true;
+        _purgeMsg = null;
+        try
+        {
+            var result = await LeadsSvc.PurgeArchivedHistoryAsync();
+            if (result is null)
+            {
+                _purgeMsg = "No tienes permiso para borrar el historial.";
+                _purgeStep = 0;
+                return;
+            }
+            foreach (var url in result.FileUrls)
+            {
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(url)) { continue; }
+                    var rel = url.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar);
+                    var path = System.IO.Path.Combine(Env.WebRootPath, rel);
+                    if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+                }
+                catch { /* binario huerfano, se ignora */ }
+            }
+            _history.Clear();
+            RecalcKpis();
+            _purgeStep = 0;
+            _purgeMsg = $"Historial borrado: {result.DeletedLeads} cliente(s).";
+        }
+        finally { _purgeBusy = false; }
+    }
+
+    private IEnumerable<ArchivedLeadDto> FilteredHistory()
+    {
+        IEnumerable<ArchivedLeadDto> q = _history;
+        if (!string.IsNullOrWhiteSpace(_histSearch))
+        {
+            var s = _histSearch.Trim();
+            q = q.Where(h => (h.ContactName?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+                          || (h.Destination?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+                          || (h.ContactPhone?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        if (!string.IsNullOrWhiteSpace(_histReason))
+        {
+            q = q.Where(h => h.ArchiveReason == _histReason);
+        }
+        if (Guid.TryParse(_histAsesor, out var aid))
+        {
+            q = q.Where(h => h.AssignedToTenantUserId == aid);
+        }
+        return q;
+    }
+
+    private string ArchAsesor(ArchivedLeadDto h)
+    {
+        if (h.FieldValues.TryGetValue("asesor", out var f) && !string.IsNullOrWhiteSpace(f)) { return f!; }
+        return h.AssignedToTenantUserId is Guid id ? UserEmail(id) : "Sin asesor";
+    }
+
+    private string FieldLabel(string key) => _fields.FirstOrDefault(f => f.FieldKey == key)?.Label ?? key;
+
+    private string HistDatos(ArchivedLeadDto h)
+    {
+        var parts = h.FieldValues
+            .Where(kv => kv.Key != "asesor" && !string.IsNullOrWhiteSpace(kv.Value))
+            .Select(kv => $"{FieldLabel(kv.Key)}: {kv.Value}")
+            .ToList();
+        return parts.Count == 0 ? "—" : string.Join(" · ", parts);
+    }
+
+    private async Task RestoreFromHistoryAsync(ArchivedLeadDto h)
+    {
+        _busy = true;
+        try
+        {
+            var restored = await LeadsSvc.UnarchiveAsync(h.Id, await ActorAsync());
+            if (restored is not null)
+            {
+                _history.RemoveAll(x => x.Id == h.Id);
+                _leads.RemoveAll(l => l.Id == restored.Id);
+                _leads.Add(restored);
+                RecalcKpis();
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Notas de seguimiento =====
+    private async Task AddNoteAsync()
+    {
+        if (_editLead is null || string.IsNullOrWhiteSpace(_noteText)) { return; }
+        _busy = true;
+        try
+        {
+            var note = await LeadsSvc.AddNoteAsync(_editLead.Id, _noteText, _noteColor, await ActorAsync());
+            if (note is not null)
+            {
+                _notes.Insert(0, note);
+                _noteText = string.Empty;
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteNoteAsync(Guid noteId)
+    {
+        if (await LeadsSvc.DeleteNoteAsync(noteId))
+        {
+            _notes.RemoveAll(n => n.Id == noteId);
+        }
+    }
+
+    private static string NoteColorHex(string color) => color switch
+    {
+        "green" => "#e7f6ec",
+        "blue" => "#e6f0fb",
+        "pink" => "#fce8f0",
+        "purple" => "#f0e9fb",
+        "gray" => "#eef0f2",
+        _ => "#fdf6d8"
+    };
+
+    private static string NoteColorBorder(string color) => color switch
+    {
+        "green" => "#bfe3c9",
+        "blue" => "#bcd6f2",
+        "pink" => "#f3c4d8",
+        "purple" => "#d8c5f0",
+        "gray" => "#d6dbe0",
+        _ => "#ecdfa0"
+    };
+
+    // ===== Archivos del lead =====
+    private async Task OnLeadFileAsync(InputFileChangeEventArgs e)
+    {
+        if (_editLead is null) { return; }
+        _fileError = null;
+        var file = e.File;
+        const long max = 25L * 1024 * 1024;
+        if (file.Size <= 0 || file.Size > max)
+        {
+            _fileError = "El archivo supera el limite de 25 MB.";
+            return;
+        }
+        _fileBusy = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            var ext = System.IO.Path.GetExtension(file.Name);
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "leads");
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = $"lead-{Guid.NewGuid():N}{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            var url = $"/uploads/leads/{stored}";
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+
+            var saved = await LeadsSvc.AddFileAsync(_editLead.Id, file.Name, url, mime, file.Size, await ActorAsync());
+            if (saved is not null) { _files.Insert(0, saved); }
+        }
+        catch
+        {
+            _fileError = "No se pudo subir el archivo.";
+        }
+        finally { _fileBusy = false; }
+    }
+
+    private async Task DeleteLeadFileAsync(Guid fileId)
+    {
+        var url = await LeadsSvc.DeleteFileAsync(fileId);
+        if (url is null) { return; }
+        _files.RemoveAll(f => f.Id == fileId);
+        try
+        {
+            var rel = url.TrimStart('/').Replace('/', System.IO.Path.DirectorySeparatorChar);
+            var path = System.IO.Path.Combine(Env.WebRootPath, rel);
+            if (System.IO.File.Exists(path)) { System.IO.File.Delete(path); }
+        }
+        catch { /* el registro ya se elimino; el binario huerfano no es critico */ }
+    }
+
+    private static string FileExt(string name)
+    {
+        var ext = System.IO.Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+        return string.IsNullOrEmpty(ext) ? "DOC" : ext;
+    }
+
+    private static string FileSize(long bytes)
+    {
+        if (bytes < 1024) { return $"{bytes} B"; }
+        if (bytes < 1024 * 1024) { return $"{bytes / 1024.0:N0} KB"; }
+        return $"{bytes / (1024.0 * 1024.0):N1} MB";
+    }
+
+    // Leads filtrados y ordenados de forma global (vista lista, sin agrupar por etapa).
+    private List<LeadDto> AllFilteredLeads()
+    {
+        var all = new List<LeadDto>();
+        foreach (var stage in _stages)
+        {
+            if (_filterStages.Count > 0 && !_filterStages.Contains(stage.Id)) { continue; }
+            all.AddRange(VisibleLeads(stage.Id));
+        }
+        return _sortBy switch
+        {
+            "name" => all.OrderBy(l => l.ContactName, StringComparer.OrdinalIgnoreCase).ToList(),
+            "unanswered" => all.OrderByDescending(l => PendingFor(l)?.UnansweredCount ?? 0).ThenBy(l => l.StageChangedAt).ToList(),
+            "recent" => all.OrderByDescending(l => l.CreatedAt).ToList(),
+            "arrival" => all.OrderBy(l => l.CreatedAt).ToList(),
+            _ => all.OrderBy(l => l.StageChangedAt).ToList()
+        };
+    }
+
+    // ===== Detalle de lead =====
+    private async Task OpenLeadAsync(Guid leadId)
+    {
+        await MarkSeenAsync(leadId);
+        // Routing por unidad de negocio: la asesoria de imagen abre el MISMO modal de atencion del salon.
+        var routeLead = _leads.FirstOrDefault(l => l.Id == leadId);
+        if (UnitOf(routeLead) is { ModalKind: Ecorex.Domain.Enums.BusinessUnitModalKind.ImageAdvisory })
+        {
+            await OpenSalonBookingAsync(routeLead!);
+            return;
+        }
+
+        _leadError = null;
+        var detail = await LeadsSvc.GetAsync(leadId);
+        if (detail is null) { return; }
+        _editLead = detail.Lead;
+        _editStageId = detail.Lead.StageId;
+        _leadDirty = false;
+        _leadSaved = false;
+        _leadTab = "datos";
+        _leadMobileView = "datos";
+        _activities = detail.Activities.OrderByDescending(a => a.CreatedAt).ToList();
+        _notes = (await LeadsSvc.ListNotesAsync(leadId)).ToList();
+        _noteText = string.Empty;
+        _noteColor = "yellow";
+        _files = (await LeadsSvc.ListFilesAsync(leadId)).ToList();
+        _fileError = null;
+        _el = new EditLeadForm
+        {
+            ContactName = detail.Lead.ContactName,
+            ContactPhone = detail.Lead.ContactPhone,
+            Destination = detail.Lead.Destination,
+            EstimatedValue = detail.Lead.EstimatedValue,
+            Currency = detail.Lead.Currency,
+            BusinessUnitId = detail.Lead.BusinessUnitId
+        };
+        _editValues = new Dictionary<string, string?>();
+        _multiValues = new Dictionary<string, List<string?>>();
+        _multiDetails = new Dictionary<string, List<string?>>();
+        foreach (var f in _fields)
+        {
+            var raw = detail.Lead.FieldValues.TryGetValue(f.FieldKey, out var v) ? v : null;
+            if (f.AllowMultiple && f.MultiWithDetail)
+            {
+                var (details, values) = ParseMultiDetail(raw);
+                _multiValues[f.FieldKey] = values;
+                _multiDetails[f.FieldKey] = details;
+            }
+            else if (f.AllowMultiple || !string.IsNullOrEmpty(f.RepeatWithFieldKey))
+            {
+                _multiValues[f.FieldKey] = ParseMulti(raw);
+            }
+            else
+            {
+                _editValues[f.FieldKey] = raw;
+            }
+        }
+        // Plantillas de cotizacion para el selector (preselecciona la predeterminada).
+        _quoteTemplates = (await QuoteTplSvc.ListAsync()).ToList();
+        var def = _quoteTemplates.FirstOrDefault(t => t.IsDefault) ?? _quoteTemplates.FirstOrDefault();
+        _selectedQuoteTemplateId = def?.Id ?? Guid.Empty;
+
+        _leadOpen = true;
+        await LoadChatAsync(leadId);
+    }
+
+    private async Task LoadChatAsync(Guid leadId)
+    {
+        _conversation = null;
+        _messages = new();
+        _chatLines = new();
+        _chatError = null;
+        _chatDraft = null;
+        _qrCategory = "saludo";
+
+        if (string.IsNullOrWhiteSpace(_el.ContactPhone)) { return; }
+
+        var lines = await LinesSvc.ListAsync();
+        _chatLines = lines.Where(l => l.Status == WhatsAppLineStatus.Connected).ToList();
+        if (_chatLines.Count == 0) { return; }
+
+        _conversation = await ChatSvc.GetOrCreateForLeadAsync(leadId);
+        if (_conversation is null) { return; }
+
+        _messages = (await ChatSvc.ListMessagesAsync(_conversation.Id)).ToList();
+        _scrollChatPending = true;
+        var preferred = _conversation.WhatsAppLineId is Guid lid && _chatLines.Any(l => l.Id == lid)
+            ? lid
+            : _chatLines[0].Id;
+        _chatLineId = preferred;
+
+        await TemplatesSvc.SeedDefaultsAsync();
+        _templates = (await TemplatesSvc.ListAsync()).ToList();
+
+        await JoinConversationRealtimeAsync(_conversation.Id);
+    }
+
+    private async Task EnsureHubAsync()
+    {
+        if (_hub is not null) { return; }
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/chat"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hub.On<MessageDto>("MessageAdded", async msg =>
+            {
+                if (_conversation is null || msg.ConversationId != _conversation.Id) { return; }
+                if (_messages.Any(m => m.Id == msg.Id)) { return; }
+                _messages.Add(msg);
+                _scrollChatPending = true;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            // Cualquier mensaje del tenant: recalcular el estado "sin responder" del tablero.
+            _hub.On("BoardChanged", async () =>
+            {
+                _pending = await ChatSvc.GetUnansweredByPhoneAsync();
+                await InvokeAsync(StateHasChanged);
+            });
+
+            await _hub.StartAsync();
+            if (!string.IsNullOrEmpty(_tenantId))
+            {
+                await _hub.SendAsync("JoinTenant", _tenantId);
+            }
+        }
+        catch
+        {
+            // El tiempo real es un complemento; si falla la conexion el tablero sigue funcionando.
+        }
+    }
+
+    private async Task JoinConversationRealtimeAsync(Guid conversationId)
+    {
+        await EnsureHubAsync();
+        if (_hub is null) { return; }
+        try
+        {
+            if (_joinedConversation is not null && _joinedConversation != conversationId.ToString())
+            {
+                await _hub.SendAsync("LeaveConversation", _joinedConversation);
+            }
+            await _hub.SendAsync("JoinConversation", conversationId.ToString());
+            _joinedConversation = conversationId.ToString();
+        }
+        catch { }
+    }
+
+
+    private async Task ChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendChatAsync();
+        }
+    }
+
+    private async Task SendChatAsync()
+    {
+        _chatError = null;
+        if (_conversation is null || string.IsNullOrWhiteSpace(_chatDraft) || _chatLineId == Guid.Empty) { return; }
+        _chatBusy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var result = await ChatSvc.SendViaLineAsync(_conversation.Id, _chatLineId, _chatDraft!.Trim(), actor);
+            if (!result.Ok)
+            {
+                _chatError = result.Error ?? "No se pudo enviar el mensaje.";
+                return;
+            }
+            if (result.Message is not null)
+            {
+                _messages.Add(result.Message);
+            }
+            _chatDraft = null;
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    // Abre la cotizacion del lead (HTML del diseno con los datos) en una pestana nueva.
+    private async Task VerCotizacionAsync()
+    {
+        if (_editLead is null) { return; }
+        var q = _selectedQuoteTemplateId != Guid.Empty ? $"?templateId={_selectedQuoteTemplateId}" : "";
+        await JS.InvokeVoidAsync("open", $"/cotizacion/{_editLead.Id}{q}", "_blank");
+    }
+
+    // Genera el PDF de la cotizacion y lo envia por WhatsApp usando la linea activa de la conversacion.
+    private async Task EnviarCotizacionAsync()
+    {
+        _quoteMsg = null;
+        if (_editLead is null || _conversation is null || _chatLineId == Guid.Empty) { _quoteMsg = "Necesitas una linea activa."; _sendConfirm = false; return; }
+        _quoteBusy = true;
+        try
+        {
+            // Formato segun la plantilla SELECCIONADA: imagen (PNG) o PDF adjunto.
+            var tpl = _quoteTemplates.FirstOrDefault(t => t.Id == _selectedQuoteTemplateId)
+                      ?? _quoteTemplates.FirstOrDefault(t => t.IsDefault);
+            var asImage = tpl?.SendAsImage ?? false;
+
+            var q = _selectedQuoteTemplateId != Guid.Empty ? $"?templateId={_selectedQuoteTemplateId}" : "";
+            var url = $"{Nav.BaseUri.TrimEnd('/')}/cotizacion/{_editLead.Id}{q}";
+            var bytes = asImage ? await PdfRenderer.RenderUrlToImageAsync(url) : await PdfRenderer.RenderUrlToPdfAsync(url);
+            if (bytes.Length == 0) { _quoteMsg = "No se pudo generar la cotizacion."; return; }
+
+            var ext = asImage ? "png" : "pdf";
+            var mediaType = asImage ? MessageMediaType.Image : MessageMediaType.Document;
+            var mime = asImage ? "image/png" : "application/pdf";
+            var sendName = asImage ? "Cotizacion.png" : "Cotizacion.pdf";
+
+            // Guarda el archivo servible y lo registra como media del mensaje.
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "cotizaciones");
+            System.IO.Directory.CreateDirectory(dir);
+            var fileName = $"cotizacion-{Guid.NewGuid():N}.{ext}";
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fileName), bytes);
+            var localUrl = $"/uploads/cotizaciones/{fileName}";
+            var b64 = Convert.ToBase64String(bytes);
+
+            var actor = await ActorAsync();
+            var caption = $"Hola {_el.ContactName}, te compartimos tu cotizacion.";
+            var result = await ChatSvc.SendMediaViaLineAsync(_conversation.Id, _chatLineId, mediaType,
+                b64, localUrl, mime, sendName, caption, actor);
+            if (!result.Ok) { _quoteMsg = result.Error ?? "No se pudo enviar."; return; }
+            if (result.Message is not null) { _messages.Add(result.Message); }
+            _quoteMsg = "Cotizacion enviada.";
+            _sendConfirm = false;
+        }
+        catch (Exception ex)
+        {
+            _quoteMsg = "Error al enviar la cotizacion: " + ex.Message;
+        }
+        finally { _quoteBusy = false; }
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "?"; }
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..1].ToUpperInvariant()
+            : (parts[0][..1] + parts[^1][..1]).ToUpperInvariant();
+    }
+
+    private void CloseLead()
+    {
+        _leadOpen = false;
+        _editLead = null;
+        _conversation = null;
+        _messages = new();
+        _chatLines = new();
+        _chatDraft = null;
+        _chatError = null;
+        _sendConfirm = false;
+        _quoteMsg = null;
+        _quoteBusy = false;
+    }
+
+    private async Task SaveLeadAsync()
+    {
+        if (_editLead is null) { return; }
+        if (string.IsNullOrWhiteSpace(_el.ContactName))
+        {
+            _leadError = "El nombre del contacto es obligatorio.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var values = new Dictionary<string, string?>(_editValues);
+            // Campos de multiples valores / repetidos: se guardan como arreglo JSON.
+            foreach (var kv in _multiValues)
+            {
+                if (_multiDetails.TryGetValue(kv.Key, out var dets))
+                {
+                    // Campo multiple con detalle: arreglo de objetos {d:detalle, v:valor}.
+                    values[kv.Key] = SerializeMultiDetail(dets, kv.Value);
+                }
+                else
+                {
+                    values[kv.Key] = SerializeMulti(kv.Value);
+                }
+            }
+            // Campos Total: se calculan y se guardan como valor invariante para vistas/reportes/API.
+            foreach (var tf in _fields.Where(x => x.FieldType == PipelineFieldType.Total))
+            {
+                var total = ComputeTotal(tf);
+                values[tf.FieldKey] = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            var req = new UpdateLeadRequest(_el.ContactName, _el.ContactPhone, _el.Destination,
+                _el.EstimatedValue, _el.Currency, values, _el.BusinessUnitId);
+            var updated = await LeadsSvc.UpdateAsync(_editLead.Id, req, actor);
+            if (updated is not null)
+            {
+                ReplaceLead(updated);
+                _editLead = updated;
+            }
+            // No cerramos el modal: el usuario sigue editando y cierra cuando quiera.
+            _leadDirty = false;
+            _leadSaved = true;
+            _leadError = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // Marca el formulario del lead como "con cambios sin guardar" (resalta el boton Guardar).
+    private void MarkLeadDirty()
+    {
+        _leadDirty = true;
+    }
+
+    private async Task MoveToStageAsync(Guid stageId)
+    {
+        if (_editLead is null || _editStageId == stageId) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var updated = await LeadsSvc.MoveAsync(_editLead.Id, new MoveLeadRequest(stageId), actor);
+            if (updated is not null)
+            {
+                ReplaceLead(updated);
+                _editLead = updated;
+                _editStageId = updated.StageId;
+                RecalcKpis();
+                var detail = await LeadsSvc.GetAsync(updated.Id);
+                if (detail is not null)
+                {
+                    _activities = detail.Activities.OrderByDescending(a => a.CreatedAt).ToList();
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ===== Asignacion de asesor =====
+    private async Task OnAssignChangedAsync(ChangeEventArgs e)
+    {
+        if (_editLead is null) { return; }
+        Guid? tenantUserId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var updated = await LeadsSvc.AssignAsync(_editLead.Id, tenantUserId, actor);
+            if (updated is not null)
+            {
+                ReplaceLead(updated);
+                _editLead = updated;
+                var detail = await LeadsSvc.GetAsync(updated.Id);
+                if (detail is not null)
+                {
+                    _activities = detail.Activities.OrderByDescending(a => a.CreatedAt).ToList();
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string TeamLabel(TenantUserDto u)
+    {
+        var role = u.TenantRole switch
+        {
+            TenantRole.Owner => "Propietario",
+            TenantRole.Admin => "Administrador",
+            TenantRole.Supervisor => "Supervisor",
+            _ => "Asesor"
+        };
+        return $"{u.Email} ({role})";
+    }
+
+    private string AssignedLabel() =>
+        _editLead?.AssignedToTenantUserId is Guid id && _userEmails.TryGetValue(id, out var e) ? e : "Sin asignar";
+
+    // ===== Configuracion: etapas =====
+    private void OpenConfig()
+    {
+        _cfgStageMsg = null;
+        _cfgFieldMsg = null;
+        _nf = new NewFieldForm();
+        if (_cfgStageId == Guid.Empty && _stages.Count > 0) { _cfgStageId = _stages[0].Id; }
+        _configOpen = true;
+    }
+
+    private async Task AddStageAsync()
+    {
+        _cfgStageMsg = null;
+        if (string.IsNullOrWhiteSpace(_newStageName))
+        {
+            _cfgStageMsg = "Escribe un nombre de etapa.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.CreateStageAsync(new CreatePipelineStageRequest(_newStageName!, 0), actor);
+            _newStageName = null;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RenameStageAsync(PipelineStageDto stage, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Trim() == stage.Name) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.UpdateStageAsync(stage.Id, new UpdatePipelineStageRequest(name!.Trim(), stage.IsClosedWon, stage.IsClosedLost), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleStageFlagAsync(PipelineStageDto stage, bool? won = null, bool? lost = null)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.UpdateStageAsync(stage.Id,
+                new UpdatePipelineStageRequest(stage.Name, won ?? stage.IsClosedWon, lost ?? stage.IsClosedLost), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveStageAsync(int from, int to)
+    {
+        if (to < 0 || to >= _stages.Count) { return; }
+        var ordered = _stages.Select(s => s.Id).ToList();
+        var moved = ordered[from];
+        ordered.RemoveAt(from);
+        ordered.Insert(to, moved);
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.ReorderStagesAsync(new ReorderStagesRequest(ordered), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteStageAsync(PipelineStageDto stage)
+    {
+        _cfgStageMsg = null;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var ok = await PipelineSvc.DeleteStageAsync(stage.Id, actor);
+            if (!ok)
+            {
+                _cfgStageMsg = "No se puede eliminar una etapa con leads.";
+                return;
+            }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Configuracion: campos =====
+    private async Task AddFieldAsync()
+    {
+        _cfgFieldMsg = null;
+        if (string.IsNullOrWhiteSpace(_nf.Label))
+        {
+            _cfgFieldMsg = "Escribe una etiqueta.";
+            return;
+        }
+        if (_cfgStageId == Guid.Empty)
+        {
+            _cfgFieldMsg = "Selecciona una etapa.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var options = string.IsNullOrWhiteSpace(_nf.Options) ? null : _nf.Options!.Replace(",", "\n").Trim();
+            var repeat = string.IsNullOrWhiteSpace(_nf.RepeatWithFieldKey) ? null : _nf.RepeatWithFieldKey;
+            var totalKeys = _nf.FieldType == PipelineFieldType.Total && _nf.TotalSourceKeys.Count > 0
+                ? string.Join(",", _nf.TotalSourceKeys)
+                : null;
+            if (_editingFieldId is Guid editId)
+            {
+                await PipelineSvc.UpdateFieldAsync(editId,
+                    new UpdatePipelineFieldRequest(_nf.Label!, _nf.FieldType, _nf.Column, options, _nf.Description, _nf.AllowMultiple, repeat, _nf.MultiWithDetail, totalKeys, _nf.ShowInFilter), actor);
+            }
+            else
+            {
+                var created = await PipelineSvc.CreateFieldAsync(
+                    new CreatePipelineFieldRequest(_cfgStageId, _nf.Label!, _nf.FieldType, _nf.Column, options, null, _nf.Description, _nf.AllowMultiple, repeat, _nf.MultiWithDetail, totalKeys, _nf.ShowInFilter), actor);
+                if (created is null)
+                {
+                    _cfgFieldMsg = "Ese nombre coincide con un campo de sistema del lead (nombre, telefono, destino, valor, moneda). Usa el marcador de sistema en su lugar (ej. {{destination}}).";
+                    return;
+                }
+            }
+            _nf = new NewFieldForm();
+            _editingFieldId = null;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void EditField(PipelineFieldDto f)
+    {
+        _editingFieldId = f.Id;
+        _cfgFieldMsg = null;
+        _nf = new NewFieldForm
+        {
+            Label = f.Label,
+            FieldType = f.FieldType,
+            Column = f.Column,
+            Options = f.Options,
+            Description = f.Description,
+            AllowMultiple = f.AllowMultiple,
+            RepeatWithFieldKey = f.RepeatWithFieldKey,
+            MultiWithDetail = f.MultiWithDetail,
+            ShowInFilter = f.ShowInFilter,
+            TotalSourceKeys = string.IsNullOrWhiteSpace(f.TotalSourceKeys)
+                ? new List<string>()
+                : f.TotalSourceKeys.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+        };
+    }
+
+    private void ToggleTotalSource(string key, bool on)
+    {
+        if (on) { if (!_nf.TotalSourceKeys.Contains(key)) { _nf.TotalSourceKeys.Add(key); } }
+        else { _nf.TotalSourceKeys.Remove(key); }
+    }
+
+    private void CancelEditField()
+    {
+        _editingFieldId = null;
+        _cfgFieldMsg = null;
+        _nf = new NewFieldForm();
+    }
+
+    private async Task DeleteFieldAsync(Guid fieldId)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.DeleteFieldAsync(fieldId, actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveFieldAsync(List<PipelineFieldDto> stageFields, int from, int to)
+    {
+        if (to < 0 || to >= stageFields.Count) { return; }
+        var ordered = stageFields.Select(f => f.Id).ToList();
+        var moved = ordered[from];
+        ordered.RemoveAt(from);
+        ordered.Insert(to, moved);
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.ReorderFieldsAsync(new ReorderFieldsRequest(ordered), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // Mueve un campo configurable a otra etapa (queda al final de la etapa destino).
+    private async Task MoveFieldStageAsync(PipelineFieldDto f, string? targetStageId)
+    {
+        if (!Guid.TryParse(targetStageId, out var sid) || sid == f.StageId) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.MoveFieldToStageAsync(f.Id, sid, actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // Monedas mas usadas para el desplegable del campo Moneda.
+    private static readonly (string Code, string Label)[] CommonCurrencies =
+    {
+        ("COP", "COP - Peso colombiano"),
+        ("USD", "USD - Dolar"),
+        ("EUR", "EUR - Euro"),
+        ("MXN", "MXN - Peso mexicano"),
+        ("ARS", "ARS - Peso argentino"),
+        ("CLP", "CLP - Peso chileno"),
+        ("PEN", "PEN - Sol peruano"),
+        ("BRL", "BRL - Real brasileno"),
+        ("GBP", "GBP - Libra esterlina")
+    };
+
+    // Simbolo de moneda segun el codigo seleccionado (para los campos tipo Moneda).
+    private static string CurrencySymbol(string? code) => (code ?? "").Trim().ToUpperInvariant() switch
+    {
+        "USD" => "US$",
+        "EUR" => "€",
+        "GBP" => "£",
+        "BRL" => "R$",
+        "PEN" => "S/",
+        _ => "$"
+    };
+
+    // Hora salida/llegada: se guarda como "salida - llegada". Devuelve la parte idx (0=salida, 1=llegada).
+    private static string TimeRangePart(string? combined, int idx)
+    {
+        if (string.IsNullOrWhiteSpace(combined)) { return string.Empty; }
+        var parts = combined.Split('-', 2);
+        return idx < parts.Length ? parts[idx].Trim() : string.Empty;
+    }
+
+    // Actualiza una de las dos horas y recompone el valor "salida - llegada".
+    private static string SetTimeRange(string? combined, int idx, string? value)
+    {
+        var salida = idx == 0 ? (value ?? "").Trim() : TimeRangePart(combined, 0);
+        var llegada = idx == 1 ? (value ?? "").Trim() : TimeRangePart(combined, 1);
+        if (string.IsNullOrEmpty(salida) && string.IsNullOrEmpty(llegada)) { return string.Empty; }
+        return $"{salida} - {llegada}";
+    }
+
+    // Mueve un campo a la otra columna (1 <-> 2) sin abrir el editor.
+    private async Task MoveFieldColumnAsync(PipelineFieldDto f)
+    {
+        var newCol = f.Column == 2 ? 1 : 2;
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            await PipelineSvc.UpdateFieldAsync(f.Id,
+                new UpdatePipelineFieldRequest(f.Label, f.FieldType, newCol, f.Options, f.Description, f.AllowMultiple, f.RepeatWithFieldKey, f.MultiWithDetail, f.TotalSourceKeys, f.ShowInFilter), actor);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // ===== Helpers =====
+    private void ReplaceLead(LeadDto updated)
+    {
+        var i = _leads.FindIndex(l => l.Id == updated.Id);
+        if (i >= 0) { _leads[i] = updated; }
+    }
+
+    private int CountOpen() => _leads.Count(l => l.Status == LeadStatus.Open);
+    private int CountWon() => _leads.Count(l => l.Status == LeadStatus.Won);
+
+    private string PipelineValue()
+    {
+        var total = _leads.Where(l => l.Status == LeadStatus.Open).Sum(l => l.EstimatedValue ?? 0);
+        return Money(total, _leads.FirstOrDefault(l => l.Currency is not null)?.Currency);
+    }
+
+    private static string Money(decimal v, string? currency) => $"$ {v:N0}{(string.IsNullOrWhiteSpace(currency) ? "" : " " + currency)}";
+
+    // Convencion del sistema: coma = separador de miles, punto = decimal (3,500,000.50).
+    // Da formato a un decimal: 3500000 -> "3,500,000".
+    private static string FormatMoneyDecimal(decimal? v)
+    {
+        if (v is not decimal d) { return string.Empty; }
+        var c = System.Globalization.CultureInfo.InvariantCulture;
+        return d == Math.Truncate(d) ? d.ToString("#,##0", c) : d.ToString("#,##0.##", c);
+    }
+
+    // Convierte el valor crudo guardado (invariante: punto = decimal) al texto con separadores de miles.
+    private static string FormatThousands(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
+        // El valor guardado esta en formato invariante (ej "1000000" o "1000000.5").
+        if (!decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var value)
+            && !TryParseMoney(raw!, out value))
+        {
+            return raw!;
+        }
+        return FormatMoneyDecimal(value);
+    }
+
+    // Limpia el texto editado (coma = miles, punto = decimal) y lo guarda en formato invariante.
+    private static string DigitsToRaw(string? formatted)
+    {
+        if (string.IsNullOrWhiteSpace(formatted)) { return string.Empty; }
+        if (!TryParseMoney(formatted!, out var value)) { return string.Empty; }
+        return value == Math.Truncate(value)
+            ? ((long)value).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // Igual que DigitsToRaw pero devuelve decimal? para los campos fijos (Valor estimado).
+    private static decimal? ParseMoneyNullable(string? formatted)
+    {
+        if (string.IsNullOrWhiteSpace(formatted)) { return null; }
+        return TryParseMoney(formatted!, out var value) ? value : null;
+    }
+
+    // Texto del usuario: la coma es separador de miles y el punto es decimal (formato del sistema).
+    private static bool TryParseMoney(string s, out decimal value)
+    {
+        var cleaned = new string(s.Where(c => char.IsDigit(c) || c == ',' || c == '.').ToArray());
+        if (cleaned.Length == 0) { value = 0; return false; }
+        cleaned = cleaned.Replace(",", string.Empty); // quitar separador de miles; el punto queda como decimal
+        return decimal.TryParse(cleaned, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out value);
+    }
+
+    // Suma de un campo Total: recorre sus campos origen; los multiples/repetidos suman todos sus registros.
+    private decimal ComputeTotal(PipelineFieldDto totalField)
+    {
+        if (string.IsNullOrWhiteSpace(totalField.TotalSourceKeys)) { return 0m; }
+        var keys = totalField.TotalSourceKeys.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        decimal sum = 0m;
+        foreach (var key in keys)
+        {
+            if (_multiValues.TryGetValue(key, out var list))
+            {
+                foreach (var item in list) { if (TryNum(item, out var n)) { sum += n; } }
+            }
+            else if (_editValues.TryGetValue(key, out var sv) && TryNum(sv, out var nv))
+            {
+                sum += nv;
+            }
+        }
+        return sum;
+    }
+
+    private static bool TryNum(string? s, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(s)) { return false; }
+        return decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out value)
+            || TryParseMoney(s!, out value);
+    }
+
+    private string StageName(Guid stageId) => _stages.FirstOrDefault(s => s.Id == stageId)?.Name ?? "—";
+
+    private static string StageTag(PipelineStageDto s) =>
+        s.IsClosedWon ? "Cierre ganado" : s.IsClosedLost ? "Cierre perdido" : "";
+
+    private static string StatusText(LeadStatus status) => status switch
+    {
+        LeadStatus.Won => "Ganado",
+        LeadStatus.Lost => "Perdido",
+        _ => "Abierto"
+    };
+
+    private static IEnumerable<string> SelectOptions(PipelineFieldDto f) =>
+        string.IsNullOrWhiteSpace(f.Options)
+            ? Enumerable.Empty<string>()
+            : f.Options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private string UserEmail(Guid id) => _userEmails.TryGetValue(id, out var e) ? e : "";
+    private string UserInitials(Guid id)
+    {
+        var email = UserEmail(id);
+        return string.IsNullOrEmpty(email) ? "?" : email[..1].ToUpperInvariant();
+    }
+
+    // ===== Campos multiples / repetidos =====
+    private List<string?> ParseMulti(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return new List<string?>(); }
+        var t = raw.TrimStart();
+        if (t.StartsWith("["))
+        {
+            try
+            {
+                var arr = System.Text.Json.JsonSerializer.Deserialize<List<string?>>(raw);
+                if (arr is not null) { return arr; }
+            }
+            catch { /* no era JSON: se trata como valor unico */ }
+        }
+        return new List<string?> { raw };
+    }
+
+    private static string? SerializeMulti(List<string?> list)
+    {
+        var clean = list.Select(x => x?.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList();
+        return clean.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(clean);
+    }
+
+    // Cantidad de repeticiones segun el valor numerico del campo referenciado (0..20).
+    private int RepeatCount(string repeatFieldKey)
+    {
+        var raw = _editValues.TryGetValue(repeatFieldKey, out var v) ? v : null;
+        if (int.TryParse(raw, out var n)) { return Math.Clamp(n, 0, 20); }
+        return 0;
+    }
+
+    // Devuelve la lista del campo, ajustada al tamano pedido (fixedCount>=0 para repetidos;
+    // -1 para "multiples": garantiza al menos 1 fila para capturar).
+    private List<string?> MultiList(string key, int fixedCount)
+    {
+        if (!_multiValues.TryGetValue(key, out var list)) { list = new List<string?>(); _multiValues[key] = list; }
+        if (fixedCount >= 0)
+        {
+            while (list.Count < fixedCount) { list.Add(null); }
+            while (list.Count > fixedCount) { list.RemoveAt(list.Count - 1); }
+        }
+        else if (list.Count == 0) { list.Add(null); }
+        return list;
+    }
+
+    private void AddMulti(string key)
+    {
+        if (!_multiValues.TryGetValue(key, out var list)) { list = new List<string?>(); _multiValues[key] = list; }
+        list.Add(null);
+        if (_multiDetails.TryGetValue(key, out var dets)) { dets.Add(null); }
+    }
+
+    private void RemoveMulti(string key, int index)
+    {
+        if (_multiValues.TryGetValue(key, out var list) && index >= 0 && index < list.Count)
+        {
+            list.RemoveAt(index);
+            if (_multiDetails.TryGetValue(key, out var dets) && index < dets.Count) { dets.RemoveAt(index); }
+            if (list.Count == 0) { list.Add(null); if (_multiDetails.ContainsKey(key)) { _multiDetails[key].Add(null); } }
+        }
+    }
+
+    // Lista de detalles paralela a los valores del campo multiple (mismo tamano).
+    private List<string?> DetailList(string key, int count)
+    {
+        if (!_multiDetails.TryGetValue(key, out var list)) { list = new List<string?>(); _multiDetails[key] = list; }
+        while (list.Count < count) { list.Add(null); }
+        while (list.Count > count) { list.RemoveAt(list.Count - 1); }
+        return list;
+    }
+
+    private sealed class MultiDetailItem { public string? d { get; set; } public string? v { get; set; } }
+
+    // Lee el arreglo JSON de objetos {d,v}. Tolera el formato viejo (arreglo simple de strings).
+    private (List<string?> details, List<string?> values) ParseMultiDetail(string? raw)
+    {
+        var details = new List<string?>();
+        var values = new List<string?>();
+        if (string.IsNullOrWhiteSpace(raw)) { return (details, values); }
+        if (raw.TrimStart().StartsWith("["))
+        {
+            try
+            {
+                var arr = System.Text.Json.JsonSerializer.Deserialize<List<MultiDetailItem>>(raw);
+                if (arr is not null)
+                {
+                    foreach (var it in arr) { details.Add(it.d); values.Add(it.v); }
+                    return (details, values);
+                }
+            }
+            catch
+            {
+                // Formato anterior: arreglo simple de valores sin detalle.
+                foreach (var s in ParseMulti(raw)) { details.Add(null); values.Add(s); }
+                return (details, values);
+            }
+        }
+        details.Add(null);
+        values.Add(raw);
+        return (details, values);
+    }
+
+    private static string? SerializeMultiDetail(List<string?> details, List<string?> values)
+    {
+        var items = new List<MultiDetailItem>();
+        var n = Math.Max(details.Count, values.Count);
+        for (var i = 0; i < n; i++)
+        {
+            var d = i < details.Count ? details[i]?.Trim() : null;
+            var v = i < values.Count ? values[i]?.Trim() : null;
+            if (string.IsNullOrEmpty(d) && string.IsNullOrEmpty(v)) { continue; }
+            items.Add(new MultiDetailItem { d = d, v = v });
+        }
+        return items.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(items);
+    }
+
+    // ===== Datos enriquecidos de la tarjeta =====
+    private string? Field(LeadDto l, string key) =>
+        l.FieldValues.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+
+    private string TimeInStageLabel(LeadDto l)
+    {
+        var span = DateTimeOffset.UtcNow - l.StageChangedAt;
+        var d = (int)span.TotalDays;
+        var h = span.Hours;
+        if (d > 0) { return h > 0 ? $"{d}d {h}h" : $"{d}d"; }
+        if (h > 0) { return $"{h}h"; }
+        return "Nuevo";
+    }
+
+    private string CardCss(LeadDto l, LeadChatStateDto? pend)
+    {
+        var c = "kb-card";
+        if (IsStale(l)) { c += " stale"; }
+        if (pend is not null) { c += " needsreply"; }
+        if (_seenLoaded && !_seenLeadIds.Contains(l.Id)) { c += " unseen"; }
+        return c;
+    }
+
+    // ===== Tarjetas no vistas (localStorage por tenant) =====
+    private string SeenKey => $"ecorex.pl.seen.{_tenantId}";
+
+    private async Task LoadSeenLeadsAsync()
+    {
+        if (string.IsNullOrEmpty(_tenantId)) { _seenLoaded = true; return; }
+        try
+        {
+            var raw = await JS.InvokeAsync<string?>("localStorage.getItem", SeenKey);
+            _seenLeadIds.Clear();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                // Primera visita: marca lo que ya existe como visto (no resaltar leads viejos).
+                foreach (var l in _leads) { _seenLeadIds.Add(l.Id); }
+                await PersistSeenAsync();
+            }
+            else
+            {
+                foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (Guid.TryParse(part, out var id)) { _seenLeadIds.Add(id); }
+                }
+            }
+        }
+        catch { /* localStorage no disponible: sin resaltado */ }
+        _seenLoaded = true;
+    }
+
+    private async Task PersistSeenAsync()
+    {
+        if (string.IsNullOrEmpty(_tenantId)) { return; }
+        try { await JS.InvokeVoidAsync("localStorage.setItem", SeenKey, string.Join(',', _seenLeadIds)); }
+        catch { /* best-effort */ }
+    }
+
+    private async Task MarkSeenAsync(Guid leadId)
+    {
+        if (_seenLeadIds.Add(leadId)) { await PersistSeenAsync(); }
+    }
+
+    // ===== Unidades de negocio =====
+    private BusinessUnitDto? UnitOf(LeadDto? l) =>
+        l?.BusinessUnitId is Guid id ? _businessUnits.FirstOrDefault(u => u.Id == id) : null;
+
+    // Pinta un borde izquierdo con el color de la unidad de negocio del lead.
+    private string CardStyle(LeadDto l) =>
+        UnitOf(l) is { } bu ? $"border-left:4px solid {bu.Color};" : string.Empty;
+
+    private static Guid? ParseGuid(string? s) => Guid.TryParse(s, out var g) ? g : (Guid?)null;
+
+    private void OnEditUnitChanged(ChangeEventArgs e)
+    {
+        _el.BusinessUnitId = ParseGuid(e.Value?.ToString());
+        _leadDirty = true;
+    }
+
+    private void ToggleUnit(Guid id) { if (!_filterUnits.Add(id)) { _filterUnits.Remove(id); } }
+
+    // ===== Atencion de salon (asesoria de imagen) =====
+    // Reutiliza el MISMO modal del salon (BookingModal). Resuelve/crea el cliente por telefono y abre
+    // el modal de atencion prefijado con ese cliente para que el asesor elija cupo, servicios y datos.
+    private async Task OpenSalonBookingAsync(LeadDto lead)
+    {
+        var actor = await ActorAsync();
+        var clientId = await ClientSvc.EnsureByPhoneAsync(lead.ContactName, lead.ContactPhone, actor);
+        await _bookingModal.OpenForClientAsync(lead.ContactName, lead.ContactPhone ?? string.Empty, clientId);
+    }
+
+    private async Task OnBookingSavedAsync()
+    {
+        _pending = await ChatSvc.GetUnansweredByPhoneAsync();
+        StateHasChanged();
+    }
+
+    // ===== Configuracion de unidades de negocio =====
+    private void OpenUnits()
+    {
+        _unitsError = null;
+        _editingUnitId = null;
+        _uf = new UnitForm();
+        _unitsOpen = true;
+    }
+
+    private void EditUnit(BusinessUnitDto u)
+    {
+        _editingUnitId = u.Id;
+        _uf = new UnitForm { Name = u.Name, Color = u.Color, ModalKind = u.ModalKind };
+        _unitsError = null;
+    }
+
+    private void CancelUnitEdit()
+    {
+        _editingUnitId = null;
+        _uf = new UnitForm();
+        _unitsError = null;
+    }
+
+    private async Task SaveUnitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_uf.Name))
+        {
+            _unitsError = "El nombre es obligatorio.";
+            return;
+        }
+        var actor = await ActorAsync();
+        var req = new SaveBusinessUnitRequest(_uf.Name.Trim(),
+            string.IsNullOrWhiteSpace(_uf.Color) ? "#A03DC9" : _uf.Color.Trim(), _uf.ModalKind);
+        if (_editingUnitId is Guid id) { await BizUnitSvc.UpdateAsync(id, req, actor); }
+        else { await BizUnitSvc.CreateAsync(req, actor); }
+        _businessUnits = (await BizUnitSvc.ListAsync()).ToList();
+        CancelUnitEdit();
+    }
+
+    private async Task ToggleUnitActiveAsync(BusinessUnitDto u)
+    {
+        var actor = await ActorAsync();
+        await BizUnitSvc.SetActiveAsync(u.Id, !u.IsActive, actor);
+        _businessUnits = (await BizUnitSvc.ListAsync()).ToList();
+    }
+
+    private async Task DeleteUnitAsync(BusinessUnitDto u)
+    {
+        var actor = await ActorAsync();
+        await BizUnitSvc.DeleteAsync(u.Id, actor);
+        _businessUnits = (await BizUnitSvc.ListAsync()).ToList();
+        _leads = (await LeadsSvc.ListAsync()).ToList();
+        if (_editingUnitId == u.Id) { CancelUnitEdit(); }
+    }
+
+    // ===== Busqueda, orden y filtros =====
+    private bool FiltersActive => _filterAsesores.Count > 0 || _filterSinAsesor || _filterStages.Count > 0 || _filterValue.Count > 0 || _filterDestinos.Count > 0 || _filterUnits.Count > 0 || _filterFields.Count > 0 || _onlyUnanswered;
+    private int ActiveFilterCount => _filterAsesores.Count + (_filterSinAsesor ? 1 : 0) + _filterStages.Count + _filterValue.Count + _filterDestinos.Count + _filterUnits.Count + _filterFields.Sum(kv => kv.Value.Count) + (_onlyUnanswered ? 1 : 0);
+
+    private void ClearFilters()
+    {
+        _filterAsesores.Clear();
+        _filterSinAsesor = false;
+        _filterStages.Clear();
+        _filterValue.Clear();
+        _filterDestinos.Clear();
+        _filterUnits.Clear();
+        _filterFields.Clear();
+        _onlyUnanswered = false;
+    }
+    private void ToggleAsesor(Guid id) { if (!_filterAsesores.Add(id)) { _filterAsesores.Remove(id); } }
+    private void ToggleStage(Guid id) { if (!_filterStages.Add(id)) { _filterStages.Remove(id); } }
+    private void ToggleValue(string k) { if (!_filterValue.Add(k)) { _filterValue.Remove(k); } }
+    private void ToggleDestino(string d) { if (!_filterDestinos.Add(d)) { _filterDestinos.Remove(d); } }
+
+    private List<string> DistinctDestinations() =>
+        _leads.Where(l => !string.IsNullOrWhiteSpace(l.Destination))
+            .Select(l => l.Destination!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    // ===== Filtros por campo dinamico (ShowInFilter) =====
+    // Campos marcados para filtrar, distintos por clave (un mismo campo puede existir en varias etapas).
+    private List<PipelineFieldDto> FilterableFields() =>
+        _fields.Where(f => f.ShowInFilter)
+            .GroupBy(f => f.FieldKey)
+            .Select(g => g.First())
+            .OrderBy(f => f.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private List<string> DistinctFieldValues(string key) =>
+        _leads.Select(l => Field(l, key))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private bool FieldFilterOn(string key, string val) =>
+        _filterFields.TryGetValue(key, out var set) && set.Contains(val);
+
+    private void ToggleFieldFilter(string key, string val)
+    {
+        if (!_filterFields.TryGetValue(key, out var set))
+        {
+            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _filterFields[key] = set;
+        }
+        if (!set.Add(val)) { set.Remove(val); }
+        if (set.Count == 0) { _filterFields.Remove(key); }
+    }
+    private static string FirstName(string label)
+    {
+        var n = label.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return n.Length > 0 ? n[0] : label;
+    }
+
+    private List<LeadDto> VisibleLeads(Guid stageId)
+    {
+        IEnumerable<LeadDto> q = _leads.Where(l => l.StageId == stageId);
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim();
+            q = q.Where(l => (l.ContactName?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+                          || (l.Destination?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        if (_filterAsesores.Count > 0 || _filterSinAsesor)
+        {
+            q = q.Where(l =>
+                (l.AssignedToTenantUserId is Guid id && _filterAsesores.Contains(id))
+                || (_filterSinAsesor && l.AssignedToTenantUserId is null));
+        }
+        if (_filterDestinos.Count > 0)
+        {
+            q = q.Where(l => l.Destination is not null && _filterDestinos.Contains(l.Destination.Trim()));
+        }
+        if (_filterUnits.Count > 0)
+        {
+            q = q.Where(l => l.BusinessUnitId is Guid bu && _filterUnits.Contains(bu));
+        }
+        if (_onlyUnanswered)
+        {
+            q = q.Where(l => PendingFor(l) is not null);
+        }
+        if (_filterValue.Count > 0)
+        {
+            q = q.Where(MatchesValue);
+        }
+        foreach (var kv in _filterFields)
+        {
+            var key = kv.Key;
+            var vals = kv.Value;
+            q = q.Where(l => Field(l, key) is string fv && vals.Contains(fv));
+        }
+
+        q = _sortBy switch
+        {
+            "name" => q.OrderBy(l => l.ContactName, StringComparer.OrdinalIgnoreCase),
+            "unanswered" => q.OrderByDescending(l => PendingFor(l)?.UnansweredCount ?? 0).ThenBy(l => l.StageChangedAt),
+            "recent" => q.OrderByDescending(l => l.CreatedAt),
+            "arrival" => q.OrderBy(l => l.CreatedAt),
+            _ => q.OrderBy(l => l.StageChangedAt) // tiempo en columna: el que mas lleva, primero
+        };
+        return q.ToList();
+    }
+
+    private bool MatchesValue(LeadDto l)
+    {
+        var v = l.EstimatedValue ?? 0m;
+        foreach (var k in _filterValue)
+        {
+            if (k == "lt2" && v < 2_000_000m) { return true; }
+            if (k == "2to5" && v >= 2_000_000m && v <= 5_000_000m) { return true; }
+            if (k == "gt5" && v > 5_000_000m) { return true; }
+        }
+        return false;
+    }
+
+    // Estado "sin responder" del chat (mensajes entrantes tras la ultima respuesta).
+    private LeadChatStateDto? PendingFor(LeadDto l)
+    {
+        if (string.IsNullOrWhiteSpace(l.ContactPhone)) { return null; }
+        var key = new string(l.ContactPhone.Where(char.IsDigit).ToArray());
+        return _pending.TryGetValue(key, out var st) ? st : null;
+    }
+
+    private string WaitingLabel(DateTimeOffset since)
+    {
+        var span = DateTimeOffset.UtcNow - since;
+        var d = (int)span.TotalDays;
+        var h = span.Hours;
+        var m = span.Minutes;
+        if (d > 0) { return h > 0 ? $"{d}d {h}h sin responder" : $"{d}d sin responder"; }
+        if (h > 0) { return $"{h}h sin responder"; }
+        return $"{Math.Max(m, 1)}m sin responder";
+    }
+
+    // Senal de atencion por tiempo en la etapa (proxy de "sin responder" hasta enlazar el chat).
+    private bool IsStale(LeadDto l) => l.Status == LeadStatus.Open && (DateTimeOffset.UtcNow - l.StageChangedAt).TotalDays >= 2;
+    private string StaleLabel(LeadDto l)
+    {
+        var d = (int)(DateTimeOffset.UtcNow - l.StageChangedAt).TotalDays;
+        return $"{d}d sin avance";
+    }
+
+    private static readonly char[] RouteSeparators = { '→', '–', '>', '-' };
+    private string[] RouteParts(LeadDto l) =>
+        (l.Destination ?? string.Empty)
+            .Split(RouteSeparators, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .ToArray();
+    private string RouteFrom(LeadDto l)
+    {
+        var parts = RouteParts(l);
+        return parts.Length > 0 ? parts[0] : "Sin ruta";
+    }
+    private string? RouteTo(LeadDto l)
+    {
+        var parts = RouteParts(l);
+        return parts.Length >= 2 ? parts[1] : null;
+    }
+
+    private string? AsesorName(LeadDto l)
+    {
+        var field = Field(l, "asesor");
+        if (field is not null) { return field; }
+        return l.AssignedToTenantUserId is Guid id ? UserEmail(id) : null;
+    }
+
+    private static string AseColor(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) { return "var(--primary)"; }
+        var palette = new[] { "#A03DC9", "#D89A36", "#4F8A60", "#4E80B5", "#C7398B" };
+        return palette[char.ToUpperInvariant(name[0]) % palette.Length];
+    }
+
+    private static int LeadingNumber(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return 0; }
+        var digits = new string(s.TrimStart().TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var n) ? n : 0;
+    }
+    private string? PaxLabel(LeadDto l)
+    {
+        var adults = LeadingNumber(Field(l, "adultos"));
+        var kids = LeadingNumber(Field(l, "ninos"));
+        if (adults == 0 && kids == 0) { return null; }
+        var total = adults + kids;
+        return kids > 0 ? $"{adults}+{kids} pax" : $"{total} pax";
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private sealed class NewLeadForm
+    {
+        public string ContactName { get; set; } = "";
+        public string? ContactPhone { get; set; }
+        public string? Destination { get; set; }
+        public decimal? EstimatedValue { get; set; }
+        public string? Currency { get; set; } = "COP";
+        public Guid StageId { get; set; }
+        public Guid? BusinessUnitId { get; set; }
+    }
+
+    private sealed class EditLeadForm
+    {
+        public string ContactName { get; set; } = "";
+        public string? ContactPhone { get; set; }
+        public string? Destination { get; set; }
+        public decimal? EstimatedValue { get; set; }
+        public string? Currency { get; set; }
+        public Guid? BusinessUnitId { get; set; }
+    }
+
+    private sealed class UnitForm
+    {
+        public string Name { get; set; } = "";
+        public string Color { get; set; } = "#A03DC9";
+        public Ecorex.Domain.Enums.BusinessUnitModalKind ModalKind { get; set; } = Ecorex.Domain.Enums.BusinessUnitModalKind.Generic;
+    }
+
+    private sealed class NewFieldForm
+    {
+        public string? Label { get; set; }
+        public PipelineFieldType FieldType { get; set; } = PipelineFieldType.Text;
+        public int Column { get; set; } = 1;
+        public string? Options { get; set; }
+        public string? Description { get; set; }
+        public bool AllowMultiple { get; set; }
+        public string? RepeatWithFieldKey { get; set; }
+        public bool MultiWithDetail { get; set; }
+        public bool ShowInFilter { get; set; }
+        public List<string> TotalSourceKeys { get; set; } = new();
+    }
+}

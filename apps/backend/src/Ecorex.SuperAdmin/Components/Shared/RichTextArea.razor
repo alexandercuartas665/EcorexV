@@ -1,0 +1,50 @@
+@inject IJSRuntime JS
+
+@* Editor de texto enriquecido (formato estilo WhatsApp + emojis) reutilizable. Opera sobre un textarea
+   por id via window.ecorexAgentEditor (js/agent-editor.js). Two-way binding con @bind-Value. *@
+<div class="rt-wrap">
+    <div class="rt-toolbar">
+        <button type="button" class="rt-btn" title="Negrita (*texto*)" @onclick="Bold"><b>B</b></button>
+        <button type="button" class="rt-btn" title="Cursiva (_texto_)" @onclick="Italic"><i>i</i></button>
+        <button type="button" class="rt-btn" title="Tachado (~texto~)" @onclick="Strike"><s>S</s></button>
+        <button type="button" class="rt-btn" title="Monoespaciado" @onclick="Mono">&lt;/&gt;</button>
+        <button type="button" class="rt-btn" title="Vineta" @onclick="Bullet">&bull;</button>
+        <button type="button" class="rt-btn @(_emojiOpen ? "on" : "")" title="Emojis" @onclick="() => _emojiOpen = !_emojiOpen">😀</button>
+        @if (_emojiOpen)
+        {
+            <div class="rt-emojis">
+                @foreach (var em in Emojis)
+                {
+                    <button type="button" class="rt-emoji" @onclick="() => Emoji(em)">@em</button>
+                }
+            </div>
+        }
+    </div>
+    <textarea id="@_id" class="form-control" rows="@Rows" placeholder="@Placeholder" value="@Value" @oninput="OnInput"></textarea>
+</div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public int Rows { get; set; } = 3;
+    [Parameter] public string? Placeholder { get; set; }
+
+    private readonly string _id = "rt-" + Guid.NewGuid().ToString("N");
+    private bool _emojiOpen;
+
+    private static readonly string[] Emojis =
+    {
+        "😀","😅","👍","🙏","🎉","✨","🌸","💅","💄","📍","📅","💲",
+        "🔥","✅","❤️","😍","🤝","📞","💬","⭐","🌎","☀️","🎓","🛍️"
+    };
+
+    private Task OnInput(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value?.ToString());
+
+    private Task Bold() => Fmt("*", "*");
+    private Task Italic() => Fmt("_", "_");
+    private Task Strike() => Fmt("~", "~");
+    private Task Mono() => Fmt("```", "```");
+    private Task Bullet() => JS.InvokeVoidAsync("ecorexAgentEditor.insert", _id, "\n- ").AsTask();
+    private Task Fmt(string before, string after) => JS.InvokeVoidAsync("ecorexAgentEditor.wrap", _id, before, after).AsTask();
+    private Task Emoji(string e) => JS.InvokeVoidAsync("ecorexAgentEditor.insert", _id, e).AsTask();
+}

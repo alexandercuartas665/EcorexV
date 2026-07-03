@@ -1,0 +1,104 @@
+using Ecorex.Application.Admin;
+using Ecorex.Application.Auth;
+using Ecorex.Application.Common;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Ecorex.Application;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddApplication(this IServiceCollection services)
+    {
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAuditWriter, AuditWriter>();
+        services.AddScoped<ITenantAdminService, TenantAdminService>();
+        services.AddScoped<IPlanAdminService, PlanAdminService>();
+        services.AddScoped<ISubscriptionAdminService, SubscriptionAdminService>();
+        services.AddScoped<IPaymentAdminService, PaymentAdminService>();
+        services.AddScoped<IPaymentReceiptService, PaymentReceiptService>();
+        services.AddScoped<IAuditAdminService, AuditAdminService>();
+        services.AddScoped<IWompiConfigService, WompiConfigService>();
+        services.AddScoped<IEvolutionMasterConfigService, EvolutionMasterConfigService>();
+        services.AddScoped<IAiServerConfigService, AiServerConfigService>();
+        services.AddScoped<IWompiWebhookService, WompiWebhookService>();
+        services.AddScoped<IWompiCheckoutService, WompiCheckoutService>();
+        services.AddScoped<IRecurringBillingService, RecurringBillingService>();
+        services.AddScoped<IOnboardingService, OnboardingService>();
+        services.AddScoped<IPlatformOperatorService, PlatformOperatorService>();
+        services.AddScoped<ISelfSignupService, SelfSignupService>();
+        services.AddScoped<IAccountActivationService, AccountActivationService>();
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
+        services.AddScoped<IGoogleSignInService, GoogleSignInService>();
+        services.AddScoped<IPlatformBrandingService, PlatformBrandingService>();
+        services.AddScoped<IEmailConfigService, EmailConfigService>();
+        services.AddScoped<IGoogleAuthConfigService, GoogleAuthConfigService>();
+        services.AddScoped<Tenancy.ITenantUserService, Tenancy.TenantUserService>();
+        services.AddScoped<Tenancy.IAdvisorService, Tenancy.AdvisorService>();
+        services.AddScoped<Tenancy.IEvolutionConfigService, Tenancy.EvolutionConfigService>();
+        services.AddScoped<Tenancy.IWhatsAppLineService, Tenancy.WhatsAppLineService>();
+        services.AddScoped<Tenancy.IWhatsAppConnectorService, Tenancy.WhatsAppConnectorService>();
+        services.AddScoped<Tenancy.IPipelineService, Tenancy.PipelineService>();
+        services.AddScoped<Tenancy.ILeadService, Tenancy.LeadService>();
+        services.AddScoped<Tenancy.ITenantApiService, Tenancy.TenantApiService>();
+        services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
+        services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();
+        services.AddScoped<Tenancy.IBlockedNumberService, Tenancy.BlockedNumberService>();
+        services.AddScoped<Tenancy.IMessageTemplateService, Tenancy.MessageTemplateService>();
+        services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
+        services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();
+        services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
+        // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.
+        services.AddScoped<Tenancy.IChatBroadcaster, Tenancy.NoOpChatBroadcaster>();
+        services.AddScoped<Tenancy.IWebhookAdminService, Tenancy.WebhookAdminService>();
+        // Tunel por defecto (no-op); la app host con cloudflared lo reemplaza por singleton.
+        services.AddSingleton<Tenancy.IDevTunnel, Tenancy.NoOpDevTunnel>();
+        services.AddScoped<Tenancy.IChatIngestService, Tenancy.ChatIngestService>();
+        services.AddScoped<Tenancy.IDashboardService, Tenancy.DashboardService>();
+        services.AddScoped<Tenancy.IAiAgentService, Tenancy.AiAgentService>();
+        services.AddScoped<Tenancy.IAiAgentCacheService, Tenancy.AiAgentCacheService>();
+        services.AddScoped<Tenancy.IAiUsageService, Tenancy.AiUsageService>();
+        services.AddScoped<Tenancy.IAiInferenceService, Tenancy.AiInferenceService>();
+        services.AddScoped<Tenancy.IAutomationService, Tenancy.AutomationService>();
+        services.AddScoped<Tenancy.ITaskBoardService, Tenancy.TaskBoardService>();
+        services.AddScoped<Tenancy.ITaskCardService, Tenancy.TaskCardService>();
+        // Configuracion del salon (Capa 2).
+        services.AddScoped<Tenancy.IServiceCatalogService, Tenancy.ServiceCatalogService>();
+        services.AddScoped<Tenancy.IResourceService, Tenancy.ResourceService>();
+        services.AddScoped<Tenancy.IShiftTemplateService, Tenancy.ShiftTemplateService>();
+        services.AddScoped<Tenancy.IScheduleExceptionService, Tenancy.ScheduleExceptionService>();
+        services.AddScoped<Tenancy.ISalonFieldService, Tenancy.SalonFieldService>();
+        services.AddScoped<Tenancy.ISedeService, Tenancy.SedeService>();
+        services.AddScoped<Tenancy.IProductService, Tenancy.ProductService>();
+        services.AddScoped<Tenancy.ICourseService, Tenancy.CourseService>();
+        services.AddScoped<Tenancy.IHairLengthService, Tenancy.HairLengthService>();
+        services.AddScoped<Tenancy.IHairClassifierService, Tenancy.HairClassifierService>();
+        services.AddScoped<Tenancy.IOnlineBookingService, Tenancy.OnlineBookingService>();
+        services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
+        // Motor de agenda y citas (Capa 2 - nucleo operativo).
+        services.AddScoped<Tenancy.IAgendaService, Tenancy.AgendaService>();
+        services.AddScoped<Tenancy.IClientService, Tenancy.ClientService>();
+        // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
+        // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
+        services.AddScoped<Tenancy.AgendaToolset>();
+        services.AddScoped<Tenancy.IAgendaToolset>(sp => sp.GetRequiredService<Tenancy.AgendaToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.AgendaToolset>());
+        services.AddScoped<Tenancy.ProductToolset>();
+        services.AddScoped<Tenancy.IProductToolset>(sp => sp.GetRequiredService<Tenancy.ProductToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.ProductToolset>());
+        services.AddScoped<Tenancy.PipelineToolset>();
+        services.AddScoped<Tenancy.IPipelineToolset>(sp => sp.GetRequiredService<Tenancy.PipelineToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.PipelineToolset>());
+        services.AddScoped<Tenancy.CourseToolset>();
+        services.AddScoped<Tenancy.ICourseToolset>(sp => sp.GetRequiredService<Tenancy.CourseToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.CourseToolset>());
+        services.AddScoped<Tenancy.HairLengthToolset>();
+        services.AddScoped<Tenancy.IHairLengthToolset>(sp => sp.GetRequiredService<Tenancy.HairLengthToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.HairLengthToolset>());
+        // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
+        services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
+        services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();
+        // Cola de auto-respuesta No-Op por defecto; el host con webhook (SuperAdmin) la reemplaza.
+        services.AddSingleton<Tenancy.IAgentReplyQueue, Tenancy.NoOpAgentReplyQueue>();
+        return services;
+    }
+}

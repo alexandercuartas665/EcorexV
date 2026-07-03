@@ -1,0 +1,248 @@
+@page "/dia"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IResourceService Resources
+@inject IAgendaService Agenda
+@inject ISalonFieldService Fields
+
+<PageTitle>Dia del salon - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 2v4"/><path d="M16 2v4"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/></svg>
+            </div>
+            <span>Operacion diaria</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Dia del salon</h1>
+        <p class="page-sub" style="margin-bottom:0;">Todos los asesores en una pantalla. Desliza horizontal para ver mas. Cada cupo es un bloque.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ChangeDay(-1)">&lsaquo;</button>
+        <input class="form-control" type="date" style="max-width:170px;" @bind="_date" @bind:after="LoadAsync" />
+        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ChangeDay(1)">&rsaquo;</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_board is null)
+{
+    <p class="text-muted">Sin datos.</p>
+}
+else
+{
+    <div class="kpi-grid" style="margin-bottom:18px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));max-width:920px;">
+        <div class="kpi-card"><div class="kpi-label">Citas del dia</div><div class="kpi-value">@_board.Kpis.Total</div></div>
+        <div class="kpi-card"><div class="kpi-label">Sin confirmar</div><div class="kpi-value">@_board.Kpis.Unconfirmed</div></div>
+        <div class="kpi-card"><div class="kpi-label">Ingresos completados</div><div class="kpi-value" style="color:var(--success);">$@_board.Kpis.IncomeCompleted.ToString("N0")</div></div>
+        <div class="kpi-card"><div class="kpi-label">No-show</div><div class="kpi-value" style="color:var(--destructive);">@_board.Kpis.NoShow</div></div>
+    </div>
+
+    <div style="margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span class="text-muted" style="font-size:12px;">Llegada:</span>
+        <span style="font-size:11.5px;display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:50%;background:#22c55e;display:inline-block;"></span>Temprano</span>
+        <span style="font-size:11.5px;display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:50%;background:#3b82f6;display:inline-block;"></span>Puntual</span>
+        <span style="font-size:11.5px;display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:50%;background:#f97316;display:inline-block;"></span>Tarde</span>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="card" style="padding:40px;text-align:center;">
+            <p class="text-muted" style="margin:0;">El salon esta cerrado este dia (sin turnos configurados).</p>
+        </div>
+    }
+    else
+    {
+        <div class="card" style="padding:14px;overflow-x:auto;">
+            <div style="display:grid;grid-template-columns:70px repeat(@_board.Resources.Count, minmax(140px,1fr));gap:4px;min-width:max-content;">
+                <div></div>
+                @foreach (var r in _board.Resources)
+                {
+                    <div style="font-weight:800;font-size:12px;text-align:center;padding:8px 6px;background:var(--primary-soft);color:var(--accent-foreground);border-radius:8px;border-top:3px solid @r.Color;">
+                        @r.Name<br /><span class="text-muted" style="font-weight:600;font-size:10px;">@(r.Kind == ResourceKind.Image ? "Asesor" : "Estacion")</span>
+                    </div>
+                }
+                @foreach (var t in _rows)
+                {
+                    <div class="text-muted" style="font-size:11px;text-align:right;padding:6px 8px 0 0;">@Hm(t)</div>
+                    @foreach (var r in _board.Resources)
+                    {
+                        @if (r.BlockedAllDay)
+                        {
+                            <div style="min-height:52px;border-radius:8px;background:#fee2e2;opacity:.55;" title="Bloqueo"></div>
+                        }
+                        else
+                        {
+                            var appt = ApptAt(r, t);
+                            @if (appt is not null)
+                            {
+                                <div style="min-height:52px;border-radius:8px;padding:2px;cursor:pointer;" @onclick="() => OpenEdit(appt.Id)">
+                                    <div style="height:100%;border-radius:6px;padding:5px 7px;color:#fff;font-size:11px;font-weight:700;line-height:1.2;display:flex;flex-direction:column;justify-content:center;position:relative;background:@StatusBg(appt.Status);@ChainRing(appt.ChainId)">
+                                        @if (appt.ChainId is not null)
+                                        {
+                                            <span style="position:absolute;top:-7px;right:5px;background:#C7398B;color:#fff;font-size:9px;font-weight:800;padding:1px 6px;border-radius:99px;">@appt.ChainSequence/@appt.ChainTotal</span>
+                                        }
+                                        @if (appt.Punctuality != Punctuality.Unknown)
+                                        {
+                                            <span title="Llegada: @PunctLabel(appt.Punctuality)" style="position:absolute;top:-5px;left:5px;width:12px;height:12px;border-radius:50%;background:@PunctColor(appt.Punctuality);box-shadow:0 0 0 2px #fff;"></span>
+                                        }
+                                        <div>@appt.StartTime.ToString("HH\\:mm") @(appt.ClientName ?? "?")</div>
+                                        <small style="opacity:.9;">@appt.ServicesText</small>
+                                        @{ var bl = BoardLine(appt); }
+                                        @if (!string.IsNullOrEmpty(bl))
+                                        {
+                                            <small style="opacity:.85;font-weight:600;border-top:1px solid rgba(255,255,255,.3);margin-top:2px;padding-top:2px;">@bl</small>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else if (InShiftSlot(r, t))
+                            {
+                                <div style="min-height:52px;border-radius:8px;background:var(--card);border:1px solid var(--border);cursor:pointer;" title="Reservar" @onclick="() => OpenNew(r, t)"></div>
+                            }
+                            else
+                            {
+                                <div style="min-height:52px;border-radius:8px;background:#f1ecdf;opacity:.45;" title="Fuera de turno"></div>
+                            }
+                        }
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="card" style="padding:12px 16px;margin-top:14px;">
+            <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;align-items:center;">
+                <span><span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:@StatusBg(AppointmentStatus.Scheduled);vertical-align:middle;"></span> Programada</span>
+                <span><span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:@StatusBg(AppointmentStatus.Confirmed);vertical-align:middle;"></span> Confirmada</span>
+                <span><span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:@StatusBg(AppointmentStatus.Completed);vertical-align:middle;"></span> Completada</span>
+                <span><span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:@StatusBg(AppointmentStatus.NoShow);vertical-align:middle;"></span> No-show</span>
+                <span style="background:var(--primary-soft);color:var(--accent-foreground);padding:2px 9px;border-radius:99px;font-weight:700;box-shadow:0 0 0 2px #C7398B inset;">Cadena: misma persona en 2+ asesores</span>
+            </div>
+        </div>
+    }
+}
+
+<BookingModal @ref="_modal" Resources="_resources" OnSaved="LoadAsync" />
+@* El configurador de campos se movio a la config del embudo (Pipeline > unidad "Asesoria de imagen"). *@
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Today);
+    private DayBoardDto? _board;
+    private List<ResourceDto> _resources = new();
+    private List<int> _rows = new();
+    private int _minSlot = 30;
+    private BookingModal _modal = default!;
+
+    // Campos configurables de la cita marcados "ver en tablero".
+    private List<SalonFieldDto> _boardFields = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _resources = (await Resources.ListAsync()).ToList();
+        await LoadBoardFieldsAsync();
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadBoardFieldsAsync()
+        => _boardFields = (await Fields.ListAsync(SalonFieldScope.Appointment)).Where(f => f.ShowOnBoard).ToList();
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private string BoardLine(DayApptDto a)
+    {
+        if (_boardFields.Count == 0 || a.FieldValues is null) { return ""; }
+        var parts = new List<string>();
+        foreach (var bf in _boardFields)
+        {
+            if (a.FieldValues.TryGetValue(bf.FieldKey, out var v) && !string.IsNullOrWhiteSpace(v))
+            {
+                parts.Add($"{bf.Label}: {v}");
+            }
+        }
+        return string.Join(" · ", parts);
+    }
+
+    private static string PunctColor(Punctuality p) => p switch
+    {
+        Punctuality.Early => "#22c55e",
+        Punctuality.OnTime => "#3b82f6",
+        Punctuality.Late => "#f97316",
+        _ => "transparent"
+    };
+
+    private static string PunctLabel(Punctuality p) => p switch
+    {
+        Punctuality.Early => "Temprano",
+        Punctuality.OnTime => "Puntual",
+        Punctuality.Late => "Tarde",
+        _ => "-"
+    };
+
+    private async Task LoadAsync()
+    {
+        _board = await Agenda.GetDayBoardAsync(_date);
+        BuildRows();
+    }
+
+    private void BuildRows()
+    {
+        _rows = new();
+        if (_board is null) { return; }
+        var shifts = _board.Resources.SelectMany(r => r.Shifts).ToList();
+        if (shifts.Count == 0) { return; }
+        var hMin = shifts.Min(s => Min(s.Start));
+        var hMax = shifts.Max(s => Min(s.End));
+        _minSlot = shifts.Min(s => s.SlotMinutes);
+        if (_minSlot <= 0) { _minSlot = 30; }
+        for (var t = hMin; t < hMax; t += _minSlot) { _rows.Add(t); }
+    }
+
+    private async Task ChangeDay(int dir)
+    {
+        _date = _date.AddDays(dir);
+        await LoadAsync();
+    }
+
+    private static int Min(TimeOnly t) => t.Hour * 60 + t.Minute;
+    private static string Hm(int minutes) => $"{minutes / 60:D2}:{minutes % 60:D2}";
+
+    private static bool InShiftSlot(DayResourceDto r, int minutes) =>
+        r.Shifts.Any(s => minutes >= Min(s.Start) && minutes < Min(s.End) && (minutes - Min(s.Start)) % s.SlotMinutes == 0);
+
+    private static DayApptDto? ApptAt(DayResourceDto r, int minutes) =>
+        r.Appointments.FirstOrDefault(a => Min(a.StartTime) == minutes);
+
+    private async Task OpenEdit(Guid id) => await _modal.OpenForEditAsync(id);
+
+    private async Task OpenNew(DayResourceDto r, int minutes)
+    {
+        var time = new TimeOnly(minutes / 60, minutes % 60);
+        await _modal.OpenForNewAsync(r.Id, _date, time, r.Name);
+    }
+
+    private static string ChainRing(Guid? chainId) => chainId is null ? "" : "box-shadow:0 0 0 2px #C7398B;";
+
+    private static string StatusBg(AppointmentStatus s) => s switch
+    {
+        AppointmentStatus.Scheduled => "linear-gradient(135deg,#f59e0b,#d97706)",
+        AppointmentStatus.Confirmed => "linear-gradient(135deg,#3b82f6,#1d4ed8)",
+        AppointmentStatus.Completed => "linear-gradient(135deg,#10b981,#047857)",
+        AppointmentStatus.NoShow => "linear-gradient(135deg,#ef4444,#b91c1c)",
+        _ => "linear-gradient(135deg,#9ca3af,#6b7280)"
+    };
+}

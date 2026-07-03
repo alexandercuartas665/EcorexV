@@ -5,23 +5,23 @@
 # La cadena de conexion NO se versiona: se pasa por variable de entorno.
 #
 # Uso:
-#   $env:CUBOT_PROD_DB_URL = "postgresql://USER:PASS@HOST:PORT/DB"   # Railway -> servicio Postgres -> Variables -> DATABASE_PUBLIC_URL
+#   $env:ECOREX_PROD_DB_URL = "postgresql://USER:PASS@HOST:PORT/DB"   # Railway -> servicio Postgres -> Variables -> DATABASE_PUBLIC_URL
 #   ./deploy/backup-prod.ps1
 #
-# Opcional: -OutDir "ruta" para cambiar la carpeta de salida (por defecto ..\cubot-backups, fuera del repo).
+# Opcional: -OutDir "ruta" para cambiar la carpeta de salida (por defecto ..\ecorex-backups, fuera del repo).
 #
 # Nota: la BD de Railway es PostgreSQL 18; por eso el dump corre dentro de un contenedor
 # postgres:18 y NO con el pg_dump local (que puede ser otra version y rechaza el dump).
 
 param(
-    [string]$OutDir = (Join-Path $PSScriptRoot "..\..\cubot-backups")
+    [string]$OutDir = (Join-Path $PSScriptRoot "..\..\ecorex-backups")
 )
 
 $ErrorActionPreference = "Stop"
 
-$url = $env:CUBOT_PROD_DB_URL
+$url = $env:ECOREX_PROD_DB_URL
 if ([string]::IsNullOrWhiteSpace($url)) {
-    Write-Error "Falta CUBOT_PROD_DB_URL. Definela con la DATABASE_PUBLIC_URL de la Postgres de Railway (no se versiona)."
+    Write-Error "Falta ECOREX_PROD_DB_URL. Definela con la DATABASE_PUBLIC_URL de la Postgres de Railway (no se versiona)."
     exit 1
 }
 
@@ -46,5 +46,5 @@ $kb = [math]::Round((Get-Item $full).Length / 1KB, 1)
 Write-Host "OK. Backup creado: $full ($kb KB)"
 Write-Host ""
 Write-Host "Para restaurar (cuidado, sobreescribe la BD destino):"
-Write-Host "  docker run --rm -e DBURL=`$env:CUBOT_PROD_DB_URL -v `"${abs}:/backup`" postgres:18-alpine \"
+Write-Host "  docker run --rm -e DBURL=`$env:ECOREX_PROD_DB_URL -v `"${abs}:/backup`" postgres:18-alpine \"
 Write-Host "    sh -c 'pg_restore --no-owner --no-acl --clean --if-exists -d \`"`$DBURL\`" /backup/$fname'"

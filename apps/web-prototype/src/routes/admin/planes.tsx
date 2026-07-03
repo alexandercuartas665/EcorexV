@@ -5,7 +5,7 @@ import { CreditCard, Check } from "lucide-react";
 export const Route = createFileRoute("/admin/planes")({
   head: () => ({
     meta: [
-      { title: "Planes · CUBOT Super Admin" },
+      { title: "Planes · ECOREX Super Admin" },
       { name: "description", content: "Definición de planes comerciales, límites por tenant y precios." },
     ],
   }),

@@ -169,11 +169,14 @@ public sealed class ProjectService : IProjectService
             .FirstOrDefaultAsync(cancellationToken);
         if (ownerId is null) { return Array.Empty<ProjectMemberDto>(); }
 
+        // OrderBy sobre el campo de la entidad ANTES de proyectar al DTO: ordenar por la
+        // propiedad del record (posicional) no es traducible a SQL por EF (falla en PG real).
         return await _db.ProjectMembers.AsNoTracking()
             .Where(m => m.ProjectId == projectId)
             .Join(_db.TenantUsers.AsNoTracking(), m => m.TenantUserId, u => u.Id,
-                (m, u) => new ProjectMemberDto(m.TenantUserId, u.Email, m.CanEdit, m.TenantUserId == ownerId))
-            .OrderBy(m => m.Email)
+                (m, u) => new { m.TenantUserId, u.Email, m.CanEdit })
+            .OrderBy(x => x.Email)
+            .Select(x => new ProjectMemberDto(x.TenantUserId, x.Email, x.CanEdit, x.TenantUserId == ownerId))
             .ToListAsync(cancellationToken);
     }
 

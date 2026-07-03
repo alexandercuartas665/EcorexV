@@ -1245,3 +1245,197 @@ h1, h2, h3 { letter-spacing: -0.01em; }
   /* Formularios de 2 columnas (lead, etc.) a una sola columna. */
   .pl-fields { grid-template-columns: 1fr; }
 }
+
+/* ===== Nucleo de tareas (FASE 3): kanban de actividades, wizard y detalle ===== */
+
+/* Numero consecutivo (T00001) y chips base */
+.tk-number { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; color: var(--primary); background: var(--primary-soft); padding: 2px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Prioridad: Alta rojo / Media ambar / Baja verde */
+.tk-priority { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+.tk-priority.pr-high { background: oklch(0.6 0.22 22 / 0.12); color: var(--destructive); }
+.tk-priority.pr-medium { background: oklch(0.78 0.14 70 / 0.2); color: oklch(0.5 0.13 65); }
+.tk-priority.pr-low { background: oklch(0.62 0.16 155 / 0.15); color: var(--success); }
+
+/* Chips clicables de prioridad del wizard (pastel) */
+.tk-priority-pick { display: flex; gap: 8px; }
+.tk-priority-opt { border: 1.5px solid var(--border); background: var(--card); border-radius: 999px; padding: 6px 16px; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: all .12s; }
+.tk-priority-opt.pr-high { color: var(--destructive); }
+.tk-priority-opt.pr-medium { color: oklch(0.5 0.13 65); }
+.tk-priority-opt.pr-low { color: var(--success); }
+.tk-priority-opt.on.pr-high { background: oklch(0.6 0.22 22 / 0.12); border-color: var(--destructive); }
+.tk-priority-opt.on.pr-medium { background: oklch(0.78 0.14 70 / 0.22); border-color: oklch(0.6 0.13 65); }
+.tk-priority-opt.on.pr-low { background: oklch(0.62 0.16 155 / 0.15); border-color: var(--success); }
+
+/* Estado de tarea */
+.tk-status { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tk-status.st-pending { background: var(--muted); color: var(--muted-foreground); }
+.tk-status.st-active { background: oklch(0.94 0.05 240); color: oklch(0.4 0.18 240); }
+.tk-status.st-progress { background: var(--primary-soft); color: var(--primary); }
+.tk-status.st-done { background: oklch(0.94 0.07 145); color: oklch(0.4 0.17 145); }
+.tk-status.st-suspended { background: oklch(0.94 0.06 65); color: oklch(0.45 0.18 65); }
+.tk-status.st-closed { background: oklch(0.3 0.02 260 / 0.12); color: oklch(0.35 0.02 260); }
+.tk-col-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; background: var(--muted-foreground); }
+.tk-col-dot.st-pending { background: oklch(0.6 0.02 260); }
+.tk-col-dot.st-active { background: oklch(0.55 0.18 240); }
+.tk-col-dot.st-progress { background: var(--primary); }
+.tk-col-dot.st-done { background: var(--success); }
+.tk-col-dot.st-suspended { background: oklch(0.65 0.16 65); }
+
+/* Estado de proyecto */
+.tk-status.pj-planning { background: var(--muted); color: var(--muted-foreground); }
+.tk-status.pj-active { background: oklch(0.94 0.07 145); color: oklch(0.4 0.17 145); }
+.tk-status.pj-exec { background: oklch(0.94 0.05 240); color: oklch(0.4 0.18 240); }
+.tk-status.pj-closed { background: oklch(0.3 0.02 260 / 0.12); color: oklch(0.35 0.02 260); }
+.tk-status.pj-cancelled { background: oklch(0.6 0.22 22 / 0.12); color: var(--destructive); }
+
+/* Tarjeta del kanban de actividades */
+.tk-kb-card { border-left: 4px solid transparent; }
+.tk-kb-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+
+/* Filtros combinables */
+.tk-filters { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.tk-filter-chips { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tk-filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tk-filter-select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; background: var(--card); max-width: 220px; }
+.tk-filter-dates { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); }
+.tk-filter-dates label { font-weight: 600; }
+
+/* Errores de campo (wizard / formularios) */
+.tk-field-error { color: var(--destructive); font-size: 12px; margin-top: 5px; font-weight: 500; }
+
+/* Barra de pasos del wizard */
+.tk-wizard { max-width: 620px; }
+.tk-steps { display: flex; gap: 4px; padding: 14px 22px 0; }
+.tk-step { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 2.5px solid var(--border); color: var(--muted-foreground); font-size: 12.5px; font-weight: 600; }
+.tk-step.on { border-bottom-color: var(--primary); color: var(--primary); }
+.tk-step.done { border-bottom-color: var(--success); color: var(--success); }
+.tk-step-num { width: 22px; height: 22px; border-radius: 50%; background: var(--muted); display: grid; place-items: center; font-size: 11px; font-weight: 800; flex: none; }
+.tk-step.on .tk-step-num { background: var(--primary); color: #fff; }
+.tk-step.done .tk-step-num { background: var(--success); color: #fff; }
+
+/* Picker de etiquetas (chips + sugerencias) */
+.tk-tagpicker { position: relative; }
+.tk-tagpicker-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px solid var(--border); border-radius: 0.55rem; padding: 7px 9px; background: var(--card); }
+.tk-tagpicker-input { border: none; outline: none; flex: 1; min-width: 140px; font-size: 13px; background: transparent; }
+.tk-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 5px; background: var(--muted); color: var(--foreground); margin-right: 2px; }
+.tk-tag.tk-cc { background: var(--accent); color: var(--primary); }
+.tk-tag-x { border: none; background: none; color: inherit; font-size: 13px; line-height: 1; cursor: pointer; padding: 0 1px; opacity: .75; }
+.tk-tag-x:hover { opacity: 1; }
+.tk-tagpicker-pop { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 5px; max-height: 210px; overflow-y: auto; }
+.tk-tagpicker-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.tk-tagpicker-item:hover { background: var(--muted); }
+.tk-cc-box { min-height: 40px; }
+
+/* Resumen (paso 3 del wizard y card del detalle) */
+.tk-summary { display: flex; flex-direction: column; gap: 8px; }
+.tk-summary-row { display: flex; align-items: baseline; gap: 12px; font-size: 13px; }
+.tk-summary-row > span:first-child { flex: none; width: 92px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; color: var(--muted-foreground); }
+.tk-summary-row strong { font-weight: 600; }
+.tk-summary-desc { white-space: pre-wrap; }
+.tk-link { color: var(--primary); font-weight: 600; text-decoration: none; }
+.tk-link:hover { text-decoration: underline; }
+
+/* ===== Detalle de tarea (modal grande) ===== */
+.tk-detail { width: 100%; max-width: 1060px; max-height: 92vh; overflow-y: auto; background: oklch(0.98 0 0); border-radius: 14px; position: relative; padding: 22px 26px 26px; }
+.tk-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.tk-detail-head-main { flex: 1; min-width: 0; }
+.tk-detail-number { display: flex; align-items: center; font-size: 12px; font-weight: 800; color: var(--primary); letter-spacing: 0.04em; margin-bottom: 6px; }
+.tk-detail-title { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.01em; margin: 0; cursor: text; line-height: 1.25; }
+.tk-detail-title-input { font-size: 1.25rem !important; font-weight: 700; }
+.tk-detail-pills { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.tk-pill-anchor { position: relative; }
+.tk-pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--card); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--foreground); cursor: pointer; transition: border-color .12s; }
+.tk-pill:hover:not(:disabled) { border-color: var(--primary); }
+.tk-pill:disabled { cursor: not-allowed; opacity: .75; }
+.tk-pill.static { cursor: default; }
+.tk-pill.late { border-color: oklch(0.6 0.22 22 / 0.5); color: var(--destructive); }
+.tk-pill svg { width: 13px; height: 13px; flex: none; }
+.tk-pill .tb-avatar { width: 20px; height: 20px; font-size: 8.5px; margin-left: -4px; }
+.tk-pill-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; min-width: 220px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 5px; max-height: 260px; overflow-y: auto; }
+.tk-pill-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; padding: 7px 9px; border-radius: 7px; font-size: 12.5px; cursor: pointer; }
+.tk-pill-item:hover { background: var(--muted); }
+.tk-pill-item.on { background: var(--accent); font-weight: 700; }
+.tk-confirm { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--destructive); }
+
+/* Aviso de conflicto de concurrencia */
+.tk-conflict { display: flex; align-items: center; gap: 9px; background: oklch(0.78 0.14 70 / 0.15); border: 1px solid oklch(0.78 0.14 70 / 0.5); color: oklch(0.45 0.12 65); border-radius: 10px; padding: 9px 13px; font-size: 12.5px; font-weight: 600; margin-bottom: 12px; }
+.tk-conflict svg { width: 16px; height: 16px; flex: none; }
+.tk-conflict.tk-action-error { background: oklch(0.6 0.22 22 / 0.08); border-color: oklch(0.6 0.22 22 / 0.4); color: var(--destructive); }
+.tk-conflict-x { margin-left: auto; border: none; background: none; font-size: 16px; line-height: 1; color: inherit; cursor: pointer; }
+
+/* Cuerpo 2 columnas del detalle */
+.tk-detail-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .tk-detail-body { grid-template-columns: 1fr; } }
+.tk-detail-main, .tk-detail-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.tk-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.tk-card-head h3 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground); margin: 0; }
+.tk-desc-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
+.tk-empty-note { font-size: 12.5px; color: var(--muted-foreground); font-style: italic; margin: 0; }
+
+/* Worklog: cronometro + manual + historial */
+.tk-worklog-total { font-size: 12.5px; color: var(--muted-foreground); }
+.tk-worklog-total strong { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.tk-timer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px; border: 1px dashed var(--border); border-radius: 10px; margin-bottom: 10px; }
+.tk-timer-display { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.03em; min-width: 108px; }
+.tk-timer-note { flex: 1; min-width: 140px; }
+.tk-manual { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.tk-manual-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; color: var(--muted-foreground); margin-right: 2px; }
+.tk-manual-num { width: 62px; text-align: center; }
+.tk-worklog-list { display: flex; flex-direction: column; gap: 7px; }
+.tk-worklog-row { display: flex; align-items: center; gap: 9px; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; background: var(--muted); }
+.tk-worklog-dur { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 62px; }
+.tk-worklog-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; color: var(--muted-foreground); }
+.tk-worklog-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.tk-worklog-when { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
+
+/* Actividad (comentarios + acciones) */
+.tk-comment-box { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+.tk-comment-box textarea { width: 100%; }
+.tk-activity-list { display: flex; flex-direction: column; gap: 10px; max-height: 340px; overflow-y: auto; }
+.tk-activity-item { display: flex; gap: 9px; align-items: flex-start; }
+.tk-activity-body { flex: 1; min-width: 0; }
+.tk-activity-bubble { background: var(--muted); border-radius: 10px; padding: 8px 11px; }
+.tk-activity-bubble p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.tk-activity-meta { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.tk-activity-meta span { color: var(--muted-foreground); font-size: 11px; }
+.tk-activity-action { font-size: 12.5px; color: var(--muted-foreground); padding-top: 3px; }
+.tk-activity-action strong { color: var(--foreground); }
+.tk-activity-action span { font-size: 11px; margin-left: 6px; }
+
+/* Adjuntos */
+.tk-attachment { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; margin-bottom: 6px; font-size: 12.5px; }
+.tk-attachment svg { width: 14px; height: 14px; flex: none; color: var(--muted-foreground); }
+.tk-attachment-name { font-weight: 600; color: var(--foreground); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-attachment-name:hover { color: var(--primary); text-decoration: underline; }
+.tk-attachment-meta { margin-left: auto; font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; }
+.tk-attachment-add { display: flex; gap: 6px; margin-top: 8px; }
+
+/* Encargado inline (lista / cabeceras) */
+.tk-assignee { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+.tk-assignee .tb-avatar { margin-left: 0; }
+
+/* Tarjetas y detalle de proyecto */
+.tk-project-meta { margin-top: 4px; }
+.tk-project-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+.tk-project-head { max-width: none; margin-bottom: 18px; }
+.tk-project-head-row { display: flex; align-items: flex-start; gap: 26px; flex-wrap: wrap; padding: 16px 18px; }
+.tk-project-field { display: flex; flex-direction: column; gap: 5px; }
+.tk-project-field .form-control-sm { max-width: 170px; }
+.tk-members-panel { border-top: 1px solid var(--border); padding: 14px 18px; }
+.tk-members-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+.tk-member-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.tk-member-mail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tk-member-add { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tk-member-add select { max-width: 280px; }
+
+/* Toasts */
+.tk-toasts { position: fixed; bottom: 22px; right: 22px; z-index: 90; display: flex; flex-direction: column; gap: 8px; }
+.tk-toast { display: flex; align-items: center; gap: 9px; background: var(--card); border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-card); padding: 11px 15px; font-size: 13px; font-weight: 600; max-width: 380px; animation: tk-toast-in .18s ease-out; }
+.tk-toast svg { width: 16px; height: 16px; flex: none; }
+.tk-toast.ok { border-color: oklch(0.62 0.16 155 / 0.5); }
+.tk-toast.ok svg { color: var(--success); }
+.tk-toast.error { border-color: oklch(0.6 0.22 22 / 0.5); }
+.tk-toast.error svg { color: var(--destructive); }
+@keyframes tk-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

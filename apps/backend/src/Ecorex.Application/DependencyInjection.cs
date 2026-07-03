@@ -49,6 +49,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
         // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.
         services.AddScoped<Tenancy.IChatBroadcaster, Tenancy.NoOpChatBroadcaster>();
+        // Broadcaster del nucleo de tareas por defecto (no-op); la app host con SignalR lo reemplaza.
+        services.AddScoped<Tenancy.ITaskBroadcaster, Tenancy.NoOpTaskBroadcaster>();
         services.AddScoped<Tenancy.IWebhookAdminService, Tenancy.WebhookAdminService>();
         // Tunel por defecto (no-op); la app host con cloudflared lo reemplaza por singleton.
         services.AddSingleton<Tenancy.IDevTunnel, Tenancy.NoOpDevTunnel>();

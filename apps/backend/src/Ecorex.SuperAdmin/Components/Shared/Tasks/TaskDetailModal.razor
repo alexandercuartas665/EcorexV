@@ -1,0 +1,813 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Ecorex.Domain.Rules
+@implements IAsyncDisposable
+@inject ITaskItemService TasksSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IActivityTypeService TypesSvc
+@inject IProjectService ProjectsSvc
+@inject ITaskBroadcaster Broadcaster
+@inject IJSRuntime JS
+
+@if (_detail is not null)
+{
+    var item = _detail.Item;
+    var readOnly = item.Status == TaskItemStatus.Closed;
+    var targets = TaskItemStateMachine.AllowedTargets(item.Status);
+    <div class="modal-overlay" @onclick="CloseAsync">
+        <div class="tk-detail" @onclick:stopPropagation="true" @onclick="CloseMenus">
+            @* ===== Hero: numero + titulo + meta pills ===== *@
+            <div class="tk-detail-head">
+                <div class="tk-detail-head-main">
+                    <div class="tk-detail-number">
+                        @item.Number
+                        @if (item.IsArchived)
+                        {
+                            <span class="tk-status st-closed" style="margin-left:8px;">Archivada</span>
+                        }
+                    </div>
+                    @if (_editingTitle && !readOnly)
+                    {
+                        <div>
+                            <input class="form-control tk-detail-title-input" @bind="_editTitle" @bind:event="oninput" maxlength="200" />
+                            <div style="margin-top:8px;display:flex;gap:8px;">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveTitleAsync" disabled="@_busy">Guardar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _editingTitle = false)">Cancelar</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <h2 class="tk-detail-title" style="@(string.IsNullOrEmpty(item.Color) ? "" : $"border-left:4px solid {item.Color};padding-left:10px;")"
+                            @onclick="@(() => { if (!readOnly) { _editingTitle = true; _editTitle = item.Title; } })"
+                            title="@(readOnly ? "Tarea cerrada (solo lectura)" : "Clic para editar el titulo")">@item.Title</h2>
+                    }
+                </div>
+                <button class="tb-modal-close" @onclick="CloseAsync" aria-label="Cerrar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+
+            @if (_conflict is not null)
+            {
+                <div class="tk-conflict">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    <span>Otro usuario modifico la tarea. Se recargo el detalle con los datos mas recientes.</span>
+                    <button class="tk-conflict-x" @onclick="@(() => _conflict = null)">&times;</button>
+                </div>
+            }
+            @if (_actionError is not null)
+            {
+                <div class="tk-conflict tk-action-error">
+                    <span>@_actionError</span>
+                    <button class="tk-conflict-x" @onclick="@(() => _actionError = null)">&times;</button>
+                </div>
+            }
+
+            <div class="tk-detail-pills" @onclick:stopPropagation="true">
+                @* Encargado *@
+                <div class="tk-pill-anchor">
+                    <button class="tk-pill" @onclick="@(() => ToggleMenu("assignee"))" disabled="@readOnly" title="Reasignar encargado">
+                        <span class="tb-avatar">@TaskUi.InitialsOf(AssigneeEmail(item.AssigneeTenantUserId))</span>
+                        <span>@(AssigneeEmail(item.AssigneeTenantUserId) ?? "Sin asignar")</span>
+                    </button>
+                    @if (_openMenu == "assignee")
+                    {
+                        <div class="tk-pill-pop">
+                            <button class="tk-pill-item" @onclick="@(() => AssignAsync(null))">Sin asignar</button>
+                            @foreach (var u in _users)
+                            {
+                                <button class="tk-pill-item @(item.AssigneeTenantUserId == u.Id ? "on" : "")" @onclick="@(() => AssignAsync(u.Id))">@u.Email</button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* Fecha entrega *@
+                <div class="tk-pill-anchor">
+                    <button class="tk-pill @(TaskUi.IsOverdue(item.DueDate, item.Status) ? "late" : "")" @onclick="@(() => ToggleMenu("due"))" disabled="@readOnly" title="Cambiar fecha de entrega">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                        <span>@(item.DueDate is null ? "Sin fecha" : TaskUi.FormatDue(item.DueDate.Value))</span>
+                    </button>
+                    @if (_openMenu == "due")
+                    {
+                        <div class="tk-pill-pop" style="padding:12px;">
+                            <input type="date" class="form-control" @bind="_editDue" />
+                            <div style="display:flex;gap:6px;margin-top:8px;">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveDueAsync" disabled="@_busy">Guardar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(async () => { _editDue = null; await SaveDueAsync(); })" disabled="@_busy">Quitar</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @* Tiempo usado (read-only) *@
+                <span class="tk-pill static" title="Tiempo total registrado en el worklog">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <span>@TaskUi.FormatDuration(_totalSeconds)</span>
+                </span>
+
+                @* Prioridad *@
+                <div class="tk-pill-anchor">
+                    <button class="tk-pill" @onclick="@(() => ToggleMenu("priority"))" disabled="@readOnly" title="Cambiar prioridad">
+                        <PriorityChip Priority="item.Priority" />
+                    </button>
+                    @if (_openMenu == "priority")
+                    {
+                        <div class="tk-pill-pop">
+                            @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                            {
+                                <button class="tk-pill-item @(item.Priority == p ? "on" : "")" @onclick="@(() => SavePriorityAsync(p))"><PriorityChip Priority="p" /></button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* Estado (solo transiciones validas) *@
+                <div class="tk-pill-anchor">
+                    <button class="tk-pill" @onclick="@(() => ToggleMenu("status"))" disabled="@(targets.Count == 0)" title="@(targets.Count == 0 ? "La tarea esta cerrada (solo lectura)" : "Cambiar estado")">
+                        <span class="tk-status @TaskUi.StatusClass(item.Status)">@TaskUi.StatusLabel(item.Status)</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                    @if (_openMenu == "status")
+                    {
+                        <div class="tk-pill-pop">
+                            @foreach (var s in targets)
+                            {
+                                <button class="tk-pill-item" @onclick="@(() => ChangeStatusAsync(s))"><span class="tk-status @TaskUi.StatusClass(s)">@TaskUi.StatusLabel(s)</span></button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <span style="flex:1;"></span>
+
+                @* Acciones rapidas *@
+                @if (item.Status == TaskItemStatus.Suspended)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ChangeStatusAsync(TaskItemStatus.InProgress))" disabled="@_busy">Reanudar</button>
+                }
+                else if (TaskItemStateMachine.CanTransition(item.Status, TaskItemStatus.Suspended))
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ChangeStatusAsync(TaskItemStatus.Suspended))" disabled="@_busy">Suspender</button>
+                }
+                @if (TaskItemStateMachine.CanTransition(item.Status, TaskItemStatus.Closed))
+                {
+                    @if (_confirmClose)
+                    {
+                        <span class="tk-confirm">
+                            Cerrar definitivamente?
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ChangeStatusAsync(TaskItemStatus.Closed))" disabled="@_busy">Si, cerrar</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _confirmClose = false)">No</button>
+                        </span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => _confirmClose = true)" disabled="@_busy">Cerrar</button>
+                    }
+                }
+                <button class="btn btn-sm btn-outline-secondary" disabled title="Archivado de tareas: pendiente en una fase posterior (sin soporte en el backend actual)">Archivar</button>
+            </div>
+
+            @* ===== Cuerpo 2 columnas ===== *@
+            <div class="tk-detail-body">
+                <div class="tk-detail-main">
+                    @* Descripcion *@
+                    <div class="tk-card">
+                        <div class="tk-card-head">
+                            <h3>Descripcion</h3>
+                            @if (!readOnly && !_editingDesc)
+                            {
+                                <button class="tb-modal-section-action" @onclick="@(() => { _editingDesc = true; _editDesc = _detail.Description ?? ""; })">Editar</button>
+                            }
+                        </div>
+                        @if (_editingDesc)
+                        {
+                            <textarea class="form-control" rows="4" @bind="_editDesc" @bind:event="oninput" placeholder="Que detalles importantes debe saber el equipo?"></textarea>
+                            <div style="display:flex;gap:8px;margin-top:8px;">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveDescriptionAsync" disabled="@_busy">Guardar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _editingDesc = false)">Cancelar</button>
+                            </div>
+                        }
+                        else if (string.IsNullOrWhiteSpace(_detail.Description))
+                        {
+                            <div class="tb-desc-empty" @onclick="@(() => { if (!readOnly) { _editingDesc = true; _editDesc = ""; } })">
+                                @(readOnly ? "Sin descripcion." : "Agrega una descripcion mas detallada...")
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="tk-desc-text">@_detail.Description</div>
+                        }
+                    </div>
+
+                    @* Worklog: timer + entrada manual + historial *@
+                    <div class="tk-card">
+                        <div class="tk-card-head">
+                            <h3>Registro de tiempo</h3>
+                            <span class="tk-worklog-total">Total: <strong>@TaskUi.FormatDuration(_totalSeconds)</strong></span>
+                        </div>
+
+                        @if (!readOnly)
+                        {
+                            <div class="tk-timer">
+                                <span class="tk-timer-display" id="tk-timer-display">00:00:00</span>
+                                @if (_timerRunning)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="PauseTimerAsync">Pausar</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="StartTimerAsync">Iniciar</button>
+                                }
+                                <input class="form-control form-control-sm tk-timer-note" @bind="_timerNote" placeholder="Nota del avance..." />
+                                <button class="btn btn-sm btn-outline-success" @onclick="SaveTimerWorkLogAsync" disabled="@_busy">Guardar avance</button>
+                            </div>
+
+                            <div class="tk-manual">
+                                <span class="tk-manual-lbl">Manual</span>
+                                <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_manualHours" min="0" max="23" placeholder="HH" />
+                                <span>:</span>
+                                <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_manualMinutes" min="0" max="59" placeholder="MM" />
+                                <input class="form-control form-control-sm tk-timer-note" @bind="_manualNote" placeholder="Detalle del trabajo..." />
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="SaveManualWorkLogAsync" disabled="@_busy">Guardar</button>
+                            </div>
+                            @if (_workLogError is not null)
+                            {
+                                <div class="tk-field-error">@_workLogError</div>
+                            }
+                        }
+
+                        <div class="tk-worklog-list">
+                            @if (_workLogs.Count == 0)
+                            {
+                                <p class="tk-empty-note">Aun no hay tiempo registrado.</p>
+                            }
+                            @foreach (var log in _workLogs.Take(10))
+                            {
+                                <div class="tk-worklog-row">
+                                    <span class="tb-avatar" title="@UserEmail(log.TenantUserId)">@TaskUi.InitialsOf(UserEmail(log.TenantUserId))</span>
+                                    <span class="tk-worklog-dur">@TaskUi.FormatDuration(log.Seconds)</span>
+                                    <span class="tk-worklog-kind">@(log.Kind == WorkLogKind.Timer ? "Cronometro" : "Manual")</span>
+                                    <span class="tk-worklog-note">@log.Note</span>
+                                    <span class="tk-worklog-when">@TaskUi.FormatRelative(log.LoggedAt)</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tk-detail-side">
+                    @* Resumen *@
+                    <div class="tk-card">
+                        <div class="tk-card-head"><h3>Resumen</h3></div>
+                        <div class="tk-summary">
+                            <div class="tk-summary-row"><span>Tipo</span><strong>@TypeLabel(item.ActivityTypeId, item.ActivityTypeName)</strong></div>
+                            <div class="tk-summary-row">
+                                <span>Proyecto</span>
+                                @if (item.ProjectId is Guid pid && _projects.FirstOrDefault(p => p.Id == pid) is ProjectDto proj)
+                                {
+                                    <a href="/proyectos/@proj.Id" class="tk-link">@proj.Code - @proj.Name</a>
+                                }
+                                else
+                                {
+                                    <strong>Sin proyecto</strong>
+                                }
+                            </div>
+                            <div class="tk-summary-row"><span>Solicitante</span><strong>@(_detail.RequesterName ?? "-")</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterEmail))
+                            {
+                                <div class="tk-summary-row"><span>Email</span><strong>@_detail.RequesterEmail</strong></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterPhone))
+                            {
+                                <div class="tk-summary-row"><span>Telefono</span><strong>@_detail.RequesterPhone</strong></div>
+                            }
+                            @if (_detail.CcEmails.Count > 0)
+                            {
+                                <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _detail.CcEmails)</strong></div>
+                            }
+                            <div class="tk-summary-row"><span>Creada</span><strong>@item.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
+                            <div class="tk-summary-row"><span>Entrega</span><strong>@(item.DueDate?.ToLocalTime().ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
+                            @if (item.ClosedAt is not null)
+                            {
+                                <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
+                            }
+                            @if (item.Tags.Count > 0)
+                            {
+                                <div class="tk-summary-row">
+                                    <span>Etiquetas</span>
+                                    <span>
+                                        @foreach (var tag in item.Tags)
+                                        {
+                                            <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Actividad (comentarios + acciones) *@
+                    <div class="tk-card">
+                        <div class="tk-card-head"><h3>Actividad</h3></div>
+                        @if (!readOnly)
+                        {
+                            <div class="tk-comment-box">
+                                <textarea class="form-control" rows="2" @bind="_newComment" @bind:event="oninput" placeholder="Escribe un comentario..."></textarea>
+                                <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Comentar</button>
+                            </div>
+                        }
+                        <div class="tk-activity-list">
+                            @if (_detail.RecentActivity.Count == 0)
+                            {
+                                <p class="tk-empty-note">Sin actividad reciente.</p>
+                            }
+                            @foreach (var a in _detail.RecentActivity)
+                            {
+                                <div class="tk-activity-item">
+                                    <span class="tb-avatar" title="@a.ActorName">@TaskUi.InitialsOf(a.ActorName)</span>
+                                    <div class="tk-activity-body">
+                                        @if (a.Type == TaskActivityType.Comment)
+                                        {
+                                            <div class="tk-activity-bubble">
+                                                <div class="tk-activity-meta"><strong>@a.ActorName</strong> <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
+                                                <p>@a.Text</p>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="tk-activity-action"><strong>@a.ActorName</strong> @a.Text <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Adjuntos *@
+                    <div class="tk-card">
+                        <div class="tk-card-head"><h3>Adjuntos</h3></div>
+                        @if (_detail.Attachments.Count == 0)
+                        {
+                            <p class="tk-empty-note">Sin adjuntos.</p>
+                        }
+                        @foreach (var att in _detail.Attachments)
+                        {
+                            <div class="tk-attachment">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>
+                                <a href="@att.Url" target="_blank" rel="noopener" class="tk-attachment-name">@att.FileName</a>
+                                <span class="tk-attachment-meta">@(att.UploadedByName ?? "-") - @TaskUi.FormatRelative(att.CreatedAt)</span>
+                                @if (!readOnly)
+                                {
+                                    <button class="tk-tag-x" title="Eliminar adjunto" @onclick="@(() => DeleteAttachmentAsync(att.Id))">&times;</button>
+                                }
+                            </div>
+                        }
+                        @if (!readOnly)
+                        {
+                            @* TODO FASE posterior: upload real a object storage; por ahora se referencia por URL. *@
+                            <div class="tk-attachment-add">
+                                <input class="form-control form-control-sm" @bind="_attName" placeholder="Nombre del archivo" />
+                                <input class="form-control form-control-sm" @bind="_attUrl" placeholder="https://..." />
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddAttachmentAsync" disabled="@_busy">Agregar</button>
+                            </div>
+                            @if (_attError is not null)
+                            {
+                                <div class="tk-field-error">@_attError</div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
+    // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    /// <summary>Se dispara tras cualquier mutacion exitosa para que el tablero refresque.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private TaskItemDetailDto? _detail;
+    private List<TaskWorkLogDto> _workLogs = new();
+    private long _totalSeconds;
+    private List<TenantUserDto> _users = new();
+    private List<ActivityTypeDto> _types = new();
+    private List<ProjectDto> _projects = new();
+
+    private bool _busy;
+    private string? _openMenu;
+    private bool _editingTitle;
+    private string _editTitle = "";
+    private bool _editingDesc;
+    private string _editDesc = "";
+    private DateTime? _editDue;
+    private bool _confirmClose;
+    private string? _conflict;
+    private string? _actionError;
+
+    // Worklog
+    private bool _timerRunning;
+    private string _timerNote = "";
+    private int? _manualHours;
+    private int? _manualMinutes;
+    private string _manualNote = "";
+    private string? _workLogError;
+
+    private string _newComment = "";
+    private string _attName = "";
+    private string _attUrl = "";
+    private string? _attError;
+
+    public async Task OpenAsync(Guid taskId)
+    {
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
+        _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
+        _editingTitle = _editingDesc = _confirmClose = false;
+        _conflict = _actionError = _workLogError = _attError = null;
+        _openMenu = null;
+        _timerRunning = false;
+        _timerNote = _manualNote = _newComment = _attName = _attUrl = "";
+        _manualHours = _manualMinutes = null;
+        await ReloadAsync(taskId);
+        StateHasChanged();
+    }
+
+    private async Task ReloadAsync(Guid taskId)
+    {
+        _detail = await TasksSvc.GetDetailAsync(taskId);
+        if (_detail is not null)
+        {
+            _workLogs = (await TasksSvc.ListWorkLogsAsync(taskId)).ToList();
+            _totalSeconds = _detail.TotalWorkSeconds;
+            _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
+        }
+    }
+
+    private async Task CloseAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* interop best-effort */ }
+        _timerRunning = false;
+        _detail = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Blazor pisa el textContent del display al re-render: lo repinta desde el estado JS.
+        if (_detail is not null && _timerRunning)
+        {
+            try { await JS.InvokeVoidAsync("ecorexTaskTimer.sync", "tk-timer-display"); } catch { /* best-effort */ }
+        }
+    }
+
+    private void ToggleMenu(string name) => _openMenu = _openMenu == name ? null : name;
+    private void CloseMenus() => _openMenu = null;
+
+    private string? AssigneeEmail(Guid? tenantUserId)
+        => tenantUserId is Guid id ? _users.FirstOrDefault(u => u.Id == id)?.Email : null;
+
+    private string UserEmail(Guid tenantUserId)
+        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+
+    private string TypeLabel(Guid typeId, string? fallback)
+    {
+        var t = _types.FirstOrDefault(x => x.Id == typeId);
+        return t is null ? (fallback ?? "-") : $"{t.Category} / {t.Name}";
+    }
+
+    // ===== Updates con concurrencia optimista =====
+
+    private UpdateTaskItemRequest BuildUpdate(
+        string? title = null, string? description = null, TaskPriority? priority = null,
+        DateTimeOffset? dueDate = null, bool clearDue = false)
+    {
+        var d = _detail!;
+        return new UpdateTaskItemRequest(
+            Title: title ?? d.Item.Title,
+            Description: description ?? d.Description,
+            ActivityTypeId: d.Item.ActivityTypeId,
+            Priority: priority ?? d.Item.Priority,
+            DueDate: clearDue ? null : (dueDate ?? d.Item.DueDate),
+            RequesterName: d.RequesterName,
+            RequesterEmail: d.RequesterEmail,
+            RequesterPhone: d.RequesterPhone,
+            CcEmails: d.CcEmails,
+            ProjectId: d.Item.ProjectId,
+            Color: d.Item.Color,
+            Version: d.Item.Version);
+    }
+
+    private async Task ApplyUpdateAsync(UpdateTaskItemRequest request)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = await TasksSvc.UpdateAsync(taskId, request, await ActorAsync(), await ActorNameAsync());
+            if (result.Status == TaskCoreStatus.Conflict)
+            {
+                _conflict = result.Error;
+                await ReloadAsync(taskId);
+                return;
+            }
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                await ReloadAsync(taskId);
+                return;
+            }
+            _detail = result.Value;
+            _editDue = _detail!.Item.DueDate?.ToLocalTime().DateTime.Date;
+            await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+            _openMenu = null;
+        }
+    }
+
+    private async Task SaveTitleAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_editTitle)) { return; }
+        _editingTitle = false;
+        await ApplyUpdateAsync(BuildUpdate(title: _editTitle.Trim()));
+    }
+
+    private async Task SaveDescriptionAsync()
+    {
+        _editingDesc = false;
+        await ApplyUpdateAsync(BuildUpdate(description: string.IsNullOrWhiteSpace(_editDesc) ? "" : _editDesc));
+    }
+
+    private async Task SavePriorityAsync(TaskPriority priority)
+        => await ApplyUpdateAsync(BuildUpdate(priority: priority));
+
+    private async Task SaveDueAsync()
+    {
+        if (_editDue is null)
+        {
+            await ApplyUpdateAsync(BuildUpdate(clearDue: true));
+            return;
+        }
+        var due = new DateTimeOffset(_editDue.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset);
+        await ApplyUpdateAsync(BuildUpdate(dueDate: due));
+    }
+
+    private async Task AssignAsync(Guid? tenantUserId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = tenantUserId is Guid id
+                ? await TasksSvc.AssignAsync(taskId, id, await ActorAsync(), await ActorNameAsync())
+                : await TasksSvc.UnassignAsync(taskId, await ActorAsync(), await ActorNameAsync());
+            if (result.Status == TaskCoreStatus.Conflict)
+            {
+                _conflict = result.Error;
+            }
+            else if (!result.IsOk && result.Error != "La tarea no tiene asignado.")
+            {
+                _actionError = result.Error;
+            }
+            await ReloadAsync(taskId);
+            if (result.IsOk)
+            {
+                await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+            }
+        }
+        finally
+        {
+            _busy = false;
+            _openMenu = null;
+        }
+    }
+
+    private async Task ChangeStatusAsync(TaskItemStatus newStatus)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        _confirmClose = false;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = await TasksSvc.ChangeStatusAsync(taskId, newStatus, null, await ActorAsync(), await ActorNameAsync());
+            if (result.Status == TaskCoreStatus.Conflict)
+            {
+                _conflict = result.Error;
+            }
+            else if (!result.IsOk)
+            {
+                _actionError = result.Error;
+            }
+            await ReloadAsync(taskId);
+            if (result.IsOk)
+            {
+                await NotifyChangedAsync(taskId, newStatus);
+            }
+        }
+        finally
+        {
+            _busy = false;
+            _openMenu = null;
+        }
+    }
+
+    // ===== Worklog =====
+
+    private async Task StartTimerAsync()
+    {
+        await JS.InvokeVoidAsync("ecorexTaskTimer.start", "tk-timer-display");
+        _timerRunning = true;
+    }
+
+    private async Task PauseTimerAsync()
+    {
+        await JS.InvokeVoidAsync("ecorexTaskTimer.pause");
+        _timerRunning = false;
+    }
+
+    private async Task SaveTimerWorkLogAsync()
+    {
+        if (_detail is null) { return; }
+        _workLogError = null;
+        var seconds = await JS.InvokeAsync<int>("ecorexTaskTimer.getSeconds");
+        if (seconds <= 0)
+        {
+            _workLogError = "El cronometro no tiene tiempo acumulado.";
+            return;
+        }
+        await AddWorkLogAsync(seconds, _timerNote, WorkLogKind.Timer);
+        if (_workLogError is null)
+        {
+            await JS.InvokeVoidAsync("ecorexTaskTimer.reset");
+            _timerRunning = false;
+            _timerNote = "";
+        }
+    }
+
+    private async Task SaveManualWorkLogAsync()
+    {
+        if (_detail is null) { return; }
+        _workLogError = null;
+        var seconds = (_manualHours ?? 0) * 3600 + (_manualMinutes ?? 0) * 60;
+        if (seconds <= 0)
+        {
+            _workLogError = "Ingresa una duracion valida (HH:MM).";
+            return;
+        }
+        await AddWorkLogAsync(seconds, _manualNote, WorkLogKind.Manual);
+        if (_workLogError is null)
+        {
+            _manualHours = _manualMinutes = null;
+            _manualNote = "";
+        }
+    }
+
+    private async Task AddWorkLogAsync(int seconds, string note, WorkLogKind kind)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var tenantUser = _users.FirstOrDefault(u => u.PlatformUserId == actor);
+            if (tenantUser is null)
+            {
+                _workLogError = "Tu usuario no pertenece al tenant (no se puede registrar tiempo).";
+                return;
+            }
+            var result = await TasksSvc.AddWorkLogAsync(
+                new AddTaskWorkLogRequest(_detail.Item.Id, tenantUser.Id, seconds,
+                    string.IsNullOrWhiteSpace(note) ? null : note.Trim(), kind, LogActivity: true),
+                actor, await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _workLogError = result.Error;
+                return;
+            }
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ===== Comentarios y adjuntos =====
+
+    private async Task AddCommentAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_newComment)) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.AddCommentAsync(_detail.Item.Id, _newComment.Trim(), await ActorAsync(), await ActorNameAsync());
+            if (result.IsOk)
+            {
+                _newComment = "";
+                await ReloadAsync(_detail.Item.Id);
+            }
+            else
+            {
+                _actionError = result.Error;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddAttachmentAsync()
+    {
+        if (_detail is null) { return; }
+        _attError = null;
+        if (string.IsNullOrWhiteSpace(_attName) || string.IsNullOrWhiteSpace(_attUrl))
+        {
+            _attError = "Nombre y URL son obligatorios.";
+            return;
+        }
+        if (!Uri.TryCreate(_attUrl.Trim(), UriKind.Absolute, out _))
+        {
+            _attError = "La URL no es valida.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.AddAttachmentAsync(
+                new AddTaskAttachmentRequest(_detail.Item.Id, _attName.Trim(), _attUrl.Trim(), null, 0),
+                await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _attError = result.Error;
+                return;
+            }
+            _attName = _attUrl = "";
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAttachmentAsync(Guid attachmentId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            await TasksSvc.DeleteAttachmentAsync(attachmentId);
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task NotifyChangedAsync(Guid taskId, TaskItemStatus status)
+    {
+        if (await TenantIdAsync() is Guid tenantId)
+        {
+            await Broadcaster.TaskChangedAsync(tenantId, taskId, status);
+        }
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+    }
+
+    private async Task<Guid?> TenantIdAsync()
+    {
+        if (AuthState is null) { return null; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var id) ? id : null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* circuito cerrado */ }
+    }
+}

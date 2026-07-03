@@ -1,0 +1,248 @@
+@page "/proyectos/{ProjectId:guid}"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@inject IProjectService ProjectsSvc
+@inject ITenantUserService TenantUsersSvc
+@inject NavigationManager Nav
+
+<PageTitle>@(_project?.Name ?? "Proyecto") - ECOREX.tareas</PageTitle>
+
+@if (_loading)
+{
+    <p><em>Cargando proyecto...</em></p>
+}
+else if (_project is null)
+{
+    <div class="card" style="padding:32px;max-width:680px;">
+        <p>No se encontro el proyecto. <a href="/proyectos">Volver a proyectos</a>.</p>
+    </div>
+}
+else
+{
+    <nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+        <a href="/inicio">Workspace</a>
+        <span class="sep">/</span>
+        <a href="/proyectos">Proyectos</a>
+        <span class="sep">/</span>
+        <span class="cur">@_project.Code</span>
+    </nav>
+
+    <div class="module-head">
+        <div>
+            <div class="module-eyebrow">
+                <div class="module-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                </div>
+                <span>Proyecto @_project.Code</span>
+            </div>
+            <h1 class="page-title" style="margin-top:12px;">@_project.Name</h1>
+            <p class="page-sub" style="margin-bottom:0;">@(string.IsNullOrWhiteSpace(_project.Description) ? "Tablero de actividades del proyecto." : _project.Description)</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-outline-secondary" @onclick="@(() => Nav.NavigateTo("/proyectos"))">&larr; Proyectos</button>
+            <button class="btn btn-primary" @onclick="@(() => _kanban is null ? Task.CompletedTask : _kanban.OpenNewTaskAsync())">+ Tarea</button>
+        </div>
+    </div>
+
+    @* ===== Cabecera: estado, owner, fechas, miembros ===== *@
+    <div class="tk-project-head card">
+        <div class="tk-project-head-row">
+            <div class="tk-project-field">
+                <span class="wlbl">Estado</span>
+                <select class="form-control form-control-sm" value="@_project.Status" @onchange="@(e => ChangeStatusAsync(Enum.Parse<ProjectStatus>(e.Value!.ToString()!)))">
+                    @foreach (var s in Enum.GetValues<ProjectStatus>())
+                    {
+                        <option value="@s">@TaskUi.ProjectStatusLabel(s)</option>
+                    }
+                </select>
+            </div>
+            <div class="tk-project-field">
+                <span class="wlbl">Owner</span>
+                <span class="tk-assignee"><span class="tb-avatar">@TaskUi.InitialsOf(UserEmail(_project.OwnerTenantUserId))</span> @UserEmail(_project.OwnerTenantUserId)</span>
+            </div>
+            <div class="tk-project-field">
+                <span class="wlbl">Fechas</span>
+                <span class="wval">@(_project.StartDate?.ToString("dd MMM yyyy") ?? "?") - @(_project.EndDate?.ToString("dd MMM yyyy") ?? "abierto")</span>
+            </div>
+            <div class="tk-project-field">
+                <span class="wlbl">Tareas</span>
+                <span class="wval">@_project.TaskCount</span>
+            </div>
+            <div class="tk-project-field" style="flex:1;">
+                <span class="wlbl">Miembros</span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <div class="tb-members">
+                        @foreach (var m in _members)
+                        {
+                            <div class="tb-avatar lg" title="@($"{m.Email}{(m.IsOwner ? " (owner)" : m.CanEdit ? " (edita)" : " (lectura)")}")">@TaskUi.InitialsOf(m.Email)</div>
+                        }
+                    </div>
+                    <button class="tb-modal-add-btn sq" title="Gestionar miembros" @onclick="@(() => _showMembers = !_showMembers)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        @if (_statusError is not null)
+        {
+            <div class="tk-field-error" style="padding:0 18px 12px;">@_statusError</div>
+        }
+
+        @* Panel de miembros (agregar / quitar / CanEdit) *@
+        @if (_showMembers)
+        {
+            <div class="tk-members-panel">
+                <div class="tk-members-list">
+                    @foreach (var m in _members)
+                    {
+                        <div class="tk-member-row">
+                            <span class="tb-avatar">@TaskUi.InitialsOf(m.Email)</span>
+                            <span class="tk-member-mail">@m.Email</span>
+                            @if (m.IsOwner)
+                            {
+                                <span class="tk-status st-active">Owner</span>
+                            }
+                            else
+                            {
+                                <label class="pl-toggle" title="Puede editar el proyecto y sus tareas">
+                                    <input type="checkbox" checked="@m.CanEdit" @onchange="@(e => SetCanEditAsync(m.TenantUserId, (bool)e.Value!))" />
+                                    Puede editar
+                                </label>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveMemberAsync(m.TenantUserId))" disabled="@_busy">Quitar</button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="tk-member-add">
+                    <select class="form-control form-control-sm" @bind="_newMemberId">
+                        <option value="">Agregar usuario...</option>
+                        @foreach (var u in _users.Where(u => _members.All(m => m.TenantUserId != u.Id)))
+                        {
+                            <option value="@u.Id">@u.Email</option>
+                        }
+                    </select>
+                    <label class="pl-toggle"><input type="checkbox" @bind="_newMemberCanEdit" /> Puede editar</label>
+                    <button class="btn btn-sm btn-primary" @onclick="AddMemberAsync" disabled="@(_busy || string.IsNullOrEmpty(_newMemberId))">Agregar</button>
+                </div>
+                @if (_memberError is not null)
+                {
+                    <div class="tk-field-error">@_memberError</div>
+                }
+            </div>
+        }
+    </div>
+
+    @* ===== Kanban del proyecto (componente reutilizado con filtro fijo) ===== *@
+    <TaskKanban @ref="_kanban" ProjectId="@ProjectId" />
+}
+
+@code {
+    [Parameter] public Guid ProjectId { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private ProjectDto? _project;
+    private List<ProjectMemberDto> _members = new();
+    private List<TenantUserDto> _users = new();
+    private TaskKanban? _kanban;
+
+    private bool _showMembers;
+    private string _newMemberId = "";
+    private bool _newMemberCanEdit;
+    private string? _memberError;
+    private string? _statusError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _project = await ProjectsSvc.GetAsync(ProjectId);
+        _members = _project is null ? new List<ProjectMemberDto>() : (await ProjectsSvc.ListMembersAsync(ProjectId)).ToList();
+    }
+
+    private string UserEmail(Guid tenantUserId)
+        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+
+    private async Task ChangeStatusAsync(ProjectStatus status)
+    {
+        if (_project is null || _project.Status == status) { return; }
+        _busy = true;
+        _statusError = null;
+        try
+        {
+            var result = await ProjectsSvc.UpdateAsync(ProjectId, new UpdateProjectRequest(
+                _project.Name, _project.Description, status,
+                _project.StartDate, _project.EndDate, _project.OwnerTenantUserId, _project.Version));
+            if (!result.IsOk)
+            {
+                _statusError = result.Status == TaskCoreStatus.Conflict
+                    ? "Otro usuario modifico el proyecto. Se recargo con los datos mas recientes."
+                    : result.Error;
+            }
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddMemberAsync()
+    {
+        if (!Guid.TryParse(_newMemberId, out var userId)) { return; }
+        _busy = true;
+        _memberError = null;
+        try
+        {
+            var result = await ProjectsSvc.AddMemberAsync(ProjectId, userId, _newMemberCanEdit);
+            if (!result.IsOk) { _memberError = result.Error; return; }
+            _newMemberId = "";
+            _newMemberCanEdit = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetCanEditAsync(Guid tenantUserId, bool canEdit)
+    {
+        _busy = true;
+        _memberError = null;
+        try
+        {
+            var result = await ProjectsSvc.SetMemberCanEditAsync(ProjectId, tenantUserId, canEdit);
+            if (!result.IsOk) { _memberError = result.Error; }
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveMemberAsync(Guid tenantUserId)
+    {
+        _busy = true;
+        _memberError = null;
+        try
+        {
+            var result = await ProjectsSvc.RemoveMemberAsync(ProjectId, tenantUserId);
+            if (!result.IsOk) { _memberError = result.Error; }
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

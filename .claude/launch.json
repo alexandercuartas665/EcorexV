@@ -2,6 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "superadmin-tasks",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5234"
+      ],
+      "port": 5234
+    },
+    {
       "name": "superadmin",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": [

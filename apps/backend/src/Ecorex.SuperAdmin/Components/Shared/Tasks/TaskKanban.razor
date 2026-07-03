@@ -1,0 +1,494 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.Extensions.DependencyInjection
+@implements IAsyncDisposable
+@inject ITaskItemService TasksSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IActivityTypeService TypesSvc
+@inject IProjectService ProjectsSvc
+@inject ITaskBroadcaster Broadcaster
+@inject NavigationManager Nav
+@inject IServiceScopeFactory ScopeFactory
+
+<TaskToasts @ref="_toasts" />
+
+@* ===== Barra de filtros combinables (server-side via ListAsync) ===== *@
+<div class="tb-toolbar tk-toolbar">
+    <div class="tb-toolbar-search">
+        <svg class="tb-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="Buscar por titulo..." value="@_fText"
+               @oninput="@(e => _fText = e.Value?.ToString() ?? "")"
+               @onchange="@(async () => await ReloadAsync())" />
+    </div>
+    <div class="tb-toolbar-right">
+        <div class="tb-view">
+            <button class="@(_view == "kanban" ? "active" : "")" @onclick="@(() => _view = "kanban")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                Kanban
+            </button>
+            <button class="@(_view == "list" ? "active" : "")" @onclick="@(() => _view = "list")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+                Lista
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="tk-filters">
+    <div class="tk-filter-chips">
+        @foreach (var status in TaskUi.BoardStatuses)
+        {
+            var on = _fStatuses.Contains(status);
+            <button class="pl-fchip @(on ? "on" : "")" @onclick="@(() => ToggleStatusFilterAsync(status))">
+                @TaskUi.StatusLabel(status)
+            </button>
+        }
+        @if (_view == "list")
+        {
+            <label class="pl-toggle" style="margin-left:6px;">
+                <input type="checkbox" checked="@_showClosed" @onchange="@(async e => { _showClosed = (bool)e.Value!; await ReloadAsync(); })" />
+                Ver cerradas
+            </label>
+        }
+    </div>
+    <div class="tk-filter-row">
+        <select class="tk-filter-select" value="@(_fPriority?.ToString() ?? "")" @onchange="@(async e => { _fPriority = Enum.TryParse<TaskPriority>(e.Value?.ToString(), out var p) ? p : null; await ReloadAsync(); })">
+            <option value="">Prioridad: todas</option>
+            <option value="@TaskPriority.High">Alta</option>
+            <option value="@TaskPriority.Medium">Media</option>
+            <option value="@TaskPriority.Low">Baja</option>
+        </select>
+        <select class="tk-filter-select" value="@(_fAssignee?.ToString() ?? "")" @onchange="@(async e => { _fAssignee = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await ReloadAsync(); })">
+            <option value="">Encargado: todos</option>
+            @foreach (var u in _users)
+            {
+                <option value="@u.Id">@u.Email</option>
+            }
+        </select>
+        <select class="tk-filter-select" value="@(_fType?.ToString() ?? "")" @onchange="@(async e => { _fType = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await ReloadAsync(); })">
+            <option value="">Tipo: todos</option>
+            @foreach (var t in _types)
+            {
+                <option value="@t.Id">@t.Category / @t.Name</option>
+            }
+        </select>
+        @if (ProjectId is null)
+        {
+            <select class="tk-filter-select" value="@(_fProject?.ToString() ?? "")" @onchange="@(async e => { _fProject = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await ReloadAsync(); })">
+                <option value="">Proyecto: todos</option>
+                @foreach (var p in _projects)
+                {
+                    <option value="@p.Id">@p.Code - @p.Name</option>
+                }
+            </select>
+        }
+        <select class="tk-filter-select" value="@(_fTag?.ToString() ?? "")" @onchange="@(async e => { _fTag = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await ReloadAsync(); })">
+            <option value="">Etiqueta: todas</option>
+            @foreach (var t in _tags)
+            {
+                <option value="@t.Id">@t.Name</option>
+            }
+        </select>
+        <span class="tk-filter-dates">
+            <label>Entrega</label>
+            <input type="date" class="tk-filter-select" value="@(_fDueFrom?.ToString("yyyy-MM-dd") ?? "")" @onchange="@(async e => { _fDueFrom = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null; await ReloadAsync(); })" />
+            <span>-</span>
+            <input type="date" class="tk-filter-select" value="@(_fDueTo?.ToString("yyyy-MM-dd") ?? "")" @onchange="@(async e => { _fDueTo = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null; await ReloadAsync(); })" />
+        </span>
+        @if (HasFilters)
+        {
+            <button class="pl-link" @onclick="ClearFiltersAsync">Limpiar filtros</button>
+        }
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando actividades...</em></p>
+}
+else if (_view == "kanban")
+{
+    <div class="tb-board tk-board">
+        @foreach (var status in TaskUi.BoardStatuses)
+        {
+            var colTasks = TasksFor(status);
+            <div class="tb-col @(_dragOverStatus == status ? "tb-col-drag" : "")"
+                 ondragover="event.preventDefault()"
+                 @ondragenter="@(() => _dragOverStatus = status)"
+                 @ondragleave="@(() => { if (_dragOverStatus == status) _dragOverStatus = null; })"
+                 @ondrop="@(() => OnDropAsync(status))">
+                <div class="tb-col-head">
+                    <span class="tb-col-name"><span class="tk-col-dot @TaskUi.StatusClass(status)"></span>@TaskUi.StatusLabel(status)</span>
+                    <span class="tb-col-count">@colTasks.Count</span>
+                </div>
+                <div class="tb-col-body">
+                    @if (colTasks.Count == 0)
+                    {
+                        <div class="tb-col-empty">Sin actividades</div>
+                    }
+                    @foreach (var task in colTasks)
+                    {
+                        <div class="tb-card-item tk-kb-card @(_dragTaskId == task.Id ? "dragging" : "")"
+                             style="@(string.IsNullOrEmpty(task.Color) ? "" : $"border-left:4px solid {task.Color};")"
+                             draggable="true"
+                             @ondragstart="@(() => _dragTaskId = task.Id)"
+                             @ondragend="@(() => _dragTaskId = null)"
+                             @onclick="@(() => OpenTaskAsync(task.Id))">
+                            <div class="tk-kb-top">
+                                <span class="tk-number">@task.Number</span>
+                                <PriorityChip Priority="task.Priority" />
+                            </div>
+                            <div class="tb-card-title">@task.Title</div>
+                            @if (task.Tags.Count > 0)
+                            {
+                                <div class="tb-card-tags">
+                                    @foreach (var tag in task.Tags)
+                                    {
+                                        <span class="tb-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
+                                    }
+                                </div>
+                            }
+                            <div class="tb-card-foot">
+                                <div class="tb-members">
+                                    @if (task.AssigneeTenantUserId is Guid assigneeId)
+                                    {
+                                        <div class="tb-avatar" title="@UserEmail(assigneeId)">@TaskUi.InitialsOf(UserEmail(assigneeId))</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tb-avatar empty" title="Sin asignar">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                        </div>
+                                    }
+                                </div>
+                                @if (task.DueDate is not null)
+                                {
+                                    var late = TaskUi.IsOverdue(task.DueDate, task.Status);
+                                    <span class="tb-due @(late ? "late" : "")">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        @(late ? "Vencida" : TaskUi.FormatDue(task.DueDate.Value))
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="tb-list">
+        @if (_items.Count == 0)
+        {
+            <div class="tb-list-empty">No hay actividades que coincidan con los filtros.</div>
+        }
+        else
+        {
+            <table>
+                <thead>
+                    <tr>
+                        <th>Numero</th>
+                        <th style="width:30%;">Titulo</th>
+                        <th>Tipo</th>
+                        <th>Prioridad</th>
+                        <th>Estado</th>
+                        <th>Encargado</th>
+                        <th>Entrega</th>
+                        <th>Etiquetas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var task in _items)
+                    {
+                        var late = TaskUi.IsOverdue(task.DueDate, task.Status);
+                        <tr @onclick="@(() => OpenTaskAsync(task.Id))">
+                            <td><span class="tk-number">@task.Number</span></td>
+                            <td><strong style="@(string.IsNullOrEmpty(task.Color) ? "" : $"border-left:3px solid {task.Color};padding-left:8px;")">@task.Title</strong></td>
+                            <td>@(task.ActivityTypeName ?? "-")</td>
+                            <td><PriorityChip Priority="task.Priority" /></td>
+                            <td><span class="tk-status @TaskUi.StatusClass(task.Status)">@TaskUi.StatusLabel(task.Status)</span></td>
+                            <td>
+                                @if (task.AssigneeTenantUserId is Guid assigneeId)
+                                {
+                                    <span class="tk-assignee"><span class="tb-avatar">@TaskUi.InitialsOf(UserEmail(assigneeId))</span> @UserEmail(assigneeId)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Sin asignar</span>
+                                }
+                            </td>
+                            <td>
+                                @if (task.DueDate is not null)
+                                {
+                                    <span class="tb-due @(late ? "late" : "")">@(late ? "Vencida" : TaskUi.FormatDue(task.DueDate.Value))</span>
+                                }
+                            </td>
+                            <td>
+                                @foreach (var tag in task.Tags)
+                                {
+                                    <span class="tb-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;") margin-right:4px;">@tag.Name</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+    @if (_total > _items.Count)
+    {
+        <p class="tk-empty-note" style="margin-top:8px;">Mostrando @_items.Count de @_total actividades. Refina los filtros para ver el resto.</p>
+    }
+}
+
+<TaskWizard @ref="_wizard" OnCreated="OnTaskCreatedAsync" />
+<TaskDetailModal @ref="_detail" OnChanged="ReloadAsync" />
+
+@code {
+    // Kanban del nucleo de tareas (FASE 3): columnas fijas por estado, drag and drop
+    // -> ChangeStatusAsync (maquina de estados), filtros server-side y tiempo real via TaskHub.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    /// <summary>Proyecto fijo (detalle de proyecto): filtra las tareas y preselecciona el wizard.</summary>
+    [Parameter] public Guid? ProjectId { get; set; }
+
+    private TaskToasts? _toasts;
+    private TaskWizard? _wizard;
+    private TaskDetailModal? _detail;
+
+    private bool _loading = true;
+    private string _view = "kanban";
+    private List<TaskItemSummaryDto> _items = new();
+    private int _total;
+
+    private List<TenantUserDto> _users = new();
+    private List<ActivityTypeDto> _types = new();
+    private List<ProjectDto> _projects = new();
+    private List<TaskItemTagDto> _tags = new();
+
+    // Filtros
+    private string _fText = "";
+    private readonly HashSet<TaskItemStatus> _fStatuses = new();
+    private TaskPriority? _fPriority;
+    private Guid? _fAssignee;
+    private Guid? _fType;
+    private Guid? _fProject;
+    private Guid? _fTag;
+    private DateTime? _fDueFrom;
+    private DateTime? _fDueTo;
+    private bool _showClosed;
+
+    private Guid? _dragTaskId;
+    private TaskItemStatus? _dragOverStatus;
+
+    private HubConnection? _hub;
+    private string? _tenantId;
+
+    private bool HasFilters =>
+        !string.IsNullOrWhiteSpace(_fText) || _fStatuses.Count > 0 || _fPriority is not null
+        || _fAssignee is not null || _fType is not null || _fProject is not null
+        || _fTag is not null || _fDueFrom is not null || _fDueTo is not null || _showClosed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            _tenantId = state.User.FindFirst("tenant_id")?.Value;
+        }
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _types = (await TypesSvc.ListAsync()).ToList();
+        _projects = (await ProjectsSvc.ListAsync()).ToList();
+        _tags = (await TasksSvc.ListTagsAsync()).ToList();
+        await ReloadAsync();
+        _loading = false;
+        await EnsureHubAsync();
+    }
+
+    /// <summary>Abre el wizard "Nueva actividad" (boton del encabezado de la pagina).</summary>
+    public async Task OpenNewTaskAsync()
+    {
+        if (_wizard is not null)
+        {
+            await _wizard.OpenAsync(ProjectId);
+        }
+    }
+
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
+    public async Task ReloadAsync()
+    {
+        var statuses = EffectiveStatuses();
+        var filter = new TaskItemListFilter(
+            Statuses: statuses,
+            Priority: _fPriority,
+            AssigneeTenantUserId: _fAssignee,
+            ActivityTypeId: _fType,
+            ProjectId: ProjectId ?? _fProject,
+            TagIds: _fTag is Guid tagId ? new[] { tagId } : null,
+            DueFrom: _fDueFrom is DateTime from ? new DateTimeOffset(from.Date, DateTimeOffset.Now.Offset) : null,
+            DueTo: _fDueTo is DateTime to ? new DateTimeOffset(to.Date.AddDays(1).AddSeconds(-1), DateTimeOffset.Now.Offset) : null,
+            Text: string.IsNullOrWhiteSpace(_fText) ? null : _fText.Trim(),
+            PageSize: 200);
+
+        // Scope EF propio + semaforo: el reload puede dispararse por el hub (TaskChanged de otra
+        // sesion) mientras el modal de detalle o el wizard tienen una consulta en vuelo sobre el
+        // DbContext del circuito; sin aislamiento EF lanza "second operation on this context".
+        await _reloadLock.WaitAsync();
+        try
+        {
+            PagedResult<TaskItemSummaryDto> page;
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var tasksSvc = scope.ServiceProvider.GetRequiredService<ITaskItemService>();
+                page = await tasksSvc.ListAsync(filter);
+            }
+            else
+            {
+                page = await TasksSvc.ListAsync(filter);
+            }
+            _items = page.Items.ToList();
+            _total = page.TotalCount;
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+        StateHasChanged();
+    }
+
+    private IReadOnlyList<TaskItemStatus>? EffectiveStatuses()
+    {
+        if (_fStatuses.Count > 0)
+        {
+            var selected = _fStatuses.ToList();
+            if (_view == "list" && _showClosed) { selected.Add(TaskItemStatus.Closed); }
+            return selected;
+        }
+        if (_view == "list" && _showClosed) { return null; } // todas, incluida Closed
+        return TaskUi.BoardStatuses;
+    }
+
+    private List<TaskItemSummaryDto> TasksFor(TaskItemStatus status)
+        => _items.Where(t => t.Status == status).ToList();
+
+    private string UserEmail(Guid tenantUserId)
+        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+
+    private async Task ToggleStatusFilterAsync(TaskItemStatus status)
+    {
+        if (!_fStatuses.Add(status)) { _fStatuses.Remove(status); }
+        await ReloadAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _fText = "";
+        _fStatuses.Clear();
+        _fPriority = null;
+        _fAssignee = null;
+        _fType = null;
+        _fProject = null;
+        _fTag = null;
+        _fDueFrom = null;
+        _fDueTo = null;
+        _showClosed = false;
+        await ReloadAsync();
+    }
+
+    private async Task OnDropAsync(TaskItemStatus targetStatus)
+    {
+        _dragOverStatus = null;
+        if (_dragTaskId is null) { return; }
+        var taskId = _dragTaskId.Value;
+        _dragTaskId = null;
+        var task = _items.FirstOrDefault(t => t.Id == taskId);
+        if (task is null || task.Status == targetStatus) { return; }
+
+        var result = await TasksSvc.ChangeStatusAsync(taskId, targetStatus, null, await ActorAsync(), await ActorNameAsync());
+        if (!result.IsOk)
+        {
+            // La tarjeta "vuelve" (no se movio localmente): solo avisamos el motivo.
+            _toasts?.Error(result.Error ?? "No se pudo cambiar el estado.");
+            await ReloadAsync();
+            return;
+        }
+        _toasts?.Success($"{task.Number} -> {TaskUi.StatusLabel(targetStatus)}");
+        await ReloadAsync();
+        await BroadcastAsync(taskId, targetStatus);
+    }
+
+    private async Task OpenTaskAsync(Guid taskId)
+    {
+        if (_detail is not null)
+        {
+            await _detail.OpenAsync(taskId);
+        }
+    }
+
+    private async Task OnTaskCreatedAsync(TaskItemDetailDto detail)
+    {
+        _toasts?.Success($"Actividad {detail.Item.Number} creada.");
+        await ReloadAsync();
+    }
+
+    private async Task BroadcastAsync(Guid taskId, TaskItemStatus status)
+    {
+        if (Guid.TryParse(_tenantId, out var tenantId))
+        {
+            await Broadcaster.TaskChangedAsync(tenantId, taskId, status);
+        }
+    }
+
+    private async Task EnsureHubAsync()
+    {
+        if (_hub is not null || string.IsNullOrEmpty(_tenantId)) { return; }
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/tasks"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            // Otra sesion cambio/creo una tarea del tenant: recarga el listado filtrado
+            // (equivale a refrescar la columna afectada) sin recargar la pagina.
+            _hub.On<string, string>("TaskChanged", async (_, _) =>
+            {
+                await InvokeAsync(ReloadAsync);
+            });
+
+            await _hub.StartAsync();
+            await _hub.SendAsync("JoinTenant", _tenantId);
+        }
+        catch
+        {
+            // El tiempo real es un complemento; sin conexion el tablero sigue funcionando.
+        }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try { await _hub.DisposeAsync(); } catch { /* circuito cerrado */ }
+        }
+    }
+}

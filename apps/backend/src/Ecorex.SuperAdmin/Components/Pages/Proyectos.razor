@@ -1,13 +1,296 @@
 @page "/proyectos"
 @attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Proyectos.Editar"). *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@inject IProjectService ProjectsSvc
+@inject ITenantUserService TenantUsersSvc
+@inject NavigationManager Nav
 
-<ModuleStub Section="Modulos"
-            Title="Proyectos"
-            Description="Proyectos del tenant con cabecera de estado, asignados, fecha limite y tablero Kanban."
-            Phase="Fase 3"
-            LegacyCode="000042">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
-    </Icon>
-</ModuleStub>
+<PageTitle>Proyectos - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Modulos</span>
+    <span class="sep">/</span>
+    <span class="cur">Proyectos</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            </div>
+            <span>Modulos</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Proyectos <span>del workspace</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Proyectos del tenant con estado, owner, miembros y su tablero de actividades (legacy 000042).</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <label class="pl-toggle">
+            <input type="checkbox" checked="@_includeArchived" @onchange="@(async e => { _includeArchived = (bool)e.Value!; await LoadAsync(); })" />
+            Ver archivados
+        </label>
+        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ Nuevo proyecto</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando proyectos...</em></p>
+}
+else if (_projects.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin proyectos todavia</h3>
+        <p>Crea el primer proyecto para agrupar actividades con su propio tablero.</p>
+        <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditor(null))">+ Nuevo proyecto</button>
+    </div>
+}
+else
+{
+    <div class="tb-grid">
+        @foreach (var p in _projects)
+        {
+            <div class="tb-card" @onclick="@(() => Nav.NavigateTo($"/proyectos/{p.Id}"))">
+                <div class="tb-card-head">
+                    <span class="tk-number">@p.Code</span>
+                    <span class="tk-status @TaskUi.ProjectStatusClass(p.Status)">@TaskUi.ProjectStatusLabel(p.Status)</span>
+                    @if (p.IsArchived)
+                    {
+                        <span class="tk-status st-closed">Archivado</span>
+                    }
+                </div>
+                <div class="tb-card-name">@p.Name</div>
+                <div class="tb-card-desc">@(string.IsNullOrWhiteSpace(p.Description) ? "Sin descripcion." : p.Description)</div>
+                <div class="tk-project-meta">
+                    <span class="tk-assignee" title="Owner">
+                        <span class="tb-avatar">@TaskUi.InitialsOf(OwnerEmail(p.OwnerTenantUserId))</span>
+                        @OwnerEmail(p.OwnerTenantUserId)
+                    </span>
+                </div>
+                <div class="tb-card-foot" style="margin-top:10px;">
+                    <span class="tb-card-stat">@p.TaskCount tareas</span>
+                    <span class="tb-card-stat">@p.MemberCount miembros</span>
+                    @if (p.StartDate is not null || p.EndDate is not null)
+                    {
+                        <span class="tb-card-stat">@(p.StartDate?.ToString("dd MMM") ?? "?") - @(p.EndDate?.ToString("dd MMM yyyy") ?? "abierto")</span>
+                    }
+                </div>
+                <div class="tk-project-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditor(p))" @onclick:stopPropagation="true">Editar</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* ===== Modal crear/editar proyecto ===== *@
+@if (_showEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editing is null ? "Nuevo proyecto" : $"Editar {_editing.Code}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Codigo *</label>
+                        <input class="form-control" @bind="_code" maxlength="20" placeholder="PRJ-002" disabled="@(_editing is not null)" />
+                        @if (_errors.TryGetValue("code", out var codeErr))
+                        {
+                            <div class="tk-field-error">@codeErr</div>
+                        }
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Estado</label>
+                        <select class="form-control" @bind="_status">
+                            @foreach (var s in Enum.GetValues<ProjectStatus>())
+                            {
+                                <option value="@s">@TaskUi.ProjectStatusLabel(s)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_name" maxlength="150" placeholder="Nombre del proyecto" />
+                    @if (_errors.TryGetValue("name", out var nameErr))
+                    {
+                        <div class="tk-field-error">@nameErr</div>
+                    }
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="3" @bind="_description"></textarea>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Fecha inicio</label>
+                        <input type="date" class="form-control" @bind="_startDate" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Fecha fin</label>
+                        <input type="date" class="form-control" @bind="_endDate" />
+                        @if (_errors.TryGetValue("dates", out var datesErr))
+                        {
+                            <div class="tk-field-error">@datesErr</div>
+                        }
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Owner *</label>
+                    <select class="form-control" value="@(_ownerId?.ToString() ?? "")" @onchange="@(e => _ownerId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                        <option value="">-- Selecciona --</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Id">@u.Email</option>
+                        }
+                    </select>
+                    @if (_errors.TryGetValue("owner", out var ownerErr))
+                    {
+                        <div class="tk-field-error">@ownerErr</div>
+                    }
+                </div>
+                @if (_errors.TryGetValue("save", out var saveErr))
+                {
+                    <div class="tk-field-error">@saveErr</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editing is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="ToggleArchiveAsync" disabled="@_busy">
+                        @(_editing.IsArchived ? "Restaurar" : "Archivar")
+                    </button>
+                }
+                <span style="flex:1;"></span>
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editing is null ? "Crear proyecto" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeArchived;
+    private List<ProjectDto> _projects = new();
+    private List<TenantUserDto> _users = new();
+
+    // Editor
+    private bool _showEditor;
+    private ProjectDto? _editing;
+    private readonly Dictionary<string, string> _errors = new();
+    private string _code = "";
+    private string _name = "";
+    private string _description = "";
+    private ProjectStatus _status = ProjectStatus.Planning;
+    private DateTime? _startDate;
+    private DateTime? _endDate;
+    private Guid? _ownerId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _projects = (await ProjectsSvc.ListAsync(_includeArchived)).ToList();
+    }
+
+    private string OwnerEmail(Guid tenantUserId)
+        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+
+    private void OpenEditor(ProjectDto? project)
+    {
+        _editing = project;
+        _errors.Clear();
+        _code = project?.Code ?? "";
+        _name = project?.Name ?? "";
+        _description = project?.Description ?? "";
+        _status = project?.Status ?? ProjectStatus.Planning;
+        _startDate = project?.StartDate?.ToDateTime(TimeOnly.MinValue);
+        _endDate = project?.EndDate?.ToDateTime(TimeOnly.MinValue);
+        _ownerId = project?.OwnerTenantUserId;
+        _showEditor = true;
+    }
+
+    private bool Validate()
+    {
+        _errors.Clear();
+        if (_editing is null && string.IsNullOrWhiteSpace(_code)) { _errors["code"] = "El codigo es obligatorio."; }
+        if (string.IsNullOrWhiteSpace(_name)) { _errors["name"] = "El nombre es obligatorio."; }
+        if (_ownerId is null) { _errors["owner"] = "Selecciona el owner."; }
+        if (_startDate is not null && _endDate is not null && _endDate < _startDate)
+        {
+            _errors["dates"] = "La fecha fin no puede ser anterior al inicio.";
+        }
+        return _errors.Count == 0;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!Validate()) { return; }
+        _busy = true;
+        try
+        {
+            DateOnly? start = _startDate is null ? null : DateOnly.FromDateTime(_startDate.Value);
+            DateOnly? end = _endDate is null ? null : DateOnly.FromDateTime(_endDate.Value);
+            if (_editing is null)
+            {
+                var result = await ProjectsSvc.CreateAsync(new CreateProjectRequest(
+                    _code.Trim(), _name.Trim(), _ownerId!.Value,
+                    string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                    _status, start, end));
+                if (!result.IsOk) { _errors["save"] = result.Error ?? "No se pudo crear el proyecto."; return; }
+            }
+            else
+            {
+                var result = await ProjectsSvc.UpdateAsync(_editing.Id, new UpdateProjectRequest(
+                    _name.Trim(),
+                    string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                    _status, start, end, _ownerId!.Value, _editing.Version));
+                if (!result.IsOk)
+                {
+                    _errors["save"] = result.Status == TaskCoreStatus.Conflict
+                        ? "Otro usuario modifico el proyecto. Cierra y vuelve a abrir el editor."
+                        : result.Error ?? "No se pudo guardar el proyecto.";
+                    return;
+                }
+            }
+            _showEditor = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleArchiveAsync()
+    {
+        if (_editing is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await ProjectsSvc.SetArchivedAsync(_editing.Id, !_editing.IsArchived);
+            if (!result.IsOk) { _errors["save"] = result.Error ?? "No se pudo archivar."; return; }
+            _showEditor = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

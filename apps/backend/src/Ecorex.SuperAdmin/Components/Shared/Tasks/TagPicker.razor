@@ -1,0 +1,122 @@
+@using Ecorex.Application.Tenancy
+@inject ITaskItemService TasksSvc
+
+<div class="tk-tagpicker">
+    <div class="tk-tagpicker-chips">
+        @foreach (var tag in Selected)
+        {
+            <span class="tk-tag" style="@TagStyle(tag)">
+                @tag.Name
+                <button type="button" class="tk-tag-x" title="Quitar" @onclick="@(() => RemoveAsync(tag))">&times;</button>
+            </span>
+        }
+        @if (Selected.Count < MaxTags)
+        {
+            <input class="tk-tagpicker-input"
+                   value="@_input"
+                   placeholder="@(Selected.Count == 0 ? "Escribe y Enter para etiquetar..." : "Agregar...")"
+                   @oninput="@(e => { _input = e.Value?.ToString() ?? ""; _open = _input.Trim().Length > 0; })"
+                   @onkeydown="OnKeyDownAsync"
+                   @onfocus="@(() => _open = _input.Trim().Length > 0)" />
+        }
+    </div>
+    @if (_open && Suggestions.Count > 0)
+    {
+        <div class="tk-tagpicker-pop">
+            @foreach (var tag in Suggestions)
+            {
+                <button type="button" class="tk-tagpicker-item" @onclick="@(() => SelectAsync(tag))">
+                    <span class="tk-tag" style="@TagStyle(tag)">@tag.Name</span>
+                </button>
+            }
+        </div>
+    }
+    @if (_error is not null)
+    {
+        <div class="tk-field-error">@_error</div>
+    }
+</div>
+
+@code {
+    // Chips de etiquetas del catalogo del tenant: sugiere existentes y crea nuevas con Enter.
+    [Parameter] public List<TaskItemTagDto> Selected { get; set; } = new();
+    [Parameter] public EventCallback<List<TaskItemTagDto>> SelectedChanged { get; set; }
+    [Parameter] public int MaxTags { get; set; } = 10;
+
+    private List<TaskItemTagDto> _all = new();
+    private string _input = "";
+    private bool _open;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _all = (await TasksSvc.ListTagsAsync()).ToList();
+    }
+
+    private List<TaskItemTagDto> Suggestions
+    {
+        get
+        {
+            var text = _input.Trim();
+            return _all
+                .Where(t => Selected.All(s => s.Id != t.Id))
+                .Where(t => text.Length == 0 || t.Name.Contains(text, StringComparison.OrdinalIgnoreCase))
+                .Take(8)
+                .ToList();
+        }
+    }
+
+    private static string TagStyle(TaskItemTagDto tag)
+        => string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;";
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") { return; }
+        var text = _input.Trim();
+        if (text.Length == 0) { return; }
+        _error = null;
+        if (Selected.Count >= MaxTags)
+        {
+            _error = $"Maximo {MaxTags} etiquetas.";
+            return;
+        }
+        var existing = _all.FirstOrDefault(t => string.Equals(t.Name, text, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            await SelectAsync(existing);
+            return;
+        }
+        // Nueva etiqueta del catalogo del tenant (color por defecto del sistema).
+        var result = await TasksSvc.CreateTagAsync(text, null);
+        if (!result.IsOk)
+        {
+            _error = result.Error;
+            return;
+        }
+        _all.Add(result.Value!);
+        await SelectAsync(result.Value!);
+    }
+
+    private async Task SelectAsync(TaskItemTagDto tag)
+    {
+        _error = null;
+        if (Selected.Count >= MaxTags)
+        {
+            _error = $"Maximo {MaxTags} etiquetas.";
+            return;
+        }
+        if (Selected.All(s => s.Id != tag.Id))
+        {
+            Selected.Add(tag);
+            await SelectedChanged.InvokeAsync(Selected);
+        }
+        _input = "";
+        _open = false;
+    }
+
+    private async Task RemoveAsync(TaskItemTagDto tag)
+    {
+        Selected.RemoveAll(s => s.Id == tag.Id);
+        await SelectedChanged.InvokeAsync(Selected);
+    }
+}

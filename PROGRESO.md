@@ -273,3 +273,81 @@ cuando llegue la fase de descubrimiento/ETL.)
 - Consecutivo con CAS + retry y EnsureSequenceAsync fuera de la transaccion (un error
   de unicidad en PG envenenaria la transaccion del caso de uso).
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-03 - Sesion 6: FASE 3 ola 2 - UI del nucleo de tareas (Blazor SuperAdmin)
+
+**Agentes**: 1 agente implementador + validacion funcional en navegador real (preview).
+
+**Hecho**:
+- /actividades reemplaza el stub: TaskKanban con columnas fijas por estado
+  (Pendiente/Activa/En proceso/Terminada/Suspendida; Closed solo en lista con toggle
+  "ver cerradas"), tarjetas con numero, prioridad (chips color), avatar del encargado,
+  entrega (rojo si vencida), tags y borde con Color; drag and drop nativo ->
+  ChangeStatusAsync con toast del motivo si la transicion es invalida; vista Lista
+  (tabla completa); barra de filtros combinables server-side via ListAsync (texto,
+  estados, prioridad, encargado, tipo, proyecto, etiqueta, rango de entrega) + limpiar.
+- Wizard "Nueva actividad" (TaskWizard, modal 3 pasos con barra de pasos): Informacion
+  (categoria->tipo en cascada, encargado, entrega no-pasada, titulo max 200,
+  descripcion, prioridad chips pastel, TagPicker con sugerencias + crear con Enter,
+  max 10), Contacto y proyecto (solicitante, email validado, telefono, CC chips
+  validados, proyecto opcional/preseleccionado), Confirmar (resumen + CreateAsync);
+  errores en rojo bajo el campo, toast con el numero asignado al crear.
+- Detalle de tarea (TaskDetailModal, modal grande 2 columnas): hero con numero +
+  titulo editable inline y pills (encargado reasignable, entrega, tiempo usado,
+  prioridad, estado SOLO con transiciones validas de TaskItemStateMachine); acciones
+  Suspender/Reanudar/Cerrar con confirmacion; descripcion editable; worklog con
+  CRONOMETRO via JS interop (wwwroot/js/task-timer.js, estado en JS, Guardar avance ->
+  Kind=Timer) + entrada manual HH:MM (Kind=Manual) + historial (10) y total "4h 32m";
+  card Resumen (tipo, proyecto con link, solicitante, fechas); card Actividad
+  (comentarios + acciones automaticas); card Adjuntos por URL. Conflict -> aviso
+  "otro usuario modifico la tarea" + recarga.
+- /proyectos reemplaza el stub: grid de tarjetas (codigo, nombre, estado con color,
+  owner, fechas, contadores) + modal crear/editar con validacion + archivar/restaurar;
+  /proyectos/{id} (ProyectoDetalle): cabecera con estado (dropdown), owner, fechas,
+  miembros con avatares y panel agregar/quitar/CanEdit + TaskKanban REUTILIZADO con
+  ProjectId fijo + boton "+ Tarea" con proyecto preseleccionado en el wizard.
+- Tiempo real: ITaskBroadcaster (Application, NoOp por defecto) + TaskHub +
+  SignalRTaskBroadcaster (SuperAdmin/RealTime, patron ChatHub), MapHub /hubs/tasks;
+  el kanban se suscribe al grupo del tenant y recarga al recibir "TaskChanged"
+  {taskId, status}; los componentes difunden tras crear/editar/cambiar estado.
+- Componentes en Components/Shared/Tasks/: TaskKanban, TaskWizard, TaskDetailModal,
+  TagPicker, PriorityChip, TaskToasts, TaskUi.cs (labels/colores/formatos). CSS nuevo
+  seccion "Nucleo de tareas" (tk-*) en app.css reutilizando patrones tb-*/pl-*.
+
+**Fixes sobre ola 1 encontrados al probar contra PG real**:
+- ProjectService.ListMembersAsync: OrderBy sobre propiedad del record DTO no
+  traducible por EF (InvalidOperationException en PG real); ahora ordena por el campo
+  antes de proyectar.
+- TaskKanban recarga con scope EF propio (IServiceScopeFactory +
+  AmbientTenantContext.Begin) + SemaphoreSlim: el reload disparado por el hub
+  interlevaba consultas con el DbContext del circuito ("second operation started on
+  this context").
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln 0 errores; tests 35 Domain + 1 Application + 41 Integration
+  verdes (incluye TaskCore y TenantIsolation, Testcontainers duales).
+- App contra Postgres 5442 (--no-launch-profile, :5233/:5234): /login 200; /actividades
+  y /proyectos 302->login sin sesion, 200 con sesion.
+- E2E en navegador real (preview + login demo-admin@ecorex.tareas): kanban con 5
+  columnas y seed T00001..T00005; wizard crea T00006 (verificado en BD); validacion
+  por paso; cascada categoria->tipo; detalle T00006: dropdown de estado solo con
+  transiciones validas, cambio Pending->InProgress con actividad automatica,
+  cronometro real (12s+ display JS) -> worklog Timer 23s, manual 1h30m, comentario;
+  drag invalido Suspendida->Terminada: toast "Transicion invalida: Suspended -> Done"
+  y la tarjeta vuelve; drag valido Suspendida->En proceso: toast + columna actualizada;
+  vista Lista + filtro prioridad Alta server-side; /proyectos grid + modal validado;
+  detalle de proyecto con kanban filtrado (solo 3 tareas del proyecto) y panel de
+  miembros (agregar OK). /hubs/tasks negotiate 200.
+- NO probado E2E: refresco cross-sesion por SignalR (requiere 2 navegadores; hub
+  mapeado, broadcaster invocado sin errores en log), upload real de adjuntos (por
+  diseno queda por URL).
+
+**Deudas / TODO**:
+- Archivar tarea: boton deshabilitado en el detalle; ITaskItemService no expone
+  archive (IsArchived existe en la entidad). Agregar en una ola posterior.
+- Adjuntos: upload real a object storage (FASE posterior); hoy nombre + URL.
+- Paginacion de lista: PageSize 200 con aviso "mostrando X de Y"; falta paginador.
+- Policies propias (Actividades.Editar / Proyectos.Editar) siguen TenantMember.
+- .claude/launch.json: nueva config "superadmin-tasks" (pwsh + ECOREX_DB_CONNECTION
+  dev 5442, puerto 5234) usada para la validacion en navegador.
+- Sin commit (pedido explicito): cambios en working tree.

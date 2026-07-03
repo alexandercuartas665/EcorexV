@@ -1,0 +1,439 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject ITaskItemService TasksSvc
+@inject IActivityTypeService TypesSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IProjectService ProjectsSvc
+@inject ITaskBroadcaster Broadcaster
+
+@if (_visible)
+{
+    <div class="modal-overlay" @onclick="Close">
+        <div class="modal-dialog tk-wizard" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Nueva actividad</h3>
+                <button class="modal-close" @onclick="Close">&times;</button>
+            </div>
+
+            @* Barra de pasos *@
+            <div class="tk-steps">
+                @foreach (var (index, label) in new[] { (1, "Informacion"), (2, "Contacto y proyecto"), (3, "Confirmar") })
+                {
+                    <div class="tk-step @(_step == index ? "on" : "") @(_step > index ? "done" : "")">
+                        <span class="tk-step-num">
+                            @if (_step > index)
+                            {
+                                @((MarkupString)"&#10003;")
+                            }
+                            else
+                            {
+                                @index
+                            }
+                        </span>
+                        <span class="tk-step-lbl">@label</span>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-body">
+                @if (_step == 1)
+                {
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Categoria *</label>
+                            <select class="form-control" value="@_category" @onchange="OnCategoryChanged">
+                                <option value="">-- Selecciona --</option>
+                                @foreach (var cat in Categories)
+                                {
+                                    <option value="@cat">@cat</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Tipo de actividad *</label>
+                            <select class="form-control" value="@(_activityTypeId?.ToString() ?? "")" @onchange="@(e => _activityTypeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(string.IsNullOrEmpty(_category))">
+                                <option value="">-- Selecciona --</option>
+                                @foreach (var t in _types.Where(t => t.Category == _category))
+                                {
+                                    <option value="@t.Id">@t.Name</option>
+                                }
+                            </select>
+                            @if (_errors.TryGetValue("type", out var typeErr))
+                            {
+                                <div class="tk-field-error">@typeErr</div>
+                            }
+                        </div>
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Encargado</label>
+                            <select class="form-control" value="@(_assigneeId?.ToString() ?? "")" @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                                <option value="">Sin asignar</option>
+                                @foreach (var u in _users)
+                                {
+                                    <option value="@u.Id">@u.Email</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Fecha de entrega</label>
+                            <input type="date" class="form-control" @bind="_dueDate" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                            @if (_errors.TryGetValue("due", out var dueErr))
+                            {
+                                <div class="tk-field-error">@dueErr</div>
+                            }
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Titulo *</label>
+                        <input class="form-control" @bind="_title" @bind:event="oninput" maxlength="200" placeholder="Que hay que hacer?" autocomplete="off" />
+                        @if (_errors.TryGetValue("title", out var titleErr))
+                        {
+                            <div class="tk-field-error">@titleErr</div>
+                        }
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Descripcion</label>
+                        <textarea class="form-control" rows="3" @bind="_description" placeholder="Detalles, contexto..."></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Prioridad</label>
+                        <div class="tk-priority-pick">
+                            @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                            {
+                                <button type="button" class="tk-priority-opt @TaskUi.PriorityClass(p) @(_priority == p ? "on" : "")" @onclick="@(() => _priority = p)">
+                                    @TaskUi.PriorityLabel(p)
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Etiquetas (max 10)</label>
+                        <TagPicker @bind-Selected="_tags" />
+                    </div>
+                }
+                else if (_step == 2)
+                {
+                    <div class="field">
+                        <label class="form-label">Numero de actividad</label>
+                        <input class="form-control" value="Se asigna al crear (consecutivo T#####)" disabled />
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Nombre del solicitante</label>
+                            <input class="form-control" @bind="_requesterName" placeholder="Ej. Cliente Alfa SAS" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Telefono</label>
+                            <input class="form-control" @bind="_requesterPhone" placeholder="+57 ..." />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Email del solicitante</label>
+                        <input class="form-control" @bind="_requesterEmail" @bind:event="oninput" placeholder="correo@dominio.com" />
+                        @if (_errors.TryGetValue("email", out var emailErr))
+                        {
+                            <div class="tk-field-error">@emailErr</div>
+                        }
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Correos CC</label>
+                        <div class="tk-tagpicker-chips tk-cc-box">
+                            @foreach (var cc in _ccEmails)
+                            {
+                                <span class="tk-tag tk-cc">
+                                    @cc
+                                    <button type="button" class="tk-tag-x" title="Quitar" @onclick="@(() => _ccEmails.Remove(cc))">&times;</button>
+                                </span>
+                            }
+                            <input class="tk-tagpicker-input" @bind="_ccInput" @bind:event="oninput" @onkeydown="OnCcKeyDown" placeholder="Escribe un correo y Enter..." />
+                        </div>
+                        @if (_errors.TryGetValue("cc", out var ccErr))
+                        {
+                            <div class="tk-field-error">@ccErr</div>
+                        }
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Proyecto (opcional)</label>
+                        <select class="form-control" value="@(_projectId?.ToString() ?? "")" @onchange="@(e => _projectId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(_presetProjectId is not null)">
+                            <option value="">Sin proyecto</option>
+                            @foreach (var p in _projects)
+                            {
+                                <option value="@p.Id">@p.Code - @p.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    var type = _types.FirstOrDefault(t => t.Id == _activityTypeId);
+                    var assignee = _users.FirstOrDefault(u => u.Id == _assigneeId);
+                    var project = _projects.FirstOrDefault(p => p.Id == _projectId);
+                    <div class="tk-summary">
+                        <div class="tk-summary-row"><span>Tipo</span><strong>@(type is null ? "-" : $"{type.Category} / {type.Name}")</strong></div>
+                        <div class="tk-summary-row"><span>Titulo</span><strong>@_title</strong></div>
+                        @if (!string.IsNullOrWhiteSpace(_description))
+                        {
+                            <div class="tk-summary-row"><span>Descripcion</span><strong class="tk-summary-desc">@_description</strong></div>
+                        }
+                        <div class="tk-summary-row"><span>Prioridad</span><PriorityChip Priority="_priority" /></div>
+                        <div class="tk-summary-row"><span>Encargado</span><strong>@(assignee?.Email ?? "Sin asignar")</strong></div>
+                        <div class="tk-summary-row"><span>Entrega</span><strong>@(_dueDate?.ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
+                        @if (_tags.Count > 0)
+                        {
+                            <div class="tk-summary-row">
+                                <span>Etiquetas</span>
+                                <span>
+                                    @foreach (var tag in _tags)
+                                    {
+                                        <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
+                                    }
+                                </span>
+                            </div>
+                        }
+                        <div class="tk-summary-row"><span>Solicitante</span><strong>@(string.IsNullOrWhiteSpace(_requesterName) ? "-" : _requesterName)</strong></div>
+                        @if (!string.IsNullOrWhiteSpace(_requesterEmail))
+                        {
+                            <div class="tk-summary-row"><span>Email</span><strong>@_requesterEmail</strong></div>
+                        }
+                        @if (_ccEmails.Count > 0)
+                        {
+                            <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _ccEmails)</strong></div>
+                        }
+                        <div class="tk-summary-row"><span>Proyecto</span><strong>@(project is null ? "Sin proyecto" : $"{project.Code} - {project.Name}")</strong></div>
+                    </div>
+                    @if (_errors.TryGetValue("create", out var createErr))
+                    {
+                        <div class="tk-field-error" style="margin-top:10px;">@createErr</div>
+                    }
+                }
+            </div>
+
+            <div class="modal-foot">
+                @if (_step > 1)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="@(() => _step--)" disabled="@_busy">&larr; Atras</button>
+                }
+                <span style="flex:1;"></span>
+                <button class="btn btn-outline-secondary" @onclick="Close" disabled="@_busy">Cancelar</button>
+                @if (_step < 3)
+                {
+                    <button class="btn btn-primary" @onclick="NextStep">Siguiente &rarr;</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear actividad")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // Wizard "Nueva actividad" (FASE 3): version core del ctrTareasII legacy.
+    // Los pasos Formulario/Formacion (BPMN) llegan en FASE 4.
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Parameter] public EventCallback<TaskItemDetailDto> OnCreated { get; set; }
+
+    private bool _visible;
+    private bool _busy;
+    private int _step = 1;
+    private readonly Dictionary<string, string> _errors = new();
+
+    private List<ActivityTypeDto> _types = new();
+    private List<TenantUserDto> _users = new();
+    private List<ProjectDto> _projects = new();
+
+    // Paso 1
+    private string _category = "";
+    private Guid? _activityTypeId;
+    private Guid? _assigneeId;
+    private DateTime? _dueDate;
+    private string _title = "";
+    private string _description = "";
+    private TaskPriority _priority = TaskPriority.Medium;
+    private List<TaskItemTagDto> _tags = new();
+
+    // Paso 2
+    private string _requesterName = "";
+    private string _requesterEmail = "";
+    private string _requesterPhone = "";
+    private readonly List<string> _ccEmails = new();
+    private string _ccInput = "";
+    private Guid? _projectId;
+    private Guid? _presetProjectId;
+
+    private IEnumerable<string> Categories => _types.Select(t => t.Category).Distinct().OrderBy(c => c);
+
+    /// <summary>Abre el wizard limpio; con proyecto preseleccionado (detalle de proyecto) queda fijo.</summary>
+    public async Task OpenAsync(Guid? presetProjectId = null)
+    {
+        _step = 1;
+        _busy = false;
+        _errors.Clear();
+        _category = "";
+        _activityTypeId = null;
+        _assigneeId = null;
+        _dueDate = null;
+        _title = "";
+        _description = "";
+        _priority = TaskPriority.Medium;
+        _tags = new List<TaskItemTagDto>();
+        _requesterName = "";
+        _requesterEmail = "";
+        _requesterPhone = "";
+        _ccEmails.Clear();
+        _ccInput = "";
+        _presetProjectId = presetProjectId;
+        _projectId = presetProjectId;
+
+        _types = (await TypesSvc.ListAsync()).Where(t => !t.IsArchived).ToList();
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _projects = (await ProjectsSvc.ListAsync()).ToList();
+        _visible = true;
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        if (_busy) { return; }
+        _visible = false;
+    }
+
+    private void OnCategoryChanged(ChangeEventArgs e)
+    {
+        _category = e.Value?.ToString() ?? "";
+        _activityTypeId = null;
+    }
+
+    private void NextStep()
+    {
+        if (!ValidateStep(_step)) { return; }
+        _step++;
+    }
+
+    private bool ValidateStep(int step)
+    {
+        _errors.Clear();
+        if (step == 1)
+        {
+            if (_activityTypeId is null)
+            {
+                _errors["type"] = "Selecciona el tipo de actividad.";
+            }
+            if (string.IsNullOrWhiteSpace(_title))
+            {
+                _errors["title"] = "El titulo es obligatorio.";
+            }
+            else if (_title.Trim().Length > 200)
+            {
+                _errors["title"] = "El titulo no puede superar 200 caracteres.";
+            }
+            if (_dueDate is not null && _dueDate.Value.Date < DateTime.Now.Date)
+            {
+                _errors["due"] = "La fecha de entrega no puede estar en el pasado.";
+            }
+        }
+        else if (step == 2)
+        {
+            if (!string.IsNullOrWhiteSpace(_requesterEmail) && !TaskUi.IsValidEmail(_requesterEmail))
+            {
+                _errors["email"] = "El email no tiene un formato valido.";
+            }
+            if (!string.IsNullOrWhiteSpace(_ccInput))
+            {
+                _errors["cc"] = "Presiona Enter para agregar el correo CC (o borra el texto).";
+            }
+        }
+        return _errors.Count == 0;
+    }
+
+    private void OnCcKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") { return; }
+        var value = _ccInput.Trim();
+        if (value.Length == 0) { return; }
+        if (!TaskUi.IsValidEmail(value))
+        {
+            _errors["cc"] = $"'{value}' no es un correo valido.";
+            return;
+        }
+        _errors.Remove("cc");
+        if (!_ccEmails.Contains(value, StringComparer.OrdinalIgnoreCase))
+        {
+            _ccEmails.Add(value);
+        }
+        _ccInput = "";
+    }
+
+    private async Task CreateAsync()
+    {
+        // Revalida los pasos previos por si el usuario retrocedio y borro datos.
+        if (!ValidateStep(1)) { _step = 1; return; }
+        if (!ValidateStep(2)) { _step = 2; return; }
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            DateTimeOffset? due = _dueDate is null
+                ? null
+                : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset);
+
+            var request = new CreateTaskItemRequest(
+                Title: _title.Trim(),
+                ActivityTypeId: _activityTypeId!.Value,
+                Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                Priority: _priority,
+                AssigneeTenantUserId: _assigneeId,
+                DueDate: due,
+                RequesterName: string.IsNullOrWhiteSpace(_requesterName) ? null : _requesterName.Trim(),
+                RequesterEmail: string.IsNullOrWhiteSpace(_requesterEmail) ? null : _requesterEmail.Trim(),
+                RequesterPhone: string.IsNullOrWhiteSpace(_requesterPhone) ? null : _requesterPhone.Trim(),
+                CcEmails: _ccEmails.Count == 0 ? null : _ccEmails.ToList(),
+                ProjectId: _projectId,
+                Color: null,
+                TagIds: _tags.Count == 0 ? null : _tags.Select(t => t.Id).ToList());
+
+            var result = await TasksSvc.CreateAsync(request, actor, actorName);
+            if (!result.IsOk)
+            {
+                _errors["create"] = result.Error ?? "No se pudo crear la actividad.";
+                return;
+            }
+
+            var detail = result.Value!;
+            if (await TenantIdAsync() is Guid tenantId)
+            {
+                await Broadcaster.TaskChangedAsync(tenantId, detail.Item.Id, detail.Item.Status);
+            }
+            _visible = false;
+            await OnCreated.InvokeAsync(detail);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+    }
+
+    private async Task<Guid?> TenantIdAsync()
+    {
+        if (AuthState is null) { return null; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var id) ? id : null;
+    }
+}

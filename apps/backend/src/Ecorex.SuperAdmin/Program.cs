@@ -55,6 +55,8 @@ builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantC
 // Chat en tiempo real (SignalR): reemplaza el broadcaster no-op por el real.
 builder.Services.AddSignalR();
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRChatBroadcaster>();
+// Nucleo de tareas en tiempo real (FASE 3): reemplaza el broadcaster no-op por el real.
+builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).
@@ -129,6 +131,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapHub<Ecorex.SuperAdmin.RealTime.ChatHub>("/hubs/chat");
+app.MapHub<Ecorex.SuperAdmin.RealTime.TaskHub>("/hubs/tasks");
 
 app.MapPost("/auth/login", async (
     HttpContext http,

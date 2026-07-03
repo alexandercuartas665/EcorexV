@@ -1,14 +1,36 @@
 @page "/actividades"
 @attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Actividades.Editar"). *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
 
-<ModuleStub Section="Modulos"
-            Title="Actividades"
-            Description="Creacion, administracion y programacion de actividades del proceso."
-            Phase="Fase 3"
-            LegacyCode="000038"
-            LegacyNote="Referencia: modulos legacy 000038 (crear actividad), 000636 (administrar actividades) y 000889 (programar actividad).">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
-    </Icon>
-</ModuleStub>
+<PageTitle>Actividades - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Modulos</span>
+    <span class="sep">/</span>
+    <span class="cur">Actividades</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
+            </div>
+            <span>Modulos</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Gestor de <span>actividades</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Creacion, administracion y seguimiento de las actividades del proceso (legacy 000038 / 000636 / 000889).</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" @onclick="@(() => _kanban is null ? Task.CompletedTask : _kanban.OpenNewTaskAsync())">+ Nueva actividad</button>
+    </div>
+</div>
+
+<TaskKanban @ref="_kanban" />
+
+@code {
+    private TaskKanban? _kanban;
+}

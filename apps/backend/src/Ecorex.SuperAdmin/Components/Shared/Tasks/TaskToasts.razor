@@ -1,0 +1,54 @@
+@implements IDisposable
+
+@if (_toasts.Count > 0)
+{
+    <div class="tk-toasts">
+        @foreach (var toast in _toasts)
+        {
+            <div class="tk-toast @(toast.Kind)">
+                @if (toast.Kind == "error")
+                {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                }
+                <span>@toast.Text</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // Host de toasts sin dependencias: el padre lo referencia con @ref y llama Success/Error.
+    private readonly List<ToastItem> _toasts = new();
+    private readonly List<System.Threading.Timer> _timers = new();
+
+    public void Success(string text) => Show(text, "ok");
+    public void Error(string text) => Show(text, "error");
+
+    private void Show(string text, string kind)
+    {
+        var toast = new ToastItem(text, kind);
+        _toasts.Add(toast);
+        StateHasChanged();
+        var timer = new System.Threading.Timer(_ =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                _toasts.Remove(toast);
+                StateHasChanged();
+            });
+        }, null, 4200, System.Threading.Timeout.Infinite);
+        _timers.Add(timer);
+    }
+
+    public void Dispose()
+    {
+        foreach (var t in _timers) { t.Dispose(); }
+        _timers.Clear();
+    }
+
+    private sealed record ToastItem(string Text, string Kind);
+}

@@ -1,0 +1,7 @@
+@using Ecorex.Domain.Enums
+
+<span class="tk-priority @TaskUi.PriorityClass(Priority)">@TaskUi.PriorityLabel(Priority)</span>
+
+@code {
+    [Parameter, EditorRequired] public TaskPriority Priority { get; set; }
+}

@@ -370,8 +370,8 @@ else
             {
                 var key = m.Groups[1].Value;
                 if (_fieldSamples.TryGetValue(key, out var s)) { return s; }
-                var field = _fields.FirstOrDefault(f => string.Equals(f.FieldKey, key, StringComparison.OrdinalIgnoreCase));
-                return field is not null ? $"[{field.Label}]" : "(dato)";
+                var fieldDef = _fields.FirstOrDefault(f => string.Equals(f.FieldKey, key, StringComparison.OrdinalIgnoreCase));
+                return fieldDef is not null ? $"[{fieldDef.Label}]" : "(dato)";
             });
             var baseTag = $"<base href=\"{Nav.BaseUri}\">";
             var headIdx = result.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);

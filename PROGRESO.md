@@ -159,3 +159,51 @@ cuando llegue la fase de descubrimiento/ETL.)
 - BusinessUnitModalKind.ImageAdvisory se conserva como valor legado (enum persistido
   como texto) para leer filas existentes; la UI ya no lo ofrece y los defaults de
   BusinessUnitService crean una sola unidad "General".
+
+---
+
+## 2026-07-03 - Sesion 4: Migracion a .NET 10 + EF Core 10 (ADR-0012)
+
+**Agentes**: agente unico (migracion TFM + paquetes + validacion completa).
+
+**Hecho**:
+- TFM net9.0 -> net10.0 en los 13 csproj de la solucion (10 src + 3 tests).
+- Stack completo a 10.x estable, sin mezclar majors en EF: EF Core (Core/Relational/
+  Design/SqlServer) 9.0.4 -> 10.0.9; Npgsql.EntityFrameworkCore.PostgreSQL 9.0.4 ->
+  10.0.2; EFCore.NamingConventions 9.0.0 -> 10.0.1 (existe estable para EF10, no hubo
+  bloqueo); AspNetCore DataProtection*/JwtBearer/Mvc.Testing 9.0.4 -> 10.0.9;
+  OpenApi/Components.WebAssembly(+Server) 9.0.16 -> 10.0.9; SignalR.Client 9.0.0 ->
+  10.0.9; Extensions.Hosting 9.0.16 -> 10.0.9; Extensions.* 9.0.4 -> 10.0.9;
+  tool local dotnet-ef 9.0.4 -> 10.0.9. Testcontainers/xunit/QuestPDF/PuppeteerSharp/
+  System.IdentityModel.Tokens.Jwt sin cambios (el build no lo exigio).
+- Unico fix de codigo por C# 14: variable local `field` -> `fieldDef` en accessor de
+  Plantillas.razor (CS9273: `field` es keyword en accessors).
+- Migraciones: has-pending-model-changes = "No changes" en ambos contextos
+  (EcorexDbContext y SqlServerEcorexDbContext) bajo EF10. Sin Ef10ModelSync, sin
+  tocar snapshots ni migraciones historicas. Nota: el contexto SqlServer requiere
+  --startup-project src/Ecorex.Infrastructure.SqlServer (el factory design-time vive
+  ahi; EF tools solo buscan factories en el startup assembly).
+- ADR-0012 creado (docs/decisiones/0012-migracion-net10.md); ADR-0003 marcado como
+  Reemplazado. CLAUDE.md seccion 4 actualizada con el stack real.
+
+**Validacion (toda verde)**:
+- dotnet build Ecorex.sln: 0 errores.
+- Domain.Tests 1/1 y Application.Tests 1/1 en net10.0.
+- Integration TenantIsolation 6/6 (matriz dual Testcontainers: postgres:16-alpine +
+  mssql 2022).
+- SuperAdmin /login 200 contra Postgres 5442 y contra SQL Server 1443
+  (ECOREX_DB_PROVIDER=SqlServer); ambos procesos detenidos al terminar.
+
+**Siguiente**:
+- Actualizar imagenes base de Dockerfile.superadmin / Dockerfile.workers a 10.0
+  antes del proximo deploy.
+- Resolver NU1903 (Microsoft.OpenApi 2.0.0 transitiva, GHSA-v5pm-xwqc-g5wc) y
+  ASPDEPR005 (KnownNetworks -> KnownIPNetworks en SuperAdmin/Program.cs).
+- FASE 3: nucleo tareas/tableros/proyectos sobre TaskBoard/TaskCard.
+
+**Bloqueos**: ninguno.
+
+**Decisiones**:
+- Todo el stack EF/AspNetCore queda en la misma major (10.x); EFCore.NamingConventions
+  10.0.1 existia estable, asi que no aplico el plan B de quedarse en 9.x sobre net10.
+- Sin commit (pedido explicito de la sesion): cambios en working tree.

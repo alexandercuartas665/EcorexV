@@ -97,11 +97,13 @@ construir nucleo tareas/tableros/proyectos + motores, menu del Prototipo Final.
 
 ## 4. Stack tecnico
 
-- **.NET**: el codigo heredado apunta a **net9.0**; el objetivo del proyecto es
-  **.NET 10** (SDK 10.0.301 instalado en esta maquina). La migracion de TFM es un
-  cambio explicito con su propio commit + ADR.
+- **.NET 10**: toda la solucion (13 csproj) apunta a **net10.0** (SDK 10.0.301;
+  migrada el 2026-07-03, ADR-0012, que reemplaza al puente net9 de ADR-0003).
 - Blazor (Server interactivo) para consola. SignalR para tableros/notificaciones en vivo.
-- EF Core: PostgreSQL (snake_case, jsonb) Y SQL Server (DAL dual). Query filters por tenant.
+- EF Core **10.0.9** (paquetes ASP.NET Core/Extensions tambien 10.0.9): PostgreSQL
+  (Npgsql.EntityFrameworkCore.PostgreSQL 10.0.2, snake_case via EFCore.NamingConventions
+  10.0.1, jsonb) Y SQL Server (DAL dual). Query filters por tenant. Tool local
+  dotnet-ef 10.0.9. Sin migracion Ef10ModelSync: EF10 no altero el modelo.
 - Redis: cache, locks, rate limiting. RabbitMQ + MassTransit para eventos de negocio.
 - Serilog + OpenTelemetry. Docker para infraestructura local.
 - Clean Architecture + monolito modular preparado para microservicios.

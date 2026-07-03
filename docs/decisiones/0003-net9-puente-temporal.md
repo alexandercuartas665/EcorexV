@@ -1,7 +1,7 @@
 # ADR-0003: .NET 9 como puente temporal hasta migrar a .NET 10
 
 **Fecha:** 2026-05-19
-**Estado:** Aceptado
+**Estado:** Reemplazado por ADR-0012 (migracion a .NET 10, 2026-07-03)
 **Contexto del proyecto:** ECOREX.tareas - Scaffold inicial (hoja de ruta seccion 4)
 
 ## Contexto

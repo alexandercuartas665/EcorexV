@@ -43,6 +43,7 @@ builder.Services.Configure<JwtSettings>(options =>
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddScoped<ITenantContext, HttpContextTenantContext>();
+builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentAssetReader, Ecorex.Api.Auth.NullAgentAssetReader>();
 
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 builder.Services

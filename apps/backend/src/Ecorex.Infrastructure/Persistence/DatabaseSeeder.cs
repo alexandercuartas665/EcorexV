@@ -575,4 +575,133 @@ public sealed class DatabaseSeeder
             definition.Nodes.Count, definition.Edges.Count);
     }
 
+    // ---- Formulario dinamico demo (FASE 4 ola 2, ADR-0015) ----
+
+    public const string DemoFormCode = "FRM-001";
+
+    /// <summary>
+    /// Siembra el formulario demo "Solicitud de cotizacion" (FRM-001) para el tenant demo
+    /// (SKY SYSTEM): 2 contenedores y 7 preguntas Tier 1 variadas, ACTIVO, y vinculado al
+    /// nodo "Cotizacion" del flujo demo COT-COM via WorkflowNodeForm (si el flujo existe).
+    /// Idempotente por Code. Solo Development.
+    /// </summary>
+    public async Task EnsureDynamicFormsDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.FormDefinitions.IgnoreQueryFilters()
+                .AnyAsync(d => d.TenantId == tenant.Id && d.Code == DemoFormCode, cancellationToken))
+        {
+            return;
+        }
+
+        var definition = new FormDefinition
+        {
+            TenantId = tenant.Id,
+            Code = DemoFormCode,
+            Title = "Solicitud de cotizacion",
+            Description = "Formulario demo del paso Cotizacion del flujo COT-COM.",
+            Status = FormStatus.Active,
+            Revision = 1
+        };
+        _db.FormDefinitions.Add(definition);
+
+        var datosCliente = new FormContainer
+        {
+            TenantId = tenant.Id,
+            DefinitionId = definition.Id,
+            Name = "Datos del solicitante",
+            ContainerType = FormContainerType.Segment,
+            SortOrder = 0
+        };
+        var detalle = new FormContainer
+        {
+            TenantId = tenant.Id,
+            DefinitionId = definition.Id,
+            Name = "Detalle de la solicitud",
+            ContainerType = FormContainerType.Segment,
+            SortOrder = 1
+        };
+        _db.FormContainers.AddRange(datosCliente, detalle);
+
+        FormQuestion Q(FormContainer container, int order, string fieldCode, string label,
+            FormControlType type, bool required, string gridCol,
+            string? optionsJson = null, string? validationJson = null,
+            string? caption = null, string? helpText = null, string? numeral = null)
+            => new()
+            {
+                TenantId = tenant.Id,
+                DefinitionId = definition.Id,
+                ContainerId = container.Id,
+                FieldCode = fieldCode,
+                Label = label,
+                ControlType = type,
+                Required = required,
+                SortOrder = order,
+                GridCol = gridCol,
+                OptionsJson = optionsJson,
+                ValidationJson = validationJson,
+                Caption = caption,
+                HelpText = helpText,
+                Numeral = numeral
+            };
+
+        _db.FormQuestions.AddRange(
+            Q(datosCliente, 0, "nombre_solicitante", "Nombre del solicitante", FormControlType.Text,
+                required: true, "col-md-6",
+                validationJson: """{"minLength":3,"maxLength":120}""", numeral: "1.1"),
+            Q(datosCliente, 1, "email_solicitante", "Correo electronico", FormControlType.Text,
+                required: true, "col-md-6",
+                validationJson: """{"pattern":"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"}""",
+                helpText: "Se usa para enviar la cotizacion.", numeral: "1.2"),
+            Q(detalle, 0, "tipo_servicio", "Tipo de servicio", FormControlType.Select,
+                required: true, "col-md-6",
+                optionsJson: """[{"id":"licencias","label":"Licencias de software"},{"id":"desarrollo","label":"Desarrollo a la medida"},{"id":"soporte","label":"Soporte y mantenimiento"}]""",
+                numeral: "2.1"),
+            Q(detalle, 1, "prioridad", "Prioridad de la solicitud", FormControlType.Radio,
+                required: true, "col-md-6",
+                optionsJson: """[{"id":"alta","label":"Alta"},{"id":"media","label":"Media"},{"id":"baja","label":"Baja"}]""",
+                numeral: "2.2"),
+            Q(detalle, 2, "cantidad", "Cantidad estimada", FormControlType.Number,
+                required: true, "col-md-4",
+                validationJson: """{"minValue":1,"maxValue":10000}""", numeral: "2.3"),
+            Q(detalle, 3, "fecha_requerida", "Fecha requerida", FormControlType.Date,
+                required: false, "col-md-4", numeral: "2.4"),
+            Q(detalle, 4, "acepta_contacto", "Acepta ser contactado por WhatsApp", FormControlType.Toggle,
+                required: false, "col-md-4", numeral: "2.5"),
+            Q(detalle, 5, "descripcion", "Descripcion de la necesidad", FormControlType.TextArea,
+                required: true, "col-12",
+                validationJson: """{"minLength":10,"maxLength":2000}""",
+                caption: "Describe el alcance con el mayor detalle posible.", numeral: "2.6"));
+
+        // Vinculo nodo "Cotizacion" del flujo demo COT-COM -> este formulario.
+        var workflowDefinitionId = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenant.Id && d.ProcessCode == DemoWorkflowProcessCode && d.IsPublished)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (workflowDefinitionId is Guid wfId)
+        {
+            var cotizacionNode = await _db.WorkflowNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.DefinitionId == wfId && n.BpmnElementId == "Task_Cotizacion", cancellationToken);
+            if (cotizacionNode is not null
+                && !await _db.WorkflowNodeForms.IgnoreQueryFilters()
+                    .AnyAsync(f => f.NodeId == cotizacionNode.Id, cancellationToken))
+            {
+                _db.WorkflowNodeForms.Add(new WorkflowNodeForm
+                {
+                    TenantId = tenant.Id,
+                    NodeId = cotizacionNode.Id,
+                    DefinitionId = definition.Id
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Formulario demo {Code} sembrado para {Tenant} (2 contenedores, 8 preguntas, vinculado al nodo Cotizacion: {Linked}).",
+            DemoFormCode, tenant.Name, workflowDefinitionId is not null);
+    }
+
 }

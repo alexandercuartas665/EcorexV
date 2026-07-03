@@ -1212,6 +1212,469 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("follow_up_tasks", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormContainer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContainerType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("container_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("Style")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("style");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_containers");
+
+                    b.HasIndex("ParentId")
+                        .HasDatabaseName("ix_form_containers_parent_id");
+
+                    b.HasIndex("DefinitionId", "SortOrder")
+                        .HasDatabaseName("ix_form_containers_definition_id_sort_order");
+
+                    b.ToTable("form_containers", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_archived");
+
+                    b.Property<int>("Revision")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("revision");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_definitions");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_definitions_tenant_id_code");
+
+                    b.HasIndex("TenantId", "IsArchived")
+                        .HasDatabaseName("ix_form_definitions_tenant_id_is_archived");
+
+                    b.ToTable("form_definitions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormFlowLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FormResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("WorkflowInstanceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workflow_instance_id");
+
+                    b.Property<Guid>("WorkflowNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workflow_node_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_flow_links");
+
+                    b.HasIndex("WorkflowNodeId")
+                        .HasDatabaseName("ix_form_flow_links_workflow_node_id");
+
+                    b.HasIndex("FormResponseId", "Status")
+                        .HasDatabaseName("ix_form_flow_links_form_response_id_status");
+
+                    b.HasIndex("WorkflowInstanceId", "WorkflowNodeId", "FormResponseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_flow_links_workflow_instance_id_workflow_node_id_form_");
+
+                    b.ToTable("form_flow_links", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormQuestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("caption");
+
+                    b.Property<Guid?>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<string>("ControlType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("control_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<string>("FieldCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("field_code");
+
+                    b.Property<string>("GridCol")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("grid_col");
+
+                    b.Property<string>("HelpText")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("help_text");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Numeral")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("numeral");
+
+                    b.Property<string>("OptionsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("options_json");
+
+                    b.Property<bool>("Required")
+                        .HasColumnType("boolean")
+                        .HasColumnName("required");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("ValidationJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("validation_json");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_questions");
+
+                    b.HasIndex("ContainerId")
+                        .HasDatabaseName("ix_form_questions_container_id");
+
+                    b.HasIndex("DefinitionId", "FieldCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_questions_definition_id_field_code");
+
+                    b.HasIndex("DefinitionId", "ContainerId", "SortOrder")
+                        .HasDatabaseName("ix_form_questions_definition_id_container_id_sort_order");
+
+                    b.ToTable("form_questions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Data")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("data");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<Guid?>("SubmittedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("submitted_by_tenant_user_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_responses");
+
+                    b.HasIndex("DefinitionId")
+                        .HasDatabaseName("ix_form_responses_definition_id");
+
+                    b.HasIndex("TenantId", "DefinitionId", "Reference")
+                        .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
+
+                    b.ToTable("form_responses", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowAnonymous")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_anonymous");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<bool>("SingleUse")
+                        .HasColumnType("boolean")
+                        .HasColumnName("single_use");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_tokens");
+
+                    b.HasIndex("DefinitionId")
+                        .HasDatabaseName("ix_form_tokens_definition_id");
+
+                    b.HasIndex("TokenHash")
+                        .HasDatabaseName("ix_form_tokens_token_hash");
+
+                    b.HasIndex("TenantId", "TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_tokens_tenant_id_token_hash");
+
+                    b.ToTable("form_tokens", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.GoogleAuthConfig", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4667,6 +5130,54 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("workflow_nodes", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("node_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_node_forms");
+
+                    b.HasIndex("DefinitionId")
+                        .HasDatabaseName("ix_workflow_node_forms_definition_id");
+
+                    b.HasIndex("NodeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_node_forms_node_id");
+
+                    b.ToTable("workflow_node_forms", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4870,6 +5381,100 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_follow_up_tasks_leads_lead_id");
 
                     b.Navigation("Lead");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormContainer", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_containers_form_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormContainer", "Parent")
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_form_containers_form_containers_parent_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormFlowLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "FormResponse")
+                        .WithMany()
+                        .HasForeignKey("FormResponseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_flow_links_form_responses_form_response_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowInstance", "WorkflowInstance")
+                        .WithMany()
+                        .HasForeignKey("WorkflowInstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_flow_links_workflow_instances_workflow_instance_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "WorkflowNode")
+                        .WithMany()
+                        .HasForeignKey("WorkflowNodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_flow_links_workflow_nodes_workflow_node_id");
+
+                    b.Navigation("FormResponse");
+
+                    b.Navigation("WorkflowInstance");
+
+                    b.Navigation("WorkflowNode");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormQuestion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormContainer", "Container")
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_form_questions_form_containers_container_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_questions_form_definitions_definition_id");
+
+                    b.Navigation("Container");
+
+                    b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_responses_form_definitions_definition_id");
+
+                    b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormToken", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_tokens_form_definitions_definition_id");
+
+                    b.Navigation("Definition");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Lead", b =>
@@ -5327,6 +5932,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Definition");
 
                     b.Navigation("RestartNode");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "Definition")
+                        .WithMany()
+                        .HasForeignKey("DefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_forms_form_definitions_definition_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
+                        .WithMany()
+                        .HasForeignKey("NodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_forms_workflow_nodes_node_id");
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("Node");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>

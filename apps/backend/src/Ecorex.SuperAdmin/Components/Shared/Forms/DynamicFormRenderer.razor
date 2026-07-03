@@ -1,0 +1,456 @@
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@implements IDisposable
+@inject IFormDefinitionService DefinitionsSvc
+@inject IFormResponseService ResponsesSvc
+
+@* =====================================================================================
+   DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
+   Renderiza el arbol contenedores -> preguntas en orden con los controles Tier 1
+   (Text, TextArea, Heading, Select, MultiCheck, Radio, Toggle, Number, Date, Literal),
+   respetando GridCol (grid bootstrap). Validacion cliente inmediata con el MISMO
+   FormFieldValidator del servidor + errores del servidor bajo cada campo. En modo Fill:
+   autosave del borrador cada 30 segundos y boton Enviar. AmbientTenantId permite al visor
+   publico /f/{token} fijar el tenant del token en cada llamada (AmbientTenantContext).
+   ===================================================================================== *@
+
+@if (_loading)
+{
+    <p><em>Cargando formulario...</em></p>
+}
+else if (_definition is null)
+{
+    <div class="dfr-msg">El formulario no esta disponible.</div>
+}
+else
+{
+    <div class="dfr-root">
+        @if (ShowHeader)
+        {
+            <div class="dfr-head">
+                <h3 class="dfr-title">@_definition.Title</h3>
+                @if (!string.IsNullOrWhiteSpace(_definition.Description))
+                {
+                    <p class="dfr-sub">@_definition.Description</p>
+                }
+                <div class="dfr-meta">
+                    <span class="dfr-chip">@_definition.Code</span>
+                    <span class="dfr-chip">rev @_definition.Revision</span>
+                    @if (!string.IsNullOrWhiteSpace(_response?.Reference))
+                    {
+                        <span class="dfr-chip">ref @_response!.Reference</span>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_globalError is not null)
+        {
+            <div class="dfr-alert">@_globalError</div>
+        }
+
+        @{ var rootQuestions = QuestionsOf(null); }
+        @if (rootQuestions.Count > 0)
+        {
+            <div class="row g-3">
+                @foreach (var q in rootQuestions)
+                {
+                    @RenderQuestion(q)
+                }
+            </div>
+        }
+        @foreach (var container in ChildrenOf(null))
+        {
+            @RenderContainer(container)
+        }
+
+        @if (Mode == FormRenderMode.Fill && _response is not null)
+        {
+            <div class="dfr-foot">
+                <span class="dfr-autosave">
+                    @(_lastSavedAt is null ? "Borrador sin guardar" : $"Borrador guardado {_lastSavedAt:HH:mm:ss}")
+                </span>
+                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted)">
+                    @(IsSubmitted ? "Enviado" : "Enviar")
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Definicion a renderizar.</summary>
+    [Parameter, EditorRequired] public Guid DefinitionId { get; set; }
+    /// <summary>Referencia externa del borrador (ej. numero de tarea) en modo Fill.</summary>
+    [Parameter] public string? Reference { get; set; }
+    [Parameter] public FormRenderMode Mode { get; set; } = FormRenderMode.Design;
+    /// <summary>Respuesta concreta a cargar (si no, en Fill se resuelve GetOrCreateDraft).</summary>
+    [Parameter] public Guid? ResponseId { get; set; }
+    /// <summary>TenantUser que envia (para SubmittedBy y para completar el paso del flujo).</summary>
+    [Parameter] public Guid? SubmittedByTenantUserId { get; set; }
+    /// <summary>
+    /// Tenant a fijar como ambient en CADA llamada a servicios. SOLO lo usa el visor
+    /// publico /f/{token}: el tenant viene del token validado, no de la sesion.
+    /// </summary>
+    [Parameter] public Guid? AmbientTenantId { get; set; }
+    [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
+    [Parameter] public bool ShowHeader { get; set; } = true;
+
+    private FormDefinitionDetailDto? _definition;
+    private FormResponseDto? _response;
+    private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
+    private bool _loading = true;
+    private bool _busy;
+    private bool _dirty;
+    private string? _globalError;
+    private DateTimeOffset? _lastSavedAt;
+    private System.Threading.Timer? _autosaveTimer;
+    private Guid _loadedKey;
+
+    private bool IsSubmitted => _response?.Status == FormResponseStatus.Submitted;
+    private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsSubmitted;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Evita recargas si los parametros no cambiaron (re-render del padre).
+        var key = DefinitionId;
+        if (_loadedKey == key && !_loading)
+        {
+            return;
+        }
+        _loadedKey = key;
+        _loading = true;
+        try
+        {
+            using var ambient = BeginAmbient();
+            _definition = await DefinitionsSvc.GetAsync(DefinitionId);
+            _response = null;
+            _values.Clear();
+            _errors.Clear();
+            if (_definition is not null)
+            {
+                if (ResponseId is Guid rid)
+                {
+                    _response = await ResponsesSvc.GetAsync(rid);
+                }
+                else if (Mode == FormRenderMode.Fill)
+                {
+                    var draft = await ResponsesSvc.GetOrCreateDraftAsync(DefinitionId, Reference);
+                    if (!draft.IsOk)
+                    {
+                        _globalError = draft.Error;
+                    }
+                    _response = draft.Value;
+                }
+                if (_response is not null)
+                {
+                    foreach (var (fieldCode, field) in _response.Data)
+                    {
+                        _values[fieldCode] = field.Value;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        // Autosave del borrador cada 30 segundos (solo Fill y solo si hay cambios).
+        _autosaveTimer?.Dispose();
+        _autosaveTimer = null;
+        if (Mode == FormRenderMode.Fill && _response is not null && !IsSubmitted)
+        {
+            _autosaveTimer = new System.Threading.Timer(
+                _ => _ = InvokeAsync(AutosaveTickAsync),
+                null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+    }
+
+    // ---- Arbol ----
+
+    private List<FormContainerDto> ChildrenOf(Guid? parentId)
+        => _definition!.Containers.Where(c => c.ParentId == parentId).OrderBy(c => c.SortOrder).ToList();
+
+    private List<FormQuestionDto> QuestionsOf(Guid? containerId)
+        => _definition!.Questions.Where(q => q.ContainerId == containerId).OrderBy(q => q.SortOrder).ToList();
+
+    private RenderFragment RenderContainer(FormContainerDto container) => __builder =>
+    {
+        <div class="dfr-segment" style="@container.Style">
+            <div class="dfr-segment-head">@container.Name</div>
+            @{ var questions = QuestionsOf(container.Id); }
+            @if (questions.Count > 0)
+            {
+                <div class="row g-3">
+                    @foreach (var q in questions)
+                    {
+                        @RenderQuestion(q)
+                    }
+                </div>
+            }
+            @foreach (var child in ChildrenOf(container.Id))
+            {
+                @RenderContainer(child)
+            }
+        </div>
+    };
+
+    private RenderFragment RenderQuestion(FormQuestionDto q) => __builder =>
+    {
+        <div class="@(string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol)">
+            @switch (q.ControlType)
+            {
+                case FormControlType.Heading:
+                    <h4 class="dfr-heading">@Prefixed(q)</h4>
+                    @if (!string.IsNullOrWhiteSpace(q.Caption))
+                    {
+                        <p class="dfr-caption">@q.Caption</p>
+                    }
+                    break;
+                case FormControlType.Literal:
+                    <div class="dfr-literal">
+                        <div>@Prefixed(q)</div>
+                        @if (!string.IsNullOrWhiteSpace(q.Caption))
+                        {
+                            <div class="dfr-caption" style="margin-top:4px;">@q.Caption</div>
+                        }
+                    </div>
+                    break;
+                default:
+                    <label class="form-label dfr-label" title="@q.HelpText">
+                        @Prefixed(q)
+                        @if (q.Required)
+                        {
+                            <span class="dfr-req">*</span>
+                        }
+                    </label>
+                    @if (!string.IsNullOrWhiteSpace(q.Caption))
+                    {
+                        <div class="dfr-caption">@q.Caption</div>
+                    }
+                    @RenderInput(q)
+                    @if (!string.IsNullOrWhiteSpace(q.HelpText))
+                    {
+                        <div class="dfr-help">@q.HelpText</div>
+                    }
+                    @if (_errors.TryGetValue(q.FieldCode, out var error))
+                    {
+                        <div class="tk-field-error">@error</div>
+                    }
+                    break;
+            }
+        </div>
+    };
+
+    private RenderFragment RenderInput(FormQuestionDto q) => __builder =>
+    {
+        var value = _values.GetValueOrDefault(q.FieldCode);
+        switch (q.ControlType)
+        {
+            case FormControlType.Text:
+                <input class="form-control" value="@value" disabled="@IsDisabled"
+                       @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
+                break;
+            case FormControlType.TextArea:
+                <textarea class="form-control" rows="3" disabled="@IsDisabled"
+                          @onchange="@(e => SetValue(q, e.Value?.ToString()))">@value</textarea>
+                break;
+            case FormControlType.Number:
+                <input type="number" step="any" class="form-control" value="@value" disabled="@IsDisabled"
+                       @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
+                break;
+            case FormControlType.Date:
+                <input type="date" class="form-control" value="@value" disabled="@IsDisabled"
+                       @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
+                break;
+            case FormControlType.Toggle:
+                <label class="dfr-toggle">
+                    <input type="checkbox" checked="@(value == "true")" disabled="@IsDisabled"
+                           @onchange="@(e => SetValue(q, (bool)e.Value! ? "true" : "false"))" />
+                    <span>@(value == "true" ? "Si" : "No")</span>
+                </label>
+                break;
+            case FormControlType.Select:
+                <select class="form-control" disabled="@IsDisabled"
+                        @onchange="@(e => SetValue(q, e.Value?.ToString()))">
+                    <option value="" selected="@string.IsNullOrEmpty(value)">-- Selecciona --</option>
+                    @foreach (var option in FormFieldValidator.ParseOptions(q.OptionsJson))
+                    {
+                        <option value="@option.Id" selected="@(option.Id == value)">@option.Label</option>
+                    }
+                </select>
+                break;
+            case FormControlType.Radio:
+                <div class="dfr-options">
+                    @foreach (var option in FormFieldValidator.ParseOptions(q.OptionsJson))
+                    {
+                        <label class="dfr-check">
+                            <input type="radio" name="@($"dfr-{q.Id}")" checked="@(option.Id == value)"
+                                   disabled="@IsDisabled"
+                                   @onchange="@(() => SetValue(q, option.Id))" />
+                            <span>@option.Label</span>
+                        </label>
+                    }
+                </div>
+                break;
+            case FormControlType.MultiCheck:
+                var selected = FormFieldValidator.ParseMultiValues(value).ToHashSet(StringComparer.Ordinal);
+                <div class="dfr-options">
+                    @foreach (var option in FormFieldValidator.ParseOptions(q.OptionsJson))
+                    {
+                        <label class="dfr-check">
+                            <input type="checkbox" checked="@selected.Contains(option.Id)" disabled="@IsDisabled"
+                                   @onchange="@(e => ToggleMulti(q, option.Id, (bool)e.Value!))" />
+                            <span>@option.Label</span>
+                        </label>
+                    }
+                </div>
+                break;
+            default:
+                @* Tipos multimedia/firma/gps/grid: en el enum pero SIN componente en esta ola. *@
+                <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
+                break;
+        }
+    };
+
+    private static string Prefixed(FormQuestionDto q)
+        => string.IsNullOrWhiteSpace(q.Numeral) ? q.Label : $"{q.Numeral}. {q.Label}";
+
+    // ---- Estado y validacion cliente ----
+
+    private void SetValue(FormQuestionDto q, string? value)
+    {
+        _values[q.FieldCode] = value;
+        _dirty = true;
+        ValidateField(q);
+    }
+
+    private void ToggleMulti(FormQuestionDto q, string optionId, bool on)
+    {
+        var selected = FormFieldValidator.ParseMultiValues(_values.GetValueOrDefault(q.FieldCode))
+            .ToList();
+        if (on && !selected.Contains(optionId, StringComparer.Ordinal))
+        {
+            selected.Add(optionId);
+        }
+        else if (!on)
+        {
+            selected.RemoveAll(s => string.Equals(s, optionId, StringComparison.Ordinal));
+        }
+        _values[q.FieldCode] = selected.Count == 0
+            ? null
+            : System.Text.Json.JsonSerializer.Serialize(selected);
+        _dirty = true;
+        ValidateField(q);
+    }
+
+    /// <summary>Validacion cliente inmediata con el MISMO validador del servidor.</summary>
+    private void ValidateField(FormQuestionDto q)
+    {
+        var error = FormFieldValidator.Validate(
+            q.ControlType, q.Required, _values.GetValueOrDefault(q.FieldCode),
+            FormFieldValidator.ParseOptions(q.OptionsJson),
+            FormFieldValidator.ParseRules(q.ValidationJson));
+        if (error is null)
+        {
+            _errors.Remove(q.FieldCode);
+        }
+        else
+        {
+            _errors[q.FieldCode] = error;
+        }
+    }
+
+    private IReadOnlyDictionary<string, FormFieldValue> BuildDocument()
+        => _definition!.Questions
+            .Where(q => !FormFieldValidator.IsNonInput(q.ControlType))
+            .Where(q => _values.GetValueOrDefault(q.FieldCode) is not null)
+            .ToDictionary(
+                q => q.FieldCode,
+                q => new FormFieldValue(_values[q.FieldCode], q.ControlType.ToString()),
+                StringComparer.Ordinal);
+
+    // ---- Guardado ----
+
+    private async Task AutosaveTickAsync()
+    {
+        if (!_dirty || _busy || _response is null || IsSubmitted || Mode != FormRenderMode.Fill)
+        {
+            return;
+        }
+        await SaveAsync(submit: false);
+        StateHasChanged();
+    }
+
+    private async Task SubmitAsync()
+    {
+        // Valida todo en cliente primero (feedback inmediato); el servidor re-valida igual.
+        _errors.Clear();
+        foreach (var q in _definition!.Questions)
+        {
+            ValidateField(q);
+        }
+        if (_errors.Count > 0)
+        {
+            _globalError = "Revisa los campos marcados antes de enviar.";
+            return;
+        }
+        await SaveAsync(submit: true);
+    }
+
+    private async Task SaveAsync(bool submit)
+    {
+        if (_response is null)
+        {
+            return;
+        }
+        _busy = true;
+        _globalError = null;
+        try
+        {
+            using var ambient = BeginAmbient();
+            var result = await ResponsesSvc.SaveAsync(
+                _response.Id, BuildDocument(), submit, SubmittedByTenantUserId);
+            if (result.Status == FormServiceStatus.ValidationFailed && result.FieldErrors is not null)
+            {
+                // Errores del servidor bajo cada campo (fuente de verdad).
+                foreach (var (fieldCode, message) in result.FieldErrors)
+                {
+                    _errors[fieldCode] = message;
+                }
+                _globalError = "Revisa los campos marcados antes de enviar.";
+                return;
+            }
+            if (!result.IsOk || result.Value is null)
+            {
+                _globalError = result.Error ?? "No se pudo guardar la respuesta.";
+                return;
+            }
+            _response = result.Value;
+            _dirty = false;
+            _lastSavedAt = DateTimeOffset.Now;
+            if (submit)
+            {
+                _autosaveTimer?.Dispose();
+                _autosaveTimer = null;
+                await OnSubmitted.InvokeAsync(result.Value);
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Fija el tenant ambient del visor publico; no-op con sesion normal.</summary>
+    private IDisposable? BeginAmbient()
+        => AmbientTenantId is Guid tenantId ? AmbientTenantContext.Begin(tenantId) : null;
+
+    public void Dispose()
+    {
+        _autosaveTimer?.Dispose();
+    }
+}

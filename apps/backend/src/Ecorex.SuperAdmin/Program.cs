@@ -132,6 +132,9 @@ else
             await seeder.EnsureWorkflowDemoAsync(workflowEngine);
         }
     }
+    // Formulario dinamico demo (FASE 4 ola 2, ADR-0015): FRM-001 activo, vinculado al
+    // nodo "Cotizacion" del flujo demo. Escribe con TenantId explicito (sin ambient).
+    await seeder.EnsureDynamicFormsDemoAsync();
 }
 
 app.UseHttpsRedirection();
@@ -210,8 +213,8 @@ app.MapPost("/auth/login", async (
         claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
     }
 
-    // Operador de plataforma -> Dashboard; usuario de tenant -> Pipeline comercial (no la pagina de cuenta).
-    redirect = isOperator ? "/" : "/pipeline";
+    // Operador de plataforma -> Dashboard; usuario de tenant -> Inicio del workspace (prototipo final).
+    redirect = isOperator ? "/" : "/inicio";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
@@ -450,8 +453,8 @@ app.MapGet("/signin-google", async (
         }
     }
 
-    // Operador de plataforma -> Dashboard; usuario de tenant -> Pipeline comercial (no la pagina de cuenta).
-    redirect = isOperator ? "/" : "/pipeline";
+    // Operador de plataforma -> Dashboard; usuario de tenant -> Inicio del workspace (prototipo final).
+    redirect = isOperator ? "/" : "/inicio";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));

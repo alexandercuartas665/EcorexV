@@ -1,0 +1,125 @@
+/* Disenador de formularios (ADR-0015). Tokens exactos del prototipo ECOREX.dc.html con
+   fallback literal (mismo criterio que DynamicFormRenderer.razor.css). */
+
+.fd-layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 18px;
+    align-items: start;
+}
+@media (max-width: 900px) {
+    .fd-layout { grid-template-columns: 1fr; }
+}
+
+.fd-panel {
+    border: 1px solid var(--line, rgba(20,20,25,.07));
+    border-radius: var(--rad, 20px);
+    background: var(--surface, #FFFFFF);
+    box-shadow: var(--sh-sm, 0 1px 2px rgba(20,20,25,.05));
+    padding: 16px 18px;
+}
+.fd-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+}
+.fd-panel-head h3 {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-2, #5C5C66); margin: 0;
+}
+.fd-empty { font-size: 12.5px; color: var(--ink-3, #A2A2AC); margin: 4px 0; }
+
+/* Arbol de contenedores (lista anidada, sin drag and drop en esta ola) */
+.fd-tree { list-style: none; margin: 0; padding: 0; }
+.fd-tree li { margin-bottom: 4px; }
+.fd-tree-node {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--line, rgba(20,20,25,.07));
+    border-radius: 10px;
+    background: var(--surface-2, #FAFAFA);
+    font-size: 12.5px;
+}
+.fd-tree-node:hover { border-color: var(--line-2, rgba(20,20,25,.12)); }
+.fd-tree-name { font-weight: 600; color: var(--ink, #1B1B1E); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-tree-type { font-size: 10.5px; color: var(--ink-3, #A2A2AC); }
+.fd-tree-count {
+    font-size: 10.5px; font-weight: 700;
+    color: var(--t-blue, #2563EB); background: var(--t-blue-bg, #E6EFFE);
+    border-radius: 999px; padding: 1px 7px;
+}
+
+/* Grid de preguntas */
+.fd-qgrid { display: flex; flex-direction: column; }
+.fd-qrow {
+    display: grid;
+    grid-template-columns: 150px 1fr 110px 120px 80px 118px;
+    gap: 8px; align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line, rgba(20,20,25,.07));
+    font-size: 12.5px;
+}
+.fd-qrow:last-child { border-bottom: 0; }
+.fd-qrow-head {
+    font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-3, #A2A2AC);
+}
+.fd-qcode { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 600; color: var(--ink, #1B1B1E); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-qlabel { color: var(--ink-2, #5C5C66); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-qtype {
+    font-size: 10.5px; font-weight: 700;
+    color: var(--t-violet, #7C3AED); background: var(--t-violet-bg, #EEE8FD);
+    border-radius: 999px; padding: 2px 8px;
+}
+.fd-qcontainer, .fd-qcol { font-size: 11px; color: var(--ink-3, #A2A2AC); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.fd-qactions { display: flex; gap: 2px; justify-content: flex-end; }
+.fd-qactions button {
+    width: 26px; height: 26px; display: grid; place-items: center;
+    border: none; background: none; border-radius: 7px; cursor: pointer;
+    color: var(--ink-3, #A2A2AC); font-size: 12px; line-height: 1;
+}
+.fd-qactions button:hover { background: var(--surface-3, #F2F2F3); color: var(--ink, #1B1B1E); }
+.fd-qactions button.danger:hover { background: var(--t-rose-bg, #FEE7EC); color: var(--t-rose, #E11D48); }
+.fd-qactions button:disabled { opacity: .45; cursor: default; }
+
+/* Editor de opciones y boton punteado (patron del prototipo: "+ Agregar regla") */
+.fd-option-row {
+    display: grid; grid-template-columns: 1fr 1.4fr 1fr 30px;
+    gap: 6px; align-items: center; margin-bottom: 6px;
+}
+.fd-mini-btn {
+    width: 28px; height: 28px; display: grid; place-items: center;
+    border: none; background: none; border-radius: 7px; cursor: pointer;
+    color: var(--ink-3, #A2A2AC); font-size: 15px; font-weight: 700;
+}
+.fd-mini-btn.danger:hover { background: var(--t-rose-bg, #FEE7EC); color: var(--t-rose, #E11D48); }
+.fd-add-dashed {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 10px; border-radius: 11px;
+    border: 1.5px dashed var(--line-2, rgba(20,20,25,.12));
+    background: none; color: var(--brand, #1B1B1E);
+    font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.fd-add-dashed:hover { border-color: var(--ink-3, #A2A2AC); }
+
+/* Tokens */
+.fd-token-url {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px; word-break: break-all;
+    background: var(--surface-2, #FAFAFA);
+    border: 1px solid var(--line, rgba(20,20,25,.07));
+    border-radius: 11px; padding: 12px;
+    user-select: all;
+}
+.fd-token-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--ink-2, #5C5C66);
+    border-bottom: 1px solid var(--line, rgba(20,20,25,.07));
+    padding: 7px 0;
+}
+.fd-token-row:last-child { border-bottom: 0; }
+.fd-token-state {
+    font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px;
+}
+.fd-token-state.ok { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); }
+.fd-token-state.off { color: var(--t-slate, #64748B); background: var(--t-slate-bg, #EEF1F5); }

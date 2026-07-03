@@ -1,0 +1,783 @@
+@page "/formularios/{Id:guid}/disenar"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
+@inject IFormDefinitionService FormsSvc
+@inject IFormTokenService TokensSvc
+@inject NavigationManager Nav
+
+@* Disenador basico del constructor de formularios (FASE 4 ola 2, ADR-0015): arbol de
+   contenedores como lista anidada + grid de preguntas con modal por tipo + reordenar con
+   botones arriba/abajo. El constructor visual completo (drag and drop) llega en otra ola. *@
+
+<PageTitle>Disenar formulario - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <a href="/formularios">Formularios</a>
+    <span class="sep">/</span>
+    <span class="cur">@(_definition?.Code ?? "Disenar")</span>
+</nav>
+
+@if (_loading)
+{
+    <p><em>Cargando disenador...</em></p>
+}
+else if (_definition is null)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Formulario no encontrado</h3>
+        <button class="btn btn-outline-secondary" style="margin-top:14px;" @onclick="@(() => Nav.NavigateTo("/formularios"))">Volver a formularios</button>
+    </div>
+}
+else
+{
+    <div class="module-head">
+        <div>
+            <h1 class="page-title" style="margin-top:0;">
+                @_definition.Title
+                <span class="tk-status @Formularios.StatusClass(_definition.Status)" style="vertical-align:middle;margin-left:8px;">@Formularios.StatusLabel(_definition.Status)</span>
+            </h1>
+            <p class="page-sub" style="margin-bottom:0;">
+                <span class="tk-number">@_definition.Code</span>
+                <span style="margin-left:8px;">rev @_definition.Revision - @_definition.Questions.Count pregunta@(_definition.Questions.Count == 1 ? "" : "s")</span>
+            </p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            @if (_definition.Status == FormStatus.Active)
+            {
+                <button class="btn btn-outline-secondary" @onclick="DeactivateAsync" disabled="@_busy">Desactivar</button>
+                <button class="btn btn-outline-secondary" @onclick="OpenTokenModal" disabled="@_busy">Publicar por URL</button>
+            }
+            else
+            {
+                <button class="btn btn-primary" @onclick="ActivateAsync" disabled="@_busy">Activar</button>
+            }
+            <button class="btn btn-outline-secondary" @onclick="@(() => _showPreview = true)">Vista previa</button>
+        </div>
+    </div>
+
+    @if (_pageError is not null)
+    {
+        <div class="tk-conflict tk-action-error" style="margin-bottom:14px;">
+            <span>@_pageError</span>
+            <button class="tk-conflict-x" @onclick="@(() => _pageError = null)">&times;</button>
+        </div>
+    }
+
+    <div class="fd-layout">
+        @* ===== Columna izquierda: arbol de contenedores ===== *@
+        <div class="fd-panel">
+            <div class="fd-panel-head">
+                <h3>Contenedores</h3>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenContainerEditor(null, null))">+ Agregar</button>
+            </div>
+            @if (_definition.Containers.Count == 0)
+            {
+                <p class="fd-empty">Sin contenedores: las preguntas cuelgan de la raiz.</p>
+            }
+            else
+            {
+                @RenderContainerTree(null, 0)
+            }
+        </div>
+
+        @* ===== Columna derecha: grid de preguntas ===== *@
+        <div class="fd-panel">
+            <div class="fd-panel-head">
+                <h3>Preguntas</h3>
+                <button class="btn btn-sm btn-primary" @onclick="@(() => OpenQuestionEditor(null))">+ Nueva pregunta</button>
+            </div>
+            @if (_definition.Questions.Count == 0)
+            {
+                <p class="fd-empty">Aun no hay preguntas. Crea la primera con "+ Nueva pregunta".</p>
+            }
+            else
+            {
+                <div class="fd-qgrid">
+                    <div class="fd-qrow fd-qrow-head">
+                        <span>Campo</span>
+                        <span>Etiqueta</span>
+                        <span>Tipo</span>
+                        <span>Contenedor</span>
+                        <span>Col</span>
+                        <span></span>
+                    </div>
+                    @foreach (var group in QuestionGroups())
+                    {
+                        @foreach (var q in group.Questions)
+                        {
+                            <div class="fd-qrow">
+                                <span class="fd-qcode">@q.FieldCode @(q.Required ? "*" : "")</span>
+                                <span class="fd-qlabel" title="@q.Label">@(string.IsNullOrWhiteSpace(q.Numeral) ? "" : q.Numeral + ". ")@q.Label</span>
+                                <span><span class="fd-qtype">@q.ControlType</span></span>
+                                <span class="fd-qcontainer">@group.ContainerName</span>
+                                <span class="fd-qcol">@q.GridCol</span>
+                                <span class="fd-qactions">
+                                    <button title="Subir" @onclick="@(() => MoveQuestionAsync(q.Id, true))" disabled="@_busy">&#9650;</button>
+                                    <button title="Bajar" @onclick="@(() => MoveQuestionAsync(q.Id, false))" disabled="@_busy">&#9660;</button>
+                                    <button title="Editar" @onclick="@(() => OpenQuestionEditor(q))" disabled="@_busy">&#9998;</button>
+                                    <button title="Eliminar" class="danger" @onclick="@(() => DeleteQuestionAsync(q.Id))" disabled="@_busy">&times;</button>
+                                </span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ===== Modal contenedor ===== *@
+@if (_showContainerEditor && _definition is not null)
+{
+    <div class="modal-overlay" @onclick="@(() => _showContainerEditor = false)">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingContainer is null ? "Nuevo contenedor" : "Editar contenedor")</h3>
+                <button class="modal-close" @onclick="@(() => _showContainerEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_cName" maxlength="150" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-control" @bind="_cType">
+                            <option value="@FormContainerType.Segment">Segmento</option>
+                            <option value="@FormContainerType.Table">Tabla (ola posterior)</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Padre</label>
+                        <select class="form-control" value="@(_cParentId?.ToString() ?? "")" @onchange="@(e => _cParentId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                            <option value="">(raiz)</option>
+                            @foreach (var c in _definition.Containers.Where(c => c.Id != _editingContainer?.Id))
+                            {
+                                <option value="@c.Id">@c.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Estilo (CSS inline opcional)</label>
+                    <input class="form-control" @bind="_cStyle" maxlength="300" placeholder="background:#FAFAFA;" />
+                </div>
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showContainerEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveContainerAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal pregunta ===== *@
+@if (_showQuestionEditor && _definition is not null)
+{
+    <div class="modal-overlay" @onclick="@(() => _showQuestionEditor = false)">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingQuestion is null ? "Nueva pregunta" : $"Editar {_editingQuestion.FieldCode}")</h3>
+                <button class="modal-close" @onclick="@(() => _showQuestionEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">FieldCode * <small>(clave del JSON de respuestas)</small></label>
+                        <input class="form-control" @bind="_qFieldCode" maxlength="60" placeholder="nombre_solicitante" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Tipo de control</label>
+                        <select class="form-control" value="@_qType" @onchange="@(e => _qType = Enum.Parse<FormControlType>(e.Value!.ToString()!))">
+                            @foreach (var t in Enum.GetValues<FormControlType>())
+                            {
+                                <option value="@t">@t @(FormFieldValidator.IsTier1(t) ? "" : "(sin componente aun)")</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Etiqueta *</label>
+                    <input class="form-control" @bind="_qLabel" maxlength="500" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Contenedor</label>
+                        <select class="form-control" value="@(_qContainerId?.ToString() ?? "")" @onchange="@(e => _qContainerId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                            <option value="">(raiz)</option>
+                            @foreach (var c in _definition.Containers)
+                            {
+                                <option value="@c.Id">@c.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Columna (grid)</label>
+                        <select class="form-control" @bind="_qGridCol">
+                            <option value="col-12">Fila completa (col-12)</option>
+                            <option value="col-md-6">Media fila (col-md-6)</option>
+                            <option value="col-md-4">Un tercio (col-md-4)</option>
+                            <option value="col-md-3">Un cuarto (col-md-3)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Numeral</label>
+                        <input class="form-control" @bind="_qNumeral" maxlength="20" placeholder="2.1" />
+                    </div>
+                    <div class="field" style="display:flex;align-items:flex-end;">
+                        <label class="pl-toggle" style="margin-bottom:8px;">
+                            <input type="checkbox" @bind="_qRequired" disabled="@IsNonInputSelected" />
+                            Obligatoria
+                        </label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Subtitulo (caption)</label>
+                    <input class="form-control" @bind="_qCaption" maxlength="300" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Texto de ayuda</label>
+                    <input class="form-control" @bind="_qHelpText" maxlength="600" />
+                </div>
+
+                @if (_qType is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio)
+                {
+                    <div class="field">
+                        <label class="form-label">Opciones *</label>
+                        @for (var i = 0; i < _qOptions.Count; i++)
+                        {
+                            var index = i;
+                            <div class="fd-option-row">
+                                <input class="form-control form-control-sm" placeholder="id" value="@_qOptions[index].Id" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Id = e.Value?.ToString() ?? "" })" />
+                                <input class="form-control form-control-sm" placeholder="label" value="@_qOptions[index].Label" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Label = e.Value?.ToString() ?? "" })" />
+                                <input class="form-control form-control-sm" placeholder="value (opcional)" value="@_qOptions[index].Value" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Value = e.Value?.ToString() })" />
+                                <button class="fd-mini-btn danger" title="Quitar" @onclick="@(() => _qOptions.RemoveAt(index))">&times;</button>
+                            </div>
+                        }
+                        <button class="fd-add-dashed" @onclick="@(() => _qOptions.Add(new FormOption("", "")))">+ Agregar opcion</button>
+                    </div>
+                }
+
+                @if (_qType is FormControlType.Text or FormControlType.TextArea)
+                {
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Longitud minima</label>
+                            <input type="number" class="form-control" @bind="_qMinLength" min="0" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Longitud maxima</label>
+                            <input type="number" class="form-control" @bind="_qMaxLength" min="0" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Pattern (regex)</label>
+                        <input class="form-control" @bind="_qPattern" placeholder="^[A-Za-z0-9._%+-]+@@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$" />
+                    </div>
+                }
+                @if (_qType == FormControlType.Number)
+                {
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Valor minimo</label>
+                            <input type="number" step="any" class="form-control" @bind="_qMinValue" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Valor maximo</label>
+                            <input type="number" step="any" class="form-control" @bind="_qMaxValue" />
+                        </div>
+                    </div>
+                }
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showQuestionEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveQuestionAsync" disabled="@_busy">Guardar pregunta</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal vista previa (renderer read-only) ===== *@
+@if (_showPreview && _definition is not null)
+{
+    <div class="modal-overlay" @onclick="@(() => _showPreview = false)">
+        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Vista previa - @_definition.Title</h3>
+                <button class="modal-close" @onclick="@(() => _showPreview = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <DynamicFormRenderer DefinitionId="@_definition.Id" Mode="FormRenderMode.Design" />
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal publicar por URL (token) ===== *@
+@if (_showTokenModal && _definition is not null)
+{
+    <div class="modal-overlay" @onclick="CloseTokenModal">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Publicar por URL</h3>
+                <button class="modal-close" @onclick="CloseTokenModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_emittedUrl is null)
+                {
+                    <div class="field">
+                        <label class="form-label">Referencia (opcional)</label>
+                        <input class="form-control" @bind="_tReference" maxlength="100" placeholder="T00042" />
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="form-label">Expira en (horas)</label>
+                            <input type="number" class="form-control" @bind="_tHours" min="1" max="8760" />
+                        </div>
+                        <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;gap:6px;">
+                            <label class="pl-toggle"><input type="checkbox" @bind="_tSingleUse" /> Un solo uso</label>
+                            <label class="pl-toggle"><input type="checkbox" @bind="_tAllowAnonymous" /> Permitir anonimo</label>
+                        </div>
+                    </div>
+                    @if (_modalError is not null)
+                    {
+                        <div class="tk-field-error">@_modalError</div>
+                    }
+                }
+                else
+                {
+                    <p style="font-size:13px;margin-bottom:8px;">
+                        Comparte esta URL. <strong>Se muestra una sola vez</strong>: solo se guarda el hash del token.
+                    </p>
+                    <div class="fd-token-url">@_emittedUrl</div>
+                    <p style="font-size:12px;color:var(--muted-foreground);margin-top:8px;">
+                        Expira: @_emittedExpiresAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                    </p>
+                }
+
+                @if (_tokens.Count > 0)
+                {
+                    <div style="margin-top:16px;">
+                        <label class="form-label">Tokens emitidos</label>
+                        @foreach (var t in _tokens)
+                        {
+                            <div class="fd-token-row">
+                                <span class="fd-token-state @TokenStateClass(t)">@TokenStateLabel(t)</span>
+                                <span style="flex:1;">@(t.Reference ?? "(sin referencia)") - expira @t.ExpiresAt.ToLocalTime().ToString("dd MMM HH:mm")@(t.SingleUse ? " - un solo uso" : "")</span>
+                                @if (t.RevokedAt is null)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RevokeTokenAsync(t.Id))" disabled="@_busy">Revocar</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseTokenModal" disabled="@_busy">Cerrar</button>
+                @if (_emittedUrl is null)
+                {
+                    <button class="btn btn-primary" @onclick="EmitTokenAsync" disabled="@_busy">Emitir URL</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private FormDefinitionDetailDto? _definition;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _pageError;
+    private string? _modalError;
+
+    // Contenedores
+    private bool _showContainerEditor;
+    private FormContainerDto? _editingContainer;
+    private string _cName = "";
+    private FormContainerType _cType = FormContainerType.Segment;
+    private Guid? _cParentId;
+    private string _cStyle = "";
+
+    // Preguntas
+    private bool _showQuestionEditor;
+    private FormQuestionDto? _editingQuestion;
+    private string _qFieldCode = "";
+    private string _qLabel = "";
+    private FormControlType _qType = FormControlType.Text;
+    private Guid? _qContainerId;
+    private string _qGridCol = "col-12";
+    private string _qNumeral = "";
+    private bool _qRequired;
+    private string _qCaption = "";
+    private string _qHelpText = "";
+    private List<FormOption> _qOptions = new();
+    private int? _qMinLength;
+    private int? _qMaxLength;
+    private string _qPattern = "";
+    private decimal? _qMinValue;
+    private decimal? _qMaxValue;
+
+    // Vista previa y tokens
+    private bool _showPreview;
+    private bool _showTokenModal;
+    private string _tReference = "";
+    private int _tHours = 24;
+    private bool _tSingleUse;
+    private bool _tAllowAnonymous = true;
+    private string? _emittedUrl;
+    private DateTimeOffset? _emittedExpiresAt;
+    private List<FormTokenDto> _tokens = new();
+
+    private bool IsNonInputSelected => FormFieldValidator.IsNonInput(_qType);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _definition = await FormsSvc.GetAsync(Id);
+    }
+
+    // ---- Arbol de contenedores ----
+
+    private sealed record QuestionGroup(string ContainerName, List<FormQuestionDto> Questions);
+
+    /// <summary>Preguntas agrupadas: primero la raiz, luego cada contenedor en orden de arbol.</summary>
+    private List<QuestionGroup> QuestionGroups()
+    {
+        var groups = new List<QuestionGroup>();
+        void AddGroup(Guid? containerId, string name)
+        {
+            var questions = _definition!.Questions
+                .Where(q => q.ContainerId == containerId)
+                .OrderBy(q => q.SortOrder)
+                .ToList();
+            if (questions.Count > 0)
+            {
+                groups.Add(new QuestionGroup(name, questions));
+            }
+        }
+        AddGroup(null, "(raiz)");
+        void Walk(Guid? parentId)
+        {
+            foreach (var c in _definition!.Containers.Where(c => c.ParentId == parentId).OrderBy(c => c.SortOrder))
+            {
+                AddGroup(c.Id, c.Name);
+                Walk(c.Id);
+            }
+        }
+        Walk(null);
+        return groups;
+    }
+
+    private RenderFragment RenderContainerTree(Guid? parentId, int depth) => __builder =>
+    {
+        <ul class="fd-tree" style="@(depth == 0 ? "" : "margin-left:16px;")">
+            @foreach (var c in _definition!.Containers.Where(x => x.ParentId == parentId).OrderBy(x => x.SortOrder))
+            {
+                <li>
+                    <div class="fd-tree-node">
+                        <span class="fd-tree-name">@c.Name</span>
+                        <span class="fd-tree-type">@(c.ContainerType == FormContainerType.Segment ? "segmento" : "tabla")</span>
+                        <span class="fd-tree-count">@_definition.Questions.Count(q => q.ContainerId == c.Id)</span>
+                        <span class="fd-qactions">
+                            <button title="Subir" @onclick="@(() => MoveContainerAsync(c.Id, true))" disabled="@_busy">&#9650;</button>
+                            <button title="Bajar" @onclick="@(() => MoveContainerAsync(c.Id, false))" disabled="@_busy">&#9660;</button>
+                            <button title="Agregar hijo" @onclick="@(() => OpenContainerEditor(null, c.Id))" disabled="@_busy">+</button>
+                            <button title="Editar" @onclick="@(() => OpenContainerEditor(c, null))" disabled="@_busy">&#9998;</button>
+                            <button title="Eliminar" class="danger" @onclick="@(() => DeleteContainerAsync(c.Id))" disabled="@_busy">&times;</button>
+                        </span>
+                    </div>
+                    @RenderContainerTree(c.Id, depth + 1)
+                </li>
+            }
+        </ul>
+    };
+
+    private void OpenContainerEditor(FormContainerDto? container, Guid? parentId)
+    {
+        _editingContainer = container;
+        _modalError = null;
+        _cName = container?.Name ?? "";
+        _cType = container?.ContainerType ?? FormContainerType.Segment;
+        _cParentId = container?.ParentId ?? parentId;
+        _cStyle = container?.Style ?? "";
+        _showContainerEditor = true;
+    }
+
+    private async Task SaveContainerAsync()
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var request = new SaveFormContainerRequest(_cName.Trim(), _cType, _cParentId,
+                string.IsNullOrWhiteSpace(_cStyle) ? null : _cStyle.Trim());
+            var result = _editingContainer is null
+                ? await FormsSvc.AddContainerAsync(Id, request)
+                : await FormsSvc.UpdateContainerAsync(_editingContainer.Id, request);
+            if (!result.IsOk) { _modalError = result.Error; return; }
+            _showContainerEditor = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteContainerAsync(Guid containerId)
+    {
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.DeleteContainerAsync(containerId);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MoveContainerAsync(Guid containerId, bool up)
+    {
+        _busy = true;
+        try
+        {
+            await FormsSvc.MoveContainerAsync(containerId, up);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Preguntas ----
+
+    private void OpenQuestionEditor(FormQuestionDto? question)
+    {
+        _editingQuestion = question;
+        _modalError = null;
+        _qFieldCode = question?.FieldCode ?? "";
+        _qLabel = question?.Label ?? "";
+        _qType = question?.ControlType ?? FormControlType.Text;
+        _qContainerId = question?.ContainerId;
+        _qGridCol = question?.GridCol ?? "col-12";
+        _qNumeral = question?.Numeral ?? "";
+        _qRequired = question?.Required ?? false;
+        _qCaption = question?.Caption ?? "";
+        _qHelpText = question?.HelpText ?? "";
+        _qOptions = FormFieldValidator.ParseOptions(question?.OptionsJson).ToList();
+        var rules = FormFieldValidator.ParseRules(question?.ValidationJson);
+        _qMinLength = rules?.MinLength;
+        _qMaxLength = rules?.MaxLength;
+        _qPattern = rules?.Pattern ?? "";
+        _qMinValue = rules?.MinValue;
+        _qMaxValue = rules?.MaxValue;
+        _showQuestionEditor = true;
+    }
+
+    private async Task SaveQuestionAsync()
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            string? optionsJson = null;
+            if (_qType is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio)
+            {
+                var options = _qOptions
+                    .Where(o => !string.IsNullOrWhiteSpace(o.Id) || !string.IsNullOrWhiteSpace(o.Label))
+                    .Select(o => new FormOption(o.Id.Trim(), o.Label.Trim(),
+                        string.IsNullOrWhiteSpace(o.Value) ? null : o.Value.Trim()))
+                    .ToList();
+                optionsJson = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            }
+
+            string? validationJson = null;
+            if (_qMinLength is not null || _qMaxLength is not null || !string.IsNullOrWhiteSpace(_qPattern)
+                || _qMinValue is not null || _qMaxValue is not null)
+            {
+                validationJson = JsonSerializer.Serialize(
+                    new FormValidationRules(_qMinLength, _qMaxLength,
+                        string.IsNullOrWhiteSpace(_qPattern) ? null : _qPattern.Trim(),
+                        _qMinValue, _qMaxValue),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
+            }
+
+            var request = new SaveFormQuestionRequest(
+                _qContainerId, _qFieldCode.Trim(), _qLabel.Trim(), _qType,
+                string.IsNullOrWhiteSpace(_qCaption) ? null : _qCaption.Trim(),
+                string.IsNullOrWhiteSpace(_qHelpText) ? null : _qHelpText.Trim(),
+                optionsJson, _qRequired, _qGridCol,
+                string.IsNullOrWhiteSpace(_qNumeral) ? null : _qNumeral.Trim(),
+                validationJson);
+
+            var result = _editingQuestion is null
+                ? await FormsSvc.AddQuestionAsync(Id, request)
+                : await FormsSvc.UpdateQuestionAsync(_editingQuestion.Id, request);
+            if (!result.IsOk) { _modalError = result.Error; return; }
+            _showQuestionEditor = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteQuestionAsync(Guid questionId)
+    {
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.DeleteQuestionAsync(questionId);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MoveQuestionAsync(Guid questionId, bool up)
+    {
+        _busy = true;
+        try
+        {
+            await FormsSvc.MoveQuestionAsync(questionId, up);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Activacion ----
+
+    private async Task ActivateAsync()
+    {
+        _pageError = null;
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.ActivateAsync(Id);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            _definition = result.Value;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeactivateAsync()
+    {
+        _pageError = null;
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.DeactivateAsync(Id);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            _definition = result.Value;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Publicar por URL ----
+
+    private async void OpenTokenModal()
+    {
+        _modalError = null;
+        _emittedUrl = null;
+        _emittedExpiresAt = null;
+        _tReference = "";
+        _tHours = 24;
+        _tSingleUse = false;
+        _tAllowAnonymous = true;
+        _tokens = (await TokensSvc.ListAsync(Id)).ToList();
+        _showTokenModal = true;
+        StateHasChanged();
+    }
+
+    private void CloseTokenModal()
+    {
+        // El token en claro desaparece al cerrar: no vuelve a mostrarse.
+        _showTokenModal = false;
+        _emittedUrl = null;
+    }
+
+    private async Task EmitTokenAsync()
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var result = await TokensSvc.EmitAsync(Id, new EmitFormTokenRequest(
+                string.IsNullOrWhiteSpace(_tReference) ? null : _tReference.Trim(),
+                _tHours, _tSingleUse, _tAllowAnonymous));
+            if (!result.IsOk || result.Value is null) { _modalError = result.Error; return; }
+            _emittedUrl = $"{Nav.BaseUri}f/{result.Value.Token}";
+            _emittedExpiresAt = result.Value.ExpiresAt;
+            _tokens = (await TokensSvc.ListAsync(Id)).ToList();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RevokeTokenAsync(Guid tokenId)
+    {
+        _busy = true;
+        try
+        {
+            await TokensSvc.RevokeAsync(tokenId);
+            _tokens = (await TokensSvc.ListAsync(Id)).ToList();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string TokenStateLabel(FormTokenDto t)
+        => t.RevokedAt is not null ? "Revocado"
+            : t.ExpiresAt <= DateTimeOffset.UtcNow ? "Expirado"
+            : t.SingleUse && t.UsedAt is not null ? "Usado"
+            : "Vigente";
+
+    private static string TokenStateClass(FormTokenDto t)
+        => TokenStateLabel(t) == "Vigente" ? "ok" : "off";
+}

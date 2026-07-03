@@ -1,13 +1,231 @@
 @page "/formularios"
 @attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Formularios.Disenar"). *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@inject IFormDefinitionService FormsSvc
+@inject NavigationManager Nav
 
-<ModuleStub Section="Modulos"
-            Title="Formularios"
-            Description="Constructor y render de formularios dinamicos (EAV) por tenant."
-            Phase="Fase 4 (DynamicFormRenderer)"
-            LegacyCode="000131">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
-    </Icon>
-</ModuleStub>
+@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Formularios.Disenar"). *@
+
+<PageTitle>Formularios - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Modulos</span>
+    <span class="sep">/</span>
+    <span class="cur">Formularios</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
+            </div>
+            <span>Modulos</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Formularios <span>dinamicos</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Constructor y render de formularios dinamicos por tenant (legacy 000131, motor EAV -> documento JSON).</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <label class="pl-toggle">
+            <input type="checkbox" checked="@_includeArchived" @onchange="@(async e => { _includeArchived = (bool)e.Value!; await LoadAsync(); })" />
+            Ver archivados
+        </label>
+        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ Nuevo formulario</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando formularios...</em></p>
+}
+else if (_definitions.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin formularios todavia</h3>
+        <p>Crea el primer formulario dinamico y disenalo con contenedores y preguntas.</p>
+        <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditor(null))">+ Nuevo formulario</button>
+    </div>
+}
+else
+{
+    <div class="tb-grid">
+        @foreach (var d in _definitions)
+        {
+            <div class="tb-card" @onclick="@(() => Nav.NavigateTo($"/formularios/{d.Id}/disenar"))">
+                <div class="tb-card-head">
+                    <span class="tk-number">@d.Code</span>
+                    <span class="tk-status @StatusClass(d.Status)">@StatusLabel(d.Status)</span>
+                    @if (d.IsArchived)
+                    {
+                        <span class="tk-status st-closed">Archivado</span>
+                    }
+                </div>
+                <div class="tb-card-name">@d.Title</div>
+                <div class="tb-card-desc">@(string.IsNullOrWhiteSpace(d.Description) ? "Sin descripcion." : d.Description)</div>
+                <div class="tb-card-foot" style="margin-top:10px;">
+                    <span class="tb-card-stat">rev @d.Revision</span>
+                    <span class="tb-card-stat">@d.QuestionCount pregunta@(d.QuestionCount == 1 ? "" : "s")</span>
+                </div>
+                <div class="tk-project-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditor(d))" @onclick:stopPropagation="true">Editar</button>
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => Nav.NavigateTo($"/formularios/{d.Id}/disenar"))" @onclick:stopPropagation="true">Disenar</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* ===== Modal crear/editar cabecera ===== *@
+@if (_showEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editing is null ? "Nuevo formulario" : $"Editar {_editing.Code}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Codigo *</label>
+                    <input class="form-control" @bind="_code" maxlength="20" placeholder="FRM-002" disabled="@(_editing is not null)" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Titulo *</label>
+                    <input class="form-control" @bind="_title" maxlength="200" placeholder="Titulo del formulario" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="3" @bind="_description"></textarea>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="tk-field-error">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editing is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="ToggleArchiveAsync" disabled="@_busy">
+                        @(_editing.IsArchived ? "Restaurar" : "Archivar")
+                    </button>
+                }
+                <span style="flex:1;"></span>
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editing is null ? "Crear formulario" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeArchived;
+    private List<FormDefinitionListItemDto> _definitions = new();
+
+    private bool _showEditor;
+    private FormDefinitionListItemDto? _editing;
+    private string _code = "";
+    private string _title = "";
+    private string _description = "";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _definitions = (await FormsSvc.ListAsync(_includeArchived)).ToList();
+    }
+
+    internal static string StatusLabel(FormStatus status) => status switch
+    {
+        FormStatus.Draft => "Borrador",
+        FormStatus.Active => "Activo",
+        FormStatus.Inactive => "Inactivo",
+        _ => status.ToString()
+    };
+
+    internal static string StatusClass(FormStatus status) => status switch
+    {
+        FormStatus.Draft => "st-pending",
+        FormStatus.Active => "st-done",
+        FormStatus.Inactive => "st-closed",
+        _ => ""
+    };
+
+    private void OpenEditor(FormDefinitionListItemDto? definition)
+    {
+        _editing = definition;
+        _error = null;
+        _code = definition?.Code ?? "";
+        _title = definition?.Title ?? "";
+        _description = definition?.Description ?? "";
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_title) || (_editing is null && string.IsNullOrWhiteSpace(_code)))
+        {
+            _error = "Codigo y titulo son obligatorios.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            if (_editing is null)
+            {
+                var result = await FormsSvc.CreateAsync(new CreateFormDefinitionRequest(
+                    _code.Trim(), _title.Trim(),
+                    string.IsNullOrWhiteSpace(_description) ? null : _description.Trim()));
+                if (!result.IsOk) { _error = result.Error; return; }
+                _showEditor = false;
+                Nav.NavigateTo($"/formularios/{result.Value!.Id}/disenar");
+                return;
+            }
+            var updated = await FormsSvc.UpdateHeaderAsync(_editing.Id, new UpdateFormDefinitionRequest(
+                _title.Trim(),
+                string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+                _editing.Version));
+            if (!updated.IsOk)
+            {
+                _error = updated.Status == FormServiceStatus.Conflict
+                    ? "Otro usuario modifico el formulario. Cierra y vuelve a abrir el editor."
+                    : updated.Error;
+                return;
+            }
+            _showEditor = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleArchiveAsync()
+    {
+        if (_editing is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.SetArchivedAsync(_editing.Id, !_editing.IsArchived);
+            if (!result.IsOk) { _error = result.Error; return; }
+            _showEditor = false;
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

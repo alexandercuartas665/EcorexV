@@ -73,6 +73,10 @@ public static class DependencyInjection
         // llegue la ola RulesEngine, que lo reemplazara en este registro.
         services.AddScoped<Workflows.IWorkflowEngine, Workflows.WorkflowEngine>();
         services.AddScoped<Workflows.IWorkflowRuleHook, Workflows.NoOpWorkflowRuleHook>();
+        // Formularios dinamicos (FASE 4 ola 2, ADR-0015): definiciones, respuestas y tokens.
+        services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
+        services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();
+        services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

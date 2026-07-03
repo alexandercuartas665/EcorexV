@@ -1,0 +1,29 @@
+/* Visor publico /f/{token} (ADR-0015). Tokens exactos del prototipo ECOREX.dc.html. */
+
+.fp-shell {
+    min-height: 100vh;
+    background: var(--surface-2, #FAFAFA);
+    display: flex; justify-content: center;
+    padding: 32px 16px;
+    font-family: 'Hanken Grotesk', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+.fp-card {
+    width: 100%; max-width: 760px;
+    background: var(--surface, #FFFFFF);
+    border: 1px solid var(--line, rgba(20,20,25,.07));
+    border-radius: var(--rad, 20px);
+    box-shadow: var(--sh-md, 0 2px 8px rgba(20,20,25,.06), 0 8px 24px rgba(20,20,25,.05));
+    padding: var(--pad, 30px);
+    height: fit-content;
+}
+
+.fp-thanks { text-align: center; padding: 36px 12px; }
+.fp-thanks h2 { font-size: 19px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0 0 6px; }
+.fp-thanks p { font-size: 13px; color: var(--ink-2, #5C5C66); margin: 0; }
+.fp-thanks-icon {
+    width: 54px; height: 54px; margin: 0 auto 14px;
+    display: grid; place-items: center; border-radius: 16px;
+    color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6);
+}
+.fp-thanks-icon.off { color: var(--t-slate, #64748B); background: var(--t-slate-bg, #EEF1F5); }
+.fp-thanks-icon svg { width: 26px; height: 26px; }

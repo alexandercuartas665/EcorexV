@@ -112,6 +112,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<WorkflowInstance> WorkflowInstances => Set<WorkflowInstance>();
     public DbSet<WorkflowStepHistory> WorkflowStepHistories => Set<WorkflowStepHistory>();
 
+    // Formularios dinamicos (FASE 4, ADR-0015): definiciones con arbol contenedores ->
+    // preguntas, respuestas como documento JSON, tokens de publicacion por URL y vinculos
+    // formulario <-> paso de flujo.
+    public DbSet<FormDefinition> FormDefinitions => Set<FormDefinition>();
+    public DbSet<FormContainer> FormContainers => Set<FormContainer>();
+    public DbSet<FormQuestion> FormQuestions => Set<FormQuestion>();
+    public DbSet<FormResponse> FormResponses => Set<FormResponse>();
+    public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
+    public DbSet<FormToken> FormTokens => Set<FormToken>();
+    public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -161,6 +172,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<WorkflowNodeType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkflowInstanceStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WorkflowStepStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormContainerType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormControlType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormResponseStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormFlowLinkStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -865,6 +881,111 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.InstanceId, x.IsCurrent });
             b.HasIndex(x => new { x.InstanceId, x.NodeId, x.CycleIndex });
+        });
+
+        // ---- Formularios dinamicos (FASE 4, ADR-0015) ----
+
+        modelBuilder.Entity<FormDefinition>(b =>
+        {
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // Version de NEGOCIO (Revision, int) separada del token de concurrencia
+            // (Version, long): comparten proposito distinto y por eso nombres distintos.
+            b.Property(x => x.Revision).HasDefaultValue(1);
+            // Concurrencia optimista portable (ADR-0013), igual que TaskItem.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+        });
+
+        modelBuilder.Entity<FormContainer>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Style).HasMaxLength(300);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Self-FK del arbol: NO ACTION siempre (el servicio borra el subarbol explicitamente).
+            b.HasOne(x => x.Parent).WithMany()
+                .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.DefinitionId, x.SortOrder });
+            b.HasIndex(x => x.ParentId);
+        });
+
+        modelBuilder.Entity<FormQuestion>(b =>
+        {
+            b.Property(x => x.FieldCode).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(500).IsRequired();
+            b.Property(x => x.Caption).HasMaxLength(300);
+            b.Property(x => x.HelpText).HasMaxLength(600);
+            b.Property(x => x.OptionsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.GridCol).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Numeral).HasMaxLength(20);
+            b.Property(x => x.ValidationJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server
+            // (definition->questions y definition->containers->questions); el servicio decide
+            // que pasa con las preguntas al borrar un contenedor (las mueve a la raiz).
+            b.HasOne(x => x.Container).WithMany()
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.Restrict);
+            // FieldCode es la clave del documento JSON de respuestas: unico por definicion.
+            b.HasIndex(x => new { x.DefinitionId, x.FieldCode }).IsUnique();
+            b.HasIndex(x => new { x.DefinitionId, x.ContainerId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<FormResponse>(b =>
+        {
+            b.Property(x => x.Reference).HasMaxLength(100);
+            // Documento JSON { fieldCode: { value, type } }: jsonb en PG, nvarchar(max) en
+            // SQL Server (mismo patron dual de TaskItem.CcEmails).
+            b.Property(x => x.Data).HasColumnType(jsonColumnType).IsRequired();
+            // Concurrencia optimista portable (ADR-0013): autosave + submit concurrentes.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            // Sin cascada: las respuestas sobreviven (la definicion se archiva, no se borra).
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.Reference });
+        });
+
+        modelBuilder.Entity<FormFlowLink>(b =>
+        {
+            b.HasOne(x => x.FormResponse).WithMany()
+                .HasForeignKey(x => x.FormResponseId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.WorkflowInstance).WithMany()
+                .HasForeignKey(x => x.WorkflowInstanceId).OnDelete(DeleteBehavior.Cascade);
+            // NO ACTION hacia el nodo (igual que WorkflowStepHistory): el vinculo es parte
+            // de la historia del caso y el nodo nunca se borra por cascada desde aqui.
+            b.HasOne(x => x.WorkflowNode).WithMany()
+                .HasForeignKey(x => x.WorkflowNodeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.WorkflowInstanceId, x.WorkflowNodeId, x.FormResponseId }).IsUnique();
+            b.HasIndex(x => new { x.FormResponseId, x.Status });
+        });
+
+        modelBuilder.Entity<FormToken>(b =>
+        {
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Reference).HasMaxLength(100);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+            // Unico por tenant (spec); el hash aleatorio de 256 bits no colisiona entre
+            // tenants en la practica y la resolucion anonima usa el indice global no-unico.
+            b.HasIndex(x => new { x.TenantId, x.TokenHash }).IsUnique();
+            // Busqueda del visor anonimo (IgnoreQueryFilters, ver FormTokenService).
+            b.HasIndex(x => x.TokenHash);
+        });
+
+        modelBuilder.Entity<WorkflowNodeForm>(b =>
+        {
+            // Un nodo tiene a lo sumo UN formulario asignado.
+            b.HasIndex(x => x.NodeId).IsUnique();
+            b.HasIndex(x => x.DefinitionId);
+            // El vinculo vive y muere con el nodo (definicion de flujo); la definicion de
+            // formulario NO se borra mientras este asignada (restrict).
+            b.HasOne(x => x.Node).WithMany()
+                .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Definition).WithMany()
+                .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
         });
 
     }

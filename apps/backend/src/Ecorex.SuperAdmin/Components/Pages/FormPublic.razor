@@ -1,0 +1,89 @@
+@page "/f/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Forms
+@inject IFormTokenService TokensSvc
+
+@* Visor publico por token (FASE 4 ola 2, ADR-0015). SIN policy: el acceso lo gobierna el
+   token opaco (hash SHA-256, expiracion, un-solo-uso, revocacion). La resolucion del token
+   es el UNICO punto cross-tenant permitido (FormTokenService.ValidateAsync, por hash exacto
+   con IgnoreQueryFilters); validado el token, TODO el pipeline corre con el tenant del token
+   fijado como ambient (AmbientTenantId del renderer -> AmbientTenantContext.Begin). Los
+   errores de token muestran SIEMPRE el mismo mensaje neutro, sin filtrar el motivo. *@
+
+<PageTitle>Formulario - ECOREX</PageTitle>
+
+<div class="fp-shell">
+    <div class="fp-card">
+        @if (_loading)
+        {
+            <p><em>Validando enlace...</em></p>
+        }
+        else if (_submitted)
+        {
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <h2>Gracias, tu respuesta fue enviada.</h2>
+                <p>Ya puedes cerrar esta ventana.</p>
+            </div>
+        }
+        else if (_validation is null || !_validation.IsValid || !_validation.AllowAnonymous)
+        {
+            @* Mensaje NEUTRO: invalido, expirado, usado o revocado se ven identicos. *@
+            <div class="fp-thanks">
+                <div class="fp-thanks-icon off">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>
+                </div>
+                <h2>Este enlace no esta disponible.</h2>
+                <p>El enlace no es valido o ya no admite respuestas. Contacta a quien te lo compartio.</p>
+            </div>
+        }
+        else
+        {
+            <DynamicFormRenderer DefinitionId="@_validation.DefinitionId!.Value"
+                                 Reference="@_validation.Reference"
+                                 Mode="FormRenderMode.Fill"
+                                 AmbientTenantId="@_validation.TenantId"
+                                 OnSubmitted="OnSubmittedAsync" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = "";
+
+    private FormTokenValidation? _validation;
+    private bool _loading = true;
+    private bool _submitted;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Las 4 verificaciones (existe por hash, no expirado, no usado si single-use, no
+        // revocado) viven en el servicio; aqui solo se consume el resultado neutro.
+        _validation = await TokensSvc.ValidateAsync(Token);
+        _loading = false;
+    }
+
+    private async Task OnSubmittedAsync(FormResponseDto _)
+    {
+        if (_validation is { IsValid: true, TokenId: Guid tokenId, TenantId: Guid tenantId })
+        {
+            // Un solo uso: el token queda quemado tras el primer envio. Tenant-scoped:
+            // se fija el ambient del tenant del token (no hay sesion en el visor).
+            if (_validation.SingleUse)
+            {
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    await TokensSvc.MarkUsedAsync(tokenId);
+                }
+            }
+        }
+        _submitted = true;
+        StateHasChanged();
+    }
+}

@@ -15,10 +15,10 @@ public sealed record PlatformBrandingDto(
     /// <summary>Valores por defecto cuando aun no se ha configurado la marca.</summary>
     public static PlatformBrandingDto Default => new(
         "ECOREX.tareas",
-        "CRM Conversacional",
+        "Sistema de Tareas",
         null,
-        "Rapido, facil y seguro",
-        "La plataforma para vender por WhatsApp, automatizar seguimientos y operar tu agencia de viajes con agentes de IA.");
+        "Organiza tu operacion",
+        "Gestiona tareas, proyectos, flujos BPMN, formularios y reglas configurables sin codigo, todo en un solo lugar.");
 }
 
 public sealed record SaveBrandingRequest(

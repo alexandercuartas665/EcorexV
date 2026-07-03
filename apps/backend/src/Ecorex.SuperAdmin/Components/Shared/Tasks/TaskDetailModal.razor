@@ -1,11 +1,14 @@
+@using Ecorex.Application.Forms
 @using Ecorex.Application.Tenancy
 @using Ecorex.Domain.Enums
 @using Ecorex.Domain.Rules
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @implements IAsyncDisposable
 @inject ITaskItemService TasksSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
 @inject IProjectService ProjectsSvc
+@inject IFormResponseService FormResponsesSvc
 @inject ITaskBroadcaster Broadcaster
 @inject IJSRuntime JS
 
@@ -308,6 +311,35 @@
                         </div>
                     </div>
 
+                    @* Formularios del paso (FASE 4 ola 2, ADR-0015): pasos current del flujo
+                       cuyo nodo exige un formulario. Mientras el link este Pending, el paso
+                       se completa UNICAMENTE enviando el formulario (no hay boton manual). *@
+                    @if (_stepForms.Count > 0)
+                    {
+                        <div class="tk-card">
+                            <div class="tk-card-head"><h3>Formularios del paso</h3></div>
+                            @foreach (var sf in _stepForms)
+                            {
+                                <div class="tk-summary-row" style="align-items:center;gap:8px;">
+                                    <span style="flex:1;min-width:0;">
+                                        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
+                                        <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
+                                    </span>
+                                    @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
+                                    {
+                                        <span class="tk-status st-pending">Pendiente</span>
+                                        <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepForm(sf))" disabled="@_busy">Diligenciar</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="tk-status st-done">Enviado</span>
+                                    }
+                                </div>
+                            }
+                            <p class="tk-empty-note" style="margin-top:8px;">El paso del flujo se completa al enviar el formulario.</p>
+                        </div>
+                    }
+
                     @* Actividad (comentarios + acciones) *@
                     <div class="tk-card">
                         <div class="tk-card-head"><h3>Actividad</h3></div>
@@ -384,6 +416,27 @@
     </div>
 }
 
+@* ===== Modal del formulario del paso (renderer en modo Fill) ===== *@
+@if (_openStepForm is not null)
+{
+    <div class="modal-overlay" style="z-index:60;" @onclick="@(() => _openStepForm = null)">
+        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@_openStepForm.FormTitle</h3>
+                <button class="modal-close" @onclick="@(() => _openStepForm = null)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <DynamicFormRenderer DefinitionId="@_openStepForm.DefinitionId"
+                                     ResponseId="@_openStepForm.ResponseId"
+                                     Reference="@_openStepForm.Reference"
+                                     Mode="FormRenderMode.Fill"
+                                     SubmittedByTenantUserId="@_actorTenantUserId"
+                                     OnSubmitted="OnStepFormSubmittedAsync" />
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
     // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
@@ -422,6 +475,11 @@
     private string _attUrl = "";
     private string? _attError;
 
+    // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
+    private List<TaskStepFormDto> _stepForms = new();
+    private TaskStepFormDto? _openStepForm;
+    private Guid? _actorTenantUserId;
+
     public async Task OpenAsync(Guid taskId)
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
@@ -445,7 +503,27 @@
             _workLogs = (await TasksSvc.ListWorkLogsAsync(taskId)).ToList();
             _totalSeconds = _detail.TotalWorkSeconds;
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
+            // Formularios exigidos por los pasos current del flujo (crea borrador+link
+            // de forma idempotente si el nodo tiene formulario asignado).
+            _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
+            var actor = await ActorAsync();
+            _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
         }
+    }
+
+    private void OpenStepForm(TaskStepFormDto stepForm) => _openStepForm = stepForm;
+
+    private async Task OnStepFormSubmittedAsync(FormResponseDto _)
+    {
+        // El submit completo el paso del flujo en el servidor: refresca detalle y avisa.
+        _openStepForm = null;
+        if (_detail is not null)
+        {
+            var taskId = _detail.Item.Id;
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        StateHasChanged();
     }
 
     private async Task CloseAsync()

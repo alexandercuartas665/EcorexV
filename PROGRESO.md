@@ -439,3 +439,191 @@ cuando llegue la fase de descubrimiento/ETL.)
   puebla aun; el legacy lo resolvia con PERMISO_CARGO).
 - Cancelacion manual de instancias (WorkflowInstanceStatus.Cancelled sin caso de uso).
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-03 - Sesion 8: FASE 4 ola 2 - DynamicFormRenderer (formularios dinamicos, ADR-0015)
+
+**Agentes**: agente unico (port del constructor EAV legacy; en paralelo OTRO agente
+trabajo SOLO la UI del layout - MainLayout/NavMenu/Login/Inicio/app.css/Home no se
+tocaron desde esta ola).
+
+**Hecho**:
+- Entidades TenantEntity (Ecorex.Domain): FormDefinition (Code unico por tenant,
+  Revision de negocio SEPARADA del token de concurrencia Version/IVersioned, Status
+  Draft/Active/Inactive, IsArchived), FormContainer (arbol por ParentId self-FK NO
+  ACTION, Segment/Table), FormQuestion (FieldCode unico por definicion = clave del
+  documento JSON, ControlType con los 19 tipos del legacy pero solo Tier 1 renderizable,
+  OptionsJson, ValidationJson, GridCol, Numeral), FormResponse (Data jsonb/nvarchar(max)
+  { fieldCode: { value, type } }, patron dual de CcEmails, indice TenantId+DefinitionId+
+  Reference, IVersioned), FormFlowLink (unico instancia+nodo+respuesta, Pending/
+  Completed), FormToken (TokenHash SHA-256 unico por tenant, ExpiresAt, SingleUse,
+  UsedAt, RevokedAt, AllowAnonymous) y WorkflowNodeForm (un formulario por nodo, indice
+  unico NodeId).
+- Enums persistidos como texto (patron existente): FormStatus, FormContainerType,
+  FormControlType, FormResponseStatus, FormFlowLinkStatus.
+- Servicios (Ecorex.Application/Forms, patron TaskCoreResults -> FormResult<T> con
+  FieldErrors): IFormDefinitionService (CRUD definicion/contenedores/preguntas con
+  FieldCode unico y formato identificador, opciones obligatorias y con ids unicos en
+  Select/MultiCheck/Radio, pattern compilable, min<=max; ActivateAsync valida estructura;
+  Revision++ en cambios estructurales sobre Active; AssignToWorkflowNodeAsync),
+  IFormResponseService (GetOrCreateDraftAsync por definicion+referencia, SaveAsync con
+  VALIDACION SERVIDOR completa por tipo devolviendo errores por fieldCode; al Submit con
+  FormFlowLink Pending completa el paso via IWorkflowEngine.CompleteStepAsync en la MISMA
+  transaccion - el motor se une via HasActiveTransaction; GetTaskStepFormsAsync asegura
+  borrador+link idempotentes para pasos current con formulario), IFormTokenService
+  (EmitAsync devuelve el token EN CLARO una sola vez y guarda solo el hash; ValidateAsync
+  con las 4 verificaciones y el UNICO IgnoreQueryFilters permitido - cross-tenant acotado
+  al hash exacto, devuelve el TenantId del token para fijar el ambient; RevokeAsync y
+  MarkUsedAsync tenant-scoped). FormFieldValidator puro (sin EF), compartido por cliente
+  y servidor. Registro DI completo.
+- UI (Ecorex.SuperAdmin): /formularios reemplaza el stub (grid de definiciones con code/
+  titulo/estado/revision/#preguntas + modal cabecera + boton Disenar);
+  /formularios/{id}/disenar builder basico (arbol de contenedores como lista anidada,
+  grid de preguntas con modal por tipo con opciones y validaciones, reordenar con
+  botones arriba/abajo - SIN drag and drop, ola posterior), Vista previa (renderer en
+  modo Design), Activar/Desactivar y Publicar por URL (modal que muestra la URL UNA vez
+  + lista/revocacion de tokens). Componente DynamicFormRenderer
+  (Components/Shared/Forms): parametros DefinitionId/Reference/Mode(Design,Fill,
+  ReadOnly)/ResponseId/AmbientTenantId/OnSubmitted; arbol contenedores->preguntas con
+  controles Tier 1 respetando GridCol (grid bootstrap), validacion cliente inmediata con
+  el MISMO validador + errores del servidor bajo cada campo, autosave del borrador cada
+  30s (timer) y boton Enviar. Visor publico /f/{token} ([AllowAnonymous], EmptyLayout):
+  valida token, fija AmbientTenantContext.Begin(tenant del token), renderiza en Fill,
+  marca usado si SingleUse y muestra pantalla de gracias; errores de token con mensaje
+  NEUTRO (no distingue invalido/expirado/usado/revocado).
+- Integracion flujo en TaskDetailModal (cambio MINIMO): seccion "Formularios del paso"
+  en la columna lateral cuando la tarea tiene instancia con paso current cuyo nodo tiene
+  WorkflowNodeForm; chip Pendiente/Enviado y modal con el renderer; el paso se completa
+  UNICAMENTE enviando el formulario.
+- Estilos de las paginas/componentes nuevos via CSS isolation (.razor.css) con los
+  tokens EXACTOS del prototipo ECOREX.dc.html como fallback literal (var(--surface,
+  #FFFFFF) etc.): si el layout define las variables globales del prototipo, se heredan.
+- Seeder Development idempotente EnsureDynamicFormsDemoAsync: FRM-001 "Solicitud de
+  cotizacion" (SKY SYSTEM) ACTIVO con 2 contenedores y 8 preguntas Tier 1 variadas
+  (Text con min/max y pattern email, Select, Radio, Number con rango, Date, Toggle,
+  TextArea) y WorkflowNodeForm hacia el nodo "Cotizacion" (Task_Cotizacion) del flujo
+  demo COT-COM. Program.cs (SuperAdmin) lo invoca tras EnsureWorkflowDemoAsync.
+- Migraciones duales AddDynamicForms (Postgres 20260703231608, SqlServer 20260703231718)
+  generadas y APLICADAS a los contenedores dev (PG 5442 y MSSQL 1443; 7 tablas form_* +
+  workflow_node_forms verificadas en ambos).
+- ADR-0015 (docs/decisiones/0015-dynamic-forms.md): EAV -> documento JSON por respuesta,
+  Revision separada de Version, Tier 1 primero con enum completo, token opaco hasheado
+  con expiracion/un-solo-uso/revocacion, cross-tenant acotado del visor anonimo,
+  FormFlowLink + WorkflowNodeForm.
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln (Release): 0 errores (el bin Debug del SuperAdmin estaba
+  bloqueado por la instancia del agente de layout; esta ola valido y corrio en Release).
+- Tests: Domain 35 verdes, Application 58 verdes (26 previas + 32 FormFieldValidator:
+  required por tipo, longitudes, pattern y pattern invalido ignorado, rangos numericos,
+  fechas, toggle, opcion unica/multiple invalida, parsers), Integration 67 verdes
+  (57 previas + 10 nuevas: 5 tests DynamicForms x 2 motores via Testcontainers PG/MSSQL):
+  CRUD + round-trip del documento identico (incluido type por campo y rechazo de
+  FieldCode duplicado/Select sin opciones/regex rota), submit invalido con 6 errores por
+  fieldCode y borrador intacto (autosave no valida), ciclo de vida del token (emitir ->
+  validar -> usar -> reusar falla por single-use, expirado falla, revocado falla,
+  garabateado falla) con scoping verificado (DbSet de B vacio, RevokeAsync cross NotFound,
+  ValidateAsync devuelve el tenant del TOKEN), submit del formulario vinculado completa
+  el paso (link Completed, motor avanza a Task_B, ExecutedBy = quien envio) y aislamiento
+  cross-tenant de definiciones/preguntas/respuestas.
+- Seeder + arranque real contra PG 5442 en puerto 5235: /formularios y /f/{token-invalido}
+  responden sin 500 (login redirect y mensaje neutro respectivamente).
+
+**Desviaciones del diseno pedido (con su porque)**:
+- FormQuestion.ContainerId y FormContainer.ParentId son NO ACTION (pedido) y ademas
+  DeleteContainerAsync reubica preguntas/hijos al padre en vez de fallar: evita el error
+  1785 de SQL Server y no deja huerfanos.
+- GetOrCreateDraftAsync con reference null SIEMPRE crea borrador nuevo (visor anonimo
+  multi-uso: cada visitante su respuesta); con reference reutiliza el Draft existente.
+- El chip "Pendiente Fase 4" del item Formularios en NavMenu.razor NO se toco (archivo
+  del agente de layout): queda para el coordinador quitarlo.
+
+**Deudas / TODO (proximas olas)**:
+- Constructor visual completo con drag and drop y paleta de controles (esta ola: grid+modal).
+- Componentes de los tipos multimedia (Image, Photo, Audio, Signature, Gps, Button,
+  Chart, GridDetail, Html) que ya existen en el enum como placeholder.
+- Policy propia (ej. "Formularios.Disenar") en vez de TenantMember.
+- Condiciones de gateway sobre datos del documento de respuesta (RulesEngine, ola 3).
+- Consultas por valor de campo (indice GIN jsonb / OPENJSON) cuando haya reportes.
+- Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-03 - Sesion 9: Alineacion visual al Prototipo Final ECOREX (shell del workspace)
+
+**Objetivo**: cerrar las brechas visuales de la consola contra las capturas del
+prototipo (01-inicio-resumen, 01b, 02-tableros): marca, rail de iconos, landing,
+Inicio con datos reales, botones negros y modo oscuro. Solo UI de layout/estilo;
+sin tocar DbContext, seeder, migraciones ni las paginas nuevas de Formularios
+(en curso por otra sesion paralela).
+
+**Cambios**:
+- Marca: fuera el icono de avion y el subtitulo "CRM Conversacional". El header
+  del sidebar del tenant ahora es el patron del prototipo: tile cuadrado oscuro
+  con la inicial + nombre del tenant + "{plan} - ECOREX" (corregido el doble
+  "Plan Plan": el nombre del plan ya incluye la palabra). El default de
+  PlatformBranding paso a "ECOREX.tareas / Sistema de Tareas" con propuesta de
+  valor de gestion de tareas (el branding guardado en BD se sigue respetando).
+- Login: tagline nueva ("Gestiona tareas, proyectos, flujos BPMN, formularios y
+  reglas configurables sin codigo...") e icono SVG de tablero/checklist; el
+  wording de registro paso de "agencia" a "empresa" (el name del input se
+  conserva por compatibilidad con /auth/register).
+- Rail de iconos (doble panel del prototipo): nav vertical fija de 56px a la
+  izquierda del sidebar con Inicio, Gestor de tareas, Flujos, Formularios,
+  Anuncios (NavLink con tooltip) y avatar abajo; se oculta en <= 991px. Solo se
+  muestra a usuarios con claim tenant_id.
+- Landing post-login: /auth/login y el callback de Google ahora redirigen a
+  /inicio para usuarios de tenant (operadores siguen yendo a "/").
+- Inicio.razor con datos reales (InteractiveServer con prerender): KPIs de
+  Tareas activas (ITaskItemService.ListAsync TotalCount con Pending/Active/
+  InProgress), Proyectos en curso (IProjectService, estados no cerrados),
+  Flujos ejecutandose (WorkflowInstances Running via IApplicationDbContext con
+  query filter de tenant) y Alertas (tareas vencidas sin terminar, DueTo <=
+  ahora). Boton negro "+ Nueva actividad" que abre el TaskWizard existente y
+  panel "Mis tareas de hoy" (asignadas al usuario, vencimiento hoy o vencidas,
+  max 5, link al gestor). Saludo contextual + linea "Tienes X tareas y Y
+  alertas".
+- Topbar del workspace: breadcrumb "Equipos / {tenant} / {seccion}" (seccion
+  derivada de la ruta) + campana de notificaciones placeholder; el area
+  PlatformAdmin conserva su chip "Operador · usuario".
+- Botones primarios NEGROS solo en el workspace del tenant: clase ws-tenant en
+  el shell cuando hay tenant_id sin platform_role; PlatformAdmin sigue violeta.
+- Modo oscuro: toggle luna en el pie del sidebar (JS plano, sin circuito),
+  clase "dark" en <html> con persistencia en localStorage y script temprano en
+  App.razor (sin FOUC). Re-mapa de tokens oklch + overrides puntuales para los
+  grises fijos de tableros/kanban/modales. Cubre shell + inicio + actividades +
+  proyectos; paginas heredadas quedan usables sin pulir cada detalle.
+
+**Archivos**: Program.cs (redirects), PlatformBrandingService.cs (default),
+Login.razor, NavMenu.razor, MainLayout.razor, Inicio.razor, App.razor, app.css,
+.claude/launch.json (config superadmin-5236 para preview).
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores. Tests unitarios verdes (Domain 35,
+  Application 26).
+- Arrancado contra Postgres 5442 en http://localhost:5236 y verificado con
+  HTTP real (curl con cookies) y navegador: login demo-admin@ecorex.tareas ->
+  302 a /inicio; el HTML servido trae el header "S / SKY SYSTEM / Plan Empresa
+  - ECOREX" (0 ocurrencias de "Plan Plan"), breadcrumb "Equipos / SKY SYSTEM /
+  Resumen", rail con 5 iconos, clase ws-tenant y KPIs con numeros reales
+  (5 tareas activas, 1 proyecto, 0 flujos, 0 alertas del seed actual).
+  /actividades, /proyectos, /tableros y /anuncios responden 200 con el shell
+  nuevo. En navegador: el wizard "Nueva actividad" abre desde Inicio
+  (circuito interactivo OK), el toggle luna pone html.dark, persiste en
+  localStorage y el boton primario invierte a claro (verificado via computed
+  styles; el valor "congelado" inicial era la transition de Bootstrap en la
+  pestana oculta del preview, no un bug de cascada).
+- Bug encontrado y corregido en vivo: Npgsql rechaza DateTimeOffset con offset
+  != 0 en timestamptz; los filtros DueTo de Inicio ahora usan UtcNow /
+  ToUniversalTime().
+- Procesos detenidos al terminar (puerto 5236 libre).
+
+**Deudas / TODO**:
+- Si la BD tiene fila de PlatformBranding con la tagline vieja del CRM, se
+  muestra esa (se respeta el branding configurado); actualizarla desde Super
+  Admin -> Marca si se quiere el texto nuevo.
+- Panel "Alertas del sistema" de la captura 01 no implementado (solo KPI);
+  contador de anuncios del sidebar sigue placeholder 0, campana sin dropdown.
+- Rail sin badge de notificaciones; en movil se oculta (como se pidio).
+- El KPI de flujos cuenta WorkflowInstance Running; el seed demo actual no
+  deja instancias corriendo, por eso muestra 0.
+- Sin commit (pedido explicito): cambios en working tree.

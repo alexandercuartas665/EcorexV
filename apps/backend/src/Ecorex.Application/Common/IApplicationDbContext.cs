@@ -63,6 +63,13 @@ public interface IApplicationDbContext
     DbSet<WorkflowEdge> WorkflowEdges { get; }
     DbSet<WorkflowInstance> WorkflowInstances { get; }
     DbSet<WorkflowStepHistory> WorkflowStepHistories { get; }
+    DbSet<FormDefinition> FormDefinitions { get; }
+    DbSet<FormContainer> FormContainers { get; }
+    DbSet<FormQuestion> FormQuestions { get; }
+    DbSet<FormResponse> FormResponses { get; }
+    DbSet<FormFlowLink> FormFlowLinks { get; }
+    DbSet<FormToken> FormTokens { get; }
+    DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

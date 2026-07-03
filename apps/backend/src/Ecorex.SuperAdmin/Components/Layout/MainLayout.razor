@@ -1,8 +1,37 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IServiceScopeFactory ScopeFactory
+@using Microsoft.Extensions.DependencyInjection
 
-<div class="ecorex-shell">
+<div class="ecorex-shell @(_isTenantWorkspace ? "ws-tenant" : "")">
     <!-- Toggle solo-CSS del menu (off-canvas en movil). Funciona en cualquier render mode. -->
     <input type="checkbox" id="ecorex-nav-toggle" class="ecorex-nav-toggle" autocomplete="off" />
+
+    @if (_hasTenant)
+    {
+        @* Rail vertical de iconos (doble panel del prototipo): navegacion rapida a los
+           modulos principales; el sidebar contextual queda a su derecha. Oculto en movil. *@
+        <nav class="ecorex-rail" aria-label="Navegacion rapida">
+            <NavLink class="ecorex-rail-btn" href="inicio" title="Inicio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+            </NavLink>
+            <NavLink class="ecorex-rail-btn" href="tableros" title="Gestor de tareas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+            </NavLink>
+            <NavLink class="ecorex-rail-btn" href="flujos" title="Flujos del proceso">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+            </NavLink>
+            <NavLink class="ecorex-rail-btn" href="formularios" title="Formularios">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
+            </NavLink>
+            <NavLink class="ecorex-rail-btn" href="anuncios" title="Anuncios y notificaciones">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            </NavLink>
+            <div class="ecorex-rail-spacer"></div>
+            <div class="ecorex-rail-avatar" title="@(_userName ?? "Usuario")">@_avatar</div>
+        </nav>
+    }
 
     <aside class="ecorex-sidebar">
         <NavMenu />
@@ -20,7 +49,25 @@
 
             <AuthorizeView>
                 <Authorized>
-                    <span class="ecorex-user-chip">@(context.User.FindFirst("platform_role") is not null ? "Operador" : "Agencia") · <strong>@context.User.Identity?.Name</strong></span>
+                    @if (_isTenantWorkspace)
+                    {
+                        @* Breadcrumb del prototipo: Equipos / {tenant} / {seccion}. *@
+                        <nav class="ecorex-topbar-crumb" aria-label="Ubicacion">
+                            <span>Equipos</span>
+                            <span class="sep">/</span>
+                            <span>@(_tenantName ?? "Mi empresa")</span>
+                            <span class="sep">/</span>
+                            <span class="cur">@SectionLabel</span>
+                        </nav>
+                        <span style="flex:1;"></span>
+                        <button type="button" class="ecorex-bell" title="Notificaciones (proximamente)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                        </button>
+                    }
+                    else
+                    {
+                        <span class="ecorex-user-chip">@(context.User.FindFirst("platform_role") is not null ? "Operador" : "Workspace") · <strong>@context.User.Identity?.Name</strong></span>
+                    }
                     <form method="post" action="/auth/logout" class="m-0">
                         <button type="submit" class="btn btn-sm btn-outline-secondary">Salir</button>
                     </form>
@@ -50,3 +97,90 @@
         }
     });
 </script>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // El rail y el breadcrumb solo aplican al workspace del tenant. Los operadores de
+    // plataforma (PlatformAdmin) conservan su chrome actual: ws-tenant NO se aplica,
+    // asi sus botones primarios siguen violeta (no se rompe su estilo).
+    private bool _hasTenant;          // claim tenant_id presente (muestra el rail)
+    private bool _isTenantWorkspace;  // tenant sin platform_role (breadcrumb + botones negros)
+    private string? _tenantName;
+    private string? _userName;
+    private string _avatar = "U";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+
+        if (AuthState is null) { return; }
+        var state = await AuthState;
+        var isOperator = state.User.FindFirst("platform_role") is not null;
+        var tenantClaim = state.User.FindFirst("tenant_id")?.Value;
+
+        _hasTenant = tenantClaim is not null;
+        _isTenantWorkspace = _hasTenant && !isOperator;
+        _userName = state.User.Identity?.Name;
+        _avatar = Initials(_userName);
+
+        if (_isTenantWorkspace && Guid.TryParse(tenantClaim, out var tenantId))
+        {
+            // Scope aislado para no compartir el DbContext con NavMenu/paginas durante el render.
+            try
+            {
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var tenants = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Admin.ITenantAdminService>();
+                _tenantName = (await tenants.GetAsync(tenantId))?.Name;
+            }
+            catch { /* sin nombre: se muestra el generico */ }
+        }
+    }
+
+    /// <summary>Etiqueta de la seccion actual para el breadcrumb (Equipos / tenant / seccion).</summary>
+    private string SectionLabel
+    {
+        get
+        {
+            var path = Navigation.ToBaseRelativePath(Navigation.Uri);
+            var seg = path.Split('?', '#')[0].Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+            return seg.ToLowerInvariant() switch
+            {
+                "" or "inicio" => "Resumen",
+                "anuncios" => "Anuncios",
+                "tableros" or "tablero" => "Tableros",
+                "actividades" => "Actividades",
+                "proyectos" or "proyecto" => "Proyectos",
+                "flujos" => "Flujos del proceso",
+                "formularios" => "Formularios",
+                "reglas" => "Reglas",
+                "dependencias" => "Dependencias",
+                "modulos-web" => "Modulos web",
+                "configuracion" => "Configuracion",
+                "mi-cuenta" => "Mi cuenta",
+                "pipeline" => "Pipeline comercial",
+                "conversaciones" => "Conversaciones",
+                "plantillas" => "Plantillas",
+                "lineas" => "Lineas WhatsApp",
+                "agentes" => "Agentes de IA",
+                "bitacora-agente" => "Bitacora del agente",
+                "automatizaciones" => "Automatizaciones",
+                "lista-negra" => "Lista negra",
+                "metricas" => "Metricas",
+                _ => char.ToUpperInvariant(seg[0]) + seg[1..]
+            };
+        }
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "U";
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

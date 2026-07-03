@@ -5,6 +5,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    <script>
+        // Modo oscuro por clase en <html> con persistencia en localStorage. Corre antes
+        // del CSS para evitar el destello claro. window.ecorexTheme.toggle() lo conmuta
+        // (boton luna del sidebar); funciona igual en SSR y en paginas interactivas.
+        (function () {
+            try {
+                if (localStorage.getItem('ecorex-theme') === 'dark') {
+                    document.documentElement.classList.add('dark');
+                }
+            } catch (e) { /* sin storage: modo claro */ }
+            window.ecorexTheme = {
+                toggle: function () {
+                    var dark = document.documentElement.classList.toggle('dark');
+                    try { localStorage.setItem('ecorex-theme', dark ? 'dark' : 'light'); } catch (e) { }
+                }
+            };
+        })();
+    </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Ecorex.SuperAdmin.styles.css"]" />

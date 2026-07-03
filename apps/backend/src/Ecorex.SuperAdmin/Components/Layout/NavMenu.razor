@@ -6,29 +6,45 @@
 @inject IServiceScopeFactory ScopeFactory
 @using Microsoft.Extensions.DependencyInjection
 
-<div class="ecorex-brand">
-    <div class="ecorex-logo">
-        @if (!string.IsNullOrWhiteSpace(_brandLogoUrl))
-        {
-            <img src="@_brandLogoUrl" alt="@(_brandName ?? "Logo")" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" />
-        }
-        else
-        {
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
-        }
+@if (_showAdmin)
+{
+    @* Consola de plataforma: marca configurable (Super Admin -> Marca) con icono de tablero. *@
+    <div class="ecorex-brand">
+        <div class="ecorex-logo">
+            @if (!string.IsNullOrWhiteSpace(_brandLogoUrl))
+            {
+                <img src="@_brandLogoUrl" alt="@(_brandName ?? "Logo")" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" />
+            }
+            else
+            {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="3"/><path d="m7.5 12 2 2 4-4.5"/><path d="M16.5 16h.01"/></svg>
+            }
+        </div>
+        <div>
+            @if (string.IsNullOrWhiteSpace(_brandName) || _brandName == "ECOREX.tareas")
+            {
+                <div class="ecorex-brand-name">ECOREX<span>.tareas</span></div>
+            }
+            else
+            {
+                <div class="ecorex-brand-name">@_brandName</div>
+            }
+            <div class="ecorex-brand-sub">@(_brandTagline ?? "Sistema de Tareas")</div>
+        </div>
     </div>
-    <div>
-        @if (string.IsNullOrWhiteSpace(_brandName) || _brandName == "ECOREX.tareas")
-        {
-            <div class="ecorex-brand-name">ECOREX<span>.tareas</span></div>
-        }
-        else
-        {
-            <div class="ecorex-brand-name">@_brandName</div>
-        }
-        <div class="ecorex-brand-sub">@(_brandTagline ?? "Sistema de Tareas")</div>
+}
+else
+{
+    @* Cabecera del workspace (prototipo): tile cuadrado oscuro con la inicial del tenant +
+       nombre + "{plan} - ECOREX" (el nombre del plan ya trae la palabra "Plan"). *@
+    <div class="ecorex-brand">
+        <div class="ecorex-tenant-tile">@TenantInitial</div>
+        <div>
+            <div class="ecorex-brand-name ecorex-tenant-name">@(_tenantName ?? "Mi empresa")</div>
+            <div class="ecorex-brand-sub">@(_planName is null ? "ECOREX Sistema de Tareas" : $"{_planName} - ECOREX")</div>
+        </div>
     </div>
-</div>
+}
 
 @* Buscador global del prototipo (Cmd/Ctrl+K). Placeholder: se activa junto con el contenido real. *@
 <div class="ecorex-search" title="Busqueda global (proximamente)">
@@ -37,22 +53,14 @@
     <span class="kbd">Ctrl K</span>
 </div>
 
-<div class="ecorex-agency">
-    @if (_showAdmin)
-    {
+@if (_showAdmin)
+{
+    <div class="ecorex-agency">
         <div class="lbl">Plataforma</div>
         <div class="name">ECOREX.tareas</div>
         <div class="meta">Consola de gobierno</div>
-    }
-    else
-    {
-        @* Cabecera del workspace (prototipo: "SKY SYSTEM / Plan Empresa - ECOREX").
-           El nombre sale del tenant activo (claim tenant_id) y el plan de su suscripcion. *@
-        <div class="lbl">Workspace</div>
-        <div class="name">@(_tenantName ?? "Mi empresa")</div>
-        <div class="meta">@(_planName is null ? "ECOREX Sistema de Tareas" : $"Plan {_planName} - ECOREX")</div>
-    }
-</div>
+    </div>
+}
 
 <nav class="ecorex-nav">
     @if (_showTenant)
@@ -251,11 +259,15 @@
 
 <div class="ecorex-user">
     <div class="ecorex-avatar">@_avatar</div>
-    <div>
+    <div style="min-width:0;">
         <div class="nm">@(_userName ?? "Usuario")</div>
         <div class="rl">@_roleLabel</div>
     </div>
-    <span class="ecorex-dot"></span>
+    @* Toggle de modo oscuro (icono luna, prototipo). JS plano: funciona en SSR e interactivo. *@
+    <button type="button" class="ecorex-theme-btn" title="Cambiar modo claro/oscuro"
+            onclick="window.ecorexTheme && window.ecorexTheme.toggle()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    </button>
 </div>
 
 @code {
@@ -337,6 +349,9 @@
             }
         }
     }
+
+    /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
+    private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();
 
     private static string Initials(string? name)
     {

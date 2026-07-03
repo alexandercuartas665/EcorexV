@@ -1,32 +1,36 @@
 @page "/inicio"
 @attribute [Authorize(Policy = "TenantMember")]
+@rendermode InteractiveServer
+@using System.Globalization
+@using Ecorex.Application.Common
+@using Ecorex.Application.Tenancy
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@using Microsoft.EntityFrameworkCore
 @inject ITenantAdminService TenantsSvc
+@inject ITaskItemService TasksSvc
+@inject IProjectService ProjectsSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IApplicationDbContext Db
 
-@* Inicio del workspace del tenant (seccion Principal del prototipo): saludo contextual +
-   KPIs placeholder. Los indicadores se conectan a datos reales en la Fase 3. *@
+@* Inicio del workspace del tenant (captura 01 del prototipo): saludo contextual,
+   boton negro "+ Nueva actividad", 4 KPIs con datos reales y "Mis tareas de hoy".
+   Se prerenderiza (KPIs visibles en el HTML inicial) y luego el circuito habilita el wizard. *@
 
 <PageTitle>Inicio - ECOREX.tareas</PageTitle>
 
-<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
-    <span>Workspace</span>
-    <span class="sep">/</span>
-    <span>Principal</span>
-    <span class="sep">/</span>
-    <span class="cur">Inicio</span>
-</nav>
-
 <div class="module-head">
     <div>
-        <div class="module-eyebrow">
-            <div class="module-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
-            </div>
-            <span>Principal</span>
-        </div>
-        <h1 class="page-title" style="margin-top:12px;">@_greeting@(_firstName is null ? "" : $", {_firstName}")</h1>
-        <p class="page-sub" style="margin-bottom:0;">Resumen del workspace @(_tenantName ?? "de tu empresa"). Los indicadores se conectan a datos reales en la Fase 3.</p>
+        <div class="home-date">@TodayLabel</div>
+        <h1 class="page-title" style="margin-top:6px;">@_greeting@(_firstName is null ? "" : $", {_firstName}")</h1>
+        <p class="page-sub" style="margin-bottom:0;">
+            Tienes <strong>@_activeTasks @(_activeTasks == 1 ? "tarea" : "tareas")</strong> y
+            <strong>@_alerts @(_alerts == 1 ? "alerta" : "alertas")</strong> pendientes en @(_tenantName ?? "tu workspace").
+        </p>
     </div>
-    <a class="btn btn-primary" href="/tableros">Ir al gestor de tareas</a>
+</div>
+
+<div style="margin:2px 0 22px;">
+    <button class="btn btn-primary" @onclick="OpenWizardAsync">+ Nueva actividad</button>
 </div>
 
 <div class="kpi-grid">
@@ -37,8 +41,8 @@
             </div>
         </div>
         <div class="kpi-label">Tareas activas</div>
-        <div class="kpi-value">--</div>
-        <div class="kpi-hint">Pendiente Fase 3</div>
+        <div class="kpi-value">@_activeTasks</div>
+        <div class="kpi-hint">Pendientes, activas y en progreso</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-top">
@@ -47,8 +51,8 @@
             </div>
         </div>
         <div class="kpi-label">Proyectos en curso</div>
-        <div class="kpi-value">--</div>
-        <div class="kpi-hint">Pendiente Fase 3</div>
+        <div class="kpi-value">@_projectsInProgress</div>
+        <div class="kpi-hint">Planeacion, activos y en ejecucion</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-top">
@@ -57,8 +61,8 @@
             </div>
         </div>
         <div class="kpi-label">Flujos ejecutandose</div>
-        <div class="kpi-value">--</div>
-        <div class="kpi-hint">Pendiente Fase 4</div>
+        <div class="kpi-value">@_runningFlows</div>
+        <div class="kpi-hint">Instancias BPMN en curso</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-top">
@@ -66,33 +70,140 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
             </div>
         </div>
-        <div class="kpi-label">Alertas urgentes</div>
-        <div class="kpi-value">--</div>
-        <div class="kpi-hint">Pendiente Fase 3</div>
+        <div class="kpi-label">Alertas</div>
+        <div class="kpi-value">@_alerts</div>
+        <div class="kpi-hint">Tareas vencidas sin terminar</div>
     </div>
 </div>
+
+<div class="home-panels">
+    <div class="tk-card home-panel">
+        <div class="tk-card-head">
+            <h3>Mis tareas de hoy</h3>
+            <a class="tk-link" href="/actividades">Ver tablero &rarr;</a>
+        </div>
+        @if (_myToday.Count == 0)
+        {
+            <p class="tk-empty-note">No tienes tareas con vencimiento para hoy. Buen trabajo.</p>
+        }
+        else
+        {
+            <div class="home-task-list">
+                @foreach (var t in _myToday)
+                {
+                    <a class="home-task" href="/actividades" title="@t.Title">
+                        <span class="home-task-dot @TaskUi.PriorityClass(t.Priority)"></span>
+                        <span class="home-task-title">@t.Title</span>
+                        <PriorityChip Priority="@t.Priority" />
+                        <span class="home-task-due @(IsOverdue(t) ? "late" : "")">@DueLabel(t)</span>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<TaskWizard @ref="_wizard" OnCreated="OnTaskCreatedAsync" />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    private static readonly TaskItemStatus[] ActiveStatuses =
+    [
+        TaskItemStatus.Pending,
+        TaskItemStatus.Active,
+        TaskItemStatus.InProgress
+    ];
+
+    private TaskWizard? _wizard;
+
     private string _greeting = "Hola";
     private string? _firstName;
     private string? _tenantName;
+
+    private int _activeTasks;
+    private int _projectsInProgress;
+    private int _runningFlows;
+    private int _alerts;
+    private List<TaskItemSummaryDto> _myToday = [];
+
+    private static string TodayLabel
+    {
+        get
+        {
+            var s = DateTime.Now.ToString("dddd d 'de' MMMM, yyyy", new CultureInfo("es-CO"));
+            return char.ToUpper(s[0], new CultureInfo("es-CO")) + s[1..];
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         var hour = DateTime.Now.Hour;
         _greeting = hour < 12 ? "Buenos dias" : hour < 18 ? "Buenas tardes" : "Buenas noches";
 
-        if (AuthState is null) return;
-        var state = await AuthState;
-        _firstName = state.User.Identity?.Name?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-
-        // El nombre del tenant activo sale del claim tenant_id (misma tecnica que NavMenu/Home).
-        if (Guid.TryParse(state.User.FindFirst("tenant_id")?.Value, out var tenantId))
+        Guid? platformUserId = null;
+        if (AuthState is not null)
         {
-            var tenant = await TenantsSvc.GetAsync(tenantId);
-            _tenantName = tenant?.Name;
+            var state = await AuthState;
+            _firstName = state.User.Identity?.Name?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)) { platformUserId = uid; }
+            if (Guid.TryParse(state.User.FindFirst("tenant_id")?.Value, out var tenantId))
+            {
+                _tenantName = (await TenantsSvc.GetAsync(tenantId))?.Name;
+            }
         }
+
+        // Npgsql solo acepta DateTimeOffset con offset 0 en "timestamp with time zone".
+        var now = DateTimeOffset.UtcNow;
+
+        // KPI 1: tareas en estados activos (solo cuenta: PageSize 1 y se usa TotalCount).
+        _activeTasks = (await TasksSvc.ListAsync(new TaskItemListFilter(Statuses: ActiveStatuses, PageSize: 1))).TotalCount;
+
+        // KPI 2: proyectos en curso (no archivados, no cerrados ni cancelados).
+        var projects = await ProjectsSvc.ListAsync();
+        _projectsInProgress = projects.Count(p => p.Status is ProjectStatus.Planning or ProjectStatus.Active or ProjectStatus.InExecution);
+
+        // KPI 3: instancias de flujo Running (el query filter de EF aisla el tenant activo).
+        _runningFlows = await Db.WorkflowInstances.CountAsync(i => i.Status == WorkflowInstanceStatus.Running);
+
+        // KPI 4: alertas = tareas vencidas (DueDate <= ahora) que siguen en estado activo.
+        _alerts = (await TasksSvc.ListAsync(new TaskItemListFilter(Statuses: ActiveStatuses, DueTo: now, PageSize: 1))).TotalCount;
+
+        // Mis tareas de hoy: asignadas a mi (TenantUser del PlatformUser actual) con
+        // vencimiento hoy o ya vencidas; max 5 ordenadas por fecha de entrega.
+        if (platformUserId is Guid pid)
+        {
+            var me = (await TenantUsersSvc.ListAsync()).FirstOrDefault(u => u.PlatformUserId == pid);
+            if (me is not null)
+            {
+                var endOfToday = new DateTimeOffset(DateTime.Today.AddDays(1).AddTicks(-1)).ToUniversalTime();
+                var mine = await TasksSvc.ListAsync(new TaskItemListFilter(
+                    Statuses: ActiveStatuses, AssigneeTenantUserId: me.Id, DueTo: endOfToday, PageSize: 50));
+                _myToday = mine.Items.OrderBy(t => t.DueDate).Take(5).ToList();
+            }
+        }
+    }
+
+    private async Task OpenWizardAsync()
+    {
+        if (_wizard is not null) { await _wizard.OpenAsync(); }
+    }
+
+    private async Task OnTaskCreatedAsync(TaskItemDetailDto _)
+    {
+        // Refresca KPIs y "Mis tareas de hoy" tras crear una actividad desde el wizard.
+        await OnInitializedAsync();
+        StateHasChanged();
+    }
+
+    private static bool IsOverdue(TaskItemSummaryDto t) => t.DueDate is { } d && d.LocalDateTime.Date < DateTime.Today;
+
+    private static string DueLabel(TaskItemSummaryDto t)
+    {
+        if (t.DueDate is not { } d) { return ""; }
+        var date = d.LocalDateTime.Date;
+        if (date < DateTime.Today) { return "Vencida"; }
+        if (date == DateTime.Today) { return "Hoy"; }
+        return date.ToString("dd MMM", new CultureInfo("es-CO"));
     }
 }

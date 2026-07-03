@@ -111,7 +111,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
   box-shadow: var(--shadow-soft);
   color: #fff;
 }
-.ecorex-logo svg { width: 18px; height: 18px; transform: rotate(-45deg); }
+.ecorex-logo svg { width: 18px; height: 18px; }
 .ecorex-logo::after {
   content: ""; position: absolute; bottom: -2px; right: -2px;
   width: 11px; height: 11px; border-radius: 50%;
@@ -241,7 +241,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .auth-deco-bl { bottom: -60px; left: -60px; }
 .auth-brand { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
 .auth-brand-logo { width: 46px; height: 46px; border-radius: 13px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.25); display: grid; place-items: center; backdrop-filter: blur(6px); }
-.auth-brand-logo svg { width: 22px; height: 22px; transform: rotate(-45deg); }
+.auth-brand-logo svg { width: 22px; height: 22px; }
 .auth-brand-logo-img { height: 46px; max-width: 180px; object-fit: contain; border-radius: 10px; background: rgba(255,255,255,.92); padding: 6px 10px; }
 .auth-brand-name { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; }
 .auth-aside-body { position: relative; z-index: 1; max-width: 420px; }
@@ -1439,3 +1439,202 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-toast.error { border-color: oklch(0.6 0.22 22 / 0.5); }
 .tk-toast.error svg { color: var(--destructive); }
 @keyframes tk-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* =====================================================================
+   Prototipo Final ECOREX: rail de iconos, header del tenant, breadcrumb
+   del topbar, botones negros del workspace, panel de inicio y modo oscuro
+   ===================================================================== */
+
+/* --- Header del sidebar: tile cuadrado oscuro con la inicial del tenant --- */
+.ecorex-tenant-tile {
+  width: 38px; height: 38px; flex-shrink: 0;
+  border-radius: 11px;
+  background: oklch(0.24 0.02 280);
+  color: #fff;
+  display: grid; place-items: center;
+  font-weight: 800; font-size: 16px;
+  box-shadow: var(--shadow-soft);
+}
+.ecorex-tenant-name { font-size: 14.5px; }
+
+/* --- Boton luna (modo oscuro) en el pie del sidebar --- */
+.ecorex-theme-btn {
+  margin-left: auto; flex-shrink: 0;
+  width: 32px; height: 32px;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--card); color: var(--muted-foreground);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ecorex-theme-btn:hover { background: var(--muted); color: var(--foreground); }
+.ecorex-theme-btn svg { width: 15px; height: 15px; }
+
+/* --- Rail vertical de iconos (doble panel del prototipo) --- */
+.ecorex-rail {
+  width: 56px; flex-shrink: 0;
+  background: var(--background);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 14px 0;
+  position: sticky; top: 0; height: 100vh;
+  z-index: 6;
+}
+.ecorex-rail-btn {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+  color: oklch(0.45 0.03 280); text-decoration: none;
+  transition: background .12s, color .12s;
+}
+.ecorex-rail-btn svg { width: 18px; height: 18px; }
+.ecorex-rail-btn:hover { background: var(--muted); color: var(--foreground); }
+/* Activo: cuadrado oscuro como en el prototipo */
+.ecorex-rail-btn.active { background: oklch(0.24 0.02 280); color: #fff; }
+.ecorex-rail-spacer { flex: 1; }
+.ecorex-rail-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--gradient-violet); color: #fff;
+  font-size: 11px; font-weight: 800;
+  display: grid; place-items: center;
+}
+@media (max-width: 991.98px) { .ecorex-rail { display: none; } }
+
+/* --- Topbar del workspace: breadcrumb Equipos / tenant / seccion + campana --- */
+.ecorex-topbar-crumb {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 12.5px; font-weight: 500; color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden;
+}
+.ecorex-topbar-crumb .sep { opacity: .5; }
+.ecorex-topbar-crumb .cur { color: var(--foreground); font-weight: 700; }
+.ecorex-bell {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--card); color: var(--muted-foreground);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ecorex-bell:hover { background: var(--muted); color: var(--foreground); }
+.ecorex-bell svg { width: 16px; height: 16px; }
+@media (max-width: 991.98px) { .ecorex-topbar-crumb { display: none; } }
+
+/* --- Botones primarios NEGROS en el workspace del tenant (ws-tenant).
+       El area PlatformAdmin no lleva la clase y conserva el violeta. --- */
+.ws-tenant .btn-primary {
+  background: oklch(0.2 0.015 280);
+  border-color: oklch(0.2 0.015 280);
+  color: #fff;
+}
+.ws-tenant .btn-primary:hover, .ws-tenant .btn-primary:focus {
+  background: oklch(0.32 0.02 280);
+  border-color: oklch(0.32 0.02 280);
+  color: #fff;
+}
+
+/* --- Inicio: fecha, panel "Mis tareas de hoy" --- */
+.home-date { font-size: 12.5px; color: var(--muted-foreground); font-weight: 600; }
+.home-panels { margin-top: 24px; max-width: 640px; }
+.home-panel .tk-card-head h3 { text-transform: none; letter-spacing: 0; font-size: 14.5px; color: var(--foreground); }
+.home-task-list { display: flex; flex-direction: column; }
+.home-task {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 8px; border-radius: 8px;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none; color: var(--foreground);
+}
+.home-task:last-child { border-bottom: 0; }
+.home-task:hover { background: var(--muted); }
+.home-task-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted-foreground); }
+.home-task-dot.pr-high { background: var(--destructive); }
+.home-task-dot.pr-medium { background: var(--warning); }
+.home-task-dot.pr-low { background: var(--success); }
+.home-task-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-task-due { font-size: 11.5px; font-weight: 700; color: var(--muted-foreground); white-space: nowrap; }
+.home-task-due.late { color: var(--destructive); }
+
+/* =====================================================================
+   MODO OSCURO (html.dark): re-mapa de tokens + ajustes puntuales donde
+   habia colores fijos. Cubre el shell + inicio + actividades + proyectos;
+   las paginas heredadas quedan usables sin perfeccionar cada detalle.
+   ===================================================================== */
+html.dark {
+  --background: oklch(0.16 0.015 280);
+  --foreground: oklch(0.93 0.008 280);
+  --card: oklch(0.21 0.015 280);
+  --primary: oklch(0.68 0.18 285);
+  --primary-foreground: oklch(0.15 0.02 285);
+  --primary-soft: oklch(0.3 0.05 285);
+  --muted: oklch(0.26 0.015 280);
+  --muted-foreground: oklch(0.68 0.02 280);
+  --accent-foreground: oklch(0.82 0.1 285);
+  --gold: oklch(0.72 0.13 70);
+  --gold-foreground: oklch(0.92 0.04 70);
+  --destructive: oklch(0.68 0.19 22);
+  --warning: oklch(0.74 0.16 65);
+  --warning-foreground: oklch(0.92 0.05 65);
+  --success: oklch(0.7 0.14 155);
+  --border: oklch(0.3 0.015 280);
+  --sidebar: oklch(0.19 0.015 280);
+  --sidebar-border: oklch(0.28 0.015 280);
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 1px 3px oklch(0 0 0 / 0.3);
+  --shadow-card: 0 4px 24px -8px oklch(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+/* Superficies con color fijo claro que el re-mapa de tokens no cubre */
+html.dark .ecorex-topbar { background: oklch(0.19 0.015 280 / 0.8); }
+html.dark .ecorex-rail-btn.active { background: oklch(0.92 0.008 280); color: oklch(0.2 0.02 280); }
+html.dark .ecorex-tenant-tile { background: oklch(0.92 0.008 280); color: oklch(0.2 0.02 280); }
+html.dark .ws-tenant .btn-primary { background: oklch(0.94 0.008 280); border-color: oklch(0.94 0.008 280); color: oklch(0.18 0.015 280); }
+html.dark .ws-tenant .btn-primary:hover, html.dark .ws-tenant .btn-primary:focus { background: oklch(0.85 0.01 280); border-color: oklch(0.85 0.01 280); color: oklch(0.18 0.015 280); }
+
+html.dark .card { background: var(--card); color: var(--foreground); }
+html.dark .form-control, html.dark .form-control-sm,
+html.dark .tk-filter-select, html.dark .tb-sort select, html.dark .cv-line-select,
+html.dark .pl-sort select { background: var(--muted); color: var(--foreground); border-color: var(--border); }
+html.dark .form-control::placeholder { color: var(--muted-foreground); }
+html.dark input, html.dark textarea, html.dark select { color-scheme: dark; }
+
+/* Tableros / kanban (grises fijos) */
+html.dark .tb-col-head { background: oklch(0.23 0.015 280); }
+html.dark .tb-col-body { background: oklch(0.19 0.015 280); }
+html.dark .tb-list thead th { background: oklch(0.23 0.015 280); }
+html.dark .tb-modal { background: oklch(0.2 0.015 280); }
+html.dark .tk-detail { background: oklch(0.2 0.015 280); }
+html.dark .tb-modal-side-btn, html.dark .tb-modal-section-action,
+html.dark .tb-modal-add-btn, html.dark .tb-desc-empty, html.dark .tb-modal-tag,
+html.dark .tb-act-item-avatar { background: oklch(0.29 0.015 280); color: var(--foreground); }
+html.dark .tb-modal-side-btn:hover, html.dark .tb-modal-section-action:hover,
+html.dark .tb-modal-add-btn:hover, html.dark .tb-desc-empty:hover { background: oklch(0.34 0.015 280); }
+html.dark .tb-check-item:hover { background: oklch(0.28 0.015 280); }
+html.dark .tb-check-bar { background: oklch(0.3 0.015 280); }
+html.dark .tb-act-input-foot { background: oklch(0.23 0.015 280); }
+html.dark .tb-tag { background: oklch(0.32 0.02 280); color: oklch(0.85 0.02 280); }
+html.dark .tb-col-drag { background: oklch(0.26 0.04 290); }
+
+/* Chips de estado pastel: fondo translucido legible en oscuro */
+html.dark .tb-status.todo { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
+html.dark .tb-status.progress { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
+html.dark .tb-status.review { background: oklch(0.38 0.07 65 / 0.6); color: oklch(0.82 0.1 65); }
+html.dark .tb-status.done { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
+html.dark .tk-status.st-pending { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
+html.dark .tk-status.st-active { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
+html.dark .tk-status.st-done { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
+html.dark .tk-status.st-suspended { background: oklch(0.38 0.07 65 / 0.6); color: oklch(0.82 0.1 65); }
+html.dark .tk-status.st-closed { background: oklch(0.3 0.015 280); color: oklch(0.75 0.01 280); }
+html.dark .tk-status.pj-planning { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
+html.dark .tk-status.pj-active { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
+html.dark .tk-status.pj-exec { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
+html.dark .tk-status.pj-closed { background: oklch(0.3 0.015 280); color: oklch(0.75 0.01 280); }
+html.dark .tb-due.late { background: oklch(0.35 0.06 25 / 0.5); }
+html.dark .tk-priority.pr-high { background: oklch(0.4 0.09 22 / 0.5); }
+html.dark .tk-priority.pr-medium { background: oklch(0.4 0.08 70 / 0.5); color: oklch(0.85 0.1 70); }
+html.dark .tk-priority.pr-low { background: oklch(0.35 0.07 155 / 0.5); }
+html.dark .tk-number { background: oklch(0.32 0.05 285); }
+
+/* Tablas bootstrap y badges */
+html.dark .table { color: var(--foreground); }
+html.dark .badge.bg-secondary { background: oklch(0.3 0.015 280) !important; }
+
+/* Modal overlay mas profundo */
+html.dark .modal-overlay { background: oklch(0.08 0.01 280 / 0.6); }

@@ -109,8 +109,15 @@ construir nucleo tareas/tableros/proyectos + motores, menu del Prototipo Final.
 - Clean Architecture + monolito modular preparado para microservicios.
 
 **Frontend del producto: 100% .NET / Blazor (regla firme).** Prohibido Node/npm/React/Vue/Vite
-para construir o desplegar la UI del producto. E2E con Playwright para .NET. El `web-prototype`
-React y el `ECOREX - Prototipo Final.html` del vault son solo guia visual.
+para construir o desplegar la UI del producto. E2E con Playwright para .NET.
+
+**Fidelidad visual (regla del usuario): la UI del workspace debe replicar
+MILIMETRICAMENTE el prototipo** cuyo fuente es
+`01. Requerimiento/Prototipo/ECOREX.dc.html` del vault (+ `support.js`, SPA
+`ECOREX - Prototipo Final.html` y `capturas/`). Toda tarea de UI extrae los tokens
+exactos de ese HTML (colores hex, tipografia, espaciados, rail/sidebar, sombras,
+radios) y los replica tal cual; ante cualquier duda visual gana el prototipo.
+El `web-prototype` React heredado es solo referencia secundaria.
 
 **Infraestructura local (bloque de puertos DEDICADO, prefijo `ecorex-tareas-`):**
 

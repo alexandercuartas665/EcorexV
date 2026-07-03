@@ -46,20 +46,30 @@
 - Consola Ecorex.SuperAdmin arranco contra la pila nueva: aplico las 72 migraciones,
   sembro PlatformAdmin + tenants (Agencia Demo, Plataforma ECOREX) + plan. /login 200.
 
-**FASE 1 en curso** (2 subagentes en paralelo):
-- Agente A: seeders segun vault (tenant demo -> SKY SYSTEM, credenciales por rol
-  admin@ecorex.local / owner|admin|operator|viewer@sky-system.local, plan "Plan Empresa").
-- Agente B: proveedor SQL Server (Ecorex.Infrastructure.SqlServer, SqlServerEcorexDbContext,
-  seleccion por Database:Provider, migracion inicial, verificacion contra el contenedor 1443).
-- Pendiente tras A+B: test de aislamiento cross-tenant en matriz dual (Postgres Y SQL Server).
+**FASE 1 COMPLETADA** (3 subagentes: A seeders, B DAL dual, C test dual):
+- Consola Super Admin operativa contra la pila dedicada (72 migraciones + seed, /login 200).
+- Seeders segun vault (commit 0d09e16): tenant demo SKY SYSTEM (= legacy 01 BITCODE),
+  PlatformAdmin admin@ecorex.local, owner/admin/operator/viewer@sky-system.local
+  (Operator/Viewer mapeados a Advisor con TODO), plan "Plan Empresa".
+- DAL dual (commit 0d09e16): proyecto Ecorex.Infrastructure.SqlServer con
+  SqlServerEcorexDbContext y migracion inicial (77 tablas); seleccion por
+  Database:Provider / ECOREX_DB_PROVIDER; jsonb->nvarchar(max), HasFilter por motor,
+  cascadas ajustadas. Verificado E2E: la app migra y siembra en SQL Server real (1443)
+  y el camino Postgres queda intacto (5442).
+- TEST DE AISLAMIENTO CROSS-TENANT EN MATRIZ DUAL: TenantIsolationTestsBase +
+  fixtures Testcontainers (postgres:16-alpine y mssql 2022) -> 6/6 verde
+  (aislamiento A/B, fail-closed sin tenant, IgnoreQueryFilters admin, x2 motores).
+  Canario verificado: al romper el filtro, el test FALLA (gate efectivo).
 
 **Siguiente**:
-- FASE 1: verificar arranque de la consola Super Admin; seeders PlatformAdmin +
-  tenant demo SKY SYSTEM + planes; agregar proveedor SQL Server
-  (Ecorex.Infrastructure.SqlServer) para el DAL dual; test de aislamiento
-  cross-tenant corriendo en AMBOS motores.
-- Decidir con ADR la migracion de TFM net9.0 -> net10.0 (SDK ya disponible).
-- Limpieza del dominio belleza/agenda (con ADR, commits separados).
+- Decidir con ADR la migracion de TFM net9.0 -> net10.0 (SDK 10.0.301 disponible).
+- Limpieza del dominio belleza/agenda (24 entidades: Service*, Resource*, Appointment*,
+  Client, HairLength*, Shift*, Product*, Course*, Sede) con ADR y commits separados.
+  Nota: al eliminarlas cae tambien la exclusion GiST anti-overbooking (gap SQL Server).
+- FASE 2: menu del Prototipo Final (MainLayout doble panel, PRINCIPAL/MODULOS,
+  stubs por policy) + revision de policies/MFA.
+- Nucleo tareas/tableros/proyectos (el backbone ya trae TaskBoard/TaskCard como base).
+- Actualizar vault: Registro de corridas (primera corrida dual) + ADR del DAL dual aplicado.
 
 **Bloqueos**: ninguno. (db3dev no se ha tocado; se pedira la conexion al usuario
 cuando llegue la fase de descubrimiento/ETL.)

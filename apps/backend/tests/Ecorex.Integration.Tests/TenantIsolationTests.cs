@@ -1,62 +1,30 @@
-using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
-using Ecorex.Infrastructure.Persistence;
-using Ecorex.Infrastructure.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
-using Testcontainers.PostgreSql;
 
 namespace Ecorex.Integration.Tests;
 
 /// <summary>
-/// Test bloqueante de aislamiento multi-tenant (hoja de ruta sec.5.3). Verifica que el filtro
-/// global de consulta por TenantId impide que un tenant vea datos de otro y que, sin tenant
-/// activo, no se devuelven filas tenant-scoped (fail-closed).
+/// Test bloqueante de aislamiento multi-tenant (hoja de ruta sec.5.3), en matriz dual
+/// PostgreSQL / SQL Server (ADR-001: DAL dual). Los casos viven en esta clase base y se
+/// ejecutan una vez por motor via las clases concretas de abajo. Verifica que el filtro
+/// global de consulta por TenantId impide que un tenant vea datos de otro, que sin tenant
+/// activo no se devuelven filas tenant-scoped (fail-closed) y que IgnoreQueryFilters
+/// permite el acceso administrativo controlado. Este es el gate de merge: si alguien rompe
+/// HasQueryFilter o el aislamiento, estos tests deben FALLAR en ambos motores.
 /// </summary>
-public sealed class TenantIsolationTests : IAsyncLifetime
+public abstract class TenantIsolationTestsBase
 {
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:16-alpine")
-        .Build();
+    private readonly TenantIsolationDbFixture _fixture;
 
-    public async Task InitializeAsync()
-    {
-        await _db.StartAsync();
-        await using var ctx = CreateContext(tenantId: null);
-        await ctx.Database.MigrateAsync();
-    }
-
-    public async Task DisposeAsync() => await _db.DisposeAsync();
+    protected TenantIsolationTestsBase(TenantIsolationDbFixture fixture) => _fixture = fixture;
 
     [Fact]
     public async Task TenantScopedData_IsIsolatedBetweenTenants()
     {
-        var tenantA = Guid.CreateVersion7();
-        var tenantB = Guid.CreateVersion7();
-
-        // Tenants: entidades globales (sin filtro por tenant).
-        await using (var ctx = CreateContext(tenantId: null))
-        {
-            ctx.Tenants.Add(new Tenant { Id = tenantA, Name = "Agencia A" });
-            ctx.Tenants.Add(new Tenant { Id = tenantB, Name = "Agencia B" });
-            await ctx.SaveChangesAsync();
-        }
-
-        // Datos tenant-scoped de A (el interceptor estampa TenantId desde el contexto).
-        await using (var ctx = CreateContext(tenantA))
-        {
-            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "tono", ConfigValue = "formal" });
-            await ctx.SaveChangesAsync();
-        }
-
-        // Datos tenant-scoped de B.
-        await using (var ctx = CreateContext(tenantB))
-        {
-            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "tono", ConfigValue = "informal" });
-            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "horario", ConfigValue = "8-18" });
-            await ctx.SaveChangesAsync();
-        }
+        var (tenantA, tenantB) = await SeedTwoTenantsAsync();
 
         // Con tenant A activo: solo ve datos de A.
-        await using (var ctx = CreateContext(tenantA))
+        await using (var ctx = _fixture.CreateContext(tenantA))
         {
             var rows = await ctx.TenantConfigurations.ToListAsync();
             Assert.Single(rows);
@@ -64,43 +32,92 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         }
 
         // Con tenant B activo: solo ve datos de B.
-        await using (var ctx = CreateContext(tenantB))
+        await using (var ctx = _fixture.CreateContext(tenantB))
         {
             var rows = await ctx.TenantConfigurations.ToListAsync();
             Assert.Equal(2, rows.Count);
             Assert.All(rows, r => Assert.Equal(tenantB, r.TenantId));
         }
+    }
 
-        // Sin tenant activo: cero filas tenant-scoped (fail-closed).
-        await using (var ctx = CreateContext(tenantId: null))
-        {
-            var rows = await ctx.TenantConfigurations.ToListAsync();
-            Assert.Empty(rows);
-        }
+    [Fact]
+    public async Task WithoutActiveTenant_TenantScopedQueriesReturnNoRows_FailClosed()
+    {
+        await SeedTwoTenantsAsync();
+
+        // Sin tenant activo: cero filas tenant-scoped (fail-closed), aunque existan datos.
+        await using var ctx = _fixture.CreateContext(tenantId: null);
+        var rows = await ctx.TenantConfigurations.ToListAsync();
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public async Task IgnoreQueryFilters_AllowsControlledAdminAccessAcrossTenants()
+    {
+        var (tenantA, tenantB) = await SeedTwoTenantsAsync();
 
         // Acceso administrativo controlado: IgnoreQueryFilters ve todos los tenants.
-        await using (var ctx = CreateContext(tenantId: null))
+        // (Se acota a los tenants sembrados por este test porque el contenedor se comparte.)
+        await using var ctx = _fixture.CreateContext(tenantId: null);
+        var all = await ctx.TenantConfigurations
+            .IgnoreQueryFilters()
+            .Where(r => r.TenantId == tenantA || r.TenantId == tenantB)
+            .ToListAsync();
+        Assert.Equal(3, all.Count);
+    }
+
+    /// <summary>
+    /// Siembra dos tenants nuevos (GUIDs frescos, seguros ante el contenedor compartido):
+    /// A con 1 configuracion y B con 2. El interceptor estampa TenantId desde el contexto.
+    /// </summary>
+    private async Task<(Guid TenantA, Guid TenantB)> SeedTwoTenantsAsync()
+    {
+        var tenantA = Guid.CreateVersion7();
+        var tenantB = Guid.CreateVersion7();
+
+        // Tenants: entidades globales (sin filtro por tenant).
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
         {
-            var all = await ctx.TenantConfigurations.IgnoreQueryFilters().ToListAsync();
-            Assert.Equal(3, all.Count);
+            ctx.Tenants.Add(new Tenant { Id = tenantA, Name = "Agencia A" });
+            ctx.Tenants.Add(new Tenant { Id = tenantB, Name = "Agencia B" });
+            await ctx.SaveChangesAsync();
         }
+
+        // Datos tenant-scoped de A (el interceptor estampa TenantId desde el contexto).
+        await using (var ctx = _fixture.CreateContext(tenantA))
+        {
+            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "tono", ConfigValue = "formal" });
+            await ctx.SaveChangesAsync();
+        }
+
+        // Datos tenant-scoped de B.
+        await using (var ctx = _fixture.CreateContext(tenantB))
+        {
+            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "tono", ConfigValue = "informal" });
+            ctx.TenantConfigurations.Add(new TenantConfiguration { ConfigKey = "horario", ConfigValue = "8-18" });
+            await ctx.SaveChangesAsync();
+        }
+
+        return (tenantA, tenantB);
     }
+}
 
-    private EcorexDbContext CreateContext(Guid? tenantId)
+/// <summary>Matriz dual, motor PostgreSQL (contenedor efimero postgres:16-alpine).</summary>
+public sealed class TenantIsolationTests_Postgres
+    : TenantIsolationTestsBase, IClassFixture<PostgresTenantIsolationFixture>
+{
+    public TenantIsolationTests_Postgres(PostgresTenantIsolationFixture fixture)
+        : base(fixture)
     {
-        var tenantContext = new FixedTenantContext(tenantId);
-        var options = new DbContextOptionsBuilder<EcorexDbContext>()
-            .UseNpgsql(_db.GetConnectionString())
-            .UseSnakeCaseNamingConvention()
-            .AddInterceptors(new AuditableTenantInterceptor(tenantContext, TimeProvider.System))
-            .Options;
-
-        return new EcorexDbContext(options, tenantContext);
     }
+}
 
-    private sealed class FixedTenantContext(Guid? tenantId, Guid? userId = null) : ITenantContext
+/// <summary>Matriz dual, motor SQL Server (contenedor efimero mssql/server:2022-latest).</summary>
+public sealed class TenantIsolationTests_SqlServer
+    : TenantIsolationTestsBase, IClassFixture<SqlServerTenantIsolationFixture>
+{
+    public TenantIsolationTests_SqlServer(SqlServerTenantIsolationFixture fixture)
+        : base(fixture)
     {
-        public Guid? TenantId { get; } = tenantId;
-        public Guid? UserId { get; } = userId;
     }
 }

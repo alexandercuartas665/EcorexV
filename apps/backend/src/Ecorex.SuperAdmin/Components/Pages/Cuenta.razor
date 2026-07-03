@@ -1,4 +1,6 @@
 @page "/mi-cuenta"
+@page "/configuracion"
+@* /configuracion: ruta limpia del item "Configuracion" del menu del prototipo (config del tenant: plan, facturas, API). *@
 @attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject ITenantAdminService TenantsSvc

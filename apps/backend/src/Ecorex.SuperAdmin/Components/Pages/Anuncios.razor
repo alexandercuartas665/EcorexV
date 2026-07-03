@@ -1,0 +1,13 @@
+@page "/anuncios"
+@attribute [Authorize(Policy = "TenantMember")]
+@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Anuncios.Publicar"). *@
+
+<ModuleStub Section="Principal"
+            Title="Anuncios"
+            Description="Tablon de anuncios del workspace con control de leidos y no leidos."
+            PendingHeading="Proximamente"
+            PendingText="Este modulo se construye en una fase posterior segun la hoja de ruta. El contador de no leidos que se ve en el menu es un placeholder.">
+    <Icon>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+    </Icon>
+</ModuleStub>

@@ -115,6 +115,42 @@ cuando llegue la fase de descubrimiento/ETL.)
 - FASE 2: menu del Prototipo Final + policies/MFA.
 - Nucleo tareas/tableros/proyectos sobre TaskBoard/TaskCard.
 
+---
+
+## 2026-07-03 - Sesion 3: Menu del Prototipo Final (tarea funcional previa de FASE 2)
+
+**Agentes**: agente unico (menu + stubs + validacion de rutas).
+
+**Hecho**:
+- NavMenu del workspace del tenant reorganizado segun el Prototipo Final:
+  PRINCIPAL (Inicio /inicio, Anuncios /anuncios, Gestor de tareas /tableros+/tareas,
+  Configuracion /configuracion), MODULOS con codigo legacy visible (Proyectos 000042,
+  Actividades 000038/000636/000889, Flujos 000291, Formularios 000131, Reglas 000802),
+  SISTEMA (Dependencias 000850, Modulos web 000109), CRM heredado colapsado
+  (nada se borro), Super Admin SaaS intacto con su policy.
+- Componente ModuleStub.razor (breadcrumb + chip de modulo legacy + tarjeta
+  "se construye en Fase X") y 10 paginas nuevas; Inicio.razor con saludo contextual,
+  tenant activo desde claim y 4 KPIs placeholder.
+- Header del sidebar: Workspace / {tenant} / Plan {plan} - ECOREX (datos reales,
+  fallback generico). Buscador placeholder estilo prototipo (Ctrl+K deshabilitado).
+- Policies: stubs con [Authorize(Policy="TenantMember")] + TODO por modulo;
+  PlatformOperator/SuperAdminOnly sin cambios.
+- Validado: build 0 errores, unit tests 2/2, /login 200 y las 12 rutas del menu
+  responden sin 404/500 (redirigen a login sin sesion).
+
+**Siguiente**:
+- Migracion TFM net9.0 -> net10.0 + EF Core 10 (ADR propio).
+- FASE 3: nucleo tareas/tableros/proyectos sobre TaskBoard/TaskCard.
+- Anuncios y dashboard de Inicio con datos reales.
+
+**Bloqueos**: ninguno.
+
+**Decisiones**:
+- Inicio es pagina nueva del tenant (/inicio); Home.razor "/" sigue siendo el
+  dashboard de PlatformOperator.
+- Gestor de tareas mapea a Tableros.razor existente; Configuracion a Cuenta.razor.
+- Sin toggle de modo oscuro aun (no existia; se hara con el rebrand visual fino).
+
 **Bloqueos**: ninguno.
 
 **Decisiones**:

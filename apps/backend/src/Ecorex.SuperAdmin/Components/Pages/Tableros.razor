@@ -1,4 +1,6 @@
 @page "/tableros"
+@page "/tareas"
+@* /tareas: ruta limpia del item "Gestor de tareas" del menu del prototipo (misma pagina). *@
 @attribute [Authorize(Policy = "TenantMember")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Tenancy

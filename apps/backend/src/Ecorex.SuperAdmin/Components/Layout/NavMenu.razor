@@ -1,6 +1,8 @@
 @implements IDisposable
 @inject NavigationManager Navigation
 @inject ITenantAdminService TenantsSvc
+@inject ISubscriptionAdminService SubsSvc
+@inject IPlanAdminService PlansSvc
 @inject IServiceScopeFactory ScopeFactory
 @using Microsoft.Extensions.DependencyInjection
 
@@ -28,6 +30,13 @@
     </div>
 </div>
 
+@* Buscador global del prototipo (Cmd/Ctrl+K). Placeholder: se activa junto con el contenido real. *@
+<div class="ecorex-search" title="Busqueda global (proximamente)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="search" placeholder="Buscar" disabled />
+    <span class="kbd">Ctrl K</span>
+</div>
+
 <div class="ecorex-agency">
     @if (_showAdmin)
     {
@@ -37,72 +46,143 @@
     }
     else
     {
-        <div class="lbl">Empresa</div>
+        @* Cabecera del workspace (prototipo: "SKY SYSTEM / Plan Empresa - ECOREX").
+           El nombre sale del tenant activo (claim tenant_id) y el plan de su suscripcion. *@
+        <div class="lbl">Workspace</div>
         <div class="name">@(_tenantName ?? "Mi empresa")</div>
-        <div class="meta">@_roleLabel</div>
+        <div class="meta">@(_planName is null ? "ECOREX Sistema de Tareas" : $"Plan {_planName} - ECOREX")</div>
     }
 </div>
 
 <nav class="ecorex-nav">
     @if (_showTenant)
     {
-        <div class="ecorex-nav-label">Operacion diaria</div>
+        @* ===== Seccion PRINCIPAL (prototipo) ===== *@
+        <div class="ecorex-nav-label">Principal</div>
 
-        <NavLink class="ecorex-nav-link" href="pipeline">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect width="4" height="7" x="7" y="10" rx="1"/><rect width="4" height="12" x="13" y="5" rx="1"/></svg>
-            <span>Pipeline comercial</span>
+        <NavLink class="ecorex-nav-link" href="inicio">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+            <span>Inicio</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="conversaciones">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
-            <span>Conversaciones</span>
+        <NavLink class="ecorex-nav-link" href="anuncios">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+            <span>Anuncios</span>
+            @* Placeholder del contador de no leidos: se conecta cuando exista el modulo. *@
+            <span class="ecorex-nav-badge" title="Anuncios sin leer (placeholder)">0</span>
         </NavLink>
 
-        <div class="ecorex-nav-label">Configuracion</div>
-
-        <NavLink class="ecorex-nav-link" href="plantillas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/></svg>
-            <span>Plantillas</span>
+        <NavLink class="ecorex-nav-link" href="tableros">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+            <span>Gestor de tareas</span>
         </NavLink>
 
-        <div class="ecorex-nav-label">Comunicacion e IA</div>
-
-        <NavLink class="ecorex-nav-link" href="lineas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
-            <span>Lineas WhatsApp</span>
+        <NavLink class="ecorex-nav-link" href="configuracion">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span>Configuracion</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="agentes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
-            <span>Agentes de IA</span>
+        @* ===== Seccion MODULOS: procesos del tenant con su codigo legacy ===== *@
+        <div class="ecorex-nav-label">Modulos</div>
+
+        <NavLink class="ecorex-nav-link" href="proyectos">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            <span>Proyectos</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000042">000042</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="bitacora-agente">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-            <span>Bitacora del agente</span>
+        <NavLink class="ecorex-nav-link" href="actividades">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
+            <span>Actividades</span>
+            <span class="ecorex-nav-code" title="Modulos legacy 000038 / 000636 / 000889">000038</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="automatizaciones">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
-            <span>Automatizaciones</span>
+        <NavLink class="ecorex-nav-link" href="flujos">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
+            <span>Flujos del proceso</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000291">000291</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="lista-negra">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-            <span>Lista negra</span>
+        <NavLink class="ecorex-nav-link" href="formularios">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
+            <span>Formularios</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000131">000131</span>
         </NavLink>
 
-        <div class="ecorex-nav-label">Gestion del negocio</div>
-
-        <NavLink class="ecorex-nav-link" href="metricas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-            <span>Metricas</span>
+        <NavLink class="ecorex-nav-link" href="reglas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+            <span>Reglas</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000802">000802</span>
         </NavLink>
 
-        <NavLink class="ecorex-nav-link" href="mi-cuenta">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>Mi cuenta</span>
+        @* ===== Seccion SISTEMA: catalogos ===== *@
+        <div class="ecorex-nav-label">Sistema</div>
+
+        <NavLink class="ecorex-nav-link" href="dependencias">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+            <span>Dependencias</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000850">000850</span>
         </NavLink>
+
+        <NavLink class="ecorex-nav-link" href="modulos-web">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            <span>Modulos web</span>
+            <span class="ecorex-nav-code" title="Modulo legacy 000109">000109</span>
+        </NavLink>
+
+        @* ===== CRM heredado: paginas funcionales del CRM anterior, colapsadas
+               hasta decidir su destino en fases posteriores. ===== *@
+        <details class="ecorex-nav-group">
+            <summary>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                <span>CRM (heredado)</span>
+            </summary>
+
+            <NavLink class="ecorex-nav-link" href="pipeline">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect width="4" height="7" x="7" y="10" rx="1"/><rect width="4" height="12" x="13" y="5" rx="1"/></svg>
+                <span>Pipeline comercial</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="conversaciones">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
+                <span>Conversaciones</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="plantillas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/></svg>
+                <span>Plantillas</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="lineas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
+                <span>Lineas WhatsApp</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="agentes">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                <span>Agentes de IA</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="bitacora-agente">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+                <span>Bitacora del agente</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="automatizaciones">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+                <span>Automatizaciones</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="lista-negra">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                <span>Lista negra</span>
+            </NavLink>
+
+            <NavLink class="ecorex-nav-link" href="metricas">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Metricas</span>
+            </NavLink>
+        </details>
     }
 
     @if (_showAdmin)
@@ -182,13 +262,14 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     // El menu se arma por rol: el operador de plataforma (platform_role) ve el grupo
-    // Super Admin SaaS y previsualiza los modulos del tenant; el usuario de agencia
-    // (tenant_id) ve solo sus grupos comerciales y Mi agencia.
+    // Super Admin SaaS y previsualiza el workspace del tenant; el usuario de empresa
+    // (tenant_id) ve las secciones Principal / Modulos / Sistema y el CRM heredado.
     private bool _showAdmin;
     private bool _showTenant;
     private bool _isSuperAdmin;
     private string? _userName;
     private string? _tenantName;
+    private string? _planName;
     // Marca de la plataforma (Super Admin -> Marca): logo, nombre y bajada del sidebar.
     private string? _brandName;
     private string? _brandTagline;
@@ -236,11 +317,23 @@
         }
         else if (isTenantUser)
         {
-            _roleLabel = state.User.FindFirst("tenant_role")?.Value ?? "Agencia";
+            _roleLabel = state.User.FindFirst("tenant_role")?.Value ?? "Miembro";
             if (Guid.TryParse(tenantClaim, out var tenantId))
             {
                 var tenant = await TenantsSvc.GetAsync(tenantId);
                 _tenantName = tenant?.Name;
+
+                // Plan activo para la cabecera del workspace ("Plan Empresa - ECOREX").
+                // Si no hay suscripcion (o falla), se muestra la bajada generica.
+                try
+                {
+                    var sub = (await SubsSvc.ListByTenantAsync(tenantId)).FirstOrDefault();
+                    if (sub is not null)
+                    {
+                        _planName = (await PlansSvc.GetAsync(sub.PlanId))?.Name;
+                    }
+                }
+                catch { /* sin plan visible: bajada generica */ }
             }
         }
     }

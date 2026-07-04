@@ -28,8 +28,23 @@ public sealed class PublicFormTokenTests : E2eTestBase
         {
             Has = page.Locator(".tk-number", new PageLocatorOptions { HasText = "FRM-001" })
         });
-        await frmCard.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Disenar" }).ClickAsync();
-        await page.WaitForURLAsync(new Regex("/formularios/.+/disenar"));
+        // El click puede perderse si el circuito Blazor aun se esta conectando con la
+        // suite completa en marcha (el server esta ocupado): reintentar hasta navegar.
+        for (var attempt = 0; ; attempt++)
+        {
+            await frmCard.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Disenar" }).ClickAsync();
+            try
+            {
+                await page.WaitForURLAsync(new Regex("/formularios/.+/disenar"), new PageWaitForURLOptions { Timeout = 5000 });
+                break;
+            }
+            catch (TimeoutException) when (attempt < 3)
+            {
+            }
+            catch (PlaywrightException) when (attempt < 3)
+            {
+            }
+        }
 
         // 2. Emitir URL publica de un solo uso (referencia = sufijo de la corrida).
         await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Publicar por URL" }).ClickAsync();

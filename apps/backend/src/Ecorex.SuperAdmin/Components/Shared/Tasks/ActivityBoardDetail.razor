@@ -1,0 +1,884 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject IActivityBoardService BoardsSvc
+@inject ITaskItemService TasksSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IActivityTypeService TypesSvc
+@inject ITaskBroadcaster Broadcaster
+@inject NavigationManager Nav
+@inject IServiceScopeFactory ScopeFactory
+
+@* ============================================================
+   PANTALLA 2 del prototipo 'work' (ECOREX.dc.html, boardOpen):
+   cabecera del tablero, filas de filtro por chips, alcances,
+   switcher de vistas y kanban/lista por COLUMNAS del tablero.
+   Fiel al pixel del fuente del prototipo.
+   ============================================================ *@
+
+@if (_detail is not null)
+{
+    <div class="ab-dhead">
+        <button class="ab-back" @onclick="@(() => OnBack.InvokeAsync())">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+            Todos los tableros
+        </button>
+        <div class="ab-dtitlerow">
+            <h1 class="ab-dtitle">@_detail.Name</h1>
+            <span class="ab-dstatus"><span class="ab-dot" style="background:@AbUi.BoardStatusColor(_detail.Status)"></span>@AbUi.BoardStatusLabel(_detail.Status)</span>
+            <span class="ab-ddue">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                @AbUi.BoardDeadline(_detail.DueDate)
+            </span>
+            <button class="ab-dedit" title="Editar tablero" @onclick="OpenEditBoard">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+        </div>
+        <p class="ab-dsub">Toca cualquier valor para filtrar las tareas del tablero.</p>
+
+        @* ---- Filas de filtro (Estado / Asignados / Fecha limite / Etiquetas) ---- *@
+        @if (_filtersVisible)
+        {
+            <div class="ab-frows">
+                <div class="ab-frow-lbl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+                    Estado
+                </div>
+                <div class="ab-chips">
+                    @foreach (var (col, idx) in _detail.Columns.Select((c, i) => (c, i)))
+                    {
+                        var colId = col.Id;
+                        <button class="ab-chip @(_fColumns.Contains(colId) ? "on" : "")" @onclick="@(() => ToggleColumnFilterAsync(colId))">
+                            <span class="ab-dot" style="background:@AbUi.ColumnDot(idx)"></span>@col.Name
+                        </button>
+                    }
+                </div>
+
+                <div class="ab-frow-lbl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>
+                    Asignados
+                </div>
+                <div class="ab-chips">
+                    @foreach (var m in _members)
+                    {
+                        var memberId = m.TenantUserId;
+                        <button class="ab-chip @(_fUsers.Contains(memberId) ? "on" : "")" @onclick="@(() => ToggleUserFilterAsync(memberId))">
+                            <span class="ab-chip-av" style="background:@AbUi.AvatarBg(m.Initials)">@m.Initials</span>@m.DisplayName
+                        </button>
+                    }
+                    @if (_members.Count == 0)
+                    {
+                        <span style="font-size:12.5px;color:var(--ink-3)">Sin miembros todavia</span>
+                    }
+                </div>
+
+                <div class="ab-frow-lbl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    Fecha limite
+                </div>
+                <div class="ab-chips">
+                    <button class="ab-chip @(_fDue == "hoy" ? "on" : "")" @onclick="@(() => ToggleDueFilterAsync("hoy"))">Hoy</button>
+                    <button class="ab-chip @(_fDue == "manana" ? "on" : "")" @onclick="@(() => ToggleDueFilterAsync("manana"))">Manana</button>
+                    <button class="ab-chip @(_fDue == "fecha" ? "on" : "")" @onclick="@(() => ToggleDueFilterAsync("fecha"))">Con fecha</button>
+                    @if (_fDue == "fecha")
+                    {
+                        <input type="date" class="ab-due-input" value="@(_fDueOn?.ToString("yyyy-MM-dd"))" @onchange="OnDueOnChangedAsync" />
+                    }
+                </div>
+
+                <div class="ab-frow-lbl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5l9 9 7-7-9-9H3Z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>
+                    Etiquetas
+                </div>
+                <div class="ab-chips">
+                    @foreach (var tag in _boardTags)
+                    {
+                        var tagId = tag.Id;
+                        <button class="ab-tagchip @(_fTags.Contains(tagId) ? "on" : "")"
+                                style="background:@AbUi.TagSoft(tag.Color);color:@AbUi.TagFg(tag.Color)"
+                                @onclick="@(() => ToggleTagFilterAsync(tagId))">@tag.Name</button>
+                    }
+                    @if (_boardTags.Count == 0)
+                    {
+                        <span style="font-size:12.5px;color:var(--ink-3)">Sin etiquetas en este tablero</span>
+                    }
+                    @if (FilterCount > 0)
+                    {
+                        <button class="ab-clear-inline" @onclick="ClearFiltersAsync">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                            Limpiar (@FilterCount)
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        @* ---- Pestanas de alcance ---- *@
+        <div class="ab-scopes">
+            <button class="ab-scope @(_scope == ActivityBoardScope.Team ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Team))">
+                Todas del equipo<span class="ab-scope-n">@_detail.ScopeCounters.Team</span>
+            </button>
+            <button class="ab-scope @(_scope == ActivityBoardScope.Mine ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Mine))">
+                Pendientes mios<span class="ab-scope-n">@_detail.ScopeCounters.Mine</span>
+            </button>
+            <button class="ab-scope @(_scope == ActivityBoardScope.Unassigned ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Unassigned))">
+                No asignados<span class="ab-scope-n">@_detail.ScopeCounters.Unassigned</span>
+            </button>
+        </div>
+
+        @* ---- Switcher de vistas ---- *@
+        <div class="ab-tabs">
+            <button class="ab-tab @(_view == "tablero" ? "on" : "")" @onclick="@(() => _view = "tablero")">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+                Tablero
+            </button>
+            <button class="ab-tab @(_view == "lista" ? "on" : "")" @onclick="@(() => _view = "lista")">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                Lista
+            </button>
+            <button class="ab-tab disabled" title="Proxima ola" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                Calendario
+            </button>
+            <button class="ab-tab disabled" title="Proxima ola" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="9" height="3" rx="1"/><rect x="8" y="11" width="11" height="3" rx="1"/><rect x="5" y="17" width="8" height="3" rx="1"/></svg>
+                Gantt
+            </button>
+            <button class="ab-tab-add" title="Proxima ola">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <div class="ab-tabs-right">
+                <button class="ab-btn-filter @(_filtersVisible || FilterCount > 0 ? "active" : "")" @onclick="@(() => _filtersVisible = !_filtersVisible)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+                    Filtrar
+                    @if (FilterCount > 0)
+                    {
+                        <span class="ab-filter-badge">@FilterCount</span>
+                    }
+                </button>
+                <button class="ab-btn-task" @onclick="@(() => OpenQuickCreate(null))">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    Tarea
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @* ---- VISTA TABLERO (kanban por columnas del tablero) ---- *@
+    @if (_view == "tablero")
+    {
+        <div class="ab-kanban" style="grid-template-columns:repeat(@_detail.Columns.Count,minmax(0,1fr))">
+            @foreach (var (col, idx) in _detail.Columns.Select((c, i) => (c, i)))
+            {
+                var column = col;
+                var colIdx = idx;
+                <div>
+                    <div class="ab-col-head">
+                        <div class="ab-col-name">@column.Name</div>
+                        <span class="ab-col-count" style="background:@AbUi.ColumnBadgeBg(colIdx);color:@AbUi.ColumnBadgeFg(colIdx)">@column.Cards.Count</span>
+                        <button class="ab-col-menu" title="Opciones de columna (proxima ola)">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                        </button>
+                    </div>
+                    <div class="ab-col-body @(_dragOverColumnId == column.Id ? "dragover" : "")"
+                         ondragover="event.preventDefault()"
+                         @ondragenter="@(() => _dragOverColumnId = column.Id)"
+                         @ondragleave="@(() => { if (_dragOverColumnId == column.Id) { _dragOverColumnId = null; } })"
+                         @ondrop="@(() => OnDropAsync(column))">
+                        @foreach (var card in column.Cards)
+                        {
+                            var c = card;
+                            <div class="ab-card @(_dragTaskId == c.Id ? "dragging" : "")" draggable="true"
+                                 @onclick="@(() => OpenTaskAsync(c.Id))"
+                                 @ondragstart="@(() => _dragTaskId = c.Id)"
+                                 @ondragend="@(() => { _dragTaskId = null; _dragOverColumnId = null; })">
+                                <div class="ab-card-top">
+                                    <div class="ab-card-title">@c.Title</div>
+                                    <button class="ab-card-menu" title="@c.Number" @onclick:stopPropagation="true">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                                    </button>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(c.Description))
+                                {
+                                    <p class="ab-card-desc">@Truncate(c.Description!, 110)</p>
+                                }
+                                <div class="ab-card-progrow">
+                                    <span class="lbl">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h9M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                                        Progreso
+                                    </span>
+                                    <strong>@c.ChecklistDone/@c.ChecklistTotal</strong>
+                                </div>
+                                <div class="ab-card-bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(colIdx)"></i></div>
+                                <div class="ab-card-assign">
+                                    <span class="lbl">Asignado a</span>
+                                    <div class="ab-avatars">
+                                        @foreach (var person in CardPeople(c))
+                                        {
+                                            <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
+                                        }
+                                        @if (CardPeople(c).Count == 0)
+                                        {
+                                            <span style="font-size:11.5px;color:var(--ink-3)">Sin asignar</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="ab-card-foot">
+                                    <span class="ab-card-due" style="color:@AbUi.CardDueColor(c.DueDate, column.IsDone)">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                                        @(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "Sin fecha")
+                                    </span>
+                                    <div class="ab-card-counts">
+                                        <span title="Adjuntos">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9.5 12 18a4 4 0 0 1-6-6l8-8a2.5 2.5 0 0 1 4 4l-8 8a1 1 0 0 1-1.5-1.5L16 7"/></svg>@c.AttachmentsCount
+                                        </span>
+                                        <span title="Comentarios">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>@c.CommentsCount
+                                        </span>
+                                        <span title="Checklist">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>@c.ChecklistDone/@c.ChecklistTotal
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        <button class="ab-addtask" @onclick="@(() => OpenQuickCreate(column.Id))">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                            Anadir tarea
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ---- VISTA LISTA ---- *@
+    @if (_view == "lista")
+    {
+        <div class="ab-listwrap">
+            <div class="ab-list">
+                <div class="ab-list-head">
+                    <span>TAREA</span><span>ESTADO</span><span>ASIGNADO</span><span>PRIORIDAD</span><span>PROGRESO</span><span style="text-align:right">FECHA</span>
+                </div>
+                @foreach (var (column, colIdx, card) in ListRows())
+                {
+                    var c = card;
+                    <div class="ab-list-row" @onclick="@(() => OpenTaskAsync(c.Id))">
+                        <div class="ab-lr-title">
+                            <div>@c.Title</div>
+                            <div>@(c.Description ?? "")</div>
+                        </div>
+                        <span class="ab-lr-status"><span class="ab-dot" style="background:@AbUi.ColumnDot(colIdx)"></span>@column.Name</span>
+                        <div class="ab-avatars">
+                            @foreach (var person in CardPeople(c).Take(3))
+                            {
+                                <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
+                            }
+                        </div>
+                        <span><span class="ab-prio" style="background:@AbUi.PrioritySoft(c.Priority);color:@AbUi.PriorityColor(c.Priority)">@TaskUi.PriorityLabel(c.Priority)</span></span>
+                        <div class="ab-lr-prog">
+                            <div class="bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(colIdx)"></i></div>
+                            <span class="pct">@(c.ChecklistPct)%</span>
+                        </div>
+                        <span class="ab-lr-due" style="color:@AbUi.CardDueColor(c.DueDate, column.IsDone)">@(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "-")</span>
+                    </div>
+                }
+                @if (!ListRows().Any())
+                {
+                    <div class="ab-empty" style="padding:24px 22px;">No hay tareas que coincidan con los filtros.</div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@* ---- Modal de creacion rapida de tarea ---- *@
+@if (_qcOpen && _detail is not null)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _qcOpen = false)">
+        <div class="ab-modal wide ab-quick-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Nueva tarea</h3>
+                <button class="ab-modal-x" @onclick="@(() => _qcOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <div class="ab-field">
+                    <label>Titulo</label>
+                    <input class="ab-input" @bind="_qcTitle" @bind:event="oninput" maxlength="200" placeholder="Que hay que hacer?" />
+                </div>
+                <div class="ab-field">
+                    <label>Descripcion</label>
+                    <textarea class="ab-textarea" @bind="_qcDesc" placeholder="Detalles para el equipo (opcional)"></textarea>
+                </div>
+                <div class="ab-field">
+                    <label>Columna</label>
+                    <select class="ab-select" @bind="_qcColumnId">
+                        @foreach (var col in _detail.Columns)
+                        {
+                            <option value="@col.Id">@col.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="ab-field">
+                    <label>Prioridad</label>
+                    <div class="ab-prio-opts">
+                        @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                        {
+                            var prio = p;
+                            <button class="ab-prio-opt @(_qcPriority == prio ? "on" : "")" @onclick="@(() => _qcPriority = prio)">@TaskUi.PriorityLabel(prio)</button>
+                        }
+                    </div>
+                </div>
+                <div class="ab-field">
+                    <label>Encargado</label>
+                    <select class="ab-select" @bind="_qcAssignee">
+                        <option value="">Sin asignar</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Id">@u.Email</option>
+                        }
+                    </select>
+                </div>
+                <div class="ab-field">
+                    <label>Fecha limite</label>
+                    <input type="date" class="ab-input" @bind="_qcDue" />
+                </div>
+                <div class="ab-field">
+                    <label>Etiquetas</label>
+                    <div class="ab-tag-opts">
+                        @foreach (var tag in _tags)
+                        {
+                            var tagId = tag.Id;
+                            <button class="ab-tagchip @(_qcTagIds.Contains(tagId) ? "on" : "")"
+                                    style="background:@AbUi.TagSoft(tag.Color);color:@AbUi.TagFg(tag.Color)"
+                                    @onclick="@(() => { if (!_qcTagIds.Remove(tagId)) { _qcTagIds.Add(tagId); } })">@tag.Name</button>
+                        }
+                        @if (_tags.Count == 0)
+                        {
+                            <span style="font-size:12.5px;color:var(--ink-3)">El tenant no tiene etiquetas.</span>
+                        }
+                    </div>
+                </div>
+                <div class="ab-field">
+                    <label>Tipo de actividad</label>
+                    <select class="ab-select" @bind="_qcTypeId">
+                        <option value="">Automatico (primer tipo activo)</option>
+                        @foreach (var t in _types)
+                        {
+                            <option value="@t.Id">@t.Category / @t.Name</option>
+                        }
+                    </select>
+                </div>
+                @if (_qcError is not null)
+                {
+                    <div class="ab-field-error">@_qcError</div>
+                }
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _qcOpen = false)">Cancelar</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_qcTitle))" @onclick="QuickCreateAsync">Crear tarea</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Modal editar tablero ---- *@
+@if (_ebOpen && _detail is not null)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _ebOpen = false)">
+        <div class="ab-modal ab-edit-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Editar tablero</h3>
+                <button class="ab-modal-x" @onclick="@(() => _ebOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <div class="ab-field">
+                    <label>Nombre</label>
+                    <input class="ab-input" @bind="_ebName" @bind:event="oninput" maxlength="160" />
+                </div>
+                <div class="ab-field">
+                    <label>Descripcion</label>
+                    <textarea class="ab-textarea" @bind="_ebDesc"></textarea>
+                </div>
+                <div class="ab-field">
+                    <label>Estado</label>
+                    <select class="ab-select" @bind="_ebStatus">
+                        <option value="@TaskBoardStatus.InProgress">En progreso</option>
+                        <option value="@TaskBoardStatus.OnTime">A tiempo</option>
+                        <option value="@TaskBoardStatus.AtRisk">En riesgo</option>
+                        <option value="@TaskBoardStatus.Completed">Completado</option>
+                    </select>
+                </div>
+                <div class="ab-field">
+                    <label>Fecha limite</label>
+                    <input type="date" class="ab-input" @bind="_ebDue" />
+                </div>
+                @if (_ebError is not null)
+                {
+                    <div class="ab-field-error">@_ebError</div>
+                }
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _ebOpen = false)">Cancelar</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_ebName))" @onclick="SaveBoardAsync">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<TaskToasts @ref="_toasts" />
+<TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Parameter] public Guid BoardId { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private ActivityBoardDetailDto? _detail;
+    private List<ActivityBoardMemberDto> _members = new();
+    private List<TaskItemTagDto> _boardTags = new();
+    private List<TenantUserDto> _users = new();
+    private List<TaskItemTagDto> _tags = new();
+    private List<ActivityTypeDto> _types = new();
+    private Guid? _meTenantUserId;
+    private Guid _loadedBoardId;
+
+    // Filtros combinables (chips del prototipo).
+    private readonly HashSet<Guid> _fColumns = new();
+    private readonly HashSet<Guid> _fUsers = new();
+    private string? _fDue; // "hoy" | "manana" | "fecha"
+    private DateTime? _fDueOn;
+    private readonly HashSet<Guid> _fTags = new();
+    private ActivityBoardScope _scope = ActivityBoardScope.Team;
+    private bool _filtersVisible = true;
+    private string _view = "tablero";
+
+    // Drag and drop nativo HTML5 (mismo patron del kanban por estado).
+    private Guid? _dragTaskId;
+    private Guid? _dragOverColumnId;
+
+    // Creacion rapida.
+    private bool _qcOpen;
+    private Guid _qcColumnId;
+    private string _qcTitle = "";
+    private string _qcDesc = "";
+    private TaskPriority _qcPriority = TaskPriority.Medium;
+    private string _qcAssignee = "";
+    private DateTime? _qcDue;
+    private readonly HashSet<Guid> _qcTagIds = new();
+    private string _qcTypeId = "";
+    private string? _qcError;
+
+    // Editar tablero.
+    private bool _ebOpen;
+    private string _ebName = "";
+    private string _ebDesc = "";
+    private TaskBoardStatus _ebStatus = TaskBoardStatus.InProgress;
+    private DateTime? _ebDue;
+    private string? _ebError;
+
+    private bool _busy;
+    private TaskToasts? _toasts;
+    private TaskDetailModal? _taskDetail;
+    private HubConnection? _hub;
+    private string? _tenantId;
+
+    private int FilterCount =>
+        _fColumns.Count + _fUsers.Count + _fTags.Count + (_fDue is null ? 0 : 1);
+
+    // Scope EF propio + semaforo (mismo patron de TaskKanban): el reload puede
+    // dispararse por el hub (TaskChanged de otra sesion o el eco propio) mientras el
+    // modal de detalle tiene una consulta en vuelo sobre el DbContext del circuito;
+    // sin aislamiento EF lanza "second operation on this context".
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedBoardId == BoardId) { return; }
+        _loadedBoardId = BoardId;
+        _fColumns.Clear(); _fUsers.Clear(); _fTags.Clear();
+        _fDue = null; _fDueOn = null;
+        _scope = ActivityBoardScope.Team;
+        _view = "tablero";
+        await ResolveTenantAsync();
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _tags = (await TasksSvc.ListTagsAsync()).ToList();
+        _types = (await TypesSvc.ListAsync()).ToList();
+        _meTenantUserId = await MeTenantUserIdAsync();
+        await LoadMembersAsync();
+        await ReloadAsync();
+        await EnsureHubAsync();
+    }
+
+    private async Task ResolveTenantAsync()
+    {
+        if (AuthState is null) { return; }
+        var st = await AuthState;
+        _tenantId = st.User.FindFirst("tenant_id")?.Value;
+    }
+
+    /// <summary>
+    /// Miembros del tablero para los chips "Asignados": vienen del INDICE
+    /// (ActivityBoardSummaryDto.Members = encargados/asignados distintos).
+    /// </summary>
+    private async Task LoadMembersAsync()
+    {
+        await _reloadLock.WaitAsync();
+        try
+        {
+            ActivityBoardIndexDto index;
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var boardsSvc = scope.ServiceProvider.GetRequiredService<IActivityBoardService>();
+                index = await boardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+            }
+            else
+            {
+                index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+            }
+            _members = index.Boards.FirstOrDefault(b => b.Id == BoardId)?.Members.ToList() ?? new List<ActivityBoardMemberDto>();
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        var due = _fDue switch
+        {
+            "hoy" => ActivityDueFilter.Today,
+            "manana" => ActivityDueFilter.Tomorrow,
+            "fecha" when _fDueOn is not null => ActivityDueFilter.OnDate,
+            _ => ActivityDueFilter.Any
+        };
+        var filter = new ActivityBoardDetailFilter(
+            ColumnIds: _fColumns.Count == 0 ? null : _fColumns.ToList(),
+            AssigneeTenantUserIds: _fUsers.Count == 0 ? null : _fUsers.ToList(),
+            Due: due,
+            DueOn: _fDueOn is DateTime d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+            TagIds: _fTags.Count == 0 ? null : _fTags.ToList(),
+            Scope: _scope,
+            CurrentTenantUserId: _meTenantUserId);
+        await _reloadLock.WaitAsync();
+        try
+        {
+            TaskCoreResult<ActivityBoardDetailDto> result;
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var boardsSvc = scope.ServiceProvider.GetRequiredService<IActivityBoardService>();
+                result = await boardsSvc.GetBoardDetailAsync(BoardId, filter);
+            }
+            else
+            {
+                result = await BoardsSvc.GetBoardDetailAsync(BoardId, filter);
+            }
+            if (result.IsOk)
+            {
+                _detail = result.Value;
+                // Cache de etiquetas del tablero: solo del primer load SIN filtros,
+                // para que los chips no desaparezcan al filtrar.
+                if (FilterCount == 0 && _scope == ActivityBoardScope.Team)
+                {
+                    _boardTags = _detail!.Columns.SelectMany(c => c.Cards).SelectMany(c => c.Tags)
+                        .GroupBy(t => t.Id).Select(g => g.First()).OrderBy(t => t.Name).ToList();
+                }
+            }
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+        StateHasChanged();
+    }
+
+    // ---- Toggles de filtro ----
+
+    private async Task ToggleColumnFilterAsync(Guid columnId)
+    {
+        if (!_fColumns.Remove(columnId)) { _fColumns.Add(columnId); }
+        await ReloadAsync();
+    }
+
+    private async Task ToggleUserFilterAsync(Guid tenantUserId)
+    {
+        if (!_fUsers.Remove(tenantUserId)) { _fUsers.Add(tenantUserId); }
+        await ReloadAsync();
+    }
+
+    private async Task ToggleDueFilterAsync(string key)
+    {
+        if (_fDue == key)
+        {
+            _fDue = null;
+            _fDueOn = null;
+        }
+        else
+        {
+            _fDue = key;
+            if (key != "fecha") { _fDueOn = null; }
+        }
+        await ReloadAsync();
+    }
+
+    private async Task OnDueOnChangedAsync(ChangeEventArgs e)
+    {
+        _fDueOn = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null;
+        await ReloadAsync();
+    }
+
+    private async Task ToggleTagFilterAsync(Guid tagId)
+    {
+        if (!_fTags.Remove(tagId)) { _fTags.Add(tagId); }
+        await ReloadAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _fColumns.Clear(); _fUsers.Clear(); _fTags.Clear();
+        _fDue = null; _fDueOn = null;
+        await ReloadAsync();
+    }
+
+    private async Task SetScopeAsync(ActivityBoardScope scope)
+    {
+        _scope = scope;
+        await ReloadAsync();
+    }
+
+    // ---- Helpers de tarjeta ----
+
+    private static List<ActivityBoardMemberDto> CardPeople(ActivityCardDto card)
+    {
+        var people = new List<ActivityBoardMemberDto>();
+        if (card.Assignee is not null) { people.Add(card.Assignee); }
+        foreach (var m in card.TeamAssignees)
+        {
+            if (people.All(p => p.TenantUserId != m.TenantUserId)) { people.Add(m); }
+        }
+        return people;
+    }
+
+    private IEnumerable<(ActivityBoardColumnDto Column, int ColIdx, ActivityCardDto Card)> ListRows()
+    {
+        if (_detail is null) { yield break; }
+        foreach (var (col, idx) in _detail.Columns.Select((c, i) => (c, i)))
+        {
+            foreach (var card in col.Cards)
+            {
+                yield return (col, idx, card);
+            }
+        }
+    }
+
+    private static string Truncate(string text, int max)
+        => text.Length <= max ? text : text[..max].TrimEnd() + "...";
+
+    private async Task OpenTaskAsync(Guid taskId)
+    {
+        if (_taskDetail is not null) { await _taskDetail.OpenAsync(taskId); }
+    }
+
+    // ---- Drag and drop -> MoveTaskAsync ----
+
+    private async Task OnDropAsync(ActivityBoardColumnDto target)
+    {
+        _dragOverColumnId = null;
+        if (_dragTaskId is not Guid taskId || _detail is null) { return; }
+        _dragTaskId = null;
+        var current = _detail.Columns.SelectMany(c => c.Cards).FirstOrDefault(c => c.Id == taskId);
+        if (current is null || current.ColumnId == target.Id) { return; }
+        await MoveAsync(taskId, target);
+    }
+
+    private async Task MoveAsync(Guid taskId, ActivityBoardColumnDto target)
+    {
+        var sortOrder = target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1;
+        var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync());
+        if (!result.IsOk)
+        {
+            _toasts?.Error(result.Error ?? "No se pudo mover la tarea.");
+            return;
+        }
+        if (result.Value!.StatusNote is string note)
+        {
+            _toasts?.Success(note);
+        }
+        await BroadcastAsync(taskId, result.Value!.Status);
+        await ReloadAsync();
+    }
+
+    // ---- Creacion rapida ----
+
+    private void OpenQuickCreate(Guid? columnId)
+    {
+        if (_detail is null || _detail.Columns.Count == 0) { return; }
+        _qcColumnId = columnId ?? _detail.Columns[0].Id;
+        _qcTitle = ""; _qcDesc = ""; _qcPriority = TaskPriority.Medium;
+        _qcAssignee = ""; _qcDue = null; _qcTagIds.Clear(); _qcTypeId = "";
+        _qcError = null;
+        _qcOpen = true;
+    }
+
+    private async Task QuickCreateAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_qcTitle)) { return; }
+        _busy = true;
+        _qcError = null;
+        try
+        {
+            var due = _qcDue is DateTime d
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                : (DateTimeOffset?)null;
+            var request = new QuickCreateTaskRequest(
+                BoardId: _detail.Id,
+                ColumnId: _qcColumnId,
+                Title: _qcTitle.Trim(),
+                Description: string.IsNullOrWhiteSpace(_qcDesc) ? null : _qcDesc.Trim(),
+                Priority: _qcPriority,
+                AssigneeTenantUserId: Guid.TryParse(_qcAssignee, out var assignee) ? assignee : null,
+                DueDate: due,
+                TagIds: _qcTagIds.Count == 0 ? null : _qcTagIds.ToList(),
+                ActivityTypeId: Guid.TryParse(_qcTypeId, out var typeId) ? typeId : null);
+            var result = await BoardsSvc.QuickCreateTaskAsync(request, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _qcError = result.Error;
+                return;
+            }
+            _qcOpen = false;
+            var created = result.Value!.Item;
+            _toasts?.Success($"Tarea {created.Number} creada.");
+            await BroadcastAsync(created.Id, created.Status);
+            await LoadMembersAsync();
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Editar tablero ----
+
+    private void OpenEditBoard()
+    {
+        if (_detail is null) { return; }
+        _ebName = _detail.Name;
+        _ebDesc = _detail.Description ?? "";
+        _ebStatus = _detail.Status;
+        _ebDue = _detail.DueDate?.ToLocalTime().DateTime.Date;
+        _ebError = null;
+        _ebOpen = true;
+    }
+
+    private async Task SaveBoardAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_ebName)) { return; }
+        _busy = true;
+        _ebError = null;
+        try
+        {
+            var due = _ebDue is DateTime d
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                : (DateTimeOffset?)null;
+            var request = new UpdateActivityBoardRequest(
+                Name: _ebName.Trim(),
+                Description: string.IsNullOrWhiteSpace(_ebDesc) ? null : _ebDesc.Trim(),
+                Color: null,
+                Status: _ebStatus,
+                DueDate: due,
+                IsArchived: _detail.IsArchived);
+            var result = await BoardsSvc.UpdateBoardAsync(_detail.Id, request, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _ebError = result.Error;
+                return;
+            }
+            _ebOpen = false;
+            _toasts?.Success("Tablero actualizado.");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- SignalR ----
+
+    private async Task EnsureHubAsync()
+    {
+        if (_hub is not null || AuthState is null) { return; }
+        var st = await AuthState;
+        _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        if (_tenantId is null) { return; }
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/tasks"))
+                .WithAutomaticReconnect()
+                .Build();
+            _hub.On<string, string>("TaskChanged", async (_, _) => await InvokeAsync(ReloadAsync));
+            await _hub.StartAsync();
+            await _hub.SendAsync("JoinTenant", _tenantId);
+        }
+        catch
+        {
+            _hub = null; // sin tiempo real el tablero sigue funcionando con recargas manuales
+        }
+    }
+
+    private async Task BroadcastAsync(Guid taskId, TaskItemStatus status)
+    {
+        if (AuthState is null) { return; }
+        var st = await AuthState;
+        if (Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var tenantId))
+        {
+            await Broadcaster.TaskChangedAsync(tenantId, taskId, status);
+        }
+    }
+
+    private async Task<Guid?> MeTenantUserIdAsync()
+    {
+        var actor = await ActorAsync();
+        return _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                if (_tenantId is not null) { await _hub.SendAsync("LeaveTenant", _tenantId); }
+                await _hub.DisposeAsync();
+            }
+            catch { /* circuito cerrado */ }
+        }
+    }
+}

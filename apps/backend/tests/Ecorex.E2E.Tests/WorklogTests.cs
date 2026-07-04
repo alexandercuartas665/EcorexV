@@ -19,7 +19,11 @@ public sealed class WorklogTests : E2eTestBase
         var page = await LoginAsync();
         var title = $"E2E worklog {Sfx}";
         var note = $"Avance E2E {Sfx}";
-        await CreateActivityAsync(page, "Gestion Humana", "Solicitud", title);
+        // Ola 2: la tarea se crea con la creacion rapida del tablero para que la
+        // tarjeta sea visible en el kanban por columnas y se pueda abrir el detalle.
+        await OpenBoardAsync(page, "Comercial - Requerimiento Infraestructura");
+        await QuickCreateTaskAsync(page, title, column: "Por hacer",
+            typeLabel: "Gestion Humana / Solicitud");
 
         await OpenTaskDetailAsync(page, title);
 

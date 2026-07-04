@@ -1271,3 +1271,176 @@ solo el proyecto de tests nuevo y documentacion).
 - Corte de dia por zona horaria del tenant en DueRangeUtc.
 - Destino final del kanban CRM heredado (TaskCard) cuando 000636 reemplace esas paginas.
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-04 - Sesion 15: Menu igualado 1:1 con el fuente del prototipo (ECOREX.dc.html)
+
+**Objetivo**: cada opcion del menu del prototipo existe en el sistema; lo que no
+tiene modulo real navega a un placeholder digno (nunca 404).
+
+**Fuente**: estructura extraida del FUENTE (groupDefs/quickNav/rail/railDeco de
+ECOREX.dc.html), no de memoria. 9 grupos MODULOS + subgrupo Comercial, 48 items
+con codigo legacy 000XXX, quick nav Inicio + Anuncios (badge), rail de 8 iconos
+(Inicio/Tareas/Flujos/Formularios + Calendario/Notificaciones/Indicadores/Alertas)
+y avatar abajo.
+
+**Hecho**:
+- NavMenu.razor: seccion MODULOS reconstruida exacta al fuente (orden, contadores
+  de items hoja, subgrupo Comercial abierto por defecto, misproc/auto abiertos por
+  defecto como el prototipo). Quick nav reducido a Inicio + Anuncios (badge).
+- Items reales mapeados: 000038 -> /crear-actividad (nuevo, abre TaskWizard);
+  000042 -> /proyectos; 000636 y 000477 y 000270(gen) -> /actividades;
+  000740 -> /pipeline (leads CRM); 000291 -> /flujos; 000131 -> /formularios;
+  000867 -> /agentes; 000615 -> /configuracion; 000893 -> /plantillas;
+  000850 -> /dependencias; 000109 -> /modulos-web; 000802 -> /reglas;
+  000119 -> /metricas.
+- Placeholders: pagina generica /modulo/{slug} (Modulo.razor, registro estatico
+  slug -> titulo/grupo/codigo) sobre ModuleStub con el texto "Modulo pendiente de
+  construccion - se priorizara en fases siguientes"; policy TenantMember. 31 items
+  del menu + 3 destinos del rail (calendario/notificaciones/alertas).
+- CrearActividad.razor: pagina liviana que abre TaskWizard al entrar; al crear o
+  cerrar redirige a /actividades (vigia JS ecorexWatchWizard en MainLayout porque
+  TaskWizard no expone callback de cierre; no se toco TaskWizard).
+- MainLayout.razor: rail igualado al fuente (orden e iconos de const rail/railDeco);
+  Indicadores -> /metricas real, Calendario/Notificaciones/Alertas -> stubs.
+- app.css: clases .tr/.tg (rosa/verde para Negocio y Oferta-Catalogo) y estilos del
+  subgrupo (.ecorex-acc-sub) replicando el prototipo.
+
+**Desviaciones documentadas**:
+- Grupo extra "CRM (heredado)" AL FINAL (no esta en el fuente) con las paginas CRM
+  reales sin mapear: Asesores, Conversaciones, Lineas WhatsApp, Bitacora del agente,
+  Automatizaciones, Lista negra (para no perder acceso).
+- Quick nav "Gestor de tareas" (/tableros) y "Configuracion" retirados del menu
+  rapido para ser identicos al fuente; /tableros sigue accesible por URL directa y
+  /configuracion quedo mapeado en Sistema-General (000615).
+- 000477/000636/000270(gen) comparten destino /actividades (el fuente los manda a la
+  misma pantalla work/actividades): los 3 se resaltan activos a la vez en ese caso.
+- Vendedores (000124) quedo placeholder; Asesores va en CRM (heredado) porque el
+  nombre no coincide claramente.
+
+**Validacion (probado de verdad)**:
+- Build SuperAdmin: 0 errores 0 warnings. Tests: Domain 35/35, Application 115/115,
+  Integracion 101/101 verdes.
+- App real contra PG 5442 en http://localhost:5246 con owner@sky-system.local:
+  los 57 destinos unicos del menu+rail responden 200 (fetch autenticado, sin
+  404/500); stub /modulo/bodegas renderiza titulo + chip "Modulo 000556" + texto
+  pendiente + seccion "Sistema (punto medio) Inventarios"; /crear-actividad abre el
+  wizard solo y al cerrarlo redirige a /actividades (verificado en navegador);
+  acordeones con contadores 5/3/1/4/5/4/8/8/10/6, toggle persistido en localStorage;
+  rail 8 iconos + avatar; slug desconocido /modulo/no-existe cae al stub generico.
+- Procesos detenidos al terminar. Nota: durante la sesion las corridas E2E de la
+  sesion de tableros mantenian bloqueado bin/ de SuperAdmin; esta sesion compilo y
+  ejecuto desde un output aparte para no interferir.
+
+**Deudas / TODO**:
+- Conectar el badge de Anuncios a datos reales cuando exista el modulo.
+- Al construir cada modulo real: mover la opcion de /modulo/{slug} a su pagina y
+  policy propia (los placeholders usan TenantMember).
+- Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-04 - Sesion: Ola 2 UI de tableros de actividades (pantalla 'work' del prototipo)
+
+**Agentes**: coordinador + 2 exploradores (UI Blazor y contratos backend/E2E).
+
+**Fuente**: pantalla 'work' del prototipo corregido ECOREX.dc.html (showBoardsIndex +
+boardOpen + isTablero/isLista) y capturas de Prototipo/screenshots. Valores tomados
+del FUENTE (estilos inline del prototipo), no de memoria.
+
+**Hecho**:
+- /actividades REEMPLAZADA por la experiencia de tableros (alias /tableros-actividades,
+  deep-link ?board={id}). El kanban por estado (TaskKanban) quedo desconectado de la
+  ruta pero intacto: lo sigue usando ProyectoDetalle. Tableros.razor CRM sin tocar.
+- NUEVOS: Components/Shared/Tasks/ActivityBoardsIndex.razor (indice: eyebrow TAREAS,
+  h1 28px/800, 4 KPI cards 44x44/27px con soft-bg violet/blue/green/rose, barra
+  Filtros con 5 dropdowns cascada Usuario/Etiqueta/Categoria/Subcategoria(=tipo)/
+  Fecha + Limpiar(N), grid auto-fill minmax(320px,1fr) de tarjetas r18/p20 con hover
+  translateY(-2px), badge de estado por TaskBoardStatus, barra Avance 6px brand,
+  avatares solapados 26px, modal "Nuevo tablero", boton "Actividad completa" que
+  abre el TaskWizard de 3 pasos para no perder el flujo con tipo/BPMN).
+- NUEVOS: ActivityBoardDetail.razor (breadcrumb "< Todos los tableros", h1 27px/800 +
+  pill de estado con punto + fecha limite + lapiz -> modal editar tablero, subtitulo
+  literal del prototipo, FILAS DE FILTRO grid max-content/1fr con chips de columnas
+  (punto colPal), asignados (avatar 22px), fecha Hoy/Manana/Con fecha (+date input,
+  semantica OnDate del backend), etiquetas coloreadas con ring 2px al activar,
+  Limpiar(N); PESTANAS DE ALCANCE team/mine/unassigned con contadores del servicio;
+  switcher Tablero/Lista + Calendario/Gantt deshabilitados "Proxima ola" + boton
+  Filtrar (badge, colapsa filas) + boton Tarea; kanban repeat(N,minmax(0,1fr)) con
+  badges de columna, tarjetas r16 con Progreso checklist N/M y barra 5px con color
+  por columna (t-blue/danger/t-amber/ok), avatares, pie con fecha coloreada
+  (vencida danger / hoy warn) y contadores adjuntos/comentarios/checklist; drag and
+  drop HTML5 (patron TaskKanban) -> MoveTaskAsync con toast si StatusNote; vista
+  Lista con grid literal "1fr 130px 110px 110px 150px 76px"; modal de creacion
+  rapida (titulo/descripcion/columna/prioridad/encargado/fecha/etiquetas + tipo de
+  actividad opcional) -> QuickCreateTaskAsync con toast T#####).
+- NUEVO AbUi.cs: paleta AVPAL de avatares, colPal por indice de columna (punto,
+  badge, barra), estados del tablero, prioridades y fechas ("12 julio, 2026",
+  "1 jul", Hoy/Manana) 1:1 con el prototipo.
+- TaskDetailModal EXTENDIDO (no reescrito): card "Lista de chequeo" (checkbox 20px
+  r6 verde + tachado + agregar/eliminar via ITaskItemService), card "Asignados"
+  M:N (avatares solidos + agregar/quitar), fila "Avance N/M" + barra en Resumen
+  alimentada por el checklist, y pill "Mover a: [columnas del tablero]" en el hero
+  (MoveTaskAsync; StatusNote se muestra como banner informativo).
+- app.css: bloque .ab-* (indice/detalle/kanban/lista/modales) + .tk-check-*/
+  .tk-assignee-*/.tk-moveto con los valores del fuente; claro/oscuro via tokens.
+- SignalR: ambos componentes se suscriben a TaskChanged (hub /hubs/tasks) y
+  refrescan con scope EF propio + SemaphoreSlim (patron TaskKanban) - sin esto EF
+  lanzaba "second operation on this context" y mataba el circuito (bug encontrado
+  y corregido en esta sesion).
+- Backend (delta minimo, reportado): ActivityBoardIndexFilter.HasDueDate (bool?) +
+  2 lineas en ActivityBoardService.ListBoardsAsync para el dropdown Fecha del
+  indice (Con fecha limite / Sin fecha), que no era expresable server-side.
+- E2E actualizados al flujo nuevo: E2eTestBase (wizard via "Actividad completa",
+  OpenBoardAsync/QuickCreateTaskAsync/BoardColumn/CardIn .ab-*), CreateActivityTests
+  (wizard toast + creacion rapida con tarjeta en columna), MoveCardTests (dropdown
+  "Mover a" Por hacer -> En progreso + pill de estado intacto), WorklogTests y
+  WorkflowFormTests (crean por quick-create en PRY-0042), TenantIsolationTests
+  (.ab-boards), PublicFormTokenTests (reintento del click Disenar: se perdia si el
+  circuito seguia conectando bajo carga) y NUEVO BoardsIndexTests (KPIs, 3 tableros,
+  abre PRY-0042, chips combinados con alcances, checklist -> Avance -> Progreso).
+
+**Desviaciones documentadas (vs prototipo)**:
+- Chips de Estado activos: borde ink + surface-3 (asi lo hace el FUENTE via pill(on);
+  la instruccion decia brand/on-brand pero el fuente gana).
+- Separador " - " en vez de " (punto medio) " en columnas del card (regla solo ASCII).
+- Chip "Con fecha" del detalle abre un date input (el backend define OnDate con
+  fecha puntual; el "cualquier fecha" del prototipo no existe en el filtro).
+- Modal rapido agrega select "Tipo de actividad" (opcional, no esta en el prototipo):
+  necesario para crear tareas con flujo BPMN desde el tablero (WorkflowFormTests).
+- ProgressColor del DTO (color pale de la columna seed) NO se usa: se deriva el
+  color de barra por indice de columna como pide el prototipo (t-blue/danger/
+  t-amber/ok).
+- Fix cross-engine: .ab-board-card > * { width:100% } (Chromium de Playwright no
+  estira hijos flex de un <button>).
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores. Unit tests: Application 115/115, Domain 35/35.
+  Integracion NO tocada (el delta backend es aditivo con default null).
+- App real contra PG 5442 en http://localhost:5245 (login owner@sky-system.local):
+  verificado en navegador real (Playwright + preview): indice con 3 tableros y
+  KPIs; PRY-0042 abre con 4 columnas propias; chips Estado/Asignado/Hoy/Etiqueta
+  filtran y COMBINAN con los alcances (contadores recalculados con los demas
+  filtros); vista Lista; creacion rapida con toast T##### y tarjeta en la columna;
+  mover por dropdown "Mover a" del detalle; checklist toggle actualiza Avance y el
+  Progreso de la tarjeta; capturas claro y oscuro correctas (tokens html.dark).
+- Nota alcances: con seed limpio son 10/3/1; la BD dev acumula tareas de corridas
+  E2E previas (los contadores mostrados coinciden exactamente con la BD: 31/3/22
+  al momento de la captura). Para ver 10/3/1 exacto: re-sembrar BD limpia.
+- Suite E2E completa VERDE contra la app real: 10/10 (dos corridas consecutivas,
+  41s y 48s). Procesos propios detenidos al terminar (la instancia :5234 de la
+  sesion del menu se dejo intacta).
+
+**Deudas para la ola 3**:
+- Vistas Calendario y Gantt del tablero (tabs ya deshabilitados con tooltip
+  "Proxima ola"; el prototipo trae calCells/ganttRows como referencia).
+- Menu "..." de columna (renombrar/recolorear/agregar columna: hoy es decorativo)
+  y boton "+" para agregar vista.
+- Menu "..." de la tarjeta (hoy muestra el numero T en tooltip; falta menu real).
+- Reordenar tarjetas DENTRO de la misma columna con drag (hoy solo entre columnas;
+  MoveTaskAsync ya recibe sortOrder).
+- Nombres de usuario en dropdowns del indice/modal rapido: se muestran emails
+  (TenantUserDto no expone DisplayName; los chips del tablero si usan DisplayName
+  del ActivityBoardMemberDto).
+- Bug PRE-EXISTENTE anotado: DynamicFormRenderer.SaveAsync suelta un SemaphoreSlim
+  ya disposed al enviar el formulario publico (ObjectDisposedException en el log;
+  no rompe el flujo pero mata el circuito tras el submit).

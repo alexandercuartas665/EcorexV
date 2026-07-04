@@ -1,0 +1,455 @@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject IActivityBoardService BoardsSvc
+@inject ITaskItemService TasksSvc
+@inject ITenantUserService TenantUsersSvc
+@inject IActivityTypeService TypesSvc
+@inject NavigationManager Nav
+@inject IServiceScopeFactory ScopeFactory
+
+@* ============================================================
+   PANTALLA 1 del prototipo 'work' (ECOREX.dc.html, showBoardsIndex):
+   indice de tableros con KPIs, barra de filtros en cascada y grid
+   de tarjetas de tablero. Fiel al pixel del fuente del prototipo.
+   ============================================================ *@
+
+<div class="ab-page">
+    @if (_openDd is not null)
+    {
+        <div class="ab-scrim" @onclick="@(() => _openDd = null)"></div>
+    }
+    <div class="ab-head">
+        <div>
+            <div class="ab-eyebrow">TAREAS</div>
+            <h1 class="ab-title">Tableros</h1>
+            <p class="ab-subtitle">Selecciona un tablero para ver sus tareas. Cada tablero tiene sus propias columnas.</p>
+        </div>
+        <div class="ab-head-actions">
+            <button class="ab-btn-ghost" title="Wizard de 3 pasos con tipo y flujo BPMN" @onclick="OpenWizardAsync">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>
+                Actividad completa
+            </button>
+            <button class="ab-btn-primary" @onclick="OpenNewBoard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                Nuevo tablero
+            </button>
+        </div>
+    </div>
+
+    @* ---- KPIs ---- *@
+    <div class="ab-kpis">
+        <div class="ab-kpi">
+            <div class="ab-kpi-ic" style="background:var(--t-violet-bg);color:var(--t-violet)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+            </div>
+            <div><div class="ab-kpi-val">@(_index?.Kpis.TotalBoards ?? 0)</div><div class="ab-kpi-lbl">Tableros</div></div>
+        </div>
+        <div class="ab-kpi">
+            <div class="ab-kpi-ic" style="background:var(--t-blue-bg);color:var(--t-blue)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>
+            </div>
+            <div><div class="ab-kpi-val">@(_index?.Kpis.TotalTasks ?? 0)</div><div class="ab-kpi-lbl">Tareas totales</div></div>
+        </div>
+        <div class="ab-kpi">
+            <div class="ab-kpi-ic" style="background:var(--t-green-bg);color:var(--t-green)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>
+            </div>
+            <div><div class="ab-kpi-val">@(_index?.Kpis.CompletedTasks ?? 0)</div><div class="ab-kpi-lbl">Completadas</div></div>
+        </div>
+        <div class="ab-kpi">
+            <div class="ab-kpi-ic" style="background:var(--t-rose-bg);color:var(--t-rose)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+            </div>
+            <div><div class="ab-kpi-val">@(_index?.Kpis.AtRiskBoards ?? 0)</div><div class="ab-kpi-lbl">En riesgo</div></div>
+        </div>
+    </div>
+
+    @* ---- Barra de filtros (5 dropdowns en cascada) ---- *@
+    <div class="ab-filterbar">
+        <span class="ab-filterbar-lbl">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+            Filtros
+        </span>
+        @Dropdown("user", "Usuario", UserLabel(), _fUser is null)
+        @Dropdown("tag", "Etiqueta", TagLabel(), _fTag is null)
+        @Dropdown("cat", "Categoria", _fCat ?? "Todas", _fCat is null)
+        @Dropdown("sub", "Subcategoria", TypeLabel(), _fType is null)
+        @Dropdown("date", "Fecha", DateLabel(), _fDate is null)
+        @if (FilterCount > 0)
+        {
+            <button class="ab-clear" @onclick="ClearFiltersAsync">Limpiar (@FilterCount)</button>
+        }
+    </div>
+
+    @* ---- Grid de tarjetas de tablero ---- *@
+    <div class="ab-boards">
+        @if (_index is not null)
+        {
+            @foreach (var b in _index.Boards)
+            {
+                <button class="ab-board-card" @onclick="@(() => OnOpenBoard.InvokeAsync(b.Id))">
+                    <div class="ab-bc-top">
+                        <span class="ab-bc-code">@(b.Code ?? "-")</span>
+                        <span class="ab-bc-status" style="background:@AbUi.BoardStatusSoft(b.Status);color:@AbUi.BoardStatusColor(b.Status)">@AbUi.BoardStatusLabel(b.Status)</span>
+                    </div>
+                    <div class="ab-bc-name">@b.Name</div>
+                    <p class="ab-bc-desc">@b.Description</p>
+                    <div class="ab-bc-cols">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></svg>
+                        <span>@string.Join(" - ", b.ColumnNames)</span>
+                    </div>
+                    <div class="ab-bc-progrow"><span>Avance</span><strong>@(b.ProgressPct)%</strong></div>
+                    <div class="ab-bc-bar"><i style="width:@(b.ProgressPct)%"></i></div>
+                    <div class="ab-bc-foot">
+                        <div class="ab-avatars">
+                            @foreach (var m in b.Members.Take(5))
+                            {
+                                <span class="ab-av" style="background:@AbUi.AvatarBg(m.Initials)" title="@m.DisplayName">@m.Initials</span>
+                            }
+                        </div>
+                        <span class="ab-bc-meta">@b.TaskCount tareas - @b.ColumnNames.Count columnas</span>
+                    </div>
+                </button>
+            }
+            @if (_index.Boards.Count == 0)
+            {
+                <div class="ab-empty">No hay tableros que coincidan con los filtros.</div>
+            }
+        }
+    </div>
+</div>
+
+@* ---- Modal "Nuevo tablero" ---- *@
+@if (_boardModalOpen)
+{
+    <div class="ab-modal-overlay" @onclick="CloseBoardModal">
+        <div class="ab-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Nuevo tablero</h3>
+                <button class="ab-modal-x" @onclick="CloseBoardModal" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <div class="ab-field">
+                    <label>Nombre</label>
+                    <input class="ab-input" @bind="_nbName" @bind:event="oninput" maxlength="160" placeholder="Nombre del tablero" />
+                </div>
+                <div class="ab-field">
+                    <label>Descripcion</label>
+                    <textarea class="ab-textarea" @bind="_nbDesc" placeholder="Que se gestiona en este tablero?"></textarea>
+                </div>
+                <div class="ab-field">
+                    <label>Estado</label>
+                    <select class="ab-select" @bind="_nbStatus">
+                        <option value="@TaskBoardStatus.InProgress">En progreso</option>
+                        <option value="@TaskBoardStatus.OnTime">A tiempo</option>
+                        <option value="@TaskBoardStatus.AtRisk">En riesgo</option>
+                        <option value="@TaskBoardStatus.Completed">Completado</option>
+                    </select>
+                </div>
+                <div class="ab-field">
+                    <label>Fecha limite</label>
+                    <input type="date" class="ab-input" @bind="_nbDue" />
+                </div>
+                @if (_nbError is not null)
+                {
+                    <div class="ab-field-error">@_nbError</div>
+                }
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="CloseBoardModal">Cancelar</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_nbName))" @onclick="CreateBoardAsync">Crear tablero</button>
+            </div>
+        </div>
+    </div>
+}
+
+<TaskToasts @ref="_toasts" />
+<TaskWizard @ref="_wizard" OnCreated="OnActivityCreatedAsync" />
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    /// <summary>Abre el detalle del tablero (la pagina cambia a boardOpen).</summary>
+    [Parameter] public EventCallback<Guid> OnOpenBoard { get; set; }
+
+    private ActivityBoardIndexDto? _index;
+    private List<TenantUserDto> _users = new();
+    private List<TaskItemTagDto> _tags = new();
+    private List<ActivityTypeDto> _types = new();
+
+    // Filtros del indice (cascada Usuario / Etiqueta / Categoria / Subcategoria / Fecha).
+    private Guid? _fUser;
+    private Guid? _fTag;
+    private string? _fCat;
+    private Guid? _fType;
+    private string? _fDate; // "conf" = con fecha limite, "sinf" = sin fecha
+    private string? _openDd;
+
+    private bool _boardModalOpen;
+    private string _nbName = "";
+    private string _nbDesc = "";
+    private TaskBoardStatus _nbStatus = TaskBoardStatus.InProgress;
+    private DateTime? _nbDue;
+    private string? _nbError;
+    private bool _busy;
+
+    private TaskToasts? _toasts;
+    private TaskWizard? _wizard;
+    private HubConnection? _hub;
+    private string? _tenantId;
+
+    private int FilterCount =>
+        (_fUser is null ? 0 : 1) + (_fTag is null ? 0 : 1) + (_fCat is null ? 0 : 1)
+        + (_fType is null ? 0 : 1) + (_fDate is null ? 0 : 1);
+
+    // Scope EF propio + semaforo (mismo patron de TaskKanban): el reload puede
+    // dispararse por el hub mientras el wizard o un modal tienen una consulta en
+    // vuelo sobre el DbContext del circuito.
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ResolveTenantAsync();
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _tags = (await TasksSvc.ListTagsAsync()).ToList();
+        _types = (await TypesSvc.ListAsync()).ToList();
+        await ReloadAsync();
+        await EnsureHubAsync();
+    }
+
+    private async Task ResolveTenantAsync()
+    {
+        if (AuthState is null) { return; }
+        var st = await AuthState;
+        _tenantId = st.User.FindFirst("tenant_id")?.Value;
+    }
+
+    private async Task ReloadAsync()
+    {
+        var filter = new ActivityBoardIndexFilter(
+            MemberTenantUserId: _fUser,
+            TagId: _fTag,
+            ActivityTypeId: _fType,
+            HasDueDate: _fDate switch { "conf" => true, "sinf" => false, _ => null });
+        await _reloadLock.WaitAsync();
+        try
+        {
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var boardsSvc = scope.ServiceProvider.GetRequiredService<IActivityBoardService>();
+                _index = await boardsSvc.ListBoardsAsync(filter);
+            }
+            else
+            {
+                _index = await BoardsSvc.ListBoardsAsync(filter);
+            }
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+        StateHasChanged();
+    }
+
+    // ---- Dropdowns de la barra de filtros ----
+
+    private RenderFragment Dropdown(string key, string label, string valueLabel, bool isEmpty) => __builder =>
+    {
+        <div class="ab-dd">
+            <button class="ab-dd-btn @(isEmpty ? "" : "active")" @onclick="@(() => _openDd = _openDd == key ? null : key)">
+                <span class="lbl">@(label):</span>
+                <span class="val">@valueLabel</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            @if (_openDd == key)
+            {
+                <div class="ab-dd-pop">
+                    @foreach (var (optValue, optLabel, selected) in Options(key))
+                    {
+                        var value = optValue;
+                        <button class="ab-dd-opt @(selected ? "sel" : "")" @onclick="@(() => PickAsync(key, value))">
+                            <span>@optLabel</span>
+                            @if (selected)
+                            {
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
+                            }
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private IEnumerable<(string Value, string Label, bool Selected)> Options(string key)
+    {
+        switch (key)
+        {
+            case "user":
+                yield return ("", "Todos", _fUser is null);
+                foreach (var u in _users) { yield return (u.Id.ToString(), u.Email, _fUser == u.Id); }
+                break;
+            case "tag":
+                yield return ("", "Todas", _fTag is null);
+                foreach (var t in _tags) { yield return (t.Id.ToString(), t.Name, _fTag == t.Id); }
+                break;
+            case "cat":
+                yield return ("", "Todas", _fCat is null);
+                foreach (var c in _types.Select(t => t.Category).Distinct().OrderBy(c => c))
+                {
+                    yield return (c, c, _fCat == c);
+                }
+                break;
+            case "sub":
+                yield return ("", "Todas", _fType is null);
+                foreach (var t in _types.Where(t => _fCat is null || t.Category == _fCat).OrderBy(t => t.Name))
+                {
+                    yield return (t.Id.ToString(), t.Name, _fType == t.Id);
+                }
+                break;
+            case "date":
+                yield return ("", "Todas", _fDate is null);
+                yield return ("conf", "Con fecha limite", _fDate == "conf");
+                yield return ("sinf", "Sin fecha", _fDate == "sinf");
+                break;
+        }
+    }
+
+    private async Task PickAsync(string key, string value)
+    {
+        var empty = string.IsNullOrEmpty(value);
+        switch (key)
+        {
+            case "user": _fUser = empty ? null : Guid.Parse(value); break;
+            case "tag": _fTag = empty ? null : Guid.Parse(value); break;
+            case "cat":
+                _fCat = empty ? null : value;
+                _fType = null; // cascada: cambiar categoria resetea la subcategoria
+                break;
+            case "sub": _fType = empty ? null : Guid.Parse(value); break;
+            case "date": _fDate = empty ? null : value; break;
+        }
+        _openDd = null;
+        await ReloadAsync();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _fUser = null; _fTag = null; _fCat = null; _fType = null; _fDate = null;
+        await ReloadAsync();
+    }
+
+    private string UserLabel() => _fUser is Guid id ? (_users.FirstOrDefault(u => u.Id == id)?.Email ?? "Todos") : "Todos";
+    private string TagLabel() => _fTag is Guid id ? (_tags.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
+    private string TypeLabel() => _fType is Guid id ? (_types.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
+    private string DateLabel() => _fDate switch { "conf" => "Con fecha limite", "sinf" => "Sin fecha", _ => "Todas" };
+
+    // ---- Nuevo tablero ----
+
+    private void OpenNewBoard()
+    {
+        _nbName = ""; _nbDesc = ""; _nbStatus = TaskBoardStatus.InProgress; _nbDue = null; _nbError = null;
+        _boardModalOpen = true;
+    }
+
+    private void CloseBoardModal() => _boardModalOpen = false;
+
+    private async Task CreateBoardAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nbName)) { return; }
+        _busy = true;
+        _nbError = null;
+        try
+        {
+            var due = _nbDue is DateTime d
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                : (DateTimeOffset?)null;
+            var request = new CreateActivityBoardRequest(
+                Name: _nbName.Trim(),
+                Description: string.IsNullOrWhiteSpace(_nbDesc) ? null : _nbDesc.Trim(),
+                Status: _nbStatus,
+                DueDate: due);
+            var result = await BoardsSvc.CreateBoardAsync(request, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _nbError = result.Error;
+                return;
+            }
+            _boardModalOpen = false;
+            _toasts?.Success($"Tablero {result.Value!.Code} creado.");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Wizard "Actividad completa" (flujo 3 pasos con tipo/flujo BPMN) ----
+
+    private async Task OpenWizardAsync()
+    {
+        if (_wizard is not null) { await _wizard.OpenAsync(); }
+    }
+
+    private async Task OnActivityCreatedAsync(TaskItemDetailDto detail)
+    {
+        _toasts?.Success($"Actividad {detail.Item.Number} creada.");
+        await ReloadAsync();
+    }
+
+    // ---- SignalR: refresco en vivo del indice ----
+
+    private async Task EnsureHubAsync()
+    {
+        if (AuthState is null) { return; }
+        var st = await AuthState;
+        _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        if (_tenantId is null) { return; }
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(Nav.ToAbsoluteUri("/hubs/tasks"))
+                .WithAutomaticReconnect()
+                .Build();
+            _hub.On<string, string>("TaskChanged", async (_, _) => await InvokeAsync(ReloadAsync));
+            await _hub.StartAsync();
+            await _hub.SendAsync("JoinTenant", _tenantId);
+        }
+        catch
+        {
+            _hub = null; // sin tiempo real el indice sigue funcionando con recargas manuales
+        }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                if (_tenantId is not null) { await _hub.SendAsync("LeaveTenant", _tenantId); }
+                await _hub.DisposeAsync();
+            }
+            catch { /* circuito cerrado */ }
+        }
+    }
+}

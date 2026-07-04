@@ -1,0 +1,85 @@
+@page "/modulo/{Slug}"
+@attribute [Authorize(Policy = "TenantMember")]
+@* Stub generico para las opciones del menu del prototipo (ECOREX.dc.html) que aun no
+   tienen modulo real. Registro estatico slug -> (titulo, grupo, codigo legacy); cuando
+   se construya el modulo real, la opcion del NavMenu pasa a apuntar a su pagina propia
+   con policy por modulo (los placeholders usan TenantMember). *@
+
+<ModuleStub Section="@_info.Section"
+            Title="@_info.Title"
+            Description="@_info.Description"
+            LegacyCode="@_info.Code"
+            PendingHeading="Modulo pendiente de construccion"
+            PendingText="Modulo pendiente de construccion - se priorizara en fases siguientes.">
+    <Icon>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>
+    </Icon>
+</ModuleStub>
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+
+    private StubInfo _info = Unknown;
+
+    protected override void OnParametersSet()
+    {
+        _info = Registry.TryGetValue(Slug ?? string.Empty, out var info) ? info : Unknown;
+    }
+
+    private sealed record StubInfo(string Title, string Section, string? Code, string Description = "");
+
+    private static readonly StubInfo Unknown =
+        new("Modulo", "Modulos", null, "Opcion del menu del sistema sin modulo construido todavia.");
+
+    // Registro estatico de los items del menu del prototipo sin pagina real (codigos 000XXX)
+    // mas los destinos del rail que aun no existen (calendario/notificaciones/alertas).
+    private static readonly Dictionary<string, StubInfo> Registry = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Mis Procesos
+        ["programar-actividad"] = new("Programar actividad", "Mis Procesos", "000889", "Programacion de actividades recurrentes o futuras."),
+        // Negocio
+        ["creacion-de-clientes"] = new("Creacion de clientes", "Negocio", "000232", "Alta y edicion de clientes del negocio."),
+        ["seguimiento-de-clientes"] = new("Seguimiento de clientes", "Negocio", "000123", "Seguimiento comercial de clientes."),
+        // Oferta - Catalogo
+        ["items-de-inventarios"] = new("Items de inventarios", "Oferta \u00b7 Catalogo", "000066", "Catalogo de items de inventario."),
+        // Automatizacion
+        ["power-bi-service"] = new("Power BI Service", "Automatizacion", "000788", "Integracion con reportes de Power BI Service."),
+        // Sistema - Inventarios
+        ["bodegas"] = new("Bodegas", "Sistema \u00b7 Inventarios", "000556", "Maestro de bodegas de inventario."),
+        ["grupo-inventarios"] = new("Grupo inventarios", "Sistema \u00b7 Inventarios", "000506", "Grupos de inventario."),
+        ["marcas"] = new("Marcas", "Sistema \u00b7 Inventarios", "000502", "Maestro de marcas."),
+        ["subgrupos"] = new("Subgrupos", "Sistema \u00b7 Inventarios", "000606", "Subgrupos de inventario."),
+        ["tipos-de-inventario"] = new("Tipos de inventario", "Sistema \u00b7 Inventarios", "000498", "Tipos de inventario."),
+        // Sistema - Actividades
+        ["prioridades"] = new("Prioridades", "Sistema \u00b7 Actividades", "000621", "Catalogo de prioridades de actividades."),
+        ["tipos-de-proyecto"] = new("Tipos de proyecto", "Sistema \u00b7 Actividades", "000690", "Tipos de proyecto."),
+        ["conceptos"] = new("Conceptos", "Sistema \u00b7 Actividades", "000270", "Conceptos de actividades."),
+        ["estados"] = new("Estados", "Sistema \u00b7 Actividades", "000653", "Estados de actividades."),
+        // Sistema - CRM
+        ["conceptos-actividades"] = new("Conceptos actividades", "Sistema \u00b7 CRM", "000125", "Conceptos de actividades del CRM."),
+        ["estados-crm"] = new("Estados", "Sistema \u00b7 CRM", "000272", "Estados del CRM."),
+        ["perfiles-cliente-prov"] = new("Perfiles cliente/prov", "Sistema \u00b7 CRM", "000166", "Perfiles de cliente y proveedor."),
+        ["servicios-o-productos"] = new("Servicios o productos", "Sistema \u00b7 CRM", "000249", "Catalogo de servicios o productos."),
+        ["tipos-de-empresas"] = new("Tipos de empresas", "Sistema \u00b7 CRM", "000231", "Tipos de empresas."),
+        ["vendedores"] = new("Vendedores", "Sistema \u00b7 CRM", "000124", "Maestro de vendedores."),
+        ["origen-clientes"] = new("Origen clientes", "Sistema \u00b7 CRM", "000324", "Origenes de clientes."),
+        ["grupos-de-actividades"] = new("Grupos de actividades", "Sistema \u00b7 CRM", "000126", "Grupos de actividades del CRM."),
+        // Sistema - General
+        ["crear-empresas"] = new("Crear empresas", "Sistema \u00b7 General", "000072", "Creacion de empresas del sistema."),
+        ["extraccion-de-datos"] = new("Extraccion de datos", "Sistema \u00b7 General", "000730", "Extraccion de datos (scraping)."),
+        ["roles-y-permisos"] = new("Roles y permisos", "Sistema \u00b7 General", "000194", "Administracion de roles y permisos."),
+        ["administracion-de-usuarios"] = new("Administracion de usuarios", "Sistema \u00b7 General", "000073", "Administracion de usuarios del workspace."),
+        // Sistema - Desarrollo
+        ["autocompletado-formularios"] = new("Autocompletado formularios", "Sistema \u00b7 Desarrollo", "000801", "Autocompletado de formularios."),
+        ["notificaciones-config"] = new("Notificaciones", "Sistema \u00b7 Desarrollo", "000288", "Configuracion de notificaciones del sistema."),
+        ["objetos-del-sistema"] = new("Objetos del sistema", "Sistema \u00b7 Desarrollo", "000137", "Objetos del sistema."),
+        ["parametros-xml"] = new("Parametros XML", "Sistema \u00b7 Desarrollo", "000057", "Parametros XML del sistema."),
+        ["servicios-web"] = new("Servicios web", "Sistema \u00b7 Desarrollo", "000053", "Servicios web del sistema."),
+        ["sql-admin"] = new("SQL Admin", "Sistema \u00b7 Desarrollo", "000077", "Administrador SQL."),
+        ["consecutivos"] = new("Tipos de documentos \u00b7 Consecutivos", "Sistema \u00b7 Desarrollo", "000136", "Tipos de documentos y consecutivos."),
+        // Rail (fuente: railDeco sin pagina real todavia)
+        ["calendario"] = new("Calendario", "Rail", null, "Calendario del workspace."),
+        ["notificaciones"] = new("Notificaciones", "Rail", null, "Centro de notificaciones del workspace."),
+        ["alertas"] = new("Alertas del sistema", "Rail", null, "Alertas del sistema."),
+    };
+}

@@ -77,6 +77,12 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             query = query.Where(b => b.DueDate != null && b.DueDate <= dueTo);
         }
+        if (filter.HasDueDate is bool hasDue)
+        {
+            query = hasDue
+                ? query.Where(b => b.DueDate != null)
+                : query.Where(b => b.DueDate == null);
+        }
 
         var boards = await query
             .OrderBy(b => b.SortOrder).ThenBy(b => b.Name)

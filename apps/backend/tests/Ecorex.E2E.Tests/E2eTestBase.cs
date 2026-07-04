@@ -81,12 +81,15 @@ public abstract class E2eTestBase : IAsyncLifetime
         return page.Url.Contains("/inicio", StringComparison.Ordinal);
     }
 
-    // ---- Wizard "Nueva actividad" ----
+    // ---- Wizard "Actividad completa" (3 pasos con tipo/flujo BPMN) ----
 
     /// <summary>
-    /// Crea una actividad completa por el wizard de 3 pasos desde /actividades y devuelve
-    /// el numero T##### que anuncia el toast. Los labels del formulario no estan asociados
-    /// con for/id, por eso se ancla cada control a su div.field por el texto del label.
+    /// Crea una actividad completa por el wizard de 3 pasos y devuelve el numero T#####
+    /// que anuncia el toast. Ola 2: el wizard vive en el INDICE de tableros de
+    /// /actividades detras del boton "Actividad completa" (la tarea creada NO cuelga de
+    /// ningun tablero; para tarjetas del tablero usar QuickCreateTaskAsync). Los labels
+    /// del formulario no estan asociados con for/id, por eso se ancla cada control a su
+    /// div.field por el texto del label.
     /// </summary>
     protected static async Task<string> CreateActivityAsync(
         IPage page, string category, string type, string title,
@@ -95,7 +98,7 @@ public abstract class E2eTestBase : IAsyncLifetime
         string requesterEmail = "cliente.e2e@ejemplo.com")
     {
         await page.GotoAsync("actividades");
-        await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Nueva actividad" }).ClickAsync();
+        await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Actividad completa" }).ClickAsync();
 
         var wizard = page.Locator(".tk-wizard");
         await wizard.WaitForAsync();
@@ -135,21 +138,81 @@ public abstract class E2eTestBase : IAsyncLifetime
             Has = scope.Page.Locator("label.form-label", new PageLocatorOptions { HasText = label })
         }).First;
 
-    // ---- Kanban / detalle ----
+    // ---- Tableros de actividades (ola 2, pantalla 'work' del prototipo) ----
 
-    protected static ILocator KanbanColumn(IPage page, string statusLabel)
-        => page.Locator(".tk-board .tb-col").Filter(new LocatorFilterOptions
+    /// <summary>
+    /// Abre un tablero desde el indice de /actividades haciendo clic en su tarjeta
+    /// (ancla por el nombre del tablero) y espera el kanban por columnas.
+    /// </summary>
+    protected static async Task OpenBoardAsync(IPage page, string boardName)
+    {
+        await page.GotoAsync("actividades");
+        await page.Locator(".ab-board-card").Filter(new LocatorFilterOptions { HasText = boardName })
+            .First.ClickAsync();
+        await page.Locator(".ab-kanban").WaitForAsync();
+    }
+
+    /// <summary>
+    /// Crea una tarea con el modal de creacion rapida del tablero abierto (boton "Tarea")
+    /// y devuelve el numero T##### del toast. type/column/priority/assignee opcionales.
+    /// </summary>
+    protected static async Task<string> QuickCreateTaskAsync(
+        IPage page, string title,
+        string? column = null,
+        string? priority = null,
+        string? typeLabel = null)
+    {
+        await page.Locator(".ab-btn-task").ClickAsync();
+        var modal = page.Locator(".ab-quick-modal");
+        await modal.WaitForAsync();
+
+        await AbFieldIn(modal, "Titulo").Locator("input").FillAsync(title);
+        if (column is not null)
         {
-            Has = page.Locator(".tb-col-name", new PageLocatorOptions { HasText = statusLabel })
+            await AbFieldIn(modal, "Columna").Locator("select")
+                .SelectOptionAsync(new SelectOptionValue { Label = column });
+        }
+        if (priority is not null)
+        {
+            await modal.Locator(".ab-prio-opt")
+                .Filter(new LocatorFilterOptions { HasText = priority }).ClickAsync();
+        }
+        if (typeLabel is not null)
+        {
+            await AbFieldIn(modal, "Tipo de actividad").Locator("select")
+                .SelectOptionAsync(new SelectOptionValue { Label = typeLabel });
+        }
+        await modal.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Crear tarea" }).ClickAsync();
+
+        var toast = page.Locator(".tk-toast.ok").Filter(new LocatorFilterOptions { HasText = "creada" });
+        await toast.WaitForAsync();
+        var text = await toast.InnerTextAsync();
+        var match = Regex.Match(text, @"T\d+");
+        Assert.True(match.Success, $"El toast de creacion rapida no trae numero T#####: '{text}'");
+        return match.Value;
+    }
+
+    /// <summary>div.ab-field de los modales de tablero anclado por el texto de su label.</summary>
+    protected static ILocator AbFieldIn(ILocator scope, string label)
+        => scope.Locator(".ab-field").Filter(new LocatorFilterOptions
+        {
+            Has = scope.Page.Locator("label", new PageLocatorOptions { HasText = label })
+        }).First;
+
+    /// <summary>Columna del kanban del tablero abierto, anclada por su nombre.</summary>
+    protected static ILocator BoardColumn(IPage page, string columnName)
+        => page.Locator(".ab-kanban > div").Filter(new LocatorFilterOptions
+        {
+            Has = page.Locator(".ab-col-name", new PageLocatorOptions { HasText = columnName })
         });
 
     protected static ILocator CardIn(ILocator column, string title)
-        => column.Locator(".tk-kb-card").Filter(new LocatorFilterOptions { HasText = title });
+        => column.Locator(".ab-card").Filter(new LocatorFilterOptions { HasText = title });
 
-    /// <summary>Abre el detalle de la tarea haciendo clic en su tarjeta del kanban.</summary>
+    /// <summary>Abre el detalle de la tarea haciendo clic en su tarjeta del tablero.</summary>
     protected static async Task<ILocator> OpenTaskDetailAsync(IPage page, string title)
     {
-        await page.Locator(".tk-kb-card").Filter(new LocatorFilterOptions { HasText = title })
+        await page.Locator(".ab-card").Filter(new LocatorFilterOptions { HasText = title })
             .First.ClickAsync();
         var detail = page.Locator(".tk-detail");
         await detail.WaitForAsync();

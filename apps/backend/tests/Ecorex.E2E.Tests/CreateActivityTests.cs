@@ -4,10 +4,12 @@ using Microsoft.Playwright;
 namespace Ecorex.E2E.Tests;
 
 /// <summary>
-/// Escenario (b): wizard de 3 pasos completo -> toast con numero T##### y tarjeta en la
-/// columna Pendiente del kanban. Usa el tipo "Gestion Humana / Solicitud" (SIN flujo
-/// vinculado) a proposito: los tipos con flujo pasan la tarea a Activa al arrancar la
-/// instancia y no aterrizarian en Pendiente.
+/// Escenario (b), ola 2: creacion de tareas en la experiencia de tableros.
+/// (b1) Wizard "Actividad completa" de 3 pasos desde el indice -> toast T#####
+///      (la tarea NO cuelga de un tablero: es el flujo completo con tipo/flujo BPMN).
+/// (b2) Creacion rapida (boton "Tarea") dentro de PRY-0042 -> toast T##### y la
+///      tarjeta aparece en la columna elegida del kanban del tablero.
+/// Usa el tipo "Gestion Humana / Solicitud" (SIN flujo vinculado) a proposito.
 /// </summary>
 public sealed class CreateActivityTests : E2eTestBase
 {
@@ -16,7 +18,7 @@ public sealed class CreateActivityTests : E2eTestBase
     }
 
     [SkippableFact]
-    public async Task Wizard_TresPasos_CreaActividad_ToastYTarjetaEnPendiente()
+    public async Task Wizard_TresPasos_CreaActividad_ConToast()
     {
         RequireApp();
         var page = await LoginAsync();
@@ -26,11 +28,24 @@ public sealed class CreateActivityTests : E2eTestBase
             page, category: "Gestion Humana", type: "Solicitud", title: title, priority: "Alta");
 
         Assert.Matches(new Regex(@"^T\d{5,}$"), number);
+    }
 
-        // La tarjeta aparece en la columna Pendiente con su numero y prioridad Alta.
-        var card = CardIn(KanbanColumn(page, "Pendiente"), title);
+    [SkippableFact]
+    public async Task CreacionRapida_EnTablero_ToastYTarjetaEnColumna()
+    {
+        RequireApp();
+        var page = await LoginAsync();
+        var title = $"E2E rapida {Sfx}";
+
+        await OpenBoardAsync(page, "Comercial - Requerimiento Infraestructura");
+        var number = await QuickCreateTaskAsync(
+            page, title, column: "Por hacer", priority: "Alta",
+            typeLabel: "Gestion Humana / Solicitud");
+
+        Assert.Matches(new Regex(@"^T\d{5,}$"), number);
+
+        // La tarjeta aparece en la columna "Por hacer" del tablero con su titulo.
+        var card = CardIn(BoardColumn(page, "Por hacer"), title);
         await Assertions.Expect(card).ToBeVisibleAsync();
-        await Assertions.Expect(card.Locator(".tk-number")).ToHaveTextAsync(number);
-        await Assertions.Expect(card.Locator(".tk-priority")).ToHaveTextAsync("Alta");
     }
 }

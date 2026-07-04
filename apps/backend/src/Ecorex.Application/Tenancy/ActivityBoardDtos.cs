@@ -35,7 +35,9 @@ public sealed record ActivityBoardIndexFilter(
     Guid? ActivityTypeId = null,
     DateTimeOffset? DueFrom = null,
     DateTimeOffset? DueTo = null,
-    bool IncludeArchived = false);
+    bool IncludeArchived = false,
+    // Ola 2 UI: dropdown "Fecha" del indice (Con fecha limite / Sin fecha). Null = todas.
+    bool? HasDueDate = null);
 
 public sealed record CreateActivityBoardRequest(
     string Name, string? Description = null, string? Color = null,

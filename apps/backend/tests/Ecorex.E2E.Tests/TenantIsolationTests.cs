@@ -33,10 +33,11 @@ public sealed class TenantIsolationTests : E2eTestBase
         Assert.Contains("/inicio", page.Url);
         await Assertions.Expect(page.Locator(".dash-sub")).ToContainTextAsync("SKY SYSTEM");
 
-        // El kanban carga solo datos del tenant (sin fuga: nada del tenant interno
-        // "Plataforma ECOREX" es visible para un usuario de agencia).
+        // El indice de tableros carga solo datos del tenant (sin fuga: nada del tenant
+        // interno "Plataforma ECOREX" es visible para un usuario de agencia). Ola 2:
+        // /actividades es el indice de tableros de actividades (.ab-boards).
         await page.GotoAsync("actividades");
-        await Assertions.Expect(page.Locator(".tk-board")).ToBeVisibleAsync();
+        await Assertions.Expect(page.Locator(".ab-boards")).ToBeVisibleAsync();
         await Assertions.Expect(page.Locator("body")).Not.ToContainTextAsync("Plataforma ECOREX");
     }
 }

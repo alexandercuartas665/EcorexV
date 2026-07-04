@@ -8,6 +8,7 @@
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
 @inject IProjectService ProjectsSvc
+@inject IActivityBoardService BoardsSvc
 @inject IFormResponseService FormResponsesSvc
 @inject ITaskBroadcaster Broadcaster
 @inject IJSRuntime JS
@@ -64,6 +65,13 @@
                 <div class="tk-conflict tk-action-error">
                     <span>@_actionError</span>
                     <button class="tk-conflict-x" @onclick="@(() => _actionError = null)">&times;</button>
+                </div>
+            }
+            @if (_moveNote is not null)
+            {
+                <div class="tk-conflict tk-move-note">
+                    <span>@_moveNote</span>
+                    <button class="tk-conflict-x" @onclick="@(() => _moveNote = null)">&times;</button>
                 </div>
             }
 
@@ -142,6 +150,34 @@
                         </div>
                     }
                 </div>
+
+                @* Mover a: columna del tablero de actividades (ADR-0020, ola 2) *@
+                @if (item.BoardId is not null && _boardColumns.Count > 0)
+                {
+                    <div class="tk-pill-anchor">
+                        <button class="tk-pill tk-moveto" @onclick="@(() => ToggleMenu("moveto"))" disabled="@readOnly" title="Mover a otra columna del tablero">
+                            <span style="color:var(--ink-3, var(--muted-foreground));">Mover a:</span>
+                            <span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+                                <span style="width:8px;height:8px;border-radius:50%;flex:none;background:@CurrentColumnDot()"></span>
+                                @(CurrentColumnName() ?? "Sin columna")
+                            </span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><path d="m6 9 6 6 6-6"/></svg>
+                        </button>
+                        @if (_openMenu == "moveto")
+                        {
+                            <div class="tk-pill-pop">
+                                @foreach (var (col, idx) in _boardColumns.Select((c, i) => (c, i)))
+                                {
+                                    var target = col;
+                                    var dotColor = AbUi.ColumnDot(idx);
+                                    <button class="tk-pill-item @(item.ColumnId == target.Id ? "on" : "")" @onclick="@(() => MoveToColumnAsync(target))">
+                                        <span style="width:8px;height:8px;border-radius:50%;flex:none;background:@dotColor;margin-right:6px;"></span>@target.Name
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
 
                 <span style="flex:1;"></span>
 
@@ -312,6 +348,9 @@
                             {
                                 <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
                             }
+                            @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
+                            <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></div>
+                            <div class="tk-progress-bar"><i style="width:@(ChecklistPct())%;background:@ProgressColor()"></i></div>
                             @if (item.Tags.Count > 0)
                             {
                                 <div class="tk-summary-row">
@@ -322,6 +361,82 @@
                                             <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
                                         }
                                     </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Lista de chequeo (ADR-0020, patron del prototipo: checkbox 20px r6,
+                       verde al completar, texto tachado; el Progreso de la tarjeta del
+                       tablero sale de aqui). *@
+                    <div class="tk-card tk-checklist">
+                        <div class="tk-card-head">
+                            <h3>Lista de chequeo</h3>
+                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:10px;">
+                            @if (_detail.Checklist.Count == 0)
+                            {
+                                <p class="tk-empty-note">Sin items de chequeo.</p>
+                            }
+                            @foreach (var ck in _detail.Checklist)
+                            {
+                                var checkItem = ck;
+                                <div class="tk-check-row">
+                                    <button class="tk-check-box @(checkItem.IsCompleted ? "done" : "")" @onclick="@(() => ToggleChecklistAsync(checkItem))" disabled="@readOnly" aria-label="Completar item">
+                                        @if (checkItem.IsCompleted)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
+                                        }
+                                    </button>
+                                    <span class="tk-check-txt @(checkItem.IsCompleted ? "done" : "")">@checkItem.Text</span>
+                                    @if (!readOnly)
+                                    {
+                                        <button class="tk-check-del" title="Eliminar item" @onclick="@(() => RemoveChecklistAsync(checkItem.Id))">&times;</button>
+                                    }
+                                </div>
+                            }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-check-add">
+                                    <input class="form-control form-control-sm" @bind="_newCheckText" @bind:event="oninput" maxlength="300" placeholder="Nuevo item..." />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Asignados M:N (ADR-0020): equipo adicional; el encargado single vive en el hero. *@
+                    <div class="tk-card tk-assignees">
+                        <div class="tk-card-head"><h3>Asignados</h3></div>
+                        <div style="display:flex;flex-direction:column;gap:2px;">
+                            @if (_detail.Assignees.Count == 0)
+                            {
+                                <p class="tk-empty-note">Sin asignados adicionales.</p>
+                            }
+                            @foreach (var assignee in _detail.Assignees)
+                            {
+                                var a = assignee;
+                                <div class="tk-assignee-row">
+                                    <span class="tk-av-solid" style="background:@AbUi.AvatarBg(a.Initials)">@a.Initials</span>
+                                    <span class="name">@a.DisplayName</span>
+                                    @if (!readOnly)
+                                    {
+                                        <button class="tk-assignee-x" title="Quitar asignado" @onclick="@(() => RemoveAssigneeAsync(a.TenantUserId))">&times;</button>
+                                    }
+                                </div>
+                            }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-check-add">
+                                    <select class="form-control form-control-sm" @bind="_addAssigneeId">
+                                        <option value="">Agregar usuario...</option>
+                                        @foreach (var u in _users.Where(u => _detail.Assignees.All(a => a.TenantUserId != u.Id)))
+                                        {
+                                            <option value="@u.Id">@u.Email</option>
+                                        }
+                                    </select>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddAssigneeAsync" disabled="@(_busy || string.IsNullOrEmpty(_addAssigneeId))">Agregar</button>
                                 </div>
                             }
                         </div>
@@ -492,6 +607,12 @@
     private string _attUrl = "";
     private string? _attError;
 
+    // Tablero de actividades (ADR-0020, ola 2): columnas para "Mover a", checklist y asignados.
+    private List<ActivityBoardColumnDto> _boardColumns = new();
+    private string? _moveNote;
+    private string _newCheckText = "";
+    private string _addAssigneeId = "";
+
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
     private TaskStepFormDto? _openStepForm;
@@ -503,10 +624,12 @@
         _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
         _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
         _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
-        _conflict = _actionError = _workLogError = _attError = null;
+        _conflict = _actionError = _workLogError = _attError = _moveNote = null;
         _openMenu = null;
         _timerRunning = false;
         _timerNote = _manualNote = _newComment = _attName = _attUrl = "";
+        _newCheckText = "";
+        _addAssigneeId = "";
         _manualHours = _manualMinutes = null;
         await ReloadAsync(taskId);
         StateHasChanged();
@@ -525,6 +648,180 @@
             _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
             var actor = await ActorAsync();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
+            // Columnas del tablero para el dropdown "Mover a" (solo si la tarea esta en un tablero).
+            _boardColumns = new List<ActivityBoardColumnDto>();
+            if (_detail.Item.BoardId is Guid boardId)
+            {
+                var board = await BoardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter());
+                if (board.IsOk)
+                {
+                    _boardColumns = board.Value!.Columns.ToList();
+                }
+            }
+        }
+    }
+
+    // ===== Tablero de actividades: mover a columna (ADR-0020) =====
+
+    private string? CurrentColumnName()
+        => _boardColumns.FirstOrDefault(c => c.Id == _detail?.Item.ColumnId)?.Name;
+
+    private string CurrentColumnDot()
+    {
+        var idx = _boardColumns.FindIndex(c => c.Id == _detail?.Item.ColumnId);
+        return idx < 0 ? "var(--ink-3, #A2A2AC)" : AbUi.ColumnDot(idx);
+    }
+
+    private string ProgressColor()
+    {
+        var idx = _boardColumns.FindIndex(c => c.Id == _detail?.Item.ColumnId);
+        return idx < 0 ? "var(--brand, var(--primary))" : AbUi.ColumnProgressColor(idx);
+    }
+
+    private int ChecklistDone() => _detail?.Checklist.Count(c => c.IsCompleted) ?? 0;
+
+    private int ChecklistPct()
+        => _detail is null || _detail.Checklist.Count == 0
+            ? 0
+            : (int)Math.Round(ChecklistDone() * 100.0 / _detail.Checklist.Count, MidpointRounding.AwayFromZero);
+
+    private async Task MoveToColumnAsync(ActivityBoardColumnDto target)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        _moveNote = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            if (_detail.Item.ColumnId == target.Id) { return; }
+            var sortOrder = target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1;
+            var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            _moveNote = result.Value!.StatusNote;
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, result.Value.Status);
+        }
+        finally
+        {
+            _busy = false;
+            _openMenu = null;
+        }
+    }
+
+    // ===== Checklist (ADR-0020) =====
+
+    private async Task ToggleChecklistAsync(TaskItemChecklistItemDto checkItem)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.ToggleChecklistItemAsync(
+                checkItem.Id, !checkItem.IsCompleted, _actorTenantUserId, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddChecklistAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_newCheckText)) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.AddChecklistItemAsync(
+                _detail.Item.Id, _newCheckText.Trim(), await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            _newCheckText = "";
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveChecklistAsync(Guid checklistItemId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.RemoveChecklistItemAsync(checklistItemId, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ===== Asignados M:N (ADR-0020) =====
+
+    private async Task AddAssigneeAsync()
+    {
+        if (_detail is null || !Guid.TryParse(_addAssigneeId, out var tenantUserId)) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.AddAssigneeAsync(_detail.Item.Id, tenantUserId, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            _addAssigneeId = "";
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RemoveAssigneeAsync(Guid tenantUserId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.RemoveAssigneeAsync(_detail.Item.Id, tenantUserId, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 

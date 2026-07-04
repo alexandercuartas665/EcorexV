@@ -25,9 +25,12 @@ public sealed class WorkflowFormTests : E2eTestBase
         var title = $"E2E flujo {Sfx}";
         var backdoor = new E2eDbBackdoor(Fx.ConnectionString);
 
-        // 1. Crear la actividad del tipo con flujo: arranca COT-COM y la tarea nace Activa.
-        var number = await CreateActivityAsync(page, "Direccion Comercial", "Cotizacion", title);
-        var card = CardIn(KanbanColumn(page, "Activa"), title);
+        // 1. Crear la actividad del tipo con flujo (creacion rapida en PRY-0042): arranca
+        //    COT-COM y la tarea nace Activa; la tarjeta queda en la columna elegida.
+        await OpenBoardAsync(page, "Comercial - Requerimiento Infraestructura");
+        var number = await QuickCreateTaskAsync(page, title, column: "Por hacer",
+            typeLabel: "Direccion Comercial / Cotizacion");
+        var card = CardIn(BoardColumn(page, "Por hacer"), title);
         await Assertions.Expect(card).ToBeVisibleAsync();
 
         // 2. El paso current es Requerimiento (sin formulario): el detalle aun NO muestra

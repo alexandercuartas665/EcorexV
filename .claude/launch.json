@@ -22,6 +22,16 @@
       "port": 5236
     },
     {
+      "name": "superadmin-5238",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5238"
+      ],
+      "port": 5238
+    },
+    {
       "name": "superadmin-5237",
       "runtimeExecutable": "pwsh",
       "runtimeArgs": [

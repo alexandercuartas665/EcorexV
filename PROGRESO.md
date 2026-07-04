@@ -796,3 +796,98 @@ Procesos detenidos al terminar (puerto 5236 libre).
   el arranque fallo dos veces por el modelo a mitad del agente paralelo
   (AddDynamicForms y AddRulesEngine); se resolvio recompilando cuando sus
   migraciones quedaron en el arbol.
+
+## 2026-07-03 - Sesion 9c: Gaps estructurales del prototipo (acordeones, Modulos, badges, topbar, rail)
+
+**Objetivo**: cerrar los gaps estructurales que quedaron listados en 9b como
+"no igualado": sidebar con acordeones, seccion Modulos del dashboard, deltas
+de los KPI, toggle de colapso + Compartir en el topbar y railDeco.
+
+**1. Sidebar con acordeones (NavMenu.razor + app.css)**: la seccion MODULOS
+ahora replica los menuGroups del fuente (ECOREX.dc.html linea 116+): header
+9/10 r10 13.5/600 ink-2 con icono coloreado (t-violet/t-blue/t-slate, stroke
+1.85 como I() del fuente), contador 10px ink-3, chevron 15px sw2.2 rotado
+180 grados al abrir (transition .2s); items indentados margin 1/0/5/19 +
+padding-left 11 + borde izquierdo var(--line), 7/10 r8 12.5 (activo
+surface-3 + ink + 600, inactivo ink-2 500) con codigo legacy 9.5 ink-3 .75.
+Grupos SOLO con lo que existe hoy: Mis Procesos (2: Proyectos 000042,
+Administrar actividades 000636), Automatizacion (3: Flujos 000291,
+Formularios 000131, Reglas 000802), Sistema (2: Dependencias 000850,
+Modulos web 000109) y CRM (heredado) (9 paginas del CRM, sin codigo).
+Implementados como <details data-acc> (funcionan en SSR estatico): el
+servidor decide el estado inicial (abierto si contiene la ruta activa o si
+es misproc/auto, los defaults del prototipo) y un script en MainLayout
+persiste el toggle del usuario en localStorage ('ecorex-acc') y lo reaplica
+tras cada enhanced navigation con MutationObserver (sin cerrar nunca el
+grupo de la ruta activa). Se elimino el CSS del viejo .ecorex-nav-group
+(sin usos) y el label "Principal" (el fuente no lo tiene: quick nav suelto).
+Quick nav del workspace subido a 14px/600 margin 2 (wsStyle exacto).
+
+**2. Seccion "Modulos" en /inicio (Inicio.razor + app.css)**: h2 20/800 +
+sub 13 ink-3, headers de categoria con punto 8x8 r3 + nombre 13/700 .03em +
+desc 12.5 ink-3, grid auto-fill minmax(280px,1fr) gap 14, cards r16 p18
+sh-sm hover translateY(-2px)+sh-md con tile 40 r12 (bg/color del tono de la
+seccion), titulo 15/700, desc 12.5 ink-2 lh1.5 min-h 38 y pie border-top
+"Ir al modulo ->" 12.5/600 + codigo 11 ink-3 .04em. Areas REALES:
+OPERACIONES t-violet (Proyectos /proyectos 000042, Administrar actividades
+/actividades 000636, Gestor de tareas /tableros sin codigo) y AUTOMATIZACION
+t-blue (Flujos /flujos 000291, Formularios /formularios 000131, Reglas
+/reglas 000802). Textos del fuente adaptados a ASCII.
+
+**3. Badges de los KPI (Inicio.razor)**: deltas calculados con datos reales
+(3 queries por CreatedAt/Status en el scope propio de la pagina): tareas
+creadas hoy "+N" (tg), proyectos creados este mes "+N" (tg), instancias de
+flujo Stuck "N en pausa" (ta, nueva clase .dash-kpi-delta.ta t-amber) y el
+"urgente" (tr) de 9b. Valor 0 => el badge no se renderiza, como el prototipo.
+
+**4. Topbar (MainLayout.razor + App.razor + app.css)**: boton de colapso del
+sidebar 34x34 r9 borde line con el icono de panel del fuente, FUNCIONAL en
+SSR: window.ecorexSidebar (App.razor, corre antes del CSS para no parpadear)
+conmuta la clase html.sidebar-collapsed con persistencia en localStorage
+('ecorex-sidebar'); CSS solo escritorio (>=992px): sidebar a width 0 +
+opacity 0 con transition .2s como el prototipo (wsW 0px). Boton "Compartir"
+h36 r10 borde line-2 13/600 con icono share 15px, deshabilitado (opacity
+.55) con tooltip "Proximamente".
+
+**5. Rail (MainLayout.razor)**: bloque inferior railDeco con los destinos
+que existen: mensajes -> /conversaciones, indicadores (chart) -> /metricas
+y la campana -> /anuncios (movida abajo como el fuente); arriba quedan
+Inicio/Tareas/Flujos/Formularios. Calendario NO se agrego (no hay pagina).
+Botones 42x42 r12 (SPA/capturas) sin cambios.
+
+**Validacion (probado de verdad)** contra Postgres 5442 en localhost:5238
+con demo-admin@ecorex.tareas: build 0 errores, tests Domain 35/35 y
+Application 83/83 verdes. En navegador real (1440x900 y 1280x860):
+acordeones con medidas computadas exactas (summary 13.5/600 pad 9/10 r10,
+body margin 1/0/5/19 + borde line, item 12.5 pad 7/10 r8), toggle de
+Sistema persiste {"sistema":true} y sobrevive navegaciones, item activo
+/flujos con surface-3 #F2F2F3 + 600 y rail activo #1B1B1E, breadcrumb
+actualizado; colapso del sidebar: click -> width 0/opacity 0 + localStorage
+'collapsed', reload -> sigue colapsado, click -> 272px; seccion Modulos
+renderiza las 2 categorias y las 6 cards navegan (click Proyectos ->
+/proyectos); badges reales "+6" y "+1" (verde #DDF6E6/#16A34A r8) y ocultos
+los de valor 0 (flujos en pausa, urgente); dark mode legible (card #161618,
+delta rgba verde .16); /dependencias /modulos-web /metricas /conversaciones
+/anuncios responden 200. Procesos detenidos al terminar (puerto 5238 libre).
+
+**Lo que NO se igualo (honesto, con porque)**:
+- Grupos del prototipo sin contenido real (Negocio, Oferta-Catalogo,
+  Sistema-Inventarios/Actividades/CRM/General/Desarrollo completos) e items
+  sin pagina (Crear una actividad 000038 como pagina propia, Programar
+  actividad 000889, Comercial 000477 con subgrupo, Power BI 000788, Agentes
+  IA 000867 del workspace): NO se inventaron, por instruccion.
+- La seccion Modulos del dashboard omite las categorias NEGOCIO del fuente
+  (Creacion/Seguimiento de clientes, Items-Inventarios): no existen esas
+  paginas en ECOREX hoy.
+- El rail no lleva Calendario (sin destino) y conserva 42x42 r12 del
+  SPA/capturas aprobadas (el .dc trae 44x44 r13).
+- "Compartir" es placeholder deshabilitado (sin funcion detras) y la campana
+  sigue siendo placeholder con punto.
+- Los deltas "+N" usan CreatedAt del dia/mes actual (no hay serie temporal
+  historica); "en pausa" cuenta instancias Stuck reales.
+- Durante la sesion el arranque fallo una vez por el modelo a mitad del
+  agente paralelo (AddOrgAndModuleRegistry); se resolvio recompilando cuando
+  sus migraciones quedaron en el arbol. No se tocaron Dependencias.razor,
+  ModulosWeb.razor ni Domain/Application/migraciones (agente paralelo).
+- Sin commit (pedido explicito): cambios en working tree. Se agrego la
+  configuracion superadmin-5238 a .claude/launch.json para la verificacion.

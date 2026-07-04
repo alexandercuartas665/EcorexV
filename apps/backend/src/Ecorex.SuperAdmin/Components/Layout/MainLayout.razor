@@ -27,10 +27,19 @@
             <NavLink class="ecorex-rail-btn" href="formularios" title="Formularios">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
             </NavLink>
+            <div class="ecorex-rail-spacer"></div>
+            @* Bloque inferior del rail (railDeco del prototipo): solo iconos con destino
+               real hoy: mensajes -> /conversaciones, metricas -> /metricas, alertas -> /anuncios.
+               Calendario no se agrega (no existe la pagina). *@
+            <NavLink class="ecorex-rail-btn" href="conversaciones" title="Mensajes">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>
+            </NavLink>
+            <NavLink class="ecorex-rail-btn" href="metricas" title="Indicadores del sistema">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><rect x="7.5" y="11" width="3" height="6" rx="1"/><rect x="13.5" y="7" width="3" height="10" rx="1"/></svg>
+            </NavLink>
             <NavLink class="ecorex-rail-btn" href="anuncios" title="Anuncios y notificaciones">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
             </NavLink>
-            <div class="ecorex-rail-spacer"></div>
             <div class="ecorex-rail-avatar" title="@(_userName ?? "Usuario")" style="background:@AvatarBg">@_avatar</div>
         </nav>
     }
@@ -53,6 +62,12 @@
                 <Authorized>
                     @if (_isTenantWorkspace)
                     {
+                        @* Toggle de colapso del sidebar (prototipo: 34x34 r9, icono panel).
+                           JS plano + localStorage: funciona en SSR y persiste entre sesiones. *@
+                        <button type="button" class="ecorex-collapse" title="Mostrar u ocultar el menu"
+                                onclick="window.ecorexSidebar && window.ecorexSidebar.toggle()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+                        </button>
                         @* Breadcrumb del prototipo: Equipos / {tenant} / {seccion}. *@
                         <nav class="ecorex-topbar-crumb" aria-label="Ubicacion">
                             <span>Equipos</span>
@@ -62,6 +77,11 @@
                             <span class="cur">@SectionLabel</span>
                         </nav>
                         <span style="flex:1;"></span>
+                        @* Boton Compartir del prototipo: placeholder deshabilitado hasta que exista la funcion. *@
+                        <button type="button" class="ecorex-share" title="Proximamente" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>
+                            Compartir
+                        </button>
                         <button type="button" class="ecorex-bell" title="Notificaciones (proximamente)">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
                             <span class="dot" aria-hidden="true"></span>
@@ -94,11 +114,41 @@
     // Cierra el menu movil al tocar un enlace de navegacion (complementa el cierre por overlay
     // y el reseteo en navegaciones de pagina completa).
     document.addEventListener('click', function (e) {
-        if (e.target.closest && e.target.closest('.ecorex-nav-link')) {
+        if (e.target.closest && e.target.closest('.ecorex-nav-link, .ecorex-acc-item')) {
             var t = document.getElementById('ecorex-nav-toggle');
             if (t) t.checked = false;
         }
     });
+
+    // Acordeones del sidebar (details[data-acc]): el servidor decide el estado inicial
+    // (grupo activo o abierto por defecto) y aqui se persiste el toggle del usuario en
+    // localStorage, reaplicandolo tras cada re-render (navegacion mejorada de Blazor).
+    (function () {
+        var KEY = 'ecorex-acc';
+        function saved() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } }
+        function apply() {
+            var st = saved();
+            document.querySelectorAll('details[data-acc]').forEach(function (d) {
+                var k = d.getAttribute('data-acc');
+                if (st[k] === true && !d.open) { d.setAttribute('open', ''); }
+                // No se cierra el grupo que contiene la ruta activa aunque este guardado cerrado.
+                else if (st[k] === false && d.open && !d.querySelector('.ecorex-acc-item.active')) { d.removeAttribute('open'); }
+            });
+        }
+        document.addEventListener('click', function (e) {
+            var s = e.target.closest && e.target.closest('details[data-acc] > summary');
+            if (!s) { return; }
+            var d = s.parentElement;
+            setTimeout(function () {
+                var st = saved();
+                st[d.getAttribute('data-acc')] = d.open;
+                try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e2) { }
+            }, 0);
+        });
+        // Reaplica el estado guardado cuando Blazor parchea el DOM (enhanced navigation).
+        new MutationObserver(function () { apply(); }).observe(document.body, { childList: true, subtree: true });
+        apply();
+    })();
 </script>
 
 @code {

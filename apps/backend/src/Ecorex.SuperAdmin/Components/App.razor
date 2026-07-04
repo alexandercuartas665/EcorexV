@@ -21,6 +21,19 @@
                     try { localStorage.setItem('ecorex-theme', dark ? 'dark' : 'light'); } catch (e) { }
                 }
             };
+            // Colapso del sidebar del workspace (boton panel del topbar, prototipo):
+            // clase en <html> restaurada antes del primer render + persistencia.
+            try {
+                if (localStorage.getItem('ecorex-sidebar') === 'collapsed') {
+                    document.documentElement.classList.add('sidebar-collapsed');
+                }
+            } catch (e) { /* sin storage: sidebar visible */ }
+            window.ecorexSidebar = {
+                toggle: function () {
+                    var c = document.documentElement.classList.toggle('sidebar-collapsed');
+                    try { localStorage.setItem('ecorex-sidebar', c ? 'collapsed' : 'open'); } catch (e) { }
+                }
+            };
         })();
     </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />

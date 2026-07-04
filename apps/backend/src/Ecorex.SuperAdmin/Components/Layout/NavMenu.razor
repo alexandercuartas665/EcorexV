@@ -69,9 +69,7 @@ else
 <nav class="ecorex-nav">
     @if (_showTenant)
     {
-        @* ===== Seccion PRINCIPAL (prototipo) ===== *@
-        <div class="ecorex-nav-label">Principal</div>
-
+        @* ===== Quick nav (prototipo: items sueltos sin label antes de MODULOS) ===== *@
         <NavLink class="ecorex-nav-link" href="inicio">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
             <span>Inicio</span>
@@ -94,106 +92,101 @@ else
             <span>Configuracion</span>
         </NavLink>
 
-        @* ===== Seccion MODULOS: procesos del tenant con su codigo legacy ===== *@
+        @* ===== Seccion MODULOS (prototipo): acordeones por grupo de negocio con
+               contador de items, chevron rotatorio e items indentados con codigo
+               legacy. Solo grupos/paginas que existen hoy; data-acc permite
+               persistir apertura/cierre en localStorage (script en MainLayout). ===== *@
         <div class="ecorex-nav-label">Modulos</div>
 
-        <NavLink class="ecorex-nav-link" href="proyectos">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
-            <span>Proyectos</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000042">000042</span>
-        </NavLink>
-
-        <NavLink class="ecorex-nav-link" href="actividades">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
-            <span>Actividades</span>
-            <span class="ecorex-nav-code" title="Modulos legacy 000038 / 000636 / 000889">000038</span>
-        </NavLink>
-
-        <NavLink class="ecorex-nav-link" href="flujos">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
-            <span>Flujos del proceso</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000291">000291</span>
-        </NavLink>
-
-        <NavLink class="ecorex-nav-link" href="formularios">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/><path d="M8 9h2"/></svg>
-            <span>Formularios</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000131">000131</span>
-        </NavLink>
-
-        <NavLink class="ecorex-nav-link" href="reglas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
-            <span>Reglas</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000802">000802</span>
-        </NavLink>
-
-        @* ===== Seccion SISTEMA: catalogos ===== *@
-        <div class="ecorex-nav-label">Sistema</div>
-
-        <NavLink class="ecorex-nav-link" href="dependencias">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
-            <span>Dependencias</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000850">000850</span>
-        </NavLink>
-
-        <NavLink class="ecorex-nav-link" href="modulos-web">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-            <span>Modulos web</span>
-            <span class="ecorex-nav-code" title="Modulo legacy 000109">000109</span>
-        </NavLink>
-
-        @* ===== CRM heredado: paginas funcionales del CRM anterior, colapsadas
-               hasta decidir su destino en fases posteriores. ===== *@
-        <details class="ecorex-nav-group">
+        <details class="ecorex-acc tv" data-acc="misproc" open="@IsGroupOpen("misproc")">
             <summary>
-                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-                <span>CRM (heredado)</span>
+                <span class="ecorex-acc-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>
+                </span>
+                <span class="ecorex-acc-name">Mis Procesos</span>
+                <span class="ecorex-acc-count">2</span>
+                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
+            <div class="ecorex-acc-body">
+                <NavLink class="ecorex-acc-item" href="proyectos">
+                    <span class="lbl">Proyectos</span>
+                    <span class="code" title="Modulo legacy 000042">000042</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="actividades">
+                    <span class="lbl">Administrar actividades</span>
+                    <span class="code" title="Modulos legacy 000038 / 000636 / 000889">000636</span>
+                </NavLink>
+            </div>
+        </details>
 
-            <NavLink class="ecorex-nav-link" href="pipeline">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect width="4" height="7" x="7" y="10" rx="1"/><rect width="4" height="12" x="13" y="5" rx="1"/></svg>
-                <span>Pipeline comercial</span>
-            </NavLink>
+        <details class="ecorex-acc tb" data-acc="auto" open="@IsGroupOpen("auto")">
+            <summary>
+                <span class="ecorex-acc-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
+                </span>
+                <span class="ecorex-acc-name">Automatizacion</span>
+                <span class="ecorex-acc-count">3</span>
+                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="ecorex-acc-body">
+                <NavLink class="ecorex-acc-item" href="flujos">
+                    <span class="lbl">Flujos del proceso</span>
+                    <span class="code" title="Modulo legacy 000291">000291</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="formularios">
+                    <span class="lbl">Formularios</span>
+                    <span class="code" title="Modulo legacy 000131">000131</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="reglas">
+                    <span class="lbl">Reglas</span>
+                    <span class="code" title="Modulo legacy 000802">000802</span>
+                </NavLink>
+            </div>
+        </details>
 
-            <NavLink class="ecorex-nav-link" href="conversaciones">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>
-                <span>Conversaciones</span>
-            </NavLink>
+        <details class="ecorex-acc ts" data-acc="sistema" open="@IsGroupOpen("sistema")">
+            <summary>
+                <span class="ecorex-acc-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>
+                </span>
+                <span class="ecorex-acc-name">Sistema</span>
+                <span class="ecorex-acc-count">2</span>
+                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="ecorex-acc-body">
+                <NavLink class="ecorex-acc-item" href="dependencias">
+                    <span class="lbl">Dependencias</span>
+                    <span class="code" title="Modulo legacy 000850">000850</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="modulos-web">
+                    <span class="lbl">Modulos web</span>
+                    <span class="code" title="Modulo legacy 000109">000109</span>
+                </NavLink>
+            </div>
+        </details>
 
-            <NavLink class="ecorex-nav-link" href="plantillas">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/></svg>
-                <span>Plantillas</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="lineas">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg>
-                <span>Lineas WhatsApp</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="agentes">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
-                <span>Agentes de IA</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="bitacora-agente">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-                <span>Bitacora del agente</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="automatizaciones">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
-                <span>Automatizaciones</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="lista-negra">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-                <span>Lista negra</span>
-            </NavLink>
-
-            <NavLink class="ecorex-nav-link" href="metricas">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                <span>Metricas</span>
-            </NavLink>
+        @* CRM heredado: paginas funcionales del CRM anterior como un acordeon mas
+           (mismo estilo del prototipo), colapsado por defecto. *@
+        <details class="ecorex-acc ts" data-acc="crm" open="@IsGroupOpen("crm")">
+            <summary>
+                <span class="ecorex-acc-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>
+                </span>
+                <span class="ecorex-acc-name">CRM (heredado)</span>
+                <span class="ecorex-acc-count">9</span>
+                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="ecorex-acc-body">
+                <NavLink class="ecorex-acc-item" href="pipeline"><span class="lbl">Pipeline comercial</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="conversaciones"><span class="lbl">Conversaciones</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="plantillas"><span class="lbl">Plantillas</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="lineas"><span class="lbl">Lineas WhatsApp</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="agentes"><span class="lbl">Agentes de IA</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="bitacora-agente"><span class="lbl">Bitacora del agente</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="automatizaciones"><span class="lbl">Automatizaciones</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="lista-negra"><span class="lbl">Lista negra</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="metricas"><span class="lbl">Metricas</span></NavLink>
+            </div>
         </details>
     }
 
@@ -357,6 +350,29 @@ else
 
     /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
     private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();
+
+    /// <summary>
+    /// Estado inicial (server-side) de cada acordeon de MODULOS: abierto si contiene la ruta
+    /// activa o si es uno de los grupos abiertos por defecto en el prototipo (misproc/auto).
+    /// El toggle del usuario se persiste en localStorage y lo reaplica el script de MainLayout.
+    /// </summary>
+    private bool IsGroupOpen(string key)
+    {
+        var seg = Navigation.ToBaseRelativePath(Navigation.Uri)
+            .Split('?', '#')[0]
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault()?.ToLowerInvariant() ?? "";
+        var containsActive = key switch
+        {
+            "misproc" => seg is "actividades" or "proyectos" or "proyecto",
+            "auto" => seg is "flujos" or "formularios" or "reglas",
+            "sistema" => seg is "dependencias" or "modulos-web",
+            "crm" => seg is "pipeline" or "conversaciones" or "plantillas" or "lineas" or "agentes"
+                         or "bitacora-agente" or "automatizaciones" or "lista-negra" or "metricas",
+            _ => false
+        };
+        return containsActive || key is "misproc" or "auto";
+    }
 
     // Paleta AVPAL del prototipo (avatares con color solido mate): (char0 + char1) % 8.
     private static readonly string[] AvatarPalette =

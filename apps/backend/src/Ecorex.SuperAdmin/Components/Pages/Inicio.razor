@@ -39,6 +39,10 @@
                 <div class="dash-kpi-ico tv">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/></svg>
                 </div>
+                @if (_tasksCreatedToday > 0)
+                {
+                    <span class="dash-kpi-delta tg" title="Tareas creadas hoy">+@_tasksCreatedToday</span>
+                }
             </div>
             <div class="dash-kpi-value">@_activeTasks</div>
             <div class="dash-kpi-label">Tareas activas</div>
@@ -48,6 +52,10 @@
                 <div class="dash-kpi-ico tg">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
                 </div>
+                @if (_projectsCreatedThisMonth > 0)
+                {
+                    <span class="dash-kpi-delta tg" title="Proyectos creados este mes">+@_projectsCreatedThisMonth</span>
+                }
             </div>
             <div class="dash-kpi-value">@_projectsInProgress</div>
             <div class="dash-kpi-label">Proyectos en curso</div>
@@ -57,6 +65,10 @@
                 <div class="dash-kpi-ico tb">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
                 </div>
+                @if (_stuckFlows > 0)
+                {
+                    <span class="dash-kpi-delta ta" title="Instancias de flujo atascadas">@_stuckFlows en pausa</span>
+                }
             </div>
             <div class="dash-kpi-value">@_runningFlows</div>
             <div class="dash-kpi-label">Flujos ejecutandose</div>
@@ -136,6 +148,123 @@
             </div>
         </div>
     </div>
+
+    @* ===== Seccion Modulos (prototipo): headers de categoria con punto de color
+           y cards con tile de icono, descripcion corta y pie "Ir al modulo" + codigo
+           legacy. Solo areas que existen hoy en ECOREX. ===== *@
+    <div class="dash-mods-head">
+        <h2>Modulos</h2>
+        <span>Accede a cualquier area del sistema</span>
+    </div>
+
+    <div class="dash-modsec">
+        <div class="dash-modsec-head">
+            <span class="dash-modsec-dot tv"></span>
+            <div class="dash-modsec-name">OPERACIONES</div>
+            <span class="dash-modsec-desc">Ejecucion de actividades, proyectos y servicios</span>
+        </div>
+        <div class="dash-mod-grid">
+            <a class="dash-mod" href="/proyectos">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tv">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Proyectos</div>
+                </div>
+                <p class="dash-mod-desc">Agrupa actividades, ideas y recursos para gestionar tu proyecto de forma organizada.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                    <span class="dash-mod-code">000042</span>
+                </div>
+            </a>
+            <a class="dash-mod" href="/actividades">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tv">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Administrar actividades</div>
+                </div>
+                <p class="dash-mod-desc">Controla ciclos de flujo de trabajo y eleva cada necesidad de tu empresa.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                    <span class="dash-mod-code">000636</span>
+                </div>
+            </a>
+            <a class="dash-mod" href="/tableros">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tv">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Gestor de tareas</div>
+                </div>
+                <p class="dash-mod-desc">Tableros kanban con columnas, etiquetas y checklists para organizar el trabajo del equipo.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    <div class="dash-modsec">
+        <div class="dash-modsec-head">
+            <span class="dash-modsec-dot tb"></span>
+            <div class="dash-modsec-name">AUTOMATIZACION</div>
+            <span class="dash-modsec-desc">Flujos, formularios e inteligencia</span>
+        </div>
+        <div class="dash-mod-grid">
+            <a class="dash-mod" href="/flujos">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tb">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Flujos del proceso</div>
+                </div>
+                <p class="dash-mod-desc">Disena y ejecuta flujos BPMN 2.0 con asignacion de usuarios y reglas.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                    <span class="dash-mod-code">000291</span>
+                </div>
+            </a>
+            <a class="dash-mod" href="/formularios">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tb">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Formularios</div>
+                </div>
+                <p class="dash-mod-desc">Construye formularios dinamicos con 19 tipos de control sobre el motor EAV.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                    <span class="dash-mod-code">000131</span>
+                </div>
+            </a>
+            <a class="dash-mod" href="/reglas">
+                <div class="dash-mod-top">
+                    <div class="dash-mod-ico tb">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
+                    </div>
+                    <div class="dash-mod-title">Reglas</div>
+                </div>
+                <p class="dash-mod-desc">Motor de reglas de negocio: valida, calcula y automatiza sobre formularios y flujos.</p>
+                <div class="dash-mod-foot">
+                    <span class="dash-mod-go">Ir al modulo
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </span>
+                    <span class="dash-mod-code">000802</span>
+                </div>
+            </a>
+        </div>
+    </div>
 </div>
 
 <TaskWizard @ref="_wizard" OnCreated="OnTaskCreatedAsync" />
@@ -162,6 +291,10 @@
     private int _projectsInProgress;
     private int _runningFlows;
     private int _alerts;
+    // Badges de los KPI (prototipo: "+3", "+1", "2 en pausa"); ocultos cuando valen 0.
+    private int _tasksCreatedToday;
+    private int _projectsCreatedThisMonth;
+    private int _stuckFlows;
     private List<TaskItemSummaryDto> _myToday = [];
     private List<TaskItemSummaryDto> _overdue = [];
 
@@ -220,6 +353,13 @@
 
         // KPI 3: instancias de flujo Running (el query filter de EF aisla el tenant activo).
         _runningFlows = await db.WorkflowInstances.CountAsync(i => i.Status == WorkflowInstanceStatus.Running);
+
+        // Badges de los KPI (deltas del prototipo, calculados con datos reales; 0 => oculto).
+        var todayStart = new DateTimeOffset(DateTime.Today).ToUniversalTime();
+        var monthStart = new DateTimeOffset(new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1)).ToUniversalTime();
+        _tasksCreatedToday = await db.TaskItems.CountAsync(t => t.CreatedAt >= todayStart);
+        _projectsCreatedThisMonth = await db.Projects.CountAsync(p => p.CreatedAt >= monthStart);
+        _stuckFlows = await db.WorkflowInstances.CountAsync(i => i.Status == WorkflowInstanceStatus.Stuck);
 
         // KPI 4 + panel de alertas: tareas vencidas (DueDate <= ahora) en estado activo.
         var overdue = await tasksSvc.ListAsync(new TaskItemListFilter(Statuses: ActiveStatuses, DueTo: now, PageSize: 10));

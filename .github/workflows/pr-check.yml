@@ -1,0 +1,98 @@
+# CI de ECOREX Tareas (FASE 7, ADR-0018).
+#
+# Gate de merge: este workflow debe estar verde para mezclar a main.
+# Corre build Release + tests unitarios + tests de integracion con la
+# MATRIZ DUAL de base de datos. La matriz NO vive en el YAML: vive en los
+# propios tests (cada clase de Ecorex.Integration.Tests corre dos veces,
+# una contra postgres:16-alpine y otra contra mssql/server:2022-latest,
+# via fixtures de Testcontainers). Por eso NO usamos `services:` de
+# Actions: los contenedores los levanta y destruye Testcontainers DENTRO
+# del runner (docker esta disponible en ubuntu-latest de fabrica), con la
+# misma configuracion (migraciones por proveedor, interceptores) que usa
+# la aplicacion. No se necesita ninguna variable TESTCONTAINERS_* en
+# GitHub Actions: el daemon es local y Ryuk (el reaper) funciona sin mas.
+
+name: pr-check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - "fase-0/**"
+
+# Cancela corridas previas de la misma rama/PR para no gastar minutos.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write # dorny/test-reporter publica el resumen como check run
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Historia completa: gitleaks escanea los commits, no solo el arbol.
+          fetch-depth: 0
+
+      # Gate de secretos: el repo es PUBLICO (regla 6 de CLAUDE.md).
+      # Falla el build si detecta credenciales/tokens en el diff o historia.
+      - name: Scan de secretos (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore Ecorex.sln
+
+      # Solo errores bloquean; hay warnings heredados del backbone
+      # (4 hoy, p. ej. ASPDEPR005) que se iran saneando por fases.
+      - name: Build (Release)
+        run: dotnet build Ecorex.sln -c Release --no-restore
+
+      # Gate BLOQUEANTE: el arbol se saneo con `dotnet format` el 2026-07-03
+      # (33 errores WHITESPACE heredados corregidos en el mismo commit que
+      # estrena este workflow), asi que verify-no-changes debe pasar siempre.
+      - name: Formato (dotnet format)
+        run: dotnet format Ecorex.sln --verify-no-changes --no-restore
+
+      - name: Tests unitarios (Domain + Application)
+        run: |
+          dotnet test tests/Ecorex.Domain.Tests -c Release --no-build \
+            --logger "trx;LogFileName=domain.trx" --results-directory ./TestResults
+          dotnet test tests/Ecorex.Application.Tests -c Release --no-build \
+            --logger "trx;LogFileName=application.trx" --results-directory ./TestResults
+
+      # Matriz dual: cada clase de test corre contra Postgres Y SQL Server
+      # (Testcontainers levanta ambos motores dentro del runner). El primer
+      # run descarga las imagenes (~1.6 GB el mssql); queda cacheado a nivel
+      # de corrida, no entre corridas.
+      - name: Tests de integracion (matriz dual PG + SQL Server)
+        run: |
+          dotnet test tests/Ecorex.Integration.Tests -c Release --no-build \
+            --logger "trx;LogFileName=integration.trx" --results-directory ./TestResults
+
+      - name: Resumen de tests
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: resultados-tests
+          path: apps/backend/TestResults/*.trx
+          reporter: dotnet-trx
+          fail-on-error: false # el gate ya lo dan los pasos dotnet test

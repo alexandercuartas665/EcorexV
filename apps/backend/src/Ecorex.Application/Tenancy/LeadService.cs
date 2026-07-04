@@ -249,9 +249,21 @@ public sealed class LeadService : ILeadService
             .OrderByDescending(l => l.ArchivedAt)
             .Select(l => new
             {
-                l.Id, l.ContactName, l.ContactPhone, l.Destination, l.EstimatedValue, l.Currency,
-                l.ArchiveReason, l.ArchiveNote, l.ArchivedAt, l.ArchivedByName, l.AssignedToTenantUserId,
-                l.StageId, l.Status, l.StageChangedAt, l.FieldValuesJson
+                l.Id,
+                l.ContactName,
+                l.ContactPhone,
+                l.Destination,
+                l.EstimatedValue,
+                l.Currency,
+                l.ArchiveReason,
+                l.ArchiveNote,
+                l.ArchivedAt,
+                l.ArchivedByName,
+                l.AssignedToTenantUserId,
+                l.StageId,
+                l.Status,
+                l.StageChangedAt,
+                l.FieldValuesJson
             })
             .ToListAsync(cancellationToken);
 

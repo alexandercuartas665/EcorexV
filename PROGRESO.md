@@ -994,3 +994,48 @@ seeders demo, tests en matriz dual y UI segun las capturas del prototipo
   implementaron las 3 principales.
 - Sin commit (pedido explicito): cambios en working tree. Se agrego la
   configuracion superadmin-5239 a .claude/launch.json para la verificacion.
+
+---
+
+## 2026-07-03 - Sesion 12: FASE 7 ola 1 - CI en GitHub Actions (pr-check, ADR-0018)
+
+**Agentes**: Claude Code (Fable 5).
+
+**Hecho**:
+- `.github/workflows/pr-check.yml` (nuevo; el backbone NO trajo `.github/`,
+  no habia workflows de Railway que deshabilitar): triggers `pull_request`
+  a main + `push` a main y `fase-0/**`; concurrency que cancela corridas
+  previas de la misma rama; job unico `build-test` en ubuntu-latest con
+  timeout de 30 min y pasos: gitleaks (gate de secretos, historia completa
+  con fetch-depth 0), setup-dotnet 10.0.x, restore, build Release
+  (solo errores bloquean; 4 warnings heredados), dotnet format
+  --verify-no-changes (informativo por ahora, ver TODO), tests unitarios
+  Domain + Application, tests de integracion (matriz DUAL via
+  Testcontainers DENTRO del runner, sin `services:`) y resumen de .trx
+  con dorny/test-reporter.
+- ADR `docs/decisiones/0018-ci-github-actions.md`: que corre, que bloquea
+  el merge y por que Testcontainers en el runner y no `services:` (la
+  matriz vive en los fixtures de los tests, misma config que produccion).
+- CLAUDE.md checklist: linea nueva con los gates que corre el CI en PR.
+
+**Validacion (local; NO se hizo push, el workflow queda por estrenar)**:
+- YAML validado con parser (PyYAML): sintaxis OK, 9 pasos.
+- Comandos medidos tal cual en local: restore 6 s; build Release 45 s
+  (0 errores, 4 warnings); dotnet format --verify-no-changes FALLA hoy
+  (rc=2, 162 s): 33 errores WHITESPACE heredados en LeadService.cs,
+  FormDefinitionService.cs, ChatService.cs (Application) y Program.cs
+  (SuperAdmin) -> por eso el paso va con continue-on-error: true y TODO;
+  unit tests 12 s (Domain 35 + Application 91 verdes); integracion dual
+  217 s (85/85 verdes, PG16 + SQL Server 2022 via Testcontainers). Total
+  local ~7.5 min; estimado en Actions 12-18 min (descarga de imagenes +
+  runner mas lento), bajo el timeout de 30.
+- Sin variables TESTCONTAINERS_*: en ubuntu-latest el daemon Docker es
+  local y Ryuk funciona sin configuracion extra.
+
+**Deudas / TODO**:
+- Sanear los 33 errores de whitespace con `dotnet format Ecorex.sln` en un
+  commit propio y quitar el continue-on-error (volver el paso gate).
+- Subir el build a `-warnaserror` cuando se saneen los warnings heredados.
+- Blue/green (deploy) queda para la siguiente ola de FASE 7.
+- Sin commit (pedido explicito): todo en working tree; probar el workflow
+  en el primer push/PR real.

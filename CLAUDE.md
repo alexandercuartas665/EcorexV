@@ -196,6 +196,7 @@ disponibilidad, no-show, Wompi de salon. Hacerlo con ADR y en commits separados.
 - [ ] Actualizar `PROGRESO.md` (cada sesion) y, si cierra modulo, `INVENTARIO GENERAL.md` del vault.
 - [ ] Decision arquitectonica nueva -> ADR en `docs/decisiones/` + reflejo en el vault.
 - [ ] Archivos nuevos en ASCII.
+- [ ] El CI (`.github/workflows/pr-check.yml`, ADR-0018) corre estos gates en cada PR a main: gitleaks, build Release, dotnet format, tests unitarios y la matriz dual de integracion (PG + SQL Server via Testcontainers).
 
 ---
 

@@ -34,7 +34,14 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             .OrderBy(d => d.Code)
             .Select(d => new
             {
-                d.Id, d.Code, d.Title, d.Description, d.Status, d.Revision, d.IsArchived, d.Version,
+                d.Id,
+                d.Code,
+                d.Title,
+                d.Description,
+                d.Status,
+                d.Revision,
+                d.IsArchived,
+                d.Version,
                 QuestionCount = _db.FormQuestions.Count(q => q.DefinitionId == d.Id)
             })
             .ToListAsync(cancellationToken);

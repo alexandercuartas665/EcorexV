@@ -28,6 +28,10 @@ public interface IRuleDocumentService
     // ---- Vinculos (pregunta de formulario / nodo de flujo) ----
 
     Task<IReadOnlyList<RuleFormLinkDto>> ListFormLinksAsync(Guid ruleId, CancellationToken cancellationToken = default);
+
+    /// <summary>Reglas vinculadas a UNA pregunta (tab Reglas del constructor, ADR-0021).</summary>
+    Task<IReadOnlyList<QuestionRuleLinkDto>> ListQuestionLinksAsync(Guid formQuestionId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<RuleNodeLinkDto>> ListNodeLinksAsync(Guid ruleId, CancellationToken cancellationToken = default);
     Task<RuleResult<RuleFormLinkDto>> LinkToQuestionAsync(Guid ruleId, Guid formQuestionId, int sortOrder = 0, CancellationToken cancellationToken = default);
     Task<RuleResult<bool>> UnlinkQuestionAsync(Guid formFieldRuleId, CancellationToken cancellationToken = default);

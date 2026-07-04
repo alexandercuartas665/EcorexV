@@ -25,4 +25,18 @@ public class FormContainer : TenantEntity
 
     /// <summary>Estilo visual opcional (clases/inline segun el renderer).</summary>
     public string? Style { get; set; }
+
+    // ---- Constructor del prototipo (ADR-0021) ----
+
+    /// <summary>Nombres de las pestanas cuando ContainerType es Tabs (arreglo JSON de strings).</summary>
+    public string? TabsJson { get; set; }
+
+    /// <summary>Ancho en columnas de la grilla de 12 del constructor (1..12).</summary>
+    public int Width { get; set; } = 12;
+
+    /// <summary>Fijo en el layout: el constructor no permite reordenarlo (prototipo lock).</summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>Oculto: ni el contenedor ni su subarbol se pintan en el renderer (prototipo eye).</summary>
+    public bool IsHidden { get; set; }
 }

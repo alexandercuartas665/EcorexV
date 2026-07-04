@@ -15,18 +15,23 @@ public sealed record FormValidationRules(
 /// <summary>Valor de un campo en el documento de respuesta: { fieldCode: { value, type } }.</summary>
 public sealed record FormFieldValue(string? Value, string Type);
 
+/// <summary>ResponseCount y RuleCount alimentan los KPIs del indice (ADR-0021).</summary>
 public sealed record FormDefinitionListItemDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
-    int Revision, bool IsArchived, int QuestionCount, long Version);
+    int Revision, bool IsArchived, int QuestionCount, long Version,
+    int ResponseCount = 0, int RuleCount = 0);
 
 public sealed record FormContainerDto(
     Guid Id, string Name, FormContainerType ContainerType, Guid? ParentId,
-    int SortOrder, string? Style);
+    int SortOrder, string? Style,
+    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
     string? HelpText, FormControlType ControlType, string? OptionsJson, bool Required,
-    int SortOrder, string GridCol, string? Numeral, string? ValidationJson);
+    int SortOrder, string GridCol, string? Numeral, string? ValidationJson,
+    int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
+    bool IsLocked = false, bool IsHidden = false);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -41,13 +46,22 @@ public sealed record UpdateFormDefinitionRequest(string Title, string? Descripti
 
 public sealed record SaveFormContainerRequest(
     string Name, FormContainerType ContainerType = FormContainerType.Segment,
-    Guid? ParentId = null, string? Style = null);
+    Guid? ParentId = null, string? Style = null,
+    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false);
 
+/// <summary>
+/// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el
+/// default) y GridCol trae una columna bootstrap parseable, Width se deriva de GridCol
+/// (compatibilidad con callers previos); en cualquier otro caso GridCol se sincroniza
+/// desde Width (col-12 / col-md-N).
+/// </summary>
 public sealed record SaveFormQuestionRequest(
     Guid? ContainerId, string FieldCode, string Label, FormControlType ControlType,
     string? Caption = null, string? HelpText = null, string? OptionsJson = null,
     bool Required = false, string GridCol = "col-12", string? Numeral = null,
-    string? ValidationJson = null);
+    string? ValidationJson = null,
+    int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
+    bool IsLocked = false, bool IsHidden = false);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

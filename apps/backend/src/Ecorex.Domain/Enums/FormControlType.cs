@@ -38,6 +38,23 @@ public enum FormControlType
     Gps,
     Button,
     Chart,
+    /// <summary>Tabla de captura de filas dinamicas (prototipo 'tabla'). FUNCIONAL desde
+    /// ADR-0021: columnas en OptionsJson ([{id,label}]) y el valor del campo es un arreglo
+    /// JSON de filas [{colId: "valor"}].</summary>
     GridDetail,
-    Html
+    Html,
+
+    // ---- Constructor del prototipo (ADR-0021; se persisten como string) ----
+    /// <summary>Archivo adjunto (prototipo 'archivo'). Placeholder visual sin captura aun.</summary>
+    File,
+    /// <summary>Codigo de barras (prototipo 'barras'). Placeholder visual sin captura aun.</summary>
+    Barcode,
+    /// <summary>Parrafo de documento (prototipo 'parrafo'): texto estatico en DefaultValue;
+    /// no captura datos.</summary>
+    Paragraph,
+    /// <summary>Linea divisoria horizontal (prototipo 'divisor'); no captura datos.</summary>
+    Divider,
+    /// <summary>Espaciado vertical (prototipo 'espacio'): alto en px en DefaultValue;
+    /// no captura datos.</summary>
+    Spacer
 }

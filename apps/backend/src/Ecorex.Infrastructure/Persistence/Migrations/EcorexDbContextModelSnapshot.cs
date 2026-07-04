@@ -1237,6 +1237,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_hidden");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_locked");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -1256,6 +1264,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(300)")
                         .HasColumnName("style");
 
+                    b.Property<string>("TabsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("tabs_json");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -1267,6 +1279,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("Width")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(12)
+                        .HasColumnName("width");
 
                     b.HasKey("Id")
                         .HasName("pk_form_containers");
@@ -1501,6 +1519,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DefaultValue")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("default_value");
+
                     b.Property<Guid>("DefinitionId")
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
@@ -1522,6 +1545,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(600)")
                         .HasColumnName("help_text");
 
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_hidden");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_locked");
+
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -1536,6 +1567,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("OptionsJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("options_json");
+
+                    b.Property<string>("PlaceholderText")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("placeholder_text");
 
                     b.Property<bool>("Required")
                         .HasColumnType("boolean")
@@ -1560,6 +1596,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("ValidationJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("validation_json");
+
+                    b.Property<int>("Width")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(12)
+                        .HasColumnName("width");
 
                     b.HasKey("Id")
                         .HasName("pk_form_questions");

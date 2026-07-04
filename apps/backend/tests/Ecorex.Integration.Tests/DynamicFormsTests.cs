@@ -379,6 +379,135 @@ public abstract class DynamicFormsTestsBase
         ["fecha"] = new("2026-07-15", "Date")
     };
 
+    // ---- (6) Constructor del prototipo (ADR-0021): campos nuevos + tabla funcional ----
+
+    [Fact]
+    public async Task BuilderFields_RoundTrip_WidthSyncAndContainers()
+    {
+        var seed = await SeedTenantAsync("Forms Builder RoundTrip");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-B" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), "Constructor"));
+        Assert.True(created.IsOk, created.Error);
+        var definition = created.Value!;
+
+        // Contenedor Row con Width y Tabs con TabsJson: round-trip completo.
+        var row = await definitions.AddContainerAsync(definition.Id, new SaveFormContainerRequest(
+            "Datos del cliente", FormContainerType.Row, Width: 12));
+        Assert.True(row.IsOk, row.Error);
+        var tabs = await definitions.AddContainerAsync(definition.Id, new SaveFormContainerRequest(
+            "Pestanas", FormContainerType.Tabs, TabsJson: """["General","Detalle"]""", IsHidden: true));
+        Assert.True(tabs.IsOk, tabs.Error);
+
+        var detail = await definitions.GetAsync(definition.Id);
+        var rowDto = detail!.Containers.Single(c => c.Id == row.Value!.Id);
+        Assert.Equal(FormContainerType.Row, rowDto.ContainerType);
+        Assert.Equal(12, rowDto.Width);
+        var tabsDto = detail.Containers.Single(c => c.Id == tabs.Value!.Id);
+        Assert.Equal(FormContainerType.Tabs, tabsDto.ContainerType);
+        // jsonb (PG) normaliza el formato del JSON: comparar el contenido parseado.
+        var tabNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(tabsDto.TabsJson!);
+        Assert.Equal(new[] { "General", "Detalle" }, tabNames);
+        Assert.True(tabsDto.IsHidden);
+
+        // Width manda y GridCol queda sincronizado (col-md-5).
+        var q1 = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            row.Value!.Id, "cc", "CC", FormControlType.Text,
+            Width: 5, PlaceholderText: "Ingrese documento", DefaultValue: "SIN-CC", IsLocked: true));
+        Assert.True(q1.IsOk, q1.Error);
+        Assert.Equal(5, q1.Value!.Width);
+        Assert.Equal("col-md-5", q1.Value.GridCol);
+        Assert.Equal("Ingrese documento", q1.Value.PlaceholderText);
+        Assert.Equal("SIN-CC", q1.Value.DefaultValue);
+        Assert.True(q1.Value.IsLocked);
+
+        // Compatibilidad: Width default (12) + GridCol legacy parseable -> Width derivado.
+        var q2 = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            row.Value.Id, "legacy", "Legacy", FormControlType.Text, GridCol: "col-md-4"));
+        Assert.True(q2.IsOk, q2.Error);
+        Assert.Equal(4, q2.Value!.Width);
+        Assert.Equal("col-md-4", q2.Value.GridCol);
+
+        // Requerido en multimedia placeholder se apaga al guardar (ADR-0021).
+        var firma = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "firma", "Firma", FormControlType.Signature, Required: true));
+        Assert.True(firma.IsOk, firma.Error);
+        Assert.False(firma.Value!.Required);
+
+        // MoveQuestionToAsync: mueve 'legacy' a la raiz en el indice 0 y renumera.
+        var moved = await definitions.MoveQuestionToAsync(q2.Value.Id, null, 0);
+        Assert.True(moved.IsOk, moved.Error);
+        var afterMove = await definitions.GetAsync(definition.Id);
+        var movedDto = afterMove!.Questions.Single(q => q.Id == q2.Value.Id);
+        Assert.Null(movedDto.ContainerId);
+        Assert.Equal(0, movedDto.SortOrder);
+
+        // MoveContainerToAsync: tabs pasa a ser hijo de row.
+        var movedContainer = await definitions.MoveContainerToAsync(tabs.Value!.Id, row.Value.Id, 0);
+        Assert.True(movedContainer.IsOk, movedContainer.Error);
+        var afterContainerMove = await definitions.GetAsync(definition.Id);
+        Assert.Equal(row.Value.Id, afterContainerMove!.Containers.Single(c => c.Id == tabs.Value.Id).ParentId);
+
+        // Ciclo prohibido: row no puede colgar de su descendiente tabs.
+        var cycle = await definitions.MoveContainerToAsync(row.Value.Id, tabs.Value.Id, 0);
+        Assert.Equal(FormServiceStatus.Invalid, cycle.Status);
+    }
+
+    [Fact]
+    public async Task GridDetail_SubmitRoundTrip_AndHiddenRequiredIsSkipped()
+    {
+        var seed = await SeedTenantAsync("Forms Tabla");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-G" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), "Tabla funcional"));
+        var definition = created.Value!;
+
+        // Tabla sin columnas se rechaza (estructura, ADR-0021).
+        var noColumns = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "sin_columnas", "Sin columnas", FormControlType.GridDetail));
+        Assert.Equal(FormServiceStatus.Invalid, noColumns.Status);
+
+        var grid = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "equipos", "Equipos", FormControlType.GridDetail, Required: true,
+            OptionsJson: """[{"id":"equipo","label":"Equipo"},{"id":"serial","label":"Serial"}]"""));
+        Assert.True(grid.IsOk, grid.Error);
+
+        // Campo requerido pero OCULTO por el disenador: la validacion lo salta.
+        var hidden = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "oculto_req", "Oculto requerido", FormControlType.Text, Required: true, IsHidden: true));
+        Assert.True(hidden.IsOk, hidden.Error);
+
+        var activated = await definitions.ActivateAsync(definition.Id);
+        Assert.True(activated.IsOk, activated.Error);
+
+        // Submit sin filas: la tabla requerida bloquea.
+        var draft = await responses.GetOrCreateDraftAsync(definition.Id, "REF-GRID");
+        var empty = await responses.SaveAsync(draft.Value!.Id,
+            new Dictionary<string, FormFieldValue>(), submit: true, seed.TenantUserId);
+        Assert.Equal(FormServiceStatus.ValidationFailed, empty.Status);
+        Assert.Equal("Este campo es obligatorio.", empty.FieldErrors!["equipos"]);
+        Assert.False(empty.FieldErrors.ContainsKey("oculto_req"));
+
+        // Submit con filas: round-trip identico del arreglo JSON de filas.
+        const string rows = """[{"equipo":"Switch 24p","serial":"SN-001"},{"equipo":"AP Wifi","serial":"SN-002"}]""";
+        var ok = await responses.SaveAsync(draft.Value.Id,
+            new Dictionary<string, FormFieldValue> { ["equipos"] = new(rows, "GridDetail") },
+            submit: true, seed.TenantUserId);
+        Assert.True(ok.IsOk, ok.Error);
+
+        var read = await responses.GetAsync(draft.Value.Id);
+        Assert.Equal(rows, read!.Data["equipos"].Value);
+        Assert.Equal("GridDetail", read.Data["equipos"].Type);
+        var parsed = FormFieldValidator.ParseGridRows(read.Data["equipos"].Value);
+        Assert.Equal(2, parsed.Count);
+        Assert.Equal("SN-002", parsed[1]["serial"]);
+    }
+
     private static FormDefinitionService BuildDefinitionService(EcorexDbContext ctx, SeedData seed)
         => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
 

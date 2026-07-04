@@ -217,6 +217,14 @@ public sealed record RuleFormLinkDto(
     Guid Id, Guid RuleId, Guid FormQuestionId, string FieldCode, string QuestionLabel,
     string FormCode, string FormTitle, int SortOrder);
 
+/// <summary>
+/// Vinculo visto DESDE la pregunta (tab Reglas del constructor, ADR-0021): reglas
+/// asignadas a un FormQuestion con verbo y documento legibles.
+/// </summary>
+public sealed record QuestionRuleLinkDto(
+    Guid Id, Guid RuleId, string RuleName, string VerbName, string DocumentCode,
+    string DocumentName, int SortOrder);
+
 /// <summary>Vinculo regla -> nodo de flujo, con etiquetas legibles para la UI.</summary>
 public sealed record RuleNodeLinkDto(
     Guid Id, Guid RuleId, Guid WorkflowNodeId, string BpmnElementId, string? NodeName,

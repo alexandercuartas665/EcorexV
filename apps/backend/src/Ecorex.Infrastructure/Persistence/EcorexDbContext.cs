@@ -970,6 +970,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Style).HasMaxLength(300);
+            // Constructor del prototipo (ADR-0021).
+            b.Property(x => x.TabsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Width).HasDefaultValue(12);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // Self-FK del arbol: NO ACTION siempre (el servicio borra el subarbol explicitamente).
@@ -989,6 +992,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.GridCol).HasMaxLength(20).IsRequired();
             b.Property(x => x.Numeral).HasMaxLength(20);
             b.Property(x => x.ValidationJson).HasColumnType(jsonColumnType);
+            // Constructor del prototipo (ADR-0021): Width es la fuente del layout;
+            // GridCol queda sincronizado por el servicio (renderer bootstrap + E2E).
+            b.Property(x => x.Width).HasDefaultValue(12);
+            b.Property(x => x.PlaceholderText).HasMaxLength(200);
+            b.Property(x => x.DefaultValue).HasMaxLength(2000);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

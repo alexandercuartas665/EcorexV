@@ -206,6 +206,73 @@ public class FormFieldValidatorTests
         Assert.Equal("Selecciona una opcion valida.", error);
     }
 
+    // ---- Constructor del prototipo (ADR-0021) ----
+
+    [Theory]
+    [InlineData(FormControlType.Paragraph)]
+    [InlineData(FormControlType.Divider)]
+    [InlineData(FormControlType.Spacer)]
+    public void DocElements_AreNonInput_AndNeverFail(FormControlType type)
+    {
+        Assert.True(FormFieldValidator.IsNonInput(type));
+        Assert.Null(FormFieldValidator.Validate(type, required: true, value: null));
+    }
+
+    [Theory]
+    [InlineData(FormControlType.Signature)]
+    [InlineData(FormControlType.Photo)]
+    [InlineData(FormControlType.Gps)]
+    [InlineData(FormControlType.File)]
+    [InlineData(FormControlType.Barcode)]
+    [InlineData(FormControlType.Image)]
+    [InlineData(FormControlType.Audio)]
+    public void PlaceholderCapture_RequiredIsIgnored(FormControlType type)
+    {
+        // ADR-0021: sin captura real, Required no puede bloquear el submit.
+        Assert.True(FormFieldValidator.IsPlaceholderCapture(type));
+        Assert.Null(FormFieldValidator.Validate(type, required: true, value: null));
+    }
+
+    [Fact]
+    public void GridDetail_RequiredWithoutRows_Fails()
+    {
+        var error = FormFieldValidator.Validate(FormControlType.GridDetail, required: true, value: null);
+        Assert.Equal("Este campo es obligatorio.", error);
+
+        error = FormFieldValidator.Validate(FormControlType.GridDetail, required: true, value: "[]");
+        Assert.Equal("Este campo es obligatorio.", error);
+    }
+
+    [Fact]
+    public void GridDetail_WithRows_Passes()
+    {
+        Assert.Null(FormFieldValidator.Validate(
+            FormControlType.GridDetail, required: true,
+            value: """[{"equipo":"Switch","serial":"SN-01"}]"""));
+    }
+
+    [Fact]
+    public void GridDetail_OptionalWithoutRows_Passes()
+    {
+        Assert.Null(FormFieldValidator.Validate(FormControlType.GridDetail, required: false, value: null));
+    }
+
+    [Fact]
+    public void ParseGridRows_InvalidJson_ReturnsEmpty()
+    {
+        Assert.Empty(FormFieldValidator.ParseGridRows("{no-json"));
+        Assert.Empty(FormFieldValidator.ParseGridRows(null));
+    }
+
+    [Fact]
+    public void ParseGridRows_ValidRows_Binds()
+    {
+        var rows = FormFieldValidator.ParseGridRows("""[{"a":"1","b":"2"},{"a":"3"}]""");
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("1", rows[0]["a"]);
+        Assert.Equal("3", rows[1]["a"]);
+    }
+
     // ---- Parsers ----
 
     [Fact]

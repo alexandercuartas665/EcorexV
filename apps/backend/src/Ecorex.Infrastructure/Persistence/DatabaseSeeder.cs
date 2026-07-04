@@ -704,6 +704,129 @@ public sealed class DatabaseSeeder
             DemoFormCode, tenant.Name, workflowDefinitionId is not null);
     }
 
+    // ---- Formularios demo del constructor (ADR-0021) ----
+
+    public const string DemoFormDraftCode = "FRM-002";
+    public const string DemoFormBuilderCode = "FRM-003";
+
+    /// <summary>
+    /// Siembra 2 formularios extra para el indice del constructor (ADR-0021):
+    /// FRM-002 "Inventario fisico bodega" en BORRADOR (KPI Borrador) y FRM-003
+    /// "Visita tecnica de instalacion" ACTIVO con contenedores Row/Col, anchos
+    /// parciales (Width) y una TABLA funcional (GridDetail). Idempotente por Code.
+    /// Solo Development.
+    /// </summary>
+    public async Task EnsureFormBuilderDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        FormQuestion Q(Guid definitionId, Guid? containerId, int order, string fieldCode,
+            string label, FormControlType type, bool required, int width,
+            string? optionsJson = null, string? placeholder = null, string? defaultValue = null)
+            => new()
+            {
+                TenantId = tenant.Id,
+                DefinitionId = definitionId,
+                ContainerId = containerId,
+                FieldCode = fieldCode,
+                Label = label,
+                ControlType = type,
+                Required = required,
+                SortOrder = order,
+                Width = width,
+                GridCol = width >= 12 ? "col-12" : $"col-md-{width}",
+                OptionsJson = optionsJson,
+                PlaceholderText = placeholder,
+                DefaultValue = defaultValue
+            };
+
+        // FRM-002: borrador simple (KPI "Borrador" del indice).
+        if (!await _db.FormDefinitions.IgnoreQueryFilters()
+                .AnyAsync(d => d.TenantId == tenant.Id && d.Code == DemoFormDraftCode, cancellationToken))
+        {
+            var draft = new FormDefinition
+            {
+                TenantId = tenant.Id,
+                Code = DemoFormDraftCode,
+                Title = "Inventario fisico bodega",
+                Description = "Conteo fisico por bodega (borrador del constructor).",
+                Status = FormStatus.Draft,
+                Revision = 1
+            };
+            _db.FormDefinitions.Add(draft);
+            _db.FormQuestions.AddRange(
+                Q(draft.Id, null, 0, "bodega", "Bodega", FormControlType.Text, true, 6,
+                    placeholder: "Nombre o codigo de la bodega"),
+                Q(draft.Id, null, 1, "fecha_conteo", "Fecha del conteo", FormControlType.Date, true, 6),
+                Q(draft.Id, null, 2, "observaciones", "Observaciones", FormControlType.TextArea, false, 12,
+                    placeholder: "Novedades del conteo..."));
+        }
+
+        // FRM-003: activo con Row/Col, anchos parciales y tabla funcional.
+        if (!await _db.FormDefinitions.IgnoreQueryFilters()
+                .AnyAsync(d => d.TenantId == tenant.Id && d.Code == DemoFormBuilderCode, cancellationToken))
+        {
+            var visita = new FormDefinition
+            {
+                TenantId = tenant.Id,
+                Code = DemoFormBuilderCode,
+                Title = "Visita tecnica de instalacion",
+                Description = "Formulario demo del constructor (Row/Col + tabla).",
+                Status = FormStatus.Active,
+                Revision = 1
+            };
+            _db.FormDefinitions.Add(visita);
+
+            var datos = new FormContainer
+            {
+                TenantId = tenant.Id,
+                DefinitionId = visita.Id,
+                Name = "Datos del cliente",
+                ContainerType = FormContainerType.Row,
+                SortOrder = 0,
+                Width = 12
+            };
+            var observaciones = new FormContainer
+            {
+                TenantId = tenant.Id,
+                DefinitionId = visita.Id,
+                Name = "Observaciones",
+                ContainerType = FormContainerType.Col,
+                SortOrder = 1,
+                Width = 12
+            };
+            var equipos = new FormContainer
+            {
+                TenantId = tenant.Id,
+                DefinitionId = visita.Id,
+                Name = "Equipos instalados",
+                ContainerType = FormContainerType.Section,
+                SortOrder = 2,
+                Width = 12
+            };
+            _db.FormContainers.AddRange(datos, observaciones, equipos);
+
+            _db.FormQuestions.AddRange(
+                Q(visita.Id, datos.Id, 0, "cc_cliente", "CC", FormControlType.Text, true, 3,
+                    placeholder: "Ingrese numero de documento"),
+                Q(visita.Id, datos.Id, 1, "nombres_cliente", "Nombres y apellidos", FormControlType.Text, true, 5,
+                    placeholder: "Ingrese nombres completos"),
+                Q(visita.Id, datos.Id, 2, "fecha_visita", "Fecha de la visita", FormControlType.Date, true, 4),
+                Q(visita.Id, observaciones.Id, 0, "observacion", "Observacion", FormControlType.TextArea, false, 12,
+                    placeholder: "Ingrese observaciones..."),
+                Q(visita.Id, equipos.Id, 0, "equipos", "Equipos", FormControlType.GridDetail, true, 12,
+                    optionsJson: """[{"id":"equipo","label":"Equipo"},{"id":"serial","label":"Serial"},{"id":"cantidad","label":"Cantidad"}]"""),
+                Q(visita.Id, equipos.Id, 1, "firma_cliente", "Firma del cliente", FormControlType.Signature, false, 12));
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Formularios demo del constructor sembrados para {Tenant}: {Draft} (borrador) y {Builder} (Row/Col + tabla).",
+            tenant.Name, DemoFormDraftCode, DemoFormBuilderCode);
+    }
+
     // ---- Documento de reglas demo (FASE 4 ola 3, ADR-0016) ----
 
     public const string DemoRuleDocumentCode = "RUL-005";

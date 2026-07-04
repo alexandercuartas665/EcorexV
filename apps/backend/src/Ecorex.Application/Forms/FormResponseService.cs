@@ -115,6 +115,11 @@ public sealed class FormResponseService : IFormResponseService
             var errors = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var question in questions)
             {
+                // Campos ocultos por el disenador (ADR-0021): no se pintan, no se validan.
+                if (question.IsHidden)
+                {
+                    continue;
+                }
                 if (FormFieldValidator.IsNonInput(question.ControlType))
                 {
                     continue;

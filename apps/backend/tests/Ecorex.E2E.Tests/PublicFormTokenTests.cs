@@ -22,17 +22,18 @@ public sealed class PublicFormTokenTests : E2eTestBase
         RequireApp();
         var page = await LoginAsync();
 
-        // 1. Ir al disenador de FRM-001 desde la grilla de formularios.
+        // 1. Ir al CONSTRUCTOR de FRM-001 desde el indice del prototipo (ADR-0021):
+        //    la tarjeta completa (.fx-card) abre el constructor; el codigo va en .fx-code.
         await page.GotoAsync("formularios");
-        var frmCard = page.Locator(".tb-card").Filter(new LocatorFilterOptions
+        var frmCard = page.Locator(".fx-card").Filter(new LocatorFilterOptions
         {
-            Has = page.Locator(".tk-number", new PageLocatorOptions { HasText = "FRM-001" })
-        });
+            Has = page.Locator(".fx-code", new PageLocatorOptions { HasText = "FRM-001" })
+        }).First;
         // El click puede perderse si el circuito Blazor aun se esta conectando con la
         // suite completa en marcha (el server esta ocupado): reintentar hasta navegar.
         for (var attempt = 0; ; attempt++)
         {
-            await frmCard.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Disenar" }).ClickAsync();
+            await frmCard.ClickAsync();
             try
             {
                 await page.WaitForURLAsync(new Regex("/formularios/.+/disenar"), new PageWaitForURLOptions { Timeout = 5000 });

@@ -42,13 +42,17 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                 d.Revision,
                 d.IsArchived,
                 d.Version,
-                QuestionCount = _db.FormQuestions.Count(q => q.DefinitionId == d.Id)
+                QuestionCount = _db.FormQuestions.Count(q => q.DefinitionId == d.Id),
+                // KPIs del indice (ADR-0021): respuestas y reglas vinculadas por definicion.
+                ResponseCount = _db.FormResponses.Count(r => r.DefinitionId == d.Id),
+                RuleCount = _db.FormFieldRules.Count(fr =>
+                    _db.FormQuestions.Any(q => q.DefinitionId == d.Id && q.Id == fr.FormQuestionId))
             })
             .ToListAsync(cancellationToken);
         return rows
             .Select(d => new FormDefinitionListItemDto(
                 d.Id, d.Code, d.Title, d.Description, d.Status, d.Revision, d.IsArchived,
-                d.QuestionCount, d.Version))
+                d.QuestionCount, d.Version, d.ResponseCount, d.RuleCount))
             .ToList();
     }
 
@@ -221,7 +225,11 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             ContainerType = request.ContainerType,
             ParentId = request.ParentId,
             SortOrder = maxOrder + 1,
-            Style = Normalize(request.Style)
+            Style = Normalize(request.Style),
+            TabsJson = Normalize(request.TabsJson),
+            Width = Math.Clamp(request.Width, 1, 12),
+            IsLocked = request.IsLocked,
+            IsHidden = request.IsHidden
         };
         _db.FormContainers.Add(container);
         TouchRevision(definition);
@@ -271,6 +279,10 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         container.ContainerType = request.ContainerType;
         container.ParentId = request.ParentId;
         container.Style = Normalize(request.Style);
+        container.TabsJson = Normalize(request.TabsJson);
+        container.Width = Math.Clamp(request.Width, 1, 12);
+        container.IsLocked = request.IsLocked;
+        container.IsHidden = request.IsHidden;
         await TouchRevisionAsync(container.DefinitionId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<FormContainerDto>.Ok(ToDto(container));
@@ -321,6 +333,70 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         if (!Swap(siblings, container.Id, moveUp))
         {
             return FormResult<bool>.Ok(false);
+        }
+        await TouchRevisionAsync(container.DefinitionId, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<bool>.Ok(true);
+    }
+
+    /// <summary>
+    /// Drag and drop del constructor (ADR-0021): mueve el contenedor a otro padre (o a la
+    /// raiz) en la posicion index, validando pertenencia y ciclos, y renumera hermanos.
+    /// </summary>
+    public async Task<FormResult<bool>> MoveContainerToAsync(Guid containerId, Guid? parentId, int index, CancellationToken cancellationToken = default)
+    {
+        var container = await _db.FormContainers.FirstOrDefaultAsync(c => c.Id == containerId, cancellationToken);
+        if (container is null)
+        {
+            return FormResult<bool>.NotFound("Contenedor no encontrado.");
+        }
+        if (parentId == containerId)
+        {
+            return FormResult<bool>.Invalid("Un contenedor no puede ser su propio padre.");
+        }
+        if (parentId is Guid target)
+        {
+            var containers = await _db.FormContainers.AsNoTracking()
+                .Where(c => c.DefinitionId == container.DefinitionId)
+                .ToListAsync(cancellationToken);
+            if (containers.All(c => c.Id != target))
+            {
+                return FormResult<bool>.Invalid("El contenedor padre no pertenece al formulario.");
+            }
+            var byId = containers.ToDictionary(c => c.Id);
+            var cursor = (Guid?)target;
+            while (cursor is Guid cid && byId.TryGetValue(cid, out var node))
+            {
+                if (node.Id == containerId)
+                {
+                    return FormResult<bool>.Invalid("El contenedor padre no puede ser un descendiente.");
+                }
+                cursor = node.ParentId;
+            }
+        }
+
+        var oldParentId = container.ParentId;
+        var oldSiblings = await _db.FormContainers
+            .Where(c => c.DefinitionId == container.DefinitionId && c.ParentId == oldParentId && c.Id != containerId)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var newSiblings = oldParentId == parentId
+            ? oldSiblings
+            : await _db.FormContainers
+                .Where(c => c.DefinitionId == container.DefinitionId && c.ParentId == parentId && c.Id != containerId)
+                .OrderBy(c => c.SortOrder).ThenBy(c => c.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+        container.ParentId = parentId;
+        for (var i = 0; i < oldSiblings.Count; i++)
+        {
+            oldSiblings[i].SortOrder = i;
+        }
+        var insertAt = Math.Clamp(index, 0, newSiblings.Count);
+        newSiblings.Insert(insertAt, container);
+        for (var i = 0; i < newSiblings.Count; i++)
+        {
+            newSiblings[i].SortOrder = i;
         }
         await TouchRevisionAsync(container.DefinitionId, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
@@ -418,6 +494,51 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         return FormResult<bool>.Ok(true);
     }
 
+    /// <summary>
+    /// Drag and drop del constructor (ADR-0021): mueve la pregunta a otro contenedor (o a
+    /// la raiz) en la posicion index, renumerando ambos grupos de hermanos.
+    /// </summary>
+    public async Task<FormResult<bool>> MoveQuestionToAsync(Guid questionId, Guid? containerId, int index, CancellationToken cancellationToken = default)
+    {
+        var question = await _db.FormQuestions.FirstOrDefaultAsync(q => q.Id == questionId, cancellationToken);
+        if (question is null)
+        {
+            return FormResult<bool>.NotFound("Pregunta no encontrada.");
+        }
+        if (containerId is Guid target
+            && !await _db.FormContainers.AnyAsync(c => c.Id == target && c.DefinitionId == question.DefinitionId, cancellationToken))
+        {
+            return FormResult<bool>.Invalid("El contenedor no pertenece al formulario.");
+        }
+
+        var oldContainerId = question.ContainerId;
+        var oldSiblings = await _db.FormQuestions
+            .Where(q => q.DefinitionId == question.DefinitionId && q.ContainerId == oldContainerId && q.Id != questionId)
+            .OrderBy(q => q.SortOrder).ThenBy(q => q.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var newSiblings = oldContainerId == containerId
+            ? oldSiblings
+            : await _db.FormQuestions
+                .Where(q => q.DefinitionId == question.DefinitionId && q.ContainerId == containerId && q.Id != questionId)
+                .OrderBy(q => q.SortOrder).ThenBy(q => q.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+        question.ContainerId = containerId;
+        for (var i = 0; i < oldSiblings.Count; i++)
+        {
+            oldSiblings[i].SortOrder = i;
+        }
+        var insertAt = Math.Clamp(index, 0, newSiblings.Count);
+        newSiblings.Insert(insertAt, question);
+        for (var i = 0; i < newSiblings.Count; i++)
+        {
+            newSiblings[i].SortOrder = i;
+        }
+        await TouchRevisionAsync(question.DefinitionId, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<bool>.Ok(true);
+    }
+
     // ---- Vinculo nodo de flujo -> formulario ----
 
     public async Task<FormResult<bool>> AssignToWorkflowNodeAsync(Guid workflowNodeId, Guid? definitionId, CancellationToken cancellationToken = default)
@@ -490,11 +611,13 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     }
 
     private static FormContainerDto ToDto(FormContainer c)
-        => new(c.Id, c.Name, c.ContainerType, c.ParentId, c.SortOrder, c.Style);
+        => new(c.Id, c.Name, c.ContainerType, c.ParentId, c.SortOrder, c.Style,
+            c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
 
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,
-            q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson);
+            q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson,
+            q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -505,11 +628,39 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.HelpText = Normalize(request.HelpText);
         question.ControlType = request.ControlType;
         question.OptionsJson = Normalize(request.OptionsJson);
-        question.Required = request.Required && !FormFieldValidator.IsNonInput(request.ControlType);
-        question.GridCol = string.IsNullOrWhiteSpace(request.GridCol) ? "col-12" : request.GridCol.Trim();
+        question.Required = request.Required && !FormFieldValidator.IsNonInput(request.ControlType)
+            && !FormFieldValidator.IsPlaceholderCapture(request.ControlType);
+        // Width (1..12) manda sobre el layout; GridCol se mantiene sincronizado para el
+        // renderer bootstrap y los selectores E2E (ADR-0021). Compatibilidad: si Width
+        // viene en 12 (default) y GridCol trae una columna parseable, Width se deriva.
+        var width = Math.Clamp(request.Width, 1, 12);
+        if (width == 12 && ParseGridColWidth(request.GridCol) is int legacy)
+        {
+            width = legacy;
+        }
+        question.Width = width;
+        question.GridCol = WidthToGridCol(width);
+        question.PlaceholderText = Normalize(request.PlaceholderText);
+        question.DefaultValue = Normalize(request.DefaultValue);
+        question.IsLocked = request.IsLocked;
+        question.IsHidden = request.IsHidden;
         question.Numeral = Normalize(request.Numeral);
         question.ValidationJson = Normalize(request.ValidationJson);
     }
+
+    /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>
+    internal static int? ParseGridColWidth(string? gridCol)
+    {
+        if (string.IsNullOrWhiteSpace(gridCol))
+        {
+            return null;
+        }
+        var last = gridCol.Trim().Split('-')[^1];
+        return int.TryParse(last, out var n) && n is >= 1 and <= 12 ? n : null;
+    }
+
+    internal static string WidthToGridCol(int width)
+        => width >= 12 ? "col-12" : $"col-md-{width}";
 
     private async Task<string?> ValidateQuestionRequestAsync(
         Guid definitionId, SaveFormQuestionRequest request, Guid? existingQuestionId,
@@ -548,12 +699,17 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     /// <summary>Reglas estructurales por tipo: opciones obligatorias y pattern compilable.</summary>
     private static string? ValidateQuestionStructure(FormControlType type, string? optionsJson, string? validationJson)
     {
-        if (type is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio)
+        // GridDetail (tabla funcional, ADR-0021): OptionsJson define las COLUMNAS con el
+        // mismo shape [{id,label}]; exige al menos una columna valida.
+        if (type is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio
+            or FormControlType.GridDetail)
         {
             var options = FormFieldValidator.ParseOptions(optionsJson);
             if (options.Count == 0)
             {
-                return "Este tipo de control requiere al menos una opcion valida ([{id,label,value}]).";
+                return type == FormControlType.GridDetail
+                    ? "La tabla requiere al menos una columna valida ([{id,label}])."
+                    : "Este tipo de control requiere al menos una opcion valida ([{id,label,value}]).";
             }
             if (options.Any(o => string.IsNullOrWhiteSpace(o.Id) || string.IsNullOrWhiteSpace(o.Label)))
             {

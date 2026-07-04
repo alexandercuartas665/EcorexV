@@ -170,6 +170,23 @@ else
                         _values[fieldCode] = field.Value;
                     }
                 }
+                // Valor por defecto del disenador (ADR-0021): solo en Fill, solo campos de
+                // captura reales y sin valor previo en el borrador.
+                if (Mode == FormRenderMode.Fill && !IsSubmitted)
+                {
+                    foreach (var q in _definition.Questions)
+                    {
+                        if (!string.IsNullOrWhiteSpace(q.DefaultValue)
+                            && !FormFieldValidator.IsNonInput(q.ControlType)
+                            && !FormFieldValidator.IsPlaceholderCapture(q.ControlType)
+                            && q.ControlType != FormControlType.GridDetail
+                            && string.IsNullOrEmpty(_values.GetValueOrDefault(q.FieldCode)))
+                        {
+                            _values[q.FieldCode] = q.DefaultValue;
+                            _dirty = true;
+                        }
+                    }
+                }
             }
         }
         finally
@@ -196,37 +213,153 @@ else
     private List<FormQuestionDto> QuestionsOf(Guid? containerId)
         => _definition!.Questions.Where(q => q.ContainerId == containerId).OrderBy(q => q.SortOrder).ToList();
 
+    // Pestana activa por contenedor Tabs (estado de UI del renderer).
+    private readonly Dictionary<Guid, int> _activeTab = new();
+
+    private static IReadOnlyList<string> ParseTabs(string? tabsJson)
+    {
+        if (string.IsNullOrWhiteSpace(tabsJson))
+        {
+            return [];
+        }
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(tabsJson) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
     private RenderFragment RenderContainer(FormContainerDto container) => __builder =>
     {
-        <div class="dfr-segment" style="@container.Style">
+        @* Contenedores ocultos por el disenador: ni el nodo ni su subarbol se pintan. *@
+        if (container.IsHidden)
+        {
+            return;
+        }
+        @* Tabs (ADR-0021): cada contenedor hijo directo es una pestana navegable; los
+           nombres salen de TabsJson (por indice) con fallback al nombre del contenedor. *@
+        if (container.ContainerType == FormContainerType.Tabs)
+        {
+            var panels = ChildrenOf(container.Id).Where(c => !c.IsHidden).ToList();
+            var names = ParseTabs(container.TabsJson);
+            var active = Math.Clamp(_activeTab.GetValueOrDefault(container.Id), 0, Math.Max(panels.Count - 1, 0));
+            <div class="dfr-segment dfr-tabs" style="@container.Style">
+                <div class="dfr-segment-head">@container.Name</div>
+                @if (panels.Count > 0)
+                {
+                    <div class="dfr-tabbar" role="tablist">
+                        @for (var i = 0; i < panels.Count; i++)
+                        {
+                            var index = i;
+                            <button type="button" role="tab" class="dfr-tab @(index == active ? "on" : "")"
+                                    @onclick="@(() => { _activeTab[container.Id] = index; })">
+                                @(index < names.Count && !string.IsNullOrWhiteSpace(names[index]) ? names[index] : panels[index].Name)
+                            </button>
+                        }
+                    </div>
+                }
+                @{ var tabRootQuestions = QuestionsOf(container.Id); }
+                @if (tabRootQuestions.Count > 0)
+                {
+                    <div class="row g-3">
+                        @foreach (var q in tabRootQuestions)
+                        {
+                            @RenderQuestion(q)
+                        }
+                    </div>
+                }
+                @if (panels.Count > 0)
+                {
+                    @RenderContainerBody(panels[active])
+                }
+            </div>
+            return;
+        }
+
+        @* Row: grupo transparente, hijos lado a lado en la grilla de 12.
+           Col: grupo transparente, hijos apilados (fila completa).
+           Segment/Section/Table y Modal (TODO ADR-0021: dialogo real): seccion con titulo. *@
+        if (container.ContainerType is FormContainerType.Row or FormContainerType.Col)
+        {
+            <div class="dfr-group @(container.ContainerType == FormContainerType.Row ? "dfr-row" : "dfr-col")"
+                 style="@(WidthStyle(container) + container.Style)">
+                @if (!string.IsNullOrWhiteSpace(container.Name))
+                {
+                    <div class="dfr-group-head">@container.Name</div>
+                }
+                @RenderContainerChildren(container, stack: container.ContainerType == FormContainerType.Col)
+            </div>
+            return;
+        }
+
+        <div class="dfr-segment" style="@(WidthStyle(container) + container.Style)">
             <div class="dfr-segment-head">@container.Name</div>
-            @{ var questions = QuestionsOf(container.Id); }
-            @if (questions.Count > 0)
+            @RenderContainerChildren(container, stack: false)
+        </div>
+    };
+
+    /// <summary>Cuerpo de una pestana: mismo render que un contenedor normal, sin duplicar el marco.</summary>
+    private RenderFragment RenderContainerBody(FormContainerDto container) => __builder =>
+    {
+        <div class="dfr-tabpanel" role="tabpanel">
+            @if (container.ContainerType is FormContainerType.Row or FormContainerType.Col)
             {
-                <div class="row g-3">
-                    @foreach (var q in questions)
-                    {
-                        @RenderQuestion(q)
-                    }
-                </div>
+                @RenderContainerChildren(container, stack: container.ContainerType == FormContainerType.Col)
             }
-            @foreach (var child in ChildrenOf(container.Id))
+            else
             {
-                @RenderContainer(child)
+                @RenderContainerChildren(container, stack: false)
             }
         </div>
     };
 
-    private RenderFragment RenderQuestion(FormQuestionDto q) => __builder =>
+    private RenderFragment RenderContainerChildren(FormContainerDto container, bool stack) => __builder =>
     {
-        @* Campos ocultos por regla: no se pintan y no se validan como requeridos. *@
-        if (_ruleUiState.IsHidden(q.FieldCode))
+        var questions = QuestionsOf(container.Id);
+        @if (questions.Count > 0)
+        {
+            <div class="row g-3">
+                @foreach (var q in questions)
+                {
+                    @RenderQuestion(q, forceFullWidth: stack)
+                }
+            </div>
+        }
+        @foreach (var child in ChildrenOf(container.Id))
+        {
+            @RenderContainer(child)
+        }
+    };
+
+    private static string WidthStyle(FormContainerDto container)
+        => container.Width is >= 1 and < 12
+            ? $"width:{Math.Round(container.Width / 12d * 100, 2).ToString(System.Globalization.CultureInfo.InvariantCulture)}%;"
+            : "";
+
+    private RenderFragment RenderQuestion(FormQuestionDto q, bool forceFullWidth = false) => __builder =>
+    {
+        @* Campos ocultos por regla O por el disenador (ADR-0021): no se pintan ni validan. *@
+        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden)
         {
             return;
         }
-        <div class="@(string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol)">
+        <div class="@(forceFullWidth ? "col-12" : string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol)">
             @switch (q.ControlType)
             {
+                case FormControlType.Paragraph:
+                    @* Documento (ADR-0021): el texto del parrafo vive en DefaultValue. *@
+                    <div class="dfr-paragraph">@(string.IsNullOrWhiteSpace(q.DefaultValue) ? q.Label : q.DefaultValue)</div>
+                    break;
+                case FormControlType.Divider:
+                    <div class="dfr-divider" role="separator"></div>
+                    break;
+                case FormControlType.Spacer:
+                    @* Documento (ADR-0021): el alto en px vive en DefaultValue (default 24). *@
+                    <div class="dfr-spacer" style="height:@(int.TryParse(q.DefaultValue, out var h) && h > 0 ? h : 24)px"></div>
+                    break;
                 case FormControlType.Heading:
                     <h4 class="dfr-heading">@Prefixed(q)</h4>
                     @if (!string.IsNullOrWhiteSpace(q.Caption))
@@ -275,15 +408,15 @@ else
         switch (q.ControlType)
         {
             case FormControlType.Text:
-                <input class="form-control" value="@value" disabled="@IsDisabled"
+                <input class="form-control" value="@value" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                        @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
                 break;
             case FormControlType.TextArea:
-                <textarea class="form-control" rows="3" disabled="@IsDisabled"
+                <textarea class="form-control" rows="3" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                           @onchange="@(e => SetValue(q, e.Value?.ToString()))">@value</textarea>
                 break;
             case FormControlType.Number:
-                <input type="number" step="any" class="form-control" value="@value" disabled="@IsDisabled"
+                <input type="number" step="any" class="form-control" value="@value" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                        @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
                 break;
             case FormControlType.Date:
@@ -333,12 +466,149 @@ else
                     }
                 </div>
                 break;
+            case FormControlType.GridDetail:
+                @* Tabla FUNCIONAL (ADR-0021): columnas en OptionsJson [{id,label}] y el
+                   valor del campo es un arreglo JSON de filas [{colId:"valor"}]. *@
+                @RenderGrid(q, value)
+                break;
+            case FormControlType.Signature:
+                @RenderCapturePlaceholder(q, "dashed", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "Firma aqui")
+                break;
+            case FormControlType.Photo:
+            case FormControlType.Image:
+                @RenderCapturePlaceholder(q, "dashed", "M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z", "Capturar")
+                break;
+            case FormControlType.Gps:
+                @RenderCapturePlaceholder(q, "solid", "M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z", "Ubicacion")
+                break;
+            case FormControlType.File:
+            case FormControlType.Audio:
+                @RenderCapturePlaceholder(q, "dashed", "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z M14 3v5h5", "Subir archivo")
+                break;
+            case FormControlType.Barcode:
+                @RenderCapturePlaceholder(q, "solid", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "Escanear")
+                break;
             default:
-                @* Tipos multimedia/firma/gps/grid: en el enum pero SIN componente en esta ola. *@
+                @* Tipos sin componente aun (Button, Chart, Html): placeholder informativo. *@
                 <div class="dfr-unsupported">Control @q.ControlType disponible en una ola posterior.</div>
                 break;
         }
     };
+
+    /// <summary>
+    /// Placeholder visual del prototipo para multimedia SIN captura real (ADR-0021):
+    /// deshabilitado, no bloquea el submit (la validacion ignora Required en estos tipos).
+    /// </summary>
+    private RenderFragment RenderCapturePlaceholder(FormQuestionDto q, string frame, string iconPath, string caption) => __builder =>
+    {
+        <div class="dfr-capture @(frame == "dashed" ? "dashed" : "")" aria-disabled="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="@iconPath" /></svg>
+            <span>@caption</span>
+            <span class="dfr-capture-soon">captura disponible proximamente</span>
+        </div>
+    };
+
+    // ---- Tabla (GridDetail) funcional ----
+
+    private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>
+    {
+        var columns = FormFieldValidator.ParseOptions(q.OptionsJson);
+        var rows = FormFieldValidator.ParseGridRows(value).Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
+        @if (columns.Count == 0)
+        {
+            <div class="dfr-unsupported">La tabla no tiene columnas definidas.</div>
+            return;
+        }
+        <div class="dfr-grid">
+            <table class="dfr-grid-table">
+                <thead>
+                    <tr>
+                        @foreach (var col in columns)
+                        {
+                            <th>@col.Label</th>
+                        }
+                        @if (!IsDisabled)
+                        {
+                            <th class="dfr-grid-x"></th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (rows.Count == 0)
+                    {
+                        <tr>
+                            <td class="dfr-grid-empty" colspan="@(columns.Count + (IsDisabled ? 0 : 1))">Sin filas todavia.</td>
+                        </tr>
+                    }
+                    @for (var r = 0; r < rows.Count; r++)
+                    {
+                        var rowIndex = r;
+                        <tr>
+                            @foreach (var col in columns)
+                            {
+                                var colId = col.Id;
+                                <td>
+                                    <input class="form-control form-control-sm" disabled="@IsDisabled"
+                                           value="@rows[rowIndex].GetValueOrDefault(colId)"
+                                           @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                </td>
+                            }
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-x">
+                                    <button type="button" class="dfr-grid-del" title="Quitar fila"
+                                            @onclick="@(() => RemoveGridRow(q, rowIndex))">&times;</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!IsDisabled)
+            {
+                <button type="button" class="dfr-grid-add" @onclick="@(() => AddGridRow(q))">+ Agregar fila</button>
+            }
+        </div>
+    };
+
+    private List<Dictionary<string, string?>> GridRowsOf(FormQuestionDto q)
+        => FormFieldValidator.ParseGridRows(_values.GetValueOrDefault(q.FieldCode))
+            .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal))
+            .ToList();
+
+    private async Task SetGridCell(FormQuestionDto q, int rowIndex, string colId, string? cellValue)
+    {
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return;
+        }
+        rows[rowIndex][colId] = cellValue;
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    private async Task AddGridRow(FormQuestionDto q)
+    {
+        var rows = GridRowsOf(q);
+        var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var col in FormFieldValidator.ParseOptions(q.OptionsJson))
+        {
+            row[col.Id] = null;
+        }
+        rows.Add(row);
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    private async Task RemoveGridRow(FormQuestionDto q, int rowIndex)
+    {
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return;
+        }
+        rows.RemoveAt(rowIndex);
+        await SetValue(q, rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows));
+    }
 
     private static string Prefixed(FormQuestionDto q)
         => string.IsNullOrWhiteSpace(q.Numeral) ? q.Label : $"{q.Numeral}. {q.Label}";

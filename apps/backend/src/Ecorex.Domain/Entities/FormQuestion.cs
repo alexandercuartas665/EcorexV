@@ -46,4 +46,29 @@ public class FormQuestion : TenantEntity
 
     /// <summary>Reglas de validacion: {"minLength","maxLength","pattern","minValue","maxValue"}.</summary>
     public string? ValidationJson { get; set; }
+
+    // ---- Constructor del prototipo (ADR-0021) ----
+
+    /// <summary>
+    /// Ancho en columnas de la grilla de 12 del constructor (1..12). Fuente de verdad del
+    /// layout; <see cref="GridCol"/> se mantiene SINCRONIZADO (col-12 / col-md-N) para no
+    /// romper el renderer bootstrap ni los selectores E2E existentes.
+    /// </summary>
+    public int Width { get; set; } = 12;
+
+    /// <summary>Texto de ayuda dentro del control (placeholder del input, prototipo 'ph').</summary>
+    public string? PlaceholderText { get; set; }
+
+    /// <summary>
+    /// Valor por defecto del campo. DOBLE USO documentado (ADR-0021): en Paragraph es el
+    /// texto del parrafo y en Spacer es el alto en px; en controles de captura es el valor
+    /// inicial del borrador.
+    /// </summary>
+    public string? DefaultValue { get; set; }
+
+    /// <summary>Fijo en el layout: el constructor no permite reordenarlo (prototipo lock).</summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>Oculto: no se pinta en el renderer y no valida requerido (prototipo eye).</summary>
+    public bool IsHidden { get; set; }
 }

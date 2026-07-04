@@ -15,14 +15,29 @@ public static class FormFieldValidator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    /// <summary>Controles que NO capturan datos (estructura/visuales): nunca validan valor.</summary>
+    /// <summary>Controles que NO capturan datos (estructura/visuales): nunca validan valor.
+    /// Incluye los elementos de documento del constructor (ADR-0021).</summary>
     public static bool IsNonInput(FormControlType type)
         => type is FormControlType.Heading or FormControlType.Literal
-            or FormControlType.Button or FormControlType.Chart or FormControlType.Html;
+            or FormControlType.Button or FormControlType.Chart or FormControlType.Html
+            or FormControlType.Paragraph or FormControlType.Divider or FormControlType.Spacer;
 
     /// <summary>Controles Tier 1 con componente en el DynamicFormRenderer.</summary>
     public static bool IsTier1(FormControlType type)
-        => type <= FormControlType.Literal;
+        => type <= FormControlType.Literal
+            || type is FormControlType.GridDetail or FormControlType.Paragraph
+                or FormControlType.Divider or FormControlType.Spacer;
+
+    /// <summary>
+    /// Controles multimedia/captura SIN implementacion real todavia (firma, foto, gps,
+    /// archivo, barras, imagen, audio): el renderer pinta el placeholder del prototipo
+    /// DESHABILITADO y la validacion IGNORA Required a proposito (ADR-0021): marcar
+    /// requerido un control que no puede capturarse bloquearia todo submit.
+    /// </summary>
+    public static bool IsPlaceholderCapture(FormControlType type)
+        => type is FormControlType.Image or FormControlType.Photo or FormControlType.Audio
+            or FormControlType.Signature or FormControlType.Gps or FormControlType.File
+            or FormControlType.Barcode;
 
     /// <summary>Opciones de la pregunta ([{id,label,value}]); lista vacia si el JSON es nulo o invalido.</summary>
     public static IReadOnlyList<FormOption> ParseOptions(string? optionsJson)
@@ -88,10 +103,19 @@ public static class FormFieldValidator
         {
             return null;
         }
+        // Multimedia sin captura real (ADR-0021): Required se ignora a proposito (el
+        // placeholder deshabilitado no puede llenarse); si llega valor externo se acepta.
+        if (IsPlaceholderCapture(type))
+        {
+            return null;
+        }
 
-        var isEmpty = type == FormControlType.MultiCheck
-            ? ParseMultiValues(value).Count == 0
-            : string.IsNullOrWhiteSpace(value);
+        var isEmpty = type switch
+        {
+            FormControlType.MultiCheck => ParseMultiValues(value).Count == 0,
+            FormControlType.GridDetail => ParseGridRows(value).Count == 0,
+            _ => string.IsNullOrWhiteSpace(value)
+        };
         if (isEmpty)
         {
             return required ? "Este campo es obligatorio." : null;
@@ -105,10 +129,44 @@ public static class FormFieldValidator
             FormControlType.Toggle => ValidateToggle(value!),
             FormControlType.Select or FormControlType.Radio => ValidateOption(value!, options),
             FormControlType.MultiCheck => ValidateMulti(value!, options),
-            // Tiers sin componente aun (Image, Photo, ...): no se captura valor por UI; si
-            // llega algo (import externo), se acepta tal cual.
+            FormControlType.GridDetail => ValidateGrid(value!),
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Filas capturadas de una tabla (GridDetail): el value del campo es un arreglo JSON
+    /// de objetos { colId: "valor" }. Lista vacia si el JSON es nulo o invalido.
+    /// </summary>
+    public static IReadOnlyList<Dictionary<string, string?>> ParseGridRows(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+        try
+        {
+            return JsonSerializer.Deserialize<List<Dictionary<string, string?>>>(value, JsonOptions) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string? ValidateGrid(string value)
+    {
+        // Si hay texto pero no parsea a filas, el documento esta corrupto (no deberia
+        // pasar desde el renderer; protege imports externos).
+        try
+        {
+            _ = JsonSerializer.Deserialize<List<Dictionary<string, string?>>>(value, JsonOptions);
+            return null;
+        }
+        catch (JsonException)
+        {
+            return "Las filas de la tabla no tienen un formato valido.";
+        }
     }
 
     private static string? ValidateText(string value, FormValidationRules? rules)

@@ -37,8 +37,14 @@ public interface IFormDefinitionService
     /// <summary>Borra el contenedor; sus preguntas y sub-contenedores pasan al padre (o a la raiz).</summary>
     Task<FormResult<bool>> DeleteContainerAsync(Guid containerId, CancellationToken cancellationToken = default);
 
-    /// <summary>Reordena el contenedor entre sus hermanos (sin drag and drop en esta ola).</summary>
+    /// <summary>Reordena el contenedor entre sus hermanos (paso a paso).</summary>
     Task<FormResult<bool>> MoveContainerAsync(Guid containerId, bool moveUp, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Mueve el contenedor a otro padre (o a la raiz con null) en la posicion index,
+    /// renumerando ambos grupos de hermanos (drag and drop del constructor, ADR-0021).
+    /// </summary>
+    Task<FormResult<bool>> MoveContainerToAsync(Guid containerId, Guid? parentId, int index, CancellationToken cancellationToken = default);
 
     // ---- Preguntas ----
 
@@ -48,8 +54,14 @@ public interface IFormDefinitionService
 
     Task<FormResult<bool>> DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default);
 
-    /// <summary>Reordena la pregunta dentro de su contenedor (sin drag and drop en esta ola).</summary>
+    /// <summary>Reordena la pregunta dentro de su contenedor (paso a paso).</summary>
     Task<FormResult<bool>> MoveQuestionAsync(Guid questionId, bool moveUp, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Mueve la pregunta a otro contenedor (o a la raiz con null) en la posicion index,
+    /// renumerando ambos grupos de hermanos (drag and drop del constructor, ADR-0021).
+    /// </summary>
+    Task<FormResult<bool>> MoveQuestionToAsync(Guid questionId, Guid? containerId, int index, CancellationToken cancellationToken = default);
 
     // ---- Vinculo nodo de flujo -> formulario (WorkflowNodeForm) ----
 

@@ -4,337 +4,306 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
+@inject IRuleDocumentService RulesSvc
 @inject NavigationManager Nav
 
-@* Disenador basico del constructor de formularios (FASE 4 ola 2, ADR-0015): arbol de
-   contenedores como lista anidada + grid de preguntas con modal por tipo + reordenar con
-   botones arriba/abajo. El constructor visual completo (drag and drop) llega en otra ola. *@
+@* ============================================================
+   CONSTRUCTOR DE FORMULARIOS del prototipo (ECOREX.dc.html,
+   formBuilderOpen): modal grande de 3 columnas (276px paleta +
+   estructura / lienzo con presets de dispositivo / 320px
+   propiedades con tabs Diseno-Datos-Reglas). Fiel al pixel del
+   fuente (ADR-0021). PERSISTE-POR-CAMBIO: cada mutacion llama al
+   servicio real y recarga (el boton Guardar confirma/refresca).
+   ============================================================ *@
 
-<PageTitle>Disenar formulario - ECOREX.tareas</PageTitle>
-
-<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
-    <a href="/inicio">Workspace</a>
-    <span class="sep">/</span>
-    <a href="/formularios">Formularios</a>
-    <span class="sep">/</span>
-    <span class="cur">@(_definition?.Code ?? "Disenar")</span>
-</nav>
+<PageTitle>Constructor de formularios - ECOREX.tareas</PageTitle>
 
 @if (_loading)
 {
-    <p><em>Cargando disenador...</em></p>
+    <p style="padding:30px;"><em>Cargando constructor...</em></p>
 }
-else if (_definition is null)
+else if (_def is null)
 {
-    <div class="coming-soon" style="padding:40px 24px;">
+    <div style="padding:40px 24px;text-align:center;">
         <h3>Formulario no encontrado</h3>
-        <button class="btn btn-outline-secondary" style="margin-top:14px;" @onclick="@(() => Nav.NavigateTo("/formularios"))">Volver a formularios</button>
+        <button class="fb-btn-ghost" style="margin-top:14px;" @onclick="@(() => Nav.NavigateTo("/formularios"))">Volver a formularios</button>
     </div>
 }
 else
 {
-    <div class="module-head">
-        <div>
-            <h1 class="page-title" style="margin-top:0;">
-                @_definition.Title
-                <span class="tk-status @Formularios.StatusClass(_definition.Status)" style="vertical-align:middle;margin-left:8px;">@Formularios.StatusLabel(_definition.Status)</span>
-            </h1>
-            <p class="page-sub" style="margin-bottom:0;">
-                <span class="tk-number">@_definition.Code</span>
-                <span style="margin-left:8px;">rev @_definition.Revision - @_definition.Questions.Count pregunta@(_definition.Questions.Count == 1 ? "" : "s")</span>
-            </p>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-            @if (_definition.Status == FormStatus.Active)
-            {
-                <button class="btn btn-outline-secondary" @onclick="DeactivateAsync" disabled="@_busy">Desactivar</button>
-                <button class="btn btn-outline-secondary" @onclick="OpenTokenModal" disabled="@_busy">Publicar por URL</button>
-            }
-            else
-            {
-                <button class="btn btn-primary" @onclick="ActivateAsync" disabled="@_busy">Activar</button>
-            }
-            <button class="btn btn-outline-secondary" @onclick="@(() => _showPreview = true)">Vista previa</button>
-        </div>
-    </div>
-
-    @if (_pageError is not null)
-    {
-        <div class="tk-conflict tk-action-error" style="margin-bottom:14px;">
-            <span>@_pageError</span>
-            <button class="tk-conflict-x" @onclick="@(() => _pageError = null)">&times;</button>
-        </div>
-    }
-
-    <div class="fd-layout">
-        @* ===== Columna izquierda: arbol de contenedores ===== *@
-        <div class="fd-panel">
-            <div class="fd-panel-head">
-                <h3>Contenedores</h3>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenContainerEditor(null, null))">+ Agregar</button>
-            </div>
-            @if (_definition.Containers.Count == 0)
-            {
-                <p class="fd-empty">Sin contenedores: las preguntas cuelgan de la raiz.</p>
-            }
-            else
-            {
-                @RenderContainerTree(null, 0)
-            }
-        </div>
-
-        @* ===== Columna derecha: grid de preguntas ===== *@
-        <div class="fd-panel">
-            <div class="fd-panel-head">
-                <h3>Preguntas</h3>
-                <button class="btn btn-sm btn-primary" @onclick="@(() => OpenQuestionEditor(null))">+ Nueva pregunta</button>
-            </div>
-            @if (_definition.Questions.Count == 0)
-            {
-                <p class="fd-empty">Aun no hay preguntas. Crea la primera con "+ Nueva pregunta".</p>
-            }
-            else
-            {
-                <div class="fd-qgrid">
-                    <div class="fd-qrow fd-qrow-head">
-                        <span>Campo</span>
-                        <span>Etiqueta</span>
-                        <span>Tipo</span>
-                        <span>Contenedor</span>
-                        <span>Col</span>
-                        <span></span>
-                    </div>
-                    @foreach (var group in QuestionGroups())
+    <div class="fb-scrim">
+        <div class="fb-shell">
+            @* ===== Header ===== *@
+            <div class="fb-header">
+                <button class="fb-back" title="Volver" @onclick="@(() => Nav.NavigateTo("/formularios"))">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+                </button>
+                <span class="fb-code">FORX-@_def.Code</span>
+                @if (_editingTitle)
+                {
+                    <input class="fb-title-input" value="@_titleDraft" @oninput="@(e => _titleDraft = e.Value?.ToString() ?? "")"
+                           @onblur="SaveTitleAsync" @onkeydown="@(async e => { if (e.Key == "Enter") { await SaveTitleAsync(); } })" />
+                }
+                else
+                {
+                    <div class="fb-title" title="Clic para renombrar" @onclick="@(() => { _titleDraft = _def.Title; _editingTitle = true; })">@_def.Title</div>
+                }
+                <span class="fb-status" style="background:@StatusSoft();color:@StatusColor()">@StatusLabel()</span>
+                <div class="fb-header-actions">
+                    <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
+                    @if (_def.Status == FormStatus.Active)
                     {
-                        @foreach (var q in group.Questions)
-                        {
-                            <div class="fd-qrow">
-                                <span class="fd-qcode">@q.FieldCode @(q.Required ? "*" : "")</span>
-                                <span class="fd-qlabel" title="@q.Label">@(string.IsNullOrWhiteSpace(q.Numeral) ? "" : q.Numeral + ". ")@q.Label</span>
-                                <span><span class="fd-qtype">@q.ControlType</span></span>
-                                <span class="fd-qcontainer">@group.ContainerName</span>
-                                <span class="fd-qcol">@q.GridCol</span>
-                                <span class="fd-qactions">
-                                    <button title="Subir" @onclick="@(() => MoveQuestionAsync(q.Id, true))" disabled="@_busy">&#9650;</button>
-                                    <button title="Bajar" @onclick="@(() => MoveQuestionAsync(q.Id, false))" disabled="@_busy">&#9660;</button>
-                                    <button title="Editar" @onclick="@(() => OpenQuestionEditor(q))" disabled="@_busy">&#9998;</button>
-                                    <button title="Eliminar" class="danger" @onclick="@(() => DeleteQuestionAsync(q.Id))" disabled="@_busy">&times;</button>
-                                </span>
-                            </div>
-                        }
+                        <button class="fb-btn-ghost" @onclick="DeactivateAsync" disabled="@_busy">Desactivar</button>
+                        <button class="fb-btn-ghost" @onclick="OpenTokenModal" disabled="@_busy">Publicar por URL</button>
                     }
+                    else
+                    {
+                        <button class="fb-btn-ghost" @onclick="ActivateAsync" disabled="@_busy">Activar</button>
+                    }
+                    <button class="fb-btn-primary" @onclick="SaveFlashAsync" disabled="@_busy">@(_savedFlash ? "Guardado" : "Guardar")</button>
+                    <button class="fb-btn-ghost" @onclick="@(() => Nav.NavigateTo("/formularios"))">Cerrar</button>
+                </div>
+            </div>
+
+            @if (_pageError is not null)
+            {
+                <div class="fb-error">
+                    <span>@_pageError</span>
+                    <button class="fb-error-x" @onclick="@(() => _pageError = null)">&times;</button>
                 </div>
             }
-        </div>
-    </div>
-}
 
-@* ===== Modal contenedor ===== *@
-@if (_showContainerEditor && _definition is not null)
-{
-    <div class="modal-overlay" @onclick="@(() => _showContainerEditor = false)">
-        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
-            <div class="modal-head">
-                <h3>@(_editingContainer is null ? "Nuevo contenedor" : "Editar contenedor")</h3>
-                <button class="modal-close" @onclick="@(() => _showContainerEditor = false)">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="field">
-                    <label class="form-label">Nombre *</label>
-                    <input class="form-control" @bind="_cName" maxlength="150" />
-                </div>
-                <div class="field-row">
-                    <div class="field">
-                        <label class="form-label">Tipo</label>
-                        <select class="form-control" @bind="_cType">
-                            <option value="@FormContainerType.Segment">Segmento</option>
-                            <option value="@FormContainerType.Table">Tabla (ola posterior)</option>
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Padre</label>
-                        <select class="form-control" value="@(_cParentId?.ToString() ?? "")" @onchange="@(e => _cParentId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
-                            <option value="">(raiz)</option>
-                            @foreach (var c in _definition.Containers.Where(c => c.Id != _editingContainer?.Id))
-                            {
-                                <option value="@c.Id">@c.Name</option>
-                            }
-                        </select>
-                    </div>
-                </div>
-                <div class="field">
-                    <label class="form-label">Estilo (CSS inline opcional)</label>
-                    <input class="form-control" @bind="_cStyle" maxlength="300" placeholder="background:#FAFAFA;" />
-                </div>
-                @if (_modalError is not null)
-                {
-                    <div class="tk-field-error">@_modalError</div>
-                }
-            </div>
-            <div class="modal-foot">
-                <button class="btn btn-outline-secondary" @onclick="@(() => _showContainerEditor = false)" disabled="@_busy">Cancelar</button>
-                <button class="btn btn-primary" @onclick="SaveContainerAsync" disabled="@_busy">Guardar</button>
-            </div>
-        </div>
-    </div>
-}
+            <div class="fb-body">
+                @* ===== IZQUIERDA: paleta + estructura ===== *@
+                <aside class="fb-left">
+                    <div class="fb-left-scroll">
+                        <div class="fb-group-name">1&nbsp;&nbsp;ELEMENTOS</div>
+                        <div class="fb-group-hint">Arrastra al lienzo para construir tu formulario</div>
+                        <div class="fb-pal-card" draggable="true"
+                             @onclick="@(() => AddPaletteAsync(PaletteKey.Contenedor))"
+                             @ondragstart="@(() => _dragPalette = PaletteKey.Contenedor)">
+                            <span class="fb-pal-ic" style="background:var(--t-violet-bg);color:var(--t-violet)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                            </span>
+                            <span class="fb-pal-tx"><span class="fb-pal-name">Contenedor</span><span class="fb-pal-desc">Filas, columnas o secciones</span></span>
+                            <span class="fb-pal-grip">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                            </span>
+                        </div>
+                        <div class="fb-pal-card" draggable="true"
+                             @onclick="@(() => AddPaletteAsync(PaletteKey.Input))"
+                             @ondragstart="@(() => _dragPalette = PaletteKey.Input)">
+                            <span class="fb-pal-ic" style="background:var(--t-blue-bg);color:var(--t-blue)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h2"/></svg>
+                            </span>
+                            <span class="fb-pal-tx"><span class="fb-pal-name">Input</span><span class="fb-pal-desc">Texto, fecha, lista, numero...</span></span>
+                            <span class="fb-pal-grip">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                            </span>
+                        </div>
 
-@* ===== Modal pregunta ===== *@
-@if (_showQuestionEditor && _definition is not null)
-{
-    <div class="modal-overlay" @onclick="@(() => _showQuestionEditor = false)">
-        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
-            <div class="modal-head">
-                <h3>@(_editingQuestion is null ? "Nueva pregunta" : $"Editar {_editingQuestion.FieldCode}")</h3>
-                <button class="modal-close" @onclick="@(() => _showQuestionEditor = false)">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="field-row">
-                    <div class="field">
-                        <label class="form-label">FieldCode * <small>(clave del JSON de respuestas)</small></label>
-                        <input class="form-control" @bind="_qFieldCode" maxlength="60" placeholder="nombre_solicitante" />
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Tipo de control</label>
-                        <select class="form-control" value="@_qType" @onchange="@(e => _qType = Enum.Parse<FormControlType>(e.Value!.ToString()!))">
-                            @foreach (var t in Enum.GetValues<FormControlType>())
+                        <div class="fb-group-name" style="margin-top:8px;">2&nbsp;&nbsp;DOCUMENTO</div>
+                        <div class="fb-group-hint">Construye cartas, contratos o instructivos</div>
+                        <div class="fb-pal-card" draggable="true"
+                             @onclick="@(() => AddPaletteAsync(PaletteKey.Parrafo))"
+                             @ondragstart="@(() => _dragPalette = PaletteKey.Parrafo)">
+                            <span class="fb-pal-ic" style="background:var(--t-amber-bg);color:var(--t-amber)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                            </span>
+                            <span class="fb-pal-tx"><span class="fb-pal-name">Texto</span><span class="fb-pal-desc">Parrafos, encabezados, listas</span></span>
+                            <span class="fb-pal-grip">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                            </span>
+                        </div>
+                        <div class="fb-pal-card" draggable="true"
+                             @onclick="@(() => AddPaletteAsync(PaletteKey.Divisor))"
+                             @ondragstart="@(() => _dragPalette = PaletteKey.Divisor)">
+                            <span class="fb-pal-ic" style="background:var(--t-amber-bg);color:var(--t-amber)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>
+                            </span>
+                            <span class="fb-pal-tx"><span class="fb-pal-name">Divisor</span><span class="fb-pal-desc">Linea horizontal separadora</span></span>
+                            <span class="fb-pal-grip">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                            </span>
+                        </div>
+                        <div class="fb-pal-card" draggable="true"
+                             @onclick="@(() => AddPaletteAsync(PaletteKey.Espacio))"
+                             @ondragstart="@(() => _dragPalette = PaletteKey.Espacio)">
+                            <span class="fb-pal-ic" style="background:var(--t-amber-bg);color:var(--t-amber)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 12 3l4 4M8 17l4 4 4-4M3 12h18"/></svg>
+                            </span>
+                            <span class="fb-pal-tx"><span class="fb-pal-name">Espacio</span><span class="fb-pal-desc">Espaciado vertical configurable</span></span>
+                            <span class="fb-pal-grip">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                            </span>
+                        </div>
+
+                        <div class="fb-group-name fb-struct-head" style="margin:8px 0 3px;">3&nbsp;&nbsp;ESTRUCTURA <span class="fb-struct-count">@TotalNodes()</span></div>
+                        <div class="fb-tree">
+                            <div class="fb-tree-root" @onclick="@(() => Select(null))">
+                                <span class="fb-tree-root-ic">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                </span>
+                                <span class="fb-tree-root-name">Formulario</span>
+                                <span class="fb-tree-badge">@TotalNodes()</span>
+                            </div>
+                            @foreach (var row in TreeRows())
                             {
-                                <option value="@t">@t @(FormFieldValidator.IsTier1(t) ? "" : "(sin componente aun)")</option>
+                                var node = row.Node;
+                                <div class="fb-tree-row @(IsSelected(node) ? "sel" : "") @(node.Hidden ? "dim" : "")"
+                                     style="padding-left:@(6 + row.Depth * 15)px"
+                                     @onclick="@(() => Select(node))">
+                                    @if (row.HasKids)
+                                    {
+                                        <span class="fb-tree-chev" @onclick="@(() => ToggleCollapse(node.Id))" @onclick:stopPropagation="true">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transition:transform .16s;transform:rotate(@(_collapsed.Contains(node.Id) ? 0 : 90)deg)"><path d="m9 6 6 6-6 6"/></svg>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fb-tree-spc"></span>
+                                    }
+                                    <span class="fb-tree-ic" style="color:@node.Reg.Color">@((MarkupString)IconSvg(node.Reg.Icon, 14))</span>
+                                    <span class="fb-tree-name">@node.Label</span>
+                                    <span class="fb-tree-badge">@row.Badge</span>
+                                    <button class="fb-tree-tgl @(node.Locked ? "lock-on" : "")" title="Fijo / bloqueado"
+                                            @onclick="@(() => ToggleLockAsync(node))" @onclick:stopPropagation="true">
+                                        @((MarkupString)(node.Locked
+                                            ? IconSvg("<rect x=\"4\" y=\"11\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4\"/>", 12)
+                                            : IconSvg("<rect x=\"4\" y=\"11\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 7-1\"/>", 12)))
+                                    </button>
+                                    <button class="fb-tree-tgl @(node.Hidden ? "eye-off" : "")" title="Visible / oculto"
+                                            @onclick="@(() => ToggleHideAsync(node))" @onclick:stopPropagation="true">
+                                        @((MarkupString)(node.Hidden
+                                            ? IconSvg("<path d=\"M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a13 13 0 0 1-1.67 2.68M6.6 6.6A13 13 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6M1 1l22 22\"/>", 12)
+                                            : IconSvg("<path d=\"M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", 12)))
+                                    </button>
+                                </div>
                             }
-                        </select>
+                        </div>
                     </div>
-                </div>
-                <div class="field">
-                    <label class="form-label">Etiqueta *</label>
-                    <input class="form-control" @bind="_qLabel" maxlength="500" />
-                </div>
-                <div class="field-row">
-                    <div class="field">
-                        <label class="form-label">Contenedor</label>
-                        <select class="form-control" value="@(_qContainerId?.ToString() ?? "")" @onchange="@(e => _qContainerId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
-                            <option value="">(raiz)</option>
-                            @foreach (var c in _definition.Containers)
-                            {
-                                <option value="@c.Id">@c.Name</option>
-                            }
-                        </select>
+                </aside>
+
+                @* ===== CENTRO: toolbar device + lienzo ===== *@
+                <div class="fb-center">
+                    <div class="fb-devicebar">
+                        <div class="fb-devicetabs">
+                            <button class="fb-devicetab @(_device == "navegador" ? "on" : "")" @onclick="@(() => _device = "navegador")">
+                                @((MarkupString)IconSvg("<rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 20h8M12 18v2\"/>", 15)) Navegador
+                            </button>
+                            <button class="fb-devicetab @(_device == "tableta" ? "on" : "")" @onclick="@(() => _device = "tableta")">
+                                @((MarkupString)IconSvg("<rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 20h8M12 18v2\"/>", 15)) Tableta
+                            </button>
+                            <button class="fb-devicetab @(_device == "movil" ? "on" : "")" @onclick="@(() => _device = "movil")">
+                                @((MarkupString)IconSvg("<rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 20h8M12 18v2\"/>", 15)) Movil
+                            </button>
+                        </div>
+                        <span class="fb-devicelabel">A4 - 820x1180</span>
                     </div>
-                    <div class="field">
-                        <label class="form-label">Columna (grid)</label>
-                        <select class="form-control" @bind="_qGridCol">
-                            <option value="col-12">Fila completa (col-12)</option>
-                            <option value="col-md-6">Media fila (col-md-6)</option>
-                            <option value="col-md-4">Un tercio (col-md-4)</option>
-                            <option value="col-md-3">Un cuarto (col-md-3)</option>
-                        </select>
+                    <div class="fb-canvas" @ondragover:preventDefault @ondrop="@(() => DropOnAsync(null, null))" @ondrop:preventDefault>
+                        <div class="fb-sheet" style="width:@CanvasWidth()">
+                            <div class="fb-sheet-grid" @onclick="@(() => Select(null))">
+                                @foreach (var node in NodesOf(null))
+                                {
+                                    @RenderNode(node, inRow: true)
+                                }
+                                @if (NodesOf(null).Count == 0)
+                                {
+                                    <div class="fb-empty-root">Lienzo vacio - arrastra o toca un elemento de la paleta</div>
+                                }
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="field-row">
-                    <div class="field">
-                        <label class="form-label">Numeral</label>
-                        <input class="form-control" @bind="_qNumeral" maxlength="20" placeholder="2.1" />
-                    </div>
-                    <div class="field" style="display:flex;align-items:flex-end;">
-                        <label class="pl-toggle" style="margin-bottom:8px;">
-                            <input type="checkbox" @bind="_qRequired" disabled="@IsNonInputSelected" />
-                            Obligatoria
-                        </label>
-                    </div>
-                </div>
-                <div class="field">
-                    <label class="form-label">Subtitulo (caption)</label>
-                    <input class="form-control" @bind="_qCaption" maxlength="300" />
-                </div>
-                <div class="field">
-                    <label class="form-label">Texto de ayuda</label>
-                    <input class="form-control" @bind="_qHelpText" maxlength="600" />
                 </div>
 
-                @if (_qType is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio)
-                {
-                    <div class="field">
-                        <label class="form-label">Opciones *</label>
-                        @for (var i = 0; i < _qOptions.Count; i++)
+                @* ===== DERECHA: propiedades ===== *@
+                <aside class="fb-right">
+                    <div class="fb-props-head">
+                        <div class="fb-group-name" style="margin-bottom:9px;">4&nbsp;&nbsp;PROPIEDADES</div>
+                        <div class="fb-props-id">
+                            <span class="fb-props-ic" style="background:@(Sel?.Reg.Soft ?? "var(--surface-3)");color:@(Sel?.Reg.Color ?? "var(--ink-3)")">
+                                @((MarkupString)IconSvg(Sel?.Reg.Icon ?? RegOf(FormControlType.Text).Icon, 18))
+                            </span>
+                            <div class="fb-props-tx">
+                                <div class="fb-props-name">@(Sel?.Label ?? "Formulario")</div>
+                                <div class="fb-props-tipo">@(Sel?.Reg.Tipo ?? "-")</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="fb-props-tabs">
+                        <button class="fb-props-tab @(_propTab == "diseno" ? "on" : "")" @onclick="@(() => _propTab = "diseno")">
+                            @((MarkupString)IconSvg("<path d=\"M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z\"/>", 13)) Diseno
+                        </button>
+                        <button class="fb-props-tab @(_propTab == "datos" ? "on" : "")" @onclick="@(() => _propTab = "datos")">
+                            @((MarkupString)IconSvg("<path d=\"m12 2 9 5v10l-9 5-9-5V7l9-5Z\"/><path d=\"m3 7 9 5 9-5M12 12v10\"/>", 13)) Datos
+                        </button>
+                        <button class="fb-props-tab @(_propTab == "reglas" ? "on" : "")" @onclick="@(() => _propTab = "reglas")">
+                            @((MarkupString)IconSvg("<path d=\"M13 2 4 14h7l-1 8 9-12h-7l1-8Z\"/>", 13)) Reglas
+                        </button>
+                    </div>
+                    <div class="fb-props-body">
+                        @if (Sel is null)
                         {
-                            var index = i;
-                            <div class="fd-option-row">
-                                <input class="form-control form-control-sm" placeholder="id" value="@_qOptions[index].Id" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Id = e.Value?.ToString() ?? "" })" />
-                                <input class="form-control form-control-sm" placeholder="label" value="@_qOptions[index].Label" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Label = e.Value?.ToString() ?? "" })" />
-                                <input class="form-control form-control-sm" placeholder="value (opcional)" value="@_qOptions[index].Value" @onchange="@(e => _qOptions[index] = _qOptions[index] with { Value = e.Value?.ToString() })" />
-                                <button class="fd-mini-btn danger" title="Quitar" @onclick="@(() => _qOptions.RemoveAt(index))">&times;</button>
+                            <div class="fb-hint-box">
+                                <div class="fb-group-name" style="margin-bottom:8px;">SUGERENCIA</div>
+                                <p class="fb-hint-text">Selecciona un contenedor o un input en el lienzo o en el arbol para editar sus propiedades.</p>
                             </div>
                         }
-                        <button class="fd-add-dashed" @onclick="@(() => _qOptions.Add(new FormOption("", "")))">+ Agregar opcion</button>
+                        else
+                        {
+                            @if (_propTab == "diseno")
+                            {
+                                @RenderDisenoTab(Sel)
+                            }
+                            else if (_propTab == "datos")
+                            {
+                                @RenderDatosTab(Sel)
+                            }
+                            else
+                            {
+                                @RenderReglasTab(Sel)
+                            }
+                            <button class="fb-del-btn" @onclick="@(() => DeleteNodeAsync(Sel))" disabled="@_busy">
+                                @((MarkupString)IconSvg("<path d=\"M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6\"/>", 14))
+                                Eliminar elemento
+                            </button>
+                        }
                     </div>
-                }
-
-                @if (_qType is FormControlType.Text or FormControlType.TextArea)
-                {
-                    <div class="field-row">
-                        <div class="field">
-                            <label class="form-label">Longitud minima</label>
-                            <input type="number" class="form-control" @bind="_qMinLength" min="0" />
-                        </div>
-                        <div class="field">
-                            <label class="form-label">Longitud maxima</label>
-                            <input type="number" class="form-control" @bind="_qMaxLength" min="0" />
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Pattern (regex)</label>
-                        <input class="form-control" @bind="_qPattern" placeholder="^[A-Za-z0-9._%+-]+@@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$" />
-                    </div>
-                }
-                @if (_qType == FormControlType.Number)
-                {
-                    <div class="field-row">
-                        <div class="field">
-                            <label class="form-label">Valor minimo</label>
-                            <input type="number" step="any" class="form-control" @bind="_qMinValue" />
-                        </div>
-                        <div class="field">
-                            <label class="form-label">Valor maximo</label>
-                            <input type="number" step="any" class="form-control" @bind="_qMaxValue" />
-                        </div>
-                    </div>
-                }
-                @if (_modalError is not null)
-                {
-                    <div class="tk-field-error">@_modalError</div>
-                }
-            </div>
-            <div class="modal-foot">
-                <button class="btn btn-outline-secondary" @onclick="@(() => _showQuestionEditor = false)" disabled="@_busy">Cancelar</button>
-                <button class="btn btn-primary" @onclick="SaveQuestionAsync" disabled="@_busy">Guardar pregunta</button>
+                </aside>
             </div>
         </div>
     </div>
 }
 
-@* ===== Modal vista previa (renderer read-only) ===== *@
-@if (_showPreview && _definition is not null)
+@* ===== Modal vista previa (renderer real) ===== *@
+@if (_showPreview && _def is not null)
 {
-    <div class="modal-overlay" @onclick="@(() => _showPreview = false)">
-        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+    <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showPreview = false)">
+        <div class="modal-dialog" style="max-width:820px;" @onclick:stopPropagation="true">
             <div class="modal-head">
-                <h3>Vista previa - @_definition.Title</h3>
+                <h3>Vista previa - @_def.Title</h3>
                 <button class="modal-close" @onclick="@(() => _showPreview = false)">&times;</button>
             </div>
             <div class="modal-body">
-                <DynamicFormRenderer DefinitionId="@_definition.Id" Mode="FormRenderMode.Design" />
+                @* Fill real cuando el formulario esta activo (llenado end-to-end desde el
+                   constructor, ADR-0021); Design (solo lectura) mientras es borrador. *@
+                <DynamicFormRenderer DefinitionId="@_def.Id"
+                                     Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Design)"
+                                     Reference="@($"PREVIEW-{_def.Code}")" />
             </div>
         </div>
     </div>
 }
 
-@* ===== Modal publicar por URL (token) ===== *@
-@if (_showTokenModal && _definition is not null)
+@* ===== Modal publicar por URL (token) - misma estructura estable que la ola 2 (E2E) ===== *@
+@if (_showTokenModal && _def is not null)
 {
-    <div class="modal-overlay" @onclick="CloseTokenModal">
+    <div class="modal-overlay" style="z-index:70;" @onclick="CloseTokenModal">
         <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Publicar por URL</h3>
@@ -368,7 +337,7 @@ else
                         Comparte esta URL. <strong>Se muestra una sola vez</strong>: solo se guarda el hash del token.
                     </p>
                     <div class="fd-token-url">@_emittedUrl</div>
-                    <p style="font-size:12px;color:var(--muted-foreground);margin-top:8px;">
+                    <p style="font-size:12px;color:var(--ink-3);margin-top:8px;">
                         Expira: @_emittedExpiresAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")
                     </p>
                 }
@@ -405,40 +374,28 @@ else
 @code {
     [Parameter] public Guid Id { get; set; }
 
-    private FormDefinitionDetailDto? _definition;
+    private FormDefinitionDetailDto? _def;
     private bool _loading = true;
     private bool _busy;
+    private bool _savedFlash;
     private string? _pageError;
     private string? _modalError;
 
-    // Contenedores
-    private bool _showContainerEditor;
-    private FormContainerDto? _editingContainer;
-    private string _cName = "";
-    private FormContainerType _cType = FormContainerType.Segment;
-    private Guid? _cParentId;
-    private string _cStyle = "";
+    // Seleccion y estado de UI del constructor.
+    private Guid? _selId;
+    private bool _selIsQuestion;
+    private string _propTab = "diseno";
+    private string _device = "navegador";
+    private readonly HashSet<Guid> _collapsed = new();
+    private bool _editingTitle;
+    private string _titleDraft = "";
 
-    // Preguntas
-    private bool _showQuestionEditor;
-    private FormQuestionDto? _editingQuestion;
-    private string _qFieldCode = "";
-    private string _qLabel = "";
-    private FormControlType _qType = FormControlType.Text;
-    private Guid? _qContainerId;
-    private string _qGridCol = "col-12";
-    private string _qNumeral = "";
-    private bool _qRequired;
-    private string _qCaption = "";
-    private string _qHelpText = "";
-    private List<FormOption> _qOptions = new();
-    private int? _qMinLength;
-    private int? _qMaxLength;
-    private string _qPattern = "";
-    private decimal? _qMinValue;
-    private decimal? _qMaxValue;
+    // Drag and drop nativo: paleta -> lienzo y nodos entre posiciones.
+    private PaletteKey? _dragPalette;
+    private Guid? _dragNodeId;
+    private bool _dragNodeIsQuestion;
 
-    // Vista previa y tokens
+    // Vista previa y tokens.
     private bool _showPreview;
     private bool _showTokenModal;
     private string _tReference = "";
@@ -449,7 +406,156 @@ else
     private DateTimeOffset? _emittedExpiresAt;
     private List<FormTokenDto> _tokens = new();
 
-    private bool IsNonInputSelected => FormFieldValidator.IsNonInput(_qType);
+    // Tab Reglas: vinculos de la pregunta seleccionada + catalogo del tenant.
+    private List<QuestionRuleLinkDto> _questionRules = new();
+    private Guid? _rulesLoadedFor;
+    private bool _rulePickerOpen;
+    private List<RuleDocumentDto> _ruleDocs = new();
+    private List<RuleDto> _ruleOptions = new();
+    private Guid? _pickDocId;
+    private Guid? _pickRuleId;
+
+    private enum PaletteKey { Contenedor, Input, Parrafo, Divisor, Espacio }
+
+    // ---- Registro de tipos del prototipo (fbTypeReg) ----
+
+    private sealed record Reg(string Name, string Tipo, string Icon, string Color, string Soft, string Cat);
+
+    private static readonly Dictionary<FormControlType, Reg> ControlReg = new()
+    {
+        [FormControlType.Text] = new("Texto corto", "Texto", "M4 6h16M4 12h16M4 18h10", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.TextArea] = new("Area de texto", "Area", "<rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2.5\"/><path d=\"M9 8h6M9 12h6M9 16h3\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.Select] = new("Lista desplegable", "Lista", "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", "var(--t-blue)", "var(--t-blue-bg)", "control"),
+        [FormControlType.Date] = new("Fecha", "Fecha", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
+        [FormControlType.Number] = new("Numerico", "Numero", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18", "var(--t-blue)", "var(--t-blue-bg)", "control"),
+        [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
+        [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
+        [FormControlType.Signature] = new("Firma", "Firma", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "var(--t-rose)", "var(--t-rose-bg)", "control"),
+        [FormControlType.Photo] = new("Foto", "Foto", "<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "control"),
+        [FormControlType.Gps] = new("GPS", "GPS", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
+        [FormControlType.File] = new("Archivo", "Archivo", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Barcode] = new("Codigo de barras", "Barras", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        // Documento (ADR-0021).
+        [FormControlType.Paragraph] = new("Texto", "Parrafo", "M4 6h16M4 12h16M4 18h10", "var(--t-amber)", "var(--t-amber-bg)", "doc"),
+        [FormControlType.Divider] = new("Divisor", "Divisor", "M5 12h14", "var(--t-amber)", "var(--t-amber-bg)", "doc"),
+        [FormControlType.Spacer] = new("Espacio", "Espacio", "M8 7 12 3l4 4M8 17l4 4 4-4M3 12h18", "var(--t-amber)", "var(--t-amber-bg)", "doc"),
+        // Legacy de la ola 2 (sin tarjeta en la paleta; se conservan editables).
+        [FormControlType.Heading] = new("Titulo", "Titulo", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Literal] = new("Texto fijo", "Literal", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Radio] = new("Radio", "Radio", "<circle cx=\"12\" cy=\"12\" r=\"8\"/>", "var(--t-blue)", "var(--t-blue-bg)", "control"),
+        [FormControlType.MultiCheck] = new("Seleccion multiple", "Multiple", "M9 6h12M9 12h12M9 18h12", "var(--t-blue)", "var(--t-blue-bg)", "control"),
+        [FormControlType.Image] = new("Imagen", "Imagen", "<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "control"),
+        [FormControlType.Audio] = new("Audio", "Audio", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Button] = new("Boton", "Boton", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"10\" rx=\"2\"/><path d=\"M7 12h2\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Chart] = new("Grafico", "Grafico", "M4 4v16h16", "var(--t-slate)", "var(--t-slate-bg)", "control"),
+        [FormControlType.Html] = new("HTML", "Html", "M4 6h16M4 12h16M4 18h10", "var(--t-slate)", "var(--t-slate-bg)", "control")
+    };
+
+    private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
+    {
+        [FormContainerType.Row] = new("Fila", "Fila", "<rect x=\"3\" y=\"6\" width=\"18\" height=\"4\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"18\" height=\"4\" rx=\"1\"/>", "var(--t-blue)", "var(--t-blue-bg)", "container"),
+        [FormContainerType.Col] = new("Columna", "Columna", "<rect x=\"6\" y=\"3\" width=\"4\" height=\"18\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"4\" height=\"18\" rx=\"1\"/>", "var(--t-blue)", "var(--t-blue-bg)", "container"),
+        [FormContainerType.Section] = new("Seccion", "Seccion", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 10h18\"/>", "var(--t-violet)", "var(--t-violet-bg)", "container"),
+        [FormContainerType.Segment] = new("Seccion", "Seccion", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 10h18\"/>", "var(--t-violet)", "var(--t-violet-bg)", "container"),
+        [FormContainerType.Tabs] = new("Pestanas", "TabContainer", "<path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z\"/>", "var(--t-amber)", "var(--t-amber-bg)", "container"),
+        [FormContainerType.Modal] = new("Modal", "Modal", "<rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "container"),
+        [FormContainerType.Table] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M3 9h18M9 21V9\"/>", "var(--t-amber)", "var(--t-amber-bg)", "container")
+    };
+
+    private static Reg RegOf(FormControlType t) => ControlReg.GetValueOrDefault(t, ControlReg[FormControlType.Text]);
+    private static Reg RegOf(FormContainerType t) => ContainerReg.GetValueOrDefault(t, ContainerReg[FormContainerType.Section]);
+
+    /// <summary>Icono del registro: path simple ("M...") o markup svg interno ("&lt;rect.../&gt;").</summary>
+    private static string IconSvg(string icon, int size)
+    {
+        var body = icon.StartsWith('<') ? icon : $"<path d=\"{icon}\"/>";
+        return $"<svg width=\"{size}\" height=\"{size}\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{body}</svg>";
+    }
+
+    // ---- Nodo unificado (contenedor o pregunta) ----
+
+    private sealed class Node
+    {
+        public required Guid Id { get; init; }
+        public required bool IsQuestion { get; init; }
+        public FormQuestionDto? Q { get; init; }
+        public FormContainerDto? C { get; init; }
+        public required Reg Reg { get; init; }
+        public string Label => IsQuestion ? Q!.Label : C!.Name;
+        public int Width => IsQuestion ? Q!.Width : C!.Width;
+        public bool Locked => IsQuestion ? Q!.IsLocked : C!.IsLocked;
+        public bool Hidden => IsQuestion ? Q!.IsHidden : C!.IsHidden;
+        public bool IsContainer => !IsQuestion;
+        public bool IsDoc => IsQuestion && Reg.Cat == "doc";
+    }
+
+    private Node ToNode(FormQuestionDto q) => new() { Id = q.Id, IsQuestion = true, Q = q, Reg = RegOf(q.ControlType) };
+    private Node ToNode(FormContainerDto c) => new() { Id = c.Id, IsQuestion = false, C = c, Reg = RegOf(c.ContainerType) };
+
+    /// <summary>Hijos de un contenedor (o de la raiz con null): preguntas primero, luego sub-contenedores.</summary>
+    private List<Node> NodesOf(Guid? containerId)
+    {
+        var nodes = new List<Node>();
+        nodes.AddRange(_def!.Questions.Where(q => q.ContainerId == containerId).OrderBy(q => q.SortOrder).Select(ToNode));
+        nodes.AddRange(_def!.Containers.Where(c => c.ParentId == containerId).OrderBy(c => c.SortOrder).Select(ToNode));
+        return nodes;
+    }
+
+    private int TotalNodes() => _def is null ? 0 : _def.Questions.Count + _def.Containers.Count;
+
+    private Node? Sel => _selId is Guid id
+        ? (_selIsQuestion
+            ? _def!.Questions.Where(q => q.Id == id).Select(ToNode).FirstOrDefault()
+            : _def!.Containers.Where(c => c.Id == id).Select(ToNode).FirstOrDefault())
+        : null;
+
+    private bool IsSelected(Node n) => _selId == n.Id;
+
+    private void Select(Node? n)
+    {
+        _selId = n?.Id;
+        _selIsQuestion = n?.IsQuestion ?? false;
+        _rulePickerOpen = false;
+    }
+
+    private sealed record TreeRow(Node Node, int Depth, bool HasKids, string Badge);
+
+    private List<TreeRow> TreeRows()
+    {
+        var rows = new List<TreeRow>();
+        void Walk(Guid? parentId, int depth)
+        {
+            foreach (var node in NodesOf(parentId))
+            {
+                var kids = node.IsContainer ? NodesOf(node.Id) : new List<Node>();
+                var badge = node.IsContainer ? kids.Count.ToString() : $"{node.Width}/12";
+                rows.Add(new TreeRow(node, depth, node.IsContainer && kids.Count > 0, badge));
+                if (node.IsContainer && !_collapsed.Contains(node.Id))
+                {
+                    Walk(node.Id, depth + 1);
+                }
+            }
+        }
+        Walk(null, 0);
+        return rows;
+    }
+
+    private void ToggleCollapse(Guid id)
+    {
+        if (!_collapsed.Remove(id))
+        {
+            _collapsed.Add(id);
+        }
+    }
+
+    private string CanvasWidth() => _device switch
+    {
+        "tableta" => "620px",
+        "movil" => "380px",
+        _ => "820px"
+    };
+
+    // ---- Ciclo de vida ----
 
     protected override async Task OnInitializedAsync()
     {
@@ -459,89 +565,172 @@ else
 
     private async Task ReloadAsync()
     {
-        _definition = await FormsSvc.GetAsync(Id);
+        _def = await FormsSvc.GetAsync(Id);
     }
 
-    // ---- Arbol de contenedores ----
-
-    private sealed record QuestionGroup(string ContainerName, List<FormQuestionDto> Questions);
-
-    /// <summary>Preguntas agrupadas: primero la raiz, luego cada contenedor en orden de arbol.</summary>
-    private List<QuestionGroup> QuestionGroups()
+    private async Task SaveFlashAsync()
     {
-        var groups = new List<QuestionGroup>();
-        void AddGroup(Guid? containerId, string name)
-        {
-            var questions = _definition!.Questions
-                .Where(q => q.ContainerId == containerId)
-                .OrderBy(q => q.SortOrder)
-                .ToList();
-            if (questions.Count > 0)
-            {
-                groups.Add(new QuestionGroup(name, questions));
-            }
-        }
-        AddGroup(null, "(raiz)");
-        void Walk(Guid? parentId)
-        {
-            foreach (var c in _definition!.Containers.Where(c => c.ParentId == parentId).OrderBy(c => c.SortOrder))
-            {
-                AddGroup(c.Id, c.Name);
-                Walk(c.Id);
-            }
-        }
-        Walk(null);
-        return groups;
+        // Persistencia por cambio (ADR-0021): Guardar confirma recargando el estado real.
+        await ReloadAsync();
+        _savedFlash = true;
+        StateHasChanged();
+        await Task.Delay(1400);
+        _savedFlash = false;
     }
 
-    private RenderFragment RenderContainerTree(Guid? parentId, int depth) => __builder =>
+    private string StatusLabel() => _def!.IsArchived ? "Archivado" : _def.Status switch
     {
-        <ul class="fd-tree" style="@(depth == 0 ? "" : "margin-left:16px;")">
-            @foreach (var c in _definition!.Containers.Where(x => x.ParentId == parentId).OrderBy(x => x.SortOrder))
-            {
-                <li>
-                    <div class="fd-tree-node">
-                        <span class="fd-tree-name">@c.Name</span>
-                        <span class="fd-tree-type">@(c.ContainerType == FormContainerType.Segment ? "segmento" : "tabla")</span>
-                        <span class="fd-tree-count">@_definition.Questions.Count(q => q.ContainerId == c.Id)</span>
-                        <span class="fd-qactions">
-                            <button title="Subir" @onclick="@(() => MoveContainerAsync(c.Id, true))" disabled="@_busy">&#9650;</button>
-                            <button title="Bajar" @onclick="@(() => MoveContainerAsync(c.Id, false))" disabled="@_busy">&#9660;</button>
-                            <button title="Agregar hijo" @onclick="@(() => OpenContainerEditor(null, c.Id))" disabled="@_busy">+</button>
-                            <button title="Editar" @onclick="@(() => OpenContainerEditor(c, null))" disabled="@_busy">&#9998;</button>
-                            <button title="Eliminar" class="danger" @onclick="@(() => DeleteContainerAsync(c.Id))" disabled="@_busy">&times;</button>
-                        </span>
-                    </div>
-                    @RenderContainerTree(c.Id, depth + 1)
-                </li>
-            }
-        </ul>
+        FormStatus.Active => "Publicado",
+        FormStatus.Draft => "Borrador",
+        _ => "Inactivo"
     };
 
-    private void OpenContainerEditor(FormContainerDto? container, Guid? parentId)
+    private string StatusColor() => !_def!.IsArchived && _def.Status == FormStatus.Active
+        ? "var(--t-green)"
+        : !_def.IsArchived && _def.Status == FormStatus.Draft ? "var(--t-amber)" : "var(--ink-3)";
+
+    private string StatusSoft() => !_def!.IsArchived && _def.Status == FormStatus.Active
+        ? "var(--t-green-bg)"
+        : !_def.IsArchived && _def.Status == FormStatus.Draft ? "var(--t-amber-bg)" : "var(--surface-3)";
+
+    private async Task SaveTitleAsync()
     {
-        _editingContainer = container;
-        _modalError = null;
-        _cName = container?.Name ?? "";
-        _cType = container?.ContainerType ?? FormContainerType.Segment;
-        _cParentId = container?.ParentId ?? parentId;
-        _cStyle = container?.Style ?? "";
-        _showContainerEditor = true;
+        _editingTitle = false;
+        var title = _titleDraft.Trim();
+        if (title.Length == 0 || title == _def!.Title)
+        {
+            return;
+        }
+        var result = await FormsSvc.UpdateHeaderAsync(Id, new UpdateFormDefinitionRequest(title, _def.Description, _def.Version));
+        if (!result.IsOk)
+        {
+            _pageError = result.Error;
+            return;
+        }
+        _def = result.Value;
     }
 
-    private async Task SaveContainerAsync()
+    // ---- Agregar elementos (paleta) ----
+
+    private async Task AddPaletteAsync(PaletteKey key)
     {
-        _modalError = null;
+        // Como el prototipo (fbAddTo): dentro del contenedor seleccionado, si no a la raiz.
+        var target = Sel is { IsContainer: true } ? Sel.Id : (Guid?)null;
+        await AddElementAsync(key, target);
+    }
+
+    private async Task AddElementAsync(PaletteKey key, Guid? containerId)
+    {
+        _pageError = null;
         _busy = true;
         try
         {
-            var request = new SaveFormContainerRequest(_cName.Trim(), _cType, _cParentId,
-                string.IsNullOrWhiteSpace(_cStyle) ? null : _cStyle.Trim());
-            var result = _editingContainer is null
-                ? await FormsSvc.AddContainerAsync(Id, request)
-                : await FormsSvc.UpdateContainerAsync(_editingContainer.Id, request);
-            if (!result.IsOk) { _modalError = result.Error; return; }
-            _showContainerEditor = false;
+            if (key == PaletteKey.Contenedor)
+            {
+                var result = await FormsSvc.AddContainerAsync(Id, new SaveFormContainerRequest(
+                    "Fila", FormContainerType.Row, containerId));
+                if (!result.IsOk) { _pageError = result.Error; return; }
+                await ReloadAsync();
+                _selId = result.Value!.Id;
+                _selIsQuestion = false;
+            }
+            else
+            {
+                var (type, label) = key switch
+                {
+                    PaletteKey.Parrafo => (FormControlType.Paragraph, "Texto"),
+                    PaletteKey.Divisor => (FormControlType.Divider, "Divisor"),
+                    PaletteKey.Espacio => (FormControlType.Spacer, "Espacio"),
+                    _ => (FormControlType.Text, "Texto corto")
+                };
+                var result = await AddQuestionOfTypeAsync(type, label, containerId);
+                if (result is null) { return; }
+                await ReloadAsync();
+                _selId = result.Id;
+                _selIsQuestion = true;
+            }
+            _propTab = "diseno";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<FormQuestionDto?> AddQuestionOfTypeAsync(FormControlType type, string label, Guid? containerId)
+    {
+        var request = new SaveFormQuestionRequest(
+            containerId, NewFieldCode(type), label, type,
+            OptionsJson: DefaultOptions(type),
+            DefaultValue: type switch
+            {
+                FormControlType.Paragraph => "Texto del documento...",
+                FormControlType.Spacer => "24",
+                _ => null
+            });
+        var result = await FormsSvc.AddQuestionAsync(Id, request);
+        if (!result.IsOk)
+        {
+            _pageError = result.Error;
+            return null;
+        }
+        return result.Value;
+    }
+
+    private static string NewFieldCode(FormControlType type)
+        => $"{type.ToString().ToLowerInvariant()}_{Guid.NewGuid().ToString("N")[..5]}";
+
+    private static string? DefaultOptions(FormControlType type) => type switch
+    {
+        FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck =>
+            """[{"id":"opcion_1","label":"Opcion 1"},{"id":"opcion_2","label":"Opcion 2"}]""",
+        FormControlType.GridDetail =>
+            """[{"id":"columna_1","label":"Columna 1"},{"id":"columna_2","label":"Columna 2"}]""",
+        _ => null
+    };
+
+    // ---- Drag and drop ----
+
+    private async Task DropOnAsync(Guid? containerId, Node? before)
+    {
+        if (_dragPalette is PaletteKey key)
+        {
+            _dragPalette = null;
+            await AddElementAsync(key, containerId);
+            return;
+        }
+        if (_dragNodeId is not Guid dragId)
+        {
+            return;
+        }
+        _dragNodeId = null;
+        if (dragId == containerId || before?.Id == dragId)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            if (_dragNodeIsQuestion)
+            {
+                var siblings = _def!.Questions.Where(q => q.ContainerId == containerId && q.Id != dragId)
+                    .OrderBy(q => q.SortOrder).ToList();
+                var index = before is { IsQuestion: true }
+                    ? Math.Max(siblings.FindIndex(q => q.Id == before.Id), 0)
+                    : siblings.Count;
+                var result = await FormsSvc.MoveQuestionToAsync(dragId, containerId, index);
+                if (!result.IsOk) { _pageError = result.Error; }
+            }
+            else
+            {
+                var siblings = _def!.Containers.Where(c => c.ParentId == containerId && c.Id != dragId)
+                    .OrderBy(c => c.SortOrder).ToList();
+                var index = before is { IsQuestion: false }
+                    ? Math.Max(siblings.FindIndex(c => c.Id == before.Id), 0)
+                    : siblings.Count;
+                var result = await FormsSvc.MoveContainerToAsync(dragId, containerId, index);
+                if (!result.IsOk) { _pageError = result.Error; }
+            }
             await ReloadAsync();
         }
         finally
@@ -550,12 +739,34 @@ else
         }
     }
 
-    private async Task DeleteContainerAsync(Guid containerId)
+    private void OnNodeDragStart(Node node)
     {
+        if (node.Locked)
+        {
+            return;
+        }
+        _dragNodeId = node.Id;
+        _dragNodeIsQuestion = node.IsQuestion;
+        _dragPalette = null;
+    }
+
+    // ---- Mutaciones (persisten por cambio) ----
+
+    private SaveFormQuestionRequest ToRequest(FormQuestionDto q) => new(
+        q.ContainerId, q.FieldCode, q.Label, q.ControlType, q.Caption, q.HelpText,
+        q.OptionsJson, q.Required, q.GridCol, q.Numeral, q.ValidationJson,
+        q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
+
+    private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
+        c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
+
+    private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
+    {
+        _pageError = null;
         _busy = true;
         try
         {
-            var result = await FormsSvc.DeleteContainerAsync(containerId);
+            var result = await FormsSvc.UpdateQuestionAsync(q.Id, patch(ToRequest(q)));
             if (!result.IsOk) { _pageError = result.Error; return; }
             await ReloadAsync();
         }
@@ -565,100 +776,13 @@ else
         }
     }
 
-    private async Task MoveContainerAsync(Guid containerId, bool up)
+    private async Task PatchContainerAsync(FormContainerDto c, Func<SaveFormContainerRequest, SaveFormContainerRequest> patch)
     {
+        _pageError = null;
         _busy = true;
         try
         {
-            await FormsSvc.MoveContainerAsync(containerId, up);
-            await ReloadAsync();
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    // ---- Preguntas ----
-
-    private void OpenQuestionEditor(FormQuestionDto? question)
-    {
-        _editingQuestion = question;
-        _modalError = null;
-        _qFieldCode = question?.FieldCode ?? "";
-        _qLabel = question?.Label ?? "";
-        _qType = question?.ControlType ?? FormControlType.Text;
-        _qContainerId = question?.ContainerId;
-        _qGridCol = question?.GridCol ?? "col-12";
-        _qNumeral = question?.Numeral ?? "";
-        _qRequired = question?.Required ?? false;
-        _qCaption = question?.Caption ?? "";
-        _qHelpText = question?.HelpText ?? "";
-        _qOptions = FormFieldValidator.ParseOptions(question?.OptionsJson).ToList();
-        var rules = FormFieldValidator.ParseRules(question?.ValidationJson);
-        _qMinLength = rules?.MinLength;
-        _qMaxLength = rules?.MaxLength;
-        _qPattern = rules?.Pattern ?? "";
-        _qMinValue = rules?.MinValue;
-        _qMaxValue = rules?.MaxValue;
-        _showQuestionEditor = true;
-    }
-
-    private async Task SaveQuestionAsync()
-    {
-        _modalError = null;
-        _busy = true;
-        try
-        {
-            string? optionsJson = null;
-            if (_qType is FormControlType.Select or FormControlType.MultiCheck or FormControlType.Radio)
-            {
-                var options = _qOptions
-                    .Where(o => !string.IsNullOrWhiteSpace(o.Id) || !string.IsNullOrWhiteSpace(o.Label))
-                    .Select(o => new FormOption(o.Id.Trim(), o.Label.Trim(),
-                        string.IsNullOrWhiteSpace(o.Value) ? null : o.Value.Trim()))
-                    .ToList();
-                optionsJson = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            }
-
-            string? validationJson = null;
-            if (_qMinLength is not null || _qMaxLength is not null || !string.IsNullOrWhiteSpace(_qPattern)
-                || _qMinValue is not null || _qMaxValue is not null)
-            {
-                validationJson = JsonSerializer.Serialize(
-                    new FormValidationRules(_qMinLength, _qMaxLength,
-                        string.IsNullOrWhiteSpace(_qPattern) ? null : _qPattern.Trim(),
-                        _qMinValue, _qMaxValue),
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
-            }
-
-            var request = new SaveFormQuestionRequest(
-                _qContainerId, _qFieldCode.Trim(), _qLabel.Trim(), _qType,
-                string.IsNullOrWhiteSpace(_qCaption) ? null : _qCaption.Trim(),
-                string.IsNullOrWhiteSpace(_qHelpText) ? null : _qHelpText.Trim(),
-                optionsJson, _qRequired, _qGridCol,
-                string.IsNullOrWhiteSpace(_qNumeral) ? null : _qNumeral.Trim(),
-                validationJson);
-
-            var result = _editingQuestion is null
-                ? await FormsSvc.AddQuestionAsync(Id, request)
-                : await FormsSvc.UpdateQuestionAsync(_editingQuestion.Id, request);
-            if (!result.IsOk) { _modalError = result.Error; return; }
-            _showQuestionEditor = false;
-            await ReloadAsync();
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task DeleteQuestionAsync(Guid questionId)
-    {
-        _busy = true;
-        try
-        {
-            var result = await FormsSvc.DeleteQuestionAsync(questionId);
+            var result = await FormsSvc.UpdateContainerAsync(c.Id, patch(ToRequest(c)));
             if (!result.IsOk) { _pageError = result.Error; return; }
             await ReloadAsync();
         }
@@ -668,12 +792,32 @@ else
         }
     }
 
-    private async Task MoveQuestionAsync(Guid questionId, bool up)
+    private async Task ToggleLockAsync(Node n)
     {
+        if (n.IsQuestion) { await PatchQuestionAsync(n.Q!, r => r with { IsLocked = !n.Locked }); }
+        else { await PatchContainerAsync(n.C!, r => r with { IsLocked = !n.Locked }); }
+    }
+
+    private async Task ToggleHideAsync(Node n)
+    {
+        if (n.IsQuestion) { await PatchQuestionAsync(n.Q!, r => r with { IsHidden = !n.Hidden }); }
+        else { await PatchContainerAsync(n.C!, r => r with { IsHidden = !n.Hidden }); }
+    }
+
+    private async Task SetWidthAsync(Node n, int width)
+    {
+        if (n.IsQuestion) { await PatchQuestionAsync(n.Q!, r => r with { Width = width, GridCol = width >= 12 ? "col-12" : $"col-md-{width}" }); }
+        else { await PatchContainerAsync(n.C!, r => r with { Width = width }); }
+    }
+
+    private async Task MoveNodeAsync(Node n, bool up)
+    {
+        if (n.Locked) { return; }
         _busy = true;
         try
         {
-            await FormsSvc.MoveQuestionAsync(questionId, up);
+            if (n.IsQuestion) { await FormsSvc.MoveQuestionAsync(n.Id, up); }
+            else { await FormsSvc.MoveContainerAsync(n.Id, up); }
             await ReloadAsync();
         }
         finally
@@ -682,7 +826,79 @@ else
         }
     }
 
-    // ---- Activacion ----
+    private async Task DuplicateNodeAsync(Node n)
+    {
+        _pageError = null;
+        _busy = true;
+        try
+        {
+            if (n.IsQuestion)
+            {
+                var q = n.Q!;
+                var result = await FormsSvc.AddQuestionAsync(Id, ToRequest(q) with { FieldCode = NewFieldCode(q.ControlType) });
+                if (!result.IsOk) { _pageError = result.Error; return; }
+                await FormsSvc.MoveQuestionToAsync(result.Value!.Id, q.ContainerId, q.SortOrder + 1);
+                await ReloadAsync();
+                _selId = result.Value.Id;
+                _selIsQuestion = true;
+            }
+            else
+            {
+                var copyId = await DuplicateContainerRecursiveAsync(n.C!, n.C!.ParentId);
+                if (copyId is Guid cid)
+                {
+                    await FormsSvc.MoveContainerToAsync(cid, n.C.ParentId, n.C.SortOrder + 1);
+                    await ReloadAsync();
+                    _selId = cid;
+                    _selIsQuestion = false;
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<Guid?> DuplicateContainerRecursiveAsync(FormContainerDto source, Guid? parentId)
+    {
+        var created = await FormsSvc.AddContainerAsync(Id, ToRequest(source) with { ParentId = parentId });
+        if (!created.IsOk) { _pageError = created.Error; return null; }
+        foreach (var q in _def!.Questions.Where(q => q.ContainerId == source.Id).OrderBy(q => q.SortOrder))
+        {
+            await FormsSvc.AddQuestionAsync(Id, ToRequest(q) with
+            {
+                ContainerId = created.Value!.Id,
+                FieldCode = NewFieldCode(q.ControlType)
+            });
+        }
+        foreach (var child in _def.Containers.Where(c => c.ParentId == source.Id).OrderBy(c => c.SortOrder))
+        {
+            await DuplicateContainerRecursiveAsync(child, created.Value!.Id);
+        }
+        return created.Value!.Id;
+    }
+
+    private async Task DeleteNodeAsync(Node n)
+    {
+        _pageError = null;
+        _busy = true;
+        try
+        {
+            var result = n.IsQuestion
+                ? await FormsSvc.DeleteQuestionAsync(n.Id)
+                : await FormsSvc.DeleteContainerAsync(n.Id);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            if (_selId == n.Id) { _selId = null; }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Activacion / publicacion ----
 
     private async Task ActivateAsync()
     {
@@ -692,7 +908,7 @@ else
         {
             var result = await FormsSvc.ActivateAsync(Id);
             if (!result.IsOk) { _pageError = result.Error; return; }
-            _definition = result.Value;
+            _def = result.Value;
         }
         finally
         {
@@ -708,7 +924,7 @@ else
         {
             var result = await FormsSvc.DeactivateAsync(Id);
             if (!result.IsOk) { _pageError = result.Error; return; }
-            _definition = result.Value;
+            _def = result.Value;
         }
         finally
         {
@@ -716,7 +932,7 @@ else
         }
     }
 
-    // ---- Publicar por URL ----
+    private void OpenPreview() => _showPreview = true;
 
     private async void OpenTokenModal()
     {
@@ -781,4 +997,601 @@ else
 
     private static string TokenStateClass(FormTokenDto t)
         => TokenStateLabel(t) == "Vigente" ? "ok" : "off";
+
+    // ---- Tab Reglas ----
+
+    private async Task EnsureRulesLoadedAsync(Node n)
+    {
+        if (!n.IsQuestion || _rulesLoadedFor == n.Id)
+        {
+            return;
+        }
+        _rulesLoadedFor = n.Id;
+        _questionRules = (await RulesSvc.ListQuestionLinksAsync(n.Id)).ToList();
+        StateHasChanged();
+    }
+
+    private async Task OpenRulePickerAsync()
+    {
+        _rulePickerOpen = true;
+        if (_ruleDocs.Count == 0)
+        {
+            _ruleDocs = (await RulesSvc.ListDocumentsAsync()).ToList();
+        }
+        _pickDocId = null;
+        _pickRuleId = null;
+        _ruleOptions = new();
+    }
+
+    private async Task PickDocAsync(Guid? docId)
+    {
+        _pickDocId = docId;
+        _pickRuleId = null;
+        _ruleOptions = docId is Guid id ? (await RulesSvc.ListRulesAsync(id)).ToList() : new();
+    }
+
+    private async Task LinkRuleAsync(Node n)
+    {
+        if (_pickRuleId is not Guid ruleId || !n.IsQuestion)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.LinkToQuestionAsync(ruleId, n.Id, _questionRules.Count);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            _rulePickerOpen = false;
+            _rulesLoadedFor = null;
+            await EnsureRulesLoadedAsync(n);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task UnlinkRuleAsync(Node n, Guid linkId)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.UnlinkQuestionAsync(linkId);
+            if (!result.IsOk) { _pageError = result.Error; return; }
+            _rulesLoadedFor = null;
+            await EnsureRulesLoadedAsync(n);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Render del lienzo (recursivo, prototipo renderNode) ----
+
+    private RenderFragment RenderNode(Node node, bool inRow) => __builder =>
+    {
+        var span = inRow ? Math.Clamp(node.Width, 1, 12) : 12;
+        @if (node.Hidden)
+        {
+            <div class="fb-node-hidden" style="grid-column:span @span" draggable="true"
+                 @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+                 @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+                 @ondragover:preventDefault @ondragover:stopPropagation
+                 @ondrop="@(() => DropOnAsync(ParentOf(node), node))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+                @((MarkupString)IconSvg("<path d=\"M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a13 13 0 0 1-1.67 2.68M6.6 6.6A13 13 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6M1 1l22 22\"/>", 14))
+                <span>@node.Label - oculto</span>
+            </div>
+            return;
+        }
+        @if (node.IsContainer)
+        {
+            var c = node.C!;
+            var kids = NodesOf(c.Id);
+            var isRow = c.ContainerType == FormContainerType.Row;
+            <div class="fb-node-container @(IsSelected(node) ? "sel" : "")" style="grid-column:span @span" draggable="true"
+                 @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+                 @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+                 @ondragover:preventDefault @ondragover:stopPropagation
+                 @ondrop="@(() => DropOnAsync(c.Id, null))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+                @if (IsSelected(node))
+                {
+                    @RenderNodeActions(node)
+                }
+                <div class="fb-node-label" style="color:@node.Reg.Color;background:@node.Reg.Soft">
+                    @((MarkupString)IconSvg(node.Reg.Icon, 11)) @c.Name
+                </div>
+                <div class="@(isRow ? "fb-kids-row" : "fb-kids-col")">
+                    @foreach (var kid in kids)
+                    {
+                        @RenderNode(kid, inRow: isRow)
+                    }
+                    @if (kids.Count == 0)
+                    {
+                        <div class="fb-node-empty" style="@(isRow ? "grid-column:span 12" : "")">Contenedor vacio - arrastra o toca un elemento</div>
+                    }
+                </div>
+            </div>
+            return;
+        }
+        @if (node.IsDoc)
+        {
+            var q = node.Q!;
+            @if (q.ControlType == FormControlType.Divider)
+            {
+                <div class="fb-node-divider @(IsSelected(node) ? "sel" : "")" style="grid-column:span @span" draggable="true"
+                     @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+                     @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+                     @ondragover:preventDefault @ondragover:stopPropagation
+                     @ondrop="@(() => DropOnAsync(ParentOf(node), node))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+                    @if (IsSelected(node))
+                    {
+                        @RenderNodeActions(node)
+                    }
+                    <div class="fb-divider-line"></div>
+                </div>
+            }
+            else if (q.ControlType == FormControlType.Spacer)
+            {
+                <div class="fb-node-spacer @(IsSelected(node) ? "sel" : "")"
+                     style="grid-column:span @span;height:@(int.TryParse(q.DefaultValue, out var h) && h > 0 ? h : 24)px" draggable="true"
+                     @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+                     @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+                     @ondragover:preventDefault @ondragover:stopPropagation
+                     @ondrop="@(() => DropOnAsync(ParentOf(node), node))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+                    @if (IsSelected(node))
+                    {
+                        @RenderNodeActions(node)
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="fb-node-paragraph @(IsSelected(node) ? "sel" : "")" style="grid-column:span @span" draggable="true"
+                     @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+                     @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+                     @ondragover:preventDefault @ondragover:stopPropagation
+                     @ondrop="@(() => DropOnAsync(ParentOf(node), node))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+                    @if (IsSelected(node))
+                    {
+                        @RenderNodeActions(node)
+                    }
+                    @(string.IsNullOrWhiteSpace(node.Q!.DefaultValue) ? "Texto del documento..." : node.Q.DefaultValue)
+                </div>
+            }
+            return;
+        }
+        @* Control de captura *@
+        <div class="fb-node-control @(IsSelected(node) ? "sel" : "")" style="grid-column:span @span" draggable="true"
+             @onclick="@(() => Select(node))" @onclick:stopPropagation="true"
+             @ondragstart="@(() => OnNodeDragStart(node))" @ondragstart:stopPropagation="true"
+             @ondragover:preventDefault @ondragover:stopPropagation
+             @ondrop="@(() => DropOnAsync(ParentOf(node), node))" @ondrop:preventDefault @ondrop:stopPropagation="true">
+            @if (IsSelected(node))
+            {
+                @RenderNodeActions(node)
+            }
+            <div class="fb-ctrl-head">
+                <span class="fb-ctrl-ic" style="color:@node.Reg.Color">@((MarkupString)IconSvg(node.Reg.Icon, 14))</span>
+                <span class="fb-ctrl-label">
+                    @node.Q!.Label@if (node.Q.Required)
+                    {
+                        <span class="fb-ctrl-req"> *</span>
+                    }
+                </span>
+                <span class="fb-ctrl-badge">@(node.Width)/12</span>
+            </div>
+            @RenderCtrlPreview(node.Q!)
+        </div>
+    };
+
+    private Guid? ParentOf(Node node) => node.IsQuestion ? node.Q!.ContainerId : node.C!.ParentId;
+
+    private RenderFragment RenderNodeActions(Node node) => __builder =>
+    {
+        <div class="fb-node-actions" @onclick:stopPropagation="true">
+            <button title="Subir" disabled="@node.Locked" @onclick="@(() => MoveNodeAsync(node, true))">
+                @((MarkupString)IconSvg("M18 15l-6-6-6 6", 15))
+            </button>
+            <button title="Bajar" disabled="@node.Locked" @onclick="@(() => MoveNodeAsync(node, false))">
+                @((MarkupString)IconSvg("m6 9 6 6 6-6", 15))
+            </button>
+            <button title="Duplicar" @onclick="@(() => DuplicateNodeAsync(node))">
+                @((MarkupString)IconSvg("<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V5a2 2 0 0 1 2-2h8\"/>", 15))
+            </button>
+            <button class="danger" title="Eliminar" @onclick="@(() => DeleteNodeAsync(node))">
+                @((MarkupString)IconSvg("<path d=\"M3 6h18\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"m5 6 1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14\"/>", 15))
+            </button>
+        </div>
+    };
+
+    private RenderFragment RenderCtrlPreview(FormQuestionDto q) => __builder =>
+    {
+        var ph = string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Escribe aqui..." : q.PlaceholderText;
+        switch (q.ControlType)
+        {
+            case FormControlType.TextArea:
+                <div class="fb-prev-area">@ph</div>
+                break;
+            case FormControlType.Select:
+            case FormControlType.Radio:
+            case FormControlType.MultiCheck:
+                var first = FormFieldValidator.ParseOptions(q.OptionsJson).FirstOrDefault()?.Label ?? "Selecciona...";
+                <div class="fb-prev-select"><span>@first</span>@((MarkupString)IconSvg("m6 9 6 6 6-6", 14))</div>
+                break;
+            case FormControlType.Date:
+                <div class="fb-prev-input">dd / mm / aaaa</div>
+                break;
+            case FormControlType.Number:
+                <div class="fb-prev-input">0</div>
+                break;
+            case FormControlType.Toggle:
+                <div class="fb-prev-sino"><div class="on">Si</div><div>No</div></div>
+                break;
+            case FormControlType.GridDetail:
+                var cols = FormFieldValidator.ParseOptions(q.OptionsJson);
+                if (cols.Count == 0) { cols = new List<FormOption> { new("c1", "Columna 1"), new("c2", "Columna 2") }; }
+                <div class="fb-prev-table">
+                    <div class="fb-prev-thead" style="grid-template-columns:repeat(@cols.Count,1fr)">
+                        @for (var i = 0; i < cols.Count; i++)
+                        {
+                            <div class="@(i > 0 ? "bl" : "")">@cols[i].Label</div>
+                        }
+                    </div>
+                    <div class="fb-prev-trow" style="grid-template-columns:repeat(@cols.Count,1fr)">
+                        @for (var i = 0; i < cols.Count; i++)
+                        {
+                            <div class="@(i > 0 ? "bl" : "")">-</div>
+                        }
+                    </div>
+                </div>
+                break;
+            case FormControlType.Signature:
+                <div class="fb-prev-capture dashed" style="height:56px">@((MarkupString)IconSvg("M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", 16)) Firma aqui</div>
+                break;
+            case FormControlType.Photo:
+            case FormControlType.Image:
+                <div class="fb-prev-capture dashed" style="height:60px">@((MarkupString)IconSvg("<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", 16)) Capturar</div>
+                break;
+            case FormControlType.Gps:
+                <div class="fb-prev-capture left" style="height:48px">@((MarkupString)IconSvg("<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", 16)) Ubicacion</div>
+                break;
+            case FormControlType.File:
+            case FormControlType.Audio:
+                <div class="fb-prev-capture dashed" style="height:48px">@((MarkupString)IconSvg("<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/>", 15)) Subir archivo</div>
+                break;
+            case FormControlType.Barcode:
+                <div class="fb-prev-input">|| ||| |  escanear</div>
+                break;
+            default:
+                <div class="fb-prev-input">@ph</div>
+                break;
+        }
+    };
+
+    // ---- Panel de propiedades ----
+
+    private RenderFragment RenderDisenoTab(Node node) => __builder =>
+    {
+        <div class="fb-field">
+            <label>Tipo de elemento</label>
+            @if (node.IsContainer)
+            {
+                <select class="fb-select" value="@node.C!.ContainerType"
+                        @onchange="@(e => PatchContainerAsync(node.C!, r => r with { ContainerType = Enum.Parse<FormContainerType>(e.Value!.ToString()!) }))">
+                    <option value="@FormContainerType.Row">Fila</option>
+                    <option value="@FormContainerType.Col">Columna</option>
+                    <option value="@FormContainerType.Section">Seccion</option>
+                    <option value="@FormContainerType.Tabs">Pestanas</option>
+                    <option value="@FormContainerType.Modal">Modal</option>
+                    @if (node.C!.ContainerType is FormContainerType.Segment or FormContainerType.Table)
+                    {
+                        <option value="@node.C.ContainerType">@RegOf(node.C.ContainerType).Name</option>
+                    }
+                </select>
+            }
+            else
+            {
+                var q = node.Q!;
+                var opts = node.IsDoc
+                    ? new[] { FormControlType.Paragraph, FormControlType.Divider, FormControlType.Spacer }
+                    : new[]
+                    {
+                        FormControlType.Text, FormControlType.TextArea, FormControlType.Select,
+                        FormControlType.Date, FormControlType.Number, FormControlType.Toggle,
+                        FormControlType.GridDetail, FormControlType.Signature, FormControlType.Photo,
+                        FormControlType.Gps, FormControlType.File, FormControlType.Barcode
+                    };
+                <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
+                    @foreach (var t in opts)
+                    {
+                        <option value="@t">@RegOf(t).Name</option>
+                    }
+                    @if (!opts.Contains(q.ControlType))
+                    {
+                        <option value="@q.ControlType">@RegOf(q.ControlType).Name</option>
+                    }
+                </select>
+            }
+        </div>
+        <div class="fb-field">
+            <label>Etiqueta visible</label>
+            <input class="fb-input" value="@node.Label"
+                   @onchange="@(e => RenameAsync(node, e.Value?.ToString() ?? ""))" />
+        </div>
+        @if (!node.IsDoc)
+        {
+            <div class="fb-field">
+                <label>Ancho (columnas)</label>
+                <div class="fb-widthgrid">
+                    @for (var w = 1; w <= 12; w++)
+                    {
+                        var width = w;
+                        <button class="@(node.Width == width ? "on" : width <= node.Width ? "in" : "")"
+                                @onclick="@(() => SetWidthAsync(node, width))">@width</button>
+                    }
+                </div>
+                <div class="fb-widthinfo">
+                    <span><b>@node.Width col</b></span>
+                    <span>@(Math.Round(node.Width / 12d * 100))%</span>
+                </div>
+            </div>
+        }
+        @if (node is { IsDoc: true, Q.ControlType: FormControlType.Paragraph })
+        {
+            <div class="fb-field">
+                <label>Contenido</label>
+                <textarea class="fb-textarea" value="@node.Q!.DefaultValue"
+                          @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = e.Value?.ToString() }))"></textarea>
+            </div>
+        }
+        @if (node is { IsDoc: true, Q.ControlType: FormControlType.Spacer })
+        {
+            <div class="fb-field">
+                <label>Alto (px)</label>
+                <input class="fb-input" value="@(node.Q!.DefaultValue ?? "24")"
+                       @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = (int.TryParse(e.Value?.ToString(), out var px) && px > 0 ? px : 24).ToString() }))" />
+            </div>
+        }
+        @if (node.IsContainer && node.C!.ContainerType == FormContainerType.Tabs)
+        {
+            <div class="fb-field">
+                <label>Pestanas</label>
+                @RenderChipList(TabsOf(node.C), "var(--t-amber)",
+                    (i, v) => PatchTabsAsync(node.C!, i, v),
+                    i => PatchTabsAsync(node.C!, i, null),
+                    () => PatchTabsAsync(node.C!, -1, $"Pestana {TabsOf(node.C).Count + 1}"))
+            </div>
+        }
+        @if (!node.IsDoc)
+        {
+            <div style="margin-top:2px;">
+                @RenderToggleRow("Fijo en el layout", "No se puede reordenar", node.Locked, () => ToggleLockAsync(node))
+                @RenderToggleRow("Oculto", "No visible en el formulario", node.Hidden, () => ToggleHideAsync(node))
+            </div>
+        }
+    };
+
+    private RenderFragment RenderDatosTab(Node node) => __builder =>
+    {
+        var slug = node.IsQuestion
+            ? node.Q!.FieldCode
+            : new string(node.Label.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '_').ToArray()).Trim('_');
+        <div class="fb-field">
+            <label>Nombre interno (FORX_DATA)</label>
+            <input class="fb-input ro" readonly value="@slug" />
+        </div>
+        <div class="fb-field">
+            <label>Tipo de respuesta</label>
+            <input class="fb-input ro" readonly value="@node.Reg.Tipo" />
+        </div>
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Select or FormControlType.Radio or FormControlType.MultiCheck })
+        {
+            <div class="fb-field">
+                <label>Opciones de la lista</label>
+                @RenderChipList(OptionLabels(node.Q!), "var(--t-blue)",
+                    (i, v) => PatchOptionAsync(node.Q!, i, v),
+                    i => PatchOptionAsync(node.Q!, i, null),
+                    () => PatchOptionAsync(node.Q!, -1, $"Opcion {OptionLabels(node.Q!).Count + 1}"))
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
+        {
+            <div class="fb-field">
+                <label>Columnas de la tabla</label>
+                @RenderChipList(OptionLabels(node.Q!), "var(--t-amber)",
+                    (i, v) => PatchOptionAsync(node.Q!, i, v),
+                    i => PatchOptionAsync(node.Q!, i, null),
+                    () => PatchOptionAsync(node.Q!, -1, $"Columna {OptionLabels(node.Q!).Count + 1}"))
+            </div>
+        }
+        @if (node.IsQuestion && !node.IsDoc)
+        {
+            <div class="fb-field">
+                <label>Texto de ayuda</label>
+                <input class="fb-input" value="@node.Q!.PlaceholderText"
+                       @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { PlaceholderText = e.Value?.ToString() }))" />
+            </div>
+            <div class="fb-field">
+                <label>Valor por defecto</label>
+                <input class="fb-input" value="@node.Q!.DefaultValue"
+                       @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = e.Value?.ToString() }))" />
+            </div>
+            @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
+                () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))
+        }
+    };
+
+    private RenderFragment RenderReglasTab(Node node) => __builder =>
+    {
+        <p class="fb-rules-desc">Procesos de ejecucion ligados a este objeto (motor CONTROL_REGLAS).</p>
+        @if (!node.IsQuestion)
+        {
+            <div class="fb-rules-empty">Sin reglas asignadas</div>
+            <p class="fb-rules-desc" style="margin-top:10px;">Las reglas se vinculan a campos de captura (selecciona un input).</p>
+            return;
+        }
+        _ = EnsureRulesLoadedAsync(node);
+        @if (_questionRules.Count > 0)
+        {
+            @foreach (var link in _questionRules)
+            {
+                <div class="fb-rule-row">
+                    <span class="fb-rule-dot"></span>
+                    <div class="fb-rule-tx">
+                        <div class="fb-rule-verb">@link.VerbName</div>
+                        <div class="fb-rule-trigger">Al cambiar - @link.DocumentCode @link.RuleName</div>
+                    </div>
+                    <span class="fb-rule-x" @onclick="@(() => UnlinkRuleAsync(node, link.Id))">&times;</span>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="fb-rules-empty">Sin reglas asignadas</div>
+        }
+        @if (_rulePickerOpen)
+        {
+            <div class="fb-rule-picker">
+                <div class="fb-field">
+                    <label>Documento de reglas</label>
+                    <select class="fb-select" value="@(_pickDocId?.ToString() ?? "")"
+                            @onchange="@(e => PickDocAsync(Guid.TryParse(e.Value?.ToString(), out var id) ? id : null))">
+                        <option value="">Selecciona...</option>
+                        @foreach (var doc in _ruleDocs)
+                        {
+                            <option value="@doc.Id">@doc.DocumentCode - @doc.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="fb-field">
+                    <label>Regla</label>
+                    <select class="fb-select" value="@(_pickRuleId?.ToString() ?? "")"
+                            @onchange="@(e => _pickRuleId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                        <option value="">Selecciona...</option>
+                        @foreach (var rule in _ruleOptions)
+                        {
+                            <option value="@rule.Id">@rule.VerbName - @rule.Name</option>
+                        }
+                    </select>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="fb-btn-ghost" style="flex:1;" @onclick="@(() => _rulePickerOpen = false)">Cancelar</button>
+                    <button class="fb-btn-primary" style="flex:1;" disabled="@(_pickRuleId is null || _busy)" @onclick="@(() => LinkRuleAsync(node))">Vincular</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="fb-rule-add" @onclick="OpenRulePickerAsync">+ Agregar regla</button>
+        }
+    };
+
+    private RenderFragment RenderToggleRow(string label, string desc, bool on, Func<Task> toggle) => __builder =>
+    {
+        <div class="fb-toggle-row" @onclick="@(() => toggle())">
+            <div>
+                <div class="fb-toggle-label">@label</div>
+                <div class="fb-toggle-desc">@desc</div>
+            </div>
+            <div class="fb-toggle @(on ? "on" : "")"><span></span></div>
+        </div>
+    };
+
+    private RenderFragment RenderChipList(List<string> items, string accent,
+        Func<int, string?, Task> setAt, Func<int, Task> removeAt, Func<Task> add) => __builder =>
+    {
+        <div class="fb-chips">
+            @for (var i = 0; i < items.Count; i++)
+            {
+                var index = i;
+                <div class="fb-chip">
+                    <span class="fb-chip-dot" style="background:@accent"></span>
+                    <input value="@items[index]" @onchange="@(e => setAt(index, e.Value?.ToString()))" />
+                    <span class="fb-chip-x" @onclick="@(() => removeAt(index))">&times;</span>
+                </div>
+            }
+            <button class="fb-chip-add" @onclick="@(() => add())">+ Agregar</button>
+        </div>
+    };
+
+    // ---- Helpers de edicion ----
+
+    private async Task RenameAsync(Node node, string label)
+    {
+        label = label.Trim();
+        if (label.Length == 0)
+        {
+            return;
+        }
+        if (node.IsQuestion) { await PatchQuestionAsync(node.Q!, r => r with { Label = label }); }
+        else { await PatchContainerAsync(node.C!, r => r with { Name = label }); }
+    }
+
+    private async Task ChangeTypeAsync(FormQuestionDto q, string value)
+    {
+        var type = Enum.Parse<FormControlType>(value);
+        await PatchQuestionAsync(q, r => r with
+        {
+            ControlType = type,
+            OptionsJson = FormFieldValidator.ParseOptions(q.OptionsJson).Count > 0 ? q.OptionsJson : DefaultOptions(type)
+        });
+    }
+
+    private static List<string> TabsOf(FormContainerDto c)
+    {
+        if (string.IsNullOrWhiteSpace(c.TabsJson))
+        {
+            return new List<string> { "Pestana 1", "Pestana 2" };
+        }
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(c.TabsJson) ?? new List<string>();
+        }
+        catch (JsonException)
+        {
+            return new List<string>();
+        }
+    }
+
+    private async Task PatchTabsAsync(FormContainerDto c, int index, string? value)
+    {
+        var tabs = TabsOf(c);
+        if (index < 0)
+        {
+            tabs.Add(value ?? $"Pestana {tabs.Count + 1}");
+        }
+        else if (value is null)
+        {
+            if (index < tabs.Count) { tabs.RemoveAt(index); }
+        }
+        else if (index < tabs.Count)
+        {
+            tabs[index] = value;
+        }
+        await PatchContainerAsync(c, r => r with { TabsJson = JsonSerializer.Serialize(tabs) });
+    }
+
+    private static List<string> OptionLabels(FormQuestionDto q)
+        => FormFieldValidator.ParseOptions(q.OptionsJson).Select(o => o.Label).ToList();
+
+    private async Task PatchOptionAsync(FormQuestionDto q, int index, string? value)
+    {
+        var options = FormFieldValidator.ParseOptions(q.OptionsJson).ToList();
+        if (index < 0)
+        {
+            var n = options.Count + 1;
+            options.Add(new FormOption($"opcion_{n}_{Guid.NewGuid().ToString("N")[..4]}", value ?? $"Opcion {n}"));
+        }
+        else if (value is null)
+        {
+            if (index < options.Count) { options.RemoveAt(index); }
+        }
+        else if (index < options.Count)
+        {
+            options[index] = options[index] with { Label = value };
+        }
+        var json = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await PatchQuestionAsync(q, r => r with { OptionsJson = json });
+    }
 }

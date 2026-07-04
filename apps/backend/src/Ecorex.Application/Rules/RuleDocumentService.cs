@@ -245,6 +245,19 @@ public sealed class RuleDocumentService : IRuleDocumentService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<QuestionRuleLinkDto>> ListQuestionLinksAsync(
+        Guid formQuestionId, CancellationToken cancellationToken = default)
+    {
+        return await _db.FormFieldRules.AsNoTracking()
+            .Where(l => l.FormQuestionId == formQuestionId)
+            .Join(_db.Rules, l => l.RuleId, r => r.Id, (l, r) => new { l, r })
+            .Join(_db.RuleDocuments, x => x.r.DocumentId, d => d.Id, (x, d) => new { x.l, x.r, d })
+            .OrderBy(x => x.l.SortOrder).ThenBy(x => x.r.Name)
+            .Select(x => new QuestionRuleLinkDto(x.l.Id, x.r.Id, x.r.Name, x.r.VerbName,
+                x.d.DocumentCode, x.d.Name, x.l.SortOrder))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<RuleNodeLinkDto>> ListNodeLinksAsync(
         Guid ruleId, CancellationToken cancellationToken = default)
     {

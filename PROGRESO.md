@@ -584,7 +584,7 @@ sin tocar DbContext, seeder, migraciones ni las paginas nuevas de Formularios
   alertas".
 - Topbar del workspace: breadcrumb "Equipos / {tenant} / {seccion}" (seccion
   derivada de la ruta) + campana de notificaciones placeholder; el area
-  PlatformAdmin conserva su chip "Operador · usuario".
+  PlatformAdmin conserva su chip "Operador (punto medio) usuario".
 - Botones primarios NEGROS solo en el workspace del tenant: clase ws-tenant en
   el shell cuando hay tenant_id sin platform_role; PlatformAdmin sigue violeta.
 - Modo oscuro: toggle luna en el pie del sidebar (JS plano, sin circuito),
@@ -627,3 +627,171 @@ Login.razor, NavMenu.razor, MainLayout.razor, Inicio.razor, App.razor, app.css,
 - El KPI de flujos cuenta WorkflowInstance Running; el seed demo actual no
   deja instancias corriendo, por eso muestra 0.
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-03 - Sesion 10: FASE 4 ola 3 - RulesEngine (motor de reglas, ADR-0016)
+
+**Objetivo**: portar cl_gestion_reglas (modulo legacy 000802) cerrando sus tres
+agujeros: RCE por Activator.CreateInstance sobre nombres del XML -> registro TIPADO
+de verbos en DI; modo Execute (SQL directo) -> PROHIBIDO; historial perdido (tabla
+inexistente) -> RuleExecutionLog SIEMPRE, append-only, con TTL de 90 dias.
+
+**Cambios**:
+- Dominio: RuleDocument (DocumentCode unico por tenant, categoria, RuleStatus,
+  IsArchived), Rule (VerbName = clave del registro tipado, ParamsJson jsonb/nvarchar,
+  SortOrder, indice DocumentId+SortOrder), RuleExecutionLog (snapshot de nombre,
+  TriggerKind Manual/FormField/WorkflowNode, ContextJson, Status Success/Failed/
+  Skipped, RecordsAffected, DurationMs, ExpiresAt con indices TenantId+RuleId+
+  CreatedAt y ExpiresAt), FormFieldRule (pregunta->regla, unico por par, FK regla
+  NO ACTION) y WorkflowNodeRule (nodo->regla, IsAutonomous). Enums RuleStatus,
+  RuleTriggerKind, RuleExecutionStatus (persistidos como texto).
+- Motor (Ecorex.Application/Rules): IRuleVerb { Name, Descriptor, ExecuteAsync } con
+  RuleVerbDescriptor tipado (port del protocolo PARAM_XML) para que la UI renderice
+  la configuracion; RuleContext (params deserializados + FormData mutable + contexto
+  de tarea/flujo/respuesta); RuleVerbResult con acciones de UI TIPADAS (HideField/
+  ShowField/SetFieldValue/SetRequired) y AutoCompleteStep. RulesEngine: resolucion
+  por diccionario (verbo desconocido = error tipado + fila Failed), Stopwatch,
+  historial SIEMPRE con TTL; ExecuteForFormFieldAsync (SortOrder, propaga FormData
+  entre reglas encadenadas) y ExecuteForWorkflowNodeAsync (solo autonomas;
+  AutoComplete solo si TODAS exito y alguna lo pide). Verbos resueltos DIFERIDOS del
+  IServiceProvider (rompe el ciclo WorkflowEngine->hook->engine->verbos->
+  ITaskItemService->WorkflowEngine).
+- Verbos iniciales (5): PASAR_CAMPOS, BLOQUEAR_CAMPO_XCONDICION (equals/notEquals/
+  empty/notEmpty con efecto inverso al no cumplirse), ASIGNAR_CONSECUTIVO
+  (ISequenceService + anotacion en TaskItemActivity), GENERAR_TAREAS_DESDE_TABLA
+  (ITaskItemService, filas de campo tabla o params.rows), NOTIFICAR (intencion en
+  TaskItemActivity; envio real de correo TODO integracion). IA/importacion
+  (GENERAR_TABLAS_IA, IMPORTAR_CSV, DATA_SERVER*) documentados como extension futura.
+- Integraciones: WorkflowRuleHook reemplaza al NoOp en DI (nodo Task -> reglas
+  autonomas -> AutoComplete); DynamicFormRenderer usa IFormRuleDispatcher +
+  FormRuleUiState (cambio minimo encapsulado): campos disparadores en una consulta
+  por carga, acciones aplicadas al onchange, ocultos por regla NO se validan como
+  requeridos y SetRequired hace override en cliente.
+- UI /reglas (reemplaza el stub): 2 tabs como el legacy 000802 (Documento de
+  configuracion / Historial), CRUD de documento (archivar, nunca DELETE), grid de
+  reglas con modal (verbo desde el catalogo registrado con formulario de params
+  generado del Descriptor, orden, estado, JSON tipado), boton "Ejecutar prueba"
+  (contexto vacio Manual; muestra resultado + acciones y queda en historial), y
+  vinculacion regla->pregunta (combo formulario->pregunta) y regla->nodo Task
+  (combo flujo->nodo + autonoma) creando FormFieldRule/WorkflowNodeRule. El
+  FormDesigner NO se toco.
+- Worker: RuleLogTtlCleanupWorker (Ecorex.Workers, diario) via
+  IRuleExecutionLogCleaner (IgnoreQueryFilters + ExecuteDelete: unico DELETE fisico
+  permitido, log con TTL documentado).
+- Seeder Development idempotente: documento "OPERACIONES DE FORMULARIOS" (RUL-005,
+  FORMULARIOS, Active) para SKY SYSTEM con PASAR_CAMPOS (nombre_solicitante->
+  descripcion, vinculada a la pregunta nombre_solicitante de FRM-001),
+  BLOQUEAR_CAMPO_XCONDICION (prioridad=baja oculta fecha_requerida, vinculada a
+  prioridad) y ASIGNAR_CONSECUTIVO autonoma en Task_Cotizacion de COT-COM (sin
+  autoComplete a proposito: no se salta el formulario del paso).
+- Migraciones DUALES AddRulesEngine (PG + SQL Server) aplicadas y verificadas en los
+  contenedores dev (5442/1443): rule_documents, rules, rule_execution_logs,
+  form_field_rules, workflow_node_rules.
+- ADR docs/decisiones/0016-rules-engine.md.
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores.
+- Unit: Domain 35 verdes; Application 83 verdes (25 nuevos: params validos/invalidos
+  y acciones por verbo, catalogo tipado con FindVerb null para verbos desconocidos).
+- Integracion DUAL (Testcontainers PG16 + SQL Server 2022): 5 tests nuevos x2
+  motores (historial siempre con TTL ~90d incl. verbo no registrado tipado;
+  PASAR_CAMPOS end-to-end cambia el FormData persistido; regla autonoma con
+  AutoCompleteStep avanza el flujo a Task_B; aislamiento cross-tenant de documentos/
+  reglas/historial; TTL cleaner borra solo expirados cross-tenant e idempotente).
+  Suite completa verde (ver cifras en el reporte de la sesion).
+- Arranque real contra PG 5442 en puerto 5237: /reglas responde con el documento
+  RUL-005 sembrado y "Ejecutar prueba" genera entrada de historial.
+
+**Deudas / TODO (proximas olas)**:
+- Verbos IA/importacion del legacy (GENERAR_TABLAS_IA, IMPORTAR_CSV, DATA_SERVER*).
+- Evaluacion en SERVIDOR de verbos puros al hacer submit (hoy la exencion
+  oculto-por-regla => no-requerido es del renderer; ver limitacion en ADR-0016).
+- Envio real de NOTIFICAR via IEmailSender (hoy deja la intencion en la actividad).
+- Policy propia (ej. "Reglas.Editar") en vez de TenantMember; el chip "Pendiente
+  Fase 4" del item Reglas en NavMenu.razor es del agente de layout (no se toco).
+- ETL FASE 6: portar los 8 documentos / 21 reglas del legacy mapeando Ensamblado a
+  verbos del catalogo.
+- Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-03 - Sesion 9b: Fidelidad milimetrica contra el FUENTE del prototipo (ECOREX.dc.html)
+
+**Objetivo**: segunda pasada obligatoria sobre la alineacion visual (commit 96e196c):
+auditar token por token contra el fuente real del prototipo (ECOREX.dc.html +
+SPA "ECOREX - Prototipo Final.html") y corregir toda diferencia. Gana el prototipo.
+
+**Tokens extraidos del fuente y aplicados EXACTOS en app.css (:root y html.dark)**:
+--bg/--surface/--surface-2/--surface-3, --ink/--ink-2/--ink-3, --line/--line-2,
+--brand #1B1B1E (negro; dark #F4F4F5) / --brand-2 / --brand-soft / --on-brand /
+--glow, paleta --t-blue/rose/green/amber/violet/slate con sus *-bg, --ok/--warn/
+--danger, --glass + --glass-blur 14px, --sh-sm/md/lg, --rad 20px, --pad 30px.
+Tipografia del prototipo: 'Hanken Grotesk' 400-800 (importada; aplicada al
+workspace via .ws-tenant; el admin conserva Plus Jakarta Sans).
+
+**Re-mapa**: .ws-tenant redefine las variables legacy (--background, --card,
+--primary, --muted, --border, --shadow-*, etc.) hacia los tokens del prototipo,
+asi kanban/modales/formularios heredan la paleta exacta sin tocar PlatformAdmin
+(que no lleva la clase y queda intacto). El modulo de Formularios consume estas
+variables con fallback, como se acordo.
+
+**Correcciones dimensionales (fuente)**: rail 68px (botones 42x42 r12, activo
+brand/on-brand como el SPA final y las capturas, hover ink + sombra, hueco de
+38px arriba, avatar 34px con anillo line-2 y color AVPAL por iniciales), sidebar
+272px, header del workspace con fila hover (padding 16/16/12 + row 8px r13, tile
+36x36 r11 fondo var(--ink), nombre 14.5/700 -.01em, sub 11.5 ink-3 con punto
+medio "Plan Empresa (0xB7) ECOREX" via &#183; en el markup), buscador 40px r12 surface-2
+borde line-2, nav activo = surface-3 + ink (ya no violeta), labels 10.5/700
+ls .1em, codigos 9.5 ink-3 .75, badge Anuncios fondo ink 18px r9, footer 12px
+con boton de tema 32x32 r9, topbar 56px glass+blur con crumb 13px (sep line-2,
+actual ink 600) y campana 36x36 r10 con punto danger.
+
+**Dashboard /inicio reescrito al pixel del fuente**: contenedor max 1280 con
+--pad, fecha 13 ink-3, h1 32/800 -.03em lh1.04, sub 14.5 con bolds ink, boton
+negro 44px r13 con icono "+" (hover opacity .9), KPI cards r20 p20 sh-sm
+(hover sh-md) con tile 38 r11 en t-violet/t-green/t-blue/t-rose, chip delta
+("urgente" cuando hay alertas), valor 34/800, label 13 ink-2; paneles grid
+1.65fr/1fr: "Mis tareas de hoy" (rows 14/22, dot 9px, titulo 14.5/600 + sub
+12 ink-3, chip prioridad 11/600 r8 rose/amber/green, due 12.5 ancho 58) y
+"Alertas del sistema" NUEVO (tareas vencidas reales, icono 32 r9 t-rose-bg,
+chip "N nuevas"). Chips de prioridad del kanban tambien pasan a tokens t-*
+(r8, sin uppercase) dentro del workspace.
+
+**Bug real encontrado y corregido**: con prerender interactivo, /inicio
+compartia el DbContext del request con NavMenu ("A second operation was
+started on this context instance", reproducido en navegador). Inicio ahora
+resuelve TODOS sus servicios en un scope propio (IServiceScopeFactory), igual
+que NavMenu con branding; 5 cargas consecutivas de /inicio sin fallo.
+
+**Validacion (probado de verdad)** contra Postgres 5442 en localhost:5236 con
+demo-admin@ecorex.tareas: build 0 errores; tests unitarios verdes (Domain 35,
+Application 58). Verificado por computed styles en navegador real:
+--brand #1B1B1E, --surface #FFFFFF, --rad 20px, fuente Hanken Grotesk, rail 68
+(btn 42 r12, activo #1B1B1E/blanco), sidebar 272, topbar 56, tile 36 fondo ink,
+boton "Nueva actividad" 44/r13/#1B1B1E, h1 32/800, KPI r20/p20 valor 34/800
+tile #EEE8FD+#7C3AED, paneles 537/326px (1.65:1), head 18/22, sub del sidebar
+"Plan Empresa (punto medio) ECOREX", crumb "Equipos / SKY SYSTEM / ...".
+DARK exacto: --bg #0A0A0B, surface #161618, ink/brand #F4F4F5, boton invertido
+claro, tile invertido, chips t-amber dark rgba(240,174,60,.16)/#F0C46A en
+/actividades, /proyectos y /formularios legibles en ambos temas; wizard abre
+desde el boton nuevo; toggle luna persiste en localStorage. HTML servido (curl
+con cookies): 302 a /inicio, KPIs 5/1/0/0, "Plan Empresa &#xB7; ECOREX".
+Procesos detenidos al terminar (puerto 5236 libre).
+
+**Lo que NO se igualo (honesto, con porque)**:
+- Rail activo: el fuente .dc trae 44x44 r13 blanco+glow, pero el SPA final y
+  las capturas aprobadas traen 42x42 r12 fondo brand (cuadro negro): se siguio
+  el SPA/capturas por ser el ejecutable aprobado.
+- El sidebar del prototipo agrupa MODULOS en acordeones por grupo de negocio
+  (Mis Procesos/Negocio/Oferta...) con conteos; la consola mantiene su
+  estructura actual de items planos con codigos (contenido, no estilo).
+- Topbar: boton "Compartir" y toggle de sidebar del prototipo no implementados
+  (sin funcion detras); la campana quedo como placeholder con punto.
+- El buscador Cmd+K sigue deshabilitado (placeholder), muestra "Ctrl K" ASCII
+  en lugar del glifo de comando (convencion solo-ASCII del repo).
+- Los KPI no muestran deltas "+3/+1/2 en pausa" (no hay serie temporal aun);
+  solo el chip "urgente" del KPI de alertas cuando aplica.
+- Login: el prototipo no define pantalla de login; se conservo el diseno
+  actual con la tagline/icono ya corregidos.
+- Sin commit (pedido explicito); no se tocaron DbContext/seeder/migraciones ni
+  los componentes de Formularios (solo heredan variables). Durante la sesion
+  el arranque fallo dos veces por el modelo a mitad del agente paralelo
+  (AddDynamicForms y AddRulesEngine); se resolvio recompilando cuando sus
+  migraciones quedaron en el arbol.

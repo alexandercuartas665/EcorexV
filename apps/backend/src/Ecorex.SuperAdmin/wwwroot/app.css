@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
 
 /* ===== Tokens (alineados al prototipo ECOREX.tareas) ===== */
 :root {
@@ -1441,200 +1441,381 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 @keyframes tk-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* =====================================================================
-   Prototipo Final ECOREX: rail de iconos, header del tenant, breadcrumb
-   del topbar, botones negros del workspace, panel de inicio y modo oscuro
+   PROTOTIPO FINAL ECOREX - tokens EXACTOS del fuente ECOREX.dc.html
+   (:root claro + [data-theme=dark], aqui html.dark). Los componentes del
+   workspace del tenant (.ws-tenant) consumen estas variables; el area
+   PlatformAdmin no lleva la clase y conserva su estilo previo.
    ===================================================================== */
-
-/* --- Header del sidebar: tile cuadrado oscuro con la inicial del tenant --- */
-.ecorex-tenant-tile {
-  width: 38px; height: 38px; flex-shrink: 0;
-  border-radius: 11px;
-  background: oklch(0.24 0.02 280);
-  color: #fff;
-  display: grid; place-items: center;
-  font-weight: 800; font-size: 16px;
-  box-shadow: var(--shadow-soft);
+:root {
+  --bg: #FFFFFF; --surface: #FFFFFF; --surface-2: #FAFAFA; --surface-3: #F2F2F3;
+  --ink: #1B1B1E; --ink-2: #5C5C66; --ink-3: #A2A2AC;
+  --line: rgba(20,20,25,.07); --line-2: rgba(20,20,25,.12);
+  --brand: #1B1B1E; --brand-2: #000000; --brand-soft: #F2F2F1; --on-brand: #FFFFFF; --glow: rgba(0,0,0,.16);
+  --t-blue: #2563EB; --t-blue-bg: #E6EFFE; --t-rose: #E11D48; --t-rose-bg: #FEE7EC;
+  --t-green: #16A34A; --t-green-bg: #DDF6E6; --t-amber: #C77A06; --t-amber-bg: #FBEFD4;
+  --t-violet: #7C3AED; --t-violet-bg: #EEE8FD; --t-slate: #64748B; --t-slate-bg: #EEF1F5;
+  --ok: #16A34A; --warn: #C77A06; --danger: #E11D48;
+  --glass-blur: 14px; --glass: rgba(255,255,255,.7);
+  --sh-sm: 0 1px 2px rgba(20,20,25,.05);
+  --sh-md: 0 2px 8px rgba(20,20,25,.06),0 8px 24px rgba(20,20,25,.05);
+  --sh-lg: 0 20px 50px -12px rgba(20,20,25,.22);
+  --rad: 20px; --pad: 30px;
 }
-.ecorex-tenant-name { font-size: 14.5px; }
-
-/* --- Boton luna (modo oscuro) en el pie del sidebar --- */
-.ecorex-theme-btn {
-  margin-left: auto; flex-shrink: 0;
-  width: 32px; height: 32px;
-  border: 1px solid var(--border); border-radius: 9px;
-  background: var(--card); color: var(--muted-foreground);
-  display: grid; place-items: center; cursor: pointer;
-  transition: background .12s, color .12s;
-}
-.ecorex-theme-btn:hover { background: var(--muted); color: var(--foreground); }
-.ecorex-theme-btn svg { width: 15px; height: 15px; }
-
-/* --- Rail vertical de iconos (doble panel del prototipo) --- */
-.ecorex-rail {
-  width: 56px; flex-shrink: 0;
-  background: var(--background);
-  border-right: 1px solid var(--sidebar-border);
-  display: flex; flex-direction: column; align-items: center;
-  gap: 6px; padding: 14px 0;
-  position: sticky; top: 0; height: 100vh;
-  z-index: 6;
-}
-.ecorex-rail-btn {
-  width: 36px; height: 36px;
-  border-radius: 10px;
-  display: grid; place-items: center;
-  color: oklch(0.45 0.03 280); text-decoration: none;
-  transition: background .12s, color .12s;
-}
-.ecorex-rail-btn svg { width: 18px; height: 18px; }
-.ecorex-rail-btn:hover { background: var(--muted); color: var(--foreground); }
-/* Activo: cuadrado oscuro como en el prototipo */
-.ecorex-rail-btn.active { background: oklch(0.24 0.02 280); color: #fff; }
-.ecorex-rail-spacer { flex: 1; }
-.ecorex-rail-avatar {
-  width: 34px; height: 34px; border-radius: 50%;
-  background: var(--gradient-violet); color: #fff;
-  font-size: 11px; font-weight: 800;
-  display: grid; place-items: center;
-}
-@media (max-width: 991.98px) { .ecorex-rail { display: none; } }
-
-/* --- Topbar del workspace: breadcrumb Equipos / tenant / seccion + campana --- */
-.ecorex-topbar-crumb {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
-  font-size: 12.5px; font-weight: 500; color: var(--muted-foreground);
-  white-space: nowrap; overflow: hidden;
-}
-.ecorex-topbar-crumb .sep { opacity: .5; }
-.ecorex-topbar-crumb .cur { color: var(--foreground); font-weight: 700; }
-.ecorex-bell {
-  width: 34px; height: 34px; flex-shrink: 0;
-  border: 1px solid var(--border); border-radius: 10px;
-  background: var(--card); color: var(--muted-foreground);
-  display: grid; place-items: center; cursor: pointer;
-  transition: background .12s, color .12s;
-}
-.ecorex-bell:hover { background: var(--muted); color: var(--foreground); }
-.ecorex-bell svg { width: 16px; height: 16px; }
-@media (max-width: 991.98px) { .ecorex-topbar-crumb { display: none; } }
-
-/* --- Botones primarios NEGROS en el workspace del tenant (ws-tenant).
-       El area PlatformAdmin no lleva la clase y conserva el violeta. --- */
-.ws-tenant .btn-primary {
-  background: oklch(0.2 0.015 280);
-  border-color: oklch(0.2 0.015 280);
-  color: #fff;
-}
-.ws-tenant .btn-primary:hover, .ws-tenant .btn-primary:focus {
-  background: oklch(0.32 0.02 280);
-  border-color: oklch(0.32 0.02 280);
-  color: #fff;
-}
-
-/* --- Inicio: fecha, panel "Mis tareas de hoy" --- */
-.home-date { font-size: 12.5px; color: var(--muted-foreground); font-weight: 600; }
-.home-panels { margin-top: 24px; max-width: 640px; }
-.home-panel .tk-card-head h3 { text-transform: none; letter-spacing: 0; font-size: 14.5px; color: var(--foreground); }
-.home-task-list { display: flex; flex-direction: column; }
-.home-task {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 8px; border-radius: 8px;
-  border-bottom: 1px solid var(--border);
-  text-decoration: none; color: var(--foreground);
-}
-.home-task:last-child { border-bottom: 0; }
-.home-task:hover { background: var(--muted); }
-.home-task-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted-foreground); }
-.home-task-dot.pr-high { background: var(--destructive); }
-.home-task-dot.pr-medium { background: var(--warning); }
-.home-task-dot.pr-low { background: var(--success); }
-.home-task-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.home-task-due { font-size: 11.5px; font-weight: 700; color: var(--muted-foreground); white-space: nowrap; }
-.home-task-due.late { color: var(--destructive); }
-
-/* =====================================================================
-   MODO OSCURO (html.dark): re-mapa de tokens + ajustes puntuales donde
-   habia colores fijos. Cubre el shell + inicio + actividades + proyectos;
-   las paginas heredadas quedan usables sin perfeccionar cada detalle.
-   ===================================================================== */
 html.dark {
-  --background: oklch(0.16 0.015 280);
-  --foreground: oklch(0.93 0.008 280);
-  --card: oklch(0.21 0.015 280);
-  --primary: oklch(0.68 0.18 285);
-  --primary-foreground: oklch(0.15 0.02 285);
-  --primary-soft: oklch(0.3 0.05 285);
-  --muted: oklch(0.26 0.015 280);
-  --muted-foreground: oklch(0.68 0.02 280);
-  --accent-foreground: oklch(0.82 0.1 285);
-  --gold: oklch(0.72 0.13 70);
-  --gold-foreground: oklch(0.92 0.04 70);
-  --destructive: oklch(0.68 0.19 22);
-  --warning: oklch(0.74 0.16 65);
-  --warning-foreground: oklch(0.92 0.05 65);
-  --success: oklch(0.7 0.14 155);
-  --border: oklch(0.3 0.015 280);
-  --sidebar: oklch(0.19 0.015 280);
-  --sidebar-border: oklch(0.28 0.015 280);
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 1px 3px oklch(0 0 0 / 0.3);
-  --shadow-card: 0 4px 24px -8px oklch(0 0 0 / 0.5);
+  --bg: #0A0A0B; --surface: #161618; --surface-2: #1C1C1F; --surface-3: #242428;
+  --ink: #F4F4F5; --ink-2: #A1A1AA; --ink-3: #6B6B73;
+  --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12);
+  --brand: #F4F4F5; --brand-2: #FFFFFF; --brand-soft: rgba(255,255,255,.09); --on-brand: #161618; --glow: rgba(0,0,0,.4);
+  --t-blue: #7FB0FF; --t-blue-bg: rgba(96,149,255,.16); --t-rose: #FF8DA3; --t-rose-bg: rgba(255,88,112,.16);
+  --t-green: #5FD897; --t-green-bg: rgba(54,201,140,.16); --t-amber: #F0C46A; --t-amber-bg: rgba(240,174,60,.16);
+  --t-violet: #B79CFF; --t-violet-bg: rgba(140,115,255,.16); --t-slate: #9FB0C4; --t-slate-bg: rgba(120,140,160,.16);
+  --ok: #36C98C; --warn: #F0AE3C; --danger: #FF7088;
+  --glass: rgba(22,22,24,.7);
+  --sh-sm: 0 1px 2px rgba(0,0,0,.4); --sh-md: 0 8px 28px rgba(0,0,0,.45); --sh-lg: 0 24px 60px -12px rgba(0,0,0,.6);
   color-scheme: dark;
 }
 
-/* Superficies con color fijo claro que el re-mapa de tokens no cubre */
-html.dark .ecorex-topbar { background: oklch(0.19 0.015 280 / 0.8); }
-html.dark .ecorex-rail-btn.active { background: oklch(0.92 0.008 280); color: oklch(0.2 0.02 280); }
-html.dark .ecorex-tenant-tile { background: oklch(0.92 0.008 280); color: oklch(0.2 0.02 280); }
-html.dark .ws-tenant .btn-primary { background: oklch(0.94 0.008 280); border-color: oklch(0.94 0.008 280); color: oklch(0.18 0.015 280); }
-html.dark .ws-tenant .btn-primary:hover, html.dark .ws-tenant .btn-primary:focus { background: oklch(0.85 0.01 280); border-color: oklch(0.85 0.01 280); color: oklch(0.18 0.015 280); }
+/* --- Workspace del tenant: tipografia Hanken Grotesk (prototipo) + re-mapa
+       de las variables legacy hacia los tokens del prototipo. Asi kanban,
+       modales, formularios, etc. heredan la paleta exacta sin tocar admin. --- */
+.ws-tenant {
+  font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --primary: var(--brand);
+  --primary-foreground: var(--on-brand);
+  --primary-soft: var(--brand-soft);
+  --muted: var(--surface-3);
+  --muted-foreground: var(--ink-2);
+  --accent-foreground: var(--ink);
+  --border: var(--line);
+  --sidebar: var(--surface);
+  --sidebar-border: var(--line);
+  --destructive: var(--danger);
+  --success: var(--ok);
+  --warning: var(--warn);
+  --warning-foreground: var(--warn);
+  --gold: var(--t-amber);
+  --gold-foreground: var(--t-amber);
+  --shadow-soft: var(--sh-sm);
+  --shadow-card: var(--sh-md);
+}
+.ws-tenant h1, .ws-tenant h2, .ws-tenant h3 { letter-spacing: -0.01em; }
+.ws-tenant a, .ws-tenant .btn-link { color: var(--ink); }
 
-html.dark .card { background: var(--card); color: var(--foreground); }
-html.dark .form-control, html.dark .form-control-sm,
-html.dark .tk-filter-select, html.dark .tb-sort select, html.dark .cv-line-select,
-html.dark .pl-sort select { background: var(--muted); color: var(--foreground); border-color: var(--border); }
-html.dark .form-control::placeholder { color: var(--muted-foreground); }
-html.dark input, html.dark textarea, html.dark select { color-scheme: dark; }
+/* Boton primario del workspace = boton negro del prototipo
+   (height 44 / radius 13 / brand + on-brand / sombra sh-sm / hover opacity .9) */
+.ws-tenant .btn-primary {
+  background: var(--brand); border-color: var(--brand); color: var(--on-brand);
+  border-radius: 13px; font-weight: 600; font-size: 14px;
+  box-shadow: var(--sh-sm);
+}
+.ws-tenant .btn-primary:hover, .ws-tenant .btn-primary:focus {
+  background: var(--brand); border-color: var(--brand); color: var(--on-brand); opacity: .9;
+}
+.ws-tenant .btn:focus, .ws-tenant .btn:active:focus, .ws-tenant .form-control:focus { box-shadow: 0 0 0 3px var(--glow); }
+.ws-tenant .form-control:focus { border-color: var(--ink-3); }
 
-/* Tableros / kanban (grises fijos) */
-html.dark .tb-col-head { background: oklch(0.23 0.015 280); }
-html.dark .tb-col-body { background: oklch(0.19 0.015 280); }
-html.dark .tb-list thead th { background: oklch(0.23 0.015 280); }
-html.dark .tb-modal { background: oklch(0.2 0.015 280); }
-html.dark .tk-detail { background: oklch(0.2 0.015 280); }
-html.dark .tb-modal-side-btn, html.dark .tb-modal-section-action,
-html.dark .tb-modal-add-btn, html.dark .tb-desc-empty, html.dark .tb-modal-tag,
-html.dark .tb-act-item-avatar { background: oklch(0.29 0.015 280); color: var(--foreground); }
-html.dark .tb-modal-side-btn:hover, html.dark .tb-modal-section-action:hover,
-html.dark .tb-modal-add-btn:hover, html.dark .tb-desc-empty:hover { background: oklch(0.34 0.015 280); }
-html.dark .tb-check-item:hover { background: oklch(0.28 0.015 280); }
-html.dark .tb-check-bar { background: oklch(0.3 0.015 280); }
-html.dark .tb-act-input-foot { background: oklch(0.23 0.015 280); }
-html.dark .tb-tag { background: oklch(0.32 0.02 280); color: oklch(0.85 0.02 280); }
-html.dark .tb-col-drag { background: oklch(0.26 0.04 290); }
+/* =====================================================================
+   SHELL (prototipo: grid 68px rail + 272px sidebar + main; topbar 56px)
+   ===================================================================== */
+.ws-tenant .ecorex-sidebar { width: 272px; }
 
-/* Chips de estado pastel: fondo translucido legible en oscuro */
-html.dark .tb-status.todo { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
-html.dark .tb-status.progress { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
-html.dark .tb-status.review { background: oklch(0.38 0.07 65 / 0.6); color: oklch(0.82 0.1 65); }
-html.dark .tb-status.done { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
-html.dark .tk-status.st-pending { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
-html.dark .tk-status.st-active { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
-html.dark .tk-status.st-done { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
-html.dark .tk-status.st-suspended { background: oklch(0.38 0.07 65 / 0.6); color: oklch(0.82 0.1 65); }
-html.dark .tk-status.st-closed { background: oklch(0.3 0.015 280); color: oklch(0.75 0.01 280); }
-html.dark .tk-status.pj-planning { background: oklch(0.3 0.015 280); color: var(--muted-foreground); }
-html.dark .tk-status.pj-active { background: oklch(0.35 0.07 145 / 0.6); color: oklch(0.8 0.1 145); }
-html.dark .tk-status.pj-exec { background: oklch(0.35 0.06 240 / 0.6); color: oklch(0.8 0.09 240); }
-html.dark .tk-status.pj-closed { background: oklch(0.3 0.015 280); color: oklch(0.75 0.01 280); }
-html.dark .tb-due.late { background: oklch(0.35 0.06 25 / 0.5); }
-html.dark .tk-priority.pr-high { background: oklch(0.4 0.09 22 / 0.5); }
-html.dark .tk-priority.pr-medium { background: oklch(0.4 0.08 70 / 0.5); color: oklch(0.85 0.1 70); }
-html.dark .tk-priority.pr-low { background: oklch(0.35 0.07 155 / 0.5); }
-html.dark .tk-number { background: oklch(0.32 0.05 285); }
+/* --- Rail de iconos (fuente: 68px, botones 42x42 r12, activo brand/on-brand
+       como en el SPA final y las capturas; hover ink + sombra) --- */
+.ecorex-rail {
+  width: 68px; flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 16px 0;
+  position: sticky; top: 0; height: 100vh;
+  z-index: 6;
+}
+.ecorex-rail-top { width: 38px; height: 38px; margin-bottom: 10px; }
+.ecorex-rail-btn {
+  width: 42px; height: 42px;
+  border-radius: 12px; border: none;
+  display: grid; place-items: center;
+  background: none; color: var(--ink-3); text-decoration: none;
+  cursor: pointer;
+  transition: transform .16s, box-shadow .16s, color .16s, background .16s;
+}
+.ecorex-rail-btn svg { width: 19px; height: 19px; }
+.ecorex-rail-btn:hover { color: var(--ink); box-shadow: 0 3px 10px -3px rgba(20,20,25,.2); }
+.ecorex-rail-btn.active { background: var(--brand); color: var(--on-brand); box-shadow: none; }
+.ecorex-rail-spacer { flex: 1; }
+.ecorex-rail-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  color: #fff; font-weight: 700; font-size: 12px;
+  display: grid; place-items: center;
+  margin-top: 6px;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 2px var(--line-2);
+}
+@media (max-width: 991.98px) { .ecorex-rail { display: none; } }
 
-/* Tablas bootstrap y badges */
-html.dark .table { color: var(--foreground); }
-html.dark .badge.bg-secondary { background: oklch(0.3 0.015 280) !important; }
+/* --- Topbar slim del prototipo: 56px, glass + blur, gap 14 --- */
+.ws-tenant .ecorex-topbar {
+  height: 56px; gap: 14px; padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--glass);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+.ecorex-topbar-crumb {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: 13px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden;
+}
+.ecorex-topbar-crumb .sep { color: var(--line-2); }
+.ecorex-topbar-crumb .cur { color: var(--ink); font-weight: 600; }
+.ecorex-bell {
+  position: relative;
+  width: 36px; height: 36px; flex-shrink: 0;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--ink-2);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ecorex-bell:hover { background: var(--surface-3); color: var(--ink); }
+.ecorex-bell svg { width: 17px; height: 17px; }
+.ecorex-bell .dot {
+  position: absolute; top: 7px; right: 8px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger); border: 1.5px solid var(--surface);
+}
+@media (max-width: 991.98px) { .ecorex-topbar-crumb { display: none; } }
 
-/* Modal overlay mas profundo */
-html.dark .modal-overlay { background: oklch(0.08 0.01 280 / 0.6); }
+/* =====================================================================
+   SIDEBAR del workspace (fuente: header con tile 36 r11 ink, buscador 40px
+   surface-2, quick nav 14/600 activo surface-3+ink, labels 10.5 ls .1em)
+   ===================================================================== */
+.ecorex-ws-head { padding: 16px 16px 12px; border-bottom: 0; }
+.ecorex-ws-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px; border-radius: 13px; cursor: pointer;
+}
+.ecorex-ws-row:hover { background: var(--surface-3); }
+.ecorex-tenant-tile {
+  width: 36px; height: 36px; flex: none;
+  border-radius: 11px;
+  background: var(--ink); color: var(--surface);
+  display: grid; place-items: center;
+  font-weight: 800; font-size: 15px;
+}
+.ecorex-tenant-name { font-weight: 700; font-size: 14.5px; letter-spacing: -.01em; white-space: nowrap; }
+.ecorex-tenant-sub { font-size: 11.5px; color: var(--ink-3); }
+.ecorex-ws-row .chev { width: 15px; height: 15px; flex: none; color: var(--ink-3); }
+
+.ws-tenant .ecorex-search {
+  margin: 0 16px 12px; height: 40px;
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 13px;
+  border: 1px solid var(--line-2); border-radius: 12px;
+  background: var(--surface-2); color: var(--ink-3);
+  font-size: 13.5px;
+}
+.ws-tenant .ecorex-search:hover { border-color: var(--ink-3); }
+.ws-tenant .ecorex-search svg { width: 16px; height: 16px; }
+.ws-tenant .ecorex-search input { font-size: 13.5px; color: var(--ink); }
+.ws-tenant .ecorex-search input::placeholder { color: var(--ink-3); }
+.ws-tenant .ecorex-search .kbd { font-size: 11px; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 6px; background: none; color: var(--ink-3); }
+
+.ws-tenant .ecorex-nav { padding: 6px 12px 12px; }
+.ws-tenant .ecorex-nav-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); padding: 18px 10px 7px;
+}
+.ws-tenant .ecorex-nav-link {
+  gap: 11px; padding: 9px 10px; border-radius: 11px;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+  margin-bottom: 1px;
+}
+.ws-tenant .ecorex-nav-link svg { width: 17px; height: 17px; opacity: 1; color: var(--ink-2); }
+.ws-tenant .ecorex-nav-link:hover { background: var(--surface-3); color: var(--ink); }
+.ws-tenant .ecorex-nav-link.active { background: var(--surface-3); color: var(--ink); }
+.ws-tenant .ecorex-nav-link.active svg { color: var(--ink); }
+.ws-tenant .ecorex-nav-badge {
+  margin-left: auto; font-size: 11px; font-weight: 700;
+  background: var(--ink); color: var(--surface);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  display: grid; place-items: center;
+}
+.ws-tenant .ecorex-nav-code { font-size: 9.5px; color: var(--ink-3); opacity: .75; letter-spacing: .02em; font-weight: 400; }
+.ws-tenant .ecorex-nav-link.active .ecorex-nav-code { color: var(--ink-3); }
+.ws-tenant .ecorex-nav-group > summary {
+  font-size: 13.5px; font-weight: 600; text-transform: none; letter-spacing: 0;
+  color: var(--ink-2); padding: 9px 10px; border-radius: 10px;
+}
+.ws-tenant .ecorex-nav-group > summary:hover { background: var(--surface-3); color: var(--ink); }
+
+/* Pie del sidebar: usuario + boton de tema (fuente: 32x32 r9 line surface) */
+.ws-tenant .ecorex-user { padding: 12px; border-top: 1px solid var(--line); gap: 10px; }
+.ws-tenant .ecorex-avatar { width: 34px; height: 34px; font-size: 12px; font-weight: 700; color: #fff; background: #5B8DEF; }
+.ws-tenant .ecorex-user .nm { font-size: 13.5px; font-weight: 600; line-height: 1.1; }
+.ws-tenant .ecorex-user .rl { font-size: 11px; color: var(--ink-3); }
+.ecorex-theme-btn {
+  margin-left: auto; flex-shrink: 0;
+  width: 32px; height: 32px;
+  border: 1px solid var(--line, var(--border)); border-radius: 9px;
+  background: var(--surface, var(--card)); color: var(--ink-2, var(--muted-foreground));
+  display: grid; place-items: center; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ecorex-theme-btn:hover { background: var(--surface-3); color: var(--ink); }
+.ecorex-theme-btn svg { width: 16px; height: 16px; }
+
+/* Contenido: padding del prototipo (--pad 30px) */
+.ws-tenant .ecorex-content { padding: var(--pad); }
+@media (max-width: 991.98px) { .ws-tenant .ecorex-content { padding: 16px 14px; } }
+
+/* =====================================================================
+   DASHBOARD /inicio (fuente: max 1280, h1 32/800 -.03em, boton 44/13,
+   KPI cards r20 p20 sh-sm valor 34/800, paneles 1.65fr/1fr)
+   ===================================================================== */
+.dash { max-width: 1280px; margin: 0 auto; }
+.dash-head { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; justify-content: space-between; margin-bottom: 26px; }
+.dash-today { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-bottom: 6px; }
+.dash-title { font-weight: 800; font-size: 32px; letter-spacing: -.03em; line-height: 1.04; margin: 0; }
+.dash-sub { color: var(--ink-2); font-size: 14.5px; margin: 8px 0 0; max-width: 560px; }
+.dash-sub b { color: var(--ink); font-weight: 700; }
+.dash-new {
+  display: flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 20px;
+  border-radius: 13px; border: none;
+  background: var(--brand); color: var(--on-brand);
+  font: inherit; font-weight: 600; font-size: 14px;
+  cursor: pointer; box-shadow: var(--sh-sm);
+}
+.dash-new:hover { opacity: .9; }
+.dash-new svg { width: 17px; height: 17px; }
+
+.dash-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+@media (max-width: 1100px) { .dash-kpis { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .dash-kpis { grid-template-columns: 1fr; } }
+.dash-kpi {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--rad); padding: 20px;
+  box-shadow: var(--sh-sm); position: relative; overflow: hidden;
+  transition: box-shadow .16s;
+}
+.dash-kpi:hover { box-shadow: var(--sh-md); }
+.dash-kpi-top { display: flex; align-items: center; justify-content: space-between; }
+.dash-kpi-ico { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; }
+.dash-kpi-ico svg { width: 19px; height: 19px; }
+.dash-kpi-ico.tv { background: var(--t-violet-bg); color: var(--t-violet); }
+.dash-kpi-ico.tg { background: var(--t-green-bg); color: var(--t-green); }
+.dash-kpi-ico.tb { background: var(--t-blue-bg); color: var(--t-blue); }
+.dash-kpi-ico.tr { background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-kpi-delta { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 8px; }
+.dash-kpi-delta.tr { background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-kpi-delta.tg { background: var(--t-green-bg); color: var(--t-green); }
+.dash-kpi-value { font-weight: 800; font-size: 34px; letter-spacing: -.03em; margin-top: 16px; line-height: 1; }
+.dash-kpi-label { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+
+.dash-panels { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; margin-bottom: 30px; }
+@media (max-width: 1100px) { .dash-panels { grid-template-columns: 1fr; } }
+.dash-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--rad); box-shadow: var(--sh-sm); overflow: hidden;
+}
+.dash-card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px; border-bottom: 1px solid var(--line);
+}
+.dash-card-title { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+.dash-card-link { font-size: 13px; font-weight: 600; color: var(--ink-2); background: none; border: none; cursor: pointer; text-decoration: none; }
+.dash-card-link:hover { color: var(--ink); }
+.dash-chip { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 8px; }
+.dash-chip.tr { background: var(--t-rose-bg); color: var(--t-rose); }
+
+.dash-task {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 22px; border-bottom: 1px solid var(--line);
+  cursor: pointer; text-decoration: none; color: inherit;
+}
+.dash-task:hover { background: var(--surface-2); }
+.dash-task:last-child { border-bottom: 0; }
+.dash-task-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.dash-task-dot.tr { background: var(--t-rose); }
+.dash-task-dot.ta { background: var(--t-amber); }
+.dash-task-dot.tg { background: var(--t-green); }
+.dash-task-main { flex: 1; min-width: 0; }
+.dash-task-title { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-task-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.dash-prio { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 8px; white-space: nowrap; }
+.dash-prio.tr { background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-prio.ta { background: var(--t-amber-bg); color: var(--t-amber); }
+.dash-prio.tg { background: var(--t-green-bg); color: var(--t-green); }
+.dash-task-due { font-size: 12.5px; color: var(--ink-2); width: 58px; text-align: right; white-space: nowrap; }
+.dash-task-due.late { color: var(--danger); font-weight: 600; }
+.dash-empty { padding: 18px 22px; font-size: 13px; color: var(--ink-3); }
+
+.dash-alert { display: flex; gap: 12px; padding: 15px 22px; border-bottom: 1px solid var(--line); }
+.dash-alert:last-child { border-bottom: 0; }
+.dash-alert-ico { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-alert-ico svg { width: 15px; height: 15px; }
+.dash-alert-title { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-alert-meta { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+
+/* =====================================================================
+   Chips y superficies del nucleo de tareas alineadas a tokens del
+   prototipo dentro del workspace (prioridad Alta/Media/Baja = rose/amber/
+   green; grises fijos del kanban -> surface-2)
+   ===================================================================== */
+.ws-tenant .tk-priority { border-radius: 8px; font-size: 11px; font-weight: 600; padding: 3px 10px; text-transform: none; letter-spacing: 0; }
+.ws-tenant .tk-priority.pr-high { background: var(--t-rose-bg); color: var(--t-rose); }
+.ws-tenant .tk-priority.pr-medium { background: var(--t-amber-bg); color: var(--t-amber); }
+.ws-tenant .tk-priority.pr-low { background: var(--t-green-bg); color: var(--t-green); }
+.ws-tenant .tb-col-head { background: var(--surface-2); }
+.ws-tenant .tb-col-body { background: var(--surface-2); }
+.ws-tenant .tb-list thead th { background: var(--surface-2); }
+.ws-tenant .tb-modal { background: var(--surface); }
+.ws-tenant .tk-detail { background: var(--surface); }
+.ws-tenant .tk-number { background: var(--surface-3); color: var(--ink-2); }
+.ws-tenant .kpi-card { border-radius: var(--rad); box-shadow: var(--sh-sm); }
+.ws-tenant .card { box-shadow: var(--sh-sm); }
+
+/* =====================================================================
+   MODO OSCURO - ajustes para superficies con grises fijos fuera de tokens
+   (solo lo necesario para que kanban/modales del workspace se lean bien)
+   ===================================================================== */
+html.dark .ws-tenant .tb-modal-side-btn, html.dark .ws-tenant .tb-modal-section-action,
+html.dark .ws-tenant .tb-modal-add-btn, html.dark .ws-tenant .tb-desc-empty, html.dark .ws-tenant .tb-modal-tag,
+html.dark .ws-tenant .tb-act-item-avatar { background: var(--surface-3); color: var(--ink); }
+html.dark .ws-tenant .tb-modal-side-btn:hover, html.dark .ws-tenant .tb-modal-section-action:hover,
+html.dark .ws-tenant .tb-modal-add-btn:hover, html.dark .ws-tenant .tb-desc-empty:hover { background: var(--surface-2); }
+html.dark .ws-tenant .tb-check-item:hover { background: var(--surface-3); }
+html.dark .ws-tenant .tb-check-bar { background: var(--surface-3); }
+html.dark .ws-tenant .tb-act-input-foot { background: var(--surface-2); }
+html.dark .ws-tenant .tb-tag { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tb-col-drag { background: var(--surface-3); }
+html.dark .ws-tenant .tb-status.todo { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tb-status.progress { background: var(--t-blue-bg); color: var(--t-blue); }
+html.dark .ws-tenant .tb-status.review { background: var(--t-amber-bg); color: var(--t-amber); }
+html.dark .ws-tenant .tb-status.done { background: var(--t-green-bg); color: var(--t-green); }
+html.dark .ws-tenant .tk-status.st-pending { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tk-status.st-active { background: var(--t-blue-bg); color: var(--t-blue); }
+html.dark .ws-tenant .tk-status.st-progress { background: var(--t-violet-bg); color: var(--t-violet); }
+html.dark .ws-tenant .tk-status.st-done { background: var(--t-green-bg); color: var(--t-green); }
+html.dark .ws-tenant .tk-status.st-suspended { background: var(--t-amber-bg); color: var(--t-amber); }
+html.dark .ws-tenant .tk-status.st-closed { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tk-status.pj-planning { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tk-status.pj-active { background: var(--t-green-bg); color: var(--t-green); }
+html.dark .ws-tenant .tk-status.pj-exec { background: var(--t-blue-bg); color: var(--t-blue); }
+html.dark .ws-tenant .tk-status.pj-closed { background: var(--surface-3); color: var(--ink-2); }
+html.dark .ws-tenant .tb-due.late { background: var(--t-rose-bg); }
+html.dark .ws-tenant .form-control, html.dark .ws-tenant .form-control-sm,
+html.dark .ws-tenant .tk-filter-select, html.dark .ws-tenant .tb-sort select {
+  background: var(--surface-2); color: var(--ink); border-color: var(--line-2);
+}
+html.dark .ws-tenant .form-control::placeholder { color: var(--ink-3); }
+html.dark .ws-tenant .card { background: var(--surface); color: var(--ink); }
+html.dark .ws-tenant .table { color: var(--ink); }
+html.dark .ws-tenant .badge.bg-secondary { background: var(--surface-3) !important; color: var(--ink-2) !important; }
+html.dark .ws-tenant .modal-overlay { background: rgba(0,0,0,.55); }
+html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color: var(--ink); border-color: var(--line-2); }

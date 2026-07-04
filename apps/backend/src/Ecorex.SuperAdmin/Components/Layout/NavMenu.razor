@@ -35,13 +35,17 @@
 }
 else
 {
-    @* Cabecera del workspace (prototipo): tile cuadrado oscuro con la inicial del tenant +
-       nombre + "{plan} - ECOREX" (el nombre del plan ya trae la palabra "Plan"). *@
-    <div class="ecorex-brand">
-        <div class="ecorex-tenant-tile">@TenantInitial</div>
-        <div>
-            <div class="ecorex-brand-name ecorex-tenant-name">@(_tenantName ?? "Mi empresa")</div>
-            <div class="ecorex-brand-sub">@(_planName is null ? "ECOREX Sistema de Tareas" : $"{_planName} - ECOREX")</div>
+    @* Cabecera del workspace (fuente ECOREX.dc.html): tile 36px radio 11 con fondo
+       var(--ink) + inicial, nombre 14.5/700 y "{plan} (punto medio) ECOREX" (el nombre del plan
+       ya trae la palabra "Plan"; separador punto medio como el prototipo). *@
+    <div class="ecorex-ws-head">
+        <div class="ecorex-ws-row" title="@(_tenantName ?? "Mi empresa")">
+            <div class="ecorex-tenant-tile">@TenantInitial</div>
+            <div style="flex:1;min-width:0;">
+                <div class="ecorex-tenant-name">@(_tenantName ?? "Mi empresa")</div>
+                <div class="ecorex-tenant-sub">@(_planName is null ? "ECOREX Sistema de Tareas" : $"{_planName} \u00b7 ECOREX")</div>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
         </div>
     </div>
 }
@@ -258,7 +262,8 @@ else
 </nav>
 
 <div class="ecorex-user">
-    <div class="ecorex-avatar">@_avatar</div>
+    @* El color AVPAL del prototipo solo aplica al workspace; el admin conserva su avatar dorado. *@
+    <div class="ecorex-avatar" style="@(_showAdmin ? null : $"background:{AvatarBg}")">@_avatar</div>
     <div style="min-width:0;">
         <div class="nm">@(_userName ?? "Usuario")</div>
         <div class="rl">@_roleLabel</div>
@@ -352,6 +357,22 @@ else
 
     /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
     private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();
+
+    // Paleta AVPAL del prototipo (avatares con color solido mate): (char0 + char1) % 8.
+    private static readonly string[] AvatarPalette =
+    [
+        "#E0876B", "#7E78E6", "#3FA39B", "#5B8DEF", "#C77FD0", "#D9A441", "#5FAE6E", "#E07A9B"
+    ];
+
+    private string AvatarBg
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_avatar)) { return AvatarPalette[0]; }
+            var sum = _avatar[0] + (_avatar.Length > 1 ? _avatar[1] : 0);
+            return AvatarPalette[sum % AvatarPalette.Length];
+        }
+    }
 
     private static string Initials(string? name)
     {

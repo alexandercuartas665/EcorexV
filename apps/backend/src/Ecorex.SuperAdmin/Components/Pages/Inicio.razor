@@ -191,7 +191,11 @@
 
         // Scope propio para NO compartir el DbContext del request con NavMenu/MainLayout
         // durante el prerender ("second operation started on this context"). El tenant se
-        // resuelve igual (AmbientTenantContext lee los claims via IHttpContextAccessor).
+        // fija explicitamente: en el circuito interactivo (SignalR) no hay HttpContext y
+        // sin esto el filtro global queda fail-closed y los KPIs muestran cero.
+        using var ambient = tenantId is Guid ambientTenant
+            ? Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(ambientTenant, platformUserId)
+            : null;
         await using var scope = ScopeFactory.CreateAsyncScope();
         var tenants = scope.ServiceProvider.GetRequiredService<ITenantAdminService>();
         var tasksSvc = scope.ServiceProvider.GetRequiredService<ITaskItemService>();

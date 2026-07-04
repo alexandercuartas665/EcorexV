@@ -115,6 +115,14 @@ else
     private System.Threading.Timer? _autosaveTimer;
     private Guid _loadedKey;
 
+    // Serializa TODO acceso al DbContext del circuito desde este componente
+    // (despacho de reglas, autosave y guardado/submit). Blazor solo garantiza
+    // exclusion hasta el primer await: dos onchange rapidos sobre campos con
+    // reglas (o un autosave cruzado con un submit) interleaban operaciones y
+    // tumbaban el circuito con "a second operation was started on this context"
+    // (bug real destapado por la suite E2E, PROGRESO.md sesion 13).
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
     private bool IsSubmitted => _response?.Status == FormResponseStatus.Submitted;
     private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsSubmitted;
 
@@ -357,9 +365,18 @@ else
         {
             return;
         }
-        using var ambient = BeginAmbient();
-        var outcome = await RulesDispatcher.OnFieldChangedAsync(
-            DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+        await _dbGate.WaitAsync();
+        FormFieldRulesOutcome outcome;
+        try
+        {
+            using var ambient = BeginAmbient();
+            outcome = await RulesDispatcher.OnFieldChangedAsync(
+                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+        }
+        finally
+        {
+            _dbGate.Release();
+        }
         if (outcome.Actions.Count == 0)
         {
             return;
@@ -469,6 +486,7 @@ else
         }
         _busy = true;
         _globalError = null;
+        await _dbGate.WaitAsync();
         try
         {
             using var ambient = BeginAmbient();
@@ -501,6 +519,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -512,5 +531,6 @@ else
     public void Dispose()
     {
         _autosaveTimer?.Dispose();
+        _dbGate.Dispose();
     }
 }

@@ -2127,6 +2127,53 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .ab-btn-commit:hover { opacity: .9; }
 .ab-btn-commit:disabled { opacity: .5; cursor: not-allowed; }
 .ab-field-error { font-size: 12px; color: var(--danger); }
+.ab-check-lbl { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ab-check-lbl input { width: 15px; height: 15px; }
+
+/* ---- Menus "..." de columna/tarjeta (ola 3, estilo ab-dd del fuente) ---- */
+.ab-menu-anchor { position: relative; z-index: 16; }
+.ab-menu-pop { top: calc(100% + 6px); right: 0; left: auto; min-width: 200px; }
+.ab-menu-sub { padding-left: 22px; justify-content: flex-start; gap: 8px; font-size: 12.5px; }
+.ab-menu-sub .ab-dot { flex: none; }
+.ab-dd-opt.danger { color: var(--danger); }
+
+/* ---- Vista CALENDARIO del tablero (ola 3, bloque isCalendario del fuente) ---- */
+.ab-calwrap { padding: 0 var(--pad, 30px) var(--pad, 30px); color: var(--ink); }
+.ab-cal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 20px); box-shadow: var(--sh-sm); overflow: hidden; }
+.ab-cal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.ab-cal-title { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.ab-cal-nav { display: flex; gap: 6px; }
+.ab-cal-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.ab-cal-btn:hover { background: var(--surface-3); }
+.ab-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding: 14px 16px 4px; }
+.ab-cal-week > div { font-size: 11px; font-weight: 600; color: var(--ink-3); text-align: center; padding-bottom: 4px; }
+.ab-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding: 0 16px 16px; }
+.ab-cal-cell { min-height: 92px; border-radius: 10px; padding: 7px; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.ab-cal-cell.today { border-color: var(--brand); background: var(--brand-soft); }
+.ab-cal-cell.off { border-color: transparent; background: transparent; cursor: default; }
+.ab-cal-num { font-size: 12px; font-weight: 600; color: var(--ink-2); padding-left: 2px; }
+.ab-cal-num.today { width: 22px; height: 22px; border-radius: 50%; background: var(--brand); color: var(--on-brand); display: grid; place-items: center; font-size: 11.5px; font-weight: 700; padding-left: 0; }
+.ab-cal-chip { font-size: 10px; font-weight: 600; padding: 3px 6px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--surface-3); color: var(--ink-2); cursor: pointer; }
+.ab-cal-chip:hover { color: var(--ink); }
+.ab-cal-more { font-size: 10px; font-weight: 700; color: var(--ink-3); padding-left: 2px; }
+
+/* ---- Vista GANTT del tablero (ola 3, bloque isGantt del fuente) ---- */
+.ab-ganttwrap { padding: 0 var(--pad, 30px) var(--pad, 30px); color: var(--ink); }
+.ab-gantt { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 20px); box-shadow: var(--sh-sm); overflow: hidden; }
+.ab-gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.ab-gantt-lbl { width: 220px; flex: none; padding: 12px 16px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .05em; display: flex; align-items: center; }
+.ab-gantt-days { flex: 1; display: grid; grid-template-columns: repeat(14, 1fr); }
+.ab-gantt-day { text-align: center; font-size: 11px; font-weight: 600; color: var(--ink-3); padding: 11px 0; border-left: 1px solid var(--line); }
+.ab-gantt-day.we { background: var(--surface-3); }
+.ab-gantt-nav { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-left: 1px solid var(--line); }
+.ab-gantt-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.ab-gantt-task { width: 220px; flex: none; padding: 0 16px; display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.ab-gantt-task:hover .ab-gantt-name { color: var(--ink); }
+.ab-gantt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ab-gantt-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ab-gantt-track { flex: 1; position: relative; height: 38px; background-image: linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: calc(100% / 14) 100%; }
+.ab-gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--brand); opacity: .45; }
+.ab-gantt-bar { position: absolute; top: 8px; height: 22px; border-radius: 7px; display: flex; align-items: center; padding: 0 9px; color: #fff; font-size: 10.5px; font-weight: 700; overflow: hidden; white-space: nowrap; box-shadow: var(--sh-sm); cursor: pointer; }
 
 /* ---- Detalle de tarea: checklist / asignados / mover a ---- */
 .tk-check-row { display: flex; align-items: center; gap: 10px; }

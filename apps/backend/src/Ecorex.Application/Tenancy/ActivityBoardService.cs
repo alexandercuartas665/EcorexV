@@ -435,7 +435,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                     attachmentCounts.TryGetValue(t.Id, out var att) ? att : 0,
                     commentCounts.TryGetValue(t.Id, out var com) ? com : 0,
                     tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
-                    column.Id, t.BoardSortOrder, t.Version);
+                    column.Id, t.BoardSortOrder, t.Version, t.CreatedAt);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();
@@ -466,17 +466,34 @@ public sealed class ActivityBoardService : IActivityBoardService
             return TaskCoreResult<MoveTaskResultDto>.Invalid("La columna destino no pertenece al tablero de la tarea.");
         }
 
+        // Reorden estable (ola 3): sortOrder es el INDICE DE DROP dentro de la columna
+        // destino. Se re-secuencia toda la columna en memoria (insercion en el indice,
+        // clampada) para que BoardSortOrder quede denso y el orden sea deterministico,
+        // tambien en el reorden INTRA columna. Un solo SaveChanges: atomico.
+        var siblings = await _db.TaskItems
+            .Where(t => t.ColumnId == targetColumnId && !t.IsArchived && t.Id != task.Id)
+            .OrderBy(t => t.BoardSortOrder).ThenBy(t => t.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var sameColumn = task.ColumnId == targetColumnId;
+        var insertAt = Math.Clamp(sortOrder, 0, siblings.Count);
+        siblings.Insert(insertAt, task);
         task.ColumnId = targetColumnId;
-        task.BoardSortOrder = sortOrder;
-        _db.TaskItemActivities.Add(new TaskItemActivity
+        for (var i = 0; i < siblings.Count; i++)
         {
-            TenantId = task.TenantId,
-            TaskItemId = task.Id,
-            Type = TaskActivityType.Action,
-            ActorUserId = actorUserId,
-            ActorName = string.IsNullOrWhiteSpace(actorName) ? "Sistema" : actorName.Trim(),
-            Text = $"movio la tarea a la columna '{column.Name}'"
-        });
+            if (siblings[i].BoardSortOrder != i) { siblings[i].BoardSortOrder = i; }
+        }
+        if (!sameColumn)
+        {
+            _db.TaskItemActivities.Add(new TaskItemActivity
+            {
+                TenantId = task.TenantId,
+                TaskItemId = task.Id,
+                Type = TaskActivityType.Action,
+                ActorUserId = actorUserId,
+                ActorName = string.IsNullOrWhiteSpace(actorName) ? "Sistema" : actorName.Trim(),
+                Text = $"movio la tarea a la columna '{column.Name}'"
+            });
+        }
 
         // Transicion OPORTUNISTA a Done al llegar a una columna final (ADR-0020): la
         // columna es ubicacion, el estado lo gobierna TaskItemStateMachine. Si la maquina
@@ -515,7 +532,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             return TaskCoreResult<MoveTaskResultDto>.Conflict(ConflictMessage);
         }
         return TaskCoreResult<MoveTaskResultDto>.Ok(new MoveTaskResultDto(
-            task.Id, targetColumnId, sortOrder, column.IsDone, statusChanged, task.Status, statusNote));
+            task.Id, targetColumnId, task.BoardSortOrder, column.IsDone, statusChanged, task.Status, statusNote));
     }
 
     public async Task<TaskCoreResult<bool>> AddTaskToBoardAsync(Guid taskItemId, Guid boardId, Guid? columnId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)

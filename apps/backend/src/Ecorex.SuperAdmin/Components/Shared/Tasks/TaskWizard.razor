@@ -71,7 +71,7 @@
                                 <option value="">Sin asignar</option>
                                 @foreach (var u in _users)
                                 {
-                                    <option value="@u.Id">@u.Email</option>
+                                    <option value="@u.Id">@TaskUi.UserLabel(u)</option>
                                 }
                             </select>
                         </div>
@@ -177,7 +177,7 @@
                             <div class="tk-summary-row"><span>Descripcion</span><strong class="tk-summary-desc">@_description</strong></div>
                         }
                         <div class="tk-summary-row"><span>Prioridad</span><PriorityChip Priority="_priority" /></div>
-                        <div class="tk-summary-row"><span>Encargado</span><strong>@(assignee?.Email ?? "Sin asignar")</strong></div>
+                        <div class="tk-summary-row"><span>Encargado</span><strong>@(assignee is TenantUserDto au ? TaskUi.UserLabel(au) : "Sin asignar")</strong></div>
                         <div class="tk-summary-row"><span>Entrega</span><strong>@(_dueDate?.ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
                         @if (_tags.Count > 0)
                         {
@@ -376,9 +376,10 @@
         {
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
+            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
             DateTimeOffset? due = _dueDate is null
                 ? null
-                : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset);
+                : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
 
             var request = new CreateTaskItemRequest(
                 Title: _title.Trim(),

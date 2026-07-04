@@ -139,6 +139,17 @@ public static class AbUi
         return $"{local.Day} {MonthsLong[local.Month - 1]}, {local.Year}";
     }
 
+    /// <summary>Titulo del calendario: "Julio 2026" (formato del prototipo).</summary>
+    public static string MonthTitle(DateTime month)
+    {
+        var name = MonthsLong[month.Month - 1];
+        return $"{char.ToUpperInvariant(name[0])}{name[1..]} {month.Year}";
+    }
+
+    /// <summary>Mes en mayusculas para la banda del gantt: "TAREA - JULIO 2026".</summary>
+    public static string MonthUpper(DateTime month)
+        => MonthsLong[month.Month - 1].ToUpperInvariant();
+
     /// <summary>Fondo suave para el chip de etiqueta a partir de su color hex (#RRGGBB + alpha).</summary>
     public static string TagSoft(string? color)
         => string.IsNullOrWhiteSpace(color) ? "var(--surface-3)" : color!.Trim() + "1f";

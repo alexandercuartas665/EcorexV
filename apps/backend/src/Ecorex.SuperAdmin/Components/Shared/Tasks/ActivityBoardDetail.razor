@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
 @inject IActivityBoardService BoardsSvc
+@inject ITaskBoardService ColumnsSvc
 @inject ITaskItemService TasksSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
@@ -137,11 +138,11 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
                 Lista
             </button>
-            <button class="ab-tab disabled" title="Proxima ola" disabled>
+            <button class="ab-tab @(_view == "calendario" ? "on" : "")" @onclick="@(() => _view = "calendario")">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                 Calendario
             </button>
-            <button class="ab-tab disabled" title="Proxima ola" disabled>
+            <button class="ab-tab @(_view == "gantt" ? "on" : "")" @onclick="@(() => _view = "gantt")">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="9" height="3" rx="1"/><rect x="8" y="11" width="11" height="3" rx="1"/><rect x="5" y="17" width="8" height="3" rx="1"/></svg>
                 Gantt
             </button>
@@ -177,9 +178,21 @@
                     <div class="ab-col-head">
                         <div class="ab-col-name">@column.Name</div>
                         <span class="ab-col-count" style="background:@AbUi.ColumnBadgeBg(colIdx);color:@AbUi.ColumnBadgeFg(colIdx)">@column.Cards.Count</span>
-                        <button class="ab-col-menu" title="Opciones de columna (proxima ola)">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
-                        </button>
+                        <div class="ab-menu-anchor" style="margin-left:auto">
+                            <button class="ab-col-menu" title="Opciones de columna" @onclick="@(() => ToggleColMenu(column.Id))" @onclick:stopPropagation="true">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                            </button>
+                            @if (_colMenuId == column.Id)
+                            {
+                                <div class="ab-dd-pop ab-menu-pop">
+                                    <button class="ab-dd-opt" @onclick="@(() => OpenRenameColumn(column))">Renombrar columna</button>
+                                    <button class="ab-dd-opt" @onclick="@(() => ToggleColumnDoneAsync(column))">
+                                        @(column.IsDone ? "Desmarcar columna final" : "Marcar como columna final")
+                                    </button>
+                                    <button class="ab-dd-opt" @onclick="OpenAddColumn">Agregar columna al final</button>
+                                </div>
+                            }
+                        </div>
                     </div>
                     <div class="ab-col-body @(_dragOverColumnId == column.Id ? "dragover" : "")"
                          ondragover="event.preventDefault()"
@@ -190,14 +203,48 @@
                         {
                             var c = card;
                             <div class="ab-card @(_dragTaskId == c.Id ? "dragging" : "")" draggable="true"
+                                 ondragover="event.preventDefault()"
                                  @onclick="@(() => OpenTaskAsync(c.Id))"
                                  @ondragstart="@(() => _dragTaskId = c.Id)"
+                                 @ondrop="@(() => OnDropOnCardAsync(column, c))"
+                                 @ondrop:stopPropagation="true"
                                  @ondragend="@(() => { _dragTaskId = null; _dragOverColumnId = null; })">
                                 <div class="ab-card-top">
                                     <div class="ab-card-title">@c.Title</div>
-                                    <button class="ab-card-menu" title="@c.Number" @onclick:stopPropagation="true">
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
-                                    </button>
+                                    <div class="ab-menu-anchor">
+                                        <button class="ab-card-menu" title="@c.Number" @onclick="@(() => ToggleCardMenu(c.Id))" @onclick:stopPropagation="true">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+                                        </button>
+                                        @if (_cardMenuId == c.Id)
+                                        {
+                                            <div class="ab-dd-pop ab-menu-pop" @onclick:stopPropagation="true">
+                                                <button class="ab-dd-opt" @onclick="@(() => OpenFromMenuAsync(c.Id))">Abrir</button>
+                                                <button class="ab-dd-opt" @onclick="@(() => _cardMoveOpen = !_cardMoveOpen)">
+                                                    <span>Mover a</span>
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+                                                </button>
+                                                @if (_cardMoveOpen)
+                                                {
+                                                    @foreach (var (mcol, midx) in _detail.Columns.Select((x, i) => (x, i)))
+                                                    {
+                                                        var moveTarget = mcol;
+                                                        <button class="ab-dd-opt ab-menu-sub @(moveTarget.Id == c.ColumnId ? "sel" : "")"
+                                                                @onclick="@(() => MoveFromMenuAsync(c, moveTarget))">
+                                                            <span class="ab-dot" style="background:@AbUi.ColumnDot(midx)"></span>@mcol.Name
+                                                        </button>
+                                                    }
+                                                }
+                                                @if (!_cardArchiveConfirm)
+                                                {
+                                                    <button class="ab-dd-opt danger" @onclick="@(() => _cardArchiveConfirm = true)">Archivar</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="ab-dd-opt danger" @onclick="@(() => ArchiveFromMenuAsync(c))">Confirmar archivado</button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(c.Description))
                                 {
@@ -291,6 +338,111 @@
             </div>
         </div>
     }
+
+    @* ---- VISTA CALENDARIO (fuente: bloque isCalendario del prototipo) ---- *@
+    @if (_view == "calendario")
+    {
+        <div class="ab-calwrap">
+            <div class="ab-cal">
+                <div class="ab-cal-head">
+                    <div class="ab-cal-title">@AbUi.MonthTitle(_calMonth)</div>
+                    <div class="ab-cal-nav">
+                        <button class="ab-cal-btn" title="Mes anterior" @onclick="@(() => _calMonth = _calMonth.AddMonths(-1))">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+                        </button>
+                        <button class="ab-cal-btn" title="Mes siguiente" @onclick="@(() => _calMonth = _calMonth.AddMonths(1))">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="ab-cal-week">
+                    @foreach (var wd in CalWeekdays)
+                    {
+                        <div>@wd</div>
+                    }
+                </div>
+                <div class="ab-cal-grid">
+                    @foreach (var cell in CalCells())
+                    {
+                        if (!cell.Valid)
+                        {
+                            <div class="ab-cal-cell off"></div>
+                        }
+                        else
+                        {
+                            var cellDate = cell.Date;
+                            <div class="ab-cal-cell @(cell.IsToday ? "today" : "")" @onclick="@(() => OpenQuickCreate(null, cellDate))">
+                                <span class="ab-cal-num @(cell.IsToday ? "today" : "")">@cell.Date.Day</span>
+                                @foreach (var (colIdx, card) in cell.Chips.Take(3))
+                                {
+                                    var chipCard = card;
+                                    <div class="ab-cal-chip" style="border-left:3px solid @AbUi.ColumnDot(colIdx)" title="@chipCard.Title"
+                                         @onclick="@(() => OpenTaskAsync(chipCard.Id))" @onclick:stopPropagation="true">@chipCard.Title</div>
+                                }
+                                @if (cell.Chips.Count > 3)
+                                {
+                                    <div class="ab-cal-more">+@(cell.Chips.Count - 3)</div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---- VISTA GANTT (fuente: bloque isGantt del prototipo, ventana de 14 dias) ---- *@
+    @if (_view == "gantt")
+    {
+        <div class="ab-ganttwrap">
+            <div class="ab-gantt">
+                <div class="ab-gantt-head">
+                    <div class="ab-gantt-lbl">TAREA - @AbUi.MonthUpper(_ganttStart) @_ganttStart.Year</div>
+                    <div class="ab-gantt-days">
+                        @foreach (var d in GanttDays())
+                        {
+                            <div class="ab-gantt-day @(d.Weekend ? "we" : "")">@d.Date.Day</div>
+                        }
+                    </div>
+                    <div class="ab-gantt-nav">
+                        <button class="ab-cal-btn" title="14 dias atras" @onclick="@(() => _ganttStart = _ganttStart.AddDays(-14))">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
+                        </button>
+                        <button class="ab-cal-btn" title="14 dias adelante" @onclick="@(() => _ganttStart = _ganttStart.AddDays(14))">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+                @foreach (var row in GanttRows())
+                {
+                    var g = row;
+                    <div class="ab-gantt-row">
+                        <div class="ab-gantt-task" @onclick="@(() => OpenTaskAsync(g.Card.Id))">
+                            <span class="ab-gantt-dot" style="background:@AbUi.ColumnDot(g.ColIdx)"></span>
+                            <span class="ab-gantt-name">@g.Card.Title</span>
+                        </div>
+                        <div class="ab-gantt-track">
+                            @if (GanttTodayLeft() is string todayLeft)
+                            {
+                                <div class="ab-gantt-today" style="left:@todayLeft"></div>
+                            }
+                            <div class="ab-gantt-bar" style="left:@g.Left;width:@g.Width;background:@AbUi.ColumnDot(g.ColIdx)"
+                                 @onclick="@(() => OpenTaskAsync(g.Card.Id))">@g.Card.ChecklistDone/@g.Card.ChecklistTotal</div>
+                        </div>
+                    </div>
+                }
+                @if (!GanttRows().Any())
+                {
+                    <div class="ab-empty" style="padding:24px 22px;">No hay tareas con fechas dentro de la ventana visible.</div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_colMenuId is not null || _cardMenuId is not null)
+    {
+        <div class="ab-scrim" @onclick="CloseMenus"></div>
+    }
 }
 
 @* ---- Modal de creacion rapida de tarea ---- *@
@@ -338,7 +490,7 @@
                         <option value="">Sin asignar</option>
                         @foreach (var u in _users)
                         {
-                            <option value="@u.Id">@u.Email</option>
+                            <option value="@u.Id">@TaskUi.UserLabel(u)</option>
                         }
                     </select>
                 </div>
@@ -431,6 +583,59 @@
     </div>
 }
 
+@* ---- Modal renombrar columna ---- *@
+@if (_rcOpen)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _rcOpen = false)">
+        <div class="ab-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Renombrar columna</h3>
+                <button class="ab-modal-x" @onclick="@(() => _rcOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <div class="ab-field">
+                    <label>Nombre</label>
+                    <input class="ab-input" @bind="_rcName" @bind:event="oninput" maxlength="120" />
+                </div>
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _rcOpen = false)">Cancelar</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_rcName))" @onclick="RenameColumnAsync">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Modal agregar columna ---- *@
+@if (_acOpen)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _acOpen = false)">
+        <div class="ab-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Agregar columna</h3>
+                <button class="ab-modal-x" @onclick="@(() => _acOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <div class="ab-field">
+                    <label>Nombre</label>
+                    <input class="ab-input" @bind="_acName" @bind:event="oninput" maxlength="120" placeholder="Nombre de la columna" />
+                </div>
+                <div class="ab-field">
+                    <label class="ab-check-lbl"><input type="checkbox" @bind="_acIsDone" /> Columna final (las tareas que lleguen se dan por terminadas)</label>
+                </div>
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _acOpen = false)">Cancelar</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_acName))" @onclick="AddColumnAsync">Agregar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <TaskToasts @ref="_toasts" />
 <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 
@@ -461,6 +666,37 @@
     // Drag and drop nativo HTML5 (mismo patron del kanban por estado).
     private Guid? _dragTaskId;
     private Guid? _dragOverColumnId;
+
+    // Menus "..." de columna y de tarjeta (popovers estilo ab-dd del fuente).
+    private Guid? _colMenuId;
+    private Guid? _cardMenuId;
+    private bool _cardMoveOpen;
+    private bool _cardArchiveConfirm;
+
+    // Renombrar / marcar final / agregar columna (delega en ITaskBoardService existente).
+    private bool _rcOpen;
+    private Guid _rcColumnId;
+    private string _rcName = "";
+    private string? _rcColor;
+    private bool _rcIsDone;
+    private bool _acOpen;
+    private string _acName = "";
+    private bool _acIsDone;
+
+    // Vistas Calendario (mes navegable) y Gantt (ventana de 14 dias navegable).
+    private DateTime _calMonth = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateTime _ganttStart = DefaultGanttStart();
+    private static readonly string[] CalWeekdays = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+
+    /// <summary>
+    /// Ventana inicial del gantt: el bloque de 14 dias del mes actual que CONTIENE a hoy
+    /// (dias 1-14, 15-28 o 29+), para que la linea de HOY siempre arranque visible.
+    /// </summary>
+    private static DateTime DefaultGanttStart()
+    {
+        var today = DateTime.Today;
+        return new DateTime(today.Year, today.Month, 1).AddDays(14 * ((today.Day - 1) / 14));
+    }
 
     // Creacion rapida.
     private bool _qcOpen;
@@ -505,6 +741,9 @@
         _fDue = null; _fDueOn = null;
         _scope = ActivityBoardScope.Team;
         _view = "tablero";
+        _calMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        _ganttStart = DefaultGanttStart();
+        CloseMenus();
         await ResolveTenantAsync();
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _tags = (await TasksSvc.ListTagsAsync()).ToList();
@@ -689,21 +928,42 @@
         if (_taskDetail is not null) { await _taskDetail.OpenAsync(taskId); }
     }
 
-    // ---- Drag and drop -> MoveTaskAsync ----
+    // ---- Drag and drop -> MoveTaskAsync (el sortOrder es el INDICE de drop) ----
 
+    /// <summary>Drop sobre el cuerpo de la columna: la tarjeta va al FINAL.</summary>
     private async Task OnDropAsync(ActivityBoardColumnDto target)
     {
         _dragOverColumnId = null;
         if (_dragTaskId is not Guid taskId || _detail is null) { return; }
         _dragTaskId = null;
         var current = _detail.Columns.SelectMany(c => c.Cards).FirstOrDefault(c => c.Id == taskId);
-        if (current is null || current.ColumnId == target.Id) { return; }
-        await MoveAsync(taskId, target);
+        if (current is null) { return; }
+        if (current.ColumnId == target.Id && target.Cards.Count > 0 && target.Cards[^1].Id == taskId)
+        {
+            return; // ya es la ultima de su columna
+        }
+        await MoveAsync(taskId, target, target.Cards.Count(x => x.Id != taskId));
     }
 
-    private async Task MoveAsync(Guid taskId, ActivityBoardColumnDto target)
+    /// <summary>
+    /// Drop sobre una tarjeta: inserta ANTES de esa tarjeta (reorden intra columna o
+    /// entre columnas). El indice se calcula sin contar la tarjeta arrastrada, igual
+    /// que la re-secuenciacion del servicio.
+    /// </summary>
+    private async Task OnDropOnCardAsync(ActivityBoardColumnDto target, ActivityCardDto over)
     {
-        var sortOrder = target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1;
+        _dragOverColumnId = null;
+        if (_dragTaskId is not Guid taskId || _detail is null) { return; }
+        _dragTaskId = null;
+        if (taskId == over.Id) { return; }
+        var remaining = target.Cards.Where(x => x.Id != taskId).ToList();
+        var index = remaining.FindIndex(x => x.Id == over.Id);
+        if (index < 0) { index = remaining.Count; }
+        await MoveAsync(taskId, target, index);
+    }
+
+    private async Task MoveAsync(Guid taskId, ActivityBoardColumnDto target, int sortOrder)
+    {
         var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync());
         if (!result.IsOk)
         {
@@ -720,15 +980,223 @@
 
     // ---- Creacion rapida ----
 
-    private void OpenQuickCreate(Guid? columnId)
+    /// <summary>
+    /// Abre el modal de creacion rapida. dueDate viene del click en un dia vacio del
+    /// CALENDARIO (fecha preseleccionada, spec del prototipo).
+    /// </summary>
+    private void OpenQuickCreate(Guid? columnId, DateTime? dueDate = null)
     {
         if (_detail is null || _detail.Columns.Count == 0) { return; }
         _qcColumnId = columnId ?? _detail.Columns[0].Id;
         _qcTitle = ""; _qcDesc = ""; _qcPriority = TaskPriority.Medium;
-        _qcAssignee = ""; _qcDue = null; _qcTagIds.Clear(); _qcTypeId = "";
+        _qcAssignee = ""; _qcDue = dueDate; _qcTagIds.Clear(); _qcTypeId = "";
         _qcError = null;
         _qcOpen = true;
     }
+
+    // ---- Menus "..." de columna y tarjeta ----
+
+    private void ToggleColMenu(Guid columnId)
+    {
+        _colMenuId = _colMenuId == columnId ? null : columnId;
+        _cardMenuId = null; _cardMoveOpen = false; _cardArchiveConfirm = false;
+    }
+
+    private void ToggleCardMenu(Guid taskId)
+    {
+        _cardMenuId = _cardMenuId == taskId ? null : taskId;
+        _colMenuId = null; _cardMoveOpen = false; _cardArchiveConfirm = false;
+    }
+
+    private void CloseMenus()
+    {
+        _colMenuId = null; _cardMenuId = null;
+        _cardMoveOpen = false; _cardArchiveConfirm = false;
+    }
+
+    private void OpenRenameColumn(ActivityBoardColumnDto column)
+    {
+        _rcColumnId = column.Id;
+        _rcName = column.Name;
+        _rcColor = column.Color;
+        _rcIsDone = column.IsDone;
+        _rcOpen = true;
+        CloseMenus();
+    }
+
+    private async Task RenameColumnAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_rcName)) { return; }
+        _busy = true;
+        try
+        {
+            var updated = await ColumnsSvc.UpdateColumnAsync(_rcColumnId,
+                new UpdateTaskColumnRequest(_rcName.Trim(), _rcColor, _rcIsDone), await ActorAsync());
+            if (updated is null)
+            {
+                _toasts?.Error("No se pudo renombrar la columna.");
+                return;
+            }
+            _rcOpen = false;
+            _toasts?.Success("Columna renombrada.");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleColumnDoneAsync(ActivityBoardColumnDto column)
+    {
+        CloseMenus();
+        var updated = await ColumnsSvc.UpdateColumnAsync(column.Id,
+            new UpdateTaskColumnRequest(column.Name, column.Color, !column.IsDone), await ActorAsync());
+        if (updated is null)
+        {
+            _toasts?.Error("No se pudo actualizar la columna.");
+            return;
+        }
+        _toasts?.Success(updated.IsDone ? $"'{updated.Name}' ahora es columna final." : $"'{updated.Name}' dejo de ser columna final.");
+        await ReloadAsync();
+    }
+
+    private void OpenAddColumn()
+    {
+        _acName = "";
+        _acIsDone = false;
+        _acOpen = true;
+        CloseMenus();
+    }
+
+    private async Task AddColumnAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_acName)) { return; }
+        _busy = true;
+        try
+        {
+            var created = await ColumnsSvc.CreateColumnAsync(
+                new CreateTaskColumnRequest(_detail.Id, _acName.Trim(), null, _acIsDone), await ActorAsync());
+            if (created is null)
+            {
+                _toasts?.Error("No se pudo crear la columna.");
+                return;
+            }
+            _acOpen = false;
+            _toasts?.Success($"Columna '{created.Name}' agregada.");
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenFromMenuAsync(Guid taskId)
+    {
+        CloseMenus();
+        await OpenTaskAsync(taskId);
+    }
+
+    private async Task MoveFromMenuAsync(ActivityCardDto card, ActivityBoardColumnDto target)
+    {
+        CloseMenus();
+        if (card.ColumnId == target.Id) { return; }
+        await MoveAsync(card.Id, target, target.Cards.Count(x => x.Id != card.Id));
+    }
+
+    private async Task ArchiveFromMenuAsync(ActivityCardDto card)
+    {
+        CloseMenus();
+        var result = await TasksSvc.ArchiveAsync(card.Id, await ActorAsync(), await ActorNameAsync());
+        if (!result.IsOk)
+        {
+            _toasts?.Error(result.Error ?? "No se pudo archivar la tarea.");
+            return;
+        }
+        _toasts?.Success($"Tarea {card.Number} archivada.");
+        await BroadcastAsync(card.Id, result.Value!.Status);
+        await ReloadAsync();
+    }
+
+    // ---- Vista CALENDARIO (spec del fuente: celdas min-height 92, hoy en brand) ----
+
+    private readonly record struct CalCell(DateTime Date, bool Valid, bool IsToday, List<(int ColIdx, ActivityCardDto Card)> Chips);
+
+    /// <summary>
+    /// Celdas del mes visible: arranca en lunes (offset del primer dia), 35 o 42 celdas.
+    /// Los chips salen de las MISMAS tarjetas filtradas de las otras vistas, ubicadas
+    /// por su DueDate (fecha local).
+    /// </summary>
+    private IEnumerable<CalCell> CalCells()
+    {
+        var byDay = ListRows()
+            .Where(r => r.Card.DueDate is not null)
+            .GroupBy(r => r.Card.DueDate!.Value.ToLocalTime().Date)
+            .ToDictionary(g => g.Key, g => g.Select(r => (r.ColIdx, r.Card)).ToList());
+        var today = DateTime.Today;
+        var daysInMonth = DateTime.DaysInMonth(_calMonth.Year, _calMonth.Month);
+        var offset = ((int)_calMonth.DayOfWeek + 6) % 7; // semana empieza en lunes
+        var cells = (int)Math.Ceiling((offset + daysInMonth) / 7.0) * 7;
+        for (var i = 0; i < cells; i++)
+        {
+            var day = i - offset + 1;
+            if (day < 1 || day > daysInMonth)
+            {
+                yield return new CalCell(default, false, false, new List<(int, ActivityCardDto)>());
+                continue;
+            }
+            var date = new DateTime(_calMonth.Year, _calMonth.Month, day);
+            var chips = byDay.TryGetValue(date, out var list) ? list : new List<(int, ActivityCardDto)>();
+            yield return new CalCell(date, true, date == today, chips);
+        }
+    }
+
+    // ---- Vista GANTT (spec del fuente: ventana de 14 dias, barra por columna) ----
+
+    private readonly record struct GanttDay(DateTime Date, bool Weekend);
+    private readonly record struct GanttRow(ActivityCardDto Card, int ColIdx, string Left, string Width);
+
+    private IEnumerable<GanttDay> GanttDays()
+    {
+        for (var i = 0; i < 14; i++)
+        {
+            var date = _ganttStart.AddDays(i);
+            yield return new GanttDay(date, date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday);
+        }
+    }
+
+    /// <summary>
+    /// Filas del gantt: barra de StartDate a DueDate. Si falta StartDate usa CreatedAt;
+    /// si falta DueDate usa StartDate + 1 dia. Se clampea a la ventana visible y las
+    /// tareas totalmente fuera de rango se ocultan (spec de la ola).
+    /// </summary>
+    private IEnumerable<GanttRow> GanttRows()
+    {
+        foreach (var (_, colIdx, card) in ListRows())
+        {
+            var start = (card.StartDate ?? card.CreatedAt).ToLocalTime().Date;
+            var end = card.DueDate?.ToLocalTime().Date ?? start.AddDays(1);
+            if (end < start) { (start, end) = (end, start); }
+            var s = (start - _ganttStart).Days;
+            var e = (end - _ganttStart).Days;
+            if (e < 0 || s > 13) { continue; } // fuera de la ventana visible
+            var visStart = Math.Max(s, 0);
+            var visEnd = Math.Min(e, 13);
+            yield return new GanttRow(card, colIdx, GanttPct(visStart), GanttPct(visEnd - visStart + 1));
+        }
+    }
+
+    /// <summary>Linea de HOY: left = ((dia - 0.5) / 14) * 100%, solo si cae en la ventana.</summary>
+    private string? GanttTodayLeft()
+    {
+        var idx = (DateTime.Today - _ganttStart).Days;
+        if (idx < 0 || idx > 13) { return null; }
+        return ((idx + 0.5) / 14.0 * 100).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "%";
+    }
+
+    private static string GanttPct(int days)
+        => (days / 14.0 * 100).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "%";
 
     private async Task QuickCreateAsync()
     {
@@ -737,8 +1205,10 @@
         _qcError = null;
         try
         {
+            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz
+            // (mismo fix de Inicio.razor, sesion 9). Fin del dia LOCAL convertido a UTC.
             var due = _qcDue is DateTime d
-                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime()
                 : (DateTimeOffset?)null;
             var request = new QuickCreateTaskRequest(
                 BoardId: _detail.Id,
@@ -790,7 +1260,7 @@
         try
         {
             var due = _ebDue is DateTime d
-                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime()
                 : (DateTimeOffset?)null;
             var request = new UpdateActivityBoardRequest(
                 Name: _ebName.Trim(),

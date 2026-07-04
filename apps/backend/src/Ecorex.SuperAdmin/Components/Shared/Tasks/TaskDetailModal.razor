@@ -88,7 +88,7 @@
                             <button class="tk-pill-item" @onclick="@(() => AssignAsync(null))">Sin asignar</button>
                             @foreach (var u in _users)
                             {
-                                <button class="tk-pill-item @(item.AssigneeTenantUserId == u.Id ? "on" : "")" @onclick="@(() => AssignAsync(u.Id))">@u.Email</button>
+                                <button class="tk-pill-item @(item.AssigneeTenantUserId == u.Id ? "on" : "")" @onclick="@(() => AssignAsync(u.Id))">@TaskUi.UserLabel(u)</button>
                             }
                         </div>
                     }
@@ -433,7 +433,7 @@
                                         <option value="">Agregar usuario...</option>
                                         @foreach (var u in _users.Where(u => _detail.Assignees.All(a => a.TenantUserId != u.Id)))
                                         {
-                                            <option value="@u.Id">@u.Email</option>
+                                            <option value="@u.Id">@TaskUi.UserLabel(u)</option>
                                         }
                                     </select>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="AddAssigneeAsync" disabled="@(_busy || string.IsNullOrEmpty(_addAssigneeId))">Agregar</button>
@@ -860,10 +860,10 @@
     private void CloseMenus() => _openMenu = null;
 
     private string? AssigneeEmail(Guid? tenantUserId)
-        => tenantUserId is Guid id ? _users.FirstOrDefault(u => u.Id == id)?.Email : null;
+        => tenantUserId is Guid id && _users.FirstOrDefault(u => u.Id == id) is TenantUserDto u ? TaskUi.UserLabel(u) : null;
 
     private string UserEmail(Guid tenantUserId)
-        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+        => _users.FirstOrDefault(u => u.Id == tenantUserId) is TenantUserDto u ? TaskUi.UserLabel(u) : "?";
 
     private string TypeLabel(Guid typeId, string? fallback)
     {
@@ -947,7 +947,8 @@
             await ApplyUpdateAsync(BuildUpdate(clearDue: true));
             return;
         }
-        var due = new DateTimeOffset(_editDue.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset);
+        // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
+        var due = new DateTimeOffset(_editDue.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
         await ApplyUpdateAsync(BuildUpdate(dueDate: due));
     }
 

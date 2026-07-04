@@ -28,10 +28,14 @@ public sealed class TenantUserService : ITenantUserService
     public async Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default)
     {
         // El filtro global del DbContext limita por el tenant del contexto.
+        // DisplayName viene del PlatformUser (join aditivo, ola 3): los dropdowns de
+        // asignado muestran el nombre legible en vez del email.
         return await _db.TenantUsers
             .AsNoTracking()
             .OrderBy(u => u.Email)
-            .Select(u => new TenantUserDto(u.Id, u.PlatformUserId, u.Email, u.TenantRole, u.Status))
+            .Join(_db.PlatformUsers.AsNoTracking(),
+                tu => tu.PlatformUserId, pu => pu.Id,
+                (tu, pu) => new TenantUserDto(tu.Id, tu.PlatformUserId, tu.Email, tu.TenantRole, tu.Status, pu.DisplayName))
             .ToListAsync(cancellationToken);
     }
 

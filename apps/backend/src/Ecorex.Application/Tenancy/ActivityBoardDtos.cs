@@ -102,7 +102,10 @@ public sealed record ActivityCardDto(
     IReadOnlyList<ActivityBoardMemberDto> TeamAssignees,
     int AttachmentsCount, int CommentsCount,
     IReadOnlyList<TaskItemTagDto> Tags,
-    Guid ColumnId, int BoardSortOrder, long Version);
+    Guid ColumnId, int BoardSortOrder, long Version,
+    // Ola 3 (aditivo): fecha de creacion para la vista Gantt (si la tarea no tiene
+    // StartDate, la barra arranca en CreatedAt segun el prototipo).
+    DateTimeOffset CreatedAt = default);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,

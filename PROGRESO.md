@@ -1444,3 +1444,246 @@ del FUENTE (estilos inline del prototipo), no de memoria.
 - Bug PRE-EXISTENTE anotado: DynamicFormRenderer.SaveAsync suelta un SemaphoreSlim
   ya disposed al enviar el formulario publico (ObjectDisposedException en el log;
   no rompe el flujo pero mata el circuito tras el submit).
+
+---
+
+## 2026-07-04 - Sesion: Ola 3 UI de tableros - vistas CALENDARIO y GANTT + pendientes menores
+
+**Agentes**: agente unico (UI + delegaciones aditivas + E2E + validacion en navegador real).
+
+**Fuente**: bloques isCalendario / isGantt / calCells / ganttRows / ganttDays de la
+pantalla 'work' de ECOREX.dc.html (leidos del fuente, no de memoria).
+
+**Hecho**:
+- VISTA CALENDARIO en ActivityBoardDetail.razor: contenedor surface/line/var(--rad)/
+  sh-sm con header "Julio 2026" (16px/700, -.01em) + botones prev/next 30x30 r8 que
+  navegan el MES REAL; grilla 7 columnas con header Lun..Dom (11px/600 ink-3, ASCII);
+  celdas de dia min-height 92px r10 p7 border line (35 o 42 segun el mes, offset
+  lunes); HOY con border brand + bg brand-soft y numero en circulo 22px brand/
+  on-brand 11.5px/700; numeros 12px/600 ink-2. Chips de tarea por DueDate local
+  (10px/600 p3-6 r6 bg surface-3 border-left 3px del color de columna, truncados),
+  MAX 3 por celda + "+N"; click en chip abre TaskDetailModal (stopPropagation);
+  click en dia valido abre el modal de creacion rapida con esa fecha PRESELECCIONADA.
+  Usa las MISMAS tarjetas filtradas de las otras vistas (ListRows del detalle).
+- VISTA GANTT: banda header bg surface-2 con etiqueta izquierda 220px
+  "TAREA - {MES} {ANO}" (10.5px/600 ink-3 .05em) + grilla de 14 dias (11px/600,
+  border-left line, fin de semana bg surface-3 por DayOfWeek real) + botones
+  prev/next que desplazan la ventana de 14 dias (adicion necesaria: el fuente no
+  trae navegacion). Ventana inicial = bloque de 14 dias del mes que CONTIENE a hoy
+  (1-14 / 15-28 / 29+). Filas: izquierda 220px con punto 8px del color de columna +
+  nombre 13px/600 truncado; derecha relative height 38px con grid de fondo
+  linear-gradient(90deg, line 1px) size calc(100%/14); linea HOY 2px brand opacity
+  .45 en left ((dia-0.5)/14)%; barra absoluta top 8 height 22 r7 bg color de columna
+  (colInfo = ColumnDot, igual al fuente) con el progreso "N/M" del checklist en
+  blanco 10.5px/700; posicion StartDate -> DueDate (sin StartDate usa CreatedAt,
+  sin DueDate usa StartDate+1d), clampeada a la ventana; filas totalmente fuera de
+  rango se OCULTAN. Click en barra o en el nombre abre TaskDetailModal. Respeta
+  filtros y alcances.
+- Tabs Calendario y Gantt HABILITADOS (fuera el disabled/tooltip "Proxima ola").
+- Menu "..." de COLUMNA (popover estilo ab-dd del fuente): Renombrar columna (modal),
+  Marcar/Desmarcar columna final (IsDone) y Agregar columna al final. Usa el
+  ITaskBoardService EXISTENTE (UpdateColumnAsync/CreateColumnAsync) inyectado en el
+  componente: cero cambios de interfaz backend para columnas.
+- Menu "..." de TARJETA: Abrir, Mover a (submenu con las columnas y su punto de
+  color -> MoveTaskAsync al final de la columna destino) y Archivar con confirmacion
+  en dos pasos -> ITaskItemService.ArchiveAsync existente + toast + broadcast.
+- REORDEN INTRA-COLUMNA por drag: drop SOBRE una tarjeta inserta ANTES de ella;
+  drop en el cuerpo de la columna manda al final. El indice de drop viaja como
+  BoardSortOrder en MoveTaskAsync.
+- Dropdowns de asignado con nombre legible: TenantUserDto gana DisplayName?
+  (parametro opcional al final, cambio ADITIVO) poblado por join con PlatformUsers
+  en TenantUserService.ListAsync; TaskUi.UserLabel(u) devuelve DisplayName o, si es
+  null, DERIVA de la parte local del email con palabras capitalizadas
+  ("ana.garcia@x" -> "Ana Garcia", decision documentada en el codigo). Aplicado en
+  indice, modal rapido, TaskDetailModal (encargado + asignados), TaskKanban y
+  TaskWizard. Con el seed real se ven "Owner SKY SYSTEM", etc.
+- AbUi: MonthTitle ("Julio 2026") y MonthUpper ("JULIO") sobre MonthsLong.
+- app.css: bloques .ab-cal-* / .ab-gantt-* / .ab-menu-* con los valores literales
+  del fuente; claro/oscuro via tokens (verificado en ambos temas).
+
+**Cambios backend (reportados, todos acotados)**:
+- TenantUserDto.DisplayName (opcional, aditivo) + join en TenantUserService.ListAsync.
+- ActivityCardDto.CreatedAt (opcional, aditivo) poblado en GetBoardDetailAsync:
+  lo exige el fallback de la barra del gantt.
+- ActivityBoardService.MoveTaskAsync: ahora RE-SECUENCIA la columna destino en
+  memoria (inserta la tarea en el indice de drop clampeado y deja BoardSortOrder
+  denso 0..N, un solo SaveChanges) y solo registra la actividad "movio la tarea"
+  cuando CAMBIA de columna (el reorden intra-columna no ensucia el historial).
+  El DTO devuelve el BoardSortOrder efectivo. Integracion ActivityBoard 12/12 y
+  suite completa 101/101 verdes con el cambio.
+- BUG PRE-EXISTENTE corregido (destapado por el input de fecha del modal rapido
+  contra PG real): las fechas limite se construian con offset local -05:00 y Npgsql
+  solo acepta DateTimeOffset UTC en timestamptz -> ArgumentException y circuito
+  muerto. Fix .ToUniversalTime() (mismo patron de Inicio.razor, sesion 9) en los 7
+  puntos: quick-create y editar tablero (ActivityBoardDetail), nuevo tablero
+  (ActivityBoardsIndex), editar entrega (TaskDetailModal), wizard (TaskWizard) y
+  filtros DueFrom/DueTo (TaskKanban).
+
+**Desviaciones documentadas (vs instruccion, el fuente gana)**:
+- Contenedores con border-radius var(--rad) = 20px (la instruccion decia r16; el
+  fuente usa var(--rad) y el prototipo define --rad: 20px).
+- Separador " - " en la etiqueta del gantt (regla solo ASCII; el fuente usa punto medio).
+- Botones prev/next del gantt: no existen en el fuente (estatico); se agregaron con
+  el MISMO estilo de los del calendario, en la banda del header.
+- Weekend del gantt por DayOfWeek real (el fuente lo hardcodeaba para julio 2026).
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores. Domain 35/35, Application 115/115.
+- Integracion: ActivityBoardTests 12/12 y SUITE COMPLETA 101/101 verdes
+  (Testcontainers PG16 + SQL Server 2022).
+- E2E: 2 escenarios NUEVOS en BoardViewsTests (a: chip visible en la celda del
+  DueDate con dia pseudo-unico del mes siguiente, click abre el detalle, celda de
+  HOY resaltada, y limpieza archivando via menu "..." con confirmacion; b: barra
+  del gantt visible con progreso 0/0, banda TAREA-{MES}, 14 dias, linea de HOY y
+  click en barra abre el detalle). QuickCreateTaskAsync del harness gana dueDate
+  opcional (fill + blur por el patron @bind/onchange de ADR-0019).
+- SUITE E2E COMPLETA contra la app real (PG 5442, puerto 5247): 12/12 verde
+  (corridas 1 y 5); en 2 corridas intermedias fallo SOLO PublicFormTokenTests
+  (flake PRE-EXISTENTE ya anotado en la ola 2: ObjectDisposedException del
+  SemaphoreSlim de DynamicFormRenderer.SaveAsync al enviar el formulario publico;
+  en aislamiento pasa 1/1). Los 2 escenarios nuevos pasaron en TODAS las corridas.
+- Manual en navegador real (localhost:5247, claro Y oscuro): calendario (titulo,
+  Lun..Dom, 35 celdas, hoy 22px brand/on-brand y bg brand-soft, chips con
+  border-left del color de columna, "+4" de overflow, chip abre detalle, prev/next
+  Junio<->Agosto, dia vacio abre quick-create con la fecha 2026-08-20 preseleccionada);
+  gantt (TAREA - JULIO 2026, dias 1..14, 4 celdas weekend, barras N/M left/width en
+  % exactos, linea hoy en 25% opacity .45, track 38px con grid 7.14286%, ventana
+  15..28 con prev/next y filas fuera de rango ocultas, barra abre detalle);
+  menu de columna (renombrar ida y vuelta, toggle columna final con toasts,
+  agregar columna al final -limpiada por SQL para no ensuciar el seed-); menu de
+  tarjeta (Abrir/Mover a con 4 columnas/Archivar); reorden drag intra-columna
+  verificado (la tarjeta insertada ANTES del objetivo y persistida); dropdown
+  Encargado con nombres legibles. Valores de estilo verificados por computed styles
+  en claro y oscuro (dark: line rgba(255,255,255,.07), surface-2/3 oscuros, barra
+  ink-3 dark, hoy brand dark).
+- Procesos DETENIDOS: la app :5247 se paro al terminar (solo quedo la instancia
+  :5234 de otra sesion, intacta a proposito). launch.json gano config
+  superadmin-5247.
+
+**Deudas / TODO**:
+- Boton "+" de agregar vista en el switcher sigue decorativo (no estaba en la ola).
+- El indice de drop del reorden usa las tarjetas FILTRADAS visibles; con filtros
+  activos la insercion es aproximada respecto de la columna completa.
+- Flake pre-existente de PublicFormTokenTests (bug del dispatcher/semaforo de
+  DynamicFormRenderer): sigue pendiente como tarea de producto aparte.
+- Zona horaria del tenant para el corte "fin del dia" de las fechas limite (hoy:
+  fin del dia local del SERVIDOR convertido a UTC).
+- Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-04 - Sesion: Modulo FORMULARIOS fiel al prototipo + constructor funcional end-to-end (ADR-0021)
+
+**Agentes**: agente unico (modelo aditivo + migracion dual + renderer + indice +
+constructor + seeds + tests + E2E + validacion manual en navegador).
+
+**Fuente**: bloques isForms / formBuilderOpen / fbTypeReg / fbPaletteGroups /
+renderNode / widthGrid / propTabs de ECOREX.dc.html (lineas 3016-3440 markup y
+4069-4300 logica, leidos del fuente, no de memoria).
+
+**Hecho**:
+- MODELO (aditivo, UNA migracion dual `AddFormBuilderFields` aplicada y verificada en
+  PG 5442 y MSSQL 1443): FormContainerType += Row/Col/Section/Tabs/Modal (string, se
+  conservan Segment/Table; Segment se renderiza como Section); FormControlType +=
+  File/Barcode/Paragraph/Divider/Spacer; FormQuestion += Width (1..12, backfill desde
+  grid_col en la migracion, GridCol queda SINCRONIZADO col-12/col-md-N para renderer
+  bootstrap y selectores E2E), PlaceholderText(200), DefaultValue(2000, doble uso
+  documentado: texto del Paragraph / alto px del Spacer), IsLocked, IsHidden;
+  FormContainer += TabsJson (jsonb/nvarchar), Width, IsLocked, IsHidden.
+- SERVICIOS: FormDefinitionListItemDto += ResponseCount y RuleCount (KPIs reales del
+  indice); MoveQuestionToAsync / MoveContainerToAsync (drag and drop, renumeran
+  hermanos y validan ciclos); GridDetail exige columnas ([{id,label}] en OptionsJson);
+  Required se apaga en multimedia placeholder; validacion servidor salta IsHidden;
+  IRuleDocumentService.ListQuestionLinksAsync (tab Reglas por pregunta).
+- RENDERER (DynamicFormRenderer, hereda /f/{token} y vista previa): contenedores
+  Row (grilla)/Col (apilado)/Section=Segment/Tabs NAVEGABLES (cada hijo directo es
+  pestana, nombres de TabsJson)/Modal (seccion normal, TODO dialogo); documento
+  Paragraph/Divider/Spacer; multimedia firma/foto/gps/archivo/barras como placeholder
+  del prototipo DESHABILITADO ("captura disponible proximamente") que NO bloquea el
+  submit (Required ignorado en cliente Y servidor, mismo FormFieldValidator); TABLA
+  (GridDetail) FUNCIONAL: filas dinamicas agregar/quitar, celdas por columna, persiste
+  arreglo JSON de filas en el documento de la respuesta, Required = al menos 1 fila;
+  placeholder (PlaceholderText) y valor por defecto (DefaultValue) en los inputs.
+- INDICE /formularios reescrito nanometrico (Formularios.razor + .razor.css): rotulo
+  "MODULO 000131 - AUTOMATIZACION", h1 28/800/-.03em, subtitulo literal, boton
+  "Nuevo formulario" 40px brand (crea FRM-### siguiente y ABRE el constructor);
+  4 KPIs reales (Formularios violet / Publicados green / Respuestas blue con separador
+  de miles es / Con reglas amber; icono 42x42 r11, valor 19/800); busqueda 38px
+  ("Buscar formulario..."); tabs de vista Tarjetas/Lista (32px r9, on: surface+sh-sm);
+  tarjetas auto-fill minmax(300px,1fr) r18 p18 hover -2px con icono form 38x38
+  violet-bg, badge de estado (Publicado green / Borrador amber / Archivado gris /
+  Inactivo gris), nombre 15.5/700, FORX-{code} monospace 11 + badge categoria
+  ("General", deuda: sin campo Categoria), grid 3 stats (15/800, reglas amber);
+  lista grid 2fr 1fr .8fr 1fr .9fr con header 11/600 y hover surface-2.
+- CONSTRUCTOR reescrito (FormDesigner.razor + .razor.css) como el modal grande del
+  prototipo: overlay fixed z60 blur, shell 95vh r18 sh-lg; header 14-20 con back 34px,
+  chip FORX-{code}, titulo 15.5/700 editable inline (UpdateHeaderAsync), badge estado,
+  Vista previa / Activar-Desactivar / Publicar por URL (modal de tokens intacto de la
+  ola 2) / Guardar brand / Cerrar. Grid 276px 1fr 320px. IZQUIERDA: paleta
+  "1 ELEMENTOS" (Contenedor violet primario Fila, Input blue primario Texto corto) y
+  "2 DOCUMENTO" (Texto/Divisor/Espacio amber), cards p11 r12 icono 34 r9 grip dots,
+  draggable; "3 ESTRUCTURA" arbol en vivo con raiz "Formulario" brand-soft, chevrons
+  colapsables, badge N/12 o conteo, lock (brand) y eye (danger) por nodo persistidos.
+  CENTRO: device tabs Navegador 820 / Tableta 620 / Movil 380 (32px r9) + "A4 -
+  820x1180" monospace; hoja r16 sh-md p26 con grilla 12 gap 12; render recursivo con
+  label uppercase 9.5/700 del color del tipo, "Contenedor vacio - arrastra o toca un
+  elemento", previews exactos por tipo (texto 38px, area 58, lista chevron, fecha
+  dd/mm/aaaa, numerico 0, sino Si/No, tabla con columnas, firma/foto/gps/archivo/
+  barras), seleccion border brand + ring brand-soft + acciones flotantes top -14
+  right 10 (subir/bajar/duplicar recursivo/eliminar). DERECHA: "4 PROPIEDADES" con
+  icono+nombre+tipo y tabs Diseno (tipo de elemento, etiqueta, selector de ancho de
+  12 botones con "N col" + %, contenido de parrafo, alto de espacio, chips de
+  pestanas, toggles Fijo/Oculto) / Datos (nombre interno FORX_DATA readonly, tipo de
+  respuesta readonly, opciones chips blue, columnas tabla chips amber, texto de
+  ayuda, valor por defecto, obligatorio) / Reglas (vinculos FormFieldRule REALES:
+  verbo monospace + "Al cambiar", "Sin reglas asignadas" dashed, "+ Agregar regla"
+  con picker documento->regla del catalogo del tenant, X desvincula) + "Eliminar
+  elemento" danger. PERSISTE-POR-CAMBIO (cada mutacion llama al servicio y recarga;
+  Guardar confirma con flash "Guardado"). DnD nativo: paleta->lienzo/contenedor y
+  nodo->posicion (MoveTo*). Vista previa = renderer REAL (Fill si Active, Design si
+  borrador) dentro del constructor.
+- SEEDS: EnsureFormBuilderDemoAsync (FRM-002 "Inventario fisico bodega" BORRADOR;
+  FRM-003 "Visita tecnica de instalacion" ACTIVO con Row (CC 3/12 + Nombres 5/12 +
+  Fecha 4/12), Col Observaciones, Section Equipos con TABLA de 3 columnas y firma
+  placeholder). Idempotente por Code, invocado en Program.cs.
+- DOCS: ADR-0021 (docs/decisiones/0021-constructor-formularios.md) con el mapeo
+  prototipo->enum completo, decisiones Paragraph/Spacer via DefaultValue, multimedia
+  placeholder sin bloqueo y persistencia por cambio.
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format sin hallazgos en archivos de esta sesion
+  (quedan 5 WHITESPACE PRE-EXISTENTES en Program.cs:53-54 y E2eDbBackdoor.cs:96-98,
+  ajenos a este cambio).
+- Unit: Application.Tests 130/130 (incluye nuevos: doc non-input, multimedia ignora
+  Required, GridDetail filas/JSON) y Domain.Tests 35/35.
+- Integracion DUAL COMPLETA (Testcontainers PG16 + SQL Server 2022): 105/105 verdes,
+  con 2 tests nuevos x2 motores (BuilderFields_RoundTrip_WidthSyncAndContainers:
+  round-trip Width/GridCol/TabsJson/IsHidden/IsLocked, derivacion legacy col-md-4,
+  Required apagado en firma, MoveTo con ciclos prohibidos; GridDetail_SubmitRoundTrip:
+  tabla requerida bloquea vacia, filas JSON identicas al leer, oculto requerido NO
+  valida). Nota: jsonb de PG normaliza el formato del JSON (assert por contenido).
+- E2E SUITE COMPLETA contra la app real (PG 5442, puerto 5248): 13/13 verdes,
+  incluyendo el escenario NUEVO FormBuilderTests (indice -> Nuevo formulario ->
+  constructor -> campo texto + lista con 2 opciones default -> Activar -> Vista
+  previa en Fill -> submit valido "Enviado") y PublicFormTokenTests actualizado a los
+  selectores nuevos del indice (.fx-card/.fx-code, tarjeta completa abre el
+  constructor).
+- Manual en navegador (localhost:5248, claro Y oscuro): indice (h1 28/800, KPI icono
+  42x42 y valor 19/800, tarjetas sh-sm con stats reales 8 campos/11 respuestas/
+  2 reglas de FRM-001, vista lista de 5 columnas con headers exactos, dark
+  surface #161618); constructor de FRM-003 (grid EXACTO 276px/1fr/320px, 5 cards de
+  paleta, arbol de 9 nodos con badges 3/12 5/12 4/12, seleccion con ring + 4 acciones
+  flotantes, props CC/Texto con 12 botones de ancho y tabs Diseno/Datos/Reglas, tab
+  Datos de la tabla con chips Equipo/Serial/Cantidad, dark ok); vista previa Fill con
+  tabla funcional (agregar fila -> 3 celdas), firma "captura disponible proximamente"
+  y Enviar visible.
+- Procesos DETENIDOS al terminar (app :5248 del preview). launch.json gano config
+  superadmin-5248.
+
+**Deudas / TODO**:
+- Modal como dialogo real en el renderer (hoy seccion normal, TODO en ADR-0021).
+- Captura real de firma/foto/gps/archivo/barras (hoy placeholder deshabilitado).
+- Campo Categoria en FormDefinition (badge fijo "General", sin tabs de categoria).
+- Intercalado libre de preguntas y contenedores en una sola secuencia (hoy preguntas
+  primero, luego sub-contenedores, por SortOrder por grupo).
+- Celdas tipadas por columna en la tabla (hoy texto).
+- WHITESPACE pre-existente en Program.cs y E2eDbBackdoor.cs (ajeno a esta sesion).
+- Sin commit (pedido explicito): cambios en working tree.

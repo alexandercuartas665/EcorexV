@@ -67,7 +67,7 @@
             <option value="">Encargado: todos</option>
             @foreach (var u in _users)
             {
-                <option value="@u.Id">@u.Email</option>
+                <option value="@u.Id">@TaskUi.UserLabel(u)</option>
             }
         </select>
         <select class="tk-filter-select" value="@(_fType?.ToString() ?? "")" @onchange="@(async e => { _fType = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await FilterChangedAsync(); })">
@@ -399,8 +399,9 @@ else
             ActivityTypeId: _fType,
             ProjectId: ProjectId ?? _fProject,
             TagIds: _fTag is Guid tagId ? new[] { tagId } : null,
-            DueFrom: _fDueFrom is DateTime from ? new DateTimeOffset(from.Date, DateTimeOffset.Now.Offset) : null,
-            DueTo: _fDueTo is DateTime to ? new DateTimeOffset(to.Date.AddDays(1).AddSeconds(-1), DateTimeOffset.Now.Offset) : null,
+            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC como parametro timestamptz.
+            DueFrom: _fDueFrom is DateTime from ? new DateTimeOffset(from.Date, DateTimeOffset.Now.Offset).ToUniversalTime() : null,
+            DueTo: _fDueTo is DateTime to ? new DateTimeOffset(to.Date.AddDays(1).AddSeconds(-1), DateTimeOffset.Now.Offset).ToUniversalTime() : null,
             Text: string.IsNullOrWhiteSpace(_fText) ? null : _fText.Trim(),
             IncludeArchived: isList && _showArchived,
             Page: isList ? _page : 1,
@@ -458,7 +459,7 @@ else
         => _items.Where(t => t.Status == status).ToList();
 
     private string UserEmail(Guid tenantUserId)
-        => _users.FirstOrDefault(u => u.Id == tenantUserId)?.Email ?? "?";
+        => _users.FirstOrDefault(u => u.Id == tenantUserId) is TenantUserDto u ? TaskUi.UserLabel(u) : "?";
 
     private async Task ToggleStatusFilterAsync(TaskItemStatus status)
     {

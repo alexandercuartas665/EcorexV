@@ -7,7 +7,11 @@ public sealed record TenantUserDto(
     Guid PlatformUserId,
     string Email,
     TenantRole TenantRole,
-    PlatformUserStatus Status);
+    PlatformUserStatus Status,
+    // Ola 3 UI (cambio aditivo): nombre legible para los dropdowns de asignado.
+    // Sale de PlatformUser.DisplayName; si el usuario no lo tiene configurado queda
+    // null y la UI deriva un nombre de la parte local del email (capitalizada).
+    string? DisplayName = null);
 
 public sealed record InviteTenantUserRequest(
     string Email,

@@ -160,7 +160,8 @@ public abstract class E2eTestBase : IAsyncLifetime
         IPage page, string title,
         string? column = null,
         string? priority = null,
-        string? typeLabel = null)
+        string? typeLabel = null,
+        DateTime? dueDate = null)
     {
         await page.Locator(".ab-btn-task").ClickAsync();
         var modal = page.Locator(".ab-quick-modal");
@@ -181,6 +182,14 @@ public abstract class E2eTestBase : IAsyncLifetime
         {
             await AbFieldIn(modal, "Tipo de actividad").Locator("select")
                 .SelectOptionAsync(new SelectOptionValue { Label = typeLabel });
+        }
+        if (dueDate is DateTime due)
+        {
+            // El input date usa @bind (onchange): FillAsync solo dispara input, hace
+            // falta el blur para que el servidor vea el valor (nota de ADR-0019).
+            var input = AbFieldIn(modal, "Fecha limite").Locator("input");
+            await input.FillAsync(due.ToString("yyyy-MM-dd"));
+            await input.BlurAsync();
         }
         await modal.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Crear tarea" }).ClickAsync();
 

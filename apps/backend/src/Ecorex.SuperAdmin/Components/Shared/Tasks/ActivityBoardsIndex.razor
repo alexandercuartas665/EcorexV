@@ -291,7 +291,7 @@
         {
             case "user":
                 yield return ("", "Todos", _fUser is null);
-                foreach (var u in _users) { yield return (u.Id.ToString(), u.Email, _fUser == u.Id); }
+                foreach (var u in _users) { yield return (u.Id.ToString(), TaskUi.UserLabel(u), _fUser == u.Id); }
                 break;
             case "tag":
                 yield return ("", "Todas", _fTag is null);
@@ -343,7 +343,7 @@
         await ReloadAsync();
     }
 
-    private string UserLabel() => _fUser is Guid id ? (_users.FirstOrDefault(u => u.Id == id)?.Email ?? "Todos") : "Todos";
+    private string UserLabel() => _fUser is Guid id && _users.FirstOrDefault(u => u.Id == id) is TenantUserDto u ? TaskUi.UserLabel(u) : "Todos";
     private string TagLabel() => _fTag is Guid id ? (_tags.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
     private string TypeLabel() => _fType is Guid id ? (_types.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
     private string DateLabel() => _fDate switch { "conf" => "Con fecha limite", "sinf" => "Sin fecha", _ => "Todas" };
@@ -365,8 +365,9 @@
         _nbError = null;
         try
         {
+            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
             var due = _nbDue is DateTime d
-                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset)
+                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime()
                 : (DateTimeOffset?)null;
             var request = new CreateActivityBoardRequest(
                 Name: _nbName.Trim(),

@@ -125,6 +125,24 @@ public static class TaskUi
         return (parts[0][0].ToString() + parts[1][0]).ToUpperInvariant();
     }
 
+    /// <summary>
+    /// Nombre legible para dropdowns de asignado (ola 3): DisplayName del PlatformUser
+    /// si existe; si no, se DERIVA de la parte local del email con cada palabra
+    /// capitalizada ("ana.garcia@x.com" -> "Ana Garcia"). Decision documentada: el
+    /// nombre real solo vive en PlatformUser.DisplayName y puede ser null.
+    /// </summary>
+    public static string UserLabel(Ecorex.Application.Tenancy.TenantUserDto user)
+    {
+        if (!string.IsNullOrWhiteSpace(user.DisplayName)) { return user.DisplayName!.Trim(); }
+        var local = user.Email;
+        var at = local.IndexOf('@');
+        if (at > 0) { local = local[..at]; }
+        var parts = local.Split(['.', '-', '_', '+'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return user.Email; }
+        return string.Join(" ", parts.Select(p =>
+            p.Length == 1 ? p.ToUpperInvariant() : char.ToUpperInvariant(p[0]) + p[1..].ToLowerInvariant()));
+    }
+
     /// <summary>Validacion simple de formato de email (suficiente para la UI).</summary>
     public static bool IsValidEmail(string? email)
     {

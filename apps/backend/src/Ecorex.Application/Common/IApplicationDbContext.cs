@@ -70,6 +70,11 @@ public interface IApplicationDbContext
     DbSet<FormFlowLink> FormFlowLinks { get; }
     DbSet<FormToken> FormTokens { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
+    DbSet<RuleDocument> RuleDocuments { get; }
+    DbSet<Rule> Rules { get; }
+    DbSet<RuleExecutionLog> RuleExecutionLogs { get; }
+    DbSet<FormFieldRule> FormFieldRules { get; }
+    DbSet<WorkflowNodeRule> WorkflowNodeRules { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

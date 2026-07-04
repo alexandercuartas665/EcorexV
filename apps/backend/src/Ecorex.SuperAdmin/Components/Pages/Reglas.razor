@@ -1,13 +1,1029 @@
 @page "/reglas"
 @attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Reglas.Editar"). *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Ecorex.Application.Rules
+@using Ecorex.Domain.Enums
+@inject IRuleDocumentService RulesSvc
+@inject IRulesEngine Engine
 
-<ModuleStub Section="Modulos"
-            Title="Reglas"
-            Description="Reglas de negocio configurables por tenant, evaluadas por el motor de reglas."
-            Phase="Fase 4 (RulesEngine)"
-            LegacyCode="000802">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
-    </Icon>
-</ModuleStub>
+@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Reglas.Editar"). *@
+
+<PageTitle>Reglas - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Modulos</span>
+    <span class="sep">/</span>
+    <span class="cur">Reglas</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+            </div>
+            <span>Modulos</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Motor de <span>reglas</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Reglas de negocio configurables por documento (legacy 000802, cl_gestion_reglas). Verbos tipados, sin SQL directo.</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        @if (_tab == 0)
+        {
+            <label class="pl-toggle">
+                <input type="checkbox" checked="@_includeArchived" @onchange="@(async e => { _includeArchived = (bool)e.Value!; await LoadDocumentsAsync(); })" />
+                Ver archivados
+            </label>
+            <button class="btn btn-primary" @onclick="@(() => OpenDocumentEditor(null))">+ Nuevo documento</button>
+        }
+    </div>
+</div>
+
+@* ===== Tabs (2 pestanas como el modulo legacy 000802) ===== *@
+<div style="display:flex;gap:8px;margin-bottom:18px;">
+    <button class="btn btn-sm @(_tab == 0 ? "btn-primary" : "btn-outline-secondary")" @onclick="@(() => _tab = 0)">Documento de configuracion</button>
+    <button class="btn btn-sm @(_tab == 1 ? "btn-primary" : "btn-outline-secondary")" @onclick="@(async () => { _tab = 1; await LoadHistoryAsync(); })">Historial</button>
+</div>
+
+@if (_tab == 0)
+{
+    @if (_loading)
+    {
+        <p><em>Cargando documentos de reglas...</em></p>
+    }
+    else if (_documents.Count == 0)
+    {
+        <div class="coming-soon" style="padding:40px 24px;">
+            <h3>Sin documentos de reglas todavia</h3>
+            <p>Crea el primer documento y agrega reglas con los verbos del catalogo tipado.</p>
+            <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenDocumentEditor(null))">+ Nuevo documento</button>
+        </div>
+    }
+    else
+    {
+        <div style="display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start;">
+            @* ---- Lista de documentos ---- *@
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                @foreach (var d in _documents)
+                {
+                    <div class="tb-card" style="cursor:pointer;@(d.Id == _selectedDocument?.Id ? "outline:2px solid var(--bs-primary, #6f42c1);" : "")"
+                         @onclick="@(() => SelectDocumentAsync(d))">
+                        <div class="tb-card-head">
+                            <span class="tk-number">@d.DocumentCode</span>
+                            <span class="tk-status @StatusClass(d.Status)">@StatusLabel(d.Status)</span>
+                            @if (d.IsArchived)
+                            {
+                                <span class="tk-status st-closed">Archivado</span>
+                            }
+                        </div>
+                        <div class="tb-card-name">@d.Name</div>
+                        <div class="tb-card-desc">@d.Category</div>
+                        <div class="tb-card-foot" style="margin-top:8px;">
+                            <span class="tb-card-stat">@d.RuleCount regla@(d.RuleCount == 1 ? "" : "s")</span>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenDocumentEditor(d))" @onclick:stopPropagation="true">Editar</button>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* ---- Reglas del documento seleccionado ---- *@
+            <div class="tb-card" style="cursor:default;">
+                @if (_selectedDocument is null)
+                {
+                    <p style="margin:8px 0;"><em>Selecciona un documento para ver sus reglas.</em></p>
+                }
+                else
+                {
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <div>
+                            <div class="tb-card-name">@_selectedDocument.DocumentCode - @_selectedDocument.Name</div>
+                            <div class="tb-card-desc">@(_selectedDocument.Description ?? _selectedDocument.Category)</div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" @onclick="@(() => OpenRuleEditorAsync(null))">+ Nueva regla</button>
+                    </div>
+                    @if (_rules.Count == 0)
+                    {
+                        <p style="margin:8px 0;"><em>El documento no tiene reglas todavia.</em></p>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto;">
+                            <table class="table table-hover align-middle" style="margin-bottom:0;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:60px;">Orden</th>
+                                        <th>Nombre</th>
+                                        <th>Verbo</th>
+                                        <th>Estado</th>
+                                        <th style="width:260px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var r in _rules)
+                                    {
+                                        <tr>
+                                            <td>@r.SortOrder</td>
+                                            <td>
+                                                <div>@r.Name</div>
+                                                @if (!string.IsNullOrWhiteSpace(r.Description))
+                                                {
+                                                    <small class="text-muted">@r.Description</small>
+                                                }
+                                            </td>
+                                            <td><span class="tk-number">@r.VerbName</span></td>
+                                            <td><span class="tk-status @StatusClass(r.Status)">@StatusLabel(r.Status)</span></td>
+                                            <td style="text-align:right;">
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenRuleEditorAsync(r))">Editar</button>
+                                                <button class="btn btn-sm btn-outline-primary" @onclick="@(() => RunTestAsync(r))" disabled="@_busy">Ejecutar prueba</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteRuleAsync(r))" disabled="@_busy">Borrar</button>
+                                            </td>
+                                        </tr>
+                                        @if (_testResult is not null && _testRuleId == r.Id)
+                                        {
+                                            <tr>
+                                                <td colspan="5">
+                                                    <div class="dfr-msg" style="padding:10px 14px;border-left:4px solid @(_testResult.Status == RuleExecutionStatus.Success ? "#22c55e" : "#ef4444");">
+                                                        <strong>Prueba manual:</strong> @StatusExecLabel(_testResult.Status)
+                                                        - @(_testResult.Message ?? _testResult.ErrorMessage ?? "(sin mensaje)")
+                                                        <br />
+                                                        <small>@_testResult.RecordsAffected registro(s) afectado(s) - @_testResult.DurationMs ms
+                                                        - @_testResult.Actions.Count accion(es) de UI@(_testResult.AutoCompleteStep ? " - pide AutoCompleteStep" : "")
+                                                        - la ejecucion quedo en el Historial.</small>
+                                                        @if (_testResult.Actions.Count > 0)
+                                                        {
+                                                            <ul style="margin:6px 0 0;padding-left:18px;">
+                                                                @foreach (var a in _testResult.Actions)
+                                                                {
+                                                                    <li><small>@a.Kind -> @a.FieldCode@(a.Kind == RuleActionKind.SetFieldValue ? $" = \"{a.Value}\"" : "")@(a.Kind == RuleActionKind.SetRequired ? $" = {a.Required}" : "")</small></li>
+                                                                }
+                                                            </ul>
+                                                        }
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+}
+else
+{
+    @* ===== Tab Historial (RuleExecutionLog con TTL 90 dias) ===== *@
+    <div class="tb-card" style="cursor:default;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px;">
+            <div class="field" style="margin:0;">
+                <label class="form-label">Documento</label>
+                <select class="form-control" @onchange="OnHistoryDocumentChangedAsync">
+                    <option value="">(todos)</option>
+                    @foreach (var d in _documents)
+                    {
+                        <option value="@d.Id" selected="@(_historyDocumentId == d.Id)">@d.DocumentCode - @d.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field" style="margin:0;">
+                <label class="form-label">Regla</label>
+                <select class="form-control" @onchange="OnHistoryRuleChangedAsync" disabled="@(_historyDocumentId is null)">
+                    <option value="">(todas)</option>
+                    @foreach (var r in _historyRules)
+                    {
+                        <option value="@r.Id" selected="@(_historyRuleId == r.Id)">@r.Name</option>
+                    }
+                </select>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="LoadHistoryAsync" disabled="@_busy">Actualizar</button>
+        </div>
+        @if (_history.Count == 0)
+        {
+            <p style="margin:8px 0;"><em>Sin ejecuciones registradas (el historial expira a los 90 dias).</em></p>
+        }
+        else
+        {
+            <div style="overflow-x:auto;">
+                <table class="table table-hover align-middle" style="margin-bottom:0;">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Regla</th>
+                            <th>Disparador</th>
+                            <th>Resultado</th>
+                            <th>Registros</th>
+                            <th>Duracion</th>
+                            <th>Detalle</th>
+                            <th>Expira</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in _history)
+                        {
+                            <tr>
+                                <td>@log.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>@log.RuleNameSnapshot</td>
+                                <td>@TriggerLabel(log.TriggerKind)</td>
+                                <td><span class="tk-status @ExecStatusClass(log.Status)">@StatusExecLabel(log.Status)</span></td>
+                                <td>@log.RecordsAffected</td>
+                                <td>@log.DurationMs ms</td>
+                                <td><small class="text-muted">@(log.ErrorMessage ?? "-")</small></td>
+                                <td><small>@log.ExpiresAt.ToLocalTime().ToString("yyyy-MM-dd")</small></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@* ===== Modal documento ===== *@
+@if (_showDocumentEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showDocumentEditor = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingDocument is null ? "Nuevo documento de reglas" : $"Editar {_editingDocument.DocumentCode}")</h3>
+                <button class="modal-close" @onclick="@(() => _showDocumentEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Codigo *</label>
+                    <input class="form-control" @bind="_dCode" maxlength="25" placeholder="RUL-001" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_dName" maxlength="100" placeholder="Nombre del documento" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Categoria *</label>
+                    <input class="form-control" @bind="_dCategory" maxlength="100" placeholder="FORMULARIOS / PROCESOS / IA" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" @bind="_dDescription"></textarea>
+                </div>
+                <div class="field">
+                    <label class="form-label">Estado</label>
+                    <select class="form-control" @bind="_dStatus">
+                        <option value="@RuleStatus.Active">Activo</option>
+                        <option value="@RuleStatus.Development">Desarrollo</option>
+                        <option value="@RuleStatus.Inactive">Inactivo</option>
+                    </select>
+                </div>
+                @if (_documentError is not null)
+                {
+                    <div class="tk-field-error">@_documentError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editingDocument is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="ToggleDocumentArchiveAsync" disabled="@_busy">
+                        @(_editingDocument.IsArchived ? "Restaurar" : "Archivar")
+                    </button>
+                }
+                <span style="flex:1;"></span>
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showDocumentEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveDocumentAsync" disabled="@_busy">@(_editingDocument is null ? "Crear documento" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal regla (crear/editar + params por descriptor + vinculos + prueba) ===== *@
+@if (_showRuleEditor)
+{
+    <div class="modal-overlay" @onclick="CloseRuleEditor">
+        <div class="modal-dialog" style="max-width:760px;max-height:90vh;overflow-y:auto;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingRule is null ? "Nueva regla" : $"Editar regla: {_editingRule.Name}")</h3>
+                <button class="modal-close" @onclick="CloseRuleEditor">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2">
+                    <div class="col-md-8 field">
+                        <label class="form-label">Nombre *</label>
+                        <input class="form-control" @bind="_rName" maxlength="100" />
+                    </div>
+                    <div class="col-md-4 field">
+                        <label class="form-label">Orden</label>
+                        <input type="number" class="form-control" @bind="_rSortOrder" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" @bind="_rDescription"></textarea>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-8 field">
+                        <label class="form-label">Verbo (catalogo tipado) *</label>
+                        <select class="form-control" value="@_rVerbName" @onchange="OnVerbChanged">
+                            <option value="">-- Selecciona un verbo --</option>
+                            @foreach (var v in _catalog)
+                            {
+                                <option value="@v.VerbName" selected="@(v.VerbName == _rVerbName)">@v.VerbName - @v.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4 field">
+                        <label class="form-label">Estado</label>
+                        <select class="form-control" @bind="_rStatus">
+                            <option value="@RuleStatus.Active">Activa</option>
+                            <option value="@RuleStatus.Development">Desarrollo</option>
+                            <option value="@RuleStatus.Inactive">Inactiva</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (SelectedDescriptor is RuleVerbDescriptor descriptor)
+                {
+                    <div class="dfr-segment" style="margin-top:6px;">
+                        <div class="dfr-segment-head">Parametros del verbo (@descriptor.DisplayName)</div>
+                        <p style="margin:4px 0 10px;"><small class="text-muted">@descriptor.Description</small></p>
+                        <div class="row g-2">
+                            @foreach (var p in descriptor.Params)
+                            {
+                                <div class="@(p.Type == RuleParamType.Json ? "col-12" : "col-md-6") field">
+                                    <label class="form-label">
+                                        @p.Label @(p.Required ? "*" : "")
+                                        <small class="text-muted">(@p.Name)</small>
+                                    </label>
+                                    @switch (p.Type)
+                                    {
+                                        case RuleParamType.Boolean:
+                                            <label class="pl-toggle" style="margin-top:4px;">
+                                                <input type="checkbox" checked="@(GetParamValue(p.Name) == "true")"
+                                                       @onchange="@(e => SetParamValue(p.Name, (bool)e.Value! ? "true" : ""))" />
+                                                Si
+                                            </label>
+                                            break;
+                                        case RuleParamType.Number:
+                                            <input type="number" class="form-control" value="@GetParamValue(p.Name)"
+                                                   @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))" />
+                                            break;
+                                        case RuleParamType.Json:
+                                            <textarea class="form-control" rows="3" style="font-family:monospace;"
+                                                      value="@GetParamValue(p.Name)"
+                                                      @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))"></textarea>
+                                            break;
+                                        default:
+                                            <input class="form-control" value="@GetParamValue(p.Name)"
+                                                   @onchange="@(e => SetParamValue(p.Name, e.Value?.ToString()))" />
+                                            break;
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(p.Description))
+                                    {
+                                        <div class="dfr-help">@p.Description</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @* ---- Vinculacion (solo reglas guardadas) ---- *@
+                @if (_editingRule is not null)
+                {
+                    <div class="dfr-segment" style="margin-top:10px;">
+                        <div class="dfr-segment-head">Vinculos de la regla</div>
+                        @if (_formLinks.Count == 0 && _nodeLinks.Count == 0)
+                        {
+                            <p style="margin:6px 0;"><small class="text-muted">Sin vinculos: la regla solo corre con "Ejecutar prueba".</small></p>
+                        }
+                        @foreach (var link in _formLinks)
+                        {
+                            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
+                                <small>Pregunta: <strong>@link.FormCode</strong> / @link.FieldCode (@link.QuestionLabel) - orden @link.SortOrder</small>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => UnlinkQuestionAsync(link))" disabled="@_busy">Quitar</button>
+                            </div>
+                        }
+                        @foreach (var link in _nodeLinks)
+                        {
+                            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">
+                                <small>Nodo: <strong>@link.ProcessCode</strong> / @(link.NodeName ?? link.BpmnElementId) - orden @link.SortOrder @(link.IsAutonomous ? "(autonoma)" : "")</small>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => UnlinkNodeAsync(link))" disabled="@_busy">Quitar</button>
+                            </div>
+                        }
+
+                        <div class="row g-2" style="margin-top:8px;">
+                            <div class="col-md-5 field">
+                                <label class="form-label">Formulario</label>
+                                <select class="form-control" @onchange="OnLinkFormDefinitionChangedAsync">
+                                    <option value="">-- Formulario --</option>
+                                    @foreach (var o in _formDefinitionOptions)
+                                    {
+                                        <option value="@o.Id" selected="@(_linkFormDefinitionId == o.Id)">@o.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-5 field">
+                                <label class="form-label">Pregunta</label>
+                                <select class="form-control" @onchange="@(e => _linkQuestionId = ParseGuid(e.Value))" disabled="@(_linkFormDefinitionId is null)">
+                                    <option value="">-- Pregunta --</option>
+                                    @foreach (var o in _questionOptions)
+                                    {
+                                        <option value="@o.Id" selected="@(_linkQuestionId == o.Id)">@o.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2 field" style="display:flex;align-items:end;">
+                                <button class="btn btn-sm btn-outline-primary" style="width:100%;" @onclick="LinkQuestionAsync"
+                                        disabled="@(_busy || _linkQuestionId is null)">Vincular</button>
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-5 field">
+                                <label class="form-label">Flujo</label>
+                                <select class="form-control" @onchange="OnLinkWorkflowChangedAsync">
+                                    <option value="">-- Definicion de flujo --</option>
+                                    @foreach (var o in _workflowOptions)
+                                    {
+                                        <option value="@o.Id" selected="@(_linkWorkflowId == o.Id)">@o.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4 field">
+                                <label class="form-label">Nodo (Task)</label>
+                                <select class="form-control" @onchange="@(e => _linkNodeId = ParseGuid(e.Value))" disabled="@(_linkWorkflowId is null)">
+                                    <option value="">-- Nodo --</option>
+                                    @foreach (var o in _nodeOptions)
+                                    {
+                                        <option value="@o.Id" selected="@(_linkNodeId == o.Id)">@o.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-1 field" style="display:flex;align-items:end;">
+                                <label class="pl-toggle" title="Autonoma: se ejecuta sola al activar el nodo">
+                                    <input type="checkbox" @bind="_linkAutonomous" /> Auto
+                                </label>
+                            </div>
+                            <div class="col-md-2 field" style="display:flex;align-items:end;">
+                                <button class="btn btn-sm btn-outline-primary" style="width:100%;" @onclick="LinkNodeAsync"
+                                        disabled="@(_busy || _linkNodeId is null)">Vincular</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p style="margin-top:8px;"><small class="text-muted">Guarda la regla para vincularla a preguntas de formulario o nodos de flujo.</small></p>
+                }
+
+                @if (_ruleError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:8px;">@_ruleError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editingRule is not null)
+                {
+                    <button class="btn btn-outline-primary" @onclick="@(() => RunTestAsync(_editingRule))" disabled="@_busy">Ejecutar prueba</button>
+                }
+                <span style="flex:1;"></span>
+                <button class="btn btn-outline-secondary" @onclick="CloseRuleEditor" disabled="@_busy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SaveRuleAsync" disabled="@_busy">@(_editingRule is null ? "Crear regla" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private int _tab;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeArchived;
+
+    private List<RuleDocumentDto> _documents = new();
+    private RuleDocumentDto? _selectedDocument;
+    private List<RuleDto> _rules = new();
+    private IReadOnlyList<RuleVerbDescriptor> _catalog = [];
+
+    // Modal documento
+    private bool _showDocumentEditor;
+    private RuleDocumentDto? _editingDocument;
+    private string _dCode = "";
+    private string _dName = "";
+    private string _dCategory = "";
+    private string _dDescription = "";
+    private RuleStatus _dStatus = RuleStatus.Active;
+    private string? _documentError;
+
+    // Modal regla
+    private bool _showRuleEditor;
+    private RuleDto? _editingRule;
+    private string _rName = "";
+    private string _rDescription = "";
+    private string _rVerbName = "";
+    private int _rSortOrder;
+    private RuleStatus _rStatus = RuleStatus.Active;
+    private string? _ruleError;
+    private readonly Dictionary<string, string> _paramValues = new(StringComparer.Ordinal);
+
+    // Vinculos
+    private List<RuleFormLinkDto> _formLinks = new();
+    private List<RuleNodeLinkDto> _nodeLinks = new();
+    private IReadOnlyList<RuleOption> _formDefinitionOptions = [];
+    private IReadOnlyList<RuleOption> _questionOptions = [];
+    private IReadOnlyList<RuleOption> _workflowOptions = [];
+    private IReadOnlyList<RuleOption> _nodeOptions = [];
+    private Guid? _linkFormDefinitionId;
+    private Guid? _linkQuestionId;
+    private Guid? _linkWorkflowId;
+    private Guid? _linkNodeId;
+    private bool _linkAutonomous = true;
+
+    // Prueba manual
+    private RuleExecutionOutcome? _testResult;
+    private Guid? _testRuleId;
+
+    // Historial
+    private List<RuleExecutionLogDto> _history = new();
+    private List<RuleDto> _historyRules = new();
+    private Guid? _historyDocumentId;
+    private Guid? _historyRuleId;
+
+    private RuleVerbDescriptor? SelectedDescriptor
+        => _catalog.FirstOrDefault(v => string.Equals(v.VerbName, _rVerbName, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalog = Engine.GetVerbCatalog();
+        await LoadDocumentsAsync();
+        _loading = false;
+    }
+
+    private async Task LoadDocumentsAsync()
+    {
+        _documents = (await RulesSvc.ListDocumentsAsync(_includeArchived)).ToList();
+        if (_selectedDocument is not null)
+        {
+            _selectedDocument = _documents.FirstOrDefault(d => d.Id == _selectedDocument.Id);
+        }
+        _selectedDocument ??= _documents.FirstOrDefault();
+        await LoadRulesAsync();
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        _rules = _selectedDocument is null
+            ? new List<RuleDto>()
+            : (await RulesSvc.ListRulesAsync(_selectedDocument.Id)).ToList();
+    }
+
+    private async Task SelectDocumentAsync(RuleDocumentDto document)
+    {
+        _selectedDocument = document;
+        _testResult = null;
+        await LoadRulesAsync();
+    }
+
+    internal static string StatusLabel(RuleStatus status) => status switch
+    {
+        RuleStatus.Active => "Activo",
+        RuleStatus.Development => "Desarrollo",
+        RuleStatus.Inactive => "Inactivo",
+        _ => status.ToString()
+    };
+
+    internal static string StatusClass(RuleStatus status) => status switch
+    {
+        RuleStatus.Active => "st-done",
+        RuleStatus.Development => "st-pending",
+        RuleStatus.Inactive => "st-closed",
+        _ => ""
+    };
+
+    internal static string StatusExecLabel(RuleExecutionStatus status) => status switch
+    {
+        RuleExecutionStatus.Success => "Exito",
+        RuleExecutionStatus.Failed => "Fallo",
+        RuleExecutionStatus.Skipped => "Omitida",
+        _ => status.ToString()
+    };
+
+    internal static string ExecStatusClass(RuleExecutionStatus status) => status switch
+    {
+        RuleExecutionStatus.Success => "st-done",
+        RuleExecutionStatus.Failed => "st-closed",
+        RuleExecutionStatus.Skipped => "st-pending",
+        _ => ""
+    };
+
+    internal static string TriggerLabel(RuleTriggerKind kind) => kind switch
+    {
+        RuleTriggerKind.Manual => "Manual",
+        RuleTriggerKind.FormField => "Campo de formulario",
+        RuleTriggerKind.WorkflowNode => "Nodo de flujo",
+        _ => kind.ToString()
+    };
+
+    private static Guid? ParseGuid(object? value)
+        => Guid.TryParse(value?.ToString(), out var id) ? id : null;
+
+    // ---- Documento ----
+
+    private void OpenDocumentEditor(RuleDocumentDto? document)
+    {
+        _editingDocument = document;
+        _documentError = null;
+        _dCode = document?.DocumentCode ?? "";
+        _dName = document?.Name ?? "";
+        _dCategory = document?.Category ?? "";
+        _dDescription = document?.Description ?? "";
+        _dStatus = document?.Status ?? RuleStatus.Active;
+        _showDocumentEditor = true;
+    }
+
+    private async Task SaveDocumentAsync()
+    {
+        _documentError = null;
+        _busy = true;
+        try
+        {
+            var request = new SaveRuleDocumentRequest(_dCode.Trim(), _dName.Trim(), _dCategory.Trim(),
+                string.IsNullOrWhiteSpace(_dDescription) ? null : _dDescription.Trim(), _dStatus);
+            var result = _editingDocument is null
+                ? await RulesSvc.CreateDocumentAsync(request)
+                : await RulesSvc.UpdateDocumentAsync(_editingDocument.Id, request);
+            if (!result.IsOk)
+            {
+                _documentError = result.Error;
+                return;
+            }
+            _showDocumentEditor = false;
+            _selectedDocument = result.Value;
+            await LoadDocumentsAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleDocumentArchiveAsync()
+    {
+        if (_editingDocument is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.SetDocumentArchivedAsync(_editingDocument.Id, !_editingDocument.IsArchived);
+            if (!result.IsOk) { _documentError = result.Error; return; }
+            _showDocumentEditor = false;
+            await LoadDocumentsAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Regla ----
+
+    private async Task OpenRuleEditorAsync(RuleDto? rule)
+    {
+        _editingRule = rule;
+        _ruleError = null;
+        _rName = rule?.Name ?? "";
+        _rDescription = rule?.Description ?? "";
+        _rVerbName = rule?.VerbName ?? "";
+        _rSortOrder = rule?.SortOrder ?? (_rules.Count == 0 ? 0 : _rules.Max(r => r.SortOrder) + 1);
+        _rStatus = rule?.Status ?? RuleStatus.Active;
+        _paramValues.Clear();
+        LoadParamValuesFromJson(rule?.ParamsJson);
+        _linkFormDefinitionId = null;
+        _linkQuestionId = null;
+        _linkWorkflowId = null;
+        _linkNodeId = null;
+        _questionOptions = [];
+        _nodeOptions = [];
+        if (rule is not null)
+        {
+            await LoadLinksAsync(rule.Id);
+            _formDefinitionOptions = await RulesSvc.ListFormDefinitionOptionsAsync();
+            _workflowOptions = await RulesSvc.ListWorkflowDefinitionOptionsAsync();
+        }
+        _showRuleEditor = true;
+    }
+
+    private void CloseRuleEditor()
+    {
+        _showRuleEditor = false;
+        _editingRule = null;
+    }
+
+    private void OnVerbChanged(ChangeEventArgs e)
+    {
+        _rVerbName = e.Value?.ToString() ?? "";
+        _paramValues.Clear();
+    }
+
+    private string GetParamValue(string name) => _paramValues.GetValueOrDefault(name) ?? "";
+
+    private void SetParamValue(string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _paramValues.Remove(name);
+        }
+        else
+        {
+            _paramValues[name] = value;
+        }
+    }
+
+    /// <summary>Carga el ParamsJson existente al editor por-parametro del descriptor.</summary>
+    private void LoadParamValuesFromJson(string? paramsJson)
+    {
+        if (string.IsNullOrWhiteSpace(paramsJson))
+        {
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(paramsJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+            foreach (var property in doc.RootElement.EnumerateObject())
+            {
+                _paramValues[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString() ?? ""
+                    : property.Value.GetRawText();
+            }
+        }
+        catch (JsonException)
+        {
+            // ParamsJson corrupto: el editor arranca vacio y el guardado lo reescribe.
+        }
+    }
+
+    /// <summary>Construye el ParamsJson tipado a partir de los inputs del descriptor.</summary>
+    private string? BuildParamsJson(out string? error)
+    {
+        error = null;
+        var descriptor = SelectedDescriptor;
+        if (descriptor is null || _paramValues.Count == 0)
+        {
+            return _paramValues.Count == 0 ? null : "{}";
+        }
+        var result = new JsonObject();
+        foreach (var (name, raw) in _paramValues)
+        {
+            var paramDescriptor = descriptor.Params.FirstOrDefault(p => p.Name == name);
+            switch (paramDescriptor?.Type)
+            {
+                case RuleParamType.Boolean:
+                    result[name] = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+                    break;
+                case RuleParamType.Number:
+                    if (!decimal.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var number))
+                    {
+                        error = $"El parametro '{name}' debe ser numerico.";
+                        return null;
+                    }
+                    result[name] = number;
+                    break;
+                case RuleParamType.Json:
+                    try
+                    {
+                        result[name] = JsonNode.Parse(raw);
+                    }
+                    catch (JsonException)
+                    {
+                        error = $"El parametro '{name}' no es JSON valido.";
+                        return null;
+                    }
+                    break;
+                default:
+                    result[name] = raw;
+                    break;
+            }
+        }
+        return result.ToJsonString();
+    }
+
+    private async Task SaveRuleAsync()
+    {
+        _ruleError = null;
+        if (_selectedDocument is null) { return; }
+        if (string.IsNullOrWhiteSpace(_rName) || string.IsNullOrWhiteSpace(_rVerbName))
+        {
+            _ruleError = "Nombre y verbo son obligatorios.";
+            return;
+        }
+        var paramsJson = BuildParamsJson(out var paramsError);
+        if (paramsError is not null)
+        {
+            _ruleError = paramsError;
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var request = new SaveRuleRequest(_rName.Trim(), _rVerbName,
+                string.IsNullOrWhiteSpace(_rDescription) ? null : _rDescription.Trim(),
+                _rSortOrder, paramsJson, _rStatus);
+            var result = _editingRule is null
+                ? await RulesSvc.CreateRuleAsync(_selectedDocument.Id, request)
+                : await RulesSvc.UpdateRuleAsync(_editingRule.Id, request);
+            if (!result.IsOk)
+            {
+                _ruleError = result.Error;
+                return;
+            }
+            await LoadRulesAsync();
+            await LoadDocumentsAsync();
+            // La regla recien creada queda en edicion para poder vincularla de una vez.
+            _editingRule = result.Value;
+            await LoadLinksAsync(result.Value!.Id);
+            _formDefinitionOptions = await RulesSvc.ListFormDefinitionOptionsAsync();
+            _workflowOptions = await RulesSvc.ListWorkflowDefinitionOptionsAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteRuleAsync(RuleDto rule)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.DeleteRuleAsync(rule.Id);
+            if (!result.IsOk)
+            {
+                _testRuleId = rule.Id;
+                _testResult = new RuleExecutionOutcome(rule.Id, rule.Name, rule.VerbName,
+                    RuleExecutionStatus.Failed, result.Error, 0, 0, [], false, result.Error);
+                return;
+            }
+            _testResult = null;
+            await LoadRulesAsync();
+            await LoadDocumentsAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Prueba manual ----
+
+    private async Task RunTestAsync(RuleDto rule)
+    {
+        _busy = true;
+        try
+        {
+            // Contexto vacio, disparador Manual: la ejecucion SIEMPRE queda en el historial.
+            var result = await Engine.ExecuteRuleAsync(rule.Id, RuleInvocation.Manual());
+            _testRuleId = rule.Id;
+            _testResult = result.Value ?? new RuleExecutionOutcome(rule.Id, rule.Name, rule.VerbName,
+                RuleExecutionStatus.Failed, result.Error, 0, 0, [], false, result.Error);
+            if (_showRuleEditor)
+            {
+                _ruleError = _testResult.Status == RuleExecutionStatus.Success
+                    ? null
+                    : $"Prueba: {_testResult.Message ?? _testResult.ErrorMessage}";
+                if (_testResult.Status == RuleExecutionStatus.Success)
+                {
+                    _ruleError = $"Prueba OK: {_testResult.Message} ({_testResult.DurationMs} ms, {_testResult.RecordsAffected} registro(s)). Ver Historial.";
+                }
+                CloseRuleEditorKeepingMessage();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void CloseRuleEditorKeepingMessage()
+    {
+        // La prueba desde el modal cierra y muestra el resultado bajo la fila de la regla.
+        _showRuleEditor = false;
+        _editingRule = null;
+    }
+
+    // ---- Vinculos ----
+
+    private async Task LoadLinksAsync(Guid ruleId)
+    {
+        _formLinks = (await RulesSvc.ListFormLinksAsync(ruleId)).ToList();
+        _nodeLinks = (await RulesSvc.ListNodeLinksAsync(ruleId)).ToList();
+    }
+
+    private async Task OnLinkFormDefinitionChangedAsync(ChangeEventArgs e)
+    {
+        _linkFormDefinitionId = ParseGuid(e.Value);
+        _linkQuestionId = null;
+        _questionOptions = _linkFormDefinitionId is Guid id
+            ? await RulesSvc.ListFormQuestionOptionsAsync(id)
+            : [];
+    }
+
+    private async Task OnLinkWorkflowChangedAsync(ChangeEventArgs e)
+    {
+        _linkWorkflowId = ParseGuid(e.Value);
+        _linkNodeId = null;
+        _nodeOptions = _linkWorkflowId is Guid id
+            ? await RulesSvc.ListWorkflowNodeOptionsAsync(id)
+            : [];
+    }
+
+    private async Task LinkQuestionAsync()
+    {
+        if (_editingRule is null || _linkQuestionId is not Guid questionId) { return; }
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.LinkToQuestionAsync(_editingRule.Id, questionId, _formLinks.Count);
+            if (!result.IsOk) { _ruleError = result.Error; return; }
+            _ruleError = null;
+            await LoadLinksAsync(_editingRule.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task UnlinkQuestionAsync(RuleFormLinkDto link)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.UnlinkQuestionAsync(link.Id);
+            if (!result.IsOk) { _ruleError = result.Error; return; }
+            if (_editingRule is not null) { await LoadLinksAsync(_editingRule.Id); }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LinkNodeAsync()
+    {
+        if (_editingRule is null || _linkNodeId is not Guid nodeId) { return; }
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.LinkToNodeAsync(_editingRule.Id, nodeId, _nodeLinks.Count, _linkAutonomous);
+            if (!result.IsOk) { _ruleError = result.Error; return; }
+            _ruleError = null;
+            await LoadLinksAsync(_editingRule.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task UnlinkNodeAsync(RuleNodeLinkDto link)
+    {
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.UnlinkNodeAsync(link.Id);
+            if (!result.IsOk) { _ruleError = result.Error; return; }
+            if (_editingRule is not null) { await LoadLinksAsync(_editingRule.Id); }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Historial ----
+
+    private async Task LoadHistoryAsync()
+    {
+        _history = (await RulesSvc.ListExecutionLogsAsync(_historyDocumentId, _historyRuleId, take: 100)).ToList();
+    }
+
+    private async Task OnHistoryDocumentChangedAsync(ChangeEventArgs e)
+    {
+        _historyDocumentId = ParseGuid(e.Value);
+        _historyRuleId = null;
+        _historyRules = _historyDocumentId is Guid id
+            ? (await RulesSvc.ListRulesAsync(id)).ToList()
+            : new List<RuleDto>();
+        await LoadHistoryAsync();
+    }
+
+    private async Task OnHistoryRuleChangedAsync(ChangeEventArgs e)
+    {
+        _historyRuleId = ParseGuid(e.Value);
+        await LoadHistoryAsync();
+    }
+}

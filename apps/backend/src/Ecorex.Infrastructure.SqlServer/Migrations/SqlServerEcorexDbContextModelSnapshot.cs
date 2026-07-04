@@ -1359,6 +1359,58 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("form_definitions", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormFieldRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FormQuestionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("form_question_id");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_field_rules");
+
+                    b.HasIndex("RuleId")
+                        .HasDatabaseName("ix_form_field_rules_rule_id");
+
+                    b.HasIndex("FormQuestionId", "RuleId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_field_rules_form_question_id_rule_id");
+
+                    b.ToTable("form_field_rules", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormFlowLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2744,6 +2796,239 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_quote_templates_tenant_id_is_default");
 
                     b.ToTable("quote_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.Rule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ParamsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_json");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("VerbName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("verb_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rules");
+
+                    b.HasIndex("DocumentId", "SortOrder")
+                        .HasDatabaseName("ix_rules_document_id_sort_order");
+
+                    b.ToTable("rules", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RuleDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DocumentCode")
+                        .IsRequired()
+                        .HasMaxLength(25)
+                        .HasColumnType("nvarchar(25)")
+                        .HasColumnName("document_code");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_archived");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rule_documents");
+
+                    b.HasIndex("TenantId", "DocumentCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_rule_documents_tenant_id_document_code");
+
+                    b.HasIndex("TenantId", "IsArchived")
+                        .HasDatabaseName("ix_rule_documents_tenant_id_is_archived");
+
+                    b.ToTable("rule_documents", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RuleExecutionLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ContextJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("context_json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("int")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("error_message");
+
+                    b.Property<Guid?>("ExecutedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("executed_by_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("expires_at");
+
+                    b.Property<int>("RecordsAffected")
+                        .HasColumnType("int")
+                        .HasColumnName("records_affected");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("RuleNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("rule_name_snapshot");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TriggerKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("trigger_kind");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rule_execution_logs");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_rule_execution_logs_expires_at");
+
+                    b.HasIndex("RuleId")
+                        .HasDatabaseName("ix_rule_execution_logs_rule_id");
+
+                    b.HasIndex("TenantId", "RuleId", "CreatedAt")
+                        .HasDatabaseName("ix_rule_execution_logs_tenant_id_rule_id_created_at");
+
+                    b.ToTable("rule_execution_logs", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlan", b =>
@@ -5179,6 +5464,62 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("workflow_node_forms", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsAutonomous")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_autonomous");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rule_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("WorkflowNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("workflow_node_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_node_rules");
+
+                    b.HasIndex("RuleId")
+                        .HasDatabaseName("ix_workflow_node_rules_rule_id");
+
+                    b.HasIndex("WorkflowNodeId", "RuleId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_node_rules_workflow_node_id_rule_id");
+
+                    b.ToTable("workflow_node_rules", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5404,6 +5745,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Parent");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormFieldRule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormQuestion", "FormQuestion")
+                        .WithMany()
+                        .HasForeignKey("FormQuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_field_rules_form_questions_form_question_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.Rule", "Rule")
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_field_rules_rules_rule_id");
+
+                    b.Navigation("FormQuestion");
+
+                    b.Navigation("Rule");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FormFlowLink", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.FormResponse", "FormResponse")
@@ -5581,6 +5943,30 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Project");
 
                     b.Navigation("TenantUser");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.Rule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.RuleDocument", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_rules_rule_documents_document_id");
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RuleExecutionLog", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Rule", "Rule")
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_rule_execution_logs_rules_rule_id");
+
+                    b.Navigation("Rule");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlanLimit", b =>
@@ -5954,6 +6340,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Definition");
 
                     b.Navigation("Node");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeRule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Rule", "Rule")
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_rules_rules_rule_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "WorkflowNode")
+                        .WithMany()
+                        .HasForeignKey("WorkflowNodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_rules_workflow_nodes_workflow_node_id");
+
+                    b.Navigation("Rule");
+
+                    b.Navigation("WorkflowNode");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowStepHistory", b =>

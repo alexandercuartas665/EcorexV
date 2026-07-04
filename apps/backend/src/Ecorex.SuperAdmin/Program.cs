@@ -135,6 +135,9 @@ else
     // Formulario dinamico demo (FASE 4 ola 2, ADR-0015): FRM-001 activo, vinculado al
     // nodo "Cotizacion" del flujo demo. Escribe con TenantId explicito (sin ambient).
     await seeder.EnsureDynamicFormsDemoAsync();
+    // Documento de reglas demo (FASE 4 ola 3, ADR-0016): RUL-005 con PASAR_CAMPOS y
+    // BLOQUEAR_CAMPO_XCONDICION (FRM-001) y ASIGNAR_CONSECUTIVO autonoma (COT-COM).
+    await seeder.EnsureRulesEngineDemoAsync();
 }
 
 app.UseHttpsRedirection();

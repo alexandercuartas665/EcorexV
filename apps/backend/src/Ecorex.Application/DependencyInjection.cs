@@ -69,14 +69,26 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
         services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
-        // Motor de flujos BPMN (FASE 4, ADR-0014). El hook de reglas es No-Op hasta que
-        // llegue la ola RulesEngine, que lo reemplazara en este registro.
+        // Motor de flujos BPMN (FASE 4, ADR-0014). El hook de reglas es el REAL del
+        // RulesEngine (FASE 4 ola 3, ADR-0016): ejecuta las reglas autonomas del nodo.
         services.AddScoped<Workflows.IWorkflowEngine, Workflows.WorkflowEngine>();
-        services.AddScoped<Workflows.IWorkflowRuleHook, Workflows.NoOpWorkflowRuleHook>();
+        services.AddScoped<Workflows.IWorkflowRuleHook, Rules.WorkflowRuleHook>();
         // Formularios dinamicos (FASE 4 ola 2, ADR-0015): definiciones, respuestas y tokens.
         services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
         services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
+        // Motor de reglas (FASE 4 ola 3, ADR-0016): REGISTRO TIPADO de verbos en DI (el
+        // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error
+        // tipado, nunca Activator.CreateInstance sobre texto como el legacy).
+        services.AddScoped<Rules.IRulesEngine, Rules.RulesEngine>();
+        services.AddScoped<Rules.IRuleDocumentService, Rules.RuleDocumentService>();
+        services.AddScoped<Rules.IFormRuleDispatcher, Rules.FormRuleDispatcher>();
+        services.AddScoped<Rules.IRuleExecutionLogCleaner, Rules.RuleExecutionLogCleaner>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.PasarCamposVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.BloquearCampoPorCondicionVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.AsignarConsecutivoVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarTareasDesdeTablaVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.NotificarVerb>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

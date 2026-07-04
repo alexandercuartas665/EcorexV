@@ -704,4 +704,137 @@ public sealed class DatabaseSeeder
             DemoFormCode, tenant.Name, workflowDefinitionId is not null);
     }
 
+    // ---- Documento de reglas demo (FASE 4 ola 3, ADR-0016) ----
+
+    public const string DemoRuleDocumentCode = "RUL-005";
+
+    /// <summary>
+    /// Siembra el documento de reglas demo "OPERACIONES DE FORMULARIOS" (RUL-005) para el
+    /// tenant demo (SKY SYSTEM) con 3 reglas: PASAR_CAMPOS y BLOQUEAR_CAMPO_XCONDICION
+    /// vinculadas a preguntas del formulario demo FRM-001 (FormFieldRule), y una regla
+    /// ASIGNAR_CONSECUTIVO autonoma vinculada al nodo Task_Cotizacion del flujo COT-COM
+    /// (WorkflowNodeRule, sin autoComplete para no saltarse el formulario del paso).
+    /// Idempotente por DocumentCode. Solo Development.
+    /// </summary>
+    public async Task EnsureRulesEngineDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.RuleDocuments.IgnoreQueryFilters()
+                .AnyAsync(d => d.TenantId == tenant.Id && d.DocumentCode == DemoRuleDocumentCode, cancellationToken))
+        {
+            return;
+        }
+
+        var document = new RuleDocument
+        {
+            TenantId = tenant.Id,
+            DocumentCode = DemoRuleDocumentCode,
+            Name = "OPERACIONES DE FORMULARIOS",
+            Category = "FORMULARIOS",
+            Description = "Reglas demo del formulario FRM-001 y del flujo COT-COM (port de cl_gestion_reglas).",
+            Status = RuleStatus.Active
+        };
+        _db.RuleDocuments.Add(document);
+
+        var pasarCampos = new Rule
+        {
+            TenantId = tenant.Id,
+            DocumentId = document.Id,
+            Name = "Copiar solicitante a descripcion",
+            Description = "Al cambiar el nombre del solicitante, copia el valor al campo descripcion.",
+            VerbName = "PASAR_CAMPOS",
+            SortOrder = 0,
+            ParamsJson = """{"mappings":[{"source":"nombre_solicitante","target":"descripcion"}]}""",
+            Status = RuleStatus.Active
+        };
+        var bloquearCampo = new Rule
+        {
+            TenantId = tenant.Id,
+            DocumentId = document.Id,
+            Name = "Ocultar fecha si prioridad baja",
+            Description = "Si la prioridad es baja, oculta el campo fecha_requerida (opcional).",
+            VerbName = "BLOQUEAR_CAMPO_XCONDICION",
+            SortOrder = 1,
+            ParamsJson = """{"sourceField":"prioridad","operator":"equals","value":"baja","targetField":"fecha_requerida","effect":"hide"}""",
+            Status = RuleStatus.Active
+        };
+        var asignarConsecutivo = new Rule
+        {
+            TenantId = tenant.Id,
+            DocumentId = document.Id,
+            Name = "Consecutivo de cotizacion",
+            Description = "Regla autonoma del nodo Cotizacion: emite el consecutivo COT- y lo anota en la tarea.",
+            VerbName = "ASIGNAR_CONSECUTIVO",
+            SortOrder = 2,
+            ParamsJson = """{"sequenceCode":"RUL","prefix":"COT-","padding":5}""",
+            Status = RuleStatus.Active
+        };
+        _db.Rules.AddRange(pasarCampos, bloquearCampo, asignarConsecutivo);
+
+        // Vinculos a preguntas del formulario demo FRM-001 (si existe).
+        var formDefinitionId = await _db.FormDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenant.Id && d.Code == DemoFormCode)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (formDefinitionId is Guid formId)
+        {
+            var questions = await _db.FormQuestions.IgnoreQueryFilters()
+                .Where(q => q.DefinitionId == formId
+                    && (q.FieldCode == "nombre_solicitante" || q.FieldCode == "prioridad"))
+                .ToListAsync(cancellationToken);
+            var nombre = questions.FirstOrDefault(q => q.FieldCode == "nombre_solicitante");
+            var prioridad = questions.FirstOrDefault(q => q.FieldCode == "prioridad");
+            if (nombre is not null)
+            {
+                _db.FormFieldRules.Add(new FormFieldRule
+                {
+                    TenantId = tenant.Id,
+                    FormQuestionId = nombre.Id,
+                    RuleId = pasarCampos.Id,
+                    SortOrder = 0
+                });
+            }
+            if (prioridad is not null)
+            {
+                _db.FormFieldRules.Add(new FormFieldRule
+                {
+                    TenantId = tenant.Id,
+                    FormQuestionId = prioridad.Id,
+                    RuleId = bloquearCampo.Id,
+                    SortOrder = 0
+                });
+            }
+        }
+
+        // Vinculo autonomo al nodo Task_Cotizacion del flujo demo COT-COM publicado.
+        var workflowDefinitionId = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenant.Id && d.ProcessCode == DemoWorkflowProcessCode && d.IsPublished)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (workflowDefinitionId is Guid wfId)
+        {
+            var cotizacionNode = await _db.WorkflowNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.DefinitionId == wfId && n.BpmnElementId == "Task_Cotizacion", cancellationToken);
+            if (cotizacionNode is not null)
+            {
+                _db.WorkflowNodeRules.Add(new WorkflowNodeRule
+                {
+                    TenantId = tenant.Id,
+                    WorkflowNodeId = cotizacionNode.Id,
+                    RuleId = asignarConsecutivo.Id,
+                    SortOrder = 0,
+                    IsAutonomous = true
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Documento de reglas demo {Code} sembrado para {Tenant} (3 reglas; vinculos a FRM-001: {FormLinked}, a COT-COM: {FlowLinked}).",
+            DemoRuleDocumentCode, tenant.Name, formDefinitionId is not null, workflowDefinitionId is not null);
+    }
+
 }

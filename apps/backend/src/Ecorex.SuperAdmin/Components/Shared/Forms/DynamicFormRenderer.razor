@@ -1,9 +1,11 @@
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
+@inject IFormRuleDispatcher RulesDispatcher
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -101,6 +103,10 @@ else
     private FormResponseDto? _response;
     private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
+    // RulesEngine (FASE 4 ola 3, ADR-0016): campos con reglas vinculadas y estado de UI
+    // derivado de las acciones (ocultos por regla / overrides de obligatoriedad).
+    private IReadOnlySet<string> _ruleTriggerFields = new HashSet<string>(StringComparer.Ordinal);
+    private FormRuleUiState _ruleUiState = new();
     private bool _loading = true;
     private bool _busy;
     private bool _dirty;
@@ -129,6 +135,11 @@ else
             _response = null;
             _values.Clear();
             _errors.Clear();
+            _ruleUiState = new FormRuleUiState();
+            // Campos disparadores de reglas (una sola consulta por carga, no por onchange).
+            _ruleTriggerFields = _definition is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : await RulesDispatcher.GetTriggerFieldCodesAsync(DefinitionId);
             if (_definition is not null)
             {
                 if (ResponseId is Guid rid)
@@ -200,6 +211,11 @@ else
 
     private RenderFragment RenderQuestion(FormQuestionDto q) => __builder =>
     {
+        @* Campos ocultos por regla: no se pintan y no se validan como requeridos. *@
+        if (_ruleUiState.IsHidden(q.FieldCode))
+        {
+            return;
+        }
         <div class="@(string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol)">
             @switch (q.ControlType)
             {
@@ -222,7 +238,7 @@ else
                 default:
                     <label class="form-label dfr-label" title="@q.HelpText">
                         @Prefixed(q)
-                        @if (q.Required)
+                        @if (_ruleUiState.IsRequired(q.FieldCode, q.Required))
                         {
                             <span class="dfr-req">*</span>
                         }
@@ -321,14 +337,47 @@ else
 
     // ---- Estado y validacion cliente ----
 
-    private void SetValue(FormQuestionDto q, string? value)
+    private async Task SetValue(FormQuestionDto q, string? value)
     {
         _values[q.FieldCode] = value;
         _dirty = true;
         ValidateField(q);
+        await DispatchFieldRulesAsync(q);
     }
 
-    private void ToggleMulti(FormQuestionDto q, string optionId, bool on)
+    /// <summary>
+    /// RulesEngine (ADR-0016): si el campo cambiado tiene reglas vinculadas, las ejecuta
+    /// (FormFieldRule en SortOrder) y aplica las acciones devueltas: SetFieldValue sobre
+    /// _values y Hide/Show/SetRequired sobre el estado de UI. Encapsulado en el
+    /// IFormRuleDispatcher para no acoplar el renderer al motor.
+    /// </summary>
+    private async Task DispatchFieldRulesAsync(FormQuestionDto q)
+    {
+        if (Mode != FormRenderMode.Fill || IsSubmitted || !_ruleTriggerFields.Contains(q.FieldCode))
+        {
+            return;
+        }
+        using var ambient = BeginAmbient();
+        var outcome = await RulesDispatcher.OnFieldChangedAsync(
+            DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+        if (outcome.Actions.Count == 0)
+        {
+            return;
+        }
+        _ruleUiState.Apply(outcome.Actions, _values);
+        _dirty = true;
+        // Revalida los campos tocados por las acciones (ocultos limpian su error).
+        foreach (var fieldCode in outcome.Actions.Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
+        {
+            var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
+            if (touched is not null)
+            {
+                ValidateField(touched);
+            }
+        }
+    }
+
+    private async Task ToggleMulti(FormQuestionDto q, string optionId, bool on)
     {
         var selected = FormFieldValidator.ParseMultiValues(_values.GetValueOrDefault(q.FieldCode))
             .ToList();
@@ -345,13 +394,24 @@ else
             : System.Text.Json.JsonSerializer.Serialize(selected);
         _dirty = true;
         ValidateField(q);
+        await DispatchFieldRulesAsync(q);
     }
 
-    /// <summary>Validacion cliente inmediata con el MISMO validador del servidor.</summary>
+    /// <summary>
+    /// Validacion cliente inmediata con el MISMO validador del servidor. Los campos ocultos
+    /// por regla no se validan (tampoco como requeridos) y la obligatoriedad respeta los
+    /// overrides SetRequired de las reglas.
+    /// </summary>
     private void ValidateField(FormQuestionDto q)
     {
+        if (_ruleUiState.IsHidden(q.FieldCode))
+        {
+            _errors.Remove(q.FieldCode);
+            return;
+        }
         var error = FormFieldValidator.Validate(
-            q.ControlType, q.Required, _values.GetValueOrDefault(q.FieldCode),
+            q.ControlType, _ruleUiState.IsRequired(q.FieldCode, q.Required),
+            _values.GetValueOrDefault(q.FieldCode),
             FormFieldValidator.ParseOptions(q.OptionsJson),
             FormFieldValidator.ParseRules(q.ValidationJson));
         if (error is null)

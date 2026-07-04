@@ -697,7 +697,8 @@ inexistente) -> RuleExecutionLog SIEMPRE, append-only, con TTL de 90 dias.
   PASAR_CAMPOS end-to-end cambia el FormData persistido; regla autonoma con
   AutoCompleteStep avanza el flujo a Task_B; aislamiento cross-tenant de documentos/
   reglas/historial; TTL cleaner borra solo expirados cross-tenant e idempotente).
-  Suite completa verde (ver cifras en el reporte de la sesion).
+  Suite completa de integracion verde: 77/77 (67 previos + 10 nuevos), 0 errores,
+  en AMBOS motores.
 - Arranque real contra PG 5442 en puerto 5237: /reglas responde con el documento
   RUL-005 sembrado y "Ejecutar prueba" genera entrada de historial.
 

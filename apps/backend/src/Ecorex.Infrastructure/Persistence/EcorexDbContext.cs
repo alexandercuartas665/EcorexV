@@ -123,6 +123,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
+    // Motor de reglas (FASE 4 ola 3, ADR-0016): documentos de reglas, reglas con verbo
+    // tipado, historial append-only con TTL y vinculos a preguntas de formulario y nodos
+    // de flujo.
+    public DbSet<RuleDocument> RuleDocuments => Set<RuleDocument>();
+    public DbSet<Rule> Rules => Set<Rule>();
+    public DbSet<RuleExecutionLog> RuleExecutionLogs => Set<RuleExecutionLog>();
+    public DbSet<FormFieldRule> FormFieldRules => Set<FormFieldRule>();
+    public DbSet<WorkflowNodeRule> WorkflowNodeRules => Set<WorkflowNodeRule>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -177,6 +186,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<FormControlType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormResponseStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormFlowLinkStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -986,6 +998,66 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ---- Motor de reglas (FASE 4 ola 3, ADR-0016) ----
+
+        modelBuilder.Entity<RuleDocument>(b =>
+        {
+            b.Property(x => x.DocumentCode).HasMaxLength(25).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Category).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.DocumentCode }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+        });
+
+        modelBuilder.Entity<Rule>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // Clave del registro TIPADO de verbos en DI (nunca reflexion, ADR-0016).
+            b.Property(x => x.VerbName).HasMaxLength(100).IsRequired();
+            b.Property(x => x.ParamsJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Document).WithMany()
+                .HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.DocumentId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<RuleExecutionLog>(b =>
+        {
+            b.Property(x => x.RuleNameSnapshot).HasMaxLength(100).IsRequired();
+            b.Property(x => x.ContextJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.ErrorMessage).HasMaxLength(2000);
+            // Historial append-only: NO ACTION hacia la regla (el historial sobrevive; una
+            // regla con ejecuciones no se borra fisicamente, se inactiva o vence el TTL).
+            b.HasOne(x => x.Rule).WithMany()
+                .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.RuleId, x.CreatedAt });
+            // El worker de limpieza TTL barre por vencimiento (unico DELETE fisico permitido).
+            b.HasIndex(x => x.ExpiresAt);
+        });
+
+        modelBuilder.Entity<FormFieldRule>(b =>
+        {
+            // El vinculo vive y muere con la pregunta; NO ACTION hacia la regla.
+            b.HasOne(x => x.FormQuestion).WithMany()
+                .HasForeignKey(x => x.FormQuestionId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Rule).WithMany()
+                .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.FormQuestionId, x.RuleId }).IsUnique();
+            b.HasIndex(x => x.RuleId);
+        });
+
+        modelBuilder.Entity<WorkflowNodeRule>(b =>
+        {
+            // El vinculo vive y muere con el nodo (definicion de flujo); NO ACTION a la regla.
+            b.HasOne(x => x.WorkflowNode).WithMany()
+                .HasForeignKey(x => x.WorkflowNodeId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Rule).WithMany()
+                .HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.WorkflowNodeId, x.RuleId }).IsUnique();
+            b.HasIndex(x => x.RuleId);
         });
 
     }

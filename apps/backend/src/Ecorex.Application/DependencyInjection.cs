@@ -75,6 +75,8 @@ public static class DependencyInjection
         // RulesEngine (FASE 4 ola 3, ADR-0016): ejecuta las reglas autonomas del nodo.
         services.AddScoped<Workflows.IWorkflowEngine, Workflows.WorkflowEngine>();
         services.AddScoped<Workflows.IWorkflowRuleHook, Rules.WorkflowRuleHook>();
+        // Editor de flujos del prototipo (ADR-0022): indice con metricas + mutaciones del canvas.
+        services.AddScoped<Workflows.IWorkflowDesignService, Workflows.WorkflowDesignService>();
         // Formularios dinamicos (FASE 4 ola 2, ADR-0015): definiciones, respuestas y tokens.
         services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
         services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();

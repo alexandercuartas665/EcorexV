@@ -5592,6 +5592,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("bpmn_xml");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("category");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -5608,6 +5613,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit")
                         .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsPaused")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_paused");
 
                     b.Property<bool>("IsPublished")
                         .HasColumnType("bit")
@@ -5829,6 +5840,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<int?>("H")
+                        .HasColumnType("int")
+                        .HasColumnName("h");
+
                     b.Property<string>("Name")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)")
@@ -5859,6 +5874,22 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
+
+                    b.Property<int?>("W")
+                        .HasColumnType("int")
+                        .HasColumnName("w");
+
+                    b.Property<int>("X")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("x");
+
+                    b.Property<int>("Y")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("y");
 
                     b.HasKey("Id")
                         .HasName("pk_workflow_nodes");

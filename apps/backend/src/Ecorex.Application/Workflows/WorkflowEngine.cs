@@ -87,9 +87,22 @@ public sealed class WorkflowEngine : IWorkflowEngine
         };
         _db.WorkflowDefinitions.Add(definition);
 
+        // Layout del canvas (ADR-0022): coordenadas del bpmndi del XML; si el XML no trae
+        // DI para ningun nodo, auto-layout determinista de respaldo.
+        var hasDi = parsed.Nodes.Any(n => n.X is not null && n.Y is not null);
+        var autoLayout = hasDi
+            ? null
+            : WorkflowAutoLayout.Compute(
+                parsed.Nodes.Select(n => (n.BpmnElementId, n.NodeType, n.StepNumber)).ToList(),
+                parsed.Edges.Select(e => (e.SourceRef, e.TargetRef)).ToList());
+
         var nodesByElementId = new Dictionary<string, WorkflowNode>(StringComparer.Ordinal);
         foreach (var parsedNode in parsed.Nodes)
         {
+            var fallback = autoLayout is not null && autoLayout.TryGetValue(parsedNode.BpmnElementId, out var slot)
+                ? slot
+                : default((int X, int Y, int W, int H)?);
+            var (defaultW, defaultH) = BpmnXmlWriter.DefaultSize(parsedNode.NodeType);
             var node = new WorkflowNode
             {
                 TenantId = tenantId,
@@ -98,7 +111,11 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 Name = parsedNode.Name,
                 NodeType = parsedNode.NodeType,
                 StepNumber = parsedNode.StepNumber,
-                AllowsAssignment = parsedNode.NodeType == WorkflowNodeType.Task
+                AllowsAssignment = parsedNode.NodeType == WorkflowNodeType.Task,
+                X = parsedNode.X ?? fallback?.X ?? 0,
+                Y = parsedNode.Y ?? fallback?.Y ?? 0,
+                W = parsedNode.W ?? fallback?.W ?? defaultW,
+                H = parsedNode.H ?? fallback?.H ?? defaultH
             };
             nodesByElementId[parsedNode.BpmnElementId] = node;
             _db.WorkflowNodes.Add(node);
@@ -197,6 +214,13 @@ public sealed class WorkflowEngine : IWorkflowEngine
         if (definition.IsArchived)
         {
             return WorkflowResult<WorkflowInstanceDto>.Invalid("La definicion esta archivada.");
+        }
+        if (definition.IsPaused)
+        {
+            // Estado "Pausado" del indice de flujos (ADR-0022): publicada pero sin aceptar
+            // instancias nuevas; las que ya corren siguen su curso normal.
+            return WorkflowResult<WorkflowInstanceDto>.Invalid(
+                "El flujo esta pausado: no se pueden iniciar instancias nuevas.");
         }
 
         var graph = await LoadGraphAsync(definition.Id, cancellationToken);

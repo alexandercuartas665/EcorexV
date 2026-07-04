@@ -575,6 +575,139 @@ public sealed class DatabaseSeeder
             definition.Nodes.Count, definition.Edges.Count);
     }
 
+    // ---- Indice de flujos demo (editor canvas del prototipo, ADR-0022) ----
+
+    public const string DemoDraftFlowName = "Mantenimiento y soporte";
+    public const string DemoPausedFlowProcessCode = "VIS-TEC";
+    public const string DemoPausedFlowName = "Visita tecnica de instalacion";
+
+    /// <summary>
+    /// Enriquece el indice /flujos del tenant demo (ADR-0022), idempotente:
+    /// 1) Backfill de layout: definiciones anteriores a AddWorkflowEditorFields (todos los
+    ///    nodos en 0,0) reciben auto-layout + XML regenerado con DI; COT-COM ademas recibe
+    ///    la categoria "Comercial".
+    /// 2) Un BORRADOR simple ("Mantenimiento y soporte", Operaciones) creado con el propio
+    ///    IWorkflowDesignService (CreateDraft + AddNode + Connect + DeleteEdge).
+    /// 3) Una definicion PAUSADA ("Visita tecnica de instalacion", VIS-TEC) publicada y
+    ///    pausada. Sin instancias: las metricas reales de las nuevas pueden ser 0.
+    /// REQUIERE ambient del tenant demo (igual que EnsureWorkflowDemoAsync). Solo Development.
+    /// </summary>
+    public async Task EnsureWorkflowIndexDemoAsync(
+        IWorkflowEngine engine, IWorkflowDesignService design, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        // 1) Backfill de layout para definiciones sembradas antes del editor.
+        var definitions = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenant.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var definition in definitions)
+        {
+            if (definition.ProcessCode == DemoWorkflowProcessCode)
+            {
+                definition.Category ??= "Comercial";
+            }
+            var nodes = await _db.WorkflowNodes.IgnoreQueryFilters()
+                .Where(n => n.DefinitionId == definition.Id)
+                .OrderBy(n => n.StepNumber)
+                .ToListAsync(cancellationToken);
+            if (nodes.Count == 0 || nodes.Any(n => n.X != 0 || n.Y != 0))
+            {
+                continue;
+            }
+            var edges = await _db.WorkflowEdges.IgnoreQueryFilters()
+                .Where(e => e.DefinitionId == definition.Id)
+                .OrderBy(e => e.CreatedAt)
+                .ToListAsync(cancellationToken);
+            var nodesById = nodes.ToDictionary(n => n.Id);
+            var layout = WorkflowAutoLayout.Compute(
+                nodes.Select(n => (n.BpmnElementId, n.NodeType, n.StepNumber ?? 0)).ToList(),
+                edges.Select(e => (nodesById[e.SourceNodeId].BpmnElementId, nodesById[e.TargetNodeId].BpmnElementId)).ToList());
+            foreach (var node in nodes)
+            {
+                if (layout.TryGetValue(node.BpmnElementId, out var slot))
+                {
+                    node.X = slot.X;
+                    node.Y = slot.Y;
+                    node.W = slot.W;
+                    node.H = slot.H;
+                }
+            }
+            // XML regenerado con DI (mismo grafo + coordenadas; portabilidad bpmn.io).
+            definition.BpmnXml = WorkflowDesignService.WriteXml(definition.ProcessCode, nodes, edges);
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 2) Borrador simple creado con el propio servicio de diseno (dogfooding).
+        var hasDraftDemo = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .AnyAsync(d => d.TenantId == tenant.Id && d.Name == DemoDraftFlowName, cancellationToken);
+        if (!hasDraftDemo)
+        {
+            var created = await design.CreateDraftAsync(DemoDraftFlowName, "Operaciones", cancellationToken);
+            if (created.IsOk && created.Value is not null)
+            {
+                var canvas = created.Value;
+                var start = canvas.Nodes.First(n => n.NodeType == WorkflowNodeType.StartEvent);
+                var end = canvas.Nodes.First(n => n.NodeType == WorkflowNodeType.EndEvent);
+                var task = await design.AddNodeAsync(canvas.DefinitionId, WorkflowNodeType.Task, 240, 141, cancellationToken);
+                if (task.IsOk && task.Value is not null)
+                {
+                    await design.RenameNodeAsync(task.Value.Id, "Atender solicitud de soporte", cancellationToken);
+                    await design.ConnectAsync(start.Id, task.Value.Id, cancellationToken);
+                    await design.ConnectAsync(task.Value.Id, end.Id, cancellationToken);
+                    var direct = canvas.Edges.FirstOrDefault(e => e.SourceNodeId == start.Id && e.TargetNodeId == end.Id);
+                    if (direct is not null)
+                    {
+                        await design.DeleteEdgeAsync(direct.Id, cancellationToken);
+                    }
+                    await design.UpdateDefinitionPropsAsync(canvas.DefinitionId, DemoDraftFlowName, "Operaciones",
+                        "Borrador demo del editor de flujos: atencion de incidencias y mantenimiento.", cancellationToken);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("No se pudo sembrar el flujo borrador demo: {Error}", created.Error);
+            }
+        }
+
+        // 3) Definicion publicada y PAUSADA (estado "Pausado" del indice).
+        var hasPausedDemo = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .AnyAsync(d => d.TenantId == tenant.Id && d.ProcessCode == DemoPausedFlowProcessCode, cancellationToken);
+        if (!hasPausedDemo)
+        {
+            var (evW, evH) = BpmnXmlWriter.DefaultSize(WorkflowNodeType.StartEvent);
+            var (taskW, taskH) = BpmnXmlWriter.DefaultSize(WorkflowNodeType.Task);
+            var xml = BpmnXmlWriter.Write(DemoPausedFlowProcessCode,
+                [
+                    new BpmnWriterNode("Start_1", "Inicio", WorkflowNodeType.StartEvent, 60, 150, evW, evH),
+                    new BpmnWriterNode("Task_Agendar", "Agendar visita", WorkflowNodeType.Task, 190, 141, taskW, taskH),
+                    new BpmnWriterNode("Task_Ejecutar", "Ejecutar visita en sitio", WorkflowNodeType.Task, 400, 141, taskW, taskH),
+                    new BpmnWriterNode("End_1", "Fin", WorkflowNodeType.EndEvent, 620, 150, evW, evH)
+                ],
+                [
+                    new BpmnWriterEdge("Flow_1", "Start_1", "Task_Agendar", null, null),
+                    new BpmnWriterEdge("Flow_2", "Task_Agendar", "Task_Ejecutar", null, null),
+                    new BpmnWriterEdge("Flow_3", "Task_Ejecutar", "End_1", null, null)
+                ]);
+            var imported = await engine.ImportBpmnAsync(new ImportBpmnRequest(
+                DemoPausedFlowProcessCode, DemoPausedFlowName, xml,
+                "Flujo demo pausado: visitas tecnicas de instalacion."), cancellationToken);
+            if (imported.IsOk && imported.Value is not null)
+            {
+                await engine.PublishAsync(imported.Value.Id, cancellationToken);
+                await design.UpdateDefinitionPropsAsync(imported.Value.Id, DemoPausedFlowName, "Operaciones",
+                    "Flujo demo pausado: visitas tecnicas de instalacion.", cancellationToken);
+                await design.PauseAsync(imported.Value.Id, cancellationToken);
+            }
+            else
+            {
+                _logger.LogWarning("No se pudo sembrar el flujo pausado demo: {Error}", imported.Error);
+            }
+        }
+    }
+
     // ---- Formulario dinamico demo (FASE 4 ola 2, ADR-0015) ----
 
     public const string DemoFormCode = "FRM-001";

@@ -886,6 +886,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // El XML BPMN original, sin modificar (round-trip con bpmn.io).
             b.Property(x => x.BpmnXml).HasColumnType(longTextColumnType).IsRequired();
             b.Property(x => x.Version).HasDefaultValue(1);
+            // Editor de flujos del prototipo (ADR-0022): categoria del indice y pausa.
+            b.Property(x => x.Category).HasMaxLength(100);
+            b.Property(x => x.IsPaused).HasDefaultValue(false);
             // Versionado inmutable: una fila por version del proceso.
             b.HasIndex(x => new { x.TenantId, x.ProcessCode, x.Version }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsPublished });
@@ -901,6 +904,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.RestartNode).WithMany()
                 .HasForeignKey(x => x.RestartNodeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.DefinitionId, x.BpmnElementId }).IsUnique();
+            // Layout del canvas (ADR-0022): coordenadas del bpmndi, con default 0
+            // para filas preexistentes (el seeder les aplica auto-layout).
+            b.Property(x => x.X).HasDefaultValue(0);
+            b.Property(x => x.Y).HasDefaultValue(0);
         });
 
         modelBuilder.Entity<WorkflowEdge>(b =>

@@ -4,8 +4,14 @@ using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Workflows;
 
-/// <summary>Nodo BPMN parseado (aun sin persistir).</summary>
-public sealed record ParsedBpmnNode(string BpmnElementId, string? Name, WorkflowNodeType NodeType, int StepNumber);
+/// <summary>
+/// Nodo BPMN parseado (aun sin persistir). X/Y/W/H vienen del diagrama
+/// (bpmndi:BPMNShape/dc:Bounds) y son null si el XML no trae DI para el elemento:
+/// en ese caso el importador aplica auto-layout (ADR-0022).
+/// </summary>
+public sealed record ParsedBpmnNode(
+    string BpmnElementId, string? Name, WorkflowNodeType NodeType, int StepNumber,
+    int? X = null, int? Y = null, int? W = null, int? H = null);
 
 /// <summary>Arista BPMN parseada (aun sin persistir; referencias por id de elemento).</summary>
 public sealed record ParsedBpmnEdge(string? BpmnElementId, string SourceRef, string TargetRef, string? Name, string? ConditionExpression);
@@ -22,8 +28,10 @@ public sealed record ParsedBpmnProcess(
 /// <summary>
 /// Parser de XML BPMN 2.0 estandar (namespace OMG) para el WorkflowEngine. Reconoce el
 /// subconjunto que ejecuta el motor: startEvent, task, exclusiveGateway, endEvent y
-/// sequenceFlow. Ignora DI (diagrama), anotaciones y asociaciones: son visuales. El XML
-/// original NUNCA se modifica (se persiste tal cual para round-trip con bpmn.io).
+/// sequenceFlow. Del DI (diagrama) solo lee las coordenadas de los BPMNShape para el
+/// canvas del editor (ADR-0022); anotaciones y asociaciones se ignoran. El XML original
+/// NUNCA se modifica al importar (round-trip con bpmn.io); el editor propio lo REGENERA
+/// completo (BpmnXmlWriter) al guardar cambios del grafo.
 /// Validaciones: exactamente 1 startEvent, al menos 1 endEvent, ids unicos y aristas
 /// que apuntan a nodos existentes.
 /// </summary>
@@ -31,6 +39,15 @@ public static class BpmnProcessParser
 {
     /// <summary>Namespace del modelo BPMN 2.0 (el prefijo bpmn:/bpmn2: es irrelevante).</summary>
     public static readonly XNamespace Bpmn = "http://www.omg.org/spec/BPMN/20100524/MODEL";
+
+    /// <summary>Namespace del diagrama BPMN (bpmndi).</summary>
+    public static readonly XNamespace BpmnDi = "http://www.omg.org/spec/BPMN/20100524/DI";
+
+    /// <summary>Namespace de los Bounds del diagrama (dc).</summary>
+    public static readonly XNamespace Dc = "http://www.omg.org/spec/DD/20100524/DC";
+
+    /// <summary>Namespace de los waypoints del diagrama (di).</summary>
+    public static readonly XNamespace Di = "http://www.omg.org/spec/DD/20100524/DI";
 
     public static ParsedBpmnProcess Parse(string? bpmnXml)
     {
@@ -54,6 +71,25 @@ public static class BpmnProcessParser
         if (process is null)
         {
             return new ParsedBpmnProcess([], [], ["El XML no contiene un bpmn:process (namespace BPMN 2.0)."]);
+        }
+
+        // Coordenadas del diagrama (bpmndi:BPMNShape/dc:Bounds) indexadas por bpmnElement.
+        var bounds = new Dictionary<string, (int X, int Y, int W, int H)>(StringComparer.Ordinal);
+        foreach (var shape in doc.Descendants(BpmnDi + "BPMNShape"))
+        {
+            var elementId = (string?)shape.Attribute("bpmnElement");
+            var b = shape.Element(Dc + "Bounds");
+            if (string.IsNullOrWhiteSpace(elementId) || b is null)
+            {
+                continue;
+            }
+            if (TryRound((string?)b.Attribute("x"), out var x)
+                && TryRound((string?)b.Attribute("y"), out var y)
+                && TryRound((string?)b.Attribute("width"), out var w)
+                && TryRound((string?)b.Attribute("height"), out var h))
+            {
+                bounds[elementId] = (x, y, w, h);
+            }
         }
 
         var nodes = new List<ParsedBpmnNode>();
@@ -82,7 +118,10 @@ public static class BpmnProcessParser
                     continue;
                 }
                 step++;
-                nodes.Add(new ParsedBpmnNode(id, Normalize((string?)element.Attribute("name")), type, step));
+                var shape = bounds.TryGetValue(id, out var bb) ? bb : default((int X, int Y, int W, int H)?);
+                nodes.Add(new ParsedBpmnNode(
+                    id, Normalize((string?)element.Attribute("name")), type, step,
+                    shape?.X, shape?.Y, shape?.W, shape?.H));
             }
             else if (localName == "sequenceFlow")
             {
@@ -140,4 +179,17 @@ public static class BpmnProcessParser
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Los Bounds del DI son decimales (dc:Bounds x="156.5"); el canvas usa int.</summary>
+    private static bool TryRound(string? value, out int result)
+    {
+        if (double.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            result = (int)Math.Round(parsed, MidpointRounding.AwayFromZero);
+            return true;
+        }
+        result = 0;
+        return false;
+    }
 }

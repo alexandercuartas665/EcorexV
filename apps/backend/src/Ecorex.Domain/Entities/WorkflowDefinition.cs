@@ -30,4 +30,17 @@ public class WorkflowDefinition : TenantEntity
 
     /// <summary>Archivada: no se ofrece para instancias nuevas pero conserva historia.</summary>
     public bool IsArchived { get; set; }
+
+    /// <summary>
+    /// Categoria/cargo del flujo en el indice del prototipo (pantalla 'flujos': tabs de
+    /// filtro y badge de la tarjeta). Texto libre corto (ej. "Comercial", "Operaciones").
+    /// </summary>
+    public string? Category { get; set; }
+
+    /// <summary>
+    /// Pausada (solo tiene efecto en publicadas): la definicion sigue publicada pero
+    /// StartInstanceAsync rechaza instancias nuevas. Estado "Pausado" del indice del
+    /// prototipo (En marcha = IsPublished y !IsPaused).
+    /// </summary>
+    public bool IsPaused { get; set; }
 }

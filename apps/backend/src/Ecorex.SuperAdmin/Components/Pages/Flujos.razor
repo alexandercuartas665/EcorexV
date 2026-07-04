@@ -1,13 +1,310 @@
 @page "/flujos"
 @attribute [Authorize(Policy = "Flujos.Ver")]
 @* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Workflows
+@inject IWorkflowDesignService DesignSvc
 
-<ModuleStub Section="Modulos"
-            Title="Flujos del proceso"
-            Description="Definicion y ejecucion de flujos del proceso con editor BPMN embebido."
-            Phase="Fase 4 (WorkflowEngine BPMN)"
-            LegacyCode="000291">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
-    </Icon>
-</ModuleStub>
+@* ============================================================
+   INDICE DE FLUJOS del prototipo (ECOREX.dc.html, pantalla
+   'flujos'): rotulo de modulo, 4 KPIs, busqueda + tabs de filtro
+   por cargo/categoria y tarjetas con metricas REALES (ADR-0022).
+   Abrir una tarjeta abre el EDITOR canvas (modal grande).
+   ============================================================ *@
+
+<PageTitle>Flujos del proceso - ECOREX.tareas</PageTitle>
+
+<div class="fl-page">
+    <div class="fl-head">
+        <div>
+            <div class="fl-eyebrow">MODULO 000291 - AUTOMATIZACION</div>
+            <h1 class="fl-title">Flujos del proceso</h1>
+            <p class="fl-subtitle">Todos los flujos BPMN del sistema con sus indicadores de ejecucion. Abre uno para editarlo.</p>
+        </div>
+        <button class="fl-btn-new" @onclick="OpenNewFlow" disabled="@_busy">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            Nuevo flujo
+        </button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="fl-error">@_error</div>
+    }
+
+    <div class="fl-kpis">
+        <div class="fl-kpi">
+            <div class="fl-kpi-ic" style="background:var(--t-violet-bg);color:var(--t-violet)">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
+            </div>
+            <div class="fl-kpi-tx"><div class="fl-kpi-v">@(_index?.Kpis.Flows ?? 0)</div><div class="fl-kpi-l">Flujos</div></div>
+        </div>
+        <div class="fl-kpi">
+            <div class="fl-kpi-ic" style="background:var(--t-green-bg);color:var(--t-green)">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>
+            </div>
+            <div class="fl-kpi-tx"><div class="fl-kpi-v">@(_index?.Kpis.RunningFlows ?? 0)</div><div class="fl-kpi-l">En marcha</div></div>
+        </div>
+        <div class="fl-kpi">
+            <div class="fl-kpi-ic" style="background:var(--t-blue-bg);color:var(--t-blue)">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
+            </div>
+            <div class="fl-kpi-tx"><div class="fl-kpi-v">@(_index?.Kpis.ActiveInstances ?? 0)</div><div class="fl-kpi-l">Instancias activas</div></div>
+        </div>
+        <div class="fl-kpi">
+            <div class="fl-kpi-ic" style="background:var(--t-amber-bg);color:var(--t-amber)">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><rect x="7.5" y="11" width="3" height="6" rx="1"/><rect x="13.5" y="7" width="3" height="10" rx="1"/></svg>
+            </div>
+            <div class="fl-kpi-tx"><div class="fl-kpi-v">@N(_index?.Kpis.MonthExecutions ?? 0)</div><div class="fl-kpi-l">Ejecuciones (mes)</div></div>
+        </div>
+    </div>
+
+    <div class="fl-toolbar">
+        <div class="fl-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" placeholder="Buscar flujo..." />
+        </div>
+        <span class="fl-filter-label">Filtrar por cargo:</span>
+        <div class="fl-tabs">
+            @foreach (var tab in CategoryTabs)
+            {
+                <button class="fl-tab @(_category == tab.Name ? "on" : "")" @onclick="@(() => _category = tab.Name)">
+                    @tab.Name <span class="fl-tab-count">@tab.Count</span>
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="fl-loading"><em>Cargando flujos...</em></p>
+    }
+    else
+    {
+        <div class="fl-cards">
+            @foreach (var card in Filtered)
+            {
+                <button class="fl-card" @onclick="@(() => OpenEditor(card.DefinitionId))">
+                    <div class="fl-card-top">
+                        <span class="fl-card-id">@card.ProcessCode</span>
+                        <span class="fl-badge" style="background:@ToneSoft(card.Estado);color:@Tone(card.Estado)">
+                            @if (card.RunningInstances > 0)
+                            {
+                                <span class="fl-dot" style="background:@Tone(card.Estado)"></span>
+                            }
+                            @card.Estado
+                        </span>
+                    </div>
+                    <div class="fl-card-name">@card.Name</div>
+                    <div class="fl-card-meta">
+                        <span class="fl-cat">@(card.Category ?? "General")</span>
+                        <span class="fl-nodes">@card.NodeCount nodos</span>
+                    </div>
+                    <div class="fl-card-stats">
+                        <div><div class="fl-stat-v blue">@card.RunningInstances</div><div class="fl-stat-l">en marcha</div></div>
+                        <div><div class="fl-stat-v">@N(card.MonthExecutions)</div><div class="fl-stat-l">ejecuciones</div></div>
+                        <div><div class="fl-stat-v green">@card.SuccessRate%</div><div class="fl-stat-l">exito</div></div>
+                    </div>
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@* ---- Modal "Nuevo flujo" del prototipo (nombre + categoria + estado) ---- *@
+@if (_newFlowOpen)
+{
+    <div class="fl-overlay" @onclick="CloseNewFlow">
+        <div class="fl-modal" style="width:min(460px,94vw)" @onclick:stopPropagation>
+            <div class="fl-modal-head">
+                <div>
+                    <div class="fl-modal-title">Nuevo flujo</div>
+                    <div class="fl-modal-sub">Define nombre y categoria antes de disenar</div>
+                </div>
+                <button class="fl-modal-x" @onclick="CloseNewFlow">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="fl-modal-body">
+                <div>
+                    <label class="fl-label">NOMBRE DEL FLUJO</label>
+                    <input class="fl-input" @bind="_newFlowName" @bind:event="oninput" placeholder="Ej. Aprobacion de ordenes de compra" />
+                </div>
+                <div class="fl-grid-2">
+                    <div>
+                        <label class="fl-label">CATEGORIA / CARGO</label>
+                        <select class="fl-input" @bind="_newFlowCategory">
+                            @foreach (var option in KnownCategories)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="fl-label">ESTADO</label>
+                        @* Los flujos nuevos SIEMPRE nacen en Borrador (regla del motor: se publica desde el editor). *@
+                        <select class="fl-input" disabled title="Los flujos nuevos nacen en Borrador; se publican desde el editor">
+                            <option selected>Borrador</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="fl-modal-foot no-border">
+                <button class="fl-btn-ghost" @onclick="CloseNewFlow">Cancelar</button>
+                <button class="fl-btn-brand" @onclick="CreateAndOpenAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newFlowName))">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    Crear y disenar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Editor canvas (modal grande del prototipo) ---- *@
+@if (_editorId is Guid editorId)
+{
+    <FlowEditor DefinitionId="@editorId"
+                Categories="@KnownCategories"
+                OnClose="CloseEditorAsync"
+                OnDefinitionSwitched="SwitchEditorAsync" />
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string _query = "";
+    private string _category = "Todos";
+    private FlowIndexDto? _index;
+    private Guid? _editorId;
+
+    private bool _newFlowOpen;
+    private string _newFlowName = "";
+    private string _newFlowCategory = "Comercial";
+
+    private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
+
+    /// <summary>Categorias del prototipo + las reales del tenant (sin duplicar).</summary>
+    private IReadOnlyList<string> KnownCategories
+        => new[] { "Comercial", "Operaciones", "Cartera", "Tecnologia" }
+            .Concat((_index?.Cards ?? []).Select(c => c.Category ?? "General"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _index = await DesignSvc.ListForIndexAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"No se pudo cargar el indice de flujos: {ex.Message}";
+        }
+        _loading = false;
+    }
+
+    private IEnumerable<(string Name, int Count)> CategoryTabs
+    {
+        get
+        {
+            var cards = _index?.Cards ?? [];
+            yield return ("Todos", cards.Count);
+            foreach (var group in cards
+                .GroupBy(c => c.Category ?? "General", StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                yield return (group.Key, group.Count());
+            }
+        }
+    }
+
+    private IEnumerable<FlowCardDto> Filtered
+    {
+        get
+        {
+            var cards = (_index?.Cards ?? []).AsEnumerable();
+            if (_category != "Todos")
+            {
+                cards = cards.Where(c => string.Equals(c.Category ?? "General", _category, StringComparison.OrdinalIgnoreCase));
+            }
+            var query = _query.Trim();
+            if (query.Length > 0)
+            {
+                cards = cards.Where(c =>
+                    c.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || c.ProcessCode.Contains(query, StringComparison.OrdinalIgnoreCase));
+            }
+            return cards;
+        }
+    }
+
+    /// <summary>Separador de miles del prototipo (toLocaleString('es') -> "1.204").</summary>
+    private static string N(int value) => value.ToString("N0", Es);
+
+    // Tonos del prototipo: En marcha=verde, Pausado=ambar, Borrador=gris.
+    private static string Tone(string estado) => estado switch
+    {
+        WorkflowDesignService.EstadoEnMarcha => "var(--t-green)",
+        WorkflowDesignService.EstadoPausado => "var(--t-amber)",
+        _ => "var(--ink-3)"
+    };
+
+    private static string ToneSoft(string estado) => estado switch
+    {
+        WorkflowDesignService.EstadoEnMarcha => "var(--t-green-bg)",
+        WorkflowDesignService.EstadoPausado => "var(--t-amber-bg)",
+        _ => "var(--surface-3)"
+    };
+
+    private void OpenNewFlow()
+    {
+        _newFlowName = "";
+        _newFlowCategory = "Comercial";
+        _newFlowOpen = true;
+    }
+
+    private void CloseNewFlow() => _newFlowOpen = false;
+
+    /// <summary>"Crear y disenar": borrador minimo (start -> end) y abre el editor.</summary>
+    private async Task CreateAndOpenAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var result = await DesignSvc.CreateDraftAsync(_newFlowName, _newFlowCategory);
+            if (!result.IsOk || result.Value is null)
+            {
+                _error = result.Error ?? "No se pudo crear el flujo.";
+                return;
+            }
+            _newFlowOpen = false;
+            await ReloadAsync();
+            _editorId = result.Value.DefinitionId;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OpenEditor(Guid definitionId) => _editorId = definitionId;
+
+    private async Task CloseEditorAsync()
+    {
+        _editorId = null;
+        await ReloadAsync();
+    }
+
+    /// <summary>El editor cambio de definicion (EnsureDraft o importacion JSON).</summary>
+    private async Task SwitchEditorAsync(Guid definitionId)
+    {
+        _editorId = definitionId;
+        await ReloadAsync();
+    }
+}

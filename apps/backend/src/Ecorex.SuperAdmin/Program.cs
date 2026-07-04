@@ -143,6 +143,11 @@ else
             var workflowEngine = scope.ServiceProvider
                 .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
             await seeder.EnsureWorkflowDemoAsync(workflowEngine);
+            // Indice de flujos del prototipo (ADR-0022): backfill de layout + un borrador
+            // y una definicion pausada, para que /flujos muestre KPIs y filtros con datos.
+            var workflowDesign = scope.ServiceProvider
+                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowDesignService>();
+            await seeder.EnsureWorkflowIndexDemoAsync(workflowEngine, workflowDesign);
         }
     }
     // Formulario dinamico demo (FASE 4 ola 2, ADR-0015): FRM-001 activo, vinculado al

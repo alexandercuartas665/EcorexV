@@ -1,0 +1,403 @@
+/* ============================================================
+   EDITOR DE FLUJOS (prototipo ECOREX.dc.html, flowEditorOpen).
+   Medidas EXACTAS del fuente (ADR-0022): modal 95vh r18 grid
+   1fr/340px; toolbar flotante 38x38 r9 top/left 18; canvas
+   surface-2 con puntos radial-gradient line-2 1.1px/22px; nodos
+   start/end circulo border 3px, gateway diamante rotate45 border
+   2px warn, task rect r12 border 1.5px; seleccion ring 4px
+   brand-soft; stats top-right 11.5/600 con hint brand; panel
+   340px con acordeones r13 icono 30x30 r9.
+   ============================================================ */
+
+.fe-overlay {
+    position: fixed; inset: 0; z-index: 60; background: rgba(15,15,18,.55);
+    backdrop-filter: blur(5px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 2.5vh 2vw; animation: fe-fade .15s ease;
+}
+.fe-loading { color: #fff; font-size: 14px; }
+.fe-shell {
+    width: 100%; height: 95vh; background: var(--surface);
+    border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--sh-lg);
+    overflow: hidden; display: grid; grid-template-columns: 1fr 340px;
+    animation: fe-pop .2s ease;
+}
+.fe-left {
+    display: flex; flex-direction: column; min-width: 0;
+    border-right: 1px solid var(--line);
+}
+
+/* ---- Header ---- */
+.fe-head {
+    /* flex-wrap: con "Publicar" extra sobre el prototipo, las acciones bajan a una
+       segunda fila en anchos medios en vez de desbordar bajo el panel derecho. */
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 16px var(--pad, 30px); border-bottom: 1px solid var(--line);
+    background: var(--surface);
+}
+.fe-back {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    border: 1px solid var(--line-2); background: var(--surface);
+    display: grid; place-items: center; cursor: pointer; color: var(--ink-2);
+}
+.fe-back:hover { background: var(--surface-3); color: var(--ink); }
+.fe-flow-id {
+    font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+    background: var(--surface-3); padding: 5px 11px; border-radius: 8px; flex: none;
+    white-space: nowrap;
+}
+.fe-name {
+    font-weight: 700; font-size: 15.5px; letter-spacing: -.01em;
+    border: 1px solid transparent; border-radius: 8px; background: none;
+    color: var(--ink); font-family: inherit; padding: 5px 8px;
+    min-width: 120px; flex: 1; outline: none;
+}
+.fe-name:hover { background: var(--surface-2); }
+.fe-name:focus { border-color: var(--line-2); background: var(--surface-2); }
+.fe-cat-wrap { position: relative; flex: none; }
+.fe-cat {
+    appearance: none; -webkit-appearance: none; height: 36px; padding: 0 30px 0 12px;
+    border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface);
+    font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+    cursor: pointer; outline: none;
+}
+.fe-cat-chev { position: absolute; right: 10px; top: 12px; pointer-events: none; }
+.fe-head-actions { margin-left: auto; display: flex; gap: 8px; flex: none; flex-wrap: wrap; }
+.fe-btn {
+    height: 36px; padding: 0 12px; border: 1px solid var(--line-2);
+    background: var(--surface); border-radius: 10px; font: inherit;
+    font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+}
+.fe-btn:hover { background: var(--surface-3); color: var(--ink); }
+.fe-btn-brand {
+    height: 36px; padding: 0 15px; border: none; background: var(--brand);
+    color: var(--on-brand); border-radius: 10px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+}
+.fe-btn-brand:hover { opacity: .9; }
+.fe-btn-brand:disabled { opacity: .6; cursor: default; }
+
+.fe-error {
+    font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg);
+    padding: 8px 14px; margin: 8px var(--pad, 30px) 0; border-radius: 10px;
+}
+.fe-notice {
+    font-size: 12.5px; color: var(--t-green); background: var(--t-green-bg);
+    padding: 8px 14px; margin: 8px var(--pad, 30px) 0; border-radius: 10px;
+}
+.fe-readonly {
+    font-size: 12.5px; color: var(--t-amber); background: var(--t-amber-bg);
+    padding: 8px 14px; margin: 8px var(--pad, 30px) 0; border-radius: 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.fe-readonly-btn {
+    height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--t-amber);
+    background: none; color: var(--t-amber); font: inherit; font-size: 12px;
+    font-weight: 600; cursor: pointer;
+}
+.fe-readonly-btn:hover { background: var(--surface); }
+
+/* ---- Canvas ---- */
+.fe-canvas-zone {
+    flex: 1; position: relative; overflow: hidden;
+    background: var(--surface-2);
+    background-image: radial-gradient(var(--line-2) 1.1px, transparent 1.1px);
+    background-size: 22px 22px;
+}
+.fe-tools {
+    position: absolute; top: 18px; left: 18px; z-index: 2;
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 13px; padding: 6px; box-shadow: var(--sh-md);
+}
+.fe-tool {
+    width: 38px; height: 38px; border-radius: 9px; border: none; background: none;
+    display: grid; place-items: center; cursor: pointer; color: var(--ink-2);
+}
+.fe-tool:hover { background: var(--surface-3); }
+.fe-tool.on { background: var(--brand); color: var(--on-brand); }
+.fe-stats {
+    position: absolute; top: 18px; right: 18px; z-index: 2;
+    font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+    padding: 7px 12px; box-shadow: var(--sh-sm);
+    display: flex; align-items: center; gap: 10px;
+}
+.fe-stats-sep { width: 1px; height: 14px; background: var(--line-2); }
+.fe-hint { color: var(--brand); }
+.fe-scroll { position: absolute; inset: 0; overflow: auto; }
+.fe-canvas { position: relative; touch-action: none; }
+.fe-edges { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+/* ---- Nodos (estilos por tipo del prototipo) ---- */
+.fe-node {
+    position: absolute; box-sizing: border-box; user-select: none;
+    display: grid; place-items: center; text-align: center;
+    background: var(--surface); box-shadow: var(--sh-sm);
+}
+.fe-node.circle {
+    border-radius: 50%; border: 3px solid var(--ink-2);
+    font-size: 10px; font-weight: 700; color: var(--ink-2);
+}
+.fe-node.circle.start { border-color: var(--ok); }
+.fe-node.diamond {
+    transform: rotate(45deg); border-radius: 9px; border: 2px solid var(--warn);
+}
+.fe-gw-label {
+    transform: rotate(-45deg); font-size: 12px; font-weight: 800; color: var(--warn);
+    padding: 0 4px; text-align: center; line-height: 1.1;
+}
+.fe-node.rect {
+    border-radius: 12px; border: 1.5px solid var(--line-2);
+    padding: 8px 10px; font-size: 11.5px; font-weight: 600; color: var(--ink);
+    line-height: 1.2;
+}
+.fe-node.sel, .fe-node.from {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 4px var(--brand-soft), var(--sh-md);
+}
+.fe-node.rect.sel { border-width: 2.5px; }
+
+/* ---- Panel derecho ---- */
+.fe-panel {
+    background: var(--surface); overflow-y: auto;
+    display: flex; flex-direction: column;
+}
+.fe-panel-head { padding: 18px 18px 16px; border-bottom: 1px solid var(--line); }
+.fe-panel-eyebrow {
+    font-size: 11px; color: var(--ink-3); letter-spacing: .06em;
+    font-weight: 600; margin-bottom: 5px;
+}
+.fe-panel-name { font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+.fe-panel-input {
+    margin-top: 13px; width: 100%; height: 38px; padding: 0 12px;
+    border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface);
+    color: var(--ink); font: inherit; font-size: 13px; outline: none;
+    box-sizing: border-box;
+}
+.fe-panel-body { padding: 10px; }
+
+/* Acordeones (r13, icono 30x30 r9). */
+.fe-acc {
+    width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px;
+    border: 1px solid var(--line); background: var(--surface); border-radius: 13px;
+    cursor: pointer; font: inherit; margin-bottom: 7px; text-align: left;
+}
+.fe-acc:hover { border-color: var(--line-2); }
+.fe-acc.open { border-color: var(--line-2); background: var(--surface-2); }
+.fe-acc-ic {
+    width: 30px; height: 30px; flex: none; border-radius: 9px;
+    display: grid; place-items: center;
+}
+.fe-acc-name { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.fe-acc-body { padding: 4px 6px 14px; animation: fe-pop .2s ease; }
+.fe-acc-empty { font-size: 12.5px; color: var(--ink-3); padding: 4px 2px; }
+.fe-acc-note { font-size: 11.5px; color: var(--ink-3); margin-top: 9px; line-height: 1.4; }
+.fe-todo {
+    font-size: 11.5px; color: var(--ink-3); background: var(--surface-2);
+    border: 1px dashed var(--line-2); border-radius: 9px; padding: 8px 10px;
+    margin: 9px 0; line-height: 1.4;
+}
+.fe-jump {
+    width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px;
+    border: 1.5px dashed var(--line-2); background: none; border-radius: 13px;
+    cursor: pointer; font: inherit; margin-top: 4px; text-align: left;
+}
+.fe-jump:hover { border-color: var(--brand); }
+
+/* Campos de acordeon. */
+.fe-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.fe-field label { font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.fe-field-ro {
+    height: 38px; border-radius: 10px; border: 1px solid var(--line-2);
+    background: var(--surface); display: flex; align-items: center;
+    padding: 0 12px; font-size: 13px;
+}
+.fe-check {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+    font-weight: 600; color: var(--ink-2); cursor: pointer; padding: 2px;
+}
+.fe-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.fe-chip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+    font-weight: 600; padding: 5px 8px 5px 11px; border-radius: 9px;
+    background: var(--surface-3); color: var(--ink-2);
+}
+.fe-chip.static { padding: 5px 11px; }
+.fe-chip-x { cursor: pointer; color: var(--ink-3); font-weight: 700; }
+.fe-chip-add {
+    font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 9px;
+    border: 1.5px dashed var(--line-2); background: none; color: var(--ink-3);
+    cursor: pointer; font-family: inherit;
+}
+.fe-chip-add:hover { border-color: var(--brand); color: var(--brand); }
+.fe-rows { display: flex; flex-direction: column; gap: 9px; }
+.fe-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+    border: 1px solid var(--line); border-radius: 11px; background: var(--surface);
+}
+.fe-row-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.fe-row-verb {
+    font-family: monospace; font-size: 12px; font-weight: 600; flex: 1;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fe-row-badge {
+    font-size: 10.5px; font-weight: 600; padding: 2px 9px; border-radius: 7px;
+    background: var(--surface-3);
+}
+.fe-row-auto {
+    display: flex; align-items: center; gap: 4px; font-size: 10.5px;
+    color: var(--ink-3); cursor: pointer;
+}
+.fe-row-x { cursor: pointer; color: var(--ink-3); font-weight: 700; }
+.fe-add-dashed {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; padding: 10px; border-radius: 11px;
+    border: 1.5px dashed var(--line-2); background: none; color: var(--ink-3);
+    font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.fe-add-dashed:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+.fe-add-dashed:disabled { opacity: .55; cursor: default; }
+.fe-exit-row { display: flex; align-items: center; gap: 8px; }
+.fe-exit-arrow { font-size: 12px; color: var(--ink-3); flex: none; }
+.fe-exit-target {
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---- Modales del editor (z-index sobre el modal grande) ---- */
+.fe-modal-overlay {
+    position: fixed; inset: 0; z-index: 70; background: rgba(15,15,18,.5);
+    backdrop-filter: blur(5px);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    animation: fe-fade .15s ease;
+}
+.fe-modal {
+    max-height: 88vh; display: flex; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: 18px; box-shadow: var(--sh-lg); animation: fe-pop .2s ease;
+}
+.fe-modal-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 20px 22px 16px; border-bottom: 1px solid var(--line);
+}
+.fe-modal-title { font-weight: 800; font-size: 18px; }
+.fe-modal-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 3px; }
+.fe-modal-x {
+    width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--surface); display: grid; place-items: center;
+    cursor: pointer; color: var(--ink-2);
+}
+.fe-modal-x:hover { background: var(--surface-3); color: var(--ink); }
+.fe-modal-body {
+    padding: 20px 22px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 16px;
+}
+.fe-modal-foot {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 14px 22px; border-top: 1px solid var(--line);
+}
+.fe-modal-search {
+    display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px;
+    border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface-2);
+    margin: 16px 22px 0;
+}
+.fe-modal-search input {
+    flex: 1; border: none; background: none; outline: none;
+    font: inherit; font-size: 13px; color: var(--ink); min-width: 0;
+}
+.fe-label {
+    display: block; font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+    margin-bottom: 7px;
+}
+.fe-input {
+    width: 100%; height: 40px; padding: 0 13px; border: 1px solid var(--line-2);
+    border-radius: 10px; background: var(--surface-2); font: inherit;
+    font-size: 13.5px; color: var(--ink); outline: none; box-sizing: border-box;
+}
+.fe-input.sm { height: 34px; font-size: 12.5px; background: var(--surface); }
+.fe-input.mono { font-family: monospace; font-size: 12px; }
+.fe-textarea {
+    width: 100%; min-height: 110px; padding: 12px 13px;
+    border: 1px solid var(--line-2); border-radius: 11px; background: var(--surface-2);
+    font: inherit; font-size: 13.5px; line-height: 1.5; color: var(--ink);
+    resize: vertical; outline: none; box-sizing: border-box;
+}
+.fe-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fe-btn-ghost {
+    height: 40px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-2);
+    background: var(--surface); font: inherit; font-weight: 600; font-size: 13.5px;
+    color: var(--ink-2); cursor: pointer;
+}
+.fe-btn-ghost:hover { background: var(--surface-3); }
+.fe-btn-save {
+    height: 40px; padding: 0 20px; border-radius: 11px; border: none;
+    background: var(--brand); color: var(--on-brand); font: inherit;
+    font-weight: 600; font-size: 13.5px; cursor: pointer;
+}
+.fe-btn-save.with-ic { display: flex; align-items: center; gap: 7px; }
+.fe-btn-save:hover { opacity: .9; }
+.fe-btn-save:disabled { opacity: .6; cursor: default; }
+.fe-json {
+    margin: 0; padding: 16px; font-family: monospace; font-size: 12px;
+    line-height: 1.5; color: var(--ink-2); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 12px; overflow: auto;
+    max-height: 52vh; white-space: pre;
+}
+.fe-json-input {
+    width: 100%; min-height: 220px; padding: 14px; border: 1px solid var(--line-2);
+    border-radius: 12px; background: var(--surface-2); font-family: monospace;
+    font-size: 12px; line-height: 1.5; color: var(--ink); resize: vertical;
+    outline: none; box-sizing: border-box;
+}
+.fe-form-grid {
+    padding: 16px 22px; overflow-y: auto;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.fe-form-card {
+    text-align: left; display: flex; flex-direction: column; gap: 9px; padding: 15px;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+    cursor: pointer; font: inherit; box-shadow: var(--sh-sm); color: var(--ink);
+}
+.fe-form-card:hover {
+    border-color: var(--brand); box-shadow: var(--sh-md); transform: translateY(-2px);
+}
+.fe-form-ic {
+    width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+    background: var(--t-violet); color: #fff;
+}
+.fe-form-name { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.fe-form-code { font-size: 10.5px; color: var(--ink-3); font-family: monospace; }
+.fe-empty { font-size: 12.5px; color: var(--ink-3); padding: 8px 2px; }
+.fe-rule-list { padding: 14px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.fe-rule-option {
+    display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+    cursor: pointer; font: inherit; text-align: left; color: var(--ink);
+}
+.fe-rule-option:hover { border-color: var(--ink-3); }
+.fe-rule-verb { font-family: monospace; font-size: 12px; font-weight: 600; }
+.fe-rule-name { flex: 1; font-size: 12.5px; color: var(--ink-2); }
+.fe-rule-doc { font-size: 10.5px; color: var(--ink-3); }
+.fe-jump-list { padding: 14px 22px; overflow-y: auto; }
+.fe-jump-option {
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 13px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+    cursor: pointer; font: inherit; text-align: left; margin-bottom: 8px; color: var(--ink);
+}
+.fe-jump-option:hover { border-color: var(--ink-3); }
+.fe-jump-option.sel { border-color: var(--ink); background: var(--surface-2); }
+.fe-jump-ic {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: var(--surface-3); display: grid; place-items: center; color: var(--ink-2);
+}
+.fe-jump-tx { flex: 1; min-width: 0; }
+.fe-jump-name {
+    display: block; font-size: 13.5px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fe-jump-meta { display: block; font-size: 11.5px; color: var(--ink-3); font-family: monospace; }
+
+@keyframes fe-pop { from { opacity: 0; transform: translateY(6px) scale(.99); } to { opacity: 1; transform: none; } }
+@keyframes fe-fade { from { opacity: 0; } to { opacity: 1; } }

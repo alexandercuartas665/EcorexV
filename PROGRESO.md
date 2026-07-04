@@ -1687,3 +1687,100 @@ renderNode / widthGrid / propTabs de ECOREX.dc.html (lineas 3016-3440 markup y
 - Celdas tipadas por columna en la tabla (hoy texto).
 - WHITESPACE pre-existente en Program.cs y E2eDbBackdoor.cs (ajeno a esta sesion).
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-04 - Sesion: Modulo FLUJOS fiel al prototipo + editor canvas funcional (ADR-0022)
+
+**Agentes**: coordinador + 2 exploradores (backend workflow / patrones UI SuperAdmin).
+
+**Hecho**:
+- INDICE /flujos (reemplaza el stub): rotulo "MODULO 000291 - AUTOMATIZACION",
+  h1 28/800, boton "Nuevo flujo", 4 KPIs del prototipo (Flujos violet / En marcha
+  green / Instancias activas blue / Ejecuciones (mes) amber; icono 42x42 r11, valor
+  19/800), busqueda + tabs de filtro por cargo/categoria (surface-2 p4 r11, contador
+  10.5 op .7) y tarjetas auto-fill minmax(330px,1fr) r18 p18 hover -2px con ID
+  monospace, badge de estado con dot pulsante 1.4s si hay instancias Running, badge
+  de categoria + "N nodos" y grid de metricas REALES en-marcha(azul)/ejecuciones/
+  exito(verde) 16/800. Con modal "Nuevo flujo" (nombre + categoria; estado fijo
+  Borrador) que crea el borrador minimo Inicio->Fin y abre el editor.
+- EDITOR canvas PROPIO del prototipo (flowEditorOpen; SIN bpmn-js, cero JS externo):
+  modal 95vh grid 1fr/340px; header con FLUJO {code} vN, nombre inline, select de
+  categoria, Propiedades/Importar/Exportar/Publicar/Guardar cambios/Cerrar; toolbar
+  flotante 38x38 r9 (sel/conn/task/event verde/gw ambar/del rojo); canvas 900x540
+  surface-2 con puntos radial-gradient; nodos absolutos por tipo (start/end circulo
+  border 3px, gateway diamante rotate45 warn con texto -45, task rect r12) con
+  seleccion ring 4px brand-soft y cursor por herramienta; aristas SVG ortogonales
+  H-V-H con markers (condicionales = brand dashed 7 5); stats "N nodos - M
+  conexiones" + hint contextual; drag con pointer events (throttle ~30fps, persiste
+  al soltar); panel DETALLE DE ACTIVIDAD con 6 acordeones FUNCIONALES:
+  Configuracion basica (tipo + RestartNodeId reusando SetRestartTargetAsync +
+  AllowsAssignment), Asignar usuarios (placeholder documentado PERMISO_CARGO),
+  Recursos (WorkflowNodeForm real: picker de formularios ACTIVOS, chip con x),
+  Reglas (WorkflowNodeRule real contra el catalogo con toggle autonoma y x),
+  Notificacion (placeholder TODO), Reglas de salida (edita ConditionExpression de
+  aristas salientes "condicion -> destino" + borrar arista); "Saltar a otro flujo"
+  (modal de seleccion; vinculo real = deuda); modales Propiedades (nombre/categoria/
+  estado con transiciones publicar/pausar/reanudar/descripcion) y Export/Import JSON
+  del prototipo (pre monospace + Copiar; textarea + importar -> nueva version
+  Borrador).
+- MODELO aditivo + UNA migracion dual `AddWorkflowEditorFields` (PG 20260704160822 /
+  MSSQL 20260704160855, APLICADAS y verificadas en 5442/1443): WorkflowDefinition +=
+  Category(100?), IsPaused(default false); WorkflowNode += X, Y (default 0), W?, H?.
+- Motor: BpmnProcessParser lee bpmndi Bounds (X/Y/W/H, redondeo AwayFromZero);
+  ImportBpmnAsync llena layout (auto-layout BFS determinista si no hay DI);
+  StartInstanceAsync rechaza definiciones pausadas. BpmnXmlWriter NUEVO genera
+  process + bpmndi + condiciones estandar (round-trip garantizado por test).
+- IWorkflowDesignService NUEVO (Application/Workflows): ListForIndexAsync (una
+  tarjeta por ProcessCode; formula documentada: exito = Completed/(Completed+Stuck+
+  Cancelled)%, ejecuciones = iniciadas en mes UTC), GetCanvasAsync, CreateDraftAsync,
+  EnsureDraftAsync (publicada -> version borrador max+1 REUTILIZABLE via
+  ImportBpmnAsync, copiando Category/reinicios/AllowsAssignment/vinculos por
+  BpmnElementId), AddNode/Move/Rename/Connect (sin duplicados ni self-loop)/
+  DeleteNode (protege startEvent; limpia aristas, vinculos y reinicios)/DeleteEdge/
+  SetEdgeCondition/SetNodeConfig, UpdateDefinitionProps, Pause/Resume,
+  ExportJson/ImportJson, SetNodeForm (solo formularios Activos)/RemoveNodeForm,
+  AddNodeRule/RemoveNodeRule/SetNodeRuleAutonomous, ListRuleCatalog. REGLA: grafo
+  editable SOLO en borradores; cada mutacion REGENERA BpmnXml con el layout
+  (portabilidad bpmn.io del ADR-0014).
+- Seeder EnsureWorkflowIndexDemoAsync: backfill de layout+XML para definiciones
+  pre-editor (COT-COM + categoria "Comercial"), borrador demo "Mantenimiento y
+  soporte" (FLW-001, construido con el PROPIO design service) y "Visita tecnica de
+  instalacion" (VIS-TEC) publicada y PAUSADA. Sin instancias nuevas (metricas 0 ok).
+- ADR-0022 (canvas propio vs bpmn-js, XML regenerado con DI, edicion solo borrador,
+  formula de metricas, deudas).
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format --verify-no-changes limpio.
+- Unit: 136/136 verdes (nuevos BpmnXmlWriterTests: round-trip write->parse, doble
+  vuelta estable, condiciones xsi:type, saneo de ProcessCode, auto-layout
+  determinista, parser de Bounds).
+- Integracion DUAL completa verde (PG + SQL Server via Testcontainers); nuevos
+  WorkflowDesignServiceTests 6x2: pausa bloquea StartInstance (y resume rehabilita),
+  DeleteNode protege startEvent, mutaciones solo en borrador + EnsureDraft reutiliza
+  versionado, editor persiste y regenera XML reimportable por el motor, export/
+  import JSON crea version borrador con el mismo grafo y layout, indice con metricas
+  reales (Running/mes/exito 0->100%).
+- E2E Playwright 14/14 verde contra app real (PG 5442, puerto 5249), +1 escenario
+  FlowsEditorTests: /flujos -> tarjetas (COT-COM "En marcha") -> Nuevo flujo ->
+  editor -> agregar tarea -> renombrar -> conectar (Inicio->tarea) -> guardar ->
+  cerrar (tarjeta "3 nodos" Borrador) -> REABRIR y verificar persistencia.
+- Verificacion manual claro/oscuro contra el fuente (tokens surface/ink/line, KPI
+  42x42, tarjeta r18 p18, dot ec-pulse 1.4s, canvas punteado, nodos por tipo, aristas
+  dashed brand en condicionales, panel 340px, banner solo-lectura en publicadas con
+  "Editar (crear version borrador)").
+- Fix visual detectado por el E2E: .fe-head con flex-wrap para que las acciones no
+  desborden bajo el panel derecho en anchos medios.
+- Procesos DETENIDOS al terminar (app :5249 del preview). launch.json gano config
+  superadmin-5249.
+
+**Deudas / TODO**:
+- Asignar usuarios por nodo: placeholder "TODO cargo/ACL por nodo (PERMISO_CARGO del
+  vault)" hasta dependencias (000850); no se agrego AssigneesJson especulativo.
+- Reglas de notificacion por nodo: chips ilustrativos (motor de notificaciones
+  pendiente).
+- "Saltar a otro flujo": seleccion visual; call activity/subprocess sin modelo en el
+  motor.
+- Ejecuciones (mes) en UTC (falta TZ de tenant); borrar el ultimo endEvent deja
+  borrador no importable (solo el startEvent tiene proteccion dura).
+- Sin commit (pedido explicito): cambios en working tree.

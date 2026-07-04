@@ -34,4 +34,22 @@ public class WorkflowNode : TenantEntity
     /// </summary>
     public Guid? RestartNodeId { get; set; }
     public WorkflowNode? RestartNode { get; set; }
+
+    // ---- Layout del canvas (editor propio del prototipo, ADR-0022) ----
+    // Coordenadas del diagrama (bpmndi:BPMNShape/dc:Bounds). Se llenan al importar el XML
+    // (con auto-layout si el XML no trae DI) y las mueve el editor; al guardar, el XML
+    // BPMN se REGENERA con estas coordenadas para conservar la portabilidad bpmn.io
+    // del ADR-0014.
+
+    /// <summary>Posicion X del nodo en el canvas (px, esquina superior izquierda).</summary>
+    public int X { get; set; }
+
+    /// <summary>Posicion Y del nodo en el canvas (px, esquina superior izquierda).</summary>
+    public int Y { get; set; }
+
+    /// <summary>Ancho en px (null = ancho por defecto segun el tipo de nodo).</summary>
+    public int? W { get; set; }
+
+    /// <summary>Alto en px (null = alto por defecto segun el tipo de nodo).</summary>
+    public int? H { get; set; }
 }

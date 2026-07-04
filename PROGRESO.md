@@ -1104,3 +1104,72 @@ seeders demo, tests en matriz dual y UI segun las capturas del prototipo
 - Paso 2 de policies: derivar requisitos desde el Module Registry (solo Program.cs).
 - El paginador aplica a la vista Lista; el kanban sigue topado a 200 por columna-fuente.
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-03 - Sesion 13: Suite E2E con Playwright para .NET (ADR-0019)
+
+**Agentes**: agente unico de la capa E2E (en paralelo OTRO agente trabajo
+TaskItemService/paginas de tareas; esta sesion NO toco codigo de producto:
+solo el proyecto de tests nuevo y documentacion).
+
+**Hecho**:
+- Proyecto nuevo `apps/backend/tests/Ecorex.E2E.Tests` (net10.0, xunit +
+  Microsoft.Playwright 1.49 + Xunit.SkippableFact) agregado a Ecorex.sln, con
+  README (instalacion de Chromium via `pwsh bin/Debug/net10.0/playwright.ps1
+  install chromium`, variables y modos de arranque).
+- Fixture `E2eAppFixture` (coleccion xunit `e2e`, secuencial): estrategia BASE
+  por `ECOREX_E2E_BASEURL` (si esta definida usa esa app; si no responde /login
+  200, la suite entera se SALTA con motivo, nunca rojo por entorno) + arranque
+  automatico local como conveniencia (`dotnet run --no-build` de SuperAdmin en
+  puerto libre 5250+, Development, `ECOREX_DB_CONNECTION` a PG 5442, espera
+  /login 200 hasta 120 s, kill del arbol de procesos al terminar).
+- 7 escenarios, cada uno con contexto de navegador propio y datos con sufijo
+  unico por corrida: (a) login demo -> /inicio con saludo y 4 KPIs; (b) wizard
+  3 pasos -> toast "Actividad T##### creada." + tarjeta en Pendiente; (c) cambio
+  de estado Pendiente->Activa por el dropdown del DETALLE verificando que solo
+  ofrece transiciones validas (drag and drop nativo descartado por fragil, ver
+  ADR-0019); (d) worklog manual 0:30 con nota -> total "30m" + historial;
+  (e) flujo demo COT-COM: crear tipo "Direccion Comercial/Cotizacion" (tarea
+  nace Activa), completar "Requerimiento" via WorkflowEngine (backdoor
+  documentado `E2eDbBackdoor`: ese paso no tiene UI, bandeja de pasos = deuda
+  ADR-0014), seccion "Formularios del paso" con FRM-001 Pendiente, diligenciar
+  y Enviar -> el motor avanza a Gateway_Aprobacion; (f) emitir URL publica
+  single-use de FRM-001 desde el disenador, enviar en contexto ANONIMO ->
+  pantalla de gracias, reuso -> mensaje neutro; (g) aislamiento con
+  owner@sky-system.local -> SKIP explicativo (la BD dev solo tiene
+  demo-admin@ecorex.tareas; con BD recien sembrada corre completo).
+- ADR `docs/decisiones/0019-e2e-playwright.md`: alcance, estrategia
+  baseurl/skip, por que dropdown en vez de drag and drop, backdoor del motor y
+  PLAN de CI como job aparte de pr-check.yml (el yml NO se toco en esta sesion).
+
+**Validacion (probado de verdad, suite completa contra la app local real)**:
+- dotnet build Ecorex.sln: 0 errores. Suites existentes sin tocar.
+- Corrida 1 (fixture auto-arranque): 6 PASS + 1 SKIP (escenario g), 49 s de
+  tests (~74 s con el arranque de la app). Corrida 2 de estabilidad: igual.
+- Escenarios a-f: PASS. Escenario g: SKIP con motivo (seed dev anterior sin
+  owner@sky-system.local).
+
+**Hallazgos de producto (la suite los destapo; NO se toco producto)**:
+- BUG: dos @onchange rapidos sobre campos con reglas (FRM-001:
+  nombre_solicitante/prioridad, RUL-005) tumban el circuito Blazor con
+  "A second operation was started on this context instance"
+  (DynamicFormRenderer.DispatchFieldRulesAsync usa el DbContext scoped del
+  circuito sin aislar el scope, a diferencia de TaskKanban.ReloadAsync);
+  el boton Enviar muere en silencio. Reproducible a velocidad Playwright y
+  tabulando rapido. Mitigado en la suite (PublicFormFiller: orden + espera
+  deterministica por la copia de PASAR_CAMPOS + pausa fija); fix real
+  propuesto como tarea aparte.
+- Los inputs del renderer/wizard usan @onchange: Playwright FillAsync solo
+  dispara "input", hay que hacer blur explicito para que el servidor vea el
+  valor (documentado en los helpers).
+
+**Deudas / TODO**:
+- Integrar la suite como job `e2e` NO bloqueante en pr-check.yml (plan en
+  ADR-0019); promover a gate cuando se mida estabilidad en Actions.
+- Reemplazar el backdoor del paso Requerimiento por la interaccion real cuando
+  exista la bandeja de pasos del flujo (ADR-0014).
+- Dos esperas fijas en PublicFormFiller (radio con regla sin efecto visible):
+  quitarlas cuando el producto arregle la carrera del dispatcher de reglas.
+- Escenario g completo exige resembrar la BD dev (docker compose down -v).
+- Sin commit (pedido explicito): cambios en working tree.

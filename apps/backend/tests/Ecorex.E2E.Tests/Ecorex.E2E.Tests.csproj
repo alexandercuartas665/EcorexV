@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Referencias de ARREGLO de datos (backdoor del escenario de flujo): el paso
+         "Requerimiento" del flujo demo COT-COM no tiene UI para completarse todavia
+         (la bandeja de pasos es deuda de ADR-0014), asi que el test lo completa via
+         WorkflowEngine.CompleteStepAsync contra la MISMA base dev. No se usa para
+         asserts de UI: solo para preparar/verificar estado del motor. -->
+    <ProjectReference Include="..\..\src\Ecorex.Application\Ecorex.Application.csproj" />
+    <ProjectReference Include="..\..\src\Ecorex.Infrastructure\Ecorex.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

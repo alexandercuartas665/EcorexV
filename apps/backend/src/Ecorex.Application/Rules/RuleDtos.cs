@@ -210,7 +210,32 @@ public sealed record SaveRuleDocumentRequest(
 
 public sealed record SaveRuleRequest(
     string Name, string VerbName, string? Description = null, int SortOrder = 0,
-    string? ParamsJson = null, RuleStatus Status = RuleStatus.Development);
+    string? ParamsJson = null, RuleStatus Status = RuleStatus.Development,
+    Guid? DocumentId = null);
+
+/// <summary>
+/// Regla en la LISTA PLANA del tenant (panel izquierdo del modulo, ADR-0023): trae el
+/// documento como categoria visible y el flag de archivado para filtrar.
+/// </summary>
+public sealed record RuleListItemDto(
+    Guid Id, Guid DocumentId, string DocumentCode, string DocumentName, string DocumentCategory,
+    bool DocumentIsArchived, string Name, string? Description, string VerbName, int SortOrder,
+    RuleStatus Status);
+
+/// <summary>KPIs del modulo de reglas (topbar de /reglas): conteos + ventana movil de 30 dias.</summary>
+public sealed record RuleTenantStatsDto(
+    int Documents, int Rules, int Executions30d, double? SuccessRate30d, int? AvgDurationMs30d);
+
+/// <summary>
+/// Metricas de UNA regla en la ventana de 30 dias (panel Propiedades). La tasa de exito
+/// es Success/(Success+Failed): las Skipped no cuentan (no ejecutaron el verbo).
+/// </summary>
+public sealed record RuleMetricsDto(
+    int Executions30d, int Success30d, int Failed30d, double? SuccessRate30d, int? AvgDurationMs30d);
+
+/// <summary>Auditoria legible de una regla (status strip + panel Propiedades).</summary>
+public sealed record RuleAuditDto(
+    DateTimeOffset CreatedAt, string? CreatedByName, DateTimeOffset? UpdatedAt, string? UpdatedByName);
 
 /// <summary>Vinculo regla -> pregunta de formulario, con etiquetas legibles para la UI.</summary>
 public sealed record RuleFormLinkDto(
@@ -233,7 +258,8 @@ public sealed record RuleNodeLinkDto(
 public sealed record RuleExecutionLogDto(
     Guid Id, Guid RuleId, string RuleNameSnapshot, RuleTriggerKind TriggerKind,
     RuleExecutionStatus Status, int RecordsAffected, int DurationMs, string? ErrorMessage,
-    Guid? ExecutedByTenantUserId, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);
+    Guid? ExecutedByTenantUserId, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt,
+    string? ExecutedByName = null);
 
 /// <summary>Opcion generica (id + etiqueta) para los combos de vinculacion del modulo.</summary>
 public sealed record RuleOption(Guid Id, string Label);

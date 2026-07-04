@@ -19,11 +19,35 @@ public interface IRuleDocumentService
     // ---- Reglas ----
 
     Task<IReadOnlyList<RuleDto>> ListRulesAsync(Guid documentId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lista PLANA de todas las reglas del tenant con su documento como categoria (ADR-0023).</summary>
+    Task<IReadOnlyList<RuleListItemDto>> ListAllRulesAsync(bool includeArchivedDocuments = false, CancellationToken cancellationToken = default);
+
+    Task<RuleDto?> GetRuleAsync(Guid ruleId, CancellationToken cancellationToken = default);
     Task<RuleResult<RuleDto>> CreateRuleAsync(Guid documentId, SaveRuleRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Actualiza la regla; si request.DocumentId viene y es distinto, la mueve de documento.</summary>
     Task<RuleResult<RuleDto>> UpdateRuleAsync(Guid ruleId, SaveRuleRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Clona la regla (nombre + " (copia)", ultimo SortOrder) en el MISMO documento, sin vinculos.</summary>
+    Task<RuleResult<RuleDto>> DuplicateRuleAsync(Guid ruleId, CancellationToken cancellationToken = default);
 
     /// <summary>Borra la regla y sus vinculos. Invalid si tiene historial (append-only).</summary>
     Task<RuleResult<bool>> DeleteRuleAsync(Guid ruleId, CancellationToken cancellationToken = default);
+
+    // ---- Metricas (KPIs + panel Propiedades, ADR-0023) ----
+
+    /// <summary>KPIs del tenant: documentos, reglas y ejecuciones/exito/promedio de los ultimos 30 dias.</summary>
+    Task<RuleTenantStatsDto> GetTenantStatsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Metricas de UNA regla en la ventana de 30 dias.</summary>
+    Task<RuleMetricsDto> GetRuleMetricsAsync(Guid ruleId, CancellationToken cancellationToken = default);
+
+    /// <summary>Creada/modificada con nombres legibles (status strip + Propiedades).</summary>
+    Task<RuleAuditDto?> GetRuleAuditAsync(Guid ruleId, CancellationToken cancellationToken = default);
+
+    /// <summary>TenantUser del usuario autenticado (para registrar quien ejecuta la prueba manual).</summary>
+    Task<Guid?> GetCurrentTenantUserIdAsync(CancellationToken cancellationToken = default);
 
     // ---- Vinculos (pregunta de formulario / nodo de flujo) ----
 

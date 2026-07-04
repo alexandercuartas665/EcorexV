@@ -1784,3 +1784,106 @@ renderNode / widthGrid / propTabs de ECOREX.dc.html (lineas 3016-3440 markup y
 - Ejecuciones (mes) en UTC (falta TZ de tenant); borrar el ultimo endEvent deja
   borrador no importable (solo el startEvent tiene proteccion dura).
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-04 - Sesion: Modulo GESTION DE REGLAS fiel al concepto por-modulo (ADR-0023)
+
+**Agentes**: agente unico (exploracion + backend + UI + suites).
+
+**Hecho**:
+- /reglas REESCRITA como el concepto de Capa 6 (proto_gen_reglas.html): layout
+  PERMANENTE de 3 paneles (lista 320px / editor 1fr / propiedades 300px, alto
+  restante de la ventana), sin modales de edicion. ESTRUCTURA y MEDIDAS del proto
+  con TOKENS del workspace (ADR-0023: accent->brand, success->ok, danger->danger,
+  info->t-blue, warn-banner->t-amber-bg; code-bg oscuro #1F2937 FIJO en ambos
+  temas). CSS scoped Reglas.razor.css (prefijo rg-).
+- TOPBAR del modulo: breadcrumb Home/General/Reglas de negocio + badge "MOD 000802"
+  (monospace 11/600, brand-soft) + acciones: Importar XML (deshabilitado, tooltip
+  "Proximamente"), Probar (= ejecutar prueba de la seleccionada), Documentos (modal
+  con el CRUD existente de RuleDocument: crear/renombrar/archivar) y + Nueva regla.
+- KPIs REALES (42x42 r11, valor 19/800): Documentos, Reglas, Ejecuciones (30d) y
+  Tasa de exito (30d) desde RuleExecutionLog (GetTenantStatsAsync).
+- PANEL IZQUIERDO: lista PLANA de reglas del tenant (documento como categoria),
+  titulo "Reglas (N)" + Filtrar (popover documento/categoria/estado/modo + ver
+  archivados), buscador "nombre, tabla, proceso"; .rule-item con barra 4px por
+  verbo (t-* rotando; gris si Inactiva), badge Activa/Inactiva/Desarrollo,
+  mode-chip ENSAMBLADO monospace + dot + categoria; activo = brand-soft + borde
+  izq 3px brand.
+- EDITOR CENTRAL: cabecera 20/600 + badge + descripcion muted; acciones Duplicar
+  (DuplicateRuleAsync: clona en el mismo documento, nombre " (copia)", SortOrder
+  max+1, nace Development SIN vinculos), Eliminar (confirm inline; si tiene
+  historial se INACTIVA con mensaje claro, append-only ADR-0016) y Guardar. Tabs
+  Configuracion / Historial (contador) / Consumidores (contador).
+- CONFIGURACION: warn-banner ambar SIEMPRE visible (mDATA/Execute no implementados,
+  ADR-0016); grid 160px/1fr: Nombre, Descripcion (Rule.Description YA existia: SIN
+  migracion), Modo ejecucion (Ensamblado seleccionable; Execute/mDATA disabled),
+  Documento (select de RuleDocument; cambiarlo MUEVE la regla:
+  SaveRuleRequest.DocumentId), Prioridad (SortOrder, max-width 100px), Verbo
+  (catalogo tipado) y Estado.
+- PARAM_XML: editor de codigo oscuro EDITABLE (textarea transparente sobre pre
+  resaltado en C#, sin JS; tags #93C5FD, atributos #F0ABFC, strings #86EFAC,
+  comentarios gris italic) con Formatear (re-indenta) y Validar (parsea contra el
+  descriptor con errores claros y vuelca los valores a la vista renderizada).
+  RuleParamXml NUEVO (clase PURA, Application/Rules): Generate/Parse/Format del
+  contrato <REGLA><PROCESO><PARAMETROS><PARAM name tipo obligatorio valor/>;
+  REPRESENTACION del ParamsJson tipado, nada se ejecuta por reflexion. "Vista
+  renderizada" = form dinamico por descriptor (fuente autoritativa al editar;
+  regenera el XML) + boton "Ejecutar regla" (guarda y corre; registra al usuario
+  actual via GetCurrentTenantUserIdAsync).
+- Historial reciente (4 .history-item con dot verde/rojo/ambar 8px + "Hoy HH:mm -
+  Nms - usuario/error") + "Ver todo" -> tab Historial (lista completa paginada 25
+  con "Mostrar mas"). Status strip: "Guardado hace X - ultima edicion {usuario}"
+  (UpdatedAt/UpdatedBy reales via GetRuleAuditAsync; la "version" del proto se
+  OMITE: Rule no esta versionada, deuda declarada).
+- CONSUMIDORES: vinculos REALES con badges Formulario (t-blue: titulo + FieldCode)
+  y Flujo (t-violet: nombre + nodo + autonoma), vacio dashed, quitar y agregar con
+  los selectores existentes.
+- PANEL DERECHO Propiedades: ID Regla (chip mono DocumentCode-8xGuid), Documento,
+  Verbo; Ejecuciones (30d) 20/600, Tasa exito badge, Tiempo promedio ms
+  (GetRuleMetricsAsync; tasa = Success/(Success+Failed), Skipped no cuenta);
+  consumidores resumidos; Creada y Ultima modificacion (fecha + hace X).
+- Backend aditivo (SIN migracion): ListAllRulesAsync, GetRuleAsync,
+  DuplicateRuleAsync, GetTenantStatsAsync, GetRuleMetricsAsync, GetRuleAuditAsync,
+  GetCurrentTenantUserIdAsync, SaveRuleRequest.DocumentId (mover),
+  RuleExecutionLogDto.ExecutedByName (nombre del ejecutor en historial).
+- ADR-0023 (tokens del workspace sobre paleta naranja del concepto, PARAM_XML como
+  representacion editable, Execute/mDATA visibles pero deshabilitados por ADR-0016,
+  eliminar->inactivar con historial, documentos en modal del topbar).
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format --verify-no-changes limpio.
+- Unit: Domain 35/35 + Application 154/154 verdes (18 nuevos RuleParamXmlTests:
+  round-trip por tipo -texto con <>&", numeric, boolean, fieldcode, json- +
+  descriptor REAL de PASAR_CAMPOS, y errores: XML malformado, raiz/proceso
+  invalidos, parametro desconocido/repetido, tipos invalidos, obligatorio
+  faltante, case-insensitive con nombres canonicos, Format).
+- Integracion COMPLETA dual verde 121/121 (PG + SQL Server via Testcontainers);
+  nuevos: metricas 30d (ventana excluye ejecuciones viejas; tasa 0.5/1.0/0.0;
+  lista plana con documento; archivado filtra; ExecutedByName) y duplicar (mismo
+  documento, sin vinculos, Development, params semanticamente iguales -jsonb
+  normaliza-, NotFound; mover de documento OK y NotFound con destino falso).
+  Inactivar-con-historial (DeleteRule Invalid) INTACTO.
+- E2E Playwright 15/15 verde contra app real (PG 5442, puerto 5250); +1 escenario
+  ReglasTests: layout 3 paneles + 4 KPIs + Importar XML disabled -> + Nueva regla
+  (NOTIFICAR con message) -> seleccionar en el sidebar -> editar prioridad ->
+  Validar XML (rg-ok) -> Ejecutar regla (Exito) -> entrada en Historial reciente
+  (Manual/Exito) -> prioridad persistida -> tab Historial la muestra.
+- Verificacion manual claro/oscuro contra el proto (preview 5236): grid
+  320px/1fr/300px, titulo 20/600, rule-item activo brand-soft + 13px, code editor
+  #1F2937 con overlay textarea/pre alineado 1:1 (misma altura y metrica), KPI
+  42x42 r11, props con datos reales (RUL-005-XXXXXXXX, 17 ejec, 100%, 1 ms),
+  Validar OK y error claro ("'sql' no existe en el verbo PASAR_CAMPOS"),
+  Documentos modal, tabs con contadores reales; en dark los tokens conmutan
+  (surface #161618, brand-soft rgba blanca, t-amber-bg) y el code-bg queda fijo.
+  Fix por verificacion: la vista renderizada va a la DERECHA del codigo solo
+  >=1780px (antes estrangulaba el editor a 236px); debajo en anchos menores.
+- Procesos DETENIDOS (preview 5236 y app legacy 5234 del worktree .preview;
+  puertos 5234/5236/5250 libres).
+
+**Deudas / TODO**:
+- Importar XML: boton deshabilitado (sin formato definido).
+- Version de la definicion de regla: no existe en el modelo (status strip la omite).
+- Valores json del PARAM_XML viajan en atributo valor= con &quot; (valido, ruidoso).
+- Historial por regla: corte en 500 filas en memoria (paginacion server-side si
+  una regla supera eso dentro del TTL de 90d).
+- Filtro por modo Execute/mDATA devuelve vacio a proposito (no hay campo de modo).
+- Sin commit (pedido explicito): cambios en working tree.

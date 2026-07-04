@@ -1,0 +1,410 @@
+/* ============================================================
+   GESTION DE REGLAS (concepto por-modulo proto_gen_reglas.html,
+   Capa 6). ESTRUCTURA y MEDIDAS del proto con los TOKENS del
+   workspace (ADR-0023): accent->--brand, success->--ok,
+   danger->--danger, info->--t-blue, muted->--ink-2/3,
+   card->--surface, border->--line/-2; el code-bg oscuro del
+   editor PARAM_XML se mantiene fijo (#1F2937) en claro y oscuro.
+   Medidas del proto: topbar 14px 24px, layout 320px/1fr/300px,
+   panel-head 12px 16px, rule-item 12px 16px barra 4px,
+   rule-title 20/600, tabs border-bottom 2, editor-meta 160px/1fr,
+   code 12.5/1.65, props 16px, history dot 8px, status strip 12px.
+   KPIs: patron del workspace (icono 42x42 r11, valor 19/800).
+   ============================================================ */
+
+.rg-page {
+    margin: calc(-1 * var(--pad, 30px));
+    display: flex; flex-direction: column;
+    height: calc(100vh - 56px);
+    min-height: 0;
+    background: var(--bg);
+    font-size: 13.5px;
+}
+
+/* ---- Topbar del modulo (proto: 14px 24px, sticky, borde inferior) ---- */
+.rg-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    padding: 14px 24px; flex: none;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+.rg-crumb { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12.5px; }
+.rg-crumb .sep { color: var(--ink-3); }
+.rg-crumb .last { color: var(--ink); font-weight: 500; }
+.rg-mod-code {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; margin-left: 8px;
+    background: var(--brand-soft); color: var(--ink);
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+}
+.rg-top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- Botones (proto .btn: 6px 12px r6 12.5/500; sm 4px 8px 11.5) ---- */
+.rg-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); color: var(--ink);
+    font-size: 12.5px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.rg-btn:hover:not(:disabled) { background: var(--surface-3); }
+.rg-btn:disabled { opacity: .55; cursor: default; }
+.rg-btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.rg-btn.primary:hover:not(:disabled) { background: var(--brand); opacity: .9; }
+.rg-btn.sm { padding: 4px 8px; font-size: 11.5px; }
+.rg-btn.danger { color: var(--danger); }
+
+/* ---- KPIs (workspace: icono 42x42 r11, valor 19/800) ---- */
+.rg-kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    padding: 12px 24px; flex: none;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.rg-kpi {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px 16px; box-shadow: var(--sh-sm);
+    display: flex; align-items: center; gap: 13px;
+}
+.rg-kpi-ic { width: 42px; height: 42px; flex: none; border-radius: 11px; display: grid; place-items: center; }
+.rg-kpi-ic svg { width: 19px; height: 19px; }
+.rg-kpi-ic.tb { background: var(--t-blue-bg); color: var(--t-blue); }
+.rg-kpi-ic.tv { background: var(--t-violet-bg); color: var(--t-violet); }
+.rg-kpi-ic.ta { background: var(--t-amber-bg); color: var(--t-amber); }
+.rg-kpi-ic.tg { background: var(--t-green-bg); color: var(--t-green); }
+.rg-kpi-tx { min-width: 0; }
+.rg-kpi-v { font-weight: 800; font-size: 19px; letter-spacing: -.02em; line-height: 1; }
+.rg-kpi-l { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+
+/* ---- Layout 3 paneles (proto: grid 320px 1fr 300px, alto restante) ---- */
+.rg-layout {
+    display: grid; grid-template-columns: 320px 1fr 300px;
+    flex: 1; min-height: 0;
+}
+.rg-panel {
+    background: var(--surface); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    position: relative;
+}
+.rg-panel.rg-right { border-right: none; border-left: 1px solid var(--line); background: var(--bg); }
+.rg-panel-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; flex: none;
+}
+.rg-panel-title {
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--ink-2);
+}
+.rg-count { color: var(--ink-3); margin-left: 4px; }
+.rg-panel-body { flex: 1; overflow-y: auto; min-height: 0; }
+
+/* ---- Popover de filtros ---- */
+.rg-filter-pop {
+    position: absolute; top: 44px; right: 10px; z-index: 20;
+    width: 270px; padding: 12px;
+    background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: 10px; box-shadow: var(--sh-md);
+    display: flex; flex-direction: column; gap: 8px;
+}
+.rg-filter-field { display: flex; flex-direction: column; gap: 3px; }
+.rg-filter-field label { font-size: 11px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+.rg-filter-field select {
+    padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 6px;
+    font: inherit; font-size: 12.5px; background: var(--surface); color: var(--ink); outline: none;
+}
+.rg-filter-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+
+/* ---- Buscador (proto: 12px 16px; input 7px 10px r5 13px) ---- */
+.rg-search { padding: 12px 16px; border-bottom: 1px solid var(--line); flex: none; }
+.rg-search input {
+    width: 100%; padding: 7px 10px;
+    border: 1px solid var(--line-2); border-radius: 5px;
+    font-size: 13px; font-family: inherit; outline: none;
+    background: var(--surface); color: var(--ink);
+}
+.rg-search input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+/* ---- Item de regla (proto: 12px 16px, barra 4px, activo brand-soft + borde 3px) ---- */
+.rule-item {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    cursor: pointer; display: flex; gap: 10px;
+}
+.rule-item:hover { background: var(--surface-2); }
+.rule-item.active { background: var(--brand-soft); border-left: 3px solid var(--brand); padding-left: 13px; }
+.rule-item.active .rule-name-text { font-weight: 600; }
+.rule-mode { width: 4px; align-self: stretch; border-radius: 2px; background: var(--brand); flex-shrink: 0; }
+.rule-body { flex: 1; min-width: 0; }
+.rule-name {
+    font-size: 13px; font-weight: 500; color: var(--ink);
+    display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap;
+}
+.rule-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+.rule-meta { display: flex; gap: 10px; align-items: center; font-size: 11.5px; color: var(--ink-2); }
+.rule-meta .dot { width: 3px; height: 3px; background: var(--ink-3); border-radius: 50%; flex: none; }
+.rule-cat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Badges (proto on/off/warn/info mapeados a tokens --t-*) ---- */
+.rg-badge {
+    display: inline-flex; align-items: center;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+}
+.rg-badge.on { background: var(--t-green-bg); color: var(--t-green); }
+.rg-badge.off { background: var(--t-rose-bg); color: var(--t-rose); }
+.rg-badge.warn { background: var(--t-amber-bg); color: var(--t-amber); }
+.rg-badge.info { background: var(--t-blue-bg); color: var(--t-blue); }
+.rg-badge.violet { background: var(--t-violet-bg); color: var(--t-violet); }
+
+/* ---- Mode chip (proto: monospace 10.5 uppercase) ---- */
+.mode-chip {
+    display: inline-flex; align-items: center;
+    padding: 1px 5px; border-radius: 3px;
+    font-size: 10.5px; font-weight: 600;
+    font-family: ui-monospace, monospace;
+    text-transform: uppercase; letter-spacing: .02em;
+}
+.mode-chip.mode-ensamblado { background: var(--t-green-bg); color: var(--t-green); }
+.mode-chip.mode-execute { background: var(--t-rose-bg); color: var(--t-rose); }
+.mode-chip.mode-mdata { background: var(--t-slate-bg); color: var(--t-slate); }
+
+/* ---- Editor central ---- */
+.rg-editor { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+.rg-editor-empty { margin: auto; text-align: center; color: var(--ink-2); padding: 40px; }
+.rg-editor-empty h3 { font-size: 16px; color: var(--ink); margin: 0 0 6px; }
+.rg-rule-head {
+    padding: 20px 24px 16px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+    background: var(--surface); flex: none; flex-wrap: wrap;
+}
+.rg-rule-title-row { flex: 1; min-width: 220px; }
+.rg-rule-title {
+    font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 4px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.rg-rule-desc { font-size: 13px; color: var(--ink-2); }
+.rg-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); }
+
+/* ---- Tabs (proto: 10px 16px, borde inferior 2px activo) ---- */
+.rg-tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--line); flex: none; }
+.rg-tab {
+    padding: 10px 16px; border: none; background: transparent;
+    color: var(--ink-2); font-size: 13px; font-weight: 500;
+    cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit;
+}
+.rg-tab:disabled { opacity: .5; cursor: default; }
+.rg-tab.active { color: var(--ink); border-bottom-color: var(--brand); }
+.rg-tab .count {
+    margin-left: 6px; padding: 1px 6px;
+    background: var(--surface-3); color: var(--ink-2);
+    border-radius: 8px; font-size: 10.5px; font-weight: 600;
+}
+.rg-tab.active .count { background: var(--brand-soft); color: var(--ink); }
+
+.rg-editor-body { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; }
+
+/* ---- Banner de aviso (proto .warn-banner con tokens t-amber) ---- */
+.rg-warn-banner {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 10px 12px;
+    background: var(--t-amber-bg);
+    border: 1px solid var(--t-amber);
+    color: var(--ink);
+    border-radius: 6px; font-size: 12.5px; margin-bottom: 16px;
+}
+.rg-warn-banner strong { color: var(--t-amber); }
+.rg-warn-banner code { font-family: ui-monospace, monospace; font-size: 12px; color: var(--t-amber); background: none; }
+
+.rg-error {
+    font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+}
+.rg-ok {
+    font-size: 12.5px; color: var(--t-green); background: var(--t-green-bg);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+}
+
+/* ---- Grid de campos (proto .editor-meta: 160px 1fr, gap 12, inputs 7px 10px r5) ---- */
+.rg-meta {
+    display: grid; grid-template-columns: 160px 1fr; gap: 12px;
+    margin-bottom: 10px; align-items: center;
+}
+.rg-meta label { font-size: 12.5px; color: var(--ink-2); }
+.rg-meta input, .rg-meta select {
+    padding: 7px 10px; border: 1px solid var(--line-2);
+    border-radius: 5px; font-size: 13px;
+    font-family: inherit; background: var(--surface); color: var(--ink); outline: none;
+}
+.rg-meta input:focus, .rg-meta select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.rg-priority { max-width: 100px; }
+
+/* ---- Titulos de seccion (proto: 11.5/600 uppercase) ---- */
+.rg-section-title {
+    font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em;
+    color: var(--ink-2); margin: 20px 0 10px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.rg-inline-actions { display: flex; gap: 6px; }
+
+/* ---- Editor de codigo PARAM_XML (proto .code-editor: fondo OSCURO fijo,
+       monospace 12.5/1.65, inset ring; coloreado t/a/s/c). Textarea transparente
+       sobre el pre resaltado (mismas metricas de fuente = alineacion 1:1). ---- */
+.rg-xml-row {
+    display: grid; grid-template-columns: 1fr; gap: 16px;
+    align-items: start;
+}
+/* La vista renderizada va a la DERECHA del codigo solo si cabe (como el proto);
+   en anchos menores baja debajo del editor. */
+@media (min-width: 1780px) { .rg-xml-row { grid-template-columns: minmax(0, 1fr) 340px; } }
+.rg-code {
+    position: relative;
+    background: #1F2937; color: #E5E7EB;
+    border-radius: 8px;
+    overflow: auto; max-height: 460px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    tab-size: 2;
+}
+.rg-code-hl, .rg-code-input {
+    margin: 0; padding: 16px;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-size: 12.5px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere;
+    tab-size: 2;
+}
+.rg-code-hl { color: #E5E7EB; min-height: 120px; }
+.rg-code-hl ::deep .t { color: #93C5FD; }
+.rg-code-hl ::deep .a { color: #F0ABFC; }
+.rg-code-hl ::deep .s { color: #86EFAC; }
+.rg-code-hl ::deep .c { color: #64748B; font-style: italic; }
+.rg-code-input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: none; outline: none; resize: none;
+    background: transparent; color: transparent; caret-color: #E5E7EB;
+    overflow: hidden;
+}
+.rg-code-input::selection { background: rgba(147,197,253,.28); }
+
+/* ---- Vista renderizada (form dinamico de parametros + Ejecutar) ---- */
+.rg-render {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px;
+}
+.rg-render-title {
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--ink-2); margin-bottom: 8px;
+}
+.rg-render-desc { font-size: 12px; color: var(--ink-3); margin: 0 0 10px; }
+.rg-param-field { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.rg-param-field > label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.rg-param-name { font-weight: 400; color: var(--ink-3); font-family: ui-monospace, monospace; font-size: 11px; }
+.rg-param-field input, .rg-param-field select, .rg-param-field textarea {
+    padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 5px;
+    font-size: 12.5px; font-family: inherit; background: var(--surface); color: var(--ink); outline: none;
+}
+.rg-param-field textarea { font-family: ui-monospace, monospace; }
+.rg-param-field input:focus, .rg-param-field textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.rg-param-help { font-size: 11px; color: var(--ink-3); }
+.rg-param-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.rg-run { margin-top: 6px; width: 100%; justify-content: center; }
+.rg-test-result {
+    margin-top: 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px;
+    border-left: 3px solid var(--ok); background: var(--t-green-bg); color: var(--ink);
+}
+.rg-test-result.err { border-left-color: var(--danger); background: var(--t-rose-bg); }
+
+/* ---- Historial (proto .history-item: dot 8px, when 11.5 muted) ---- */
+.rg-history-card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 6px; overflow: hidden;
+}
+.rg-history-item {
+    display: flex; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+}
+.rg-history-item:last-child { border-bottom: none; }
+.rg-history-item .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ok); margin-top: 5px; flex-shrink: 0;
+}
+.rg-history-item.err .dot { background: var(--danger); }
+.rg-history-item.skip .dot { background: var(--warn); }
+.rg-history-body { flex: 1; min-width: 0; }
+.rg-history-body strong { font-weight: 600; }
+.rg-history-body .when { color: var(--ink-2); font-size: 11.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.rg-more { margin-top: 10px; }
+
+/* ---- Consumidores ---- */
+.rg-consumer {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; margin-bottom: 8px; background: var(--surface);
+}
+.rg-consumer-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rg-consumer-tx strong { font-size: 13px; font-weight: 600; }
+.rg-consumer-meta { font-size: 11.5px; color: var(--ink-2); }
+.rg-consumer-meta .mono, .mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
+.rg-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.rg-link-row select {
+    flex: 1; min-width: 150px; padding: 7px 10px; border: 1px solid var(--line-2);
+    border-radius: 5px; font-size: 12.5px; font-family: inherit;
+    background: var(--surface); color: var(--ink); outline: none;
+}
+.rg-empty-dashed {
+    border: 1px dashed var(--line-2); border-radius: 8px;
+    padding: 18px; text-align: center; color: var(--ink-3); font-size: 12.5px;
+    margin-bottom: 10px;
+}
+.rg-empty-list { padding: 18px 16px; color: var(--ink-3); font-size: 12.5px; }
+
+/* ---- Status strip (proto: 12px 24px, dot 6px verde) ---- */
+.rg-status-strip {
+    display: flex; align-items: center; gap: 10px; flex: none;
+    padding: 12px 24px;
+    background: var(--bg); border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-2); flex-wrap: wrap;
+}
+.rg-status-strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.rg-status-msg { color: var(--ink); font-weight: 500; }
+
+/* ---- Panel derecho: Propiedades (proto .props-list / .prop) ---- */
+.rg-props { padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; }
+.rg-prop { display: flex; flex-direction: column; gap: 4px; }
+.rg-prop label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--ink-2); font-weight: 600;
+}
+.rg-prop .value { font-size: 13px; color: var(--ink); }
+.rg-prop .value.big { font-size: 20px; font-weight: 600; }
+.rg-prop .value.mono {
+    font-family: ui-monospace, monospace; font-size: 12px;
+    background: var(--surface-3); padding: 6px 8px; border-radius: 4px;
+}
+.rg-consumer-summary { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.rg-consumer-summary .rg-badge { margin-right: 4px; }
+.rg-divider { height: 1px; background: var(--line-2); margin: 4px -16px; }
+
+/* ---- Modales del modulo ---- */
+.rg-docs-modal { max-width: 560px; }
+.rg-pick-modal { max-width: 420px; }
+.rg-doc-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+}
+.rg-doc-row:last-of-type { border-bottom: none; }
+.rg-doc-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rg-doc-tx .mono { color: var(--ink-2); }
+.rg-doc-meta { font-size: 11.5px; color: var(--ink-3); }
+
+/* ---- Responsive: en pantallas angostas el grid colapsa a columna ---- */
+@media (max-width: 1200px) {
+    .rg-page { height: auto; }
+    .rg-layout { grid-template-columns: 280px 1fr; }
+    .rg-panel.rg-right { display: none; }
+    .rg-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 800px) {
+    .rg-layout { grid-template-columns: 1fr; }
+    .rg-panel.rg-left { max-height: 320px; border-right: none; border-bottom: 1px solid var(--line); }
+}

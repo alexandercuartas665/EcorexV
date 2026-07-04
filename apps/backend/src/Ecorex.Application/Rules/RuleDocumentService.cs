@@ -144,6 +144,32 @@ public sealed class RuleDocumentService : IRuleDocumentService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<RuleListItemDto>> ListAllRulesAsync(
+        bool includeArchivedDocuments = false, CancellationToken cancellationToken = default)
+    {
+        var query = _db.Rules.AsNoTracking()
+            .Join(_db.RuleDocuments, r => r.DocumentId, d => d.Id, (r, d) => new { r, d });
+        if (!includeArchivedDocuments)
+        {
+            query = query.Where(x => !x.d.IsArchived);
+        }
+        return await query
+            .OrderBy(x => x.d.DocumentCode).ThenBy(x => x.r.SortOrder).ThenBy(x => x.r.CreatedAt)
+            .Select(x => new RuleListItemDto(x.r.Id, x.r.DocumentId, x.d.DocumentCode, x.d.Name,
+                x.d.Category, x.d.IsArchived, x.r.Name, x.r.Description, x.r.VerbName,
+                x.r.SortOrder, x.r.Status))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<RuleDto?> GetRuleAsync(Guid ruleId, CancellationToken cancellationToken = default)
+    {
+        return await _db.Rules.AsNoTracking()
+            .Where(r => r.Id == ruleId)
+            .Select(r => new RuleDto(r.Id, r.DocumentId, r.Name, r.Description, r.VerbName,
+                r.SortOrder, r.ParamsJson, r.Status))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<RuleResult<RuleDto>> CreateRuleAsync(
         Guid documentId, SaveRuleRequest request, CancellationToken cancellationToken = default)
     {
@@ -189,6 +215,19 @@ public sealed class RuleDocumentService : IRuleDocumentService
             return RuleResult<RuleDto>.Invalid(error);
         }
 
+        // Mover de documento (select Documento del editor, ADR-0023): valida que el
+        // destino exista en el tenant (el filtro global oculta los ajenos).
+        if (request.DocumentId is Guid targetDocumentId && targetDocumentId != rule.DocumentId)
+        {
+            var targetExists = await _db.RuleDocuments
+                .AnyAsync(d => d.Id == targetDocumentId, cancellationToken);
+            if (!targetExists)
+            {
+                return RuleResult<RuleDto>.NotFound("El documento destino no existe.");
+            }
+            rule.DocumentId = targetDocumentId;
+        }
+
         rule.Name = request.Name.Trim();
         rule.Description = Normalize(request.Description);
         rule.VerbName = request.VerbName.Trim().ToUpperInvariant();
@@ -197,6 +236,43 @@ public sealed class RuleDocumentService : IRuleDocumentService
         rule.Status = request.Status;
         await _db.SaveChangesAsync(cancellationToken);
         return RuleResult<RuleDto>.Ok(ToDto(rule));
+    }
+
+    public async Task<RuleResult<RuleDto>> DuplicateRuleAsync(
+        Guid ruleId, CancellationToken cancellationToken = default)
+    {
+        var source = await _db.Rules.AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == ruleId, cancellationToken);
+        if (source is null)
+        {
+            return RuleResult<RuleDto>.NotFound("Regla no encontrada.");
+        }
+
+        var maxSort = await _db.Rules
+            .Where(r => r.DocumentId == source.DocumentId)
+            .MaxAsync(r => (int?)r.SortOrder, cancellationToken) ?? 0;
+        var name = source.Name + " (copia)";
+        if (name.Length > 100)
+        {
+            name = source.Name[..(100 - " (copia)".Length)] + " (copia)";
+        }
+
+        // El clon nace en Development y SIN vinculos: activarlo/vincularlo es decision
+        // explicita del usuario (evita ejecuciones dobles accidentales).
+        var copy = new Rule
+        {
+            TenantId = source.TenantId,
+            DocumentId = source.DocumentId,
+            Name = name,
+            Description = source.Description,
+            VerbName = source.VerbName,
+            SortOrder = maxSort + 1,
+            ParamsJson = source.ParamsJson,
+            Status = RuleStatus.Development
+        };
+        _db.Rules.Add(copy);
+        await _db.SaveChangesAsync(cancellationToken);
+        return RuleResult<RuleDto>.Ok(ToDto(copy));
     }
 
     public async Task<RuleResult<bool>> DeleteRuleAsync(Guid ruleId, CancellationToken cancellationToken = default)
@@ -397,8 +473,101 @@ public sealed class RuleDocumentService : IRuleDocumentService
             .Take(Math.Clamp(take, 1, 500))
             .Select(l => new RuleExecutionLogDto(l.Id, l.RuleId, l.RuleNameSnapshot,
                 l.TriggerKind, l.Status, l.RecordsAffected, l.DurationMs, l.ErrorMessage,
-                l.ExecutedByTenantUserId, l.CreatedAt, l.ExpiresAt))
+                l.ExecutedByTenantUserId, l.CreatedAt, l.ExpiresAt,
+                l.ExecutedByTenantUserId == null
+                    ? null
+                    : _db.TenantUsers
+                        .Where(u => u.Id == l.ExecutedByTenantUserId)
+                        .Select(u => _db.PlatformUsers
+                            .Where(p => p.Id == u.PlatformUserId)
+                            .Select(p => p.DisplayName)
+                            .FirstOrDefault() ?? u.Email)
+                        .FirstOrDefault()))
             .ToListAsync(cancellationToken);
+    }
+
+    // ---- Metricas (ADR-0023: KPIs del topbar + panel Propiedades) ----
+
+    public async Task<RuleTenantStatsDto> GetTenantStatsAsync(CancellationToken cancellationToken = default)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-30);
+        var documents = await _db.RuleDocuments.CountAsync(d => !d.IsArchived, cancellationToken);
+        var rules = await _db.Rules.CountAsync(cancellationToken);
+        var window = await AggregateWindowAsync(_db.RuleExecutionLogs.Where(l => l.CreatedAt >= since), cancellationToken);
+        return new RuleTenantStatsDto(documents, rules, window.Total, window.SuccessRate, window.AvgMs);
+    }
+
+    public async Task<RuleMetricsDto> GetRuleMetricsAsync(Guid ruleId, CancellationToken cancellationToken = default)
+    {
+        var since = DateTimeOffset.UtcNow.AddDays(-30);
+        var window = await AggregateWindowAsync(
+            _db.RuleExecutionLogs.Where(l => l.RuleId == ruleId && l.CreatedAt >= since), cancellationToken);
+        return new RuleMetricsDto(window.Total, window.Success, window.Failed, window.SuccessRate, window.AvgMs);
+    }
+
+    public async Task<RuleAuditDto?> GetRuleAuditAsync(Guid ruleId, CancellationToken cancellationToken = default)
+    {
+        var rule = await _db.Rules.AsNoTracking()
+            .Where(r => r.Id == ruleId)
+            .Select(r => new { r.CreatedAt, r.CreatedBy, r.UpdatedAt, r.UpdatedBy })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (rule is null)
+        {
+            return null;
+        }
+        return new RuleAuditDto(
+            rule.CreatedAt, await ResolvePlatformUserNameAsync(rule.CreatedBy, cancellationToken),
+            rule.UpdatedAt, await ResolvePlatformUserNameAsync(rule.UpdatedBy, cancellationToken));
+    }
+
+    public async Task<Guid?> GetCurrentTenantUserIdAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.UserId is not Guid platformUserId)
+        {
+            return null;
+        }
+        return await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.PlatformUserId == platformUserId)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Agrega la ventana de ejecuciones: total, exitos, fallos, tasa Success/(Success+Failed)
+    /// (las Skipped no cuentan en la tasa) y promedio de duracion en ms.
+    /// </summary>
+    private static async Task<(int Total, int Success, int Failed, double? SuccessRate, int? AvgMs)>
+        AggregateWindowAsync(IQueryable<RuleExecutionLog> logs, CancellationToken cancellationToken)
+    {
+        var agg = await logs
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Success = g.Count(l => l.Status == RuleExecutionStatus.Success),
+                Failed = g.Count(l => l.Status == RuleExecutionStatus.Failed),
+                AvgMs = g.Average(l => (double?)l.DurationMs)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (agg is null || agg.Total == 0)
+        {
+            return (0, 0, 0, null, null);
+        }
+        var denominator = agg.Success + agg.Failed;
+        double? rate = denominator == 0 ? null : (double)agg.Success / denominator;
+        return (agg.Total, agg.Success, agg.Failed, rate, (int?)agg.AvgMs);
+    }
+
+    private async Task<string?> ResolvePlatformUserNameAsync(Guid? platformUserId, CancellationToken cancellationToken)
+    {
+        if (platformUserId is not Guid id)
+        {
+            return null;
+        }
+        return await _db.PlatformUsers.AsNoTracking()
+            .Where(p => p.Id == id)
+            .Select(p => p.DisplayName ?? p.Email)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     // ---- Opciones para combos ----

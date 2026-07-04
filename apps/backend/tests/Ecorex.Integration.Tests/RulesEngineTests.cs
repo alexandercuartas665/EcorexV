@@ -323,6 +323,138 @@ public abstract class RulesEngineTestsBase
         }
     }
 
+    // ---- (6) Metricas 30d + lista plana (modulo /reglas, ADR-0023) ----
+
+    [Fact]
+    public async Task TenantStatsAndRuleMetrics_UseThirtyDayWindow_AndFlatListBringsDocument()
+    {
+        var seed = await SeedTenantAsync("Rules Metricas");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+        var documents = new RuleDocumentService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId), engine);
+
+        var document = (await documents.CreateDocumentAsync(new SaveRuleDocumentRequest(
+            "RUL-MET", "Metricas", "FORMULARIOS", Status: RuleStatus.Active))).Value!;
+        var okRule = (await documents.CreateRuleAsync(document.Id, new SaveRuleRequest(
+            "Notifica bien", "NOTIFICAR", ParamsJson: """{"message":"ok"}""", Status: RuleStatus.Active))).Value!;
+        var badRule = new Rule
+        {
+            TenantId = seed.TenantId,
+            DocumentId = document.Id,
+            Name = "Copia rota",
+            VerbName = "PASAR_CAMPOS",
+            ParamsJson = """{"mappings":"no-es-arreglo"}""",
+            Status = RuleStatus.Active,
+            SortOrder = 1
+        };
+        ctx.Rules.Add(badRule);
+        await ctx.SaveChangesAsync();
+
+        // 2 exitos + 1 fallo dentro de la ventana.
+        Assert.True((await engine.ExecuteRuleAsync(okRule.Id, RuleInvocation.Manual())).IsOk);
+        Assert.True((await engine.ExecuteRuleAsync(okRule.Id, RuleInvocation.Manual())).IsOk);
+        Assert.True((await engine.ExecuteRuleAsync(badRule.Id, RuleInvocation.Manual())).IsOk);
+
+        // Y una ejecucion VIEJA (41 dias) de la regla buena: queda fuera de la ventana de 30.
+        var old = await ctx.RuleExecutionLogs
+            .Where(l => l.RuleId == okRule.Id)
+            .OrderBy(l => l.CreatedAt).FirstAsync();
+        old.CreatedAt = DateTimeOffset.UtcNow.AddDays(-41);
+        await ctx.SaveChangesAsync();
+
+        var stats = await documents.GetTenantStatsAsync();
+        Assert.Equal(1, stats.Documents);
+        Assert.Equal(2, stats.Rules);
+        Assert.Equal(2, stats.Executions30d);
+        Assert.NotNull(stats.SuccessRate30d);
+        Assert.Equal(0.5, stats.SuccessRate30d!.Value, precision: 3); // 1 exito / (1 exito + 1 fallo)
+        Assert.NotNull(stats.AvgDurationMs30d);
+
+        var okMetrics = await documents.GetRuleMetricsAsync(okRule.Id);
+        Assert.Equal(1, okMetrics.Executions30d); // la otra quedo fuera de la ventana
+        Assert.Equal(1, okMetrics.Success30d);
+        Assert.Equal(0, okMetrics.Failed30d);
+        Assert.Equal(1.0, okMetrics.SuccessRate30d!.Value, precision: 3);
+
+        var badMetrics = await documents.GetRuleMetricsAsync(badRule.Id);
+        Assert.Equal(1, badMetrics.Executions30d);
+        Assert.Equal(0.0, badMetrics.SuccessRate30d!.Value, precision: 3);
+
+        // Lista plana con el documento como categoria (panel izquierdo de /reglas).
+        var flat = await documents.ListAllRulesAsync();
+        Assert.Equal(2, flat.Count);
+        Assert.All(flat, r =>
+        {
+            Assert.Equal("RUL-MET", r.DocumentCode);
+            Assert.Equal("FORMULARIOS", r.DocumentCategory);
+        });
+
+        // Documento archivado: sale de la lista plana salvo que se pida.
+        Assert.True((await documents.SetDocumentArchivedAsync(document.Id, true)).IsOk);
+        Assert.Empty(await documents.ListAllRulesAsync());
+        Assert.Equal(2, (await documents.ListAllRulesAsync(includeArchivedDocuments: true)).Count);
+
+        // El historial ahora resuelve el nombre del ejecutor (null => "Sistema" en la UI).
+        var logs = await documents.ListExecutionLogsAsync(ruleId: okRule.Id);
+        Assert.All(logs, l => Assert.Null(l.ExecutedByName));
+    }
+
+    // ---- (7) Duplicar regla: mismo documento, sin vinculos, en Development ----
+
+    [Fact]
+    public async Task DuplicateRule_ClonesInSameDocument_WithoutLinksAndInDevelopment()
+    {
+        var seed = await SeedTenantAsync("Rules Duplicar");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var engine = BuildEngine(ctx, seed);
+        var documents = new RuleDocumentService(ctx, tenantContext, engine);
+        var definitions = new FormDefinitionService(ctx, tenantContext);
+
+        var document = (await documents.CreateDocumentAsync(new SaveRuleDocumentRequest(
+            "RUL-DUP", "Duplicados", "FORMULARIOS", Status: RuleStatus.Active))).Value!;
+        var rule = (await documents.CreateRuleAsync(document.Id, new SaveRuleRequest(
+            "Original", "PASAR_CAMPOS",
+            ParamsJson: """{"mappings":[{"source":"a","target":"b"}]}""",
+            SortOrder: 3, Status: RuleStatus.Active))).Value!;
+
+        // La original tiene un vinculo a pregunta: el clon NO debe heredarlo.
+        var form = (await definitions.CreateAsync(new CreateFormDefinitionRequest("FRM-DUP", "Para duplicar"))).Value!;
+        var question = (await definitions.AddQuestionAsync(form.Id, new SaveFormQuestionRequest(
+            null, "a", "Campo A", FormControlType.Text))).Value!;
+        Assert.True((await documents.LinkToQuestionAsync(rule.Id, question.Id)).IsOk);
+
+        var copy = (await documents.DuplicateRuleAsync(rule.Id)).Value!;
+        Assert.Equal(document.Id, copy.DocumentId);
+        Assert.Equal("Original (copia)", copy.Name);
+        // Comparacion SEMANTICA: el jsonb de Postgres normaliza los espacios del texto.
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(rule.ParamsJson!),
+            System.Text.Json.Nodes.JsonNode.Parse(copy.ParamsJson!)));
+        Assert.Equal(rule.SortOrder + 1, copy.SortOrder);
+        Assert.Equal(RuleStatus.Development, copy.Status);
+        Assert.Empty(await documents.ListFormLinksAsync(copy.Id));
+        Assert.Single(await documents.ListFormLinksAsync(rule.Id));
+
+        // Duplicar una regla inexistente: NotFound tipado.
+        Assert.Equal(RuleServiceStatus.NotFound,
+            (await documents.DuplicateRuleAsync(Guid.CreateVersion7())).Status);
+
+        // Mover de documento via UpdateRule (select Documento del editor).
+        var target = (await documents.CreateDocumentAsync(new SaveRuleDocumentRequest(
+            "RUL-DUP2", "Destino", "PROCESOS", Status: RuleStatus.Active))).Value!;
+        var moved = await documents.UpdateRuleAsync(copy.Id, new SaveRuleRequest(
+            copy.Name, copy.VerbName, copy.Description, copy.SortOrder, copy.ParamsJson,
+            copy.Status, DocumentId: target.Id));
+        Assert.True(moved.IsOk, moved.Error);
+        Assert.Equal(target.Id, moved.Value!.DocumentId);
+
+        var badMove = await documents.UpdateRuleAsync(copy.Id, new SaveRuleRequest(
+            copy.Name, copy.VerbName, copy.Description, copy.SortOrder, copy.ParamsJson,
+            copy.Status, DocumentId: Guid.CreateVersion7()));
+        Assert.Equal(RuleServiceStatus.NotFound, badMove.Status);
+    }
+
     // ---- Helpers ----
 
     /// <summary>start -> Task_A -> Task_B -> end (mismo fixture sintetico del motor).</summary>

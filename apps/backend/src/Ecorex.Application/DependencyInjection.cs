@@ -68,6 +68,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IActivityTypeService, Tenancy.ActivityTypeService>();
         services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
         services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
+        // Tableros de actividades unificados (ADR-0020): tarjetas = TaskItem.
+        services.AddScoped<Tenancy.IActivityBoardService, Tenancy.ActivityBoardService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();
         // Motor de flujos BPMN (FASE 4, ADR-0014). El hook de reglas es el REAL del
         // RulesEngine (FASE 4 ola 3, ADR-0016): ejecuta las reglas autonomas del nodo.

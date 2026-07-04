@@ -112,11 +112,16 @@ construir nucleo tareas/tableros/proyectos + motores, menu del Prototipo Final.
 para construir o desplegar la UI del producto. E2E con Playwright para .NET.
 
 **Fidelidad visual (regla del usuario): la UI del workspace debe replicar
-MILIMETRICAMENTE el prototipo** cuyo fuente es
-`01. Requerimiento/Prototipo/ECOREX.dc.html` del vault (+ `support.js`, SPA
-`ECOREX - Prototipo Final.html` y `capturas/`). Toda tarea de UI extrae los tokens
-exactos de ese HTML (colores hex, tipografia, espaciados, rail/sidebar, sombras,
-radios) y los replica tal cual; ante cualquier duda visual gana el prototipo.
+MILIMETRICAMENTE el prototipo** cuya FUENTE UNICA es
+`01. Requerimiento/Prototipo/ECOREX.dc.html` del vault (+ `support.js` y las
+capturas de `screenshots/`). OJO: version corregida del 2026-07-04 — el Design
+habia generado 2 archivos y el SPA viejo era erroneo (ya eliminado del vault).
+Toda tarea de UI extrae los tokens exactos de ese HTML (colores hex, tipografia,
+espaciados, rail/sidebar, sombras, radios) y los replica tal cual; ante
+cualquier duda visual gana el prototipo. Regla funcional clave: el "menu rapido"
+del rail y "Administrar actividades" (000636) son EL MISMO sistema de tableros
+(tableros primero -> tablero con filtros por chips, alcances equipo/mias/no
+asignadas y vistas Tablero/Lista/Calendario/Gantt).
 El `web-prototype` React heredado es solo referencia secundaria.
 
 **Infraestructura local (bloque de puertos DEDICADO, prefijo `ecorex-tareas-`):**

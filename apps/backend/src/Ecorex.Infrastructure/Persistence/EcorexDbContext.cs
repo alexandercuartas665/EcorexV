@@ -102,6 +102,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskWorkLog> TaskWorkLogs => Set<TaskWorkLog>();
     public DbSet<TaskItemActivity> TaskItemActivities => Set<TaskItemActivity>();
     public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
+
+    // Tableros de actividades unificados (ADR-0020): checklist y asignados M:N del TaskItem.
+    public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => Set<TaskItemChecklistItem>();
+    public DbSet<TaskItemAssignment> TaskItemAssignments => Set<TaskItemAssignment>();
     public DbSet<TenantSequence> TenantSequences => Set<TenantSequence>();
 
     // Motor de flujos BPMN (FASE 4, ADR-0014): definiciones versionadas, grafo materializado
@@ -200,6 +204,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<OrgUnitKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ModuleArea>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TaskBoardStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TaskBoardKind>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -642,7 +648,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(2000);
             b.Property(x => x.Color).HasMaxLength(20);
+            // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
+            // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
+            b.Property(x => x.Code).HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique()
+                .HasFilter(isNpgsql ? "code IS NOT NULL" : "[code] IS NOT NULL");
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.IsArchived });
         });
 
         modelBuilder.Entity<TaskBoardColumn>(b =>
@@ -773,11 +785,43 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // (referencia circular controlada con workflow_instances.task_item_id).
             b.HasOne(x => x.WorkflowInstance).WithMany()
                 .HasForeignKey(x => x.WorkflowInstanceId).OnDelete(DeleteBehavior.Restrict);
+            // ADR-0020: la tarea como tarjeta de un tablero de actividades. FKs SIN cascada
+            // (Restrict = NO ACTION en ambos motores): borrar tablero/columna exige desacoplar
+            // o mover las tarjetas antes (ActivityBoardService lo hace explicito).
+            b.HasOne(x => x.Board).WithMany()
+                .HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Column).WithMany()
+                .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Restrict);
             // Consecutivo legible unico por tenant (emitido por TenantSequence).
             b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });
             b.HasIndex(x => new { x.TenantId, x.ProjectId });
             b.HasIndex(x => new { x.TenantId, x.AssigneeTenantUserId, x.Status });
+            b.HasIndex(x => new { x.TenantId, x.BoardId, x.ColumnId, x.BoardSortOrder });
+        });
+
+        modelBuilder.Entity<TaskItemChecklistItem>(b =>
+        {
+            b.Property(x => x.Text).HasMaxLength(500).IsRequired();
+            b.HasOne(x => x.TaskItem).WithMany()
+                .HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            // CompletedByTenantUserId es informativo (sin FK dura): la traza de quien completo
+            // no debe bloquear el borrado del usuario del tenant.
+            b.HasIndex(x => new { x.TaskItemId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<TaskItemAssignment>(b =>
+        {
+            b.HasOne(x => x.TaskItem).WithMany()
+                .HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+            // Ambas FKs pueden ser Cascade en los dos motores: tenant_users NO cascadea hacia
+            // task_items (la FK del encargado es Restrict), asi que no hay doble ruta en
+            // SQL Server (mismo razonamiento que TaskItemTagAssignment).
+            b.HasOne(x => x.TenantUser).WithMany()
+                .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Cascade);
+            // Un usuario no se asigna dos veces a la misma tarea.
+            b.HasIndex(x => new { x.TaskItemId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
         });
 
         modelBuilder.Entity<TaskItemTag>(b =>

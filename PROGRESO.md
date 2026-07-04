@@ -1173,3 +1173,101 @@ solo el proyecto de tests nuevo y documentacion).
   quitarlas cuando el producto arregle la carrera del dispatcher de reglas.
 - Escenario g completo exige resembrar la BD dev (docker compose down -v).
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-04 - Sesion 14: Tableros de actividades unificados - BACKEND (ADR-0020)
+
+**Agentes**: agente unico backend (la UI del gestor de tableros es de OTRA ola).
+
+**Hecho**:
+- Modelo (ADR-0020): TaskBoard EXTENDIDO sin romper el CRM heredado (Code nullable 20
+  unico por tenant con indice filtrado, Status enum TaskBoardStatus OnTime/InProgress/
+  AtRisk/Completed default InProgress, DueDate, Kind enum TaskBoardKind CrmLegacy=0/
+  Activities=1 default CrmLegacy). TaskItem gana BoardId/ColumnId (FKs NO ACTION a
+  TaskBoard/TaskBoardColumn, coherencia columna-pertenece-al-board validada en
+  Application), BoardSortOrder y StartDate (Gantt). NUEVAS TaskItemChecklistItem
+  (Text 500, IsCompleted, CompletedAt/CompletedByTenantUserId informativo sin FK dura,
+  indice TaskItemId+SortOrder, cascade) y TaskItemAssignment (asignados M:N del equipo,
+  unico TaskItemId+TenantUserId, cascade; el ENCARGADO single AssigneeTenantUserId se
+  conserva como responsable). Ambas TenantEntity con query filter global automatico.
+- Servicios: NUEVO IActivityBoardService/ActivityBoardService (resultados tipados
+  TaskCoreResult) que opera SOLO Kind=Activities: CRUD de tableros con Code autogenerado
+  via TenantSequence "PRY" (PRY-####, padding 4) y columnas default del prototipo
+  (reusa TaskBoardService.DefaultColumns, ahora internal); ListBoardsAsync (indice) con
+  progreso % (checklist completado/total, fallback tareas en columna IsDone/total),
+  miembros distintos con iniciales, conteo de tareas, KPIs globales (tableros, tareas,
+  completadas=en columna IsDone, en riesgo=tableros AtRisk O con tareas vencidas -
+  decision documentada) y filtros server-side (miembro/tag/tipo sobre las tareas, rango
+  de fechas sobre el DueDate del tablero); GetBoardDetailAsync con filtros combinables
+  AND en SQL (columnas[], asignados[] encargado-O-assignment, fechaLimite hoy/manana/
+  con-fecha con corte de dia UTC, tags[], alcance team/mine/unassigned) y CONTADORES por
+  alcance calculados con los demas filtros aplicados; MoveTaskAsync (valida columna del
+  mismo board, transicion OPORTUNISTA a Done solo si TaskItemStateMachine lo permite,
+  si no mueve la tarjeta sin tocar el estado y lo reporta en StatusNote, registra
+  TaskItemActivity); AddTaskToBoard/RemoveFromBoard; QuickCreateTaskAsync que DELEGA en
+  TaskItemService.CreateAsync (consecutivo T + tags + actividad + flujo del tipo en UNA
+  transaccion) con la tarea ya colgada del board/columna (CreateTaskItemRequest gano
+  StartDate/BoardId/ColumnId opcionales; tipo default = primer ActivityType activo).
+- ITaskItemService ampliado: checklist (add/toggle con actividad al completar/remove/
+  reorder), asignados M:N (add/remove con actividad), StartDate en create/update,
+  GetDetailAsync incluye checklist + asignados (TaskItemDetailDto), summary expone
+  StartDate/BoardId/ColumnId. DI: IActivityBoardService registrado.
+- Logica pura extraida a ActivityBoardCalculations (BoardProgressPct, Pct, DueRangeUtc)
+  + MemberInitials, con 24 unit tests nuevos (Application.Tests 115 verdes).
+- Migracion dual AddActivityBoards (PG 20260704115154 / SQL Server 20260704115221)
+  aplicada y VERIFICADA en los contenedores dev (PG 5442 y MSSQL 1443): columnas nuevas
+  en task_boards/task_items y tablas task_item_checklist_items/task_item_assignments
+  con sus FKs e indices. Sin rutas multiples de cascada en SQL Server (FKs de tablero
+  NO ACTION; no hizo falta ClientCascade).
+- Seeder Development idempotente EnsureActivityBoardsDemoAsync (SuperAdmin Program.cs):
+  tablero PRY-0042 "Comercial - Requerimiento Infraestructura" (InProgress, vence
+  2026-07-12, descripcion del prototipo, columnas default) con 10 tareas del prototipo
+  (Cotizar equipos de red 0/4 tag Infraestructura due 1-jul; Migrar formulario a EAV 3/4
+  due hoy; Aprobar cotizacion de proveedor 4/4 due hoy; Configurar consecutivo 0D7
+  Completado due 6-jul; etc.), tags Infraestructura azul/Comercial rosa/Proyecto medio
+  verde, encargados/asignados repartidos entre owner/admin/operator/viewer, 1 tarea sin
+  asignar y 3 del owner; + 2 tableros simples (PRY-0040 OnTime, PRY-0041 AtRisk) para el
+  KPI "3 Tableros". Secuencias coherentes (PRY=43, T05 continua).
+- ADR nuevo docs/decisiones/0020-tableros-actividades-unificados.md.
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores (warnings heredados). Domain 35/35,
+  Application 115/115 (91 previos + 24 nuevos).
+- Integracion NUEVA ActivityBoardTests en matriz dual (fixtures TenantIsolation,
+  Testcontainers PG16 + SQL Server 2022): 12/12 verdes (6 tests x 2 motores, 38 s):
+  (1) board Activities con code PRY-0001/0002 autogenerado + columnas default + code
+  explicito y duplicado Invalid; (2) QuickCreate cuelga con T00001/T00002 unicos,
+  BoardSortOrder 0/1 y columna ajena Invalid; (3) filtros del detalle por columna /
+  asignado (encargado Y assignment M:N) / tag / fecha hoy + alcances con contadores
+  team 4 / mine 2 / unassigned 1 y combinacion AND; (4) MoveTask a columna IsDone:
+  Active->Done aplicado con actividad, Pending NO rompe (mueve, estado intacto,
+  StatusNote); (5) checklist toggle actualiza progreso de tarjeta (1/2=50%) y del
+  indice (50%), con CompletedBy/At y actividad, y destoggle limpia; (6) aislamiento
+  cross-tenant de boards/checklist/assignments (indice vacio, detalle NotFound, move
+  NotFound, DbSets vacios). Suite de INTEGRACION COMPLETA: 101/101 verdes (2 m 6 s;
+  una corrida previa dio 6 rojos por flake de arranque del contenedor MsSql de
+  Testcontainers bajo carga -la app dev y el seed corrian en paralelo-, la corrida
+  limpia paso entera).
+- Seed verificado por consulta directa en PG 5442 tras arrancar SuperAdmin real:
+  3 tableros Activities (PRY-0042/0040/0041 con estados InProgress/OnTime/AtRisk),
+  PRY-0042 con 10 tareas T00010..T00019 repartidas en las 4 columnas con checklists
+  0/4, 3/4, 4/4, 0/3 y 1/2, y contadores de alcance del owner team=10 / mine=3 /
+  unassigned=1 (query directa). Segundo arranque: sigue 3/10 (idempotente).
+
+**Decisiones**:
+- Kind en TaskBoard (no entidades nuevas) para no romper el CRM heredado.
+- Columna != estado: transicion oportunista a Done SOLO si la maquina la permite;
+  mover fuera de IsDone no reabre.
+- FKs tarea->tablero/columna NO ACTION: borrar tablero desacopla tareas primero
+  (las actividades nunca mueren con el tablero).
+- KPI "en riesgo" = tableros AtRisk O con tareas vencidas fuera de columna final.
+- Corte de dia de los filtros hoy/manana en UTC (zona del tenant = deuda ola UI).
+- QuickCreate sin tipo usa el primer ActivityType activo del tenant.
+
+**Deudas / TODO**:
+- Ola de UI: indice + tablero con chips/alcances/vistas Lista-Calendario-Gantt sobre
+  IActivityBoardService (esta ola fue SOLO backend).
+- Corte de dia por zona horaria del tenant en DueRangeUtc.
+- Destino final del kanban CRM heredado (TaskCard) cuando 000636 reemplace esas paginas.
+- Sin commit (pedido explicito): cambios en working tree.

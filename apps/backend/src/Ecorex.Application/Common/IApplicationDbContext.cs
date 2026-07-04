@@ -57,6 +57,8 @@ public interface IApplicationDbContext
     DbSet<TaskWorkLog> TaskWorkLogs { get; }
     DbSet<TaskItemActivity> TaskItemActivities { get; }
     DbSet<TaskItemAttachment> TaskItemAttachments { get; }
+    DbSet<TaskItemChecklistItem> TaskItemChecklistItems { get; }
+    DbSet<TaskItemAssignment> TaskItemAssignments { get; }
     DbSet<TenantSequence> TenantSequences { get; }
     DbSet<WorkflowDefinition> WorkflowDefinitions { get; }
     DbSet<WorkflowNode> WorkflowNodes { get; }

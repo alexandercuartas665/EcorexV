@@ -31,6 +31,26 @@ public class TaskItem : TenantEntity, IVersioned
 
     public DateTimeOffset? DueDate { get; set; }
 
+    /// <summary>Fecha de inicio planificada (vista Gantt del prototipo). Null = sin planificar.</summary>
+    public DateTimeOffset? StartDate { get; set; }
+
+    /// <summary>
+    /// Tablero de actividades al que esta colgada la tarea (ADR-0020, Kind = Activities).
+    /// Null = tarea fuera de tableros. FK sin cascada: borrar el tablero exige desacoplar antes.
+    /// </summary>
+    public Guid? BoardId { get; set; }
+    public TaskBoard? Board { get; set; }
+
+    /// <summary>
+    /// Columna del tablero donde vive la tarjeta. Debe pertenecer a BoardId (lo valida
+    /// Application). Null si la tarea no esta en un tablero. FK sin cascada.
+    /// </summary>
+    public Guid? ColumnId { get; set; }
+    public TaskBoardColumn? Column { get; set; }
+
+    /// <summary>Posicion vertical de la tarjeta dentro de su columna (0 = arriba).</summary>
+    public int BoardSortOrder { get; set; }
+
     // Solicitante externo (quien pidio la tarea, no necesariamente un usuario del sistema).
     public string? RequesterName { get; set; }
     public string? RequesterEmail { get; set; }

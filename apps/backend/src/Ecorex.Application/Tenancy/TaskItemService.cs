@@ -79,6 +79,43 @@ public sealed class TaskItemService : ITaskItemService
             }
         }
 
+        // ADR-0020: cuelgue opcional en un tablero de actividades. ColumnId debe pertenecer
+        // al BoardId; sin ColumnId se usa la primera columna del tablero.
+        Guid? boardId = request.BoardId;
+        Guid? columnId = request.ColumnId;
+        if (columnId is not null && boardId is null)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("ColumnId requiere BoardId.");
+        }
+        if (boardId is Guid targetBoardId)
+        {
+            var board = await _db.TaskBoards.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == targetBoardId, cancellationToken);
+            if (board is null || board.Kind != TaskBoardKind.Activities)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El tablero de actividades no existe en el tenant.");
+            }
+            if (columnId is Guid targetColumnId)
+            {
+                if (!await _db.TaskBoardColumns.AnyAsync(c => c.Id == targetColumnId && c.BoardId == targetBoardId, cancellationToken))
+                {
+                    return TaskCoreResult<TaskItemDetailDto>.Invalid("La columna no pertenece al tablero.");
+                }
+            }
+            else
+            {
+                columnId = await _db.TaskBoardColumns.AsNoTracking()
+                    .Where(c => c.BoardId == targetBoardId)
+                    .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+                    .Select(c => (Guid?)c.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (columnId is null)
+                {
+                    return TaskCoreResult<TaskItemDetailDto>.Invalid("El tablero no tiene columnas.");
+                }
+            }
+        }
+
         // Fila del consecutivo asegurada ANTES de la transaccion: una carrera de creacion
         // (violacion de unicidad) no debe abortar la transaccion principal (PostgreSQL).
         await _sequences.EnsureSequenceAsync(SequenceCode, cancellationToken);
@@ -86,6 +123,16 @@ public sealed class TaskItemService : ITaskItemService
         // Transaccion atomica: consecutivo + tarea + etiquetas + actividad "creo la tarea".
         await using var transaction = await _db.BeginTransactionAsync(cancellationToken);
         var number = await _sequences.NextAsync(SequenceCode, SequencePrefix, SequencePadding, cancellationToken);
+
+        // Posicion al final de la columna destino (dentro de la transaccion).
+        var boardSortOrder = 0;
+        if (columnId is Guid placedColumnId)
+        {
+            boardSortOrder = (await _db.TaskItems
+                .Where(t => t.ColumnId == placedColumnId)
+                .Select(t => (int?)t.BoardSortOrder)
+                .MaxAsync(cancellationToken) ?? -1) + 1;
+        }
 
         var task = new TaskItem
         {
@@ -99,6 +146,10 @@ public sealed class TaskItemService : ITaskItemService
             Status = request.AssigneeTenantUserId is null ? TaskItemStatus.Pending : TaskItemStatus.Active,
             AssigneeTenantUserId = request.AssigneeTenantUserId,
             DueDate = request.DueDate,
+            StartDate = request.StartDate,
+            BoardId = boardId,
+            ColumnId = columnId,
+            BoardSortOrder = boardSortOrder,
             RequesterName = Normalize(request.RequesterName),
             RequesterEmail = Normalize(request.RequesterEmail),
             RequesterPhone = Normalize(request.RequesterPhone),
@@ -184,6 +235,7 @@ public sealed class TaskItemService : ITaskItemService
         task.ActivityTypeId = request.ActivityTypeId;
         task.Priority = request.Priority;
         task.DueDate = request.DueDate;
+        task.StartDate = request.StartDate;
         task.RequesterName = Normalize(request.RequesterName);
         task.RequesterEmail = Normalize(request.RequesterEmail);
         task.RequesterPhone = Normalize(request.RequesterPhone);
@@ -433,6 +485,155 @@ public sealed class TaskItemService : ITaskItemService
         return TaskCoreResult<bool>.Ok(true);
     }
 
+    // ---- Checklist (ADR-0020) ----
+
+    public async Task<TaskCoreResult<TaskItemChecklistItemDto>> AddChecklistItemAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var trimmed = (text ?? "").Trim();
+        if (trimmed.Length == 0)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.Invalid("El texto del item es obligatorio.");
+        }
+        if (trimmed.Length > 500)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.Invalid("El texto del item supera 500 caracteres.");
+        }
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.NotFound("Tarea no encontrada.");
+        }
+        if (task.Status == TaskItemStatus.Closed)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.Invalid(ClosedMessage);
+        }
+
+        var nextOrder = (await _db.TaskItemChecklistItems
+            .Where(i => i.TaskItemId == taskId)
+            .Select(i => (int?)i.SortOrder)
+            .MaxAsync(cancellationToken) ?? -1) + 1;
+        var item = new TaskItemChecklistItem
+        {
+            TenantId = task.TenantId,
+            TaskItemId = taskId,
+            Text = trimmed,
+            SortOrder = nextOrder
+        };
+        _db.TaskItemChecklistItems.Add(item);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<TaskItemChecklistItemDto>.Ok(ToChecklistDto(item));
+    }
+
+    public async Task<TaskCoreResult<TaskItemChecklistItemDto>> ToggleChecklistItemAsync(Guid checklistItemId, bool isCompleted, Guid? completedByTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var item = await _db.TaskItemChecklistItems
+            .FirstOrDefaultAsync(i => i.Id == checklistItemId, cancellationToken);
+        if (item is null)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.NotFound("Item de checklist no encontrado.");
+        }
+        if (item.IsCompleted == isCompleted)
+        {
+            return TaskCoreResult<TaskItemChecklistItemDto>.Ok(ToChecklistDto(item));
+        }
+
+        item.IsCompleted = isCompleted;
+        item.CompletedAt = isCompleted ? DateTimeOffset.UtcNow : null;
+        item.CompletedByTenantUserId = isCompleted ? completedByTenantUserId : null;
+        if (isCompleted)
+        {
+            // Solo el COMPLETAR deja traza (desmarcar es correccion, no hito).
+            _db.TaskItemActivities.Add(BuildActivity(item.TenantId, item.TaskItemId, actorUserId, actorName,
+                TaskActivityType.Action, $"completo el item de checklist '{item.Text}'"));
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<TaskItemChecklistItemDto>.Ok(ToChecklistDto(item));
+    }
+
+    public async Task<TaskCoreResult<bool>> RemoveChecklistItemAsync(Guid checklistItemId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var item = await _db.TaskItemChecklistItems
+            .FirstOrDefaultAsync(i => i.Id == checklistItemId, cancellationToken);
+        if (item is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Item de checklist no encontrado.");
+        }
+        _db.TaskItemChecklistItems.Remove(item);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    public async Task<TaskCoreResult<bool>> ReorderChecklistAsync(Guid taskId, IReadOnlyList<Guid> orderedItemIds, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var items = await _db.TaskItemChecklistItems
+            .Where(i => i.TaskItemId == taskId)
+            .ToListAsync(cancellationToken);
+        if (items.Count == 0)
+        {
+            return TaskCoreResult<bool>.NotFound("La tarea no tiene checklist.");
+        }
+        for (int i = 0; i < orderedItemIds.Count; i++)
+        {
+            var item = items.FirstOrDefault(x => x.Id == orderedItemIds[i]);
+            if (item is not null) { item.SortOrder = i; }
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    // ---- Asignados M:N (ADR-0020) ----
+
+    public async Task<TaskCoreResult<bool>> AddAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Tarea no encontrada.");
+        }
+        if (task.Status == TaskItemStatus.Closed)
+        {
+            return TaskCoreResult<bool>.Invalid(ClosedMessage);
+        }
+        var member = await _db.TenantUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == tenantUserId, cancellationToken);
+        if (member is null)
+        {
+            return TaskCoreResult<bool>.Invalid("El asignado no pertenece al tenant.");
+        }
+        if (await _db.TaskItemAssignments.AnyAsync(a => a.TaskItemId == taskId && a.TenantUserId == tenantUserId, cancellationToken))
+        {
+            return TaskCoreResult<bool>.Ok(false);
+        }
+
+        _db.TaskItemAssignments.Add(new TaskItemAssignment
+        {
+            TenantId = task.TenantId,
+            TaskItemId = taskId,
+            TenantUserId = tenantUserId
+        });
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, taskId, actorUserId, actorName,
+            TaskActivityType.Action, $"agrego a {member.Email} al equipo de la tarea"));
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    public async Task<TaskCoreResult<bool>> RemoveAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var assignment = await _db.TaskItemAssignments
+            .FirstOrDefaultAsync(a => a.TaskItemId == taskId && a.TenantUserId == tenantUserId, cancellationToken);
+        if (assignment is null)
+        {
+            return TaskCoreResult<bool>.NotFound("El usuario no esta asignado a la tarea.");
+        }
+        var member = await _db.TenantUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == tenantUserId, cancellationToken);
+        _db.TaskItemAssignments.Remove(assignment);
+        _db.TaskItemActivities.Add(BuildActivity(assignment.TenantId, taskId, actorUserId, actorName,
+            TaskActivityType.Action, $"quito a {member?.Email ?? "un usuario"} del equipo de la tarea"));
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
     public async Task<TaskCoreResult<TaskItemActivityDto>> AddCommentAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
     {
         var trimmed = (text ?? "").Trim();
@@ -636,10 +837,18 @@ public sealed class TaskItemService : ITaskItemService
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new TaskItemAttachmentDto(a.Id, a.FileName, a.Url, a.MimeType, a.SizeBytes, a.UploadedByName, a.CreatedAt))
             .ToListAsync(cancellationToken);
+        var checklist = await _db.TaskItemChecklistItems.AsNoTracking()
+            .Where(i => i.TaskItemId == taskId)
+            .OrderBy(i => i.SortOrder).ThenBy(i => i.CreatedAt)
+            .Select(i => new TaskItemChecklistItemDto(i.Id, i.TaskItemId, i.Text, i.IsCompleted,
+                i.CompletedAt, i.CompletedByTenantUserId, i.SortOrder))
+            .ToListAsync(cancellationToken);
+        var assignees = await LoadAssigneesAsync(taskId, cancellationToken);
 
         return new TaskItemDetailDto(summary, task.Description,
             task.RequesterName, task.RequesterEmail, task.RequesterPhone,
-            DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments);
+            DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
+            checklist, assignees);
     }
 
     // ---- Helpers ----
@@ -670,8 +879,34 @@ public sealed class TaskItemService : ITaskItemService
             activityTypeNames.TryGetValue(t.ActivityTypeId, out var name) ? name : null,
             t.Priority, t.Status, t.AssigneeTenantUserId, t.DueDate, t.ProjectId, t.Color,
             t.IsArchived, t.ClosedAt, t.Version, t.CreatedAt,
-            tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>())).ToList();
+            tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
+            t.StartDate, t.BoardId, t.ColumnId)).ToList();
     }
+
+    /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>
+    private async Task<IReadOnlyList<TaskItemAssigneeDto>> LoadAssigneesAsync(Guid taskId, CancellationToken cancellationToken)
+    {
+        var rows = await _db.TaskItemAssignments.AsNoTracking()
+            .Where(a => a.TaskItemId == taskId)
+            .Join(_db.TenantUsers.AsNoTracking(), a => a.TenantUserId, u => u.Id,
+                (a, u) => new { u.Id, u.Email, u.PlatformUserId })
+            .ToListAsync(cancellationToken);
+        if (rows.Count == 0) { return Array.Empty<TaskItemAssigneeDto>(); }
+
+        var platformIds = rows.Select(r => r.PlatformUserId).Distinct().ToList();
+        var displayNames = await _db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
+            .Where(p => platformIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.DisplayName ?? p.Email, cancellationToken);
+        return rows.Select(r =>
+        {
+            var name = displayNames.TryGetValue(r.PlatformUserId, out var n) ? n : r.Email;
+            return new TaskItemAssigneeDto(r.Id, MemberInitials.From(name), name);
+        }).OrderBy(a => a.DisplayName).ToList();
+    }
+
+    private static TaskItemChecklistItemDto ToChecklistDto(TaskItemChecklistItem item)
+        => new(item.Id, item.TaskItemId, item.Text, item.IsCompleted,
+            item.CompletedAt, item.CompletedByTenantUserId, item.SortOrder);
 
     private static TaskItemActivity BuildActivity(Guid tenantId, Guid taskItemId, Guid? actorUserId, string actorName, TaskActivityType type, string text)
         => new()

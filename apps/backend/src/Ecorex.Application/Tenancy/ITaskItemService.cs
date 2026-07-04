@@ -51,6 +51,25 @@ public interface ITaskItemService
     Task<TaskCoreResult<bool>> AttachTagAsync(Guid taskId, Guid tagId, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<bool>> DetachTagAsync(Guid taskId, Guid tagId, CancellationToken cancellationToken = default);
 
+    // Checklist (ADR-0020): items de subtarea visibles en la tarjeta del tablero.
+    Task<TaskCoreResult<TaskItemChecklistItemDto>> AddChecklistItemAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marca/desmarca el item. Al COMPLETAR registra CompletedAt/CompletedByTenantUserId y
+    /// la actividad "completo el item..."; al desmarcar limpia ambos sin actividad.
+    /// </summary>
+    Task<TaskCoreResult<TaskItemChecklistItemDto>> ToggleChecklistItemAsync(Guid checklistItemId, bool isCompleted, Guid? completedByTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    Task<TaskCoreResult<bool>> RemoveChecklistItemAsync(Guid checklistItemId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>Reordena el checklist completo de la tarea segun la lista de ids.</summary>
+    Task<TaskCoreResult<bool>> ReorderChecklistAsync(Guid taskId, IReadOnlyList<Guid> orderedItemIds, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    // Asignados M:N (ADR-0020): equipo adicional de la tarea; el ENCARGADO single sigue
+    // siendo AssigneeTenantUserId (Assign/Unassign de arriba).
+    Task<TaskCoreResult<bool>> AddAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<bool>> RemoveAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
     // Comentarios y adjuntos
     Task<TaskCoreResult<TaskItemActivityDto>> AddCommentAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<TaskItemAttachmentDto>> AddAttachmentAsync(AddTaskAttachmentRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);

@@ -3431,6 +3431,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Code")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("code");
+
                     b.Property<string>("Color")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
@@ -3449,9 +3454,19 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("description");
 
+                    b.Property<DateTimeOffset?>("DueDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("due_date");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean")
                         .HasColumnName("is_archived");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -3462,6 +3477,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -3478,8 +3499,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_task_boards");
 
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_boards_tenant_id_code")
+                        .HasFilter("code IS NOT NULL");
+
                     b.HasIndex("TenantId", "SortOrder")
                         .HasDatabaseName("ix_task_boards_tenant_id_sort_order");
+
+                    b.HasIndex("TenantId", "Kind", "IsArchived")
+                        .HasDatabaseName("ix_task_boards_tenant_id_kind_is_archived");
 
                     b.ToTable("task_boards", (string)null);
                 });
@@ -3985,6 +4014,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("assignee_tenant_user_id");
 
+                    b.Property<Guid?>("BoardId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("board_id");
+
+                    b.Property<int>("BoardSortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("board_sort_order");
+
                     b.Property<string>("CcEmails")
                         .HasColumnType("jsonb")
                         .HasColumnName("cc_emails");
@@ -3997,6 +4034,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("color");
+
+                    b.Property<Guid?>("ColumnId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("column_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -4049,6 +4090,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("requester_phone");
 
+                    b.Property<DateTimeOffset?>("StartDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_date");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -4091,6 +4136,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("AssigneeTenantUserId")
                         .HasDatabaseName("ix_task_items_assignee_tenant_user_id");
 
+                    b.HasIndex("BoardId")
+                        .HasDatabaseName("ix_task_items_board_id");
+
+                    b.HasIndex("ColumnId")
+                        .HasDatabaseName("ix_task_items_column_id");
+
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_task_items_project_id");
 
@@ -4109,6 +4160,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "Status", "DueDate")
                         .HasDatabaseName("ix_task_items_tenant_id_status_due_date");
+
+                    b.HasIndex("TenantId", "BoardId", "ColumnId", "BoardSortOrder")
+                        .HasDatabaseName("ix_task_items_tenant_id_board_id_column_id_board_sort_order");
 
                     b.ToTable("task_items", (string)null);
                 });
@@ -4172,6 +4226,57 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_task_item_activities_task_item_id_created_at");
 
                     b.ToTable("task_item_activities", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_item_assignments");
+
+                    b.HasIndex("TenantUserId")
+                        .HasDatabaseName("ix_task_item_assignments_tenant_user_id");
+
+                    b.HasIndex("TaskItemId", "TenantUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_item_assignments_task_item_id_tenant_user_id");
+
+                    b.HasIndex("TenantId", "TenantUserId")
+                        .HasDatabaseName("ix_task_item_assignments_tenant_id_tenant_user_id");
+
+                    b.ToTable("task_item_assignments", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemAttachment", b =>
@@ -4242,6 +4347,68 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_task_item_attachments_task_item_id_created_at");
 
                     b.ToTable("task_item_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemChecklistItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<Guid?>("CompletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("completed_by_tenant_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_completed");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("text");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_item_checklist_items");
+
+                    b.HasIndex("TaskItemId", "SortOrder")
+                        .HasDatabaseName("ix_task_item_checklist_items_task_item_id_sort_order");
+
+                    b.ToTable("task_item_checklist_items", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemTag", b =>
@@ -6389,6 +6556,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_tenant_users_assignee_tenant_user_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.TaskBoard", "Board")
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_task_boards_board_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TaskBoardColumn", "Column")
+                        .WithMany()
+                        .HasForeignKey("ColumnId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_task_board_columns_column_id");
+
                     b.HasOne("Ecorex.Domain.Entities.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
@@ -6404,6 +6583,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("ActivityType");
 
                     b.Navigation("AssigneeTenantUser");
+
+                    b.Navigation("Board");
+
+                    b.Navigation("Column");
 
                     b.Navigation("Project");
 
@@ -6422,6 +6605,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("TaskItem");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemAssignment", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_item_assignments_task_items_task_item_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TenantUser", "TenantUser")
+                        .WithMany()
+                        .HasForeignKey("TenantUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_item_assignments_tenant_users_tenant_user_id");
+
+                    b.Navigation("TaskItem");
+
+                    b.Navigation("TenantUser");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemAttachment", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
@@ -6430,6 +6634,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_task_item_attachments_task_items_task_item_id");
+
+                    b.Navigation("TaskItem");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskItemChecklistItem", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_item_checklist_items_task_items_task_item_id");
 
                     b.Navigation("TaskItem");
                 });

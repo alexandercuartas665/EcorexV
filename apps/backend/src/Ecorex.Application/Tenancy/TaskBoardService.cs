@@ -6,8 +6,12 @@ namespace Ecorex.Application.Tenancy;
 
 public sealed class TaskBoardService : ITaskBoardService
 {
-    /// <summary>Columnas por defecto al crear un tablero nuevo (replica el prototipo).</summary>
-    private static readonly (string Name, string Color, bool IsDone)[] DefaultColumns =
+    /// <summary>
+    /// Columnas por defecto al crear un tablero nuevo (replica el prototipo). Internal:
+    /// ActivityBoardService (ADR-0020) reusa exactamente el mismo set para los tableros
+    /// de actividades.
+    /// </summary>
+    internal static readonly (string Name, string Color, bool IsDone)[] DefaultColumns =
     {
         ("Por hacer",   "#e2e8f0", false),
         ("En progreso", "#bfdbfe", false),

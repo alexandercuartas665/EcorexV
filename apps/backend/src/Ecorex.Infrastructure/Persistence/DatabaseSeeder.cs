@@ -837,6 +837,249 @@ public sealed class DatabaseSeeder
             DemoRuleDocumentCode, tenant.Name, formDefinitionId is not null, workflowDefinitionId is not null);
     }
 
+    // ========== Tableros de actividades unificados (ADR-0020) - demo del prototipo ==========
+
+    public const string DemoActivityBoardCode = "PRY-0042";
+
+    /// <summary>
+    /// Siembra los tableros de ACTIVIDADES del prototipo (ECOREX.dc.html, modulo 000636)
+    /// para el tenant demo SKY SYSTEM: el tablero "Comercial - Requerimiento Infraestructura"
+    /// (PRY-0042) con columnas default y 10 tareas TaskItem (checklists, tags, encargados y
+    /// asignados repartidos entre owner/admin/operator/viewer, 1 sin asignar y 3 del owner
+    /// para los contadores de alcance 10/3/1), mas 2 tableros simples para el KPI
+    /// "3 Tableros". Idempotente por Kind=Activities del tenant. Solo Development.
+    /// </summary>
+    public async Task EnsureActivityBoardsDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.TaskBoards.IgnoreQueryFilters()
+                .AnyAsync(b => b.TenantId == tenant.Id && b.Kind == TaskBoardKind.Activities, cancellationToken))
+        {
+            return;
+        }
+
+        var members = await _db.TenantUsers.IgnoreQueryFilters()
+            .Where(u => u.TenantId == tenant.Id)
+            .ToListAsync(cancellationToken);
+        var owner = members.FirstOrDefault(u => u.Email == TenantOwnerEmail)
+            ?? members.OrderBy(u => u.TenantRole == TenantRole.Owner ? 0 : 1).ThenBy(u => u.CreatedAt).FirstOrDefault();
+        var admin = members.FirstOrDefault(u => u.Email == TenantAdminEmail) ?? owner;
+        var operatorUser = members.FirstOrDefault(u => u.Email == TenantOperatorEmail) ?? owner;
+        var viewer = members.FirstOrDefault(u => u.Email == TenantViewerEmail) ?? owner;
+        if (owner is null) { return; }
+
+        var activityType = await _db.ActivityTypes.IgnoreQueryFilters()
+            .Where(t => t.TenantId == tenant.Id && !t.IsArchived)
+            .OrderBy(t => t.SortOrder)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (activityType is null)
+        {
+            _logger.LogWarning("Seed de tableros de actividades omitido: el tenant demo no tiene tipos de actividad.");
+            return;
+        }
+
+        // ---- Tags del tablero del prototipo (catalogo TaskItemTag por tenant) ----
+        var tagDefs = new (string Name, string Color)[]
+        {
+            ("Infraestructura", "#3b82f6"), // azul
+            ("Comercial", "#ec4899"),       // rosa
+            ("Proyecto medio", "#22c55e")   // verde
+        };
+        var tags = new Dictionary<string, TaskItemTag>();
+        foreach (var (name, color) in tagDefs)
+        {
+            var tag = await _db.TaskItemTags.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.TenantId == tenant.Id && t.Name == name, cancellationToken);
+            if (tag is null)
+            {
+                tag = new TaskItemTag { TenantId = tenant.Id, Name = name, Color = color };
+                _db.TaskItemTags.Add(tag);
+            }
+            tags[name] = tag;
+        }
+
+        // ---- Columnas default del prototipo (mismo set de TaskBoardService) ----
+        var defaultColumns = new (string Name, string Color, bool IsDone)[]
+        {
+            ("Por hacer",   "#e2e8f0", false),
+            ("En progreso", "#bfdbfe", false),
+            ("En revision", "#fed7aa", false),
+            ("Completado",  "#bbf7d0", true)
+        };
+        var nextBoardOrder = (await _db.TaskBoards.IgnoreQueryFilters()
+            .Where(b => b.TenantId == tenant.Id)
+            .Select(b => (int?)b.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+
+        TaskBoard NewBoard(string code, string name, string? description, TaskBoardStatus status, DateTimeOffset? dueDate)
+            => new()
+            {
+                TenantId = tenant.Id,
+                Kind = TaskBoardKind.Activities,
+                Code = code,
+                Name = name,
+                Description = description,
+                Status = status,
+                DueDate = dueDate,
+                SortOrder = nextBoardOrder++
+            };
+
+        var mainBoard = NewBoard(DemoActivityBoardCode, "Comercial - Requerimiento Infraestructura",
+            "Flujo de aprobacion comercial, cotizacion y compra del cliente.",
+            TaskBoardStatus.InProgress, new DateTimeOffset(2026, 7, 12, 23, 59, 0, TimeSpan.Zero));
+        var board2 = NewBoard("PRY-0040", "Marketing - Lanzamiento Q3",
+            "Campana de lanzamiento del tercer trimestre.",
+            TaskBoardStatus.OnTime, new DateTimeOffset(2026, 8, 15, 23, 59, 0, TimeSpan.Zero));
+        var board3 = NewBoard("PRY-0041", "Soporte - Mesa de ayuda",
+            "Atencion de tickets internos de soporte.",
+            TaskBoardStatus.AtRisk, new DateTimeOffset(2026, 7, 5, 23, 59, 0, TimeSpan.Zero));
+        _db.TaskBoards.AddRange(mainBoard, board2, board3);
+
+        var mainColumns = new Dictionary<string, TaskBoardColumn>();
+        foreach (var board in new[] { mainBoard, board2, board3 })
+        {
+            for (int i = 0; i < defaultColumns.Length; i++)
+            {
+                var (cname, ccolor, isDone) = defaultColumns[i];
+                var column = new TaskBoardColumn
+                {
+                    TenantId = tenant.Id,
+                    BoardId = board.Id,
+                    Name = cname,
+                    Color = ccolor,
+                    SortOrder = i,
+                    IsDone = isDone
+                };
+                _db.TaskBoardColumns.Add(column);
+                if (board == mainBoard) { mainColumns[cname] = column; }
+            }
+        }
+
+        // Secuencia PRY coherente con los codigos sembrados (proximo: PRY-0043).
+        if (!await _db.TenantSequences.IgnoreQueryFilters()
+                .AnyAsync(s => s.TenantId == tenant.Id && s.Code == "PRY", cancellationToken))
+        {
+            _db.TenantSequences.Add(new TenantSequence { TenantId = tenant.Id, Code = "PRY", NextValue = 43 });
+        }
+
+        // ---- 10 tareas del tablero principal (numeros T continuando la secuencia T05) ----
+        var sequence = await _db.TenantSequences.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.TenantId == tenant.Id && s.Code == "T05", cancellationToken);
+        if (sequence is null)
+        {
+            sequence = new TenantSequence { TenantId = tenant.Id, Code = "T05", NextValue = 1 };
+            _db.TenantSequences.Add(sequence);
+        }
+
+        var today = new DateTimeOffset(DateTime.UtcNow.Date.AddHours(17), TimeSpan.Zero);
+        DateTimeOffset July(int day) => new(2026, 7, day, 12, 0, 0, TimeSpan.Zero);
+
+        // (Titulo, Columna, Estado, Encargado, Asignados, Due, Tag, checklist done/total)
+        // Contadores de alcance esperados para el OWNER: team 10 / mine 3 (tareas con * ) /
+        // unassigned 1 (tarea sin encargado ni asignados).
+        (string Title, string Column, TaskItemStatus Status, TenantUser? Assignee, TenantUser[] Team,
+         DateTimeOffset? Due, string? Tag, int ChecksDone, int ChecksTotal)[] taskDefs =
+        {
+            ("Cotizar equipos de red", "Por hacer", TaskItemStatus.Active,
+                admin, [operatorUser!], July(1), "Infraestructura", 0, 4),
+            ("Migrar formulario a EAV", "En progreso", TaskItemStatus.InProgress, // * owner encargado
+                owner, [], today, "Proyecto medio", 3, 4),
+            ("Aprobar cotizacion de proveedor", "En revision", TaskItemStatus.InProgress, // * owner asignado
+                admin, [owner], today, "Comercial", 4, 4),
+            ("Configurar consecutivo 0D7", "Completado", TaskItemStatus.Done,
+                operatorUser, [], July(6), null, 0, 0),
+            ("Levantar inventario de sedes", "Por hacer", TaskItemStatus.Pending, // sin asignar
+                null, [], July(8), "Infraestructura", 0, 3),
+            ("Contactar proveedores de fibra", "Por hacer", TaskItemStatus.Active,
+                viewer, [], July(9), "Comercial", 0, 0),
+            ("Redactar requerimiento tecnico", "En progreso", TaskItemStatus.InProgress, // * owner encargado
+                owner, [], July(10), null, 1, 2),
+            ("Validar presupuesto con gerencia", "En revision", TaskItemStatus.InProgress,
+                admin, [viewer!], July(11), "Comercial", 0, 0),
+            ("Configurar VLAN de pruebas", "Completado", TaskItemStatus.Done,
+                operatorUser, [], July(2), "Infraestructura", 0, 0),
+            ("Comprar licencias de firewall", "Por hacer", TaskItemStatus.Active,
+                admin, [], July(15), "Infraestructura", 0, 0)
+        };
+
+        var sortPerColumn = new Dictionary<string, int>();
+        foreach (var def in taskDefs)
+        {
+            var column = mainColumns[def.Column];
+            sortPerColumn.TryGetValue(def.Column, out var sortOrder);
+            sortPerColumn[def.Column] = sortOrder + 1;
+
+            var number = "T" + sequence.NextValue.ToString().PadLeft(5, '0');
+            sequence.NextValue++;
+
+            var task = new TaskItem
+            {
+                TenantId = tenant.Id,
+                Number = number,
+                Title = def.Title,
+                ActivityTypeId = activityType.Id,
+                Priority = def.Tag == "Comercial" ? TaskPriority.High : TaskPriority.Medium,
+                Status = def.Status,
+                AssigneeTenantUserId = def.Assignee?.Id,
+                DueDate = def.Due,
+                StartDate = def.Due?.AddDays(-7),
+                BoardId = mainBoard.Id,
+                ColumnId = column.Id,
+                BoardSortOrder = sortOrder
+            };
+            _db.TaskItems.Add(task);
+            _db.TaskItemActivities.Add(new TaskItemActivity
+            {
+                TenantId = tenant.Id,
+                TaskItemId = task.Id,
+                Type = TaskActivityType.Action,
+                ActorUserId = owner.PlatformUserId,
+                ActorName = "Owner SKY SYSTEM",
+                Text = $"creo la tarea {number}"
+            });
+
+            if (def.Tag is not null)
+            {
+                _db.TaskItemTagAssignments.Add(new TaskItemTagAssignment
+                {
+                    TenantId = tenant.Id,
+                    TaskItemId = task.Id,
+                    TagId = tags[def.Tag].Id
+                });
+            }
+            foreach (var teammate in def.Team)
+            {
+                _db.TaskItemAssignments.Add(new TaskItemAssignment
+                {
+                    TenantId = tenant.Id,
+                    TaskItemId = task.Id,
+                    TenantUserId = teammate.Id
+                });
+            }
+            for (int i = 0; i < def.ChecksTotal; i++)
+            {
+                var done = i < def.ChecksDone;
+                _db.TaskItemChecklistItems.Add(new TaskItemChecklistItem
+                {
+                    TenantId = tenant.Id,
+                    TaskItemId = task.Id,
+                    Text = $"Paso {i + 1} de {def.Title.ToLowerInvariant()}",
+                    IsCompleted = done,
+                    CompletedAt = done ? DateTimeOffset.UtcNow.AddHours(-i) : null,
+                    CompletedByTenantUserId = done ? (def.Assignee ?? owner).Id : null,
+                    SortOrder = i
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Tableros de actividades demo sembrados para {Tenant}: {Board} con {Tasks} tareas + 2 tableros simples.",
+            tenant.Name, DemoActivityBoardCode, taskDefs.Length);
+    }
+
     // ================= FASE 5 (ADR-0017): Dependencias + Modulos web =================
 
     /// <summary>

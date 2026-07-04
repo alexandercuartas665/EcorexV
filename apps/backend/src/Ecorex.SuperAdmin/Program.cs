@@ -155,6 +155,9 @@ else
     // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
     await seeder.EnsureOrgUnitsDemoAsync();
     await seeder.EnsureModuleRegistryAsync();
+    // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
+    // + 2 tableros simples para el indice. Idempotente, solo Development.
+    await seeder.EnsureActivityBoardsDemoAsync();
 }
 
 app.UseHttpsRedirection();

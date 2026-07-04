@@ -3,14 +3,14 @@
 # Contexto de build esperado: raiz del repo (Railway Root Directory = /).
 
 # --- build ---
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY apps/backend/ ./
 RUN dotnet publish src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj \
     -c Release -o /app/publish /p:UseAppHost=false
 
 # --- runtime ---
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 # Render de PDF de cotizaciones (modulo Plantillas) con PuppeteerSharp.
 # IMPORTANTE: NO se usa el Chromium del sistema como navegador, porque su version no coincide con

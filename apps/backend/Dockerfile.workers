@@ -3,14 +3,14 @@
 # Contexto de build esperado: raiz del repo (Railway Root Directory = /).
 
 # --- build ---
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY apps/backend/ ./
 RUN dotnet publish src/Ecorex.Workers/Ecorex.Workers.csproj \
     -c Release -o /app/publish /p:UseAppHost=false
 
 # --- runtime ---
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish ./
 ENTRYPOINT ["dotnet", "Ecorex.Workers.dll"]

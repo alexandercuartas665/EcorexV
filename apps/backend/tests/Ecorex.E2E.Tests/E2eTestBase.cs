@@ -12,8 +12,13 @@ namespace Ecorex.E2E.Tests;
 [Collection("e2e")]
 public abstract class E2eTestBase : IAsyncLifetime
 {
-    public const string DemoEmail = "demo-admin@ecorex.tareas";
-    public const string DemoPassword = "Demo123*";
+    // Credenciales demo del vault (CREDENCIALES - Usuarios y claves): el seeder
+    // siembra owner/admin/operator/viewer@sky-system.local. Sobreescribibles por
+    // variables de entorno para correr contra BDs con seeds anteriores.
+    public static readonly string DemoEmail =
+        Environment.GetEnvironmentVariable("ECOREX_E2E_EMAIL") ?? "owner@sky-system.local";
+    public static readonly string DemoPassword =
+        Environment.GetEnvironmentVariable("ECOREX_E2E_PASSWORD") ?? "Demo123*";
 
     protected E2eAppFixture Fx { get; }
 
@@ -55,8 +60,10 @@ public abstract class E2eTestBase : IAsyncLifetime
 
     // ---- Login ----
 
-    protected async Task<IPage> LoginAsync(string email = DemoEmail, string password = DemoPassword)
+    protected async Task<IPage> LoginAsync(string? email = null, string? password = null)
     {
+        email ??= DemoEmail;
+        password ??= DemoPassword;
         var page = await NewPageAsync();
         var ok = await TryLoginAsync(page, email, password);
         Assert.True(ok, $"El login con {email} no aterrizo en /inicio (url: {page.Url}).");

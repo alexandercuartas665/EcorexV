@@ -1,13 +1,526 @@
 @page "/dependencias"
 @attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Dependencias.Administrar"). *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Organization
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IOrgUnitService OrgSvc
+@inject ITenantUserService UsersSvc
 
-<ModuleStub Section="Sistema"
-            Title="Dependencias"
-            Description="Estructura organizacional del tenant: organigrama de areas, dependencias y usuarios."
-            Phase="Fase 5 (organigrama)"
-            LegacyCode="000850">
-    <Icon>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
-    </Icon>
-</ModuleStub>
+@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Dependencias.Administrar"). *@
+
+<PageTitle>Dependencias - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Dependencias</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+            </div>
+            <span>Modulo 000850 &#183; Sistema</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Dependencias</h1>
+        <p class="page-sub" style="margin-bottom:0;">Estructura organizacional de la compania: areas, equipos y responsables.</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null, null))">+ Nueva dependencia</button>
+    </div>
+</div>
+
+@* ===== KPIs (Dependencias / Usuarios / Areas, como el prototipo) ===== *@
+<div class="kpi-grid" style="margin-bottom:22px;max-width:760px;">
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <div class="kpi-icon tone-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+            </div>
+        </div>
+        <div class="kpi-value">@(_kpis?.TotalUnits ?? 0)</div>
+        <div class="kpi-label">Dependencias</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <div class="kpi-icon tone-gold">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+        </div>
+        <div class="kpi-value">@(_kpis?.AssignedUsers ?? 0)</div>
+        <div class="kpi-label">Usuarios</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <div class="kpi-icon tone-success">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            </div>
+        </div>
+        <div class="kpi-value">@(_kpis?.Areas ?? 0)</div>
+        <div class="kpi-label">Areas</div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando organigrama...</em></p>
+}
+else if (_tree.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin dependencias todavia</h3>
+        <p>Crea la primera dependencia para armar el organigrama de la compania.</p>
+        <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditor(null, null))">+ Nueva dependencia</button>
+    </div>
+}
+else
+{
+    <div class="org-layout">
+        @* ---- Organigrama (arbol de cards, CSS puro) ---- *@
+        <div class="org-panel">
+            <div class="org-panel-head">
+                <span>Organigrama</span>
+                <span class="org-panel-hint">@(_selected is null ? "Toca para ver detalle" : "")</span>
+            </div>
+            <div class="org-tree">
+                @foreach (var row in FlattenTree())
+                {
+                    var node = row.Node;
+                    <div class="org-node @(node.Id == _selected?.Id ? "selected" : "") @(node.IsArchived ? "archived" : "")"
+                         style="margin-left:@(row.Depth * 22)px;" @onclick="@(() => SelectAsync(node.Id))">
+                        @if (node.Children.Count > 0)
+                        {
+                            <button class="org-chevron @(_collapsed.Contains(node.Id) ? "" : "open")"
+                                    title="@(_collapsed.Contains(node.Id) ? "Expandir" : "Contraer")"
+                                    @onclick="@(() => ToggleCollapse(node.Id))" @onclick:stopPropagation="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="org-chevron placeholder"></span>
+                        }
+                        <span class="org-kind-dot @(node.Kind == OrgUnitKind.Area ? "area" : "team")" title="@KindLabel(node.Kind)"></span>
+                        <span class="org-node-name">@node.Name</span>
+                        @if (node.IsArchived)
+                        {
+                            <span class="tk-status st-closed" style="margin-left:6px;">Archivada</span>
+                        }
+                        @if (!string.IsNullOrEmpty(node.ResponsibleName))
+                        {
+                            <span class="org-avatar" title="Responsable: @node.ResponsibleName">@Initials(node.ResponsibleName)</span>
+                        }
+                        <span class="org-node-count" title="Miembros">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            @node.MemberCount
+                        </span>
+                        <button class="org-add-child" title="Agregar sub-dependencia"
+                                @onclick="@(() => OpenEditor(null, node.Id))" @onclick:stopPropagation="true">+</button>
+                    </div>
+                }
+            </div>
+            <label class="pl-toggle" style="margin-top:12px;">
+                <input type="checkbox" checked="@_includeArchived" @onchange="@(async e => { _includeArchived = (bool)e.Value!; await LoadAsync(); })" />
+                Ver archivadas
+            </label>
+        </div>
+
+        @* ---- Panel de detalle ---- *@
+        <div class="org-panel org-detail">
+            @if (_selected is null)
+            {
+                <p style="margin:8px 0;"><em>Selecciona una dependencia del organigrama para ver su detalle.</em></p>
+            }
+            else
+            {
+                <div class="org-detail-path">@_selectedPath</div>
+                <h2 class="org-detail-title">@_selected.Name</h2>
+                <div style="display:flex;gap:8px;margin:8px 0 14px;flex-wrap:wrap;">
+                    <span class="tk-status st-pending">@KindLabel(_selected.Kind)</span>
+                    <span class="tk-status @(_selected.IsArchived ? "st-closed" : "st-done")">@(_selected.IsArchived ? "Archivada" : "Activa")</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_selected.Description))
+                {
+                    <p class="org-detail-desc">@_selected.Description</p>
+                }
+                <div class="org-detail-row">
+                    <span class="org-detail-label">Responsable</span>
+                    @if (_selected.ResponsibleName is string responsible)
+                    {
+                        <span style="display:inline-flex;align-items:center;gap:8px;">
+                            <span class="org-avatar lg">@Initials(responsible)</span>
+                            <strong style="font-size:13.5px;">@responsible</strong>
+                        </span>
+                    }
+                    else
+                    {
+                        <em style="font-size:13px;color:var(--muted-foreground);">Sin responsable</em>
+                    }
+                </div>
+
+                <div class="org-detail-row" style="align-items:flex-start;">
+                    <span class="org-detail-label">Miembros (@_members.Count)</span>
+                    <div style="flex:1;">
+                        @foreach (var m in _members)
+                        {
+                            <div class="org-member">
+                                <span class="org-avatar">@Initials(m.DisplayName ?? m.Email)</span>
+                                <span class="org-member-name">
+                                    @(m.DisplayName ?? m.Email)
+                                    @if (!string.IsNullOrWhiteSpace(m.Role))
+                                    {
+                                        <small>@m.Role</small>
+                                    }
+                                </span>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveMemberAsync(m))" disabled="@_busy">Quitar</button>
+                            </div>
+                        }
+                        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+                            <select class="form-control" style="max-width:210px;font-size:13px;" @bind="_newMemberUserId">
+                                <option value="">-- Usuario --</option>
+                                @foreach (var u in _users.Where(u => _members.All(m => m.TenantUserId != u.Id)))
+                                {
+                                    <option value="@u.Id">@u.Email</option>
+                                }
+                            </select>
+                            <input class="form-control" style="max-width:150px;font-size:13px;" placeholder="Rol (opcional)" maxlength="100" @bind="_newMemberRole" />
+                            <button class="btn btn-sm btn-primary" @onclick="AddMemberAsync" disabled="@(_busy || string.IsNullOrEmpty(_newMemberUserId))">Agregar</button>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_detailError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:8px;">@_detailError</div>
+                }
+
+                <div style="display:flex;gap:8px;margin-top:18px;">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditor(_selected, null))">Editar</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="ToggleArchiveAsync" disabled="@_busy">
+                        @(_selected.IsArchived ? "Restaurar" : "Archivar")
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ===== Modal crear/editar dependencia ===== *@
+@if (_showEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editing is null ? "Nueva dependencia" : $"Editar {_editing.Name}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" maxlength="150" placeholder="Ej. Direccion Comercial" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6 field">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-control" @bind="_fKind">
+                            <option value="@OrgUnitKind.Area">Area</option>
+                            <option value="@OrgUnitKind.Team">Equipo</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 field">
+                        <label class="form-label">Orden</label>
+                        <input type="number" class="form-control" @bind="_fSortOrder" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Dependencia padre</label>
+                    <select class="form-control" @bind="_fParentId">
+                        <option value="">(Raiz del organigrama)</option>
+                        @foreach (var u in _flat.Where(x => x.Id != _editing?.Id))
+                        {
+                            <option value="@u.Id">@u.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Responsable</label>
+                    <select class="form-control" @bind="_fResponsibleId">
+                        <option value="">(Sin responsable)</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Id">@u.Email</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="600" @bind="_fDescription"></textarea>
+                </div>
+                @if (_editorError is not null)
+                {
+                    <div class="tk-field-error">@_editorError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editing is null ? "Crear dependencia" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .org-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: start; }
+    @@media (max-width: 900px) { .org-layout { grid-template-columns: 1fr; } }
+    .org-panel { background: var(--surface, var(--card)); border: 1px solid var(--line, var(--border)); border-radius: var(--rad, 14px); padding: 18px 20px; }
+    .org-panel-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 15px; color: var(--ink, var(--foreground)); margin-bottom: 12px; }
+    .org-panel-hint { font-size: 12px; font-weight: 500; color: var(--ink-3, var(--muted-foreground)); }
+    .org-tree { display: flex; flex-direction: column; gap: 2px; }
+    .org-node { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+    .org-node:hover { background: var(--surface-2, var(--accent)); }
+    .org-node.selected { background: var(--surface-3, var(--accent)); border-color: var(--line-2, var(--border)); }
+    .org-node.selected .org-node-name { font-weight: 700; }
+    .org-node.archived .org-node-name { text-decoration: line-through; opacity: .6; }
+    .org-chevron { width: 20px; height: 20px; border: 0; background: transparent; color: var(--ink-3, var(--muted-foreground)); display: grid; place-items: center; cursor: pointer; padding: 0; flex: none; transition: transform .12s; }
+    .org-chevron svg { width: 13px; height: 13px; }
+    .org-chevron.open { transform: rotate(90deg); }
+    .org-chevron.placeholder { cursor: default; }
+    .org-kind-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+    .org-kind-dot.area { background: var(--t-violet, #7C3AED); }
+    .org-kind-dot.team { background: var(--t-blue, #2563EB); }
+    .org-node-name { font-size: 13.5px; color: var(--ink, var(--foreground)); }
+    .org-node-count { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+    .org-node-count svg { width: 12px; height: 12px; }
+    .org-add-child { width: 22px; height: 22px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-3, var(--muted-foreground)); font-size: 15px; line-height: 1; cursor: pointer; flex: none; opacity: 0; }
+    .org-node:hover .org-add-child { opacity: 1; }
+    .org-add-child:hover { background: var(--surface-3, var(--accent)); color: var(--ink, var(--foreground)); }
+    .org-avatar { width: 22px; height: 22px; border-radius: 999px; background: var(--t-violet-bg, var(--primary-soft)); color: var(--t-violet, var(--primary)); font-size: 9.5px; font-weight: 700; display: inline-grid; place-items: center; flex: none; letter-spacing: .02em; }
+    .org-avatar.lg { width: 30px; height: 30px; font-size: 11.5px; }
+    .org-detail-path { font-size: 12px; color: var(--ink-3, var(--muted-foreground)); margin-bottom: 4px; }
+    .org-detail-title { font-size: 22px; font-weight: 800; letter-spacing: -.02em; margin: 0; color: var(--ink, var(--foreground)); }
+    .org-detail-desc { font-size: 13.5px; color: var(--ink-2, var(--muted-foreground)); margin: 0 0 6px; }
+    .org-detail-row { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line, var(--border)); margin-top: 10px; }
+    .org-detail-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3, var(--muted-foreground)); width: 110px; flex: none; }
+    .org-member { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+    .org-member-name { font-size: 13px; color: var(--ink, var(--foreground)); flex: 1; }
+    .org-member-name small { display: block; font-size: 11px; color: var(--ink-3, var(--muted-foreground)); }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeArchived;
+
+    private OrgKpisDto? _kpis;
+    private IReadOnlyList<OrgUnitNodeDto> _tree = [];
+    private IReadOnlyList<OrgUnitDto> _flat = [];
+    private IReadOnlyList<TenantUserDto> _users = [];
+    private readonly HashSet<Guid> _collapsed = [];
+
+    private OrgUnitDto? _selected;
+    private string _selectedPath = "";
+    private IReadOnlyList<OrgUnitMemberDto> _members = [];
+    private string? _detailError;
+    private string _newMemberUserId = "";
+    private string? _newMemberRole;
+
+    private bool _showEditor;
+    private OrgUnitDto? _editing;
+    private string _fName = "";
+    private OrgUnitKind _fKind = OrgUnitKind.Area;
+    private string _fParentId = "";
+    private string _fResponsibleId = "";
+    private string? _fDescription;
+    private int _fSortOrder;
+    private string? _editorError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await UsersSvc.ListAsync();
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _kpis = await OrgSvc.GetKpisAsync();
+        _tree = await OrgSvc.GetTreeAsync(_includeArchived);
+        _flat = await OrgSvc.ListAsync(includeArchived: true);
+        if (_selected is not null)
+        {
+            await SelectAsync(_selected.Id);
+        }
+    }
+
+    private IEnumerable<(OrgUnitNodeDto Node, int Depth)> FlattenTree()
+    {
+        IEnumerable<(OrgUnitNodeDto, int)> Walk(IReadOnlyList<OrgUnitNodeDto> nodes, int depth)
+        {
+            foreach (var node in nodes)
+            {
+                yield return (node, depth);
+                if (!_collapsed.Contains(node.Id))
+                {
+                    foreach (var child in Walk(node.Children, depth + 1))
+                    {
+                        yield return child;
+                    }
+                }
+            }
+        }
+        return Walk(_tree, 0);
+    }
+
+    private void ToggleCollapse(Guid id)
+    {
+        if (!_collapsed.Remove(id))
+        {
+            _collapsed.Add(id);
+        }
+    }
+
+    private async Task SelectAsync(Guid unitId)
+    {
+        _detailError = null;
+        _selected = await OrgSvc.GetAsync(unitId);
+        if (_selected is null)
+        {
+            _members = [];
+            _selectedPath = "";
+            return;
+        }
+        _members = await OrgSvc.ListMembersAsync(unitId);
+        _selectedPath = BuildPath(_selected);
+    }
+
+    private string BuildPath(OrgUnitDto unit)
+    {
+        var nameById = _flat.ToDictionary(u => u.Id, u => u);
+        var parts = new List<string>();
+        var current = unit.ParentId;
+        var guard = 0;
+        while (current is Guid id && nameById.TryGetValue(id, out var parent) && guard++ < 20)
+        {
+            parts.Insert(0, parent.Name);
+            current = parent.ParentId;
+        }
+        return parts.Count == 0 ? "Raiz del organigrama" : string.Join(" > ", parts);
+    }
+
+    // ---- Miembros ----
+
+    private async Task AddMemberAsync()
+    {
+        if (_selected is null || !Guid.TryParse(_newMemberUserId, out var userId)) { return; }
+        _busy = true;
+        _detailError = null;
+        var result = await OrgSvc.AddMemberAsync(_selected.Id, userId, _newMemberRole);
+        if (!result.IsOk)
+        {
+            _detailError = result.Error;
+        }
+        else
+        {
+            _newMemberUserId = "";
+            _newMemberRole = null;
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveMemberAsync(OrgUnitMemberDto member)
+    {
+        _busy = true;
+        _detailError = null;
+        var result = await OrgSvc.RemoveMemberAsync(member.Id);
+        if (!result.IsOk)
+        {
+            _detailError = result.Error;
+        }
+        else
+        {
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task ToggleArchiveAsync()
+    {
+        if (_selected is null) { return; }
+        _busy = true;
+        _detailError = null;
+        var result = await OrgSvc.SetArchivedAsync(_selected.Id, !_selected.IsArchived);
+        if (!result.IsOk)
+        {
+            _detailError = result.Error;
+        }
+        else
+        {
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    // ---- Editor ----
+
+    private void OpenEditor(OrgUnitDto? unit, Guid? presetParentId)
+    {
+        _editing = unit;
+        _fName = unit?.Name ?? "";
+        _fKind = unit?.Kind ?? OrgUnitKind.Area;
+        _fParentId = (unit?.ParentId ?? presetParentId)?.ToString() ?? "";
+        _fResponsibleId = unit?.ResponsibleTenantUserId?.ToString() ?? "";
+        _fDescription = unit?.Description;
+        _fSortOrder = unit?.SortOrder ?? 0;
+        _editorError = null;
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _editorError = null;
+        var request = new SaveOrgUnitRequest(
+            _fName,
+            _fKind,
+            Guid.TryParse(_fParentId, out var parentId) ? parentId : null,
+            Guid.TryParse(_fResponsibleId, out var responsibleId) ? responsibleId : null,
+            _fDescription,
+            _fSortOrder);
+        var result = _editing is null
+            ? await OrgSvc.CreateAsync(request)
+            : await OrgSvc.UpdateAsync(_editing.Id, request);
+        if (!result.IsOk)
+        {
+            _editorError = result.Error;
+        }
+        else
+        {
+            _showEditor = false;
+            await LoadAsync();
+            if (result.Value is not null)
+            {
+                await SelectAsync(result.Value.Id);
+            }
+        }
+        _busy = false;
+    }
+
+    // ---- Helpers de presentacion ----
+
+    private static string KindLabel(OrgUnitKind kind) => kind == OrgUnitKind.Area ? "Area" : "Equipo";
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(new[] { ' ', '@', '.' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : string.Concat(char.ToUpperInvariant(parts[0][0]), char.ToUpperInvariant(parts[1][0]));
+    }
+}

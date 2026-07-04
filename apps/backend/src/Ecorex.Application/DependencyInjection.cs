@@ -89,6 +89,10 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.AsignarConsecutivoVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarTareasDesdeTablaVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.NotificarVerb>();
+        // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
+        // y registro de modulos web (legacy 000109).
+        services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
+        services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

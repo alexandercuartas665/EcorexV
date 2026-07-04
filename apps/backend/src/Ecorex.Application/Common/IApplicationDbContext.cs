@@ -75,6 +75,10 @@ public interface IApplicationDbContext
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }
     DbSet<FormFieldRule> FormFieldRules { get; }
     DbSet<WorkflowNodeRule> WorkflowNodeRules { get; }
+    DbSet<OrgUnit> OrgUnits { get; }
+    DbSet<OrgUnitMember> OrgUnitMembers { get; }
+    DbSet<ModuleDefinition> ModuleDefinitions { get; }
+    DbSet<TenantModule> TenantModules { get; }
     DbSet<SaasPlan> SaasPlans { get; }
     DbSet<SaasPlanLimit> SaasPlanLimits { get; }
     DbSet<TenantSubscription> TenantSubscriptions { get; }

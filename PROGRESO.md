@@ -891,3 +891,106 @@ delta rgba verde .16); /dependencias /modulos-web /metricas /conversaciones
   ModulosWeb.razor ni Domain/Application/migraciones (agente paralelo).
 - Sin commit (pedido explicito): cambios en working tree. Se agrego la
   configuracion superadmin-5238 a .claude/launch.json para la verificacion.
+
+## 2026-07-03 - Sesion 11: FASE 5 - Dependencias (000850) y Modulos web (000109) (ADR-0017)
+
+**Objetivo**: los dos modulos de sistema del vault: organigrama del tenant
+(Dependencias) y module registry global (Modulos web), con migraciones duales,
+seeders demo, tests en matriz dual y UI segun las capturas del prototipo
+(04-dependencias-organigrama, 04b-dependencias-detalle, 05-modulos-web-registro).
+
+**Hecho**:
+- Dominio: OrgUnit (TenantEntity: Name 150, Kind enum OrgUnitKind Area/Team,
+  ParentId self-FK NO ACTION, ResponsibleTenantUserId?, Description? 600,
+  SortOrder, IsArchived) y OrgUnitMember (FK cascade a la unidad, unico
+  (OrgUnitId, TenantUserId), Role? 100). ModuleDefinition GLOBAL de plataforma
+  (LegacyCode 6 digitos unico, Name, Description?, Route?, Area enum ModuleArea
+  Principal/Operaciones/Automatizacion/Sistema/Crm, IsCore; SIN TenantId y SIN
+  HasQueryFilter, justificado en ADR-0017: es catalogo, duplicarlo por tenant
+  reintroduce la desincronizacion del legacy) y TenantModule (TenantEntity:
+  FK Restrict al catalogo, IsEnabled, SettingsJson jsonb/nvarchar dual, unico
+  (TenantId, ModuleDefinitionId)).
+- IOrgUnitService (Application/Organization): GetTreeAsync (arbol anidado
+  ordenado por SortOrder+nombre, raices = sin padre o padre no visible),
+  ListAsync, GetAsync, GetKpisAsync (Dependencias / Usuarios distintos
+  (miembros+responsables de unidades activas) / Areas), Create/Update con
+  VALIDACION DE CICLOS (OrgUnitTree.WouldCreateCycle, funcion PURA con set de
+  visitados: arbol corrupto = ciclo, fail-closed), SetArchived (soft-delete;
+  bloqueado con hijas activas), Add/RemoveMember. Resultados tipados
+  OrgResult<T> (patron ADR-0013/0016).
+- IModuleRegistryService (Application/Modules): ListCatalogAsync (catalogo +
+  estado del tenant activo; sin fila = deshabilitado), UpsertDefinitionAsync
+  (SOLO PlatformAdmin, lo usa el seeder), SetModuleEnabledAsync (IsCore no se
+  puede deshabilitar), UpdateSettingsAsync (valida objeto JSON),
+  GetEnabledModulesAsync(tenantId) fail-closed (tenant ambiente distinto =>
+  vacio; sin ambiente = plataforma) pensado para derivar el menu del registry
+  (TODO policies por modulo documentado en la interfaz y el ADR).
+- Migraciones DUALES AddOrgAndModuleRegistry (PG + SQL Server) aplicadas y
+  verificadas en los contenedores dev (5442/1443): org_units, org_unit_members,
+  module_definitions (unico legacy_code), tenant_modules (unico tenant+modulo,
+  settings_json jsonb/nvarchar(max)).
+- Seeders Development idempotentes: organigrama demo de 5 unidades para SKY
+  SYSTEM (Direccion General > Comercial / Tecnologia > Desarrollo / Gestion
+  Humana; owner responsable de la raiz y miembro; en la base dev actual el
+  tenant demo solo tiene demo-admin@ecorex.tareas, el fallback por rol Owner lo
+  resolvio) y catalogo global de 11 modulos reales (000038, 000042, 000636,
+  000889, 000291, 000131, 000802, 000850, 000109, 000788 y 000867 placeholders
+  sin ruta) TODOS habilitados para SKY SYSTEM.
+- UI /dependencias (reemplaza el stub): cabecera modulo 000850, KPIs
+  Dependencias/Usuarios/Areas, organigrama como arbol de cards CSS puro
+  (chevron expandir/contraer, dot por tipo, avatar del responsable por
+  iniciales, contador de miembros, boton + para sub-dependencia al hover),
+  panel de detalle (ruta de ancestros, chips tipo/estado, responsable,
+  miembros add/remove con rol, editar, archivar/restaurar) y modal de
+  alta/edicion (nombre, tipo, padre, responsable, orden, descripcion). Estilos
+  propios de la pagina con tokens del prototipo (--surface/--ink/--line/--t-*)
+  y fallback a variables legacy; app.css NO se toco (agente paralelo).
+- UI /modulos-web (reemplaza el stub): KPIs registrados/activos/nucleo, tabla
+  del catalogo (codigo legacy, nombre+descripcion, chip de area, ruta, toggle
+  de estado por tenant, settings), toggle solo para owner/admin del tenant
+  (claim tenant_role) o platform_role, candado visual en modulos nucleo
+  habilitados, modal de settings JSON con textarea validada (objeto JSON o
+  vacio; el error del parser se muestra tipado).
+- ADR docs/decisiones/0017-org-y-module-registry.md.
+
+**Validacion (probado de verdad)**:
+- dotnet build Ecorex.sln: 0 errores.
+- Unit: Domain 35 verdes; Application 91 verdes (8 nuevos de OrgUnitTree:
+  raiz, hermano valido, auto-referencia, hijo directo, descendiente profundo,
+  re-colgar hacia ancestro valido, ciclo preexistente corrupto, padre fuera
+  del mapa).
+- Integracion DUAL (Testcontainers PG16 + SQL Server 2022): 4 tests nuevos x2
+  motores (arbol CRUD + miembros + KPIs + ciclo y auto-referencia rechazados +
+  archivado bloqueado con hijas y sin DELETE fisico; aislamiento cross-tenant
+  de OrgUnit/OrgUnitMember/TenantModule incl. sin-tenant fail-closed; catalogo
+  ModuleDefinition visible desde AMBOS tenants con estado y settings aislados
+  y GetEnabledModulesAsync fail-closed; habilitar/deshabilitar por tenant con
+  proteccion IsCore y NotFound tipado). Suite completa de integracion verde:
+  85/85 (77 previos + 8 nuevos) en AMBOS motores.
+- Dos bugs de traduccion LINQ (OrderBy sobre el DTO proyectado en
+  GetEnabledModulesAsync y ListMembersAsync) encontrados por el test dual y el
+  navegador real; corregidos ordenando antes de proyectar y cubiertos con
+  asserts nuevos.
+- Arranque real contra PG 5442 en puerto 5239 (navegador, login
+  demo-admin@ecorex.tareas): /dependencias muestra KPIs 5/1/4 y el arbol demo;
+  clic en nodo abre el detalle (responsable con avatar, miembro con rol);
+  "+ Nueva dependencia" crea "Calidad" bajo Tecnologia (KPI pasa a 6, ruta
+  "Direccion General > Tecnologia") y se archiva (KPI vuelve a 5, fila queda
+  is_archived=t en BD). /modulos-web muestra 11/11/3; toggle de Flujos 000291
+  apaga (Activos 10, is_enabled=f en BD) y enciende de nuevo; el toggle de un
+  nucleo (000038) esta bloqueado con tooltip; settings de 000850 rechaza
+  "esto no es json" con error tipado y persiste {"maxNiveles":4,...} en jsonb.
+  Sin errores de consola ni de circuito. Proceso detenido al terminar.
+
+**Deudas / TODO (proximas olas)**:
+- Menu de la consola derivado de GetEnabledModulesAsync + policies por modulo
+  (ej. "Modulo.000850.Usar"); hoy el NavMenu sigue estatico y las paginas bajo
+  TenantMember.
+- UI de administracion del catalogo global para PlatformAdmin (hoy solo seeder
+  + UpsertDefinitionAsync listo con la exigencia de policy documentada).
+- ETL FASE 6: portar las dependencias reales del tenant 01 (BITCODE) y el
+  registro de modulos del legacy.
+- Los KPIs del prototipo muestran una 4ta card cortada (carrusel); se
+  implementaron las 3 principales.
+- Sin commit (pedido explicito): cambios en working tree. Se agrego la
+  configuracion superadmin-5239 a .claude/launch.json para la verificacion.

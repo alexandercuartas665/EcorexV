@@ -138,6 +138,10 @@ else
     // Documento de reglas demo (FASE 4 ola 3, ADR-0016): RUL-005 con PASAR_CAMPOS y
     // BLOQUEAR_CAMPO_XCONDICION (FRM-001) y ASIGNAR_CONSECUTIVO autonoma (COT-COM).
     await seeder.EnsureRulesEngineDemoAsync();
+    // Modulos de sistema (FASE 5, ADR-0017): organigrama demo (Dependencias, 000850) y
+    // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
+    await seeder.EnsureOrgUnitsDemoAsync();
+    await seeder.EnsureModuleRegistryAsync();
 }
 
 app.UseHttpsRedirection();

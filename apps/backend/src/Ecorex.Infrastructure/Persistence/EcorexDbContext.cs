@@ -132,6 +132,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<FormFieldRule> FormFieldRules => Set<FormFieldRule>();
     public DbSet<WorkflowNodeRule> WorkflowNodeRules => Set<WorkflowNodeRule>();
 
+    // Modulos de sistema (FASE 5, ADR-0017): organigrama del tenant (Dependencias, legacy
+    // 000850) y registro de modulos (Modulos web, legacy 000109). ModuleDefinition es el
+    // catalogo GLOBAL de plataforma (sin TenantId ni query filter); TenantModule es el
+    // estado por tenant (scoped).
+    public DbSet<OrgUnit> OrgUnits => Set<OrgUnit>();
+    public DbSet<OrgUnitMember> OrgUnitMembers => Set<OrgUnitMember>();
+    public DbSet<ModuleDefinition> ModuleDefinitions => Set<ModuleDefinition>();
+    public DbSet<TenantModule> TenantModules => Set<TenantModule>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -189,6 +198,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<OrgUnitKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ModuleArea>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1060,6 +1071,51 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => x.RuleId);
         });
 
+        // ---- Modulos de sistema (FASE 5, ADR-0017) ----
+
+        modelBuilder.Entity<OrgUnit>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // Self-FK del arbol con NO ACTION: una unidad con hijos no se borra en cascada
+            // (y las unidades nunca se borran fisicamente: se archivan).
+            b.HasOne(x => x.Parent).WithMany()
+                .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ParentId });
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+            b.HasIndex(x => x.ResponsibleTenantUserId);
+        });
+
+        modelBuilder.Entity<OrgUnitMember>(b =>
+        {
+            b.Property(x => x.Role).HasMaxLength(100);
+            // El miembro vive y muere con su unidad.
+            b.HasOne(x => x.OrgUnit).WithMany()
+                .HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.OrgUnitId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => x.TenantUserId);
+        });
+
+        modelBuilder.Entity<ModuleDefinition>(b =>
+        {
+            // Catalogo GLOBAL de plataforma (ADR-0017): sin TenantId y sin query filter.
+            b.Property(x => x.LegacyCode).HasMaxLength(6).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Route).HasMaxLength(200);
+            b.HasIndex(x => x.LegacyCode).IsUnique();
+        });
+
+        modelBuilder.Entity<TenantModule>(b =>
+        {
+            // Settings del tenant como documento JSON: jsonb en PG, nvarchar(max) en SQL Server.
+            b.Property(x => x.SettingsJson).HasColumnType(jsonColumnType);
+            // Restrict: el catalogo global no arrastra estados de tenants al borrarse
+            // (una definicion con estados por tenant no se elimina).
+            b.HasOne(x => x.ModuleDefinition).WithMany()
+                .HasForeignKey(x => x.ModuleDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ModuleDefinitionId }).IsUnique();
+        });
     }
 
     private void ApplyTenantQueryFilters(ModelBuilder modelBuilder)

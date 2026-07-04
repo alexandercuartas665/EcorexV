@@ -837,4 +837,176 @@ public sealed class DatabaseSeeder
             DemoRuleDocumentCode, tenant.Name, formDefinitionId is not null, workflowDefinitionId is not null);
     }
 
+    // ================= FASE 5 (ADR-0017): Dependencias + Modulos web =================
+
+    /// <summary>
+    /// Organigrama demo del tenant SKY SYSTEM (modulo Dependencias, legacy 000850): arbol de
+    /// 5 unidades (Direccion General &gt; Comercial / Tecnologia &gt; Desarrollo / Gestion Humana)
+    /// con el owner como responsable de la raiz y miembros demo. Idempotente por tenant.
+    /// Solo Development.
+    /// </summary>
+    public async Task EnsureOrgUnitsDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.OrgUnits.IgnoreQueryFilters().AnyAsync(u => u.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        var members = await _db.TenantUsers.IgnoreQueryFilters()
+            .Where(u => u.TenantId == tenant.Id)
+            .ToListAsync(cancellationToken);
+        var owner = members.FirstOrDefault(u => u.Email == TenantOwnerEmail)
+            ?? members.OrderBy(u => u.TenantRole == TenantRole.Owner ? 0 : 1).ThenBy(u => u.CreatedAt).FirstOrDefault();
+        var admin = members.FirstOrDefault(u => u.Email == TenantAdminEmail);
+        var operatorUser = members.FirstOrDefault(u => u.Email == TenantOperatorEmail);
+        var viewer = members.FirstOrDefault(u => u.Email == TenantViewerEmail);
+        if (owner is null) { return; }
+
+        var direccion = new OrgUnit
+        {
+            TenantId = tenant.Id,
+            Name = "Direccion General",
+            Kind = OrgUnitKind.Area,
+            ResponsibleTenantUserId = owner.Id,
+            Description = "Raiz del organigrama: direccion de la compania.",
+            SortOrder = 0
+        };
+        var comercial = new OrgUnit
+        {
+            TenantId = tenant.Id,
+            Name = "Comercial",
+            Kind = OrgUnitKind.Area,
+            ParentId = direccion.Id,
+            ResponsibleTenantUserId = admin?.Id,
+            Description = "Gestion de relaciones comerciales, cotizaciones y ventas.",
+            SortOrder = 0
+        };
+        var tecnologia = new OrgUnit
+        {
+            TenantId = tenant.Id,
+            Name = "Tecnologia",
+            Kind = OrgUnitKind.Area,
+            ParentId = direccion.Id,
+            ResponsibleTenantUserId = admin?.Id,
+            Description = "Plataforma, infraestructura y desarrollo de producto.",
+            SortOrder = 1
+        };
+        var desarrollo = new OrgUnit
+        {
+            TenantId = tenant.Id,
+            Name = "Desarrollo",
+            Kind = OrgUnitKind.Team,
+            ParentId = tecnologia.Id,
+            ResponsibleTenantUserId = operatorUser?.Id,
+            Description = "Equipo de construccion de software.",
+            SortOrder = 0
+        };
+        var gestionHumana = new OrgUnit
+        {
+            TenantId = tenant.Id,
+            Name = "Gestion Humana",
+            Kind = OrgUnitKind.Area,
+            ParentId = direccion.Id,
+            Description = "Seleccion, bienestar y nomina.",
+            SortOrder = 2
+        };
+        _db.OrgUnits.AddRange(direccion, comercial, tecnologia, desarrollo, gestionHumana);
+
+        void AddMember(OrgUnit unit, TenantUser? user, string role)
+        {
+            if (user is null) { return; }
+            _db.OrgUnitMembers.Add(new OrgUnitMember
+            {
+                TenantId = tenant.Id,
+                OrgUnitId = unit.Id,
+                TenantUserId = user.Id,
+                Role = role
+            });
+        }
+        AddMember(direccion, owner, "Director general");
+        AddMember(comercial, admin, "Lider comercial");
+        AddMember(comercial, viewer, "Analista");
+        AddMember(desarrollo, operatorUser, "Desarrollador");
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Organigrama demo sembrado para {Tenant}: 5 dependencias con responsables y miembros.", tenant.Name);
+    }
+
+    /// <summary>
+    /// Catalogo GLOBAL de modulos (module registry, legacy 000109, ADR-0017) con los modulos
+    /// reales del sistema, y su estado por tenant: TODOS habilitados para el tenant demo
+    /// SKY SYSTEM. Idempotente por LegacyCode (upsert) y por (tenant, modulo).
+    /// </summary>
+    public async Task EnsureModuleRegistryAsync(CancellationToken cancellationToken = default)
+    {
+        // (LegacyCode, Name, Description, Route, Area, IsCore)
+        (string Code, string Name, string Description, string? Route, ModuleArea Area, bool IsCore)[] catalog =
+        {
+            ("000038", "Actividades", "Crear una actividad (tarea) con tipo, prioridad y flujo.", "/actividades", ModuleArea.Principal, true),
+            ("000042", "Proyectos", "Proyectos con equipo, tablero y avance.", "/proyectos", ModuleArea.Principal, true),
+            ("000636", "Administrar actividades", "Bandeja de administracion de actividades del tenant.", "/actividades", ModuleArea.Operaciones, false),
+            ("000889", "Programar actividad", "Programacion de actividades recurrentes o futuras.", "/actividades", ModuleArea.Operaciones, false),
+            ("000291", "Flujos", "Motor de flujos de proceso BPMN 2.0.", "/flujos", ModuleArea.Automatizacion, false),
+            ("000131", "Formularios", "Formularios dinamicos configurables sin codigo.", "/formularios", ModuleArea.Automatizacion, false),
+            ("000802", "Reglas", "Motor de reglas de negocio con verbos tipados.", "/reglas", ModuleArea.Automatizacion, false),
+            ("000850", "Dependencias", "Organigrama del tenant: areas, equipos y responsables.", "/dependencias", ModuleArea.Sistema, false),
+            ("000109", "Modulos web", "Registro de modulos del sistema y estado por tenant.", "/modulos-web", ModuleArea.Sistema, true),
+            ("000788", "Power BI", "Tableros analiticos embebidos (placeholder).", null, ModuleArea.Sistema, false),
+            ("000867", "Agentes IA", "Agentes de IA gobernados por el AI Gateway (placeholder).", null, ModuleArea.Sistema, false)
+        };
+
+        var existing = await _db.ModuleDefinitions
+            .ToDictionaryAsync(d => d.LegacyCode, cancellationToken);
+        foreach (var item in catalog)
+        {
+            if (!existing.TryGetValue(item.Code, out var definition))
+            {
+                definition = new ModuleDefinition { LegacyCode = item.Code };
+                _db.ModuleDefinitions.Add(definition);
+                existing[item.Code] = definition;
+            }
+            definition.Name = item.Name;
+            definition.Description = item.Description;
+            definition.Route = item.Route;
+            definition.Area = item.Area;
+            definition.IsCore = item.IsCore;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // Estado por tenant: todos habilitados para el tenant demo.
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        var enabledIds = await _db.TenantModules.IgnoreQueryFilters()
+            .Where(tm => tm.TenantId == tenant.Id)
+            .Select(tm => tm.ModuleDefinitionId)
+            .ToListAsync(cancellationToken);
+        var enabledSet = enabledIds.ToHashSet();
+        var added = 0;
+        foreach (var definition in existing.Values)
+        {
+            if (enabledSet.Contains(definition.Id)) { continue; }
+            _db.TenantModules.Add(new TenantModule
+            {
+                TenantId = tenant.Id,
+                ModuleDefinitionId = definition.Id,
+                IsEnabled = true
+            });
+            added++;
+        }
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        _logger.LogInformation(
+            "Catalogo de modulos sembrado ({Count} definiciones); {Added} habilitados nuevos para {Tenant}.",
+            catalog.Length, added, tenant.Name);
+    }
+
 }

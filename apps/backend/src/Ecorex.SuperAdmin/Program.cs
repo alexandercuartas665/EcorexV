@@ -45,7 +45,20 @@ builder.Services.AddAuthorizationBuilder()
     // Solo SuperAdmin (alta del equipo de plataforma).
     .AddPolicy("SuperAdminOnly", p => p.RequireClaim("platform_role", "SuperAdmin"))
     // Miembro de una agencia: tiene claim tenant_id.
-    .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"));
+    .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"))
+    // ---- Policies por modulo (paso 1 del plan: nombres estables) ----
+    // HOY exigen exactamente lo mismo que TenantMember (claim tenant_id) para que el
+    // acceso no cambie; su valor esta en fijar el NOMBRE con el que cada pagina se
+    // protege desde ya. TODO (paso 2): derivar el requisito real de cada policy desde
+    // el Module Registry (GetEnabledModulesAsync + rol del TenantUser), sin tocar las
+    // paginas: solo cambia la definicion aqui.
+    .AddPolicy("Tareas.Ver", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Proyectos.Ver", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Reglas.Editar", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"));
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();

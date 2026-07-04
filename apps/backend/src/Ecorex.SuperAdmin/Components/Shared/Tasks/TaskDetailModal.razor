@@ -169,7 +169,23 @@
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => _confirmClose = true)" disabled="@_busy">Cerrar</button>
                     }
                 }
-                <button class="btn btn-sm btn-outline-secondary" disabled title="Archivado de tareas: pendiente en una fase posterior (sin soporte en el backend actual)">Archivar</button>
+                @* Archivado = visibilidad (no transicion de estado): permitido incluso en Closed. *@
+                @if (item.IsArchived)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="RestoreAsync" disabled="@_busy" title="Devuelve la tarea a los listados">Restaurar</button>
+                }
+                else if (_confirmArchive)
+                {
+                    <span class="tk-confirm">
+                        Archivar la tarea?
+                        <button class="btn btn-sm btn-outline-danger" @onclick="ArchiveAsync" disabled="@_busy">Si, archivar</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _confirmArchive = false)">No</button>
+                    </span>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _confirmArchive = true)" disabled="@_busy" title="Saca la tarea de los listados sin perder su historia">Archivar</button>
+                }
             </div>
 
             @* ===== Cuerpo 2 columnas ===== *@
@@ -459,6 +475,7 @@
     private string _editDesc = "";
     private DateTime? _editDue;
     private bool _confirmClose;
+    private bool _confirmArchive;
     private string? _conflict;
     private string? _actionError;
 
@@ -485,7 +502,7 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
         _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
-        _editingTitle = _editingDesc = _confirmClose = false;
+        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
         _conflict = _actionError = _workLogError = _attError = null;
         _openMenu = null;
         _timerRunning = false;
@@ -695,6 +712,47 @@
         {
             _busy = false;
             _openMenu = null;
+        }
+    }
+
+    // ===== Archivado (visibilidad, no estado) =====
+
+    private async Task ArchiveAsync()
+    {
+        _confirmArchive = false;
+        await ApplyArchiveToggleAsync(archive: true);
+    }
+
+    private async Task RestoreAsync()
+        => await ApplyArchiveToggleAsync(archive: false);
+
+    private async Task ApplyArchiveToggleAsync(bool archive)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = archive
+                ? await TasksSvc.ArchiveAsync(taskId, await ActorAsync(), await ActorNameAsync())
+                : await TasksSvc.RestoreAsync(taskId, await ActorAsync(), await ActorNameAsync());
+            if (result.Status == TaskCoreStatus.Conflict)
+            {
+                _conflict = result.Error;
+            }
+            else if (!result.IsOk)
+            {
+                _actionError = result.Error;
+            }
+            await ReloadAsync(taskId);
+            if (result.IsOk)
+            {
+                await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+            }
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 

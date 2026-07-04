@@ -1,5 +1,6 @@
 @page "/actividades"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Tareas.Ver")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.SuperAdmin.Components.Shared.Tasks
 

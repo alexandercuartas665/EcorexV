@@ -1,11 +1,11 @@
 @page "/modulos-web"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "ModulosWeb.Administrar")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Modules
 @using Ecorex.Domain.Enums
 @inject IModuleRegistryService RegistrySvc
 
-@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "ModulosWeb.Administrar"). *@
 
 <PageTitle>Modulos web - ECOREX.tareas</PageTitle>
 

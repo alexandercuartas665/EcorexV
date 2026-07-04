@@ -1,6 +1,6 @@
 @page "/flujos"
-@attribute [Authorize(Policy = "TenantMember")]
-@* TODO: al construir el modulo real, sustituir TenantMember por policy propia (ej. "Flujos.Editar"). *@
+@attribute [Authorize(Policy = "Flujos.Ver")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 
 <ModuleStub Section="Modulos"
             Title="Flujos del proceso"

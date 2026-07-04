@@ -1039,3 +1039,68 @@ seeders demo, tests en matriz dual y UI segun las capturas del prototipo
 - Blue/green (deploy) queda para la siguiente ola de FASE 7.
 - Sin commit (pedido explicito): todo en working tree; probar el workflow
   en el primer push/PR real.
+
+---
+
+## 2026-07-03 - Sesion 13: Cierre de 3 deudas del nucleo de tareas (archivar, paginador, policies)
+
+**Agentes**: Claude Code (Fable 5). En paralelo otro agente creo tests/Ecorex.E2E.Tests
+(proyecto nuevo) y docs; esta sesion no toco ese proyecto ni el .sln.
+
+**Hecho**:
+- ARCHIVAR TAREA: `ArchiveAsync`/`RestoreAsync` en ITaskItemService/TaskItemService
+  (resultado tipado TaskCoreResult, registra TaskItemActivity "archivo la tarea" /
+  "restauro la tarea", Conflict tipado ante DbUpdateConcurrencyException). Decision
+  documentada en la interfaz: archivar SI se permite sobre tareas Closed (el archivado
+  es visibilidad -IsArchived-, NO transicion de la maquina de estados; la solo-lectura
+  de Closed aplica a la edicion de contenido). Doble archivado / restaurar no archivada
+  -> Invalid tipado. UI: boton Archivar del TaskDetailModal habilitado con confirmacion
+  inline ("Archivar la tarea?"), y boton Restaurar cuando la tarea esta archivada
+  (badge "Archivada" en el hero ya existia).
+- VISTA LISTA de /actividades (TaskKanban): toggle "Ver archivadas" (solo lista; el
+  kanban NUNCA incluye archivadas: IncludeArchived solo se envia en vista lista),
+  badge "Archivada" junto al estado y accion Restaurar por fila (columna visible con
+  el toggle). ListAsync ya tenia el filtro IncludeArchived en TaskItemListFilter.
+- PAGINADOR server-side real de la vista Lista: usa TotalCount/Page/PageSize que
+  ListAsync ya devolvia. Controles Anterior/Siguiente + "N actividades - pagina X de Y"
+  + selector de tamano 25/50/100 (default 25), estilos `.tk-pager` con tokens del
+  prototipo (var(--card)/var(--border)/var(--muted-foreground)). Cambio de filtros o
+  de tamano vuelve a pagina 1; si la pagina queda fuera de rango (ej. se archivo el
+  ultimo item de la ultima pagina) se reubica en la ultima valida. El kanban conserva
+  su carga de 200 (KanbanPageSize); se elimino el aviso "Mostrando X de Y".
+- POLICIES POR MODULO (paso 1 del plan, nombres estables): en Program.cs del SuperAdmin
+  se definieron "Tareas.Ver", "Proyectos.Ver", "Flujos.Ver", "Formularios.Disenar",
+  "Reglas.Editar", "Dependencias.Ver" y "ModulosWeb.Administrar", HOY con el mismo
+  requisito que TenantMember (RequireClaim tenant_id): mismo efecto neto, cero cambio
+  de acceso. Aplicadas reemplazando [Authorize(Policy="TenantMember")] en: Actividades
+  (Tareas.Ver), Proyectos y ProyectoDetalle (Proyectos.Ver), Flujos (Flujos.Ver),
+  Formularios y FormDesigner (Formularios.Disenar), Reglas (Reglas.Editar),
+  Dependencias (Dependencias.Ver) y ModulosWeb (ModulosWeb.Administrar). TODO
+  documentado en Program.cs: paso 2 = derivar el requisito real desde el Module
+  Registry sin tocar las paginas. Inicio/Tableros/etc. siguen en TenantMember.
+- Tests: FakeTaskItemService de RuleVerbTests implementa los 2 metodos nuevos.
+  TaskCoreTests (dual PG/SQL Server) sumo 2 tests: ArchiveAndRestore_ToggleList
+  Visibility_AndRecordActivity (desaparece de ListAsync por defecto, aparece con
+  IncludeArchived, restaurar la devuelve, doble archivado/restauro invalido, traza
+  en TaskItemActivity) y Archive_OnClosedTask_IsAllowed (cerrada se archiva y
+  restaura conservando Closed).
+
+**Validacion**:
+- dotnet build Ecorex.sln: 0 errores (6 warnings heredados). Tests unitarios verdes:
+  Domain 35/35, Application 91/91. Filtro TaskCore dual completo: 12/12 verdes
+  (6 tests x PG16 + SQL Server 2022 via Testcontainers, 17 s).
+- Arranque real contra Postgres 5442 en http://localhost:5241 (config nueva
+  superadmin-5241 en .claude/launch.json), login demo-admin@ecorex.tareas:
+  archivar T00006 desde el detalle (confirmacion inline, badge Archivada, actividad
+  "archivo la tarea", boton pasa a Restaurar); la tarea sale de la lista (5) y del
+  kanban (5 tarjetas); toggle "Ver archivadas" la muestra con badge + Restaurar y
+  al restaurar vuelve normal (6). Paginador probado con PageSize temporal 5 y 6
+  tareas: "pagina 1 de 2" (5 filas), Siguiente -> pagina 2 de 2 (1 fila, boton
+  deshabilitado), selector a 25 -> pagina 1 de 1 con 6 filas; luego se restauro el
+  default 25 y se recompilo. Las 7 rutas con policy nueva responden 200 sin redirect
+  a /login con demo-admin. Sin errores de consola. Proceso detenido al terminar.
+
+**Deudas / TODO**:
+- Paso 2 de policies: derivar requisitos desde el Module Registry (solo Program.cs).
+- El paginador aplica a la vista Lista; el kanban sigue topado a 200 por columna-fuente.
+- Sin commit (pedido explicito): cambios en working tree.

@@ -1,5 +1,6 @@
 @page "/dependencias"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Dependencias.Ver")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Organization
 @using Ecorex.Application.Tenancy
@@ -7,7 +8,6 @@
 @inject IOrgUnitService OrgSvc
 @inject ITenantUserService UsersSvc
 
-@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Dependencias.Administrar"). *@
 
 <PageTitle>Dependencias - ECOREX.tareas</PageTitle>
 

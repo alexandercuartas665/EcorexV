@@ -1,5 +1,6 @@
 @page "/reglas"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Reglas.Editar")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using System.Text.Json.Nodes
@@ -8,7 +9,6 @@
 @inject IRuleDocumentService RulesSvc
 @inject IRulesEngine Engine
 
-@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Reglas.Editar"). *@
 
 <PageTitle>Reglas - ECOREX.tareas</PageTitle>
 

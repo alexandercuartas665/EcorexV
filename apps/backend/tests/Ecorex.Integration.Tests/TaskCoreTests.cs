@@ -136,6 +136,93 @@ public abstract class TaskCoreTestsBase
         Assert.Equal(TaskCoreStatus.Invalid, edit.Status);
     }
 
+    [Fact]
+    public async Task ArchiveAndRestore_ToggleListVisibility_AndRecordActivity()
+    {
+        var seed = await SeedTenantAsync("Nucleo Archivado");
+        var keep = await CreateTaskAsync(seed, "Tarea visible");
+        var toArchive = await CreateTaskAsync(seed, "Tarea archivable");
+        Assert.True(keep.IsOk, keep.Error);
+        Assert.True(toArchive.IsOk, toArchive.Error);
+        var taskId = toArchive.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = BuildService(ctx, tenantContext);
+
+        // Archivar: OK, no cambia el estado (no es transicion de la maquina de estados).
+        var previousStatus = toArchive.Value.Item.Status;
+        var archived = await service.ArchiveAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.True(archived.IsOk, archived.Error);
+        Assert.True(archived.Value!.IsArchived);
+        Assert.Equal(previousStatus, archived.Value.Status);
+
+        // Doble archivado -> Invalid tipado, no excepcion.
+        var again = await service.ArchiveAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.Invalid, again.Status);
+
+        // ListAsync por defecto (IncludeArchived = false) la oculta; el resto sigue visible.
+        var defaultList = await service.ListAsync(new TaskItemListFilter());
+        Assert.Equal(1, defaultList.TotalCount);
+        Assert.DoesNotContain(defaultList.Items, t => t.Id == taskId);
+
+        // Con IncludeArchived = true aparece marcada como archivada.
+        var withArchived = await service.ListAsync(new TaskItemListFilter(IncludeArchived: true));
+        Assert.Equal(2, withArchived.TotalCount);
+        var archivedItem = Assert.Single(withArchived.Items, t => t.Id == taskId);
+        Assert.True(archivedItem.IsArchived);
+
+        // Restaurar: vuelve al listado por defecto con el mismo estado.
+        var restored = await service.RestoreAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.True(restored.IsOk, restored.Error);
+        Assert.False(restored.Value!.IsArchived);
+        Assert.Equal(previousStatus, restored.Value.Status);
+        var afterRestore = await service.ListAsync(new TaskItemListFilter());
+        Assert.Equal(2, afterRestore.TotalCount);
+        Assert.Contains(afterRestore.Items, t => t.Id == taskId);
+
+        // Restaurar una no archivada -> Invalid tipado.
+        var notArchived = await service.RestoreAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.Invalid, notArchived.Status);
+
+        // Quedo la traza en TaskItemActivity: "archivo la tarea" y "restauro la tarea".
+        var activities = await ctx.TaskItemActivities.AsNoTracking()
+            .Where(a => a.TaskItemId == taskId)
+            .Select(a => a.Text)
+            .ToListAsync();
+        Assert.Contains("archivo la tarea", activities);
+        Assert.Contains("restauro la tarea", activities);
+    }
+
+    [Fact]
+    public async Task Archive_OnClosedTask_IsAllowed()
+    {
+        // Decision documentada en ITaskItemService: el archivado es visibilidad, no una
+        // transicion de estado, y archivar tareas Closed es el caso tipico de limpieza.
+        var seed = await SeedTenantAsync("Nucleo Archivo Cerradas");
+        var created = await CreateTaskAsync(seed, "Tarea cerrada y archivada");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var service = BuildService(ctx, tenantContext);
+
+        Assert.True((await service.ChangeStatusAsync(taskId, TaskItemStatus.InProgress, null, seed.PlatformUserId, "Tester")).IsOk);
+        Assert.True((await service.ChangeStatusAsync(taskId, TaskItemStatus.Done, null, seed.PlatformUserId, "Tester")).IsOk);
+        Assert.True((await service.ChangeStatusAsync(taskId, TaskItemStatus.Closed, null, seed.PlatformUserId, "Tester")).IsOk);
+
+        var archived = await service.ArchiveAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.True(archived.IsOk, archived.Error);
+        Assert.True(archived.Value!.IsArchived);
+        Assert.Equal(TaskItemStatus.Closed, archived.Value.Status);
+
+        // Y tambien se puede restaurar: sigue Closed (solo cambio la visibilidad).
+        var restored = await service.RestoreAsync(taskId, seed.PlatformUserId, "Tester");
+        Assert.True(restored.IsOk, restored.Error);
+        Assert.Equal(TaskItemStatus.Closed, restored.Value!.Status);
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

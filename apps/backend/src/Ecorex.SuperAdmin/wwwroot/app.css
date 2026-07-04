@@ -1404,6 +1404,12 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-desc-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
 .tk-empty-note { font-size: 12.5px; color: var(--muted-foreground); font-style: italic; margin: 0; }
 
+/* Paginador de la vista Lista (server-side sobre TotalCount/Page/PageSize de ListAsync) */
+.tk-pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+.tk-pager-info { font-size: 12.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.tk-pager-size { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); }
+.tk-pager-size select { max-width: 80px; }
+
 /* Worklog: cronometro + manual + historial */
 .tk-worklog-total { font-size: 12.5px; color: var(--muted-foreground); }
 .tk-worklog-total strong { color: var(--foreground); font-variant-numeric: tabular-nums; }

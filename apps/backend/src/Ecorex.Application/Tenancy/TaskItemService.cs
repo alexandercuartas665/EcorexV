@@ -306,6 +306,61 @@ public sealed class TaskItemService : ITaskItemService
         return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
     }
 
+    public async Task<TaskCoreResult<TaskItemSummaryDto>> ArchiveAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        // Archivado = visibilidad (IsArchived), NO transicion de estado: no pasa por
+        // TaskItemStateMachine y se permite sobre tareas Closed (caso tipico: limpiar
+        // el historial cerrado). Ver decision documentada en ITaskItemService.
+        var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.NotFound("Tarea no encontrada.");
+        }
+        if (task.IsArchived)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.Invalid("La tarea ya esta archivada.");
+        }
+
+        task.IsArchived = true;
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+            TaskActivityType.Action, "archivo la tarea"));
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
+        }
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+    }
+
+    public async Task<TaskCoreResult<TaskItemSummaryDto>> RestoreAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.NotFound("Tarea no encontrada.");
+        }
+        if (!task.IsArchived)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.Invalid("La tarea no esta archivada.");
+        }
+
+        task.IsArchived = false;
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+            TaskActivityType.Action, "restauro la tarea"));
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
+        }
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+    }
+
     public async Task<IReadOnlyList<TaskItemTagDto>> ListTagsAsync(CancellationToken cancellationToken = default)
     {
         return await _db.TaskItemTags.AsNoTracking()

@@ -1,5 +1,6 @@
 @page "/formularios/{Id:guid}/disenar"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Formularios.Disenar")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Forms

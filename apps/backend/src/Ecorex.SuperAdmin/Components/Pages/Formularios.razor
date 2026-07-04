@@ -1,12 +1,12 @@
 @page "/formularios"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Formularios.Disenar")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
 @inject IFormDefinitionService FormsSvc
 @inject NavigationManager Nav
 
-@* TODO: al madurar el modulo, sustituir TenantMember por policy propia (ej. "Formularios.Disenar"). *@
 
 <PageTitle>Formularios - ECOREX.tareas</PageTitle>
 

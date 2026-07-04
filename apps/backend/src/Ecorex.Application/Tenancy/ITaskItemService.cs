@@ -29,6 +29,22 @@ public interface ITaskItemService
     Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Archiva la tarea (soft-archive, IsArchived = true): sale de los listados por defecto
+    /// (ListAsync sin IncludeArchived) pero conserva toda su historia. NO es una transicion de
+    /// la maquina de estados: el Status no cambia. Decision: archivar tareas Closed SI esta
+    /// permitido (es el caso tipico: limpiar el historial cerrado); la restriccion de solo
+    /// lectura de Closed aplica a la EDICION de contenido, no a la visibilidad.
+    /// Registra la actividad "archivo la tarea".
+    /// </summary>
+    Task<TaskCoreResult<TaskItemSummaryDto>> ArchiveAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Restaura una tarea archivada (IsArchived = false): vuelve a los listados por defecto
+    /// con el mismo Status que tenia. Registra la actividad "restauro la tarea".
+    /// </summary>
+    Task<TaskCoreResult<TaskItemSummaryDto>> RestoreAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
     // Etiquetas (catalogo por tenant)
     Task<IReadOnlyList<TaskItemTagDto>> ListTagsAsync(CancellationToken cancellationToken = default);
     Task<TaskCoreResult<TaskItemTagDto>> CreateTagAsync(string name, string? color, CancellationToken cancellationToken = default);

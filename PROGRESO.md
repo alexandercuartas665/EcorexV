@@ -2159,3 +2159,60 @@ implemento (reencuadre registrado en ADR-0024).
 - Explorador N8N del legacy (fuentes LinkedIn/Maps, filtros dinamicos, presets):
   NO es este modulo; si se migra la ingesta scraper sera un modulo aparte.
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-04 (sesion aparte) - LOGIN/AUTH: presentacion visual alineada al prototipo maestro
+
+**Que se hizo**:
+- Rediseno de las pantallas de autenticacion (login, registro autogestion,
+  recuperar, restablecer, activar) reemplazando el degradado morado heredado
+  del backbone por el lenguaje del prototipo ECOREX.dc.html: split de dos
+  zonas con aside de marca MUY sobrio (fondo --surface-2 + gradientes
+  radiales sutiles de --brand-soft/--surface-3, tile cuadrado --ink con la
+  inicial de la marca, subtitulo "Sistema de Tareas", titular corto y 3
+  bullets de valor con iconos de linea: tareas/flujos BPMN/formularios) y
+  panel derecho con la TARJETA del formulario (--surface, borde --line,
+  radio --rad 20, sombra --sh-md). En movil (<=768px) colapsa a tarjeta
+  centrada con la marca arriba. Tipografia Hanken Grotesk en todo el shell.
+- NUEVO componente compartido Components/Shared/AuthShell.razor: aside de
+  marca + tarjeta + footer para las 5 paginas de auth (parametros
+  PlatformName/LogoUrl/Headline/Subtext/ShowBullets/ShellClass); el branding
+  configurable (Marca) sigue mandando en logo/titular/subtexto. Login,
+  Recuperar, Restablecer y Activar pasaron a usarlo (se elimino el aside
+  duplicado por pagina); los estilos inline sueltos pasaron a clases
+  (.auth-link, .auth-secondary).
+- app.css: bloque .auth-* reescrito 100% con tokens del prototipo (labels
+  11px/600 uppercase --ink-3; inputs 44px r12 borde --line-2 con focus ring
+  --brand-soft; boton primario 44px r12 --brand/--on-brand hover opacity .9;
+  Google/secundarios 44px r12 --surface hover --surface-2; alertas --danger
+  sobre --t-rose-bg y --ok sobre --t-green-bg; transiciones 0.12-0.16s;
+  focus-visible con outline --ink-2; overrides -webkit-autofill con
+  --surface/--ink para matar el amarillo de Chrome tambien en dark). La
+  vista previa del aside en /marca (.brand-preview-aside) se actualizo al
+  mismo lenguaje sobrio (referenciaba el keyframe morado eliminado).
+- Funcionalidad INTACTA: post a /auth/login-register-forgot-reset-activate,
+  ids #login-email/#login-password y .auth-pane-login button.auth-submit
+  (selectores de la suite E2E) sin cambios, mostrar/ocultar clave, switch
+  login/signup (is-signup), boton Google condicionado a configuracion,
+  hint de agencia para Google signup, mensajes de error/exito por query.
+- Modo oscuro: sin colores duros; todo por tokens bajo html.dark (el script
+  de tema de App.razor corre antes del CSS y aplica tambien al login).
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format --verify-no-changes limpio.
+- App real contra PG 5442 en puerto 5254 + Playwright: /login claro y
+  oscuro (dark forzado via localStorage ecorex-theme en init script:
+  html.dark presente, boton rgb(27,27,30) en claro y rgb(244,244,245)
+  invertido en dark, inputs 44px, Hanken Grotesk computada), viewport movil
+  380px claro/oscuro (tarjeta centrada con tile arriba), /recuperar,
+  /restablecer y /activar renderizan la tarjeta del nuevo shell, toggle
+  MOSTRAR/OCULTAR funciona, switch a pane signup funciona, y el login con
+  owner@sky-system.local / Demo123* aterriza en /inicio.
+- Suite E2E COMPLETA verde 18/18 contra la app real (PG 5442, puerto 5254
+  via ECOREX_E2E_BASEURL), selectores de login sin tocar.
+- Procesos DETENIDOS (5254 sin listeners).
+
+**Deudas / TODO**:
+- AceptarInvitacion.razor usa el estilo viejo login-wrap/login-card (tarjeta
+  suelta violeta del area admin), no el shell de auth; queda fuera del
+  alcance de esta sesion.
+- Sin commit (pedido explicito): cambios en working tree.

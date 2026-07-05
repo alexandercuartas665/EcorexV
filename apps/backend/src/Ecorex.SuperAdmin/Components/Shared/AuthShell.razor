@@ -1,0 +1,117 @@
+@* Shell compartido de las paginas de autenticacion (login, registro, recuperar,
+   restablecer, activar). Lenguaje visual del prototipo maestro ECOREX.dc.html:
+   split sobrio con panel de marca en --surface-2 (tile --ink con inicial,
+   titular corto y bullets de valor con iconos de linea) + tarjeta del
+   formulario a la derecha. En movil (<=768px) el aside se oculta y queda la
+   tarjeta centrada con la marca arriba. Los estilos viven en app.css (.auth-*)
+   y respetan html.dark via tokens. *@
+
+<div class="auth-shell @ShellClass">
+
+    <aside class="auth-aside">
+        <div class="auth-brand">
+            @if (!string.IsNullOrWhiteSpace(LogoUrl))
+            {
+                <img class="auth-brand-logo-img" src="@LogoUrl" alt="@PlatformName" />
+            }
+            else
+            {
+                <div class="auth-brand-tile" aria-hidden="true">@Initial</div>
+            }
+            <div class="auth-brand-text">
+                <span class="auth-brand-name">@PlatformName</span>
+                <span class="auth-brand-sub">@Tagline</span>
+            </div>
+        </div>
+
+        <div class="auth-aside-body">
+            <h2>@Headline</h2>
+            <p>@Subtext</p>
+
+            @if (ShowBullets)
+            {
+                <ul class="auth-points">
+                    <li class="auth-point">
+                        <span class="auth-point-ico" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="4"/><path d="m8.5 12 2.5 2.5 5-5.5"/></svg>
+                        </span>
+                        <span class="auth-point-text">
+                            <b>Tareas y tableros</b>
+                            <span>Kanban, prioridades y vencimientos en un solo lugar.</span>
+                        </span>
+                    </li>
+                    <li class="auth-point">
+                        <span class="auth-point-ico" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="6" r="2.6"/><path d="M18 8.6A9 9 0 0 1 9 17.6"/></svg>
+                        </span>
+                        <span class="auth-point-text">
+                            <b>Flujos configurables</b>
+                            <span>Procesos BPMN y reglas de negocio sin codigo.</span>
+                        </span>
+                    </li>
+                    <li class="auth-point">
+                        <span class="auth-point-ico" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="18" x="5" y="3" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+                        </span>
+                        <span class="auth-point-text">
+                            <b>Formularios dinamicos</b>
+                            <span>Captura datos con validaciones y campos a tu medida.</span>
+                        </span>
+                    </li>
+                </ul>
+            }
+        </div>
+    </aside>
+
+    <main class="auth-main">
+        <div class="auth-mobile-brand">
+            @if (!string.IsNullOrWhiteSpace(LogoUrl))
+            {
+                <img class="auth-brand-logo-img" src="@LogoUrl" alt="@PlatformName" />
+            }
+            else
+            {
+                <div class="auth-brand-tile" aria-hidden="true">@Initial</div>
+            }
+            <div class="auth-brand-text">
+                <span class="auth-brand-name">@PlatformName</span>
+                <span class="auth-brand-sub">@Tagline</span>
+            </div>
+        </div>
+
+        <div class="auth-card">
+            @ChildContent
+        </div>
+
+        <footer class="auth-footer">&copy; @DateTime.UtcNow.Year @PlatformName. Todos los derechos reservados.</footer>
+    </main>
+</div>
+
+@code {
+    /// <summary>Nombre de la plataforma (branding configurable del super admin).</summary>
+    [Parameter] public string PlatformName { get; set; } = "ECOREX";
+
+    /// <summary>Logo configurado en Marca; si falta se dibuja el tile con la inicial.</summary>
+    [Parameter] public string? LogoUrl { get; set; }
+
+    /// <summary>Subtitulo bajo el nombre de la marca.</summary>
+    [Parameter] public string Tagline { get; set; } = "Sistema de Tareas";
+
+    /// <summary>Titular corto del panel de marca.</summary>
+    [Parameter] public string Headline { get; set; } = "Organiza tu operacion";
+
+    /// <summary>Parrafo de apoyo bajo el titular.</summary>
+    [Parameter] public string? Subtext { get; set; }
+
+    /// <summary>Bullets de valor (tareas / flujos / formularios); apagalos en paginas utilitarias.</summary>
+    [Parameter] public bool ShowBullets { get; set; } = true;
+
+    /// <summary>Clases extra del contenedor .auth-shell (p. ej. is-signup en login).</summary>
+    [Parameter] public string? ShellClass { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string Initial => string.IsNullOrWhiteSpace(PlatformName)
+        ? "E"
+        : PlatformName.Trim()[..1].ToUpperInvariant();
+}

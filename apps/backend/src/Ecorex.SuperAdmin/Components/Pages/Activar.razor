@@ -5,77 +5,51 @@
 
 <PageTitle>Activa tu cuenta - @_brand.PlatformName</PageTitle>
 
-<div class="auth-shell">
-    <aside class="auth-aside">
-        <div class="auth-aside-deco auth-deco-tr"></div>
-        <div class="auth-aside-deco auth-deco-bl"></div>
-        <div class="auth-brand">
-            @if (!string.IsNullOrWhiteSpace(_brand.LoginLogoUrl))
-            {
-                <img class="auth-brand-logo-img" src="@_brand.LoginLogoUrl" alt="@_brand.PlatformName" />
-            }
-            else
-            {
-                <div class="auth-brand-logo">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
-                </div>
-            }
-            <span class="auth-brand-name">@_brand.PlatformName</span>
+<AuthShell PlatformName="@_brand.PlatformName"
+           LogoUrl="@_brand.LoginLogoUrl"
+           Headline="Confirma tu correo"
+           Subtext="Te enviamos un codigo de 6 digitos al correo que registraste. Ingresalo aqui para activar tu cuenta."
+           ShowBullets="false">
+
+    <section class="auth-pane">
+        <div class="auth-head">
+            <h1>Activa tu cuenta</h1>
+            <p>Ingresa el codigo que recibiste por correo.</p>
         </div>
-        <div class="auth-aside-body">
-            <h2>Confirma tu correo</h2>
-            <p>Te enviamos un codigo de 6 digitos al correo que registraste. Ingresalo aqui para activar tu cuenta.</p>
-            <div class="auth-dots"><span></span><span></span><span></span></div>
-        </div>
-    </aside>
 
-    <main class="auth-main">
-        <div class="auth-form-wrap">
-            <section class="auth-pane" style="display:block;">
-                <div class="auth-head">
-                    <h1>Activa tu cuenta</h1>
-                    <p>Ingresa el codigo que recibiste por correo.</p>
-                </div>
+        @if (Sent == "1")
+        {
+            <div class="auth-alert auth-alert-ok">Te enviamos el codigo de activacion. Revisa tu bandeja de entrada (y la carpeta de correo no deseado).</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(ErrorMsg))
+        {
+            <div class="auth-alert auth-alert-error">@ErrorMsg</div>
+        }
 
-                @if (Sent == "1")
-                {
-                    <div class="auth-alert auth-alert-ok">Te enviamos el codigo de activacion. Revisa tu bandeja de entrada (y la carpeta de correo no deseado).</div>
-                }
-                @if (!string.IsNullOrWhiteSpace(ErrorMsg))
-                {
-                    <div class="auth-alert auth-alert-error">@ErrorMsg</div>
-                }
+        <form method="post" action="/auth/activate" class="auth-form">
+            <div class="auth-field">
+                <label for="ac-email">Correo</label>
+                <input id="ac-email" name="email" type="email" required value="@Email" placeholder="tu@correo.com" />
+            </div>
+            <div class="auth-field">
+                <label for="ac-code">Codigo de activacion</label>
+                <input id="ac-code" name="code" type="text" required minlength="4" maxlength="10" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" placeholder="6 digitos" style="letter-spacing:8px;font-weight:700;text-align:center;" />
+            </div>
+            <button class="auth-submit" type="submit">
+                <span>Activar cuenta</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+        </form>
 
-                <form method="post" action="/auth/activate" class="auth-form">
-                    <div class="auth-field">
-                        <label for="ac-email">Correo</label>
-                        <div class="auth-input-icon">
-                            <input id="ac-email" name="email" type="email" required value="@Email" placeholder="tu@correo.com" />
-                        </div>
-                    </div>
-                    <div class="auth-field">
-                        <label for="ac-code">Codigo de activacion</label>
-                        <div class="auth-input-icon">
-                            <input id="ac-code" name="code" type="text" required minlength="4" maxlength="10" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" placeholder="6 digitos" style="letter-spacing:8px;font-weight:700;text-align:center;" />
-                        </div>
-                    </div>
-                    <button class="auth-submit" type="submit">
-                        <span>Activar cuenta</span>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                    </button>
-                </form>
+        <form method="post" action="/auth/resend-activation" class="auth-form" style="margin-top:10px;">
+            <input type="hidden" name="email" value="@Email" />
+            <button type="submit" class="auth-secondary">Reenviar codigo</button>
+        </form>
 
-                <form method="post" action="/auth/resend-activation" class="auth-form" style="margin-top:10px;">
-                    <input type="hidden" name="email" value="@Email" />
-                    <button type="submit" class="auth-secondary" style="background:transparent;border:1px solid var(--border, #d1d5db);color:var(--primary);border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;width:100%;">Reenviar codigo</button>
-                </form>
+        <p class="auth-switch"><a class="auth-link" href="/login">Volver a iniciar sesion</a></p>
+    </section>
 
-                <p class="auth-switch" style="margin-top:16px;"><a href="/login" style="color:var(--primary);font-weight:700;text-decoration:none;">Volver a iniciar sesion</a></p>
-            </section>
-        </div>
-        <footer class="auth-footer">&copy; @DateTime.UtcNow.Year @_brand.PlatformName. Todos los derechos reservados.</footer>
-    </main>
-</div>
+</AuthShell>
 
 @code {
     [SupplyParameterFromQuery] public string? Email { get; set; }

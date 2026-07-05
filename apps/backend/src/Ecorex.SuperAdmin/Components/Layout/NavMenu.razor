@@ -317,7 +317,7 @@ else
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>
                 </span>
                 <span class="ecorex-acc-name">Sistema &#183; General</span>
-                <span class="ecorex-acc-count">8</span>
+                <span class="ecorex-acc-count">7</span>
                 <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="ecorex-acc-body">
@@ -325,10 +325,8 @@ else
                     <span class="lbl">Configuracion de entidad</span>
                     <span class="code" title="Modulo legacy 000615 (configuracion del tenant)">000615</span>
                 </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/crear-empresas">
-                    <span class="lbl">Crear empresas</span>
-                    <span class="code" title="Modulo legacy 000072">000072</span>
-                </NavLink>
+                @* "Crear empresas" (000072, adm_empresas) es GOBIERNO multi-tenant: se movio al
+                   area PlatformAdmin como "Ficha de empresa" (/admin/empresas). Ya no vive aqui. *@
                 <NavLink class="ecorex-acc-item" href="actividades">
                     <span class="lbl">Actividades</span>
                     <span class="code" title="Modulo legacy 000270 (asi figura en el fuente)">000270</span>
@@ -444,6 +442,12 @@ else
         <NavLink class="ecorex-nav-link" href="tenants">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>
             <span>Empresas</span>
+        </NavLink>
+
+        <NavLink class="ecorex-nav-link" href="admin/empresas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/></svg>
+            <span>Ficha de empresa</span>
+            <span class="code" title="Modulo legacy 000072 (adm_empresas)">000072</span>
         </NavLink>
 
         @if (_isSuperAdmin)

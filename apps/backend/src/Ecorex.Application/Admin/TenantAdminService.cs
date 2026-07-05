@@ -104,17 +104,40 @@ public sealed class TenantAdminService : ITenantAdminService
         tenant.TaxId = request.TaxId?.Trim();
         tenant.Country = request.Country?.Trim();
         tenant.Currency = request.Currency?.Trim();
+        tenant.City = Normalize(request.City);
+        tenant.Address = Normalize(request.Address);
+        tenant.Phone = Normalize(request.Phone);
+        tenant.Email = Normalize(request.Email);
         tenant.LogoUrl = string.IsNullOrWhiteSpace(request.LogoUrl) ? tenant.LogoUrl : request.LogoUrl.Trim();
 
         _audit.Write(actorUserId, "tenant.profile.update", nameof(Tenant), tenant.Id,
             previousValue: null,
-            newValue: new { tenant.Name, tenant.LegalName, tenant.TaxId, tenant.Country, tenant.Currency, HasLogo = tenant.LogoUrl is not null },
+            newValue: new { tenant.Name, tenant.LegalName, tenant.TaxId, tenant.Country, tenant.Currency, tenant.City, tenant.Address, tenant.Phone, tenant.Email, HasLogo = tenant.LogoUrl is not null },
             tenantId: tenant.Id);
 
         await _db.SaveChangesAsync(cancellationToken);
         return Map(tenant);
     }
 
+    public async Task<IReadOnlyList<TenantUserListItem>> ListUsersAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // Ficha de empresa del operador de plataforma (modulo 000072): lectura cross-tenant
+        // ACOTADA a este tenant. TenantUser es tenant-scoped, asi que se ignora el filtro
+        // global y se filtra explicitamente por el tenant pedido (ADR-0026). El unico acceso
+        // cross-tenant permitido es el del operador de plataforma (protegido por policy).
+        return await _db.TenantUsers
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(u => u.TenantId == tenantId)
+            .OrderBy(u => u.Email)
+            .Select(u => new TenantUserListItem(u.Id, u.Email, u.TenantRole, u.Status))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static TenantDetail Map(Tenant t) =>
-        new(t.Id, t.Name, t.LegalName, t.TaxId, t.Country, t.Currency, t.Status, t.Kind, t.CreatedAt, t.LogoUrl);
+        new(t.Id, t.Name, t.LegalName, t.TaxId, t.Country, t.Currency, t.Status, t.Kind, t.CreatedAt, t.LogoUrl,
+            t.City, t.Address, t.Phone, t.Email);
 }

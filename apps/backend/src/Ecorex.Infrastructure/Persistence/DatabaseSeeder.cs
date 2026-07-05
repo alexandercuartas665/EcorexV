@@ -76,6 +76,11 @@ public sealed class DatabaseSeeder
             TaxId = "900123456-7",
             Country = "CO",
             Currency = "COP",
+            // Perfil de contacto/domicilio de la ficha de empresa (modulo 000072, ADR-0026).
+            City = "Bogota",
+            Address = "Cra 68 #23-45, Puente Aranda",
+            Phone = "+57 601 234 5678",
+            Email = "contacto@sky-system.local",
             Status = TenantStatus.Active,
             Kind = TenantKind.Demo
         };
@@ -241,6 +246,31 @@ public sealed class DatabaseSeeder
         }
         await _db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Recursos demo de la galeria de plantillas registrados ({Count}).", assets.Length);
+    }
+
+    /// <summary>
+    /// Rellena el perfil de contacto/domicilio de la ficha de empresa (modulo 000072, ADR-0026)
+    /// del tenant demo SKY SYSTEM cuando la BD ya existia antes de la migracion AddTenantProfile
+    /// (los campos nuevos quedan null en filas previas). Idempotente: solo escribe los campos
+    /// que esten vacios, nunca pisa datos ya cargados. Cross-tenant acotado al tenant demo.
+    /// </summary>
+    public async Task EnsureTenantProfileDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        var changed = false;
+        if (string.IsNullOrWhiteSpace(tenant.City)) { tenant.City = "Bogota"; changed = true; }
+        if (string.IsNullOrWhiteSpace(tenant.Address)) { tenant.Address = "Cra 68 #23-45, Puente Aranda"; changed = true; }
+        if (string.IsNullOrWhiteSpace(tenant.Phone)) { tenant.Phone = "+57 601 234 5678"; changed = true; }
+        if (string.IsNullOrWhiteSpace(tenant.Email)) { tenant.Email = "contacto@sky-system.local"; changed = true; }
+
+        if (changed)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Perfil de contacto del tenant demo (ficha 000072) completado.");
+        }
     }
 
     /// <summary>

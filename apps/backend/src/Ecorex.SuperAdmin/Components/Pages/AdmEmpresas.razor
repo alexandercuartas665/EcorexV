@@ -1,0 +1,471 @@
+@page "/admin/empresas"
+@attribute [Authorize(Policy = "AdmEmpresas.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Admin
+@using Ecorex.Domain.Enums
+@inject ITenantAdminService TenantsSvc
+@inject ISubscriptionAdminService SubsSvc
+@inject IPlanAdminService PlansSvc
+
+@* ============================================================
+   FICHA DE EMPRESA (modulo 000072, adm_empresas). Reconstruccion
+   segura de la ficha del operador de plataforma (ADR-0026).
+   ESTRUCTURA del proto proto_adm_empresas.html con los TOKENS del
+   workspace (regla ADR-0023): accent -> --brand, success -> --ok,
+   warn/danger/muted -> --t-amber/--danger/--ink-2, card -> --surface.
+   Campos REALES mapeados al modelo Tenant + secciones PLACEHOLDER
+   visible-deshabilitadas con tooltip "Pendiente" para lo que el
+   modelo aun no soporta (ver ADR-0026 para la lista de gaps).
+   ============================================================ *@
+
+<PageTitle>Ficha de empresa - ECOREX.tareas</PageTitle>
+
+<div class="ae-page">
+
+    @* ===== Topbar (proto: breadcrumb + MOD 000072 + acciones) ===== *@
+    <div class="ae-topbar">
+        <nav class="ae-crumb" aria-label="Ruta de navegacion">
+            <span>Home</span>
+            <span class="sep">/</span>
+            <span>Configuracion</span>
+            <span class="sep">/</span>
+            <span class="last">Administracion de empresas</span>
+            <span class="ae-mod-code">MOD 000072</span>
+        </nav>
+        <div class="ae-top-actions">
+            <a class="ae-btn" href="auditoria" title="Historial de acciones de plataforma">Ver auditoria</a>
+            <a class="ae-btn" href="tenants" title="Alta de empresa desde el listado de tenants">+ Nueva empresa</a>
+        </div>
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="ae-flash @(_flashError ? "err" : "ok")" role="status">
+            <span>@_flash</span>
+            <button class="ae-flash-x" @onclick="() => _flash = null" title="Cerrar">x</button>
+        </div>
+    }
+
+    <div class="ae-layout">
+
+        @* ---- Sidebar: selector de empresa (proto: lista de tenants) ---- *@
+        <aside class="ae-side">
+            <div class="ae-side-head">
+                <div class="ae-side-title">Empresas <span class="ae-side-count">@_tenants.Count</span></div>
+            </div>
+            <div class="ae-side-search">
+                <input placeholder="Buscar..." @bind="_search" @bind:event="oninput" />
+            </div>
+            <div class="ae-side-list">
+                @if (FilteredTenants.Count == 0)
+                {
+                    <div class="ae-empty">@(_tenants.Count == 0 ? "No hay empresas registradas." : "Sin resultados para la busqueda.")</div>
+                }
+                @foreach (var t in FilteredTenants)
+                {
+                    <div class="ae-item @(_selected?.Id == t.Id ? "active" : "")" @onclick="() => SelectAsync(t.Id)">
+                        <div class="ae-item-icon">@Initial(t.Name)</div>
+                        <div class="ae-item-body">
+                            <div class="ae-item-name" title="@t.Name">@t.Name</div>
+                            <div class="ae-item-meta">
+                                <span class="ae-dot @StatusDot(t.Status)"></span>
+                                @StatusLabel(t.Status) &middot; @(t.Country ?? "-")
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </aside>
+
+        @* ---- Panel principal ---- *@
+        <div class="ae-main">
+
+            @if (_loading)
+            {
+                <div class="ae-loading">Cargando ficha...</div>
+            }
+            else if (_selected is null)
+            {
+                <div class="ae-loading">Selecciona una empresa en el panel izquierdo para ver su ficha.</div>
+            }
+            else
+            {
+                @* ===== Header-card (proto: avatar + nombre + meta + plan/estado) ===== *@
+                <div class="ae-header-card">
+                    <div class="ae-avatar">@Initial(_selected.Name)</div>
+                    <div class="ae-header-id">
+                        <h1 class="ae-company-name">@(_selected.LegalName ?? _selected.Name)</h1>
+                        <div class="ae-company-meta">
+                            <code>NIT @(_selected.TaxId ?? "-")</code>
+                            <span class="ae-meta-dot"></span>
+                            <span>@(_selected.City ?? "-")@(_selected.Country is not null ? $", {_selected.Country}" : "")</span>
+                            <span class="ae-meta-dot"></span>
+                            <span>Cliente desde @_selected.CreatedAt.LocalDateTime.ToString("yyyy")</span>
+                        </div>
+                    </div>
+                    <div class="ae-header-badges">
+                        <span class="ae-plan-badge">@(_planName ?? "Sin plan")</span>
+                        <span class="ae-status-badge @StatusBadge(_selected.Status)">@StatusLabel(_selected.Status)</span>
+                    </div>
+                </div>
+
+                @* ===== KPIs (proto .kpi-grid). Reales: usuarios/estado; placeholders: modulos/actividades/reglas ===== *@
+                <div class="ae-kpi-grid">
+                    <div class="ae-kpi-card">
+                        <div class="ae-kpi-label">Usuarios</div>
+                        <div class="ae-kpi-val">@_users.Count</div>
+                    </div>
+                    <div class="ae-kpi-card">
+                        <div class="ae-kpi-label">Estado</div>
+                        <div class="ae-kpi-val ae-kpi-sm">@StatusLabel(_selected.Status)</div>
+                    </div>
+                    <div class="ae-kpi-card ae-kpi-pending" title="Pendiente: modulos por empresa (ver ADR-0026)">
+                        <div class="ae-kpi-label">Modulos <span class="ae-pend-tag">Pendiente</span></div>
+                        <div class="ae-kpi-val">&mdash;</div>
+                    </div>
+                    <div class="ae-kpi-card ae-kpi-pending" title="Pendiente: actividades habilitadas por empresa (ver ADR-0026)">
+                        <div class="ae-kpi-label">Actividades <span class="ae-pend-tag">Pendiente</span></div>
+                        <div class="ae-kpi-val">&mdash;</div>
+                    </div>
+                    <div class="ae-kpi-card ae-kpi-pending" title="Pendiente: reglas por empresa (ver ADR-0026)">
+                        <div class="ae-kpi-label">Reglas <span class="ae-pend-tag">Pendiente</span></div>
+                        <div class="ae-kpi-val">&mdash;</div>
+                    </div>
+                </div>
+
+                @* ===== 01 Ficha basica (REAL, editable) ===== *@
+                <details class="ae-section" open>
+                    <summary class="ae-section-head">
+                        <span class="ae-section-title"><span class="ae-num">01</span> Ficha basica <span class="ae-badge-num">Tenant</span></span>
+                        <span class="ae-chev"></span>
+                    </summary>
+                    <div class="ae-section-body">
+                        <div class="ae-row3">
+                            <div class="ae-field">
+                                <label>Razon social</label>
+                                <input @bind="_fLegalName" />
+                            </div>
+                            <div class="ae-field">
+                                <label>Nombre comercial</label>
+                                <input @bind="_fName" />
+                            </div>
+                            <div class="ae-field">
+                                <label>NIT / TaxId</label>
+                                <input @bind="_fTaxId" />
+                            </div>
+                        </div>
+                        <div class="ae-row3">
+                            <div class="ae-field">
+                                <label>Ciudad</label>
+                                <input @bind="_fCity" />
+                            </div>
+                            <div class="ae-field">
+                                <label>Pais</label>
+                                <input @bind="_fCountry" />
+                            </div>
+                            <div class="ae-field">
+                                <label>Direccion</label>
+                                <input @bind="_fAddress" />
+                            </div>
+                        </div>
+                        <div class="ae-row3">
+                            <div class="ae-field">
+                                <label>Telefono</label>
+                                <input @bind="_fPhone" />
+                            </div>
+                            <div class="ae-field">
+                                <label>Email de contacto</label>
+                                <input @bind="_fEmail" />
+                            </div>
+                            <div class="ae-field">
+                                <label>Estado</label>
+                                <select @bind="_fStatus">
+                                    @foreach (var s in Enum.GetValues<TenantStatus>())
+                                    {
+                                        <option value="@s">@StatusLabel(s)</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        @if (_fieldError is not null)
+                        {
+                            <div class="ae-field-error">@_fieldError</div>
+                        }
+                        <div class="ae-form-actions">
+                            <button class="ae-btn" disabled="@_saving" @onclick="ResetForm">Descartar cambios</button>
+                            <button class="ae-btn primary" disabled="@_saving" @onclick="SaveFichaAsync">@(_saving ? "Guardando..." : "Guardar ficha")</button>
+                        </div>
+                    </div>
+                </details>
+
+                @* ===== 08 Usuarios (REAL, solo lectura) ===== *@
+                <details class="ae-section" open>
+                    <summary class="ae-section-head">
+                        <span class="ae-section-title"><span class="ae-num">08</span> Usuarios <span class="ae-badge-num">@_users.Count</span></span>
+                        <span class="ae-chev"></span>
+                    </summary>
+                    <div class="ae-section-body ae-nopad">
+                        @if (_users.Count == 0)
+                        {
+                            <div class="ae-empty ae-pad">Esta empresa no tiene usuarios asignados.</div>
+                        }
+                        else
+                        {
+                            <table class="ae-grid">
+                                <thead>
+                                    <tr><th>Usuario</th><th>Rol</th><th>Estado</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var u in _users)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="ae-user-cell">
+                                                    <div class="ae-user-avatar">@Initial(u.Email)</div>
+                                                    <span>@u.Email</span>
+                                                </div>
+                                            </td>
+                                            <td>@u.TenantRole</td>
+                                            <td><span class="ae-tag @(u.Status == PlatformUserStatus.Active ? "on" : "off")">@u.Status</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            <div class="ae-readonly-note">Solo lectura. La gestion de usuarios del tenant vive en su propio modulo.</div>
+                        }
+                    </div>
+                </details>
+
+                @* ===== Secciones PLACEHOLDER (visible-deshabilitadas, tooltip "Pendiente", ADR-0026) ===== *@
+                @foreach (var ph in _placeholders)
+                {
+                    <details class="ae-section ae-section-pending" title="Pendiente: @ph.Reason">
+                        <summary class="ae-section-head">
+                            <span class="ae-section-title">
+                                <span class="ae-num">@ph.Num</span> @ph.Title
+                                <span class="ae-pend-tag">Pendiente</span>
+                            </span>
+                            <span class="ae-chev"></span>
+                        </summary>
+                        <div class="ae-section-body">
+                            <div class="ae-pending-box">
+                                <div class="ae-pending-title">Modulo pendiente de construccion</div>
+                                <p class="ae-pending-text">@ph.Reason</p>
+                            </div>
+                        </div>
+                    </details>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<TenantListItem> _tenants = new();
+    private List<TenantUserListItem> _users = new();
+    private TenantDetail? _selected;
+    private string? _planName;
+    private string _search = string.Empty;
+    private bool _loading;
+
+    private string? _flash;
+    private bool _flashError;
+    private string? _fieldError;
+    private bool _saving;
+
+    // Campos editables de la ficha (REALES).
+    private string _fName = string.Empty;
+    private string? _fLegalName;
+    private string? _fTaxId;
+    private string? _fCity;
+    private string? _fCountry;
+    private string? _fAddress;
+    private string? _fPhone;
+    private string? _fEmail;
+    private TenantStatus _fStatus;
+
+    // Secciones de la ficha legacy que NO se reconstruyen todavia (ADR-0026): quedan
+    // visibles y deshabilitadas con explicacion, para no perder la estructura del proto.
+    private sealed record Placeholder(string Num, string Title, string Reason);
+    private static readonly Placeholder[] _placeholders =
+    {
+        new("02", "Modulos habilitados", "Los modulos por empresa se administran hoy a nivel de plan/registro de modulos. La asignacion por empresa se hara con un servicio transaccional en otra fase (no se reconstruye la copia de tablas via SQL del legacy)."),
+        new("03", "Actividades", "Las actividades habilitadas por empresa (TIPO_TAR_EMPRESA) requieren su propio servicio; pendiente de fase posterior."),
+        new("04", "Cargar datos", "Copiar tablas entre empresas via SQL (sys.tables + blacklist) es uno de los 9 errores heredados (sin transaccion, SQL concatenado). Se reemplazara por plantillas versionadas transaccionales; no se reconstruye el flujo peligroso."),
+        new("05", "Copiar formularios", "Clonar formularios con 5+ INSERT sueltos y remapeo de IDs por subqueries a db3dev es un flujo peligroso del legacy. Se hara con plantillas de formulario transaccionales (ver ADR-0026)."),
+        new("06", "Datos externos", "Traer datos desde una conexion externa arbitraria (cadena de conexion en un TextBox) es inseguro. Pendiente de un conector gobernado."),
+        new("07", "Reglas", "El motor de reglas por empresa se integrara con el RulesEngine existente en una fase dedicada."),
+        new("09", "Configuraciones (parametros)", "Los parametros por empresa (SUCURSAL_PAR) pasaran a TenantParameter con enforcement de plan; pendiente."),
+        new("10", "Integraciones", "Las integraciones por empresa (Slack/WhatsApp/etc.) exigen boveda de secretos cifrados por empresa; se haran como plugins con secretos en DataProtection/Key Vault, no en texto plano (error #6)."),
+        new("C1", "Contador y revisor fiscal", "Los datos de contador y revisor fiscal aun no existen en el modelo Tenant. Se agregaran como entidad propia (owned) cuando se prioricen; hoy no hay columnas donde persistirlos."),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tenants = (await TenantsSvc.ListAsync()).ToList();
+        var first = _tenants.FirstOrDefault();
+        if (first is not null)
+        {
+            await SelectAsync(first.Id);
+        }
+    }
+
+    private List<TenantListItem> FilteredTenants
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_search))
+            {
+                return _tenants;
+            }
+            var term = _search.Trim().ToLowerInvariant();
+            return _tenants.Where(t => t.Name.ToLowerInvariant().Contains(term)).ToList();
+        }
+    }
+
+    private async Task SelectAsync(Guid id)
+    {
+        _loading = true;
+        _fieldError = null;
+        StateHasChanged();
+
+        _selected = await TenantsSvc.GetAsync(id);
+        if (_selected is not null)
+        {
+            _users = (await TenantsSvc.ListUsersAsync(id)).ToList();
+            var sub = (await SubsSvc.ListByTenantAsync(id)).FirstOrDefault();
+            if (sub is not null)
+            {
+                var plan = await PlansSvc.GetAsync(sub.PlanId);
+                _planName = plan?.Name;
+            }
+            else
+            {
+                _planName = null;
+            }
+            ResetForm();
+        }
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void ResetForm()
+    {
+        if (_selected is null) { return; }
+        _fName = _selected.Name;
+        _fLegalName = _selected.LegalName;
+        _fTaxId = _selected.TaxId;
+        _fCity = _selected.City;
+        _fCountry = _selected.Country;
+        _fAddress = _selected.Address;
+        _fPhone = _selected.Phone;
+        _fEmail = _selected.Email;
+        _fStatus = _selected.Status;
+        _fieldError = null;
+    }
+
+    private async Task SaveFichaAsync()
+    {
+        if (_selected is null) { return; }
+        _fieldError = null;
+
+        if (string.IsNullOrWhiteSpace(_fName))
+        {
+            _fieldError = "El nombre comercial es obligatorio.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var actor = await ActorAsync();
+
+            // Estado via la maquina de estados existente (ChangeStatusAsync), auditado.
+            if (_fStatus != _selected.Status)
+            {
+                await TenantsSvc.ChangeStatusAsync(_selected.Id, new ChangeTenantStatusRequest(_fStatus, "Cambio desde ficha de empresa"), actor);
+            }
+
+            // Perfil (nombre, fiscal, contacto) via UpdateProfileAsync, auditado.
+            var updated = await TenantsSvc.UpdateProfileAsync(_selected.Id, new UpdateTenantProfileRequest(
+                Name: _fName,
+                LegalName: _fLegalName,
+                TaxId: _fTaxId,
+                Country: _fCountry,
+                Currency: _selected.Currency,
+                LogoUrl: null,
+                City: _fCity,
+                Address: _fAddress,
+                Phone: _fPhone,
+                Email: _fEmail), actor);
+
+            if (updated is null)
+            {
+                _flashError = true;
+                _flash = "No se encontro la empresa.";
+                return;
+            }
+
+            _selected = updated with { Status = _fStatus };
+            // Refresca la fila del listado (nombre/estado pueden haber cambiado).
+            var idx = _tenants.FindIndex(t => t.Id == _selected.Id);
+            if (idx >= 0)
+            {
+                _tenants[idx] = _tenants[idx] with { Name = _selected.Name, Status = _selected.Status };
+            }
+            _flashError = false;
+            _flash = "Ficha guardada correctamente.";
+        }
+        catch (Exception ex)
+        {
+            _flashError = true;
+            _flash = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var state = await AuthState;
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string Initial(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? "?" : s.Trim()[..1].ToUpperInvariant();
+
+    private static string StatusLabel(TenantStatus s) => s switch
+    {
+        TenantStatus.Trial => "Trial",
+        TenantStatus.Active => "Activa",
+        TenantStatus.PendingPayment => "Pago pendiente",
+        TenantStatus.PastDue => "Vencida",
+        TenantStatus.Suspended => "Suspendida",
+        TenantStatus.Blocked => "Bloqueada",
+        TenantStatus.Closing => "En cierre",
+        TenantStatus.Archived => "Archivada",
+        _ => s.ToString()
+    };
+
+    private static string StatusDot(TenantStatus s) => s switch
+    {
+        TenantStatus.Active => "ok",
+        TenantStatus.Trial => "info",
+        TenantStatus.Suspended or TenantStatus.Blocked => "danger",
+        TenantStatus.PastDue or TenantStatus.PendingPayment => "warn",
+        _ => "muted"
+    };
+
+    private static string StatusBadge(TenantStatus s) => s switch
+    {
+        TenantStatus.Active => "on",
+        TenantStatus.Suspended or TenantStatus.Blocked => "off",
+        TenantStatus.PastDue or TenantStatus.PendingPayment => "warn",
+        _ => "info"
+    };
+}

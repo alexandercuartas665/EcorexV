@@ -60,7 +60,12 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Conceptos.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"))
-    .AddPolicy("ExtraccionDatos.Editar", p => p.RequireClaim("tenant_id"));
+    .AddPolicy("ExtraccionDatos.Editar", p => p.RequireClaim("tenant_id"))
+    // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
+    // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
+    // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu
+    // se movio del menu del tenant al area de plataforma.
+    .AddPolicy("AdmEmpresas.Ver", p => p.RequireClaim("platform_role"));
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
@@ -137,6 +142,9 @@ else
     await seeder.SeedAsync();
     await seeder.EnsurePlatformAdminTenantAsync();
     await seeder.EnsureDemoTemplateAssetsAsync();
+    // Perfil de contacto de la ficha de empresa demo (modulo 000072, ADR-0026). Idempotente:
+    // rellena City/Address/Phone/Email del tenant demo si quedaron vacios tras la migracion.
+    await seeder.EnsureTenantProfileDemoAsync();
     // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
     await seeder.EnsureTaskCoreDemoAsync();
     // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del

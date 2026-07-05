@@ -32,16 +32,35 @@ public sealed record TenantDetail(
     TenantStatus Status,
     TenantKind Kind,
     DateTimeOffset CreatedAt,
-    string? LogoUrl = null);
+    string? LogoUrl = null,
+    // Perfil de contacto/domicilio (migracion AddTenantProfile, ADR-0026: ficha 000072).
+    string? City = null,
+    string? Address = null,
+    string? Phone = null,
+    string? Email = null);
 
-/// <summary>Actualizacion del perfil de la agencia por su propio administrador (modulo 1.6).</summary>
+/// <summary>Actualizacion del perfil de la agencia por su propio administrador (modulo 1.6)
+/// y por el operador de plataforma desde la ficha de empresa (modulo 000072, ADR-0026).</summary>
 public sealed record UpdateTenantProfileRequest(
     string Name,
     string? LegalName,
     string? TaxId,
     string? Country,
     string? Currency,
-    string? LogoUrl);
+    string? LogoUrl,
+    // Perfil de contacto/domicilio (ADR-0026).
+    string? City = null,
+    string? Address = null,
+    string? Phone = null,
+    string? Email = null);
+
+/// <summary>Un usuario del tenant tal como lo ve el operador de plataforma en la ficha de empresa
+/// (modulo 000072, solo lectura). Cross-tenant acotado y auditado (ADR-0026).</summary>
+public sealed record TenantUserListItem(
+    Guid Id,
+    string Email,
+    TenantRole TenantRole,
+    PlatformUserStatus Status);
 
 // --- Plans ---
 public sealed record PlanLimitInput(

@@ -12,6 +12,23 @@ public class Tenant : BaseEntity
     public string? Country { get; set; }
     public string? Currency { get; set; }
 
+    // --- Perfil de contacto/domicilio de la empresa (migracion AddTenantProfile, ADR-0026) ---
+    // Campos seguros de la ficha del modulo 000072 (adm_empresas) que el modelo Tenant no tenia.
+    // El resto de la ficha legacy (contador/revisor fiscal, integraciones y modulos por empresa,
+    // copiar datos/formularios, reglas) queda como placeholder visible-deshabilitado (ver ADR-0026).
+
+    /// <summary>Ciudad principal de la empresa (SUCURSAL.CIUDAD del legacy).</summary>
+    public string? City { get; set; }
+
+    /// <summary>Direccion fisica de la empresa (SUCURSAL.DIRECCION del legacy).</summary>
+    public string? Address { get; set; }
+
+    /// <summary>Telefono(s) de contacto de la empresa (SUCURSAL.TELS del legacy).</summary>
+    public string? Phone { get; set; }
+
+    /// <summary>Correo de contacto de la empresa (SUCURSAL.EMAIL del legacy).</summary>
+    public string? Email { get; set; }
+
     /// <summary>Ruta del logo de la agencia (subido por el cliente), p.ej. /uploads/tenant-{id}.png.</summary>
     public string? LogoUrl { get; set; }
     public TenantStatus Status { get; set; } = TenantStatus.Trial;

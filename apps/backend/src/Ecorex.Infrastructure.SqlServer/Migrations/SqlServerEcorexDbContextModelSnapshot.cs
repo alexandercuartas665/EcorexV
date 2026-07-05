@@ -4879,6 +4879,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("address");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("city");
+
                     b.Property<string>("Country")
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)")
@@ -4896,6 +4906,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)")
                         .HasColumnName("currency");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("email");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -4922,6 +4937,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("OnlineBookingEnabled")
                         .HasColumnType("bit")
                         .HasColumnName("online_booking_enabled");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("phone");
 
                     b.Property<string>("PublicBookingBaseUrl")
                         .HasMaxLength(300)

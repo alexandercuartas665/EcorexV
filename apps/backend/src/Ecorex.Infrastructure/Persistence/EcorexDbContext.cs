@@ -241,6 +241,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.TaxId).HasMaxLength(80);
             b.Property(x => x.Country).HasMaxLength(80);
             b.Property(x => x.Currency).HasMaxLength(10);
+            b.Property(x => x.City).HasMaxLength(120);
+            b.Property(x => x.Address).HasMaxLength(300);
+            b.Property(x => x.Phone).HasMaxLength(80);
+            b.Property(x => x.Email).HasMaxLength(200);
             b.Property(x => x.LogoUrl).HasMaxLength(500);
             b.Property(x => x.PublicBookingToken).HasMaxLength(64);
             b.Property(x => x.PublicBookingBaseUrl).HasMaxLength(300);

@@ -5,6 +5,83 @@
 
 ---
 
+## 2026-07-05 - Sesion: Modulo ADMINISTRACION DE EMPRESAS / ficha de tenant (000072, ADR-0026)
+
+**Agentes**: coordinador + 1 subagente explorador de la solucion (mapa de Tenant/servicios/
+NavMenu/policies/seeder). Lectura de las 3 fuentes (proto_adm_empresas.html, spec Capa 6 de
+origen, spec Capa 1 con los 9 errores).
+
+**Decision de area**: la ficha 000072 es GOBIERNO multi-tenant -> AREA PlatformAdmin (junto
+a /tenants y /plans), policy nueva `AdmEmpresas.Ver` = RequireClaim("platform_role"). El item
+000072 del NavMenu se MOVIO del menu del tenant (grupo "Sistema - General", contador 8->7,
+policy TenantMember erronea) al bloque SUPER ADMIN SAAS como "Ficha de empresa 000072".
+
+**Hecho**:
+- Pagina real `/admin/empresas` (AdmEmpresas.razor + .razor.css) que REEMPLAZA el stub 000072.
+  Estructura del proto proto_adm_empresas.html con TOKENS del workspace (ADR-0023): topbar
+  14x24 + MOD 000072, layout grid 300px/1fr max 1440, sidebar sticky selector de empresa con
+  dot de estado, header-card r10 avatar gradiente + plan-badge + estado, KPIs 5 cols (usuarios
+  y estado REALES; modulos/actividades/reglas con tag "Pendiente"), secciones colapsables
+  (details/summary nativo, chevron) numeradas 01/08 REALES + 02-10/C1 PLACEHOLDER.
+- Campos REALES editables mapeados a `Tenant`: razon social (LegalName), nombre comercial
+  (Name), NIT (TaxId), pais, ciudad, direccion, telefono, email de contacto, estado (via
+  ChangeStatusAsync, maquina de estados existente, auditado). Usuarios del tenant (TenantUser)
+  en tabla SOLO LECTURA (email/rol/estado).
+- Backend aditivo SIN duplicar CRUD: se REUTILIZA ITenantAdminService. UpdateProfileAsync
+  extendido con City/Address/Phone/Email; nuevo ListUsersAsync(tenantId) cross-tenant ACOTADO
+  (IgnoreQueryFilters + Where TenantId, unico cross-tenant, solo operador por policy). DTOs
+  TenantDetail/UpdateTenantProfileRequest extendidos + TenantUserListItem nuevo.
+- Modelo: 4 columnas nuevas en `Tenant` (City, Address, Phone, Email, nullable). UNA migracion
+  dual `AddTenantProfile` (Ecorex.Infrastructure 20260705044204 EcorexDbContext + Ecorex.
+  Infrastructure.SqlServer 20260705044246 SqlServerEcorexDbContext), puramente aditiva (4
+  AddColumn nullable, sin drops), APLICADA y verificada en PG 5442 (\d tenants) y MSSQL 1443
+  (sys.columns). Config EF en el OnModelCreating compartido (SqlServer hereda EcorexDbContext).
+- Seeder: campos de contacto en el tenant demo SKY SYSTEM (bases nuevas) + EnsureTenantProfile
+  DemoAsync idempotente que rellena City/Address/Phone/Email si estan vacios (bases previas a
+  la migracion). Encadenado en Program.cs tras EnsureDemoTemplateAssetsAsync.
+- 9 secciones PLACEHOLDER visibles-deshabilitadas con tooltip/explicacion "Pendiente": modulos,
+  actividades, cargar datos, copiar formularios, datos externos, reglas, configuraciones,
+  integraciones, contador/revisor fiscal. Los flujos SQL peligrosos del legacy (copiar tablas
+  via sys.tables+blacklist, copiar formularios con 5+ INSERT y db3dev, datos externos con
+  cadena arbitraria) NO se reconstruyen: son parte de los 9 errores (ver ADR-0026).
+
+**Validacion (probado de verdad)**:
+- Build Ecorex.sln 0 errores; `dotnet format --verify-no-changes` limpio; archivos nuevos ASCII.
+- Unit: Domain 35/35, Application 247/247 verdes (sin regresiones).
+- Integracion dual +6 (3 tests x 2 motores PG+SQL Server via Testcontainers) TenantProfileTests
+  verdes: UpdateProfile persiste City/Address/Phone/Email y vuelven en el detalle + Normalize
+  vacia a null; ChangeStatus via maquina de estados reflejado en la ficha; ListUsers ACOTADO
+  al tenant sin fuga entre empresas (A ve solo lo suyo, B lo suyo, orden por email). Test de
+  aislamiento cross-tenant existente 6/6 sigue verde tras el cambio de modelo.
+- E2E Playwright COMPLETA verde 19/19 (era 18, +1 AdmEmpresasTests): login operador de
+  plataforma -> /admin/empresas (MOD 000072) -> seleccionar SKY SYSTEM -> usuarios reales +
+  seccion "Cargar datos" Pendiente -> editar telefono -> guardar (flash ok) -> recargar ->
+  telefono persistido.
+- Verificacion manual claro/oscuro (preview 5253, login admin@ecorex.local): ficha SKY SYSTEM
+  con plan "Plan Empresa", estado Activa, 4 usuarios reales, campos de contacto del seeder
+  (Bogota / +57 601 234 5678 / contacto@sky-system.local), 9 secciones "Pendiente" con tag
+  ambar; edicion de telefono guardada (persistida en BD: tenants.phone; auditoria escrita:
+  super_admin_audit_logs action_name=tenant.profile.update). En dark los tokens conmutan
+  (bg #0A0A0B, surface #161618, ink/brand invertidos) por construccion (solo tokens workspace).
+  NavMenu muestra "Ficha de empresa 000072" en SUPER ADMIN SAAS; grupo tenant "Sistema-General"
+  paso a 7 items.
+- Procesos DETENIDOS (preview 5253 parado; proceso residual 5234 de sesion previa terminado;
+  fixture E2E mata su app). Sin listeners en 525x/5234.
+
+**Deudas / TODO** (documentadas en ADR-0026):
+- Cada una de las 9 secciones placeholder necesita su ola: asignacion de modulos/actividades/
+  parametros/integraciones POR EMPRESA (con servicios transaccionales), contador/revisor como
+  entidad owned del Tenant, y plantillas versionadas transaccionales para reemplazar la copia
+  de datos/formularios del legacy (nunca SQL crudo + blacklist + db3dev).
+- Policy `AdmEmpresas.Ver` en paso 1 (solo platform_role); paso 2 = MFA para acciones criticas
+  + derivar del rol real, como el resto de policies del proyecto.
+- Sin commit (pedido explicito): cambios en working tree.
+
+**Decisiones**: ver ADR-0026 (area PlatformAdmin, mapeo a Tenant real, gaps como placeholders,
+por que NO se reconstruyen los flujos SQL peligrosos, relacion con /tenants existente).
+
+---
+
 ## 2026-07-05 - Sesion: Modulo EXTRACCION DE DATOS / web scraping (000730, ADR-0025)
 
 **Agentes**: agente unico (lectura proto+spec, modelo+DAL dual, servicio+guard SSRF,

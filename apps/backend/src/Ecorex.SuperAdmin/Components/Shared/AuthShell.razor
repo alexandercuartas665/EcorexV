@@ -1,10 +1,17 @@
 @* Shell compartido de las paginas de autenticacion (login, registro, recuperar,
    restablecer, activar). Lenguaje visual del prototipo maestro ECOREX.dc.html:
-   split sobrio con panel de marca en --surface-2 (tile --ink con inicial,
-   titular corto y bullets de valor con iconos de linea) + tarjeta del
-   formulario a la derecha. En movil (<=768px) el aside se oculta y queda la
-   tarjeta centrada con la marca arriba. Los estilos viven en app.css (.auth-*)
-   y respetan html.dark via tokens. *@
+   split sobrio con panel de marca en --surface-2 (tile --ink con inicial) +
+   tarjeta del formulario a la derecha. En movil (<=900px) el aside se oculta y
+   queda la tarjeta centrada con la marca arriba. Los estilos viven en app.css
+   (.auth-* y .auth-mock-*) y respetan html.dark via tokens.
+
+   El aside tiene DOS modos:
+   - ShowBoardMock=true (SOLO Login): "ventana al producto" con un mockup
+     estatico y elegante del TABLERO KANBAN del workspace (misma paleta que
+     ActivityBoardDetail/.ab-*), para que el login sepa a lo que se entra.
+   - ShowBoardMock=false (Recuperar/Restablecer/Activar): aside sobrio con
+     titular + subtexto y, si ShowBullets, los bullets de valor. En esos flujos
+     utilitarios el mockup distrae, asi que se deja el panel simple. *@
 
 <div class="auth-shell @ShellClass">
 
@@ -24,43 +31,137 @@
             </div>
         </div>
 
-        <div class="auth-aside-body">
-            <h2>@Headline</h2>
-            <p>@Subtext</p>
+        @if (ShowBoardMock)
+        {
+            @* "Ventana al producto": mockup ESTATICO del tablero kanban del workspace,
+               con los tokens exactos (misma paleta que .ab-*). Puramente decorativo. *@
+            <div class="auth-aside-body auth-aside-body-mock" aria-hidden="true">
+                <div class="auth-mock-lead">
+                    <span class="auth-mock-eyebrow">Tu tablero de trabajo</span>
+                    <p class="auth-mock-value">Tareas, flujos, formularios y reglas &mdash; configurables sin codigo.</p>
+                </div>
 
-            @if (ShowBullets)
-            {
-                <ul class="auth-points">
-                    <li class="auth-point">
-                        <span class="auth-point-ico" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="4"/><path d="m8.5 12 2.5 2.5 5-5.5"/></svg>
-                        </span>
-                        <span class="auth-point-text">
-                            <b>Tareas y tableros</b>
-                            <span>Kanban, prioridades y vencimientos en un solo lugar.</span>
-                        </span>
-                    </li>
-                    <li class="auth-point">
-                        <span class="auth-point-ico" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="6" r="2.6"/><path d="M18 8.6A9 9 0 0 1 9 17.6"/></svg>
-                        </span>
-                        <span class="auth-point-text">
-                            <b>Flujos configurables</b>
-                            <span>Procesos BPMN y reglas de negocio sin codigo.</span>
-                        </span>
-                    </li>
-                    <li class="auth-point">
-                        <span class="auth-point-ico" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="18" x="5" y="3" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-                        </span>
-                        <span class="auth-point-text">
-                            <b>Formularios dinamicos</b>
-                            <span>Captura datos con validaciones y campos a tu medida.</span>
-                        </span>
-                    </li>
+                <div class="auth-mock-window">
+                    <div class="auth-mock-topbar">
+                        <span class="auth-mock-dots"><i></i><i></i><i></i></span>
+                        <span class="auth-mock-crumb">Comercial &middot; Requerimiento Infraestructura</span>
+                        <span class="auth-mock-status">En progreso</span>
+                    </div>
+                    <div class="auth-mock-board">
+                        @* --- Columna: Por hacer (t-blue) --- *@
+                        <div class="auth-mock-col">
+                            <div class="auth-mock-colhead"><span class="auth-mock-dot" style="background:var(--ink-3)"></span>Por hacer<span class="auth-mock-n">2</span></div>
+                            <div class="auth-mock-card">
+                                <div class="auth-mock-title">Relevamiento de racks</div>
+                                <div class="auth-mock-prog"><span>Progreso</span><strong>1/4</strong></div>
+                                <div class="auth-mock-bar"><i style="width:25%;background:var(--t-blue)"></i></div>
+                                <div class="auth-mock-foot">
+                                    <span class="auth-mock-avs"><i style="background:#5B8DEF">JM</i><i style="background:#3FA39B">RG</i></span>
+                                    <span class="auth-mock-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>12 jul</span>
+                                </div>
+                            </div>
+                            <div class="auth-mock-card">
+                                <div class="auth-mock-title">Inventario de switches</div>
+                                <div class="auth-mock-prog"><span>Progreso</span><strong>0/3</strong></div>
+                                <div class="auth-mock-bar"><i style="width:6%;background:var(--t-blue)"></i></div>
+                                <div class="auth-mock-foot">
+                                    <span class="auth-mock-avs"><i style="background:#C77FD0">AL</i></span>
+                                    <span class="auth-mock-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>15 jul</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* --- Columna: En progreso (danger) --- *@
+                        <div class="auth-mock-col">
+                            <div class="auth-mock-colhead"><span class="auth-mock-dot" style="background:var(--warn)"></span>En progreso<span class="auth-mock-n">1</span></div>
+                            <div class="auth-mock-card">
+                                <div class="auth-mock-title">Cableado estructurado</div>
+                                <div class="auth-mock-prog"><span>Progreso</span><strong>3/5</strong></div>
+                                <div class="auth-mock-bar"><i style="width:60%;background:var(--danger)"></i></div>
+                                <div class="auth-mock-foot">
+                                    <span class="auth-mock-avs"><i style="background:#E0876B">CM</i><i style="background:#7E78E6">DV</i></span>
+                                    <span class="auth-mock-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Hoy</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* --- Columna: En revision (t-amber) --- *@
+                        <div class="auth-mock-col">
+                            <div class="auth-mock-colhead"><span class="auth-mock-dot" style="background:var(--t-amber)"></span>En revision<span class="auth-mock-n">1</span></div>
+                            <div class="auth-mock-card">
+                                <div class="auth-mock-title">Config. de firewall</div>
+                                <div class="auth-mock-prog"><span>Progreso</span><strong>4/5</strong></div>
+                                <div class="auth-mock-bar"><i style="width:80%;background:var(--t-amber)"></i></div>
+                                <div class="auth-mock-foot">
+                                    <span class="auth-mock-avs"><i style="background:#D9A441">SP</i></span>
+                                    <span class="auth-mock-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Manana</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* --- Columna: Completado (ok) --- *@
+                        <div class="auth-mock-col">
+                            <div class="auth-mock-colhead"><span class="auth-mock-dot" style="background:var(--ok)"></span>Completado<span class="auth-mock-n">2</span></div>
+                            <div class="auth-mock-card is-done">
+                                <div class="auth-mock-title">Plano de sala</div>
+                                <div class="auth-mock-prog"><span>Progreso</span><strong>5/5</strong></div>
+                                <div class="auth-mock-bar"><i style="width:100%;background:var(--ok)"></i></div>
+                                <div class="auth-mock-foot">
+                                    <span class="auth-mock-avs"><i style="background:#5FAE6E">MT</i></span>
+                                    <span class="auth-mock-due auth-mock-due-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>1 jul</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <ul class="auth-mock-points">
+                    <li><span class="auth-mock-pico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="4"/><path d="m8.5 12 2.5 2.5 5-5.5"/></svg></span>Tareas y tableros</li>
+                    <li><span class="auth-mock-pico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="6" r="2.6"/><path d="M18 8.6A9 9 0 0 1 9 17.6"/></svg></span>Flujos sin codigo</li>
+                    <li><span class="auth-mock-pico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="18" x="5" y="3" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>Formularios dinamicos</li>
                 </ul>
-            }
-        </div>
+            </div>
+        }
+        else
+        {
+            <div class="auth-aside-body">
+                <h2>@Headline</h2>
+                <p>@Subtext</p>
+
+                @if (ShowBullets)
+                {
+                    <ul class="auth-points">
+                        <li class="auth-point">
+                            <span class="auth-point-ico" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="4"/><path d="m8.5 12 2.5 2.5 5-5.5"/></svg>
+                            </span>
+                            <span class="auth-point-text">
+                                <b>Tareas y tableros</b>
+                                <span>Kanban, prioridades y vencimientos en un solo lugar.</span>
+                            </span>
+                        </li>
+                        <li class="auth-point">
+                            <span class="auth-point-ico" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="6" r="2.6"/><path d="M18 8.6A9 9 0 0 1 9 17.6"/></svg>
+                            </span>
+                            <span class="auth-point-text">
+                                <b>Flujos configurables</b>
+                                <span>Procesos BPMN y reglas de negocio sin codigo.</span>
+                            </span>
+                        </li>
+                        <li class="auth-point">
+                            <span class="auth-point-ico" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="18" x="5" y="3" rx="3"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+                            </span>
+                            <span class="auth-point-text">
+                                <b>Formularios dinamicos</b>
+                                <span>Captura datos con validaciones y campos a tu medida.</span>
+                            </span>
+                        </li>
+                    </ul>
+                }
+            </div>
+        }
     </aside>
 
     <main class="auth-main">
@@ -105,6 +206,14 @@
 
     /// <summary>Bullets de valor (tareas / flujos / formularios); apagalos en paginas utilitarias.</summary>
     [Parameter] public bool ShowBullets { get; set; } = true;
+
+    /// <summary>
+    /// Cuando es true, el aside muestra la "ventana al producto" (mockup estatico del
+    /// tablero kanban del workspace) en vez del titular + bullets. Se usa SOLO en Login;
+    /// en las paginas utilitarias (recuperar/restablecer/activar) el mockup distrae, asi
+    /// que se deja el aside sobrio.
+    /// </summary>
+    [Parameter] public bool ShowBoardMock { get; set; }
 
     /// <summary>Clases extra del contenedor .auth-shell (p. ej. is-signup en login).</summary>
     [Parameter] public string? ShellClass { get; set; }

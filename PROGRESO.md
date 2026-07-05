@@ -5,6 +5,67 @@
 
 ---
 
+## 2026-07-05 - Sesion: Login "ventana al producto" (mockup del tablero kanban en el aside)
+
+**Agentes**: coordinador (Opus). Lectura de AuthShell.razor, ActivityBoardDetail.razor + AbUi.cs
+(paleta 1:1 del prototipo work), .auth-*/.ab-* de app.css y las 4 paginas de auth.
+
+**Pedido**: un login MAS ACORDE AL TABLERO. El aside de marca (fondo gris + 3 bullets) debia
+mostrar una VENTANA AL PRODUCTO: un mockup estatico y elegante del TABLERO KANBAN del workspace,
+renderizado con los tokens exactos, para que el login "sepa" a lo que se entra.
+
+**Decision de diseno**:
+- AuthShell.razor gana un parametro `ShowBoardMock` (default false). El aside tiene DOS modos:
+  * ShowBoardMock=true -> SOLO Login: composite "ventana al producto" (identidad arriba +
+    eyebrow "Tu tablero de trabajo" + linea de valor "Tareas, flujos, formularios y reglas -
+    configurables sin codigo" + tarjeta ventana con topbar falsa [3 dots + "Comercial -
+    Requerimiento Infraestructura" + badge "En progreso"] + 4 columnas kanban [Por hacer /
+    En progreso / En revision / Completado] con 1-2 tarjetas: titulo corto, barra "Progreso
+    N/M" con color POR COLUMNA [t-blue/danger/t-amber/ok EXACTOS de AbUi.ColumnProgress],
+    avatares solapados con AVPAL del prototipo, chip de fecha). La ventana asoma RECORTADA:
+    overflow hidden, rotate(-1.1deg) + translateX, fade en borde inferior/derecho (sh-lg) para
+    profundidad estilo hero SaaS. Debajo, 3 mini bullets con iconos.
+  * ShowBoardMock=false -> Recuperar/Restablecer/Activar: se dejan como estaban (aside sobrio,
+    headline + subtext, ya traian ShowBullets=false). El mockup distrae en flujos utilitarios,
+    asi que NO aparece ahi. Documentado en el comentario de cabecera de AuthShell.razor.
+- Login.razor pasa `ShowBoardMock="true"`. La tarjeta del formulario NO cambia (ids
+  #login-email/#login-password, script mostrar/ocultar, submit .auth-submit, links intactos).
+- Cero morados saturados: aside en --surface-2, columnas --surface-3, tarjetas --surface,
+  acentos --brand-soft/--t-amber-bg. Todo con tokens -> conmuta solo con html.dark.
+- RESPONSIVE: el breakpoint del aside se subio de 768px a 900px (el mockup pide ancho); a
+  <=900px el aside se OCULTA y queda la tarjeta centrada con la marca arriba (sin cambios de
+  comportamiento del login movil).
+
+**Hecho**:
+- Editado `Components/Shared/AuthShell.razor`: parametro ShowBoardMock + rama del composite del
+  mockup (HTML/CSS estatico, aria-hidden, sin datos reales ni backend) manteniendo la rama
+  sobria (headline/subtext/bullets) para el resto.
+- Editado `Components/Pages/Login.razor`: ShowBoardMock="true".
+- Editado `wwwroot/app.css`: bloque `.auth-mock-*` (window/topbar/board/col/card/bar/avs/due/
+  points) con la paleta exacta; media query 768px -> 900px.
+- Anadida config `superadmin-5256` a `.claude/launch.json` (PG 5442, puerto 5256) para verificar.
+
+**Verificacion real** (app arrancada contra PG 5442 en puerto 5256):
+- build 0 errores / 0 advertencias; `dotnet format --verify-no-changes` limpio en los .razor.
+- ASCII-only: 0 bytes no-ASCII en los 3 archivos tocados (los 5 preexistentes de app.css estan
+  fuera del alcance auth y no se tocaron).
+- /login CLARO: aside con mockup legible, 4 columnas, barras blue/rose/amber/green verificadas
+  por computed style (rgb 37,99,235 / 225,29,72 / 199,122,6 / 22,163,74 = tokens exactos).
+- /login OSCURO (localStorage['ecorex-theme']='dark'): conmuta por html.dark; aside surface-2
+  #1C1C1F, tarjetas surface #161618; barras vivas; formulario oscuro OK.
+- /login MOVIL 380px: aside OCULTO, marca centrada arriba, formulario intacto y centrado.
+- /recuperar: aside sobrio sin mockup (confirmada la decision).
+- E2E COMPLETA: 19/19 verde, 0 fallos, 0 omitidos (ECOREX_E2E_BASEURL=http://localhost:5256).
+  El test de login pasa -> selectores del formulario intactos, aterriza en /inicio.
+- Capturas en scratchpad: login-light-desktop.png, login-dark-desktop.png, login-mobile-380.png,
+  recuperar-light-desktop.png. Procesos detenidos (preview stop + puerto 5256 libre).
+
+**Siguiente**: (opcional) exponer el titular/copy del mockup como campos de branding editables.
+
+**Bloqueos**: ninguno.
+
+---
+
 ## 2026-07-05 - Sesion: Modulo ADMINISTRACION DE EMPRESAS / ficha de tenant (000072, ADR-0026)
 
 **Agentes**: coordinador + 1 subagente explorador de la solucion (mapa de Tenant/servicios/

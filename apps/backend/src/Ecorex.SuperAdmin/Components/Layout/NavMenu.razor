@@ -164,7 +164,7 @@ else
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
                 </span>
                 <span class="ecorex-acc-name">Automatizacion</span>
-                <span class="ecorex-acc-count">4</span>
+                <span class="ecorex-acc-count">3</span>
                 <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="ecorex-acc-body">
@@ -179,10 +179,6 @@ else
                 <NavLink class="ecorex-acc-item" href="modulo/power-bi-service">
                     <span class="lbl">Power BI Service</span>
                     <span class="code" title="Modulo legacy 000788">000788</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="agentes">
-                    <span class="lbl">Agentes IA</span>
-                    <span class="code" title="Modulo legacy 000867 (pagina real Agentes de IA)">000867</span>
                 </NavLink>
             </div>
         </details>
@@ -394,6 +390,30 @@ else
             </div>
         </details>
 
+        @* Infraestructura IA (ADR-0028): grupo propio de primer nivel con la infra de agentes de IA
+           que antes vivia bajo "CRM (heredado)" y en Automatizacion. Solo se mueve de menu: rutas y
+           codigos de modulo se conservan intactos. Colapsado por defecto. *@
+        <details class="ecorex-acc tb" data-acc="ia" open="@IsGroupOpen("ia")">
+            <summary>
+                <span class="ecorex-acc-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
+                </span>
+                <span class="ecorex-acc-name">Infraestructura IA</span>
+                <span class="ecorex-acc-count">5</span>
+                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="ecorex-acc-body">
+                <NavLink class="ecorex-acc-item" href="agentes">
+                    <span class="lbl">Agentes</span>
+                    <span class="code" title="Modulo legacy 000867 (pagina real Agentes de IA)">000867</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="lineas"><span class="lbl">Lineas WhatsApp</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="conversaciones"><span class="lbl">Conversaciones</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="bitacora-agente"><span class="lbl">Bitacora del agente</span></NavLink>
+                <NavLink class="ecorex-acc-item" href="plantillas-whatsapp"><span class="lbl">Plantillas WhatsApp</span></NavLink>
+            </div>
+        </details>
+
         @* CRM heredado (desviacion documentada): grupo extra al final, fuera del prototipo,
            con las paginas reales del CRM anterior que NO quedaron mapeadas en la estructura
            del fuente, para no perder acceso a funcionalidad existente. Colapsado por defecto. *@
@@ -403,15 +423,11 @@ else
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>
                 </span>
                 <span class="ecorex-acc-name">CRM (heredado)</span>
-                <span class="ecorex-acc-count">7</span>
+                <span class="ecorex-acc-count">3</span>
                 <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="ecorex-acc-body">
                 <NavLink class="ecorex-acc-item" href="asesores"><span class="lbl">Asesores</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="conversaciones"><span class="lbl">Conversaciones</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="lineas"><span class="lbl">Lineas WhatsApp</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="plantillas-whatsapp"><span class="lbl">Plantillas WhatsApp</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="bitacora-agente"><span class="lbl">Bitacora del agente</span></NavLink>
                 <NavLink class="ecorex-acc-item" href="automatizaciones"><span class="lbl">Automatizaciones</span></NavLink>
                 <NavLink class="ecorex-acc-item" href="lista-negra"><span class="lbl">Lista negra</span></NavLink>
             </div>
@@ -608,7 +624,7 @@ else
         ["misproc"] = ["crear-actividad", "proyectos", "actividades", "modulo/programar-actividad"],
         ["sg-comercial"] = ["actividades"],
         ["nego"] = ["modulo/creacion-de-clientes", "modulo/seguimiento-de-clientes", "pipeline"],
-        ["auto"] = ["flujos", "formularios", "modulo/power-bi-service", "agentes"],
+        ["auto"] = ["flujos", "formularios", "modulo/power-bi-service"],
         ["inv"] = ["inventario-bodegas", "inventario-grupos", "inventario-marcas", "inventario-subgrupos", "inventario-tipos", "inventario-items"],
         ["act"] = ["modulo/prioridades", "modulo/tipos-de-proyecto", "conceptos", "modulo/estados"],
         ["syscrm"] = ["modulo/conceptos-actividades", "modulo/estados-crm", "modulo/perfiles-cliente-prov", "modulo/servicios-o-productos",
@@ -617,7 +633,8 @@ else
                    "modulo/roles-y-permisos", "modulo/administracion-de-usuarios"],
         ["dev"] = ["modulo/autocompletado-formularios", "modulos-web", "modulo/notificaciones-config", "modulo/objetos-del-sistema",
                    "modulo/parametros-xml", "reglas", "metricas", "modulo/servicios-web", "modulo/sql-admin", "modulo/consecutivos"],
-        ["crm"] = ["asesores", "conversaciones", "lineas", "plantillas-whatsapp", "bitacora-agente", "automatizaciones", "lista-negra"],
+        ["ia"] = ["agentes", "lineas", "conversaciones", "bitacora-agente", "plantillas-whatsapp"],
+        ["crm"] = ["asesores", "automatizaciones", "lista-negra"],
     };
 
     // Paleta AVPAL del prototipo (avatares con color solido mate): (char0 + char1) % 8.

@@ -109,6 +109,11 @@ public static class DependencyInjection
         // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
         // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).
         services.AddScoped<Scraping.IScrapeService, Scraping.ScrapeService>();
+        // Costura de cierre comercial (ADR-0028): el runtime de agentes depende de IAgentLeadSink, no de
+        // Lead/CRM. Default No-Op (funciona sin CRM); el adaptador PipelineLeadSink lo reemplaza como
+        // implementacion VIVA para conservar el comportamiento actual (crea el lead en el pipeline).
+        services.AddScoped<Tenancy.IAgentLeadSink, Tenancy.NoOpAgentLeadSink>();
+        services.AddScoped<Tenancy.IAgentLeadSink, Tenancy.PipelineLeadSink>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

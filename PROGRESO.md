@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-05 - Sesion: Infraestructura IA (menu propio) + desacople del cierre (ADR-0028)
+
+**Agentes**: agente #3 de 3 integraciones CUBOT encadenadas. Tarea de REORGANIZACION +
+DESACOPLE (no feature nueva): quirurgica, sin romper comportamiento existente.
+
+**Pedido**: (A) extraer la infraestructura de IA del grupo "CRM (heredado)" a un grupo propio
+"Infraestructura IA"; (B) desacoplar el toolset de cierre del agente del dominio CRM/Lead con una
+costura (interfaz + NoOp default + adaptador CRM), sin romper la creacion actual de leads.
+
+**Hecho**:
+- Menu (`NavMenu.razor`): nuevo grupo "Infraestructura IA" (data-acc `ia`, 5 items) con Agentes
+  (`/agentes`, 000867, venia de Automatizacion), Lineas WhatsApp (`/lineas`), Conversaciones
+  (`/conversaciones`), Bitacora del agente (`/bitacora-agente`), Plantillas WhatsApp
+  (`/plantillas-whatsapp`) — las 4 ultimas venian de "CRM (heredado)". Rutas y codigos de modulo
+  INTACTOS (solo movimiento de menu). "Automatizacion" 4->3 (se quita `agentes`); "CRM (heredado)"
+  7->3 (queda Asesores, Automatizaciones, Lista negra; el grupo NO se elimina). Mapa `GroupRoutes`
+  y contadores actualizados en consecuencia.
+- Costura de cierre (`Ecorex.Application/Tenancy`): `IAgentLeadSink` con
+  `CreateLeadAsync(AgentLeadRequest, actor, ct)` y DTO `AgentLeadRequest`/`AgentLeadResult` en el
+  namespace IA (no referencian Lead). `NoOpAgentLeadSink` (default, no crea nada, no lanza) y
+  `PipelineLeadSink` (adaptador CRM vivo, unico punto de acoplamiento con Lead/BusinessUnit).
+  `PipelineToolset.crear_lead` ahora delega en la interfaz; mismo contrato del tool. DI: NoOp
+  registrado como default, `PipelineLeadSink` como implementacion viva (ultimo gana).
+- SIN migracion: cambio schema-free (reorg de menu + costura de interfaz). DAL dual intacto.
+- Tests: unit nuevos `AgentLeadSinkTests` (3, verdes): NoOp no crea lead / adaptador crea lead y
+  mapea unidad b2b / sin nombre = error tipado. Application.Tests total 279 verde. Integracion
+  dual `PipelineLeadTests`+`FollowUpTaskTests`+`DashboardTests` (5) verde en PG 5442 + SQL 1443.
+
+**Siguiente**: (opcional) exponer el `NoOpAgentLeadSink` como perfil de despliegue sin CRM.
+
+---
+
 ## 2026-07-05 - Sesion: Modulo de Plantillas HSM de WhatsApp (ADR-0029)
 
 **Agentes**: agente #2 de 3 integraciones CUBOT encadenadas. Referencia origen:

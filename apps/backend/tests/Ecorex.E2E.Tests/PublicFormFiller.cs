@@ -14,21 +14,19 @@ namespace Ecorex.E2E.Tests;
 ///    y Playwright fill solo dispara "input"; el "change" recien sale al perder el foco.
 ///    Sin blur explicito el servidor nunca ve el valor.
 ///
-/// 2. ORDEN y ESPERAS por el bug conocido del producto (detectado por esta suite):
-///    "nombre_solicitante" y "prioridad" tienen reglas vinculadas (RUL-005) y su @onchange
-///    dispara IFormRuleDispatcher con consultas EF sobre el DbContext del circuito Blazor.
-///    Si otro evento de campo llega mientras ese dispatch esta en vuelo (velocidad
-///    Playwright, no humana), EF lanza "A second operation was started on this context
-///    instance" y el circuito MUERE en silencio (Enviar deja de responder, sin feedback).
-///    Mitigacion:
-///    - nombre_solicitante se llena PRIMERO y se espera su efecto OBSERVABLE: la regla
-///      demo PASAR_CAMPOS copia el nombre al campo descripcion (senal deterministica de
-///      que el roundtrip de reglas termino).
-///    - prioridad (con "Media" la regla BLOQUEAR_CAMPO_XCONDICION no produce cambio
-///      visible; con "baja" ocultaria fecha_requerida) se marca al final con pausa fija.
+/// 2. ORDEN de llenado por la SEMANTICA de las reglas demo (RUL-005), no por timing:
+///    "nombre_solicitante" tiene la regla PASAR_CAMPOS que copia su valor al campo
+///    "descripcion". Por eso:
+///    - nombre_solicitante se llena PRIMERO y se espera su efecto OBSERVABLE (la copia
+///      hacia descripcion), senal deterministica de que el roundtrip de reglas termino.
 ///    - descripcion se llena DE ULTIMO para pisar el valor que copio PASAR_CAMPOS.
-///    El fix real (scope EF propio por dispatch, como TaskKanban.ReloadAsync) es del
-///    producto y esta fuera del alcance de esta suite.
+///    - prioridad (con "Media" la regla BLOQUEAR_CAMPO_XCONDICION no produce cambio
+///      visible; con "baja" ocultaria fecha_requerida) solo se marca, sin espera.
+///    NOTA: antes habia una pausa fija tras marcar prioridad para tapar un bug de
+///    concurrencia del renderer (dos @onchange rapidos interleaban consultas EF sobre el
+///    DbContext del circuito y lo tumbaban con "A second operation was started on this
+///    context"). Ese bug ya esta corregido en el producto (commit 7f312a9: un SemaphoreSlim
+///    serializa despacho de reglas, autosave y submit), asi que la pausa se elimino.
 /// </summary>
 internal static class PublicFormFiller
 {
@@ -54,12 +52,12 @@ internal static class PublicFormFiller
         await cantidad.FillAsync("5");
         await cantidad.BlurAsync();
 
-        // 3. Campo con regla BLOQUEAR_CAMPO_XCONDICION: sin efecto visible con "Media",
-        //    asi que la unica espera posible es fija (las consultas ya estan tibias).
+        // 3. Campo con regla BLOQUEAR_CAMPO_XCONDICION: sin efecto visible con "Media".
+        //    El renderer serializa el despacho de reglas (SemaphoreSlim _dbGate), asi que
+        //    ya no hace falta la pausa fija que antes tapaba la carrera sobre el DbContext.
         await Group(page, "Prioridad de la solicitud").Locator(".dfr-check")
             .Filter(new LocatorFilterOptions { HasText = "Media" })
             .Locator("input").CheckAsync();
-        await page.WaitForTimeoutAsync(1500);
 
         // 4. Descripcion al final: pisa el valor que copio PASAR_CAMPOS (campo sin regla).
         var descripcion = Group(page, "Descripcion de la necesidad").Locator("textarea.form-control");

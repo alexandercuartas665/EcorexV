@@ -1,0 +1,22 @@
+@page "/inventario-tipos"
+@attribute [Authorize(Policy = "Inventario.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Inventory
+
+<PageTitle>Tipos de inventario - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Tipos de inventario</span>
+</nav>
+
+<CatalogManager Kind="CatalogKind.ItemType"
+                Title="Tipos de inventario"
+                Subtitle="Clasificacion transversal del item (ej. producto, servicio, insumo)."
+                NewLabel="Nuevo tipo"
+                LegacyCode="000498" />

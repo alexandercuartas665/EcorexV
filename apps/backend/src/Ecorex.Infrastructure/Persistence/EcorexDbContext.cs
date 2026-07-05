@@ -149,6 +149,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ModuleDefinition> ModuleDefinitions => Set<ModuleDefinition>();
     public DbSet<TenantModule> TenantModules => Set<TenantModule>();
 
+    // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
+    // grupos, subgrupos, tipos) + items con imagenes por URL y existencias por bodega.
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<Brand> Brands => Set<Brand>();
+    public DbSet<ItemGroup> ItemGroups => Set<ItemGroup>();
+    public DbSet<ItemSubgroup> ItemSubgroups => Set<ItemSubgroup>();
+    public DbSet<ItemType> ItemTypes => Set<ItemType>();
+    public DbSet<Item> Items => Set<Item>();
+    public DbSet<ItemImage> ItemImages => Set<ItemImage>();
+    public DbSet<ItemStock> ItemStocks => Set<ItemStock>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -1216,6 +1227,111 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ModuleDefinition).WithMany()
                 .HasForeignKey(x => x.ModuleDefinitionId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ModuleDefinitionId }).IsUnique();
+        });
+
+        // ---- Inventarios (grupo Sistema - Inventarios) ----
+        // Catalogos normalizados: nombre unico por tenant; FKs de catalogo NO ACTION (Restrict)
+        // para evitar rutas multiples de cascada en SQL Server. Los items no se borran
+        // fisicamente (IsActive); las imagenes y el stock viven y mueren con el item (cascade).
+
+        modelBuilder.Entity<Warehouse>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.City).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Address).HasMaxLength(300);
+            b.Property(x => x.Phone).HasMaxLength(80);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<Brand>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ItemGroup>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ItemSubgroup>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // NO ACTION: un grupo con subgrupos no se borra por cascada (se archiva).
+            b.HasOne(x => x.Group).WithMany()
+                .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.GroupId });
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ItemType>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        modelBuilder.Entity<Item>(b =>
+        {
+            b.Property(x => x.Sku).HasMaxLength(80);
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(2000);
+            b.Property(x => x.Specifications).HasColumnType(longTextColumnType);
+            b.Property(x => x.Price).HasPrecision(14, 2);
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
+            // Catalogos normalizados: todas las FKs NO ACTION (Restrict = NO ACTION en ambos
+            // motores). Borrar/archivar un catalogo nunca arrastra items por cascada.
+            b.HasOne(x => x.Brand).WithMany()
+                .HasForeignKey(x => x.BrandId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Group).WithMany()
+                .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Subgroup).WithMany()
+                .HasForeignKey(x => x.SubgroupId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.ItemType).WithMany()
+                .HasForeignKey(x => x.ItemTypeId).OnDelete(DeleteBehavior.Restrict);
+            // SKU unico por tenant cuando no esta vacio (indice filtrado; el servicio valida el
+            // duplicado con mensaje claro, el indice es la defensa en profundidad).
+            b.HasIndex(x => new { x.TenantId, x.Sku }).IsUnique()
+                .HasFilter(isNpgsql ? "sku IS NOT NULL" : "[sku] IS NOT NULL");
+            b.HasIndex(x => new { x.TenantId, x.IsActive });
+            b.HasIndex(x => new { x.TenantId, x.BrandId });
+            b.HasIndex(x => new { x.TenantId, x.GroupId });
+            b.HasIndex(x => new { x.TenantId, x.ItemTypeId });
+        });
+
+        modelBuilder.Entity<ItemImage>(b =>
+        {
+            b.Property(x => x.Url).HasMaxLength(500).IsRequired();
+            b.Property(x => x.FileName).HasMaxLength(255);
+            // La imagen vive y muere con el item.
+            b.HasOne(x => x.Item).WithMany()
+                .HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ItemId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ItemStock>(b =>
+        {
+            // Cascade hacia el item; NO ACTION hacia la bodega (una bodega con existencias no
+            // se borra por cascada). En SQL Server la doble ruta item->stock y warehouse->stock
+            // no aplica porque la FK de bodega es Restrict (una sola ruta de cascada).
+            b.HasOne(x => x.Item).WithMany()
+                .HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Warehouse).WithMany()
+                .HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
+            // Una fila de stock por (item, bodega).
+            b.HasIndex(x => new { x.ItemId, x.WarehouseId }).IsUnique();
+            // Listado de stock por bodega (filtro de disponibles).
+            b.HasIndex(x => new { x.TenantId, x.WarehouseId });
         });
     }
 

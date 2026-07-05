@@ -61,6 +61,9 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ExtraccionDatos.Editar", p => p.RequireClaim("tenant_id"))
+    // Inventarios (grupo Sistema - Inventarios, ADR-0027): items 000066 + catalogos
+    // 000556/000502/000506/000606/000498. Paso 1: mismo requisito que TenantMember.
+    .AddPolicy("Inventario.Ver", p => p.RequireClaim("tenant_id"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu
@@ -180,6 +183,9 @@ else
     // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
     await seeder.EnsureOrgUnitsDemoAsync();
     await seeder.EnsureModuleRegistryAsync();
+    // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
+    // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
+    await seeder.EnsureInventoryDemoAsync();
     // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
     // + 2 tableros simples para el indice. Idempotente, solo Development.
     await seeder.EnsureActivityBoardsDemoAsync();

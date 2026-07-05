@@ -100,6 +100,16 @@ public interface IApplicationDbContext
     DbSet<ScrapeSource> ScrapeSources { get; }
     DbSet<ScrapeRun> ScrapeRuns { get; }
 
+    // Inventarios (grupo Sistema - Inventarios): catalogos normalizados + items con stock por bodega.
+    DbSet<Warehouse> Warehouses { get; }
+    DbSet<Brand> Brands { get; }
+    DbSet<ItemGroup> ItemGroups { get; }
+    DbSet<ItemSubgroup> ItemSubgroups { get; }
+    DbSet<ItemType> ItemTypes { get; }
+    DbSet<Item> Items { get; }
+    DbSet<ItemImage> ItemImages { get; }
+    DbSet<ItemStock> ItemStocks { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

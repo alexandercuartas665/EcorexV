@@ -1,0 +1,557 @@
+@page "/inventario-items"
+@attribute [Authorize(Policy = "Inventario.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Inventory
+@inject IItemService ItemSvc
+@inject IInventoryCatalogService CatalogSvc
+
+<PageTitle>Items de inventarios - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Items</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            </div>
+            <span>Modulo 000066 &#183; Sistema &#183; Inventarios</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Items de inventarios</h1>
+        <p class="page-sub" style="margin-bottom:0;">Catalogo de items con marca, grupo y tipo normalizados, imagenes y stock por bodega.</p>
+    </div>
+    <div>
+        <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+    </div>
+</div>
+
+@* ===== Filtros ===== *@
+<div class="inv-filters">
+    <input class="form-control" style="max-width:230px;" placeholder="Buscar por nombre o SKU..." @bind="_search" @bind:event="oninput" @bind:after="ApplyFiltersAsync" />
+    <select class="form-control" style="max-width:180px;" @bind="_fltWarehouse" @bind:after="ApplyFiltersAsync">
+        <option value="">Bodega: todas</option>
+        @foreach (var w in _warehouses)
+        {
+            <option value="@w.Id">@w.Name</option>
+        }
+    </select>
+    <select class="form-control" style="max-width:170px;" @bind="_fltBrand" @bind:after="ApplyFiltersAsync">
+        <option value="">Marca: todas</option>
+        @foreach (var b in _brands)
+        {
+            <option value="@b.Id">@b.Name</option>
+        }
+    </select>
+    <select class="form-control" style="max-width:170px;" @bind="_fltGroup" @bind:after="ApplyFiltersAsync">
+        <option value="">Grupo: todos</option>
+        @foreach (var g in _groups)
+        {
+            <option value="@g.Id">@g.Name</option>
+        }
+    </select>
+    <select class="form-control" style="max-width:170px;" @bind="_fltType" @bind:after="ApplyFiltersAsync">
+        <option value="">Tipo: todos</option>
+        @foreach (var t in _types)
+        {
+            <option value="@t.Id">@t.Name</option>
+        }
+    </select>
+    <label class="pl-toggle" style="margin-left:auto;">
+        <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await ApplyFiltersAsync(); })" />
+        Ver archivados
+    </label>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando items...</em></p>
+}
+else if (_page.Items.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin items</h3>
+        <p>No hay items que coincidan con los filtros. Crea uno nuevo o ajusta la busqueda.</p>
+        <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+    </div>
+}
+else
+{
+    <table class="table table-hover inv-items-table">
+        <thead>
+            <tr>
+                <th style="width:52px;"></th>
+                <th>Nombre</th>
+                <th>SKU</th>
+                <th>Marca / Grupo</th>
+                <th style="text-align:right;">Precio</th>
+                <th style="text-align:center;">Stock</th>
+                <th>Por bodega</th>
+                <th style="text-align:right;">Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var i in _page.Items)
+            {
+                <tr class="@(i.IsActive ? "" : "inactive-row")">
+                    <td>
+                        @if (!string.IsNullOrEmpty(i.ThumbnailUrl))
+                        {
+                            <img class="inv-thumb" src="@i.ThumbnailUrl" alt="@i.Name" />
+                        }
+                        else
+                        {
+                            <span class="inv-thumb inv-thumb-empty">@Initials(i.Name)</span>
+                        }
+                    </td>
+                    <td><strong>@i.Name</strong></td>
+                    <td class="muted-cell">@(string.IsNullOrEmpty(i.Sku) ? "-" : i.Sku)</td>
+                    <td class="muted-cell">
+                        @(i.BrandName ?? "-")
+                        <small style="display:block;">@(i.GroupName ?? "")</small>
+                    </td>
+                    <td style="text-align:right;font-variant-numeric:tabular-nums;">@FormatPrice(i.Price)</td>
+                    <td style="text-align:center;font-variant-numeric:tabular-nums;"><strong>@i.TotalStock</strong></td>
+                    <td>
+                        @if (i.StockByWarehouse.Count == 0)
+                        {
+                            <span class="muted-cell">Sin stock</span>
+                        }
+                        else
+                        {
+                            @foreach (var s in i.StockByWarehouse)
+                            {
+                                <span class="inv-stock-chip">@s.WarehouseName: @s.Stock</span>
+                            }
+                        }
+                    </td>
+                    <td style="text-align:right;white-space:nowrap;">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(i.Id))">Editar</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(i))" disabled="@_busy">
+                            @(i.IsActive ? "Archivar" : "Restaurar")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (_page.Total > _page.PageSize)
+    {
+        <div class="inv-pager">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => GoToPageAsync(_page.Page - 1))" disabled="@(_page.Page <= 1 || _busy)">Anterior</button>
+            <span>Pagina @_page.Page de @TotalPages (@_page.Total items)</span>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => GoToPageAsync(_page.Page + 1))" disabled="@(_page.Page >= TotalPages || _busy)">Siguiente</button>
+        </div>
+    }
+    @if (_pageError is not null)
+    {
+        <div class="tk-field-error">@_pageError</div>
+    }
+}
+
+@* ===== Modal crear/editar item ===== *@
+@if (_showEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nuevo item" : $"Editar {_fName}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2">
+                    <div class="col-md-8 field">
+                        <label class="form-label">Nombre *</label>
+                        <input class="form-control" @bind="_fName" maxlength="200" />
+                    </div>
+                    <div class="col-md-4 field">
+                        <label class="form-label">SKU</label>
+                        <input class="form-control" @bind="_fSku" maxlength="80" placeholder="@(_editingId is null ? "Auto (ITM...)" : "")" />
+                        @if (_editingId is null)
+                        {
+                            <label class="pl-toggle" style="margin-top:4px;font-size:12px;">
+                                <input type="checkbox" @bind="_generateSku" /> Generar consecutivo
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-3 field">
+                        <label class="form-label">Precio</label>
+                        <input type="number" step="0.01" class="form-control" @bind="_fPrice" />
+                    </div>
+                    <div class="col-md-3 field">
+                        <label class="form-label">Marca</label>
+                        <select class="form-control" @bind="_fBrand">
+                            <option value="">(Ninguna)</option>
+                            @foreach (var b in _brands)
+                            {
+                                <option value="@b.Id">@b.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 field">
+                        <label class="form-label">Grupo</label>
+                        <select class="form-control" @bind="_fGroup" @bind:after="OnGroupChanged">
+                            <option value="">(Ninguno)</option>
+                            @foreach (var g in _groups)
+                            {
+                                <option value="@g.Id">@g.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 field">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-control" @bind="_fType">
+                            <option value="">(Ninguno)</option>
+                            @foreach (var t in _types)
+                            {
+                                <option value="@t.Id">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Subgrupo</label>
+                    <select class="form-control" @bind="_fSubgroup">
+                        <option value="">(Ninguno)</option>
+                        @foreach (var s in SubgroupsForSelectedGroup)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="2000" @bind="_fDescription"></textarea>
+                </div>
+                <div class="field">
+                    <label class="form-label">Especificaciones</label>
+                    <textarea class="form-control" rows="2" @bind="_fSpecifications"></textarea>
+                </div>
+
+                @* ---- Stock por bodega ---- *@
+                <div class="field">
+                    <label class="form-label">Stock por bodega</label>
+                    <div class="inv-stock-editor">
+                        @foreach (var w in _warehouses)
+                        {
+                            <div class="inv-stock-row">
+                                <span>@w.Name</span>
+                                <input type="number" min="0" class="form-control" style="max-width:110px;"
+                                       value="@GetStock(w.Id)"
+                                       @onchange="@(e => SetStock(w.Id, e.Value?.ToString()))" />
+                            </div>
+                        }
+                        @if (_warehouses.Count == 0)
+                        {
+                            <em class="muted-cell">No hay bodegas activas. Crea una en Bodegas (000556).</em>
+                        }
+                    </div>
+                </div>
+
+                @* ---- Imagenes por URL ---- *@
+                <div class="field">
+                    <label class="form-label">Imagenes (URL)</label>
+                    @if (_editingId is null)
+                    {
+                        <em class="muted-cell">Crea el item y luego vuelve a abrirlo (Editar) para agregar imagenes.</em>
+                    }
+                    else
+                    {
+                        <div class="inv-images">
+                            @foreach (var img in _images)
+                            {
+                                <div class="inv-image-chip">
+                                    <img src="@img.Url" alt="@img.FileName" />
+                                    <button class="inv-image-del" title="Quitar" @onclick="@(() => RemoveImageAsync(img.Id))" disabled="@_busy">&times;</button>
+                                </div>
+                            }
+                        </div>
+                        <div style="display:flex;gap:6px;margin-top:8px;">
+                            <input class="form-control" placeholder="https://..." maxlength="500" @bind="_newImageUrl" />
+                            <button class="btn btn-sm btn-primary" @onclick="AddImageAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newImageUrl))">Agregar</button>
+                        </div>
+                    }
+                </div>
+
+                @if (_editorError is not null)
+                {
+                    <div class="tk-field-error">@_editorError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editingId is null ? "Crear item" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .inv-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .inv-thumb { width: 40px; height: 40px; border-radius: 9px; object-fit: cover; border: 1px solid var(--line, var(--border)); }
+    .inv-thumb-empty { display: inline-grid; place-items: center; background: var(--t-violet-bg, var(--primary-soft)); color: var(--t-violet, var(--primary)); font-size: 12px; font-weight: 700; }
+    .inv-stock-chip { display: inline-block; font-size: 11.5px; padding: 2px 8px; margin: 0 4px 4px 0; border-radius: 7px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
+    .inv-stock-editor { display: flex; flex-direction: column; gap: 6px; }
+    .inv-stock-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+    .inv-pager { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 16px; font-size: 13px; color: var(--ink-3, var(--muted-foreground)); }
+    .inv-images { display: flex; gap: 8px; flex-wrap: wrap; }
+    .inv-image-chip { position: relative; }
+    .inv-image-chip img { width: 56px; height: 56px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line, var(--border)); }
+    .inv-image-del { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border: 0; border-radius: 999px; background: var(--danger, var(--destructive)); color: #fff; font-size: 13px; line-height: 1; cursor: pointer; }
+    .muted-cell small { color: var(--ink-3, var(--muted-foreground)); font-size: 11px; }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeInactive;
+    private string? _pageError;
+
+    private ItemPageDto _page = new([], 0, 1, 20);
+    private int _currentPage = 1;
+
+    // Filtros
+    private string _search = "";
+    private string _fltWarehouse = "";
+    private string _fltBrand = "";
+    private string _fltGroup = "";
+    private string _fltType = "";
+
+    // Catalogos para selects
+    private IReadOnlyList<WarehouseDto> _warehouses = [];
+    private IReadOnlyList<CatalogEntryDto> _brands = [];
+    private IReadOnlyList<CatalogEntryDto> _groups = [];
+    private IReadOnlyList<CatalogEntryDto> _subgroups = [];
+    private IReadOnlyList<CatalogEntryDto> _types = [];
+
+    // Editor
+    private bool _showEditor;
+    private Guid? _editingId;
+    private string _fName = "";
+    private string? _fSku;
+    private bool _generateSku = true;
+    private decimal? _fPrice;
+    private string _fBrand = "";
+    private string _fGroup = "";
+    private string _fSubgroup = "";
+    private string _fType = "";
+    private string? _fDescription;
+    private string? _fSpecifications;
+    private readonly Dictionary<Guid, int> _stock = new();
+    private IReadOnlyList<ItemImageDto> _images = [];
+    private string? _newImageUrl;
+    private string? _editorError;
+
+    private int TotalPages => (int)Math.Ceiling(_page.Total / (double)_page.PageSize);
+
+    private IEnumerable<CatalogEntryDto> SubgroupsForSelectedGroup
+        => Guid.TryParse(_fGroup, out var gid)
+            ? _subgroups.Where(s => s.GroupId == gid)
+            : _subgroups;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _warehouses = await CatalogSvc.ListWarehousesAsync();
+        _brands = await CatalogSvc.ListAsync(CatalogKind.Brand);
+        _groups = await CatalogSvc.ListAsync(CatalogKind.ItemGroup);
+        _subgroups = await CatalogSvc.ListAsync(CatalogKind.ItemSubgroup);
+        _types = await CatalogSvc.ListAsync(CatalogKind.ItemType);
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private ItemQuery BuildQuery() => new(
+        Guid.TryParse(_fltWarehouse, out var w) ? w : null,
+        Guid.TryParse(_fltBrand, out var b) ? b : null,
+        Guid.TryParse(_fltGroup, out var g) ? g : null,
+        Guid.TryParse(_fltType, out var t) ? t : null,
+        _search,
+        _includeInactive,
+        _currentPage,
+        20);
+
+    private async Task ReloadAsync()
+    {
+        _page = await ItemSvc.ListAsync(BuildQuery());
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        _currentPage = 1;
+        await ReloadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > TotalPages) { return; }
+        _currentPage = page;
+        await ReloadAsync();
+    }
+
+    private void OnGroupChanged()
+    {
+        // Si el subgrupo elegido ya no pertenece al grupo, se limpia.
+        if (Guid.TryParse(_fSubgroup, out var sid)
+            && !SubgroupsForSelectedGroup.Any(s => s.Id == sid))
+        {
+            _fSubgroup = "";
+        }
+    }
+
+    private int GetStock(Guid warehouseId) => _stock.TryGetValue(warehouseId, out var q) ? q : 0;
+
+    private void SetStock(Guid warehouseId, string? raw)
+    {
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var q) && q > 0)
+        {
+            _stock[warehouseId] = q;
+        }
+        else
+        {
+            _stock.Remove(warehouseId);
+        }
+    }
+
+    private async Task OpenEditorAsync(Guid? itemId)
+    {
+        _editorError = null;
+        _newImageUrl = null;
+        _stock.Clear();
+        _images = [];
+        if (itemId is Guid id)
+        {
+            var detail = await ItemSvc.GetDetailAsync(id);
+            if (detail is null) { return; }
+            _editingId = id;
+            _fName = detail.Name;
+            _fSku = detail.Sku;
+            _generateSku = false;
+            _fPrice = detail.Price;
+            _fBrand = detail.BrandId?.ToString() ?? "";
+            _fGroup = detail.GroupId?.ToString() ?? "";
+            _fSubgroup = detail.SubgroupId?.ToString() ?? "";
+            _fType = detail.ItemTypeId?.ToString() ?? "";
+            _fDescription = detail.Description;
+            _fSpecifications = detail.Specifications;
+            foreach (var s in detail.StockByWarehouse.Where(s => s.Stock > 0))
+            {
+                _stock[s.WarehouseId] = s.Stock;
+            }
+            _images = detail.Images;
+        }
+        else
+        {
+            _editingId = null;
+            _fName = "";
+            _fSku = null;
+            _generateSku = true;
+            _fPrice = null;
+            _fBrand = _fGroup = _fSubgroup = _fType = "";
+            _fDescription = null;
+            _fSpecifications = null;
+        }
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _editorError = null;
+        var request = new SaveItemRequest(
+            _fName,
+            _fSku,
+            _fDescription,
+            _fSpecifications,
+            _fPrice,
+            Guid.TryParse(_fBrand, out var b) ? b : null,
+            Guid.TryParse(_fGroup, out var g) ? g : null,
+            Guid.TryParse(_fSubgroup, out var s) ? s : null,
+            Guid.TryParse(_fType, out var t) ? t : null,
+            null,
+            new Dictionary<Guid, int>(_stock),
+            _generateSku);
+        var result = _editingId is null
+            ? await ItemSvc.CreateAsync(request)
+            : await ItemSvc.UpdateAsync(_editingId.Value, request);
+        if (!result.IsOk)
+        {
+            _editorError = result.Error;
+            _busy = false;
+            return;
+        }
+        _showEditor = false;
+        _busy = false;
+        await ReloadAsync();
+    }
+
+    private async Task ToggleActiveAsync(ItemListDto item)
+    {
+        _busy = true;
+        _pageError = null;
+        var result = await ItemSvc.SetActiveAsync(item.Id, !item.IsActive);
+        if (!result.IsOk)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task AddImageAsync()
+    {
+        if (_editingId is not Guid id || string.IsNullOrWhiteSpace(_newImageUrl)) { return; }
+        _busy = true;
+        _editorError = null;
+        var result = await ItemSvc.AddImageAsync(id, _newImageUrl.Trim());
+        if (!result.IsOk)
+        {
+            _editorError = result.Error;
+        }
+        else
+        {
+            _newImageUrl = null;
+            var detail = await ItemSvc.GetDetailAsync(id);
+            _images = detail?.Images ?? [];
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveImageAsync(Guid imageId)
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        var result = await ItemSvc.RemoveImageAsync(imageId);
+        if (result.IsOk)
+        {
+            var detail = await ItemSvc.GetDetailAsync(id);
+            _images = detail?.Images ?? [];
+        }
+        _busy = false;
+    }
+
+    private static string FormatPrice(decimal? price)
+        => price is decimal p ? p.ToString("N2", CultureInfo.InvariantCulture) : "-";
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : string.Concat(char.ToUpperInvariant(parts[0][0]), char.ToUpperInvariant(parts[1][0]));
+    }
+}

@@ -1577,4 +1577,194 @@ public sealed class DatabaseSeeder
             _logger.LogInformation("Fuente de extraccion demo re-apuntada a {Url}.", url);
         }
     }
+
+    /// <summary>
+    /// Siembra el inventario demo del tenant SKY SYSTEM (grupo Sistema - Inventarios, ADR-0027):
+    /// 2 bodegas, 3 marcas, 2 grupos con 2 subgrupos c/u, 3 tipos y ~8 items con stock repartido
+    /// (algunos en 0 para probar el filtro de disponibles) e imagenes placeholder. Idempotente
+    /// por tabla vacia (guard por tenant en cada bloque). Solo Development.
+    /// </summary>
+    public async Task EnsureInventoryDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        // ---- Bodegas ----
+        List<Warehouse> warehouses;
+        if (!await _db.Warehouses.IgnoreQueryFilters().AnyAsync(w => w.TenantId == tenant.Id, cancellationToken))
+        {
+            warehouses =
+            [
+                new Warehouse { TenantId = tenant.Id, Name = "Bodega Central", City = "Bogota", Address = "Calle 100 #15-20", Phone = "6013001000", SortOrder = 0 },
+                new Warehouse { TenantId = tenant.Id, Name = "Bodega Norte", City = "Medellin", Address = "Cra 43A #1-50", Phone = "6044004000", SortOrder = 1 }
+            ];
+            _db.Warehouses.AddRange(warehouses);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            warehouses = await _db.Warehouses.IgnoreQueryFilters()
+                .Where(w => w.TenantId == tenant.Id).OrderBy(w => w.SortOrder).ToListAsync(cancellationToken);
+        }
+
+        // ---- Marcas ----
+        List<Brand> brands;
+        if (!await _db.Brands.IgnoreQueryFilters().AnyAsync(b => b.TenantId == tenant.Id, cancellationToken))
+        {
+            brands =
+            [
+                new Brand { TenantId = tenant.Id, Name = "Acme", SortOrder = 0 },
+                new Brand { TenantId = tenant.Id, Name = "Globex", SortOrder = 1 },
+                new Brand { TenantId = tenant.Id, Name = "Umbrella", SortOrder = 2 }
+            ];
+            _db.Brands.AddRange(brands);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            brands = await _db.Brands.IgnoreQueryFilters()
+                .Where(b => b.TenantId == tenant.Id).OrderBy(b => b.SortOrder).ToListAsync(cancellationToken);
+        }
+
+        // ---- Grupos + subgrupos ----
+        List<ItemGroup> groups;
+        List<ItemSubgroup> subgroups;
+        if (!await _db.ItemGroups.IgnoreQueryFilters().AnyAsync(g => g.TenantId == tenant.Id, cancellationToken))
+        {
+            groups =
+            [
+                new ItemGroup { TenantId = tenant.Id, Name = "Tecnologia", SortOrder = 0 },
+                new ItemGroup { TenantId = tenant.Id, Name = "Oficina", SortOrder = 1 }
+            ];
+            _db.ItemGroups.AddRange(groups);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            subgroups =
+            [
+                new ItemSubgroup { TenantId = tenant.Id, Name = "Computo", GroupId = groups[0].Id, SortOrder = 0 },
+                new ItemSubgroup { TenantId = tenant.Id, Name = "Perifericos", GroupId = groups[0].Id, SortOrder = 1 },
+                new ItemSubgroup { TenantId = tenant.Id, Name = "Papeleria", GroupId = groups[1].Id, SortOrder = 0 },
+                new ItemSubgroup { TenantId = tenant.Id, Name = "Mobiliario", GroupId = groups[1].Id, SortOrder = 1 }
+            ];
+            _db.ItemSubgroups.AddRange(subgroups);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            groups = await _db.ItemGroups.IgnoreQueryFilters()
+                .Where(g => g.TenantId == tenant.Id).OrderBy(g => g.SortOrder).ToListAsync(cancellationToken);
+            subgroups = await _db.ItemSubgroups.IgnoreQueryFilters()
+                .Where(s => s.TenantId == tenant.Id).OrderBy(s => s.SortOrder).ToListAsync(cancellationToken);
+        }
+
+        // ---- Tipos ----
+        List<ItemType> types;
+        if (!await _db.ItemTypes.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
+        {
+            types =
+            [
+                new ItemType { TenantId = tenant.Id, Name = "Producto", SortOrder = 0 },
+                new ItemType { TenantId = tenant.Id, Name = "Insumo", SortOrder = 1 },
+                new ItemType { TenantId = tenant.Id, Name = "Servicio", SortOrder = 2 }
+            ];
+            _db.ItemTypes.AddRange(types);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            types = await _db.ItemTypes.IgnoreQueryFilters()
+                .Where(t => t.TenantId == tenant.Id).OrderBy(t => t.SortOrder).ToListAsync(cancellationToken);
+        }
+
+        // ---- Items (con stock e imagenes) ----
+        if (await _db.Items.IgnoreQueryFilters().AnyAsync(i => i.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        ItemSubgroup? SubgroupOf(ItemGroup g, int idx) =>
+            subgroups.Where(s => s.GroupId == g.Id).Skip(idx).FirstOrDefault();
+
+        // (Nombre, Sku, Precio, marcaIdx, grupoIdx, subIdx, tipoIdx, stockCentral, stockNorte)
+        (string Name, string Sku, decimal Price, int Brand, int Group, int Sub, int Type, int StockA, int StockB)[] defs =
+        {
+            ("Laptop Pro 14", "ITM000001", 4200000m, 0, 0, 0, 0, 12, 5),
+            ("Mouse Inalambrico", "ITM000002", 85000m, 1, 0, 1, 0, 40, 0),
+            ("Teclado Mecanico", "ITM000003", 220000m, 1, 0, 1, 0, 0, 0),
+            ("Monitor 27\"", "ITM000004", 950000m, 2, 0, 1, 0, 7, 3),
+            ("Resma Papel Carta", "ITM000005", 18000m, 0, 1, 2, 1, 120, 60),
+            ("Silla Ergonomica", "ITM000006", 680000m, 2, 1, 3, 0, 4, 0),
+            ("Escritorio Modular", "ITM000007", 540000m, 0, 1, 3, 0, 0, 2),
+            ("Soporte Tecnico Mensual", "ITM000008", 300000m, 1, 0, 0, 2, 0, 0)
+        };
+
+        var placeholderImages = new[]
+        {
+            "https://placehold.co/400x400?text=Item",
+            "https://placehold.co/400x400?text=Foto+2"
+        };
+
+        var items = new List<Item>();
+        foreach (var d in defs)
+        {
+            var group = groups[d.Group % groups.Count];
+            var sub = SubgroupOf(group, d.Sub % 2);
+            var item = new Item
+            {
+                TenantId = tenant.Id,
+                Sku = d.Sku,
+                Name = d.Name,
+                Price = d.Price,
+                BrandId = brands[d.Brand % brands.Count].Id,
+                GroupId = group.Id,
+                SubgroupId = sub?.Id,
+                ItemTypeId = types[d.Type % types.Count].Id,
+                Description = $"Item demo {d.Name}."
+            };
+            items.Add(item);
+        }
+        _db.Items.AddRange(items);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // Avanza el consecutivo "ITM" para que un SKU generado desde la UI no colisione con los
+        // SKUs demo (ITM000001..ITM000008): el siguiente emitido sera ITM000009.
+        if (!await _db.TenantSequences.IgnoreQueryFilters()
+                .AnyAsync(s => s.TenantId == tenant.Id && s.Code == "ITM", cancellationToken))
+        {
+            _db.TenantSequences.Add(new TenantSequence
+            {
+                TenantId = tenant.Id,
+                Code = "ITM",
+                NextValue = items.Count + 1
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        var central = warehouses[0];
+        var norte = warehouses.Count > 1 ? warehouses[1] : warehouses[0];
+        for (var idx = 0; idx < items.Count; idx++)
+        {
+            var (a, b) = (defs[idx].StockA, defs[idx].StockB);
+            if (a > 0)
+            {
+                _db.ItemStocks.Add(new ItemStock { TenantId = tenant.Id, ItemId = items[idx].Id, WarehouseId = central.Id, Stock = a });
+            }
+            if (b > 0 && norte.Id != central.Id)
+            {
+                _db.ItemStocks.Add(new ItemStock { TenantId = tenant.Id, ItemId = items[idx].Id, WarehouseId = norte.Id, Stock = b });
+            }
+            // 1-2 imagenes placeholder por item.
+            _db.ItemImages.Add(new ItemImage { TenantId = tenant.Id, ItemId = items[idx].Id, Url = placeholderImages[0], FileName = "principal.png", SortOrder = 0 });
+            if (idx % 2 == 0)
+            {
+                _db.ItemImages.Add(new ItemImage { TenantId = tenant.Id, ItemId = items[idx].Id, Url = placeholderImages[1], FileName = "secundaria.png", SortOrder = 1 });
+            }
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Seed de inventario creado para {Tenant}: {Warehouses} bodegas, {Brands} marcas, {Groups} grupos, {Subgroups} subgrupos, {Types} tipos, {Items} items.",
+            tenant.Name, warehouses.Count, brands.Count, groups.Count, subgroups.Count, types.Count, items.Count);
+    }
 }

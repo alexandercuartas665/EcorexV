@@ -158,23 +158,6 @@ else
             </div>
         </details>
 
-        <details class="ecorex-acc tg" data-acc="ofer" open="@IsGroupOpen("ofer")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5l9 9 7-7-9-9H3Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Oferta &#183; Catalogo</span>
-                <span class="ecorex-acc-count">1</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/items-de-inventarios">
-                    <span class="lbl">Items de inventarios</span>
-                    <span class="code" title="Modulo legacy 000066">000066</span>
-                </NavLink>
-            </div>
-        </details>
-
         <details class="ecorex-acc tb" data-acc="auto" open="@IsGroupOpen("auto")">
             <summary>
                 <span class="ecorex-acc-ico">
@@ -210,29 +193,33 @@ else
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>
                 </span>
                 <span class="ecorex-acc-name">Sistema &#183; Inventarios</span>
-                <span class="ecorex-acc-count">5</span>
+                <span class="ecorex-acc-count">6</span>
                 <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/bodegas">
+                <NavLink class="ecorex-acc-item" href="inventario-bodegas">
                     <span class="lbl">Bodegas</span>
                     <span class="code" title="Modulo legacy 000556">000556</span>
                 </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/grupo-inventarios">
+                <NavLink class="ecorex-acc-item" href="inventario-grupos">
                     <span class="lbl">Grupo inventarios</span>
                     <span class="code" title="Modulo legacy 000506">000506</span>
                 </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/marcas">
+                <NavLink class="ecorex-acc-item" href="inventario-marcas">
                     <span class="lbl">Marcas</span>
                     <span class="code" title="Modulo legacy 000502">000502</span>
                 </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/subgrupos">
+                <NavLink class="ecorex-acc-item" href="inventario-subgrupos">
                     <span class="lbl">Subgrupos</span>
                     <span class="code" title="Modulo legacy 000606">000606</span>
                 </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/tipos-de-inventario">
+                <NavLink class="ecorex-acc-item" href="inventario-tipos">
                     <span class="lbl">Tipos de inventario</span>
                     <span class="code" title="Modulo legacy 000498">000498</span>
+                </NavLink>
+                <NavLink class="ecorex-acc-item" href="inventario-items">
+                    <span class="lbl">Items de inventarios</span>
+                    <span class="code" title="Modulo legacy 000066">000066</span>
                 </NavLink>
             </div>
         </details>
@@ -620,9 +607,8 @@ else
         ["misproc"] = ["crear-actividad", "proyectos", "actividades", "modulo/programar-actividad"],
         ["sg-comercial"] = ["actividades"],
         ["nego"] = ["modulo/creacion-de-clientes", "modulo/seguimiento-de-clientes", "pipeline"],
-        ["ofer"] = ["modulo/items-de-inventarios"],
         ["auto"] = ["flujos", "formularios", "modulo/power-bi-service", "agentes"],
-        ["inv"] = ["modulo/bodegas", "modulo/grupo-inventarios", "modulo/marcas", "modulo/subgrupos", "modulo/tipos-de-inventario"],
+        ["inv"] = ["inventario-bodegas", "inventario-grupos", "inventario-marcas", "inventario-subgrupos", "inventario-tipos", "inventario-items"],
         ["act"] = ["modulo/prioridades", "modulo/tipos-de-proyecto", "conceptos", "modulo/estados"],
         ["syscrm"] = ["modulo/conceptos-actividades", "modulo/estados-crm", "modulo/perfiles-cliente-prov", "modulo/servicios-o-productos",
                       "modulo/tipos-de-empresas", "modulo/vendedores", "modulo/origen-clientes", "modulo/grupos-de-actividades"],

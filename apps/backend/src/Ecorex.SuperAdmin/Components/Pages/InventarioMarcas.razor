@@ -1,0 +1,22 @@
+@page "/inventario-marcas"
+@attribute [Authorize(Policy = "Inventario.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Inventory
+
+<PageTitle>Marcas - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Marcas</span>
+</nav>
+
+<CatalogManager Kind="CatalogKind.Brand"
+                Title="Marcas"
+                Subtitle="Maestro de marcas comerciales de los items de inventario."
+                NewLabel="Nueva marca"
+                LegacyCode="000502" />

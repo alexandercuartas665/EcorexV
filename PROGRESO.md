@@ -5,6 +5,70 @@
 
 ---
 
+## 2026-07-05 - Sesion: Modulo de Inventarios con catalogos normalizados (ADR-0027)
+
+**Agentes**: coordinador (Opus) + 4 subagentes de exploracion (DbContext/DAL dual, servicios/
+resultados tipados, UI/NavMenu/policies/seeder, suites de test). Referencia origen:
+CUBOT.nails Product/Sede (NO se porto belleza).
+
+**Pedido**: portar el MODELO DE ITEMS del backbone a ECOREX con CATALOGOS NORMALIZADOS para el
+grupo "Sistema - Inventarios" (Bodegas 000556, Marcas 000502, Grupo 000506, Subgrupos 000606,
+Tipos 000498, Items 000066): modelo + migracion dual, servicios con resultados tipados, UI,
+policy, seeder y validacion (unit + integracion dual + E2E), arranque real y ADR.
+
+**Hecho**:
+- Dominio (Ecorex.Domain): `Warehouse/Brand/ItemGroup/ItemSubgroup/ItemType` (catalogos,
+  interfaz comun `ICatalogEntity`), `Item` (+FieldValuesJson jsonb dual, Specifications text
+  dual, Price 14,2, FKs de catalogo NO ACTION, SKU unico filtrado por tenant), `ItemImage`
+  (cascade, Url 500), `ItemStock` (cascade al item, NO ACTION a bodega, unico ItemId+WarehouseId).
+- DbContext: 8 DbSets + configuracion inline (indices unicos por (TenantId,Name)/(ItemId,
+  WarehouseId), filtro por bodega). HasQueryFilter multi-tenant automatico por reflexion (ya
+  existente) cubre las 8 entidades. IApplicationDbContext expone los 8 DbSets.
+- Migracion dual `AddInventory` (PG 20260705110130 + SQL Server 20260705110220) generada,
+  aplicada y VERIFICADA en los contenedores dev (PG 5442 y SQL Server 1443, 8 tablas cada uno).
+  jsonb/text -> nvarchar(max) en SQL Server; FKs Restrict = NO ACTION en ambos motores.
+- Servicios (Ecorex.Application/Inventory, `InventoryResult<T>`): `IInventoryCatalogService`
+  (CRUD bodegas + catalogos genericos por `CatalogKind`, guards de archivado, subgrupo valida
+  grupo) e `IItemService` (SKU unico, consecutivo "ITM" via ISequenceService, stock por bodega
+  recreado en transaccion, imagenes por URL, list con filtros+paginado, detail con TotalStock/
+  AvailableAt). Calculos puros en `InventoryCalculations`. Registrados en DI.
+- UI (Ecorex.SuperAdmin): `/inventario-items` (grid + filtros + modal + activar/archivar),
+  `CatalogManager.razor` generico + 4 paginas thin (marcas/grupos/subgrupos/tipos) +
+  `/inventario-bodegas` aparte. NavMenu: los 6 items apuntan a rutas reales, 000066 movido de
+  "Oferta - Catalogo" (grupo retirado) a "Sistema - Inventarios"; retiradas del stub
+  `Modulo.razor`. Policy `Inventario.Ver` en Program.cs.
+- Seeder: `EnsureInventoryDemoAsync` (2 bodegas, 3 marcas, 2 grupos x2 subgrupos, 3 tipos, 8
+  items con stock repartido incl. ceros, imagenes placeholder; avanza el consecutivo ITM),
+  llamado desde Program.cs. Idempotente, solo Development.
+
+**Verificacion real** (app arrancada contra PG 5442 en puerto 5260):
+- Build 0 errores / 0 advertencias en Ecorex.sln. `dotnet format --verify-no-changes` limpio.
+- ASCII-only: 0 bytes no-ASCII en todos los archivos nuevos.
+- Unit (Ecorex.Application.Tests): 9/9 verdes (total stock, disponibles, IsAvailableAt,
+  validacion de nombre).
+- Integracion dual (Ecorex.Integration.Tests): 12/12 verdes (6 casos x PG + SQL Server):
+  round-trip item con stock por bodega, SKU unico por tenant, consecutivo ITM, subgrupo valida
+  grupo, guards de archivado (grupo con subgrupos / bodega con stock), aislamiento cross-tenant
+  items+catalogos (mismo SKU en 2 tenants no colisiona).
+- E2E (Ecorex.E2E.Tests): 1/1 verde (crear bodega + marca + item con stock y verlo en el grid
+  filtrando por bodega).
+- Navegador (PG 5442, 5260): /inventario-items CLARO (grid con miniaturas, SKUs ITM..., stock
+  total y chips por bodega, filtros) y /inventario-bodegas OSCURO (badges "Activa", tokens
+  conmutan) + modal "Nuevo item" en oscuro OK. Procesos detenidos al final.
+
+**Siguiente**: paso 2 de las policies (derivar `Inventario.Ver` del Module Registry), como el
+resto de modulos. Subida real de imagenes (hoy por URL). Movimientos/kardex de stock si el
+requerimiento lo pide.
+
+**Bloqueos**: ninguno.
+
+**Decisiones**: ADR-0027 (docs/decisiones/0027-inventario.md). FKs de catalogo NO ACTION para
+evitar rutas multiples de cascada en SQL Server. Catalogos simples via `ICatalogEntity` +
+`CatalogManager` generico para no duplicar CRUD. El seeder avanza el consecutivo ITM para que
+los SKUs generados desde la UI no colisionen con los demo.
+
+---
+
 ## 2026-07-05 - Sesion: Login "ventana al producto" (mockup del tablero kanban en el aside)
 
 **Agentes**: coordinador (Opus). Lectura de AuthShell.razor, ActivityBoardDetail.razor + AbUi.cs

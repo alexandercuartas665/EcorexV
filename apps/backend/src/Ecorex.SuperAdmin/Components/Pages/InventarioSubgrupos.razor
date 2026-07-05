@@ -1,0 +1,22 @@
+@page "/inventario-subgrupos"
+@attribute [Authorize(Policy = "Inventario.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Inventory
+
+<PageTitle>Subgrupos - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Subgrupos</span>
+</nav>
+
+<CatalogManager Kind="CatalogKind.ItemSubgroup"
+                Title="Subgrupos"
+                Subtitle="Segundo nivel de la clasificacion; cada subgrupo pertenece a un grupo de inventario."
+                NewLabel="Nuevo subgrupo"
+                LegacyCode="000606" />

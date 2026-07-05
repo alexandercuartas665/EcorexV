@@ -1,0 +1,22 @@
+@page "/inventario-grupos"
+@attribute [Authorize(Policy = "Inventario.Ver")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Inventory
+
+<PageTitle>Grupo inventarios - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Grupo inventarios</span>
+</nav>
+
+<CatalogManager Kind="CatalogKind.ItemGroup"
+                Title="Grupo inventarios"
+                Subtitle="Primer nivel de la clasificacion de inventario; cada grupo agrupa subgrupos."
+                NewLabel="Nuevo grupo"
+                LegacyCode="000506" />

@@ -98,6 +98,10 @@ public static class DependencyInjection
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
+        // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
+        // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
+        services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
+        services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025). El fetcher
         // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
         // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).

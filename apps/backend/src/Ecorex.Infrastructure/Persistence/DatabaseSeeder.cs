@@ -1508,4 +1508,43 @@ public sealed class DatabaseSeeder
             catalog.Length, added, tenant.Name);
     }
 
+    /// <summary>
+    /// Fuente demo del modulo EXTRACCION DE DATOS (000730, ADR-0025) para el tenant demo:
+    /// una fuente Json apuntando al endpoint PROPIO de la consola /api/demo/scrape-sample
+    /// (JSON estatico de items), para probar Ejecutar sin depender de internet. El guard
+    /// SSRF permite loopback SOLO en Development (excepcion explicita documentada en el ADR).
+    /// Idempotente por nombre; si la app arranca en otro puerto (ej. suite E2E), la URL se
+    /// actualiza para seguir apuntando a la instancia viva.
+    /// </summary>
+    public async Task EnsureScrapingDemoAsync(string baseUrl, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        const string name = "Items demo ECOREX (JSON)";
+        var url = $"{baseUrl.TrimEnd('/')}/api/demo/scrape-sample";
+
+        var source = await _db.ScrapeSources.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.TenantId == tenant.Id && s.Name == name, cancellationToken);
+        if (source is null)
+        {
+            _db.ScrapeSources.Add(new ScrapeSource
+            {
+                TenantId = tenant.Id,
+                Name = name,
+                Url = url,
+                Kind = ScrapeSourceKind.Json,
+                Status = ScrapeSourceStatus.Active
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Fuente de extraccion demo sembrada para {Tenant}: {Url}", tenant.Name, url);
+        }
+        else if (source.Url != url)
+        {
+            source.Url = url;
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Fuente de extraccion demo re-apuntada a {Url}.", url);
+        }
+    }
 }

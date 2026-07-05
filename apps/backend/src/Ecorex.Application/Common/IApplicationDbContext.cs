@@ -97,6 +97,8 @@ public interface IApplicationDbContext
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<AccountActivationCode> AccountActivationCodes { get; }
     DbSet<SuperAdminAuditLog> SuperAdminAuditLogs { get; }
+    DbSet<ScrapeSource> ScrapeSources { get; }
+    DbSet<ScrapeRun> ScrapeRuns { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

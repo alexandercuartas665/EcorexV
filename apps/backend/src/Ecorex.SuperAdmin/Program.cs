@@ -59,10 +59,18 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Reglas.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Conceptos.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
-    .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"));
+    .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("ExtraccionDatos.Editar", p => p.RequireClaim("tenant_id"));
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
+// Guard SSRF del modulo de extraccion (ADR-0025): en Development se permite SOLO loopback
+// para que la fuente demo apunte al endpoint propio /api/demo/scrape-sample sin depender
+// de internet. En produccion queda el default seguro de Infrastructure (sin loopback).
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddSingleton(new Ecorex.Application.Scraping.ScrapeGuardOptions { AllowLoopback = true });
+}
 // Contexto de tenant con soporte ambient: por cookie en peticiones, fijable en background (webhook -> agente).
 builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantContext>();
 
@@ -167,6 +175,13 @@ else
     // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
     // + 2 tableros simples para el indice. Idempotente, solo Development.
     await seeder.EnsureActivityBoardsDemoAsync();
+    // Extraccion de datos (ADR-0025): 1 fuente Json demo apuntando al endpoint PROPIO
+    // /api/demo/scrape-sample (sin dependencia de internet; el guard SSRF permite loopback
+    // SOLO en Development). La base URL sale de la configuracion de arranque de Kestrel.
+    var scrapeDemoBaseUrl = (builder.Configuration["urls"]
+        ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS")
+        ?? "http://localhost:5253").Split(';', ',')[0].Trim().TrimEnd('/');
+    await seeder.EnsureScrapingDemoAsync(scrapeDemoBaseUrl);
 }
 
 app.UseHttpsRedirection();
@@ -498,6 +513,25 @@ app.MapPost("/auth/logout", async (HttpContext http) =>
     await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/login");
 }).DisableAntiforgery();
+
+// Endpoint DEMO del modulo de extraccion de datos (000730, ADR-0025): JSON estatico de
+// items para que la fuente demo y los tests E2E corran sin depender de internet. Es
+// AllowAnonymous a proposito: el ejecutor hace un GET sin cookies (datos ficticios, sin
+// informacion de tenant). El guard SSRF solo lo alcanza via loopback en Development.
+app.MapGet("/api/demo/scrape-sample", () => Results.Json(new
+{
+    items = new object[]
+    {
+        new { sku = "PIN-1001", nombre = "Pintura interior blanca 1 gl", precio = 89900, stock = 42 },
+        new { sku = "PIN-1002", nombre = "Pintura interior marfil 1 gl", precio = 92500, stock = 31 },
+        new { sku = "PIN-1003", nombre = "Pintura exterior gris 1 gl", precio = 104900, stock = 18 },
+        new { sku = "PIN-1004", nombre = "Esmalte sintetico negro 1/4 gl", precio = 38900, stock = 77 },
+        new { sku = "PIN-1005", nombre = "Vinilo tipo 1 blanco 5 gl", precio = 319000, stock = 12 },
+        new { sku = "PIN-1006", nombre = "Anticorrosivo rojo 1/4 gl", precio = 27400, stock = 54 },
+        new { sku = "PIN-1007", nombre = "Barniz mate 1/2 gl", precio = 61200, stock = 23 },
+        new { sku = "PIN-1008", nombre = "Rodillo felpa 9 pulgadas", precio = 15900, stock = 96 }
+    }
+})).AllowAnonymous();
 
 // API publica de ingestion de leads por agencia. Auth por API key (header X-Api-Key) que resuelve
 // el tenant. Permite crear un lead y llenar cualquier campo del embudo desde sistemas externos.

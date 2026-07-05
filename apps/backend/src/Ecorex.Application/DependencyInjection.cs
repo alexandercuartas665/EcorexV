@@ -98,6 +98,10 @@ public static class DependencyInjection
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
+        // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025). El fetcher
+        // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
+        // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).
+        services.AddScoped<Scraping.IScrapeService, Scraping.ScrapeService>();
         // Herramientas (function calling / "MCP") que el agente de IA puede usar. Cada toolset se registra
         // tambien como IAgentToolset para que el motor de inferencia los agregue todos y filtre por agente.
         services.AddScoped<Tenancy.PipelineToolset>();

@@ -64,6 +64,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<LeadNote> LeadNotes => Set<LeadNote>();
     public DbSet<LeadFile> LeadFiles => Set<LeadFile>();
     public DbSet<ContactImportBatch> ContactImportBatches => Set<ContactImportBatch>();
+    // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025).
+    public DbSet<ScrapeSource> ScrapeSources => Set<ScrapeSource>();
+    public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -207,6 +210,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ModuleArea>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskBoardStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskBoardKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScrapeSourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScrapeSourceStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScrapeRunStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -490,6 +496,30 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
             // El historial de cargas se lista de la mas reciente a la mas vieja, por tenant.
             b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+        });
+
+        // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025).
+        modelBuilder.Entity<ScrapeSource>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(1000).IsRequired();
+            b.Property(x => x.Selector).HasMaxLength(300);
+            b.Property(x => x.LastResultSummary).HasMaxLength(400);
+            // El nombre identifica la fuente dentro del tenant (el servicio valida el duplicado
+            // con mensaje claro; el indice unico es la defensa en profundidad).
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ScrapeRun>(b =>
+        {
+            b.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            // Resultado estructurado de la corrida: jsonb en PG, nvarchar(max) en SQL Server.
+            // Siempre JSON valido y recortado a 64 KB (ScrapeContentParser.BuildResultJson).
+            b.Property(x => x.ResultJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Source).WithMany(x => x.Runs)
+                .HasForeignKey(x => x.SourceId).OnDelete(DeleteBehavior.Cascade);
+            // El historial se lista por fuente, de la corrida mas reciente a la mas vieja.
+            b.HasIndex(x => new { x.TenantId, x.SourceId, x.CreatedAt });
         });
 
         modelBuilder.Entity<FollowUpTask>(b =>

@@ -89,6 +89,25 @@ public static class DependencyInjection
         services.AddHttpClient<Ecorex.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>();
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
+        // Ejecutor de extraccion de datos (modulo 000730, ADR-0025): limites por defecto
+        // SEGUROS (sin loopback, 15s, 2 MB, redirecciones re-validadas). La app host puede
+        // re-registrar ScrapeGuardOptions DESPUES de AddInfrastructure para habilitar el
+        // endpoint demo local SOLO en Development (la ultima registracion singleton gana).
+        services.AddSingleton(new Ecorex.Application.Scraping.ScrapeGuardOptions());
+        services.AddHttpClient<Ecorex.Application.Scraping.IScrapeFetcher, Ecorex.Application.Scraping.ScrapeHttpFetcher>(
+                static client =>
+                {
+                    // Margen sobre el timeout logico del fetcher (15s), que es el que manda.
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                })
+            .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler
+            {
+                // Las redirecciones se siguen A MANO en ScrapeHttpFetcher para re-validar
+                // cada salto contra el guard SSRF. Sin cookies ni credenciales de ambiente.
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                Credentials = null
+            });
         services.AddScoped<DatabaseSeeder>();
 
         // Comprobantes PDF (QuestPDF). Licencia Community: gratis para empresas con ingresos < USD 1M/ano.

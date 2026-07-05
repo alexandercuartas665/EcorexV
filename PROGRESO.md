@@ -5,6 +5,94 @@
 
 ---
 
+## 2026-07-05 - Sesion: Modulo EXTRACCION DE DATOS / web scraping (000730, ADR-0025)
+
+**Agentes**: agente unico (lectura proto+spec, modelo+DAL dual, servicio+guard SSRF,
+UI, seeder+endpoint demo, tests unit/integracion/E2E, verificacion manual).
+
+**Hecho**:
+- Pagina real `/extraccion-datos` (ExtraccionDatos.razor + .css) que REEMPLAZA al stub
+  generico. Estructura del proto `proto_web_scraping.html` con tokens del workspace
+  (regla ADR-0023): topbar 14x24 + MOD 000730, layout 300px/1fr max 1500, sidebar
+  sticky de fuentes con dot verde/rojo/gris, hero r12 gradiente --brand-2->--brand con
+  4 KPIs (ejecuciones/exito 30d/registros/ultima corrida), franja ambar de alcance,
+  cols 1fr/380 (preview tabla + JSON crudo en editor oscuro fijo | editor de fuente con
+  selector CSS + ayuda), tabla de historial con pills. NavMenu: el item 000730 pasa de
+  `modulo/extraccion-de-datos` a `extraccion-datos` (SOLO ese item); Modulo.razor retira
+  su entrada del registro de stubs.
+- Modelo + DAL dual: ScrapeSource (TenantEntity: Name, Url, Selector?, Kind
+  enum Html|Json, Status Active|Inactive|Error, LastRunAt?, LastResultSummary?; indice
+  unico tenant+name) y ScrapeRun (TenantEntity: SourceId FK cascade, Status
+  Success|Failed, ItemCount, DurationMs, ErrorMessage?, ResultJson dual jsonb/nvarchar(max)
+  recortado a 64 KB). DbSet + IApplicationDbContext + configuracion. UNA migracion dual
+  `AddScraping` (Ecorex.Infrastructure 20260705033315 + Ecorex.Infrastructure.SqlServer
+  20260705033251) APLICADA y verificada en los contenedores dev (PG 5442 \d scrape_runs
+  con result_json jsonb + MSSQL 1443 sys.tables con result_json nvarchar(max)).
+- IScrapeService (Application/Scraping): CRUD de fuentes con validaciones tipadas
+  (ScrapeOpResult: Ok/NotFound/Invalid; nombre unico por tenant, URL absoluta http(s)
+  sin credenciales, selector obligatorio en Html) + RunAsync que SIEMPRE persiste la
+  corrida (exito o fallo) y actualiza LastRunAt/summary/estado de la fuente en UNA
+  transaccion. Eliminar con historial -> Invalid (se ofrece desactivar, criterio ADR-0023).
+- SEGURIDAD (nucleo del ADR): SsrfUrlGuard (puro, testeado) resuelve DNS y valida TODAS
+  las IPs (fail-closed) contra loopback/privadas RFC1918/link-local+metadata 169.254.169.254/
+  CGNAT/multicast/clase E/IPv6 ULA+link-local+mapeadas; solo http(s), sin user@host, solo
+  puertos 80/443. ScrapeHttpFetcher: SOLO GET, User-Agent propio, timeout 15s total, tope
+  2 MB (stream + Content-Length), AllowAutoRedirect=false y max 3 redirecciones seguidas
+  A MANO re-validando cada salto. Excepcion AllowLoopback SOLO en Development (Program.cs
+  re-registra el singleton) para el endpoint demo propio.
+- Parser puro ScrapeContentParser: JSON (conteo + preview tabular) y HTML por selector CSS
+  con AngleSharp. Se agrego el paquete **AngleSharp 1.5.1 estable** a Ecorex.Application
+  (no estaba referenciado; justificado en ADR-0025: parser puro sin red/telemetria, el
+  selector CSS es central en la spec).
+- Endpoint demo `/api/demo/scrape-sample` en el SuperAdmin (JSON estatico de 8 items,
+  AllowAnonymous) + seeder EnsureScrapingDemoAsync idempotente (fuente Json demo apuntando
+  a ese endpoint; re-apunta la URL al puerto vivo). Policy nueva `ExtraccionDatos.Editar`
+  (paso 1: nombre estable, requisito = tenant_id).
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; `dotnet format --verify-no-changes` limpio.
+- Unit: Application 247/247 verdes (+78 nuevos: SsrfUrlGuardTests exhaustivo -esquemas,
+  IPv4/IPv6 privadas y mapeadas, DNS que resuelve a privada, mezcla publica+privada,
+  puertos, excepcion loopback dev, bordes de rango-; ScrapeHttpFetcherTests -GET, UA,
+  redireccion a privado bloqueada sin request, redireccion a publico seguida, tope de
+  saltos, tope de bytes/Content-Length, HTTP 5xx tipado-; ScrapeContentParserTests -JSON
+  array/propiedad/objeto/escalares/invalido/preview acotada, HTML selector valido/
+  compuesto/invalido/sin selector/sin match, recorte de ResultJson sin perder el total-).
+- Integracion dual +6 (3 tests x 2 motores PG+SQL Server via Testcontainers) ScrapingTests
+  verdes: CRUD con validaciones + corrida real contra endpoint HttpListener local (8 items,
+  ResultJson jsonb/nvarchar valido, metricas de la fuente, no-borrado con historial);
+  historial que persiste FALLO (HTTP 500 -> fuente Error) y EXITO (vuelve a Active),
+  ambas corridas conservadas; aislamiento cross-tenant (B no ve fuentes ni corridas de A,
+  RunAsync/DeleteAsync de A desde B = NotFound, mismo nombre reutilizable por tenant).
+- E2E Playwright COMPLETA verde 18/18 contra app real (PG 5442, puerto 5250 auto);
+  +1 escenario ExtraccionDatosTests: crear fuente demo JSON al endpoint propio -> Ejecutar
+  -> preview con 8 items (columnas sku/nombre/precio/stock) -> KPI registros 8 -> historial
+  con pill dot verde "Exitoso" y 8 registros. (Una 1a corrida dio el flake conocido de
+  ReglasTests -race de Blazor al crear regla, documentado en sesiones previas-; el rerun
+  limpio fue 18/18.)
+- Verificacion manual claro/oscuro (preview 5253): layout desktop grid 300px/1fr y cols
+  1fr/380 (en viewport <1100 conmuta a 1 columna, responsive del proto), hero gradiente,
+  franja ambar, tabla de preview 8 filas con SKU/nombre/precio/stock, editor JSON oscuro;
+  en dark los tokens conmutan (bg #0A0A0B, ink #F4F4F5, brand invertido, amber/verde
+  translucidos rgba). Corrida real persistida verificada en BD (scrape_runs Success 8 items
+  result_json jsonb valido). El seeder re-apunto la fuente demo a 5253. NavMenu muestra el
+  unico item "Extraccion de datos 000730" a la pagina real.
+- Procesos DETENIDOS (preview 5253 parado; sin listeners en 525x/5232).
+
+**Deudas / TODO** (documentadas en ADR-0025):
+- Scheduler (CICLO del legacy): sin corridas programadas en esta ola; ira como
+  BackgroundService en Ecorex.Workers con cola + rate-limit por tenant.
+- DNS rebinding: la IP validada no se fija para la conexion posterior (TTL 0 podria
+  re-resolver distinto entre validacion y GET); mitigacion via ConnectCallback = deuda.
+- Multi-paso legacy (variables/credenciales cifradas, APIs, seguimiento trading),
+  robots.txt + rate-limit por dominio, extraccion de atributos (href/src) ademas de texto.
+- Sin commit (pedido explicito): cambios en working tree.
+
+**Decisiones**: ver ADR-0025 (alcance acotado, guard SSRF estricto, AngleSharp 1.5.1,
+excepcion loopback dev, TODO scheduler).
+
+---
+
 ## 2026-07-03 - Sesion 1: Lectura del vault + FASE 0 (setup del repo)
 
 **Agentes**: coordinador + 5 subagentes lectores del vault en paralelo.

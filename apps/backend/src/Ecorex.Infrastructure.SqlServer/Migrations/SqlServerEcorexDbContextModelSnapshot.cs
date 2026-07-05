@@ -929,6 +929,64 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("business_units", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactImportBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Duplicates")
+                        .HasColumnType("int")
+                        .HasColumnName("duplicates");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<int>("Inserted")
+                        .HasColumnType("int")
+                        .HasColumnName("inserted");
+
+                    b.Property<int>("Invalid")
+                        .HasColumnType("int")
+                        .HasColumnName("invalid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<int>("TotalRows")
+                        .HasColumnType("int")
+                        .HasColumnName("total_rows");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_import_batches");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("ix_contact_import_batches_tenant_id_created_at");
+
+                    b.ToTable("contact_import_batches", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Conversation", b =>
                 {
                     b.Property<Guid>("Id")

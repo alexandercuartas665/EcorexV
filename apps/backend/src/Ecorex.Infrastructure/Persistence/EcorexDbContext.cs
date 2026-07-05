@@ -63,6 +63,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<LeadActivity> LeadActivities => Set<LeadActivity>();
     public DbSet<LeadNote> LeadNotes => Set<LeadNote>();
     public DbSet<LeadFile> LeadFiles => Set<LeadFile>();
+    public DbSet<ContactImportBatch> ContactImportBatches => Set<ContactImportBatch>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -482,6 +483,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.ContentType).HasMaxLength(120).IsRequired();
             b.HasOne(x => x.Lead).WithMany().HasForeignKey(x => x.LeadId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.LeadId });
+        });
+
+        modelBuilder.Entity<ContactImportBatch>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            // El historial de cargas se lista de la mas reciente a la mas vieja, por tenant.
+            b.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         modelBuilder.Entity<FollowUpTask>(b =>

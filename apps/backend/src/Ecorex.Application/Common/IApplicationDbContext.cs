@@ -23,6 +23,7 @@ public interface IApplicationDbContext
     DbSet<LeadActivity> LeadActivities { get; }
     DbSet<LeadNote> LeadNotes { get; }
     DbSet<LeadFile> LeadFiles { get; }
+    DbSet<ContactImportBatch> ContactImportBatches { get; }
     DbSet<FollowUpTask> FollowUpTasks { get; }
     DbSet<Conversation> Conversations { get; }
     DbSet<Message> Messages { get; }

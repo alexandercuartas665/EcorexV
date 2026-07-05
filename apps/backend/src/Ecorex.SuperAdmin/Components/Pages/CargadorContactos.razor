@@ -1,0 +1,529 @@
+@page "/cargador-contactos"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@inject IContactLoaderService LoaderSvc
+@inject IPipelineService PipelineSvc
+@inject NavigationManager Nav
+
+<PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
+
+<div class="cl-page">
+
+    @* ===== Topbar del modulo (proto: breadcrumb + MOD 000873 + acciones) ===== *@
+    <div class="cl-topbar">
+        <nav class="cl-crumb" aria-label="Ruta de navegacion">
+            <span>Home</span>
+            <span class="sep">/</span>
+            <span>Comercial</span>
+            <span class="sep">/</span>
+            <span class="last">Cargador de contactos</span>
+            <span class="cl-mod-code">MOD 000873</span>
+        </nav>
+        <div class="cl-top-actions">
+            <a class="cl-btn" href="@TemplateHref" download="plantilla_contactos.csv">Plantilla CSV</a>
+            <a class="cl-btn" href="pipeline">Ver pipeline</a>
+            <button class="cl-btn primary" disabled="@(!CanImport)" @onclick="ImportAsync">
+                @(_busy ? "Cargando..." : $"Cargar {_preview?.Valid ?? 0} validas")
+            </button>
+        </div>
+    </div>
+
+    @if (_flash is not null)
+    {
+        <div class="cl-flash @(_flashError ? "err" : "ok")" role="status">
+            <span>@_flash</span>
+            <button class="cl-flash-x" @onclick="() => _flash = null" title="Cerrar">x</button>
+        </div>
+    }
+
+    <div class="cl-layout">
+
+        @* ---- Panel izquierdo (proto .filters 300px sticky): archivo + mapeo + historial ---- *@
+        <aside class="cl-filters">
+
+            <div class="cl-f-head">
+                <div class="cl-f-title">Cargador</div>
+                <button class="cl-btn sm" disabled="@(_table is null)" @onclick="ClearFile">Quitar archivo</button>
+            </div>
+
+            <div class="cl-f-section">
+                <div class="cl-f-sec-title">Archivo CSV</div>
+                <label class="cl-add-file">
+                    <InputFile OnChange="OnFileSelectedAsync" accept=".csv,text/csv" />
+                    + Seleccionar archivo CSV
+                </label>
+                @if (_fileName is not null)
+                {
+                    <div class="cl-file-chip" title="@_fileName">
+                        <span class="cl-file-name">@_fileName</span>
+                        <span class="cl-file-meta">@_table?.Rows.Count filas &middot; @FileSizeLabel</span>
+                    </div>
+                }
+                <div class="cl-hint">Solo CSV (UTF-8; coma, punto y coma o tabulador). Soporte de Excel (.xlsx): pendiente.</div>
+            </div>
+
+            <div class="cl-f-section">
+                <div class="cl-f-sec-title">Mapeo de columnas
+                    <span class="cl-f-sec-note">@MappedCount de 6</span>
+                </div>
+                @if (_table is null)
+                {
+                    <div class="cl-empty">Sube un archivo para mapear sus columnas a los campos del lead.</div>
+                }
+                else
+                {
+                    @foreach (var field in FieldSlots)
+                    {
+                        <div class="cl-map-row">
+                            <span class="cl-map-lbl @(field.Required ? "req" : "")" title="@(field.Required ? "Obligatorio" : "Opcional")">@field.Label</span>
+                            <select value="@(GetMapIndex(field.Key)?.ToString() ?? "")"
+                                    @onchange="e => SetMapIndexAsync(field.Key, e.Value?.ToString())">
+                                <option value="">(no cargar)</option>
+                                @for (var i = 0; i < _table.Headers.Count; i++)
+                                {
+                                    var idx = i;
+                                    <option value="@idx">@_table.Headers[idx]</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="cl-f-section">
+                <div class="cl-f-sec-title">Historial de cargas
+                    <span class="cl-f-sec-note">@_batches.Count</span>
+                </div>
+                @if (_batches.Count == 0)
+                {
+                    <div class="cl-empty">Aun no hay cargas en este workspace.</div>
+                }
+                else
+                {
+                    <div class="cl-batch-list">
+                        @foreach (var b in _batches)
+                        {
+                            <div class="cl-batch" title="@BatchTooltip(b)">
+                                <span class="cl-batch-name">@b.FileName</span>
+                                <span class="cl-batch-count">@b.Inserted</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="cl-f-section">
+                <button class="cl-btn primary wide" disabled="@(!CanImport)" @onclick="ImportAsync">
+                    @(_busy ? "Cargando..." : $"Cargar {_preview?.Valid ?? 0} contactos validos")
+                </button>
+            </div>
+
+        </aside>
+
+        @* ---- Panel principal: KPIs + tabs + grilla ---- *@
+        <div class="cl-main">
+
+            <div class="cl-kpis">
+                <div class="cl-kpi">
+                    <div class="cl-kpi-ic k1">F</div>
+                    <div class="cl-kpi-tx"><div class="cl-kpi-l">Filas del archivo</div><div class="cl-kpi-v">@(_preview?.Total ?? 0)</div></div>
+                </div>
+                <div class="cl-kpi">
+                    <div class="cl-kpi-ic k2">V</div>
+                    <div class="cl-kpi-tx"><div class="cl-kpi-l">Validas</div><div class="cl-kpi-v">@(_preview?.Valid ?? 0)</div></div>
+                </div>
+                <div class="cl-kpi">
+                    <div class="cl-kpi-ic k3">D</div>
+                    <div class="cl-kpi-tx"><div class="cl-kpi-l">Duplicadas</div><div class="cl-kpi-v">@(_preview?.Duplicates ?? 0)</div></div>
+                </div>
+                <div class="cl-kpi">
+                    <div class="cl-kpi-ic k4">I</div>
+                    <div class="cl-kpi-tx"><div class="cl-kpi-l">Invalidas</div><div class="cl-kpi-v">@InvalidTotal</div></div>
+                </div>
+            </div>
+
+            <div class="cl-tabs">
+                <button class="cl-tab @(_tab == "prev" ? "active" : "")" @onclick="@(() => _tab = "prev")">
+                    Previsualizacion (@(_preview?.Total ?? 0))
+                </button>
+                <button class="cl-tab @(_tab == "err" ? "active" : "")" @onclick="@(() => _tab = "err")">
+                    Errores (@ErrorRowsCount)
+                </button>
+                <button class="cl-tab @(_tab == "res" ? "active" : "")" disabled="@(_result is null)" @onclick="@(() => _tab = "res")">
+                    Resultado
+                </button>
+            </div>
+
+            <div class="cl-grid-card">
+
+                <div class="cl-toolbar">
+                    <div class="cl-toolbar-left">
+                        <div class="cl-toolbar-title">@(_fileName ?? "Sin archivo cargado")</div>
+                        <div class="cl-toolbar-sub">
+                            <strong>@(_preview?.Total ?? 0)</strong>&nbsp;filas
+                            <span class="dot"></span>
+                            <span>Destino: primera etapa del pipeline</span>
+                            <span class="dot"></span>
+                            <span>Duplicados por telefono o email del tenant</span>
+                        </div>
+                    </div>
+                    <div class="cl-toolbar-actions">
+                        <button class="cl-btn sm" disabled="@(_table is null || _busy)" @onclick="RevalidateAsync">Revalidar</button>
+                        <a class="cl-btn sm" href="pipeline">Fila 360</a>
+                    </div>
+                </div>
+
+                @if (_tab == "prev")
+                {
+                    @if (_preview is null || _preview.Rows.Count == 0)
+                    {
+                        <div class="cl-blank">
+                            <div class="cl-blank-t">Sube un archivo CSV para previsualizar los contactos</div>
+                            <div class="cl-blank-s">Columnas sugeridas: nombre, telefono, email, empresa, destino, valor_estimado. Descarga la plantilla desde el topbar.</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cl-table-wrap">
+                            <table class="cl-contacts">
+                                <thead>
+                                    <tr>
+                                        <th class="num">#</th>
+                                        <th>Contacto</th>
+                                        <th>Telefono</th>
+                                        <th>Email</th>
+                                        <th>Estado</th>
+                                        <th>Detalle</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in PagedRows)
+                                    {
+                                        <tr class="@RowClass(row)">
+                                            <td class="num">@row.LineNumber</td>
+                                            <td>
+                                                <div class="cl-contact-cell">
+                                                    <div class="cl-avatar @AvatarTone(row.LineNumber)">@Initials(row.Name)</div>
+                                                    <div>
+                                                        <div class="cl-c-name">@(string.IsNullOrWhiteSpace(row.Name) ? "(sin nombre)" : row.Name)</div>
+                                                        <div class="cl-c-title">Fila @row.LineNumber del archivo</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>@(row.Phone ?? "-")</td>
+                                            <td>@(row.Email ?? "-")</td>
+                                            <td><span class="cl-mini @BadgeClass(row.Status)">@BadgeLabel(row.Status)</span></td>
+                                            <td class="cl-msg">@(row.Message ?? "Lista para cargar")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="cl-pager">
+                            <span>Mostrando <strong>@PagedRows.Count</strong> de <strong>@_preview.Rows.Count</strong> filas</span>
+                            <div class="cl-pager-btns">
+                                <button class="cl-btn sm" disabled="@(_pageIndex == 0)" @onclick="() => _pageIndex--">Anterior</button>
+                                <button class="cl-btn sm" disabled>Pagina @(_pageIndex + 1) / @PageCount</button>
+                                <button class="cl-btn sm" disabled="@(_pageIndex >= PageCount - 1)" @onclick="() => _pageIndex++">Siguiente</button>
+                            </div>
+                        </div>
+                    }
+                }
+                else if (_tab == "err")
+                {
+                    @if (ErrorRowsCount == 0)
+                    {
+                        <div class="cl-blank">
+                            <div class="cl-blank-t">Sin errores</div>
+                            <div class="cl-blank-s">Todas las filas parseadas son validas o duplicadas.</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cl-table-wrap">
+                            <table class="cl-contacts">
+                                <thead>
+                                    <tr><th class="num">Linea</th><th>Tipo</th><th>Detalle</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var err in _parseErrors)
+                                    {
+                                        <tr>
+                                            <td class="num">@err.LineNumber</td>
+                                            <td><span class="cl-mini bad">Fila rota</span></td>
+                                            <td class="cl-msg">@err.Message</td>
+                                        </tr>
+                                    }
+                                    @foreach (var row in InvalidOrDuplicateRows)
+                                    {
+                                        <tr>
+                                            <td class="num">@row.LineNumber</td>
+                                            <td><span class="cl-mini @BadgeClass(row.Status)">@BadgeLabel(row.Status)</span></td>
+                                            <td class="cl-msg">@row.Message</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else if (_tab == "res" && _result is not null)
+                {
+                    <div class="cl-result">
+                        <div class="cl-result-title">Carga completada: @_result.Inserted contactos insertados en el pipeline</div>
+                        <div class="cl-result-cards">
+                            <div class="cl-result-card ok"><div class="v">@_result.Inserted</div><div class="l">Insertadas</div></div>
+                            <div class="cl-result-card dup"><div class="v">@_result.Duplicates</div><div class="l">Duplicadas</div></div>
+                            <div class="cl-result-card bad"><div class="v">@_result.Invalid</div><div class="l">Invalidas</div></div>
+                            <div class="cl-result-card"><div class="v">@_result.Total</div><div class="l">Filas procesadas</div></div>
+                        </div>
+                        <div class="cl-result-note">
+                            Las filas duplicadas e invalidas se saltaron y quedaron reportadas en la pestana Errores.
+                            El resumen quedo en el historial de cargas.
+                        </div>
+                        <div class="cl-result-actions">
+                            <a class="cl-btn primary" href="pipeline">Ver leads en pipeline</a>
+                            <button class="cl-btn" @onclick="ClearFile">Cargar otro archivo</button>
+                        </div>
+                    </div>
+                }
+            </div>
+
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 30;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed record FieldSlot(string Key, string Label, bool Required);
+
+    private static readonly FieldSlot[] FieldSlots =
+    [
+        new("name", "Nombre", true),
+        new("phone", "Telefono", false),
+        new("email", "Email", false),
+        new("company", "Empresa", false),
+        new("destination", "Destino", false),
+        new("value", "Valor est.", false)
+    ];
+
+    private CsvTable? _table;
+    private IReadOnlyList<CsvRowError> _parseErrors = [];
+    private ContactColumnMapping _mapping = new(Name: null);
+    private ContactImportPreview? _preview;
+    private ContactImportResult? _result;
+    private IReadOnlyList<ContactImportBatchDto> _batches = [];
+    private string? _fileName;
+    private long _fileSize;
+    private string _tab = "prev";
+    private int _pageIndex;
+    private bool _busy;
+    private string? _flash;
+    private bool _flashError;
+
+    private static readonly string TemplateHref = "data:text/csv;charset=utf-8," + Uri.EscapeDataString(
+        "nombre,telefono,email,empresa,destino,valor_estimado\r\n" +
+        "Juan Perez,3001234567,juan.perez@acme.com,ACME SAS,Bogota,2500000\r\n");
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Igual que Pipeline.razor: garantiza etapas/campos default del embudo del tenant.
+        var actor = await ActorAsync();
+        await PipelineSvc.EnsureDefaultsAsync(actor);
+        _batches = await LoaderSvc.ListBatchesAsync();
+    }
+
+    private bool CanImport => !_busy && _table is not null && _mapping.Name is not null && (_preview?.Valid ?? 0) > 0;
+
+    private int InvalidTotal => (_preview?.Invalid ?? 0) + _parseErrors.Count;
+
+    private int ErrorRowsCount => _parseErrors.Count + (_preview?.Rows.Count(r => r.Status != ContactRowStatus.Valid) ?? 0);
+
+    private IReadOnlyList<ContactRowResult> InvalidOrDuplicateRows =>
+        _preview?.Rows.Where(r => r.Status != ContactRowStatus.Valid).ToList() ?? [];
+
+    private List<ContactRowResult> PagedRows =>
+        _preview?.Rows.Skip(_pageIndex * PageSize).Take(PageSize).ToList() ?? [];
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling((_preview?.Rows.Count ?? 0) / (double)PageSize));
+
+    private int MappedCount =>
+        new[] { _mapping.Name, _mapping.Phone, _mapping.Email, _mapping.Company, _mapping.Destination, _mapping.EstimatedValue }
+            .Count(i => i is not null);
+
+    private string FileSizeLabel => _fileSize < 1024 ? $"{_fileSize} B" : $"{_fileSize / 1024.0:0.#} KB";
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _flash = null;
+        _result = null;
+        _tab = "prev";
+        _pageIndex = 0;
+        try
+        {
+            _fileName = e.File.Name;
+            _fileSize = e.File.Size;
+            using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024));
+            var content = await reader.ReadToEndAsync();
+
+            var parsed = CsvTableParser.Parse(content);
+            _table = parsed.Table;
+            _parseErrors = parsed.Errors;
+            _mapping = ContactColumnMapping.AutoMap(_table.Headers);
+            await RevalidateAsync();
+
+            if (_mapping.Name is null)
+            {
+                Flash("No se reconocio la columna del nombre: mapeala manualmente en el panel izquierdo.", error: true);
+            }
+        }
+        catch (IOException)
+        {
+            ClearFile();
+            Flash("El archivo supera el limite de 2 MB.", error: true);
+        }
+    }
+
+    private async Task RevalidateAsync()
+    {
+        if (_table is null)
+        {
+            return;
+        }
+
+        _preview = await LoaderSvc.ValidateAsync(_table, _mapping);
+        _pageIndex = Math.Min(_pageIndex, PageCount - 1);
+    }
+
+    private async Task ImportAsync()
+    {
+        if (!CanImport || _table is null || _fileName is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var result = await LoaderSvc.ImportAsync(_fileName, _table, _mapping, actor);
+            if (result is null)
+            {
+                Flash("No se pudo cargar: revisa el mapeo del nombre y que el pipeline tenga etapas.", error: true);
+                return;
+            }
+
+            _result = result;
+            _tab = "res";
+            _batches = await LoaderSvc.ListBatchesAsync();
+            await RevalidateAsync(); // ahora las cargadas cuentan como duplicadas si se reintenta
+            Flash($"Carga completada: {result.Inserted} insertadas, {result.Duplicates} duplicadas, {result.Invalid} invalidas.");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ClearFile()
+    {
+        _table = null;
+        _parseErrors = [];
+        _preview = null;
+        _result = null;
+        _fileName = null;
+        _fileSize = 0;
+        _mapping = new ContactColumnMapping(Name: null);
+        _tab = "prev";
+        _pageIndex = 0;
+    }
+
+    private int? GetMapIndex(string key) => key switch
+    {
+        "name" => _mapping.Name,
+        "phone" => _mapping.Phone,
+        "email" => _mapping.Email,
+        "company" => _mapping.Company,
+        "destination" => _mapping.Destination,
+        "value" => _mapping.EstimatedValue,
+        _ => null
+    };
+
+    private async Task SetMapIndexAsync(string key, string? raw)
+    {
+        int? idx = int.TryParse(raw, out var parsed) ? parsed : null;
+        _mapping = key switch
+        {
+            "name" => _mapping with { Name = idx },
+            "phone" => _mapping with { Phone = idx },
+            "email" => _mapping with { Email = idx },
+            "company" => _mapping with { Company = idx },
+            "destination" => _mapping with { Destination = idx },
+            "value" => _mapping with { EstimatedValue = idx },
+            _ => _mapping
+        };
+        await RevalidateAsync();
+    }
+
+    private void Flash(string message, bool error = false)
+    {
+        _flash = message;
+        _flashError = error;
+    }
+
+    private static string RowClass(ContactRowResult row) => row.Status switch
+    {
+        ContactRowStatus.Duplicate => "dup",
+        ContactRowStatus.Invalid => "bad",
+        _ => ""
+    };
+
+    private static string BadgeClass(ContactRowStatus status) => status switch
+    {
+        ContactRowStatus.Valid => "ok",
+        ContactRowStatus.Duplicate => "dup",
+        _ => "bad"
+    };
+
+    private static string BadgeLabel(ContactRowStatus status) => status switch
+    {
+        ContactRowStatus.Valid => "Valida",
+        ContactRowStatus.Duplicate => "Duplicada",
+        _ => "Invalida"
+    };
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "?";
+        }
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}"
+            : char.ToUpperInvariant(parts[0][0]).ToString();
+    }
+
+    private static string AvatarTone(int line) => "a" + (line % 6 + 1);
+
+    private static string BatchTooltip(ContactImportBatchDto b) =>
+        $"{b.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm} - {b.TotalRows} filas: {b.Inserted} insertadas, " +
+        $"{b.Duplicates} duplicadas, {b.Invalid} invalidas" +
+        (b.CreatedByName is null ? "" : $" - por {b.CreatedByName}");
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null)
+        {
+            return Guid.Empty;
+        }
+
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

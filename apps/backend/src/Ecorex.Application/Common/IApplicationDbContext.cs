@@ -110,6 +110,9 @@ public interface IApplicationDbContext
     DbSet<ItemImage> ItemImages { get; }
     DbSet<ItemStock> ItemStocks { get; }
 
+    // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
+    DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

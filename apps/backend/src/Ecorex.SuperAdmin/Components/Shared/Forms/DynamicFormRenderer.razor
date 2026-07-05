@@ -756,6 +756,8 @@ else
         }
         _busy = true;
         _globalError = null;
+        // Diferido para invocar al padre FUERA del gate (ver nota abajo).
+        FormResponseDto? submitted = null;
         await _dbGate.WaitAsync();
         try
         {
@@ -784,13 +786,24 @@ else
             {
                 _autosaveTimer?.Dispose();
                 _autosaveTimer = null;
-                await OnSubmitted.InvokeAsync(result.Value);
+                submitted = result.Value;
             }
         }
         finally
         {
             _dbGate.Release();
             _busy = false;
+        }
+
+        // OnSubmitted se invoca FUERA del critical section: el callback del visor publico
+        // (/f/{token}) muestra la pantalla de gracias y destruye este componente, lo que
+        // ejecuta Dispose() -> _dbGate.Dispose(). Hacerlo dentro del try dejaba el
+        // Release() del finally corriendo sobre un semaforo ya disposed
+        // (ObjectDisposedException que tumbaba el circuito tras el submit). Liberado el
+        // gate primero, ya no hay Release pendiente cuando el padre nos destruye.
+        if (submitted is not null)
+        {
+            await OnSubmitted.InvokeAsync(submitted);
         }
     }
 

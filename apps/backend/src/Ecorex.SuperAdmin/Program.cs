@@ -64,6 +64,9 @@ builder.Services.AddAuthorizationBuilder()
     // Inventarios (grupo Sistema - Inventarios, ADR-0027): items 000066 + catalogos
     // 000556/000502/000506/000606/000498. Paso 1: mismo requisito que TenantMember.
     .AddPolicy("Inventario.Ver", p => p.RequireClaim("tenant_id"))
+    // Plantillas HSM de WhatsApp (ADR-0029): editor de plantillas del CRM heredado. Paso 1:
+    // mismo requisito que TenantMember (claim tenant_id). Paso 2 (Module Registry) pendiente.
+    .AddPolicy("PlantillasWhatsApp.Editar", p => p.RequireClaim("tenant_id"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu
@@ -186,6 +189,9 @@ else
     // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
     // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
     await seeder.EnsureInventoryDemoAsync();
+    // Plantillas HSM de WhatsApp demo (ADR-0029): 3 plantillas del tenant demo vinculadas a una
+    // linea de WhatsApp. Idempotente, solo Development. Submit es un stub (sin integracion Meta).
+    await seeder.EnsureWhatsAppTemplatesDemoAsync();
     // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
     // + 2 tableros simples para el indice. Idempotente, solo Development.
     await seeder.EnsureActivityBoardsDemoAsync();

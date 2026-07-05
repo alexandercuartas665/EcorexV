@@ -5,6 +5,47 @@
 
 ---
 
+## 2026-07-05 - Sesion: Modulo de Plantillas HSM de WhatsApp (ADR-0029)
+
+**Agentes**: agente #2 de 3 integraciones CUBOT encadenadas. Referencia origen:
+CUBOT.travels (`WhatsAppTemplate`, `PlantillasWhatsApp.razor`, migracion 20260628124032).
+Convenciones copiadas del modulo de Inventarios (ADR-0027).
+
+**Pedido**: portar el gestor de plantillas HSM de WhatsApp de CUBOT.travels a ECOREX como
+modulo NUEVO, adaptado a las convenciones (multi-tenant, DAL dual, resultados tipados), con
+Submit/SyncStatus como STUBS (sin integracion real con Meta).
+
+**Hecho**:
+- Dominio (Ecorex.Domain): `WhatsAppTemplate` (TenantEntity) + enums
+  `WhatsAppTemplateCategory/HeaderType/Status`. FK `WhatsAppLineId` NO ACTION a `WhatsAppLine`
+  (linea del CRM heredado). Unica por (TenantId, Name, Language). `VariablesJson` jsonb/nvarchar
+  dual; `BodyText` text/nvarchar(max) dual; `IsActive` (soft-delete).
+- DbContext: DbSet + config inline (3 conversiones enum->string, indice unico (Name,Language),
+  FK Restrict). IApplicationDbContext expone el DbSet.
+- Migracion dual `AddWhatsAppTemplates` (PG 20260705120605 + SQL Server 20260705120649)
+  generada, APLICADA y VERIFICADA en los contenedores dev (tabla `whats_app_templates` existe en
+  PG 5442 y SQL Server 1443).
+- Servicios (Ecorex.Application/Tenancy, `WhatsAppTemplateResult<T>` con NotImplemented):
+  `IWhatsAppTemplateService` (CRUD + SetActive + Submit STUB + SyncStatus no-op). Logica pura en
+  `WhatsAppTemplateCalculations` (NormalizeName, ExtractTokens, ValidateSave, CanEdit/CanSubmit).
+  Auditoria via IAuditWriter. Registrado en DI.
+- UI (Ecorex.SuperAdmin): `/plantillas-whatsapp` (tabla + badges de estado + modal crear/editar
+  + accion Someter + banner "envio al proveedor no implementado"). NavMenu: item en grupo "CRM
+  (heredado)" junto a Lineas WhatsApp (conteo 6->7). Policy `PlantillasWhatsApp.Editar` (paso 1).
+- Seeder: `EnsureWhatsAppTemplatesDemoAsync` (linea Cloud demo si falta + 3 plantillas SKY SYSTEM
+  en Draft/Submitted/Approved). Idempotente, llamado desde Program.cs.
+- Tests: unit `WhatsAppTemplateCalculationsTests`, integracion dual `WhatsAppTemplatesTests`
+  (round-trip, unicidad (Name,Language), aislamiento cross-tenant, transicion Submit), E2E
+  `WhatsAppTemplatesTests` (crear plantilla y verla en la tabla).
+
+**Deudas**: (1) integracion real con la WhatsApp Cloud API de Meta (Submit/SyncStatus son
+stubs, no hay llamada HTTP); (2) policy en "paso 1" (Module Registry pendiente); (3) headers de
+imagen/documento/video modelados pero no soportados en el editor.
+
+**Siguiente**: agente #3 de las integraciones CUBOT.
+
+---
+
 ## 2026-07-05 - Sesion: Modulo de Inventarios con catalogos normalizados (ADR-0027)
 
 **Agentes**: coordinador (Opus) + 4 subagentes de exploracion (DbContext/DAL dual, servicios/

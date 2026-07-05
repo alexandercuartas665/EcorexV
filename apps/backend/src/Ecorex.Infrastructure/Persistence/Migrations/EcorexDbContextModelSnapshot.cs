@@ -6189,6 +6189,137 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("whats_app_lines", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WhatsAppTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BodyText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body_text");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FooterText")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("footer_text");
+
+                    b.Property<string>("HeaderText")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("header_text");
+
+                    b.Property<string>("HeaderType")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("header_type");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasColumnName("language");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderTemplateId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_template_id");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("rejection_reason");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("VariablesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("variables_json");
+
+                    b.Property<string>("WabaId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("waba_id");
+
+                    b.Property<Guid>("WhatsAppLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("whats_app_line_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_whats_app_templates");
+
+                    b.HasIndex("WhatsAppLineId")
+                        .HasDatabaseName("ix_whats_app_templates_whats_app_line_id");
+
+                    b.HasIndex("TenantId", "IsActive")
+                        .HasDatabaseName("ix_whats_app_templates_tenant_id_is_active");
+
+                    b.HasIndex("TenantId", "WhatsAppLineId")
+                        .HasDatabaseName("ix_whats_app_templates_tenant_id_whats_app_line_id");
+
+                    b.HasIndex("TenantId", "Name", "Language")
+                        .IsUnique()
+                        .HasDatabaseName("ix_whats_app_templates_tenant_id_name_language");
+
+                    b.ToTable("whats_app_templates", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WompiMasterConfig", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7676,6 +7807,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_tenant_users_platform_users_platform_user_id");
 
                     b.Navigation("PlatformUser");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WhatsAppTemplate", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
+                        .WithMany()
+                        .HasForeignKey("WhatsAppLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_whats_app_templates_whats_app_lines_whats_app_line_id");
+
+                    b.Navigation("WhatsAppLine");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowEdge", b =>

@@ -102,6 +102,9 @@ public static class DependencyInjection
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
+        // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
+        // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
+        services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();
         // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025). El fetcher
         // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
         // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).

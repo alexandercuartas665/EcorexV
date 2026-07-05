@@ -160,6 +160,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ItemImage> ItemImages => Set<ItemImage>();
     public DbSet<ItemStock> ItemStocks => Set<ItemStock>();
 
+    // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
+    public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -224,6 +227,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ScrapeSourceKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeSourceStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeRunStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WhatsAppTemplateCategory>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WhatsAppTemplateHeaderType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1332,6 +1338,28 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.ItemId, x.WarehouseId }).IsUnique();
             // Listado de stock por bodega (filtro de disponibles).
             b.HasIndex(x => new { x.TenantId, x.WarehouseId });
+        });
+
+        modelBuilder.Entity<WhatsAppTemplate>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(512).IsRequired();
+            b.Property(x => x.Language).HasMaxLength(12).IsRequired();
+            b.Property(x => x.HeaderText).HasMaxLength(60);
+            b.Property(x => x.BodyText).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.FooterText).HasMaxLength(60);
+            // Variables de ejemplo: jsonb en PostgreSQL, nvarchar(max) en SQL Server (DAL dual).
+            b.Property(x => x.VariablesJson).HasColumnType(jsonColumnType).IsRequired();
+            b.Property(x => x.WabaId).HasMaxLength(120);
+            b.Property(x => x.ProviderTemplateId).HasMaxLength(200);
+            b.Property(x => x.RejectionReason).HasMaxLength(1000);
+            // NO ACTION hacia la linea: borrar/archivar una linea no arrastra plantillas por
+            // cascada (Restrict = NO ACTION en ambos motores; evita rutas multiples en SQL Server).
+            b.HasOne(x => x.WhatsAppLine).WithMany()
+                .HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
+            // Unica por tenant en (Name, Language): la misma plantilla en otro idioma coexiste.
+            b.HasIndex(x => new { x.TenantId, x.Name, x.Language }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive });
+            b.HasIndex(x => new { x.TenantId, x.WhatsAppLineId });
         });
     }
 

@@ -1767,4 +1767,99 @@ public sealed class DatabaseSeeder
             "Seed de inventario creado para {Tenant}: {Warehouses} bodegas, {Brands} marcas, {Groups} grupos, {Subgroups} subgrupos, {Types} tipos, {Items} items.",
             tenant.Name, warehouses.Count, brands.Count, groups.Count, subgroups.Count, types.Count, items.Count);
     }
+
+    /// <summary>
+    /// Plantillas HSM de WhatsApp demo (ADR-0029) para el tenant demo SKY SYSTEM. Idempotente
+    /// (guard por tenant). Requiere una linea de WhatsApp: si no hay ninguna, siembra una linea
+    /// Cloud demo (sin credenciales reales) para el FK. Crea 3 plantillas en categorias y estados
+    /// distintos. Ningun envio real: Submit es un stub (ver WhatsAppTemplateService).
+    /// </summary>
+    public async Task EnsureWhatsAppTemplatesDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.WhatsAppTemplates.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        // Linea para el FK: reusa una existente del tenant demo o siembra una Cloud demo (sin
+        // credenciales reales; solo un WABA id de ejemplo para referencia).
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters()
+            .Where(l => l.TenantId == tenant.Id)
+            .OrderBy(l => l.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (line is null)
+        {
+            line = new WhatsAppLine
+            {
+                TenantId = tenant.Id,
+                InstanceName = "Linea demo SKY",
+                PhoneNumber = "573001112233",
+                Status = WhatsAppLineStatus.Created,
+                Provider = WhatsAppProvider.Cloud,
+                CloudBusinessAccountId = "000000000000000"
+            };
+            _db.WhatsAppLines.Add(line);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var templates = new[]
+        {
+            new WhatsAppTemplate
+            {
+                TenantId = tenant.Id,
+                Name = "bienvenida_cliente",
+                Language = "es",
+                Category = WhatsAppTemplateCategory.Utility,
+                BodyText = "Hola {{cliente}}, gracias por contactar a {{empresa}}. Un asesor te atendera en breve.",
+                FooterText = "Equipo SKY SYSTEM",
+                VariablesJson = "[{\"Token\":\"cliente\",\"Example\":\"Juan Perez\"},{\"Token\":\"empresa\",\"Example\":\"SKY SYSTEM\"}]",
+                Provider = line.Provider,
+                WhatsAppLineId = line.Id,
+                WabaId = line.CloudBusinessAccountId,
+                Status = WhatsAppTemplateStatus.Draft
+            },
+            new WhatsAppTemplate
+            {
+                TenantId = tenant.Id,
+                Name = "recordatorio_actividad",
+                Language = "es",
+                Category = WhatsAppTemplateCategory.Utility,
+                HeaderType = WhatsAppTemplateHeaderType.Text,
+                HeaderText = "Recordatorio",
+                BodyText = "Hola {{cliente}}, te recordamos la actividad {{codigo}} programada para el {{fecha}}.",
+                VariablesJson = "[{\"Token\":\"cliente\",\"Example\":\"Juan Perez\"},{\"Token\":\"codigo\",\"Example\":\"T00042\"},{\"Token\":\"fecha\",\"Example\":\"15 de julio\"}]",
+                Provider = line.Provider,
+                WhatsAppLineId = line.Id,
+                WabaId = line.CloudBusinessAccountId,
+                Status = WhatsAppTemplateStatus.Submitted,
+                SubmittedAt = now
+            },
+            new WhatsAppTemplate
+            {
+                TenantId = tenant.Id,
+                Name = "promo_mensual",
+                Language = "es",
+                Category = WhatsAppTemplateCategory.Marketing,
+                BodyText = "{{cliente}}, aprovecha nuestras novedades de este mes en {{empresa}}. Responde para conocer mas.",
+                VariablesJson = "[{\"Token\":\"cliente\",\"Example\":\"Juan Perez\"},{\"Token\":\"empresa\",\"Example\":\"SKY SYSTEM\"}]",
+                Provider = line.Provider,
+                WhatsAppLineId = line.Id,
+                WabaId = line.CloudBusinessAccountId,
+                Status = WhatsAppTemplateStatus.Approved,
+                SubmittedAt = now,
+                ReviewedAt = now
+            }
+        };
+        _db.WhatsAppTemplates.AddRange(templates);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Seed de plantillas WhatsApp creado para {Tenant}: {Count} plantillas.",
+            tenant.Name, templates.Length);
+    }
 }

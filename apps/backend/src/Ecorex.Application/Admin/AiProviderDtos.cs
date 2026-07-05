@@ -43,8 +43,8 @@ public static class AiProviderCatalog
 
     public static Meta For(AiProvider p) => p switch
     {
-        AiProvider.Claude => new("Anthropic Claude", "claude-opus-4-7",
-            new[] { "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5" }, "https://api.anthropic.com"),
+        AiProvider.Claude => new("Anthropic Claude", "claude-opus-4-8",
+            new[] { "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" }, "https://api.anthropic.com"),
         AiProvider.Gemini => new("Google Gemini", "gemini-2.5-pro",
             new[] { "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash" }, "https://generativelanguage.googleapis.com"),
         AiProvider.ChatGpt => new("OpenAI ChatGPT", "gpt-4o",

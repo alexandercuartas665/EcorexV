@@ -1,0 +1,992 @@
+@page "/conceptos"
+@attribute [Authorize(Policy = "Conceptos.Editar")]
+@* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Tenancy
+@inject IActivityTypeService TypesSvc
+
+<PageTitle>Conceptos - ECOREX.tareas</PageTitle>
+
+<div class="cn-page">
+
+    @* ===== Topbar del modulo (proto tar_conceptos: breadcrumb + MOD 000270 + acciones) ===== *@
+    <div class="cn-topbar">
+        <nav class="cn-crumb" aria-label="Ruta de navegacion">
+            <span>Home</span>
+            <span class="sep">/</span>
+            <span>Tareas</span>
+            <span class="sep">/</span>
+            <span class="last">Categorias y Sub-Categorias</span>
+            <span class="cn-mod-code">MOD 000270</span>
+        </nav>
+        <div class="cn-top-actions">
+            <button class="cn-btn" disabled title="Pendiente: exportacion no implementada">Exportar</button>
+            <button class="cn-btn primary" @onclick="@(() => OpenConceptModal(null))">+ Nuevo concepto</button>
+        </div>
+    </div>
+
+    <div class="cn-container">
+
+        @if (_notice is not null)
+        {
+            <div class="@(_noticeOk ? "cn-ok" : "cn-error")">@_notice</div>
+        }
+
+        @* ===== Tabs Actividades / Detalle (proto: borde inferior 2px) ===== *@
+        <div class="cn-tabs">
+            <button class="cn-tab @(_tab == 0 ? "active" : "")" @onclick="@(() => _tab = 0)">Actividades</button>
+            <button class="cn-tab @(_tab == 1 ? "active" : "")" @onclick="@(() => _tab = 1)">Detalle</button>
+        </div>
+
+        @if (_tab == 0)
+        {
+            <div class="cn-split">
+
+                @* ---- Panel izquierdo: Categorias (proto: card 340px con buscador) ---- *@
+                <div class="cn-card">
+                    <div class="cn-card-header">
+                        <div class="cn-card-title">Categorias <span class="count">@Categories.Count</span></div>
+                        <button class="cn-btn sm" @onclick="OpenNewCategoryModal">+ Nueva</button>
+                    </div>
+                    <div class="cn-search">
+                        <input placeholder="Buscar categoria..." value="@_catSearch"
+                               @oninput="@(e => _catSearch = e.Value?.ToString() ?? "")" />
+                    </div>
+                    <div class="cn-cat-list">
+                        @if (FilteredCategories.Count == 0)
+                        {
+                            <div class="cn-empty-list">
+                                @(Categories.Count == 0
+                                    ? "Sin categorias todavia. Crea la primera con + Nueva."
+                                    : "Ninguna categoria coincide con la busqueda.")
+                            </div>
+                        }
+                        @foreach (var cat in FilteredCategories)
+                        {
+                            <div class="cn-cat-item @(cat.Name == _selectedCategory ? "active" : "")"
+                                 @onclick="@(() => SelectCategory(cat.Name))">
+                                <div class="cn-icon @ToneClass(cat.Name)">@Initial(cat.Name)</div>
+                                <div class="cn-cat-body">
+                                    <div class="cn-cat-name">@cat.Name <span class="cn-badge count">@cat.ActiveCount</span></div>
+                                    <div class="cn-cat-meta">
+                                        @(cat.IsPending
+                                            ? "Sin conceptos (se guarda con el primero)"
+                                            : cat.IsArchived ? "Archivada" : "Activa")
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @* ---- Panel derecho: detalle de la categoria (proto: head + KPIs + filtros + grid) ---- *@
+                <div class="cn-card cn-detail">
+                    @if (_selectedCategory is null)
+                    {
+                        <div class="cn-empty-detail">
+                            <h3>Selecciona una categoria</h3>
+                            <p>Elige una categoria del panel izquierdo o crea una con <strong>+ Nueva</strong>.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cn-detail-head">
+                            <div class="cn-detail-title-row">
+                                <div class="cn-icon lg @ToneClass(_selectedCategory)">@Initial(_selectedCategory)</div>
+                                <div>
+                                    <h1 class="cn-detail-title">@_selectedCategory</h1>
+                                    <div class="cn-detail-sub">
+                                        @SelectedActiveCount concepto@(SelectedActiveCount == 1 ? "" : "s") activo@(SelectedActiveCount == 1 ? "" : "s")
+                                        @if (SelectedArchivedCount > 0)
+                                        {
+                                            <text> &middot; @SelectedArchivedCount archivado@(SelectedArchivedCount == 1 ? "" : "s")</text>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="cn-top-actions">
+                                <button class="cn-btn sm" @onclick="@(() => OpenRenameCategoryModal(_selectedCategory))"
+                                        disabled="@(SelectedConceptsAll.Count == 0)"
+                                        title="@(SelectedConceptsAll.Count == 0 ? "La categoria se persiste al crear su primer concepto" : "Renombrar la categoria (mueve todos sus conceptos)")">
+                                    Renombrar
+                                </button>
+                                <button class="cn-btn sm" @onclick="ToggleCategoryArchivedAsync"
+                                        disabled="@(_busy || SelectedConceptsAll.Count == 0)">
+                                    @(SelectedCategoryArchived ? "Restaurar categoria" : "Archivar categoria")
+                                </button>
+                            </div>
+                        </div>
+
+                        @* KPIs reales del catalogo (patron del workspace, datos de GetUsageAsync) *@
+                        <div class="cn-kpis">
+                            <div class="cn-kpi">
+                                <div class="cn-kpi-label">Conceptos</div>
+                                <div class="cn-kpi-value">@SelectedActiveCount</div>
+                            </div>
+                            <div class="cn-kpi">
+                                <div class="cn-kpi-label">Tareas abiertas</div>
+                                <div class="cn-kpi-value">@SelectedOpenTasks</div>
+                            </div>
+                            <div class="cn-kpi">
+                                <div class="cn-kpi-label">Con flujo</div>
+                                <div class="cn-kpi-value">@SelectedWithFlow</div>
+                            </div>
+                            <div class="cn-kpi">
+                                <div class="cn-kpi-label">Con formulario</div>
+                                <div class="cn-kpi-value">@SelectedWithForm</div>
+                            </div>
+                        </div>
+
+                        <div class="cn-filter-bar">
+                            <span>Filtrar:</span>
+                            <select value="@_fEstado" @onchange="@(e => _fEstado = e.Value?.ToString() ?? "")">
+                                <option value="">Estado: todos</option>
+                                <option value="on">Activo</option>
+                                <option value="off">Archivado</option>
+                            </select>
+                            <select value="@_fFlujo" @onchange="@(e => _fFlujo = e.Value?.ToString() ?? "")">
+                                <option value="">Flujo: todos</option>
+                                <option value="con">Con flujo</option>
+                                <option value="sin">Sin flujo</option>
+                            </select>
+                        </div>
+
+                        <div class="cn-table-wrap">
+                            <table class="cn-grid">
+                                <thead>
+                                    <tr>
+                                        <th>Concepto</th>
+                                        <th>Codigo</th>
+                                        <th>Proceso vinculado</th>
+                                        <th>Formulario</th>
+                                        <th>Orden</th>
+                                        <th>Estado</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (SelectedConcepts.Count == 0)
+                                    {
+                                        <tr>
+                                            <td colspan="7">
+                                                <div class="cn-empty-dashed">
+                                                    @(SelectedConceptsAll.Count == 0
+                                                        ? "Sin conceptos en esta categoria. Crea el primero con + Nuevo concepto."
+                                                        : "Ningun concepto coincide con los filtros.")
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                    @foreach (var c in SelectedConcepts)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="cn-grid-name">
+                                                    <div class="cn-icon sm @ToneClass(c.Category)">@Initial(c.Name)</div>
+                                                    <span>@c.Name</span>
+                                                </div>
+                                            </td>
+                                            <td><code class="cn-code">@CodeOf(c)</code></td>
+                                            <td>@(WorkflowLabel(c.WorkflowDefinitionId) ?? "-")</td>
+                                            <td>
+                                                @if (c.RequiresForm)
+                                                {
+                                                    <span class="cn-badge info">Requerido</span>
+                                                }
+                                                else
+                                                {
+                                                    <text>-</text>
+                                                }
+                                            </td>
+                                            <td>
+                                                <div class="cn-order">
+                                                    <button class="cn-icon-btn" title="Subir" disabled="@_busy"
+                                                            @onclick="@(() => MoveConceptAsync(c.Id, up: true))">&#8593;</button>
+                                                    <span>@c.SortOrder</span>
+                                                    <button class="cn-icon-btn" title="Bajar" disabled="@_busy"
+                                                            @onclick="@(() => MoveConceptAsync(c.Id, up: false))">&#8595;</button>
+                                                </div>
+                                            </td>
+                                            <td><span class="cn-badge @(c.IsArchived ? "off" : "on")">@(c.IsArchived ? "Archivado" : "Activo")</span></td>
+                                            <td>
+                                                <div class="cn-row-actions">
+                                                    <button class="cn-icon-btn" title="Editar" @onclick="@(() => OpenConceptModal(c))">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                                    </button>
+                                                    <button class="cn-icon-btn" title="@(c.IsArchived ? "Restaurar" : "Archivar")" disabled="@_busy"
+                                                            @onclick="@(() => ToggleConceptArchivedAsync(c))">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            @* ===== TAB Detalle: grid maestro Categoria x Concepto con conteos (legacy TAB 2) ===== *@
+            <div class="cn-card">
+                <div class="cn-filter-bar">
+                    <span>Filtrar:</span>
+                    <select value="@_dCategoria" @onchange="@(e => _dCategoria = e.Value?.ToString() ?? "")">
+                        <option value="">Categoria: todas</option>
+                        @foreach (var cat in Categories.Where(c => !c.IsPending))
+                        {
+                            <option value="@cat.Name">@cat.Name</option>
+                        }
+                    </select>
+                    <select value="@_dEstado" @onchange="@(e => _dEstado = e.Value?.ToString() ?? "")">
+                        <option value="">Estado: todos</option>
+                        <option value="on">Activo</option>
+                        <option value="off">Archivado</option>
+                    </select>
+                    <input class="cn-filter-input" placeholder="Buscar concepto..." value="@_dSearch"
+                           @oninput="@(e => _dSearch = e.Value?.ToString() ?? "")" />
+                </div>
+                <div class="cn-table-wrap">
+                    <table class="cn-grid">
+                        <thead>
+                            <tr>
+                                <th>Categoria</th>
+                                <th>Concepto</th>
+                                <th>Codigo</th>
+                                <th>Proceso vinculado</th>
+                                <th>Formulario</th>
+                                <th>Tareas</th>
+                                <th>Estado</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (DetailRows.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8">
+                                        <div class="cn-empty-dashed">Ningun concepto coincide con los filtros.</div>
+                                    </td>
+                                </tr>
+                            }
+                            @foreach (var c in DetailRows)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="cn-grid-name">
+                                            <div class="cn-icon sm @ToneClass(c.Category)">@Initial(c.Category)</div>
+                                            <span>@c.Category</span>
+                                        </div>
+                                    </td>
+                                    <td>@c.Name</td>
+                                    <td><code class="cn-code">@CodeOf(c)</code></td>
+                                    <td>@(WorkflowLabel(c.WorkflowDefinitionId) ?? "-")</td>
+                                    <td>@(c.RequiresForm ? "Si" : "-")</td>
+                                    <td title="@OpenTasksOf(c.Id) abiertas de @TotalTasksOf(c.Id) en total">@TotalTasksOf(c.Id)</td>
+                                    <td><span class="cn-badge @(c.IsArchived ? "off" : "on")">@(c.IsArchived ? "Archivado" : "Activo")</span></td>
+                                    <td>
+                                        <div class="cn-row-actions">
+                                            <button class="cn-icon-btn" title="Editar" @onclick="@(() => OpenConceptModal(c))">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                            </button>
+                                            <button class="cn-icon-btn" title="@(c.IsArchived ? "Restaurar" : "Archivar")" disabled="@_busy"
+                                                    @onclick="@(() => ToggleConceptArchivedAsync(c))">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* ===== Modal Concepto (proto PanelSubCategoria: acordeones; ~860px) ===== *@
+@if (_mOpen)
+{
+    <div class="cn-modal-backdrop" @onclick="CloseConceptModal">
+        <div class="cn-modal" @onclick:stopPropagation="true">
+            <div class="cn-modal-head">
+                <div class="cn-modal-title">
+                    @(_mId is null ? "Nuevo concepto" : $"Editar concepto - {_mOriginalName}")
+                </div>
+                <button class="cn-btn sm" @onclick="CloseConceptModal">Cerrar</button>
+            </div>
+            <div class="cn-modal-body">
+
+                @if (_mError is not null)
+                {
+                    <div class="cn-error">@_mError</div>
+                }
+
+                @* -- Acordeon 1: Datos basicos (real sobre ActivityType) -- *@
+                <div class="cn-acc @(_accBasics ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accBasics = !_accBasics)">
+                        <div class="cn-acc-title">Datos basicos <span class="cn-chip">requerido</span></div>
+                        <span>@(_accBasics ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-field">
+                            <label>Codigo</label>
+                            <input value="@(_mId is Guid id ? DerivedCode(id) : "(se asigna al crear)")" disabled
+                                   title="Pendiente: el modelo no tiene campo Codigo; se muestra un identificador derivado" />
+                        </div>
+                        <div class="cn-field">
+                            <label>Nombre</label>
+                            <input maxlength="200" value="@_mName" @onchange="@(e => _mName = e.Value?.ToString() ?? "")" />
+                        </div>
+                        <div class="cn-field">
+                            <label>Categoria</label>
+                            <select value="@_mCategory" @onchange="@(e => _mCategory = e.Value?.ToString() ?? "")">
+                                @foreach (var cat in Categories)
+                                {
+                                    <option value="@cat.Name">@cat.Name</option>
+                                }
+                                <option value="@NewCategoryOption">(nueva categoria...)</option>
+                            </select>
+                        </div>
+                        @if (_mCategory == NewCategoryOption)
+                        {
+                            <div class="cn-field">
+                                <label>Nueva categoria</label>
+                                <input maxlength="200" placeholder="Nombre de la categoria nueva" value="@_mNewCategory"
+                                       @onchange="@(e => _mNewCategory = e.Value?.ToString() ?? "")" />
+                            </div>
+                        }
+                        <div class="cn-field">
+                            <label>Descripcion</label>
+                            <textarea rows="2" value="@_mDescription" @onchange="@(e => _mDescription = e.Value?.ToString() ?? "")"></textarea>
+                        </div>
+                        <div class="cn-field">
+                            <label>Orden</label>
+                            <input class="cn-order-input" type="number" value="@_mSortOrder"
+                                   @onchange="@(e => _mSortOrder = int.TryParse(e.Value?.ToString(), out var n) ? n : _mSortOrder)" />
+                        </div>
+                        <div class="cn-field">
+                            <label>Icono FontAwesome</label>
+                            <input disabled title="Pendiente: el modelo no tiene campo de icono" placeholder="fa fa-search" />
+                        </div>
+                        <div class="cn-field">
+                            <label>Sedes aplicables</label>
+                            <div class="cn-chip-list" title="Pendiente: el modelo no tiene sedes por concepto (TIPO_TAR_EMPRESA legacy)">
+                                <span class="cn-chip dashed">+ Agregar sede (Pendiente)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @* -- Acordeon 2: Gestion del inicio del proceso (RQ07 legacy, SIN campos en el modelo) -- *@
+                <div class="cn-acc @(_accRq07 ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accRq07 = !_accRq07)">
+                        <div class="cn-acc-title">Gestion del inicio del proceso <span class="cn-chip warn">Pendiente</span></div>
+                        <span>@(_accRq07 ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-flag-grid">
+                            <label class="cn-flag" title="Pendiente: FLAG_INICIA_MODULO no existe en el modelo">
+                                <input type="checkbox" disabled /> Inicia modulo al crear tarea
+                            </label>
+                            <label class="cn-flag" title="Pendiente: FLAG_BOTON_CIERRE no existe en el modelo">
+                                <input type="checkbox" disabled /> Boton de cierre manual
+                            </label>
+                            <label class="cn-flag" title="Pendiente: FLAG_CLIENTE no existe en el modelo">
+                                <input type="checkbox" disabled /> Requiere asignar cliente
+                            </label>
+                        </div>
+                        <div class="cn-field">
+                            <label>Titulo automatico</label>
+                            <input disabled title="Pendiente: TITULO_AUTO no existe en el modelo" />
+                        </div>
+                        <div class="cn-field">
+                            <label>Detalle predeterminado</label>
+                            <textarea rows="2" disabled title="Pendiente: DETALLE_AUTO no existe en el modelo"></textarea>
+                        </div>
+                        <div class="cn-field">
+                            <label>Lista de chequeo</label>
+                            <textarea rows="2" disabled title="Pendiente: CHEQUEO (lista separada por ;) no existe en el modelo"
+                                      placeholder="paso 1; paso 2; paso 3"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                @* -- Acordeon 3: Modulo asociado / proceso vinculado (REAL: WorkflowDefinitionId) -- *@
+                <div class="cn-acc @(_accFlow ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accFlow = !_accFlow)">
+                        <div class="cn-acc-title">
+                            Proceso vinculado (flujo de tareas)
+                            <span class="cn-chip">@(WorkflowLabel(_mWorkflowId) ?? "Sin flujo")</span>
+                        </div>
+                        <span>@(_accFlow ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-field">
+                            <label>Flujo publicado</label>
+                            <select value="@(_mWorkflowId?.ToString() ?? "")"
+                                    @onchange="@(e => _mWorkflowId = Guid.TryParse(e.Value?.ToString(), out var wid) ? wid : null)">
+                                <option value="">-- Sin flujo --</option>
+                                @foreach (var w in _workflows)
+                                {
+                                    <option value="@w.Id">@w.Name (@w.ProcessCode v@(w.Version))</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="cn-field-help">
+                            Al crear una tarea de este concepto, si el flujo esta publicado se arranca una instancia automaticamente.
+                        </div>
+                        <div class="cn-field">
+                            <label>Nodo inicial</label>
+                            <input disabled title="Pendiente: el arranque siempre usa el nodo inicial del BPMN" />
+                        </div>
+                    </div>
+                </div>
+
+                @* -- Acordeon 4: Formulario dinamico (REAL solo el flag RequiresForm) -- *@
+                <div class="cn-acc @(_accForm ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accForm = !_accForm)">
+                        <div class="cn-acc-title">Formulario dinamico <span class="cn-chip">@(_mRequiresForm ? "Requerido" : "No requerido")</span></div>
+                        <span>@(_accForm ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-flag-grid">
+                            <label class="cn-flag">
+                                <input type="checkbox" checked="@_mRequiresForm"
+                                       @onchange="@(e => _mRequiresForm = (bool)e.Value!)" />
+                                Requiere formulario
+                            </label>
+                        </div>
+                        <div class="cn-field">
+                            <label>Formulario (000131)</label>
+                            <select disabled title="Pendiente: el modelo no vincula un formulario especifico (solo el flag RequiresForm)">
+                                <option>Pendiente</option>
+                            </select>
+                        </div>
+                        <div class="cn-field">
+                            <label>Modo</label>
+                            <select disabled title="Pendiente: el modelo no vincula un formulario especifico">
+                                <option>Editable</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                @* -- Acordeon 5: Permisos por cargo (SIN respaldo en el modelo) -- *@
+                <div class="cn-acc @(_accPerms ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accPerms = !_accPerms)">
+                        <div class="cn-acc-title">Permisos por cargo <span class="cn-chip warn">Pendiente</span></div>
+                        <span>@(_accPerms ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-chip-list" title="Pendiente: no hay permisos por cargo por concepto (CARGOS_ACTIVIDADES legacy)">
+                            <span class="cn-chip dashed">+ Agregar cargo (Pendiente)</span>
+                        </div>
+                    </div>
+                </div>
+
+                @* -- Acordeon 6: Notificaciones e integraciones (SIN respaldo en el modelo) -- *@
+                <div class="cn-acc @(_accNotif ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _accNotif = !_accNotif)">
+                        <div class="cn-acc-title">Notificaciones e integraciones <span class="cn-chip warn">Pendiente</span></div>
+                        <span>@(_accNotif ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <div class="cn-chip-list" title="Pendiente: no hay notificaciones por concepto (TIPO_TAR_N / TIPO_TAR_NR legacy)">
+                            <span class="cn-chip dashed">+ Agregar usuario notificado (Pendiente)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cn-modal-foot">
+                    @if (_mId is not null)
+                    {
+                        @if (_confirmDelete)
+                        {
+                            <span class="cn-confirm">
+                                Eliminar? (si esta en uso se archiva)
+                                <button class="cn-btn sm danger" @onclick="DeleteConceptAsync" disabled="@_busy">Si, eliminar</button>
+                                <button class="cn-btn sm" @onclick="@(() => _confirmDelete = false)">No</button>
+                            </span>
+                        }
+                        else
+                        {
+                            <button class="cn-btn danger" @onclick="@(() => _confirmDelete = true)" disabled="@_busy">Eliminar</button>
+                        }
+                    }
+                    <span class="cn-spacer"></span>
+                    <button class="cn-btn" @onclick="CloseConceptModal" disabled="@_busy">Cancelar</button>
+                    <button class="cn-btn primary" @onclick="SaveConceptAsync" disabled="@_busy">
+                        @(_mId is null ? "Crear concepto" : "Guardar cambios")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Mini modal: nueva categoria / renombrar categoria ===== *@
+@if (_catModalOpen)
+{
+    <div class="cn-modal-backdrop" @onclick="@(() => _catModalOpen = false)">
+        <div class="cn-modal cn-cat-modal" @onclick:stopPropagation="true">
+            <div class="cn-modal-head">
+                <div class="cn-modal-title">@(_catModalEditing is null ? "Nueva categoria" : $"Renombrar '{_catModalEditing}'")</div>
+                <button class="cn-btn sm" @onclick="@(() => _catModalOpen = false)">Cerrar</button>
+            </div>
+            <div class="cn-modal-body">
+                @if (_catModalError is not null)
+                {
+                    <div class="cn-error">@_catModalError</div>
+                }
+                <div class="cn-field">
+                    <label>Nombre</label>
+                    <input maxlength="200" value="@_catModalName"
+                           @onchange="@(e => _catModalName = e.Value?.ToString() ?? "")" />
+                </div>
+                @if (_catModalEditing is null)
+                {
+                    <div class="cn-field-help">
+                        La categoria es un agrupador: se persiste al crear su primer concepto.
+                    </div>
+                }
+                <div class="cn-modal-foot">
+                    <span class="cn-spacer"></span>
+                    <button class="cn-btn" @onclick="@(() => _catModalOpen = false)" disabled="@_busy">Cancelar</button>
+                    <button class="cn-btn primary" @onclick="SaveCategoryModalAsync" disabled="@_busy">
+                        @(_catModalEditing is null ? "Crear categoria" : "Renombrar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string NewCategoryOption = "__nueva__";
+
+    private bool _busy;
+    private int _tab;
+    private string? _notice;
+    private bool _noticeOk = true;
+
+    private List<ActivityTypeDto> _all = new();
+    private Dictionary<Guid, ActivityTypeUsageDto> _usage = new();
+    private IReadOnlyList<ActivityWorkflowOptionDto> _workflows = [];
+    private readonly List<string> _pendingCategories = new();
+
+    private string? _selectedCategory;
+    private string _catSearch = "";
+    private string _fEstado = "";
+    private string _fFlujo = "";
+    private string _dCategoria = "";
+    private string _dEstado = "";
+    private string _dSearch = "";
+
+    // Modal concepto
+    private bool _mOpen;
+    private Guid? _mId;
+    private string _mOriginalName = "";
+    private string _mName = "";
+    private string _mCategory = "";
+    private string _mNewCategory = "";
+    private string _mDescription = "";
+    private int _mSortOrder;
+    private Guid? _mWorkflowId;
+    private bool _mRequiresForm;
+    private bool _mIsArchived;
+    private string? _mError;
+    private bool _confirmDelete;
+    private bool _accBasics = true;
+    private bool _accRq07 = true;
+    private bool _accFlow;
+    private bool _accForm;
+    private bool _accPerms;
+    private bool _accNotif;
+
+    // Mini modal de categoria
+    private bool _catModalOpen;
+    private string? _catModalEditing;
+    private string _catModalName = "";
+    private string? _catModalError;
+
+    private sealed record CategoryRow(string Name, int ActiveCount, int TotalCount, bool IsArchived, bool IsPending);
+
+    // ---- Derivados ----
+
+    private List<CategoryRow> Categories
+    {
+        get
+        {
+            var rows = _all
+                .GroupBy(t => t.Category, StringComparer.Ordinal)
+                .Select(g => new CategoryRow(
+                    g.Key,
+                    g.Count(t => !t.IsArchived),
+                    g.Count(),
+                    g.All(t => t.IsArchived),
+                    IsPending: false))
+                .ToList();
+            rows.AddRange(_pendingCategories
+                .Where(p => !rows.Any(r => string.Equals(r.Name, p, StringComparison.OrdinalIgnoreCase)))
+                .Select(p => new CategoryRow(p, 0, 0, false, IsPending: true)));
+            return rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+
+    private List<CategoryRow> FilteredCategories
+        => string.IsNullOrWhiteSpace(_catSearch)
+            ? Categories
+            : Categories.Where(c => c.Name.Contains(_catSearch.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private List<ActivityTypeDto> SelectedConceptsAll
+        => _all.Where(t => t.Category == _selectedCategory)
+            .OrderBy(t => t.SortOrder).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private List<ActivityTypeDto> SelectedConcepts
+    {
+        get
+        {
+            IEnumerable<ActivityTypeDto> query = SelectedConceptsAll;
+            if (_fEstado == "on") { query = query.Where(t => !t.IsArchived); }
+            if (_fEstado == "off") { query = query.Where(t => t.IsArchived); }
+            if (_fFlujo == "con") { query = query.Where(t => t.WorkflowDefinitionId is not null); }
+            if (_fFlujo == "sin") { query = query.Where(t => t.WorkflowDefinitionId is null); }
+            return query.ToList();
+        }
+    }
+
+    private List<ActivityTypeDto> DetailRows
+    {
+        get
+        {
+            IEnumerable<ActivityTypeDto> query = _all
+                .OrderBy(t => t.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(t => t.SortOrder).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase);
+            if (_dCategoria.Length > 0) { query = query.Where(t => t.Category == _dCategoria); }
+            if (_dEstado == "on") { query = query.Where(t => !t.IsArchived); }
+            if (_dEstado == "off") { query = query.Where(t => t.IsArchived); }
+            if (!string.IsNullOrWhiteSpace(_dSearch))
+            {
+                var term = _dSearch.Trim();
+                query = query.Where(t =>
+                    t.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (t.Description?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+            return query.ToList();
+        }
+    }
+
+    private int SelectedActiveCount => SelectedConceptsAll.Count(t => !t.IsArchived);
+    private int SelectedArchivedCount => SelectedConceptsAll.Count(t => t.IsArchived);
+    private bool SelectedCategoryArchived => SelectedConceptsAll.Count > 0 && SelectedConceptsAll.All(t => t.IsArchived);
+    private int SelectedOpenTasks => SelectedConceptsAll.Sum(t => OpenTasksOf(t.Id));
+    private int SelectedWithFlow => SelectedConceptsAll.Count(t => !t.IsArchived && t.WorkflowDefinitionId is not null);
+    private int SelectedWithForm => SelectedConceptsAll.Count(t => !t.IsArchived && t.RequiresForm);
+
+    private int OpenTasksOf(Guid id) => _usage.TryGetValue(id, out var u) ? u.OpenTasks : 0;
+    private int TotalTasksOf(Guid id) => _usage.TryGetValue(id, out var u) ? u.TotalTasks : 0;
+
+    private string? WorkflowLabel(Guid? workflowDefinitionId)
+        => workflowDefinitionId is Guid id
+            ? _workflows.FirstOrDefault(w => w.Id == id)?.Name ?? "Flujo no publicado"
+            : null;
+
+    /// <summary>
+    /// Codigo legible derivado (el modelo no tiene campo Codigo): CN- + ULTIMOS 8 del Guid
+    /// (la parte aleatoria; los primeros 8 de un Guid v7 son timestamp y casi coinciden
+    /// entre registros creados juntos).
+    /// </summary>
+    private static string DerivedCode(Guid id) => $"CN-{id.ToString("N")[^8..].ToUpperInvariant()}";
+
+    private static string CodeOf(ActivityTypeDto t) => DerivedCode(t.Id);
+
+    private static string Initial(string name)
+        => string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+
+    /// <summary>Tono del icono por categoria (rotacion estable de los tokens --t-* del workspace).</summary>
+    private string ToneClass(string category)
+    {
+        string[] tones = ["tg", "tb", "ta", "tv", "tr", "ts"];
+        var ordered = Categories;
+        var index = ordered.FindIndex(c => c.Name == category);
+        return "cn-" + tones[(index < 0 ? 0 : index) % tones.Length];
+    }
+
+    // ---- Ciclo de vida / cargas ----
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _selectedCategory = Categories.FirstOrDefault()?.Name;
+    }
+
+    private async Task LoadAsync()
+    {
+        _all = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
+        _usage = (await TypesSvc.GetUsageAsync()).ToDictionary(u => u.ActivityTypeId);
+        _workflows = await TypesSvc.ListWorkflowOptionsAsync();
+        _pendingCategories.RemoveAll(p => _all.Any(t => string.Equals(t.Category, p, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void SelectCategory(string name)
+    {
+        _selectedCategory = name;
+        _fEstado = "";
+        _fFlujo = "";
+    }
+
+    // ---- Modal concepto ----
+
+    private void OpenConceptModal(ActivityTypeDto? concept)
+    {
+        _mError = null;
+        _confirmDelete = false;
+        _accBasics = true;
+        _accRq07 = true;
+        _accFlow = concept?.WorkflowDefinitionId is not null;
+        _accForm = concept?.RequiresForm == true;
+        _accPerms = false;
+        _accNotif = false;
+        if (concept is null)
+        {
+            _mId = null;
+            _mOriginalName = "";
+            _mName = "";
+            _mCategory = _selectedCategory ?? Categories.FirstOrDefault()?.Name ?? NewCategoryOption;
+            _mNewCategory = "";
+            _mDescription = "";
+            _mSortOrder = _all.Where(t => t.Category == _mCategory)
+                .Select(t => (int?)t.SortOrder).Max() + 1 ?? 0;
+            _mWorkflowId = null;
+            _mRequiresForm = false;
+            _mIsArchived = false;
+        }
+        else
+        {
+            _mId = concept.Id;
+            _mOriginalName = concept.Name;
+            _mName = concept.Name;
+            _mCategory = concept.Category;
+            _mNewCategory = "";
+            _mDescription = concept.Description ?? "";
+            _mSortOrder = concept.SortOrder;
+            _mWorkflowId = concept.WorkflowDefinitionId;
+            _mRequiresForm = concept.RequiresForm;
+            _mIsArchived = concept.IsArchived;
+        }
+        _mOpen = true;
+    }
+
+    private void CloseConceptModal()
+    {
+        if (_busy) { return; }
+        _mOpen = false;
+    }
+
+    private async Task SaveConceptAsync()
+    {
+        _mError = null;
+        var category = _mCategory == NewCategoryOption ? _mNewCategory.Trim() : _mCategory.Trim();
+        if (string.IsNullOrWhiteSpace(_mName) || category.Length == 0)
+        {
+            _mError = "Nombre y categoria son obligatorios.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            TaskCoreResult<ActivityTypeDto> result;
+            if (_mId is Guid id)
+            {
+                result = await TypesSvc.UpdateAsync(id, new UpdateActivityTypeRequest(
+                    category, _mName.Trim(),
+                    string.IsNullOrWhiteSpace(_mDescription) ? null : _mDescription.Trim(),
+                    _mSortOrder, _mIsArchived, _mWorkflowId, _mRequiresForm));
+            }
+            else
+            {
+                result = await TypesSvc.CreateAsync(new CreateActivityTypeRequest(
+                    category, _mName.Trim(),
+                    string.IsNullOrWhiteSpace(_mDescription) ? null : _mDescription.Trim(),
+                    _mSortOrder, _mWorkflowId, _mRequiresForm));
+            }
+            if (!result.IsOk)
+            {
+                _mError = result.Error;
+                return;
+            }
+            _mOpen = false;
+            await LoadAsync();
+            _selectedCategory = result.Value!.Category;
+            ShowNotice($"Concepto '{result.Value.Name}' guardado.", ok: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteConceptAsync()
+    {
+        if (_mId is not Guid id) { return; }
+        _confirmDelete = false;
+        _busy = true;
+        try
+        {
+            var result = await TypesSvc.DeleteAsync(id);
+            if (!result.IsOk)
+            {
+                _mError = result.Error;
+                return;
+            }
+            _mOpen = false;
+            await LoadAsync();
+            if (_selectedCategory is not null && Categories.All(c => c.Name != _selectedCategory))
+            {
+                _selectedCategory = Categories.FirstOrDefault()?.Name;
+            }
+            ShowNotice(result.Value
+                ? $"Concepto '{_mOriginalName}' eliminado."
+                : $"Concepto '{_mOriginalName}' esta en uso por tareas: se ARCHIVO en vez de borrarse.",
+                ok: result.Value);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleConceptArchivedAsync(ActivityTypeDto concept)
+    {
+        _busy = true;
+        try
+        {
+            var result = await TypesSvc.SetArchivedAsync(concept.Id, !concept.IsArchived);
+            if (!result.IsOk)
+            {
+                ShowNotice(result.Error ?? "No se pudo cambiar el estado.", ok: false);
+                return;
+            }
+            await LoadAsync();
+            ShowNotice($"Concepto '{concept.Name}' {(result.Value!.IsArchived ? "archivado" : "restaurado")}.", ok: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MoveConceptAsync(Guid id, bool up)
+    {
+        _busy = true;
+        try
+        {
+            var result = await TypesSvc.MoveAsync(id, up);
+            if (!result.IsOk)
+            {
+                ShowNotice(result.Error ?? "No se pudo mover el concepto.", ok: false);
+                return;
+            }
+            await LoadAsync();
+            _notice = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Categorias (agrupador string sobre ActivityType) ----
+
+    private void OpenNewCategoryModal()
+    {
+        _catModalEditing = null;
+        _catModalName = "";
+        _catModalError = null;
+        _catModalOpen = true;
+    }
+
+    private void OpenRenameCategoryModal(string category)
+    {
+        _catModalEditing = category;
+        _catModalName = category;
+        _catModalError = null;
+        _catModalOpen = true;
+    }
+
+    private async Task SaveCategoryModalAsync()
+    {
+        _catModalError = null;
+        var name = _catModalName.Trim();
+        if (name.Length == 0)
+        {
+            _catModalError = "El nombre es obligatorio.";
+            return;
+        }
+        if (_catModalEditing is null)
+        {
+            if (Categories.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                _catModalError = $"Ya existe la categoria '{name}'.";
+                return;
+            }
+            _pendingCategories.Add(name);
+            _selectedCategory = name;
+            _catModalOpen = false;
+            ShowNotice($"Categoria '{name}' lista: se persiste al crear su primer concepto.", ok: true);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await TypesSvc.RenameCategoryAsync(_catModalEditing, name);
+            if (!result.IsOk)
+            {
+                _catModalError = result.Error;
+                return;
+            }
+            _catModalOpen = false;
+            await LoadAsync();
+            _selectedCategory = name;
+            ShowNotice($"Categoria renombrada a '{name}' ({result.Value} concepto(s)).", ok: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleCategoryArchivedAsync()
+    {
+        if (_selectedCategory is null) { return; }
+        var archive = !SelectedCategoryArchived;
+        _busy = true;
+        try
+        {
+            var result = await TypesSvc.SetCategoryArchivedAsync(_selectedCategory, archive);
+            if (!result.IsOk)
+            {
+                ShowNotice(result.Error ?? "No se pudo cambiar la categoria.", ok: false);
+                return;
+            }
+            await LoadAsync();
+            ShowNotice($"Categoria '{_selectedCategory}' {(archive ? "archivada" : "restaurada")} ({result.Value} concepto(s)).", ok: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowNotice(string message, bool ok)
+    {
+        _notice = message;
+        _noticeOk = ok;
+    }
+}

@@ -1,0 +1,305 @@
+/* ============================================================
+   CONCEPTOS (modulo 000270, proto_tar_conceptos.html de Capa 6).
+   ESTRUCTURA y MEDIDAS del proto con los TOKENS del workspace
+   (misma decision que /reglas, ADR-0023): accent teal -> --brand,
+   accent-soft -> --brand-soft, muted/muted-2 -> --ink-2/--ink-3,
+   card -> --surface, paper -> --bg, border -> --line, border-soft
+   -> --line (separadores) / --line-2 (inputs), badges on/off ->
+   --t-green/--t-rose(+bg), iconos por categoria -> rotacion --t-*.
+   Medidas del proto: topbar 14x24 sticky, container 1400 pad 20x24,
+   tabs 10x18 borde inferior 2px, split 340px/1fr gap16, card r8,
+   card-header 12x16 titulo 12.5/600 uppercase, search 12x16 input
+   7x10 r5, list-item 10x16 icono 32x32 r6, detail-head 20 titulo
+   18/600, kpi grid4 pad20 label 11 upper valor 20/600, filter-bar
+   12x20, tabla th 10x16 11.5 upper td 10x16, modal 860 r10 head
+   16x20 body 20, acordeon r6 mb8 head 12x14 body 14 bg paper,
+   field-row 160px/1fr gap12 mb10, flags grid2 gap8, chips r12 11.5.
+   ============================================================ */
+
+.cn-page {
+    margin: calc(-1 * var(--pad, 30px));
+    min-height: calc(100vh - 56px);
+    background: var(--bg);
+    font-size: 13.5px;
+}
+
+/* ---- Topbar del modulo (proto: 14px 24px, sticky, borde inferior) ---- */
+.cn-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+}
+.cn-crumb { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12.5px; }
+.cn-crumb .sep { color: var(--ink-3); }
+.cn-crumb .last { color: var(--ink); font-weight: 500; }
+.cn-mod-code {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; margin-left: 8px;
+    background: var(--brand-soft); color: var(--ink);
+    border-radius: 4px; font-size: 11px; font-weight: 600;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+}
+.cn-top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- Botones (proto .btn: 6px 12px r6 12.5/500; sm 4px 8px 11.5) ---- */
+.cn-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); color: var(--ink);
+    font-size: 12.5px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.cn-btn:hover:not(:disabled) { background: var(--surface-3); }
+.cn-btn:disabled { opacity: .55; cursor: default; }
+.cn-btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.cn-btn.primary:hover:not(:disabled) { background: var(--brand); opacity: .9; }
+.cn-btn.sm { padding: 4px 8px; font-size: 11.5px; }
+.cn-btn.danger { color: var(--danger); }
+
+/* ---- Contenedor (proto: max 1400 centrado, 20px 24px 60px) ---- */
+.cn-container { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; }
+
+/* ---- Tabs (proto: 10px 18px, borde inferior 2px activo) ---- */
+.cn-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.cn-tab {
+    padding: 10px 18px; border: none; background: transparent;
+    color: var(--ink-2); font-size: 13px; font-weight: 500;
+    cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit;
+}
+.cn-tab.active { color: var(--ink); border-bottom-color: var(--brand); }
+
+/* ---- Split (proto: grid 340px 1fr gap 16) ---- */
+.cn-split { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+
+/* ---- Card (proto: r8 sombra, header 12x16) ---- */
+.cn-card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--sh-sm); overflow: hidden;
+}
+.cn-card-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+}
+.cn-card-title {
+    font-size: 12.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--ink);
+}
+.cn-card-title .count { color: var(--ink-2); font-weight: 500; margin-left: 6px; }
+
+/* ---- Buscador (proto: 12x16, input 7x10 r5 13px) ---- */
+.cn-search { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.cn-search input {
+    width: 100%; padding: 7px 10px;
+    border: 1px solid var(--line-2); border-radius: 5px;
+    font-size: 13px; font-family: inherit; outline: none;
+    background: var(--surface); color: var(--ink);
+}
+.cn-search input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+/* ---- Lista de categorias (proto .list-item: 10x16 gap10, activo accent-soft) ---- */
+.cn-cat-list { max-height: calc(100vh - 320px); overflow-y: auto; }
+.cn-cat-item {
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    cursor: pointer; display: flex; align-items: center; gap: 10px;
+    transition: background .08s;
+}
+.cn-cat-item:hover { background: var(--surface-2); }
+.cn-cat-item.active { background: var(--brand-soft); }
+.cn-cat-item.active .cn-cat-name { font-weight: 600; }
+.cn-cat-body { flex: 1; min-width: 0; }
+.cn-cat-name {
+    font-size: 13px; font-weight: 500; color: var(--ink);
+    display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
+}
+.cn-cat-meta { font-size: 11.5px; color: var(--ink-2); }
+
+/* ---- Iconos de categoria/concepto (proto .li-icon 32x32 r6; lg 44; sm 26).
+       Tonos i-teal/i-blue/... mapeados a la rotacion --t-* del workspace. ---- */
+.cn-icon {
+    width: 32px; height: 32px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; flex-shrink: 0;
+}
+.cn-icon.lg { width: 44px; height: 44px; font-size: 18px; }
+.cn-icon.sm { width: 26px; height: 26px; font-size: 12px; }
+.cn-tg { background: var(--t-green-bg); color: var(--t-green); }
+.cn-tb { background: var(--t-blue-bg); color: var(--t-blue); }
+.cn-ta { background: var(--t-amber-bg); color: var(--t-amber); }
+.cn-tv { background: var(--t-violet-bg); color: var(--t-violet); }
+.cn-tr { background: var(--t-rose-bg); color: var(--t-rose); }
+.cn-ts { background: var(--t-slate-bg); color: var(--t-slate); }
+
+/* ---- Badges (proto on/off/count con tokens --t-*) ---- */
+.cn-badge {
+    display: inline-flex; align-items: center;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 600;
+    letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+}
+.cn-badge.on { background: var(--t-green-bg); color: var(--t-green); }
+.cn-badge.off { background: var(--t-rose-bg); color: var(--t-rose); }
+.cn-badge.info { background: var(--t-blue-bg); color: var(--t-blue); }
+.cn-badge.count { background: var(--surface-3); color: var(--ink-2); text-transform: none; letter-spacing: 0; }
+
+/* ---- Detalle de categoria (proto .detail-head: 20px, titulo 18/600) ---- */
+.cn-detail { display: flex; flex-direction: column; }
+.cn-empty-detail { padding: 60px 20px; text-align: center; color: var(--ink-2); }
+.cn-empty-detail h3 { font-size: 16px; color: var(--ink); margin: 0 0 6px; }
+.cn-detail-head {
+    padding: 20px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; flex-wrap: wrap;
+}
+.cn-detail-title-row { display: flex; align-items: center; gap: 12px; }
+.cn-detail-title { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+.cn-detail-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+
+/* ---- KPIs (proto .kpi-row: grid 4, pad 20; kpi 12x14 r6, label 11 upper, valor 20/600) ---- */
+.cn-kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    padding: 20px; border-bottom: 1px solid var(--line);
+}
+.cn-kpi { padding: 12px 14px; background: var(--surface-2); border-radius: 6px; }
+.cn-kpi-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--ink-2); margin-bottom: 4px;
+}
+.cn-kpi-value {
+    font-size: 20px; font-weight: 600; letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+}
+
+/* ---- Barra de filtros (proto .filter-bar: 12x20 fondo border-soft) ---- */
+.cn-filter-bar {
+    display: flex; gap: 8px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line); background: var(--surface-2);
+    align-items: center; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap;
+}
+.cn-filter-bar select, .cn-filter-input {
+    padding: 5px 10px; border: 1px solid var(--line-2); border-radius: 5px;
+    font-size: 12.5px; background: var(--surface); color: var(--ink); font-family: inherit; outline: none;
+}
+.cn-filter-input { min-width: 200px; }
+.cn-filter-input:focus, .cn-filter-bar select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+/* ---- Tabla (proto table.grid: th 10x16 11.5 upper fondo soft; td 10x16) ---- */
+.cn-table-wrap { overflow-x: auto; }
+.cn-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cn-grid th {
+    text-align: left; padding: 10px 16px;
+    background: var(--surface-2); font-weight: 600; color: var(--ink-2);
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
+    border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.cn-grid td { padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--ink); }
+.cn-grid tr:last-child td { border-bottom: none; }
+.cn-grid tbody tr:hover td { background: var(--surface-2); }
+.cn-grid-name { display: flex; align-items: center; gap: 10px; }
+.cn-code {
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-size: 11.5px; background: var(--surface-3); color: var(--ink-2);
+    padding: 2px 6px; border-radius: 4px;
+}
+.cn-row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.cn-icon-btn {
+    width: 26px; height: 26px; border: none; background: transparent;
+    color: var(--ink-2); border-radius: 4px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+}
+.cn-icon-btn svg { width: 14px; height: 14px; }
+.cn-icon-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
+.cn-icon-btn:disabled { opacity: .5; cursor: default; }
+.cn-order { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+
+/* ---- Mensajes ---- */
+.cn-error {
+    font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+}
+.cn-ok {
+    font-size: 12.5px; color: var(--t-green); background: var(--t-green-bg);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 12px;
+}
+.cn-empty-list { padding: 18px 16px; color: var(--ink-3); font-size: 12.5px; }
+.cn-empty-dashed {
+    border: 1px dashed var(--line-2); border-radius: 8px;
+    padding: 18px; text-align: center; color: var(--ink-3); font-size: 12.5px;
+}
+.cn-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--danger); flex-wrap: wrap; }
+
+/* ---- Modal (proto: backdrop rgba(15,23,41,.45), modal 860 r10, head 16x20, body 20) ---- */
+.cn-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(15, 23, 41, .45);
+    display: flex; z-index: 100; align-items: flex-start; justify-content: center;
+    padding: 40px 20px; overflow-y: auto;
+}
+.cn-modal {
+    background: var(--surface); border-radius: 10px;
+    max-width: 860px; width: 100%; box-shadow: var(--sh-md); overflow: hidden;
+}
+.cn-cat-modal { max-width: 420px; }
+.cn-modal-head {
+    padding: 16px 20px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+}
+.cn-modal-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.cn-modal-body { padding: 20px; }
+.cn-modal-foot { display: flex; align-items: center; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+.cn-spacer { flex: 1; }
+
+/* ---- Acordeones del modal (proto .accordion: r6 mb8, head 12x14, body 14 fondo paper) ---- */
+.cn-acc { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+.cn-acc.open { box-shadow: var(--sh-sm); }
+.cn-acc-head {
+    padding: 12px 14px; display: flex; justify-content: space-between;
+    align-items: center; cursor: pointer; background: var(--surface); user-select: none;
+    color: var(--ink);
+}
+.cn-acc-head:hover { background: var(--surface-2); }
+.cn-acc-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cn-acc-body { padding: 14px; background: var(--bg); border-top: 1px solid var(--line); display: none; }
+.cn-acc.open .cn-acc-body { display: block; }
+
+/* ---- Chips (proto .chip: 4x8 r12 11.5 accent-soft; .acc-title .chip 10.5 gris) ---- */
+.cn-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; background: var(--surface-3); color: var(--ink-2);
+    border-radius: 3px; font-size: 10.5px; font-weight: 500;
+}
+.cn-chip.warn { background: var(--t-amber-bg); color: var(--t-amber); }
+.cn-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.cn-chip-list .cn-chip { padding: 4px 8px; border-radius: 12px; font-size: 11.5px; }
+.cn-chip.dashed { background: transparent; color: var(--ink-3); border: 1px dashed var(--line-2); }
+
+/* ---- Filas de campo del modal (proto .field-row: 160px 1fr gap12 mb10) ---- */
+.cn-field { display: grid; grid-template-columns: 160px 1fr; gap: 12px; margin-bottom: 10px; align-items: center; }
+.cn-field label { font-size: 12.5px; color: var(--ink-2); }
+.cn-field input, .cn-field select, .cn-field textarea {
+    padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 5px;
+    font-size: 13px; font-family: inherit; background: var(--surface); color: var(--ink); outline: none;
+}
+.cn-field textarea { resize: vertical; }
+.cn-field input:disabled, .cn-field select:disabled, .cn-field textarea:disabled { opacity: .55; cursor: not-allowed; }
+.cn-field input:focus, .cn-field select:focus, .cn-field textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.cn-order-input { max-width: 100px; }
+.cn-field-help { font-size: 11.5px; color: var(--ink-3); margin: -4px 0 10px 172px; }
+
+/* ---- Flags (proto .flag-grid: 2 columnas gap8; .flag 8x10 r5) ---- */
+.cn-flag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.cn-flag {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; font-size: 12.5px; color: var(--ink); cursor: pointer;
+}
+.cn-flag:has(input:disabled) { color: var(--ink-3); cursor: not-allowed; }
+.cn-flag input[type="checkbox"] { accent-color: var(--brand); }
+
+/* ---- Responsive (proto @900: split a 1 columna, kpis 2x2) ---- */
+@media (max-width: 900px) {
+    .cn-split { grid-template-columns: 1fr; }
+    .cn-kpis { grid-template-columns: repeat(2, 1fr); }
+    .cn-field { grid-template-columns: 1fr; }
+    .cn-field-help { margin-left: 0; }
+}

@@ -1887,3 +1887,187 @@ renderNode / widthGrid / propTabs de ECOREX.dc.html (lineas 3016-3440 markup y
   una regla supera eso dentro del TTL de 90d).
 - Filtro por modo Execute/mDATA devuelve vacio a proposito (no hay campo de modo).
 - Sin commit (pedido explicito): cambios en working tree.
+
+---
+
+## 2026-07-04 (sesion aparte) - Modulo CONCEPTOS (000270): /conceptos real sobre ActivityType
+
+**Agente**: Claude Code (Fable 5). **Fuentes**: proto_tar_conceptos.html +
+NEWFRONT_tar_conceptos (spec Capa 6). **Regla**: SIN migraciones; NO tocar
+Lead/Pipeline (otro agente en paralelo con el Cargador de contactos). Sin commit.
+
+**Hecho**:
+- Pagina real `/conceptos` (Conceptos.razor + .razor.css) que reemplaza al
+  placeholder /modulo/conceptos: ESTRUCTURA y MEDIDAS del proto con TOKENS del
+  workspace (misma decision que /reglas: ADR-0023 -> ADR-0024 nuevo). Topbar
+  breadcrumb + MOD 000270 + Exportar (disabled Pendiente) + "+ Nuevo concepto";
+  tabs Actividades/Detalle; split 340px/1fr: lista de categorias (buscador,
+  iconos con rotacion --t-*, conteo, estado) y detalle con KPIs reales
+  (conceptos activos, tareas abiertas, con flujo, con formulario), filtros
+  (estado / con-sin flujo) y grid (codigo derivado CN-XXXXXXXX de los ULTIMOS
+  8 del Guid, proceso vinculado, formulario, orden con flechas subir/bajar,
+  badges Activo/Archivado, editar/archivar). Tab Detalle = grid maestro
+  Categoria x Concepto con conteo de tareas (analogo CANT_USADO) y filtros.
+- Modal de concepto (860px, 6 acordeones como el proto): Datos basicos (nombre,
+  categoria -select + "(nueva categoria...)"-, descripcion, orden) REALES;
+  proceso vinculado = select de flujos PUBLICADOS (WorkflowDefinitionId real,
+  validado en servicio); "Requiere formulario" = RequiresForm real; el resto de
+  la spec sin respaldo en el modelo queda VISIBLE DESHABILITADO con tooltip
+  "Pendiente" (ver gaps). Eliminar con confirm inline: en uso -> archiva (regla
+  existente de DeleteAsync), sin uso -> borra.
+- Categorias como agrupador string (no hay entidad): nueva categoria = pendiente
+  local que persiste con su primer concepto; Renombrar = RenameCategoryAsync
+  (mueve todo validando colisiones); Archivar categoria = SetCategoryArchivedAsync
+  (FLAG_INA de TIPO_TAR).
+- Backend aditivo SIN migracion (IActivityTypeService): Create/UpdateRequest ganan
+  WorkflowDefinitionId + RequiresForm opcionales (compatibles); nuevos
+  ListWorkflowOptionsAsync (solo publicados no archivados), GetUsageAsync (total/
+  abiertas por tipo), SetArchivedAsync (Invalid en doble toggle),
+  RenameCategoryAsync, SetCategoryArchivedAsync y MoveAsync (permuta SortOrder
+  con el vecino normalizando empates, 1 SaveChanges). Validacion: flujo no
+  publicado/inexistente -> Invalid tipado (la FK es NO ACTION).
+- NavMenu: SOLO el item Conceptos (000270) pasa de modulo/conceptos a /conceptos
+  (+ GroupRoutes para abrir el acordeon); registro del placeholder retirado de
+  Modulo.razor. Policy nueva `Conceptos.Editar` (paso 1, claim tenant_id).
+- ADR-0024 (docs/decisiones): tokens sobre paleta teal, jerarquia TIPO_TAR/
+  TIPO_TAR_R proyectada sobre ActivityType.Category, gaps deshabilitados sin
+  migrar, proceso vinculado 1:0..1 validado contra publicados.
+
+**GAPS de la spec SIN respaldo en ActivityType (NO se migro; decide coordinador)**:
+Code visible (se muestra derivado del Guid), IconClass, sedes/empresas por
+concepto (TIPO_TAR_EMPRESA), RQ07 completo (FLAG_INICIA_MODULO, FLAG_BOTON_CIERRE,
+TITULO_AUTO, DETALLE_AUTO), FLAG_CLIENTE, lista de chequeo (CHEQUEO),
+FormDefinitionId especifico + modo (solo existe bool RequiresForm), procesos N:M
+(TIPO_TAR_R_PRO; hoy 1:0..1), nodo inicial, permisos por cargo/usuario,
+notificaciones por concepto (TIPO_TAR_N/NR), componentes fijos y formacion.
+Todos visibles deshabilitados con tooltip "Pendiente" en el modal.
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format --verify-no-changes limpio.
+- Unit verdes: Domain 35/35, Application 169/169 (sin unit nuevos: la logica
+  nueva es EF y va en integracion dual).
+- Integracion dual: 12/12 nuevos verdes (ActivityTypeCatalogTests x PG + SQL
+  Server: flujo publicado/borrador/inexistente, archivar/restaurar + doble
+  toggle Invalid, renombrar categoria con colision y NotFound, archivar
+  categoria idempotente, mover orden con extremos Invalid, conteos de uso +
+  delete-en-uso archiva). Suite completa 135/137: los 2 fallos son de
+  ContactLoaderTests (trabajo EN CURSO del otro agente, no de este modulo).
+- E2E Playwright 17/17 verde contra app real (PG 5442; el fixture tomo el
+  primer puerto libre 525x, el 5252 estaba ocupado por la app del otro agente);
+  +1 escenario ConceptosTests: abrir /conceptos (split + MOD 000270 + Exportar
+  disabled) -> + Nuevo concepto (Codigo disabled = gap declarado) -> fila en el
+  grid de Direccion Comercial (badge Activo) -> tab Detalle lo muestra -> el
+  combo "Tipo de actividad" del wizard de actividades lo ofrece y selecciona.
+- Verificacion manual claro/oscuro contra el proto (preview 5241/5251): topbar
+  14x24, container 1400/20x24x60, tabs 10x18 borde 2px, split 340px/1fr gap16,
+  th 10x16 11.5/600 upper, KPI valor 20/600, icono 32x32 r6, modal 860 r10 con
+  field-row 160px/1fr, 6 acordeones y 11 controles Pendiente disabled, select
+  con los 2 flujos publicados reales; CRUD por UI (crear, mover orden, archivar,
+  eliminar) y NavMenu activo con acordeon abierto. En dark los tokens conmutan
+  (bg #0A0A0B, surface #161618, badges --t-*-bg rgba). Fix por verificacion:
+  el codigo derivado usa los ULTIMOS 8 del Guid (los primeros 8 de un Guid v7
+  son timestamp y colisionaban visualmente entre filas creadas juntas).
+- Procesos propios DETENIDOS (previews 5241 y 5251, app E2E auto-terminada,
+  watchers cancelados). Quedan corriendo procesos AJENOS: 5234 (worktree
+  .preview) y 5252 (otro agente) - no se tocaron.
+
+**Deudas / TODO**:
+- Los gaps de modelo de arriba (migracion pendiente de decision del coordinador).
+- Exportar: boton deshabilitado (sin formato definido).
+- Check-all/borrado masivo de sub-categorias del legacy: omitido a proposito
+  (archivado por fila + borrado en modal).
+- Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-05 (sesion aparte) - Modulo CARGADOR DE CONTACTOS (000873): /cargador-contactos real sobre el CRM (ADR-0024)
+
+**Agentes**: agente unico (fuentes + backend + migracion dual + UI + suites), en
+paralelo con el agente de /conceptos (sin tocar ActivityType; esta sesion tenia la
+exclusividad de migraciones de la ola).
+
+**Fuentes leidas**: proto_contact_loader.html (concepto Capa 6) y la spec
+"comer_ContactLoader - Spec para reconstruir". OJO: la spec documenta que el modulo
+legacy NO carga archivos (es un explorador de contactos scrapeados por N8N); el
+requerimiento de esta ola pide un IMPORTADOR masivo sobre el CRM real, y asi se
+implemento (reencuadre registrado en ADR-0024).
+
+**Hecho**:
+- Pagina /cargador-contactos NUEVA (CargadorContactos.razor + css scoped prefijo
+  cl-): ESTRUCTURA y MEDIDAS del proto con TOKENS del workspace (ADR-0023/0024):
+  topbar 14px/24px con breadcrumb + chip MOD 000873 + acciones (Plantilla CSV via
+  data-url, Ver pipeline, Cargar N validas), layout 300px/1fr gap 16, sidebar
+  sticky top 75 (archivo + mapeo de columnas + historial de cargas), 4 KPIs
+  (icono 36x36 r8, valor 20/600): filas/validas/duplicadas/invalidas, tabs con
+  borde inferior 2px (Previsualizacion/Errores/Resultado), grilla con avatares 40
+  redondos por tono, badges mini por fila (Valida/Duplicada/Invalida), footer de
+  paginacion (30 por pagina, el PageSize del legacy), responsive <=1000px.
+- Flujo funcional end-to-end: InputFile (solo CSV, max 2 MB) -> CsvTableParser ->
+  ContactColumnMapping.AutoMap (sinonimos ES/EN por encabezado, editable en el
+  panel) -> ValidateAsync (previsualizacion con veredicto por fila) -> ImportAsync
+  (carga TRANSACCIONAL: Lead en la PRIMERA etapa del pipeline asignado al
+  importador + LeadActivity "lead.imported" + ContactImportBatch, rollback total)
+  -> pestana Resultado con conteos + historial en el sidebar. La pagina llama
+  PipelineSvc.EnsureDefaultsAsync igual que /pipeline.
+- Application: CsvTableParser PURO (autodeteccion coma/punto y coma/tab fuera de
+  comillas, RFC 4180 con "" y saltos de linea internos, BOM, lineas vacias fuera,
+  filas rotas reportadas con numero de linea fisico), ContactLoaderDtos,
+  IContactLoaderService + ContactLoaderService (validacion: nombre obligatorio
+  <=200, email regex, telefono >=7 digitos, valor con miles/decimales tolerantes;
+  dedup por telefono -ultimos 10 digitos, tolera prefijo pais- o email -de
+  FieldValuesJson.email- contra los leads del tenant Y contra filas anteriores del
+  archivo). Email/empresa van a FieldValuesJson (el Lead real no tiene columnas).
+- Dominio + DAL dual: entidad ContactImportBatch (TenantEntity: FileName,
+  TotalRows, Inserted, Duplicates, Invalid; CreatedBy/At del interceptor), DbSet +
+  configuracion (indice tenant+created_at) y UNA migracion dual AddContactImports
+  (Ecorex.Infrastructure 20260705022348 + Ecorex.Infrastructure.SqlServer
+  20260705022429) APLICADA y verificada en los contenedores dev (PG 5442 \d y
+  MSSQL 1443 sys.tables).
+- NavMenu: SOLO el item "Cargador de contactos" (000740) paso de href=pipeline a
+  href=cargador-contactos (una linea).
+- ADR-0024 (docs/decisiones/0024-cargador-contactos.md): reencuadre del modulo,
+  CSV primero (sin libreria Excel en la solucion), reglas de dedup, transaccion.
+
+**Validacion**:
+- Build Ecorex.sln 0 errores; dotnet format --verify-no-changes limpio.
+- Unit: Application 169/169 verdes (15 nuevos CsvTableParserTests: delimitadores
+  autodetectados -incluido delimitador dentro de comillas-, comillas escapadas,
+  salto de linea dentro de campo con numeracion fisica, filas rotas por conteo de
+  columnas, archivo vacio/null, lineas en blanco, CRLF+BOM, encabezado vacio
+  posicional, ultima fila sin salto final, AutoMap ES y desconocidos). Domain
+  35/35.
+- Integracion COMPLETA dual verde 137/137 (PG + SQL Server via Testcontainers);
+  +4 nuevos (2 tests x 2 motores) ContactLoaderTests: carga valida con duplicados
+  detectados (CSV real por el parser: 2 insertadas con etapa/asignacion/
+  FieldValuesJson/actividad + batch con conteos exactos, dup por telefono con
+  prefijo +57 contra lead existente, dup por email dentro del archivo, invalidas
+  por nombre vacio y email malformado, e idempotencia al recargar: 0 insertadas)
+  y aislamiento cross-tenant del historial + de la deteccion de duplicados (el
+  telefono cargado por A no es duplicado en B; cada tenant ve solo su batch).
+  NOTA: una corrida con integracion+E2E+app en paralelo dio 7 flakes de arranque
+  del contenedor MSSQL (WaitUntil timeout); la suite sola es 137/137.
+- E2E Playwright COMPLETA verde 17/17 contra app real (PG 5442, puerto 5252 via
+  ECOREX_E2E_BASEURL); +1 escenario CargadorContactosTests: generar CSV en el
+  test (2 validas + 1 duplicada en archivo + 1 sin nombre) -> subirlo por el
+  InputFile -> KPIs 4/2/1/1 -> mapeo automatico 6 de 6 -> badges dup/bad con
+  motivo -> Cargar 2 validas -> Resultado (2/1/1) -> historial en el sidebar ->
+  los 2 leads visibles en /pipeline. (ReglasTests fallo una vez por contencion
+  al correr todo en paralelo; en la corrida limpia paso.)
+- Verificacion manual claro/oscuro contra el proto (preview 5252): layout
+  300px/744px gap 16 padding 16/20/60, topbar 14/24, sidebar sticky 75, KPI 36x36
+  r8 y valor 20/600, tab activa borde 2px brand; carga manual de un CSV de 5
+  filas via DataTransfer: KPIs 5/2/1/2, badges por fila, import real (flash
+  "Carga completada: 2 insertadas, 1 duplicadas, 2 invalidas", batch en el
+  historial, leads en /pipeline); en dark los tokens conmutan (bg #0A0A0B,
+  surface #161618, ink #F4F4F5, brand invertido, tonos rgba translucidos).
+- Procesos DETENIDOS (app preview/E2E 5252 parada; 5250/5252 sin listeners).
+
+**Deudas / TODO**:
+- Soporte Excel (.xlsx): no hay libreria referenciada en la solucion; queda
+  documentado en la UI ("Soporte de Excel (.xlsx): pendiente") y en ADR-0024.
+- Dedup solo por telefono/email: filas sin ambos no tienen clave y siempre entran.
+- EvaluateRows carga los pares telefono/email de TODOS los leads del tenant en
+  memoria por carga (aceptable hoy; si un tenant supera decenas de miles de leads
+  conviene un indice/consulta dedicada).
+- Limite de archivo 2 MB del InputFile (configurable si hace falta).
+- Explorador N8N del legacy (fuentes LinkedIn/Maps, filtros dinamicos, presets):
+  NO es este modulo; si se migra la ingesta scraper sera un modulo aparte.
+- Sin commit (pedido explicito): cambios en working tree.

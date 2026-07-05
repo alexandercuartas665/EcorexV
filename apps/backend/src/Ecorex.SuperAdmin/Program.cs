@@ -57,6 +57,7 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Reglas.Editar", p => p.RequireClaim("tenant_id"))
+    .AddPolicy("Conceptos.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("ModulosWeb.Administrar", p => p.RequireClaim("tenant_id"));
 

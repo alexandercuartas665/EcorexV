@@ -72,6 +72,16 @@
       "port": 5246
     },
     {
+      "name": "superadmin-5251",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet 'C:/Users/acuartas/AppData/Local/Temp/claude/C--DesarrolloIA-ECOREX-tareas/17587340-40d4-4da7-a3cb-8b41821807d2/scratchpad/appout-cn/Ecorex.SuperAdmin.dll' --urls http://localhost:5251"
+      ],
+      "port": 5251
+    },
+    {
       "name": "superadmin-5245",
       "runtimeExecutable": "pwsh",
       "runtimeArgs": [
@@ -110,6 +120,16 @@
         "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5249"
       ],
       "port": 5249
+    },
+    {
+      "name": "superadmin-5252",
+      "runtimeExecutable": "pwsh",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5252"
+      ],
+      "port": 5252
     },
     {
       "name": "superadmin",

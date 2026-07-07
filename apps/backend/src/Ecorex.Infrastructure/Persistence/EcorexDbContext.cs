@@ -163,6 +163,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
 
+    // Menu configurable por perfil (Ola 1): vistas del menu por tenant y sus nodos (arbol).
+    public DbSet<MenuView> MenuViews => Set<MenuView>();
+    public DbSet<MenuNode> MenuNodes => Set<MenuNode>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -230,6 +234,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<WhatsAppTemplateCategory>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateHeaderType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<MenuNodeKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<MenuNodeState>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -409,9 +415,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Email).HasMaxLength(256).IsRequired();
             b.Property(x => x.InvitationToken).HasMaxLength(128);
             b.HasOne(x => x.PlatformUser).WithMany().HasForeignKey(x => x.PlatformUserId).OnDelete(DeleteBehavior.Restrict);
+            // Asignacion usuario->vista del menu (Ola 1). NO ACTION: borrar una vista no arrastra
+            // al usuario por cascada (la app deja MenuViewId en null antes de borrar la vista).
+            b.HasOne(x => x.MenuView).WithMany().HasForeignKey(x => x.MenuViewId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.PlatformUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
             b.HasIndex(x => x.InvitationToken);
+            b.HasIndex(x => x.MenuViewId);
         });
 
         modelBuilder.Entity<TenantConfiguration>(b =>
@@ -1360,6 +1370,35 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.Name, x.Language }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsActive });
             b.HasIndex(x => new { x.TenantId, x.WhatsAppLineId });
+        });
+
+        // Menu configurable por perfil (Ola 1): vistas del menu por tenant + arbol de nodos.
+        modelBuilder.Entity<MenuView>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // Nombre unico por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsDefault });
+        });
+
+        modelBuilder.Entity<MenuNode>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.IconKey).HasMaxLength(60);
+            b.Property(x => x.LegacyCode).HasMaxLength(20);
+            b.Property(x => x.Route).HasMaxLength(300);
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.HelpText).HasColumnType(longTextColumnType);
+            // La vista y sus nodos viven y mueren juntos.
+            b.HasOne(x => x.MenuView).WithMany()
+                .HasForeignKey(x => x.MenuViewId).OnDelete(DeleteBehavior.Cascade);
+            // Self-ref NO ACTION: evita rutas de cascada multiples en SQL Server (borrado de la
+            // rama se maneja por la app, no por cascada del padre).
+            b.HasOne(x => x.Parent).WithMany()
+                .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.MenuViewId });
+            b.HasIndex(x => new { x.MenuViewId, x.ParentId, x.SortOrder });
         });
     }
 

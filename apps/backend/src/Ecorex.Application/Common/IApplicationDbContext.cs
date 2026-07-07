@@ -113,6 +113,10 @@ public interface IApplicationDbContext
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }
 
+    // Menu configurable por perfil (Ola 1): vistas del menu por tenant y sus nodos (arbol).
+    DbSet<MenuView> MenuViews { get; }
+    DbSet<MenuNode> MenuNodes { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

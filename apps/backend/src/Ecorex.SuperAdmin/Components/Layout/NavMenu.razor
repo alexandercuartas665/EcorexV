@@ -5,6 +5,9 @@
 @inject IPlanAdminService PlansSvc
 @inject IServiceScopeFactory ScopeFactory
 @using Microsoft.Extensions.DependencyInjection
+@using Microsoft.EntityFrameworkCore
+@using Ecorex.Application.MenuConfig
+@using Ecorex.Domain.Enums
 
 @if (_showAdmin)
 {
@@ -67,371 +70,78 @@ else
 }
 
 <nav class="ecorex-nav">
-    @if (_showTenant)
+    @if (_showTenant && _menu is not null)
     {
-        @* ===== Quick nav (fuente ECOREX.dc.html, quickNav): solo Inicio y Anuncios
-               (con badge de no leidos) antes de la seccion MODULOS. ===== *@
-        <NavLink class="ecorex-nav-link" href="inicio">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/></svg>
-            <span>Inicio</span>
-        </NavLink>
+        @* ===== Menu DATA-DRIVEN (Ola 1 del menu por perfil): el arbol resuelto viene de
+               IMenuConfigService.GetMenuForTenantUserAsync segun la vista del usuario (o la
+               IsDefault). El LOOK es identico al del prototipo: quick-links, label "Modulos",
+               secciones acordeon con icono/contador/chevron, items con codigo legacy y el
+               subgrupo anidado. data-acc = slug del nodo (Route) para persistir apertura. ===== *@
+        @foreach (var quick in _menu.Roots.Where(n => n.Kind == MenuNodeKind.QuickLink))
+        {
+            <NavLink class="ecorex-nav-link" href="@quick.Route">
+                @QuickIcon(quick.IconKey)
+                <span>@quick.Name</span>
+                @if (string.Equals(quick.Route, "anuncios", StringComparison.Ordinal))
+                {
+                    @* Placeholder del contador de no leidos: se conecta cuando exista el modulo. *@
+                    <span class="ecorex-nav-badge" title="Anuncios sin leer (placeholder)">0</span>
+                }
+            </NavLink>
+        }
 
-        <NavLink class="ecorex-nav-link" href="anuncios">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4a1 1 0 0 0 1 1h2l4 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M15 9a3.5 3.5 0 0 1 0 6"/></svg>
-            <span>Anuncios</span>
-            @* Placeholder del contador de no leidos: se conecta cuando exista el modulo. *@
-            <span class="ecorex-nav-badge" title="Anuncios sin leer (placeholder)">0</span>
-        </NavLink>
-
-        @* ===== Seccion MODULOS: estructura exacta del fuente ECOREX.dc.html (groupDefs):
-               9 grupos con contador de items hoja, chevron rotatorio, items con codigo
-               legacy 000XXX y el subgrupo Comercial dentro de Mis Procesos. Los items sin
-               modulo real navegan al stub generico /modulo/{slug}; data-acc persiste
-               apertura/cierre en localStorage (script en MainLayout). ===== *@
         <div class="ecorex-nav-label">Modulos</div>
 
-        <details class="ecorex-acc tv" data-acc="misproc" open="@IsGroupOpen("misproc")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Mis Procesos</span>
-                <span class="ecorex-acc-count">5</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="crear-actividad">
-                    <span class="lbl">Crear una actividad</span>
-                    <span class="code" title="Modulo legacy 000038">000038</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="proyectos">
-                    <span class="lbl">Proyectos</span>
-                    <span class="code" title="Modulo legacy 000042">000042</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="actividades">
-                    <span class="lbl">Administrar actividades</span>
-                    <span class="code" title="Modulo legacy 000636">000636</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/programar-actividad">
-                    <span class="lbl">Programar actividad</span>
-                    <span class="code" title="Modulo legacy 000889">000889</span>
-                </NavLink>
-                @* Subgrupo Comercial (fuente: subgroups de Mis Procesos, abierto por defecto). *@
-                <details class="ecorex-acc-sub" data-acc="sg-comercial" open="@IsGroupOpen("sg-comercial")">
-                    <summary>
-                        <span class="ecorex-acc-name">Comercial</span>
-                        <span class="ecorex-acc-count">1</span>
-                        <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-                    </summary>
-                    <div class="ecorex-acc-sub-body">
-                        <NavLink class="ecorex-acc-item" href="actividades">
-                            <span class="lbl">Requerimientos equipos</span>
-                            <span class="code" title="Modulo legacy 000477 (en el fuente abre el gestor de tareas)">000477</span>
-                        </NavLink>
-                    </div>
-                </details>
-            </div>
-        </details>
-
-        <details class="ecorex-acc tr" data-acc="nego" open="@IsGroupOpen("nego")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Negocio</span>
-                <span class="ecorex-acc-count">3</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/creacion-de-clientes">
-                    <span class="lbl">Creacion de clientes</span>
-                    <span class="code" title="Modulo legacy 000232">000232</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/seguimiento-de-clientes">
-                    <span class="lbl">Seguimiento de clientes</span>
-                    <span class="code" title="Modulo legacy 000123">000123</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="cargador-contactos">
-                    <span class="lbl">Cargador de contactos</span>
-                    <span class="code" title="Modulo legacy 000740 (pagina de contactos/leads del CRM)">000740</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc tb" data-acc="auto" open="@IsGroupOpen("auto")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Automatizacion</span>
-                <span class="ecorex-acc-count">3</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="flujos">
-                    <span class="lbl">Flujos del proceso</span>
-                    <span class="code" title="Modulo legacy 000291">000291</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="formularios">
-                    <span class="lbl">Formularios</span>
-                    <span class="code" title="Modulo legacy 000131">000131</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/power-bi-service">
-                    <span class="lbl">Power BI Service</span>
-                    <span class="code" title="Modulo legacy 000788">000788</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc ts" data-acc="inv" open="@IsGroupOpen("inv")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Sistema &#183; Inventarios</span>
-                <span class="ecorex-acc-count">6</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="inventario-bodegas">
-                    <span class="lbl">Bodegas</span>
-                    <span class="code" title="Modulo legacy 000556">000556</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="inventario-grupos">
-                    <span class="lbl">Grupo inventarios</span>
-                    <span class="code" title="Modulo legacy 000506">000506</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="inventario-marcas">
-                    <span class="lbl">Marcas</span>
-                    <span class="code" title="Modulo legacy 000502">000502</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="inventario-subgrupos">
-                    <span class="lbl">Subgrupos</span>
-                    <span class="code" title="Modulo legacy 000606">000606</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="inventario-tipos">
-                    <span class="lbl">Tipos de inventario</span>
-                    <span class="code" title="Modulo legacy 000498">000498</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="inventario-items">
-                    <span class="lbl">Items de inventarios</span>
-                    <span class="code" title="Modulo legacy 000066">000066</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc ts" data-acc="act" open="@IsGroupOpen("act")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Sistema &#183; Actividades</span>
-                <span class="ecorex-acc-count">4</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/prioridades">
-                    <span class="lbl">Prioridades</span>
-                    <span class="code" title="Modulo legacy 000621">000621</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/tipos-de-proyecto">
-                    <span class="lbl">Tipos de proyecto</span>
-                    <span class="code" title="Modulo legacy 000690">000690</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="conceptos">
-                    <span class="lbl">Conceptos</span>
-                    <span class="code" title="Modulo legacy 000270">000270</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/estados">
-                    <span class="lbl">Estados</span>
-                    <span class="code" title="Modulo legacy 000653">000653</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc ts" data-acc="syscrm" open="@IsGroupOpen("syscrm")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Sistema &#183; CRM</span>
-                <span class="ecorex-acc-count">8</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/conceptos-actividades">
-                    <span class="lbl">Conceptos actividades</span>
-                    <span class="code" title="Modulo legacy 000125">000125</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/estados-crm">
-                    <span class="lbl">Estados</span>
-                    <span class="code" title="Modulo legacy 000272">000272</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/perfiles-cliente-prov">
-                    <span class="lbl">Perfiles cliente/prov</span>
-                    <span class="code" title="Modulo legacy 000166">000166</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/servicios-o-productos">
-                    <span class="lbl">Servicios o productos</span>
-                    <span class="code" title="Modulo legacy 000249">000249</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/tipos-de-empresas">
-                    <span class="lbl">Tipos de empresas</span>
-                    <span class="code" title="Modulo legacy 000231">000231</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/vendedores">
-                    <span class="lbl">Vendedores</span>
-                    <span class="code" title="Modulo legacy 000124">000124</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/origen-clientes">
-                    <span class="lbl">Origen clientes</span>
-                    <span class="code" title="Modulo legacy 000324">000324</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/grupos-de-actividades">
-                    <span class="lbl">Grupos de actividades</span>
-                    <span class="code" title="Modulo legacy 000126">000126</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc ts" data-acc="gen" open="@IsGroupOpen("gen")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Sistema &#183; General</span>
-                <span class="ecorex-acc-count">7</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="configuracion">
-                    <span class="lbl">Configuracion de entidad</span>
-                    <span class="code" title="Modulo legacy 000615 (configuracion del tenant)">000615</span>
-                </NavLink>
-                @* "Crear empresas" (000072, adm_empresas) es GOBIERNO multi-tenant: se movio al
-                   area PlatformAdmin como "Ficha de empresa" (/admin/empresas). Ya no vive aqui. *@
-                <NavLink class="ecorex-acc-item" href="actividades">
-                    <span class="lbl">Actividades</span>
-                    <span class="code" title="Modulo legacy 000270 (asi figura en el fuente)">000270</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="extraccion-datos">
-                    <span class="lbl">Extraccion de datos</span>
-                    <span class="code" title="Modulo legacy 000730 (pagina real Extraccion de datos)">000730</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="plantillas">
-                    <span class="lbl">Plantillas</span>
-                    <span class="code" title="Modulo legacy 000893">000893</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="dependencias">
-                    <span class="lbl">Dependencias</span>
-                    <span class="code" title="Modulo legacy 000850">000850</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/roles-y-permisos">
-                    <span class="lbl">Roles y permisos</span>
-                    <span class="code" title="Modulo legacy 000194">000194</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/administracion-de-usuarios">
-                    <span class="lbl">Administracion de usuarios</span>
-                    <span class="code" title="Modulo legacy 000073">000073</span>
-                </NavLink>
-            </div>
-        </details>
-
-        <details class="ecorex-acc ts" data-acc="dev" open="@IsGroupOpen("dev")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Sistema &#183; Desarrollo</span>
-                <span class="ecorex-acc-count">10</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="modulo/autocompletado-formularios">
-                    <span class="lbl">Autocompletado formularios</span>
-                    <span class="code" title="Modulo legacy 000801">000801</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulos-web">
-                    <span class="lbl">Modulos web</span>
-                    <span class="code" title="Modulo legacy 000109">000109</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/notificaciones-config">
-                    <span class="lbl">Notificaciones</span>
-                    <span class="code" title="Modulo legacy 000288">000288</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/objetos-del-sistema">
-                    <span class="lbl">Objetos del sistema</span>
-                    <span class="code" title="Modulo legacy 000137">000137</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/parametros-xml">
-                    <span class="lbl">Parametros XML</span>
-                    <span class="code" title="Modulo legacy 000057">000057</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="reglas">
-                    <span class="lbl">Reglas</span>
-                    <span class="code" title="Modulo legacy 000802">000802</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="metricas">
-                    <span class="lbl">Reportes</span>
-                    <span class="code" title="Modulo legacy 000119 (pagina real Metricas y reportes)">000119</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/servicios-web">
-                    <span class="lbl">Servicios web</span>
-                    <span class="code" title="Modulo legacy 000053">000053</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/sql-admin">
-                    <span class="lbl">SQL Admin</span>
-                    <span class="code" title="Modulo legacy 000077">000077</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="modulo/consecutivos">
-                    <span class="lbl">Tipos de documentos &#183; Consecutivos</span>
-                    <span class="code" title="Modulo legacy 000136">000136</span>
-                </NavLink>
-            </div>
-        </details>
-
-        @* Infraestructura IA (ADR-0028): grupo propio de primer nivel con la infra de agentes de IA
-           que antes vivia bajo "CRM (heredado)" y en Automatizacion. Solo se mueve de menu: rutas y
-           codigos de modulo se conservan intactos. Colapsado por defecto. *@
-        <details class="ecorex-acc tb" data-acc="ia" open="@IsGroupOpen("ia")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>
-                </span>
-                <span class="ecorex-acc-name">Infraestructura IA</span>
-                <span class="ecorex-acc-count">5</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="agentes">
-                    <span class="lbl">Agentes</span>
-                    <span class="code" title="Modulo legacy 000867 (pagina real Agentes de IA)">000867</span>
-                </NavLink>
-                <NavLink class="ecorex-acc-item" href="lineas"><span class="lbl">Lineas WhatsApp</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="conversaciones"><span class="lbl">Conversaciones</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="bitacora-agente"><span class="lbl">Bitacora del agente</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="plantillas-whatsapp"><span class="lbl">Plantillas WhatsApp</span></NavLink>
-            </div>
-        </details>
-
-        @* CRM heredado (desviacion documentada): grupo extra al final, fuera del prototipo,
-           con las paginas reales del CRM anterior que NO quedaron mapeadas en la estructura
-           del fuente, para no perder acceso a funcionalidad existente. Colapsado por defecto. *@
-        <details class="ecorex-acc ts" data-acc="crm" open="@IsGroupOpen("crm")">
-            <summary>
-                <span class="ecorex-acc-ico">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>
-                </span>
-                <span class="ecorex-acc-name">CRM (heredado)</span>
-                <span class="ecorex-acc-count">3</span>
-                <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </summary>
-            <div class="ecorex-acc-body">
-                <NavLink class="ecorex-acc-item" href="asesores"><span class="lbl">Asesores</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="automatizaciones"><span class="lbl">Automatizaciones</span></NavLink>
-                <NavLink class="ecorex-acc-item" href="lista-negra"><span class="lbl">Lista negra</span></NavLink>
-            </div>
-        </details>
+        @foreach (var section in _menu.Roots.Where(n => n.Kind == MenuNodeKind.Section))
+        {
+            var slug = section.Route ?? section.Id.ToString();
+            <details class="ecorex-acc @SectionTone(slug)" data-acc="@slug" open="@IsGroupOpen(slug)">
+                <summary>
+                    <span class="ecorex-acc-ico">@SectionIcon(section.IconKey)</span>
+                    <span class="ecorex-acc-name">@section.Name</span>
+                    <span class="ecorex-acc-count">@section.VisibleChildCount</span>
+                    <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </summary>
+                <div class="ecorex-acc-body">
+                    @foreach (var child in section.Children)
+                    {
+                        if (child.Kind == MenuNodeKind.Subgroup)
+                        {
+                            var subSlug = child.Route ?? child.Id.ToString();
+                            <details class="ecorex-acc-sub" data-acc="@subSlug" open="@IsGroupOpen(subSlug)">
+                                <summary>
+                                    <span class="ecorex-acc-name">@child.Name</span>
+                                    <span class="ecorex-acc-count">@child.VisibleChildCount</span>
+                                    <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                </summary>
+                                <div class="ecorex-acc-sub-body">
+                                    @foreach (var leaf in child.Children.Where(n => n.Kind == MenuNodeKind.Item))
+                                    {
+                                        <NavLink class="ecorex-acc-item" href="@leaf.Route">
+                                            <span class="lbl">@leaf.Name</span>
+                                            @if (!string.IsNullOrEmpty(leaf.LegacyCode))
+                                            {
+                                                <span class="code" title="Modulo legacy @leaf.LegacyCode">@leaf.LegacyCode</span>
+                                            }
+                                        </NavLink>
+                                    }
+                                </div>
+                            </details>
+                        }
+                        else
+                        {
+                            <NavLink class="ecorex-acc-item" href="@child.Route">
+                                <span class="lbl">@child.Name</span>
+                                @if (!string.IsNullOrEmpty(child.LegacyCode))
+                                {
+                                    <span class="code" title="Modulo legacy @child.LegacyCode">@child.LegacyCode</span>
+                                }
+                            </NavLink>
+                        }
+                    }
+                </div>
+            </details>
+        }
     }
 
     @if (_showAdmin)
@@ -594,8 +304,39 @@ else
                     }
                 }
                 catch { /* sin plan visible: bajada generica */ }
+
+                // Menu configurable (Ola 1): resuelve el arbol de la vista del usuario (o la
+                // IsDefault del tenant) en un scope aislado, como la marca. Si falla, _menu queda
+                // null y el bloque tenant simplemente no renderiza (fallback seguro).
+                await LoadMenuAsync(tenantId, state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value);
             }
         }
+    }
+
+    /// <summary>Arbol resuelto del menu del workspace (Ola 1). Null = no renderiza el bloque tenant.</summary>
+    private ResolvedMenuDto? _menu;
+
+    private async Task LoadMenuAsync(Guid tenantId, string? platformUserIdClaim)
+    {
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var menuSvc = scope.ServiceProvider.GetRequiredService<IMenuConfigService>();
+
+            // Vista asignada al usuario (o null -> el servicio cae a la IsDefault del tenant).
+            Guid? assignedViewId = null;
+            if (Guid.TryParse(platformUserIdClaim, out var platformUserId))
+            {
+                var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+                assignedViewId = await db.TenantUsers
+                    .Where(u => u.PlatformUserId == platformUserId)
+                    .Select(u => u.MenuViewId)
+                    .FirstOrDefaultAsync();
+            }
+
+            _menu = await menuSvc.GetMenuForTenantUserAsync(tenantId, assignedViewId);
+        }
+        catch { /* sin menu configurado: el bloque tenant no renderiza (fallback seguro) */ }
     }
 
     /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
@@ -604,8 +345,9 @@ else
     /// <summary>
     /// Estado inicial (server-side) de cada acordeon de MODULOS: abierto si contiene la ruta
     /// activa o si es uno de los grupos abiertos por defecto en el fuente (misproc/auto; el
-    /// subgrupo Comercial abre por defecto como en el prototipo).
-    /// El toggle del usuario se persiste en localStorage y lo reaplica el script de MainLayout.
+    /// subgrupo Comercial abre por defecto como en el prototipo). Las rutas de cada grupo se
+    /// derivan del arbol resuelto (Ola 1). El toggle del usuario se persiste en localStorage y
+    /// lo reaplica el script de MainLayout.
     /// </summary>
     private bool IsGroupOpen(string key)
     {
@@ -613,28 +355,60 @@ else
             .Split('?', '#')[0]
             .TrimEnd('/')
             .ToLowerInvariant();
-        var containsActive = GroupRoutes.TryGetValue(key, out var routes)
-            && routes.Any(r => rel == r || rel.StartsWith(r + "/", StringComparison.Ordinal));
+        var routes = RoutesForSlug(key);
+        var containsActive = routes.Any(r => rel == r || rel.StartsWith(r + "/", StringComparison.Ordinal));
         return containsActive || key is "misproc" or "auto" or "sg-comercial";
     }
 
-    // Rutas contenidas por cada grupo del menu (para abrir el acordeon de la ruta activa).
-    private static readonly Dictionary<string, string[]> GroupRoutes = new()
+    /// <summary>Rutas hoja bajo la seccion/subgrupo con ese slug (data-acc), derivadas del arbol resuelto.</summary>
+    private IEnumerable<string> RoutesForSlug(string slug)
     {
-        ["misproc"] = ["crear-actividad", "proyectos", "actividades", "modulo/programar-actividad"],
-        ["sg-comercial"] = ["actividades"],
-        ["nego"] = ["modulo/creacion-de-clientes", "modulo/seguimiento-de-clientes", "pipeline"],
-        ["auto"] = ["flujos", "formularios", "modulo/power-bi-service"],
-        ["inv"] = ["inventario-bodegas", "inventario-grupos", "inventario-marcas", "inventario-subgrupos", "inventario-tipos", "inventario-items"],
-        ["act"] = ["modulo/prioridades", "modulo/tipos-de-proyecto", "conceptos", "modulo/estados"],
-        ["syscrm"] = ["modulo/conceptos-actividades", "modulo/estados-crm", "modulo/perfiles-cliente-prov", "modulo/servicios-o-productos",
-                      "modulo/tipos-de-empresas", "modulo/vendedores", "modulo/origen-clientes", "modulo/grupos-de-actividades"],
-        ["gen"] = ["configuracion", "modulo/crear-empresas", "extraccion-datos", "plantillas", "dependencias",
-                   "modulo/roles-y-permisos", "modulo/administracion-de-usuarios"],
-        ["dev"] = ["modulo/autocompletado-formularios", "modulos-web", "modulo/notificaciones-config", "modulo/objetos-del-sistema",
-                   "modulo/parametros-xml", "reglas", "metricas", "modulo/servicios-web", "modulo/sql-admin", "modulo/consecutivos"],
-        ["ia"] = ["agentes", "lineas", "conversaciones", "bitacora-agente", "plantillas-whatsapp"],
-        ["crm"] = ["asesores", "automatizaciones", "lista-negra"],
+        if (_menu is null) { yield break; }
+        foreach (var section in _menu.Roots.Where(n => n.Kind == MenuNodeKind.Section || n.Kind == MenuNodeKind.Subgroup))
+        {
+            if (!string.Equals(section.Route, slug, StringComparison.Ordinal)) { continue; }
+            foreach (var route in LeafRoutes(section))
+            {
+                yield return route.ToLowerInvariant();
+            }
+        }
+        // Subgrupos: buscar tambien anidados dentro de secciones.
+        foreach (var section in _menu.Roots.Where(n => n.Kind == MenuNodeKind.Section))
+        {
+            foreach (var sub in section.Children.Where(c => c.Kind == MenuNodeKind.Subgroup
+                && string.Equals(c.Route, slug, StringComparison.Ordinal)))
+            {
+                foreach (var route in LeafRoutes(sub))
+                {
+                    yield return route.ToLowerInvariant();
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> LeafRoutes(MenuNodeDto node)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child.Kind == MenuNodeKind.Item && !string.IsNullOrEmpty(child.Route))
+            {
+                yield return child.Route!;
+            }
+            foreach (var deeper in LeafRoutes(child))
+            {
+                yield return deeper;
+            }
+        }
+    }
+
+    // Tono cromatico del acordeon por slug (clases del prototipo: tv/tr/tb/ts). Mismo mapa que el
+    // fuente ECOREX.dc.html; los slugs desconocidos caen a "ts" (neutro).
+    private static string SectionTone(string slug) => slug switch
+    {
+        "misproc" => "tv",
+        "nego" => "tr",
+        "auto" or "ia" => "tb",
+        _ => "ts",
     };
 
     // Paleta AVPAL del prototipo (avatares con color solido mate): (char0 + char1) % 8.
@@ -664,4 +438,26 @@ else
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
     public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+
+    // ---- Iconos por clave (IconKey -> SVG del prototipo). Reusa los mismos trazos del NavMenu
+    //      original; una clave desconocida cae a un icono neutro para no romper el render. ----
+
+    private RenderFragment QuickIcon(string? key) => key switch
+    {
+        "home" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/></svg>,
+        "megaphone" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4a1 1 0 0 0 1 1h2l4 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M15 9a3.5 3.5 0 0 1 0 6"/></svg>,
+        _ => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+    };
+
+    private RenderFragment SectionIcon(string? key) => key switch
+    {
+        "list" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>,
+        "briefcase" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+        "automation" or "robot" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>,
+        "cube" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>,
+        "check-square" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>,
+        "users" or "crm" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>,
+        "gear" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>,
+        _ => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>
+    };
 }

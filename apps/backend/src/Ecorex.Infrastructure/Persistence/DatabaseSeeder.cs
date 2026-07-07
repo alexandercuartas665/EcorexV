@@ -1890,4 +1890,263 @@ public sealed class DatabaseSeeder
             "Seed de plantillas WhatsApp creado para {Tenant}: {Count} plantillas.",
             tenant.Name, templates.Length);
     }
+
+    // ---- Menu configurable por perfil (Ola 1) ----
+
+    public const string MenuCompletoUserEmail = "completo@sky-system.local";
+    public const string MenuSimpleUserEmail = "simple@sky-system.local";
+    public const string MenuViewCompletoName = "Completo";
+    public const string MenuViewSimpleName = "Simple";
+
+    /// <summary>
+    /// Siembra el menu configurable del tenant demo (SKY SYSTEM): la vista "Completo" (IsDefault)
+    /// que transcribe 1:1 el menu actual del bloque _showTenant de NavMenu.razor, una vista
+    /// "Simple" reducida, y 2 usuarios demo asignados a cada vista (completo@ y simple@). Idempotente:
+    /// solo corre si el tenant demo aun no tiene vistas. Solo Development.
+    /// </summary>
+    public async Task EnsureMenuConfigDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.MenuViews.IgnoreQueryFilters().AnyAsync(v => v.TenantId == tenant.Id, cancellationToken))
+        {
+            return;
+        }
+
+        // 1) Vista "Completo" (por defecto): transcripcion 1:1 del menu actual.
+        var completo = new MenuView
+        {
+            TenantId = tenant.Id,
+            Name = MenuViewCompletoName,
+            Description = "Menu completo del workspace (todas las secciones).",
+            IsDefault = true,
+            SortOrder = 0
+        };
+        _db.MenuViews.Add(completo);
+
+        var nodes = new List<MenuNode>();
+        var order = 0;
+
+        MenuNode Add(MenuNodeKind kind, string name, Guid? parentId, string? route,
+            string? iconKey = null, string? legacyCode = null, MenuNodeState state = MenuNodeState.Ready)
+        {
+            var node = new MenuNode
+            {
+                TenantId = tenant.Id,
+                MenuViewId = completo.Id,
+                ParentId = parentId,
+                Kind = kind,
+                Name = name,
+                IconKey = iconKey,
+                LegacyCode = legacyCode,
+                Route = route,
+                State = state,
+                IsVisible = true,
+                SortOrder = order++
+            };
+            nodes.Add(node);
+            return node;
+        }
+
+        // Estado por ruta: los stubs modulo/... se marcan InDevelopment (metadata; no cambia el render).
+        static MenuNodeState StateFor(string? route)
+            => route is not null && route.StartsWith("modulo/", StringComparison.Ordinal)
+                ? MenuNodeState.InDevelopment
+                : MenuNodeState.Ready;
+
+        MenuNode Item(Guid parentId, string name, string route, string? legacyCode = null)
+            => Add(MenuNodeKind.Item, name, parentId, route, legacyCode: legacyCode, state: StateFor(route));
+
+        // ---- Quick links (antes de "Modulos") ----
+        Add(MenuNodeKind.QuickLink, "Inicio", null, "inicio", iconKey: "home");
+        Add(MenuNodeKind.QuickLink, "Anuncios", null, "anuncios", iconKey: "megaphone");
+
+        // ---- Seccion: Mis Procesos (slug misproc) ----
+        var misproc = Add(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
+        Item(misproc.Id, "Crear una actividad", "crear-actividad", "000038");
+        Item(misproc.Id, "Proyectos", "proyectos", "000042");
+        Item(misproc.Id, "Administrar actividades", "actividades", "000636");
+        Item(misproc.Id, "Programar actividad", "modulo/programar-actividad", "000889");
+        var comercial = Add(MenuNodeKind.Subgroup, "Comercial", misproc.Id, "sg-comercial");
+        Item(comercial.Id, "Requerimientos equipos", "actividades", "000477");
+
+        // ---- Seccion: Negocio (slug nego) ----
+        var nego = Add(MenuNodeKind.Section, "Negocio", null, "nego", iconKey: "briefcase");
+        Item(nego.Id, "Creacion de clientes", "modulo/creacion-de-clientes", "000232");
+        Item(nego.Id, "Seguimiento de clientes", "modulo/seguimiento-de-clientes", "000123");
+        Item(nego.Id, "Cargador de contactos", "cargador-contactos", "000740");
+
+        // ---- Seccion: Automatizacion (slug auto) ----
+        var auto = Add(MenuNodeKind.Section, "Automatizacion", null, "auto", iconKey: "automation");
+        Item(auto.Id, "Flujos del proceso", "flujos", "000291");
+        Item(auto.Id, "Formularios", "formularios", "000131");
+        Item(auto.Id, "Power BI Service", "modulo/power-bi-service", "000788");
+
+        // ---- Seccion: Sistema - Inventarios (slug inv) ----
+        var inv = Add(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
+        Item(inv.Id, "Bodegas", "inventario-bodegas", "000556");
+        Item(inv.Id, "Grupo inventarios", "inventario-grupos", "000506");
+        Item(inv.Id, "Marcas", "inventario-marcas", "000502");
+        Item(inv.Id, "Subgrupos", "inventario-subgrupos", "000606");
+        Item(inv.Id, "Tipos de inventario", "inventario-tipos", "000498");
+        Item(inv.Id, "Items de inventarios", "inventario-items", "000066");
+
+        // ---- Seccion: Sistema - Actividades (slug act) ----
+        var act = Add(MenuNodeKind.Section, "Sistema \u00b7 Actividades", null, "act", iconKey: "check-square");
+        Item(act.Id, "Prioridades", "modulo/prioridades", "000621");
+        Item(act.Id, "Tipos de proyecto", "modulo/tipos-de-proyecto", "000690");
+        Item(act.Id, "Conceptos", "conceptos", "000270");
+        Item(act.Id, "Estados", "modulo/estados", "000653");
+
+        // ---- Seccion: Sistema - CRM (slug syscrm) ----
+        var syscrm = Add(MenuNodeKind.Section, "Sistema \u00b7 CRM", null, "syscrm", iconKey: "users");
+        Item(syscrm.Id, "Conceptos actividades", "modulo/conceptos-actividades", "000125");
+        Item(syscrm.Id, "Estados", "modulo/estados-crm", "000272");
+        Item(syscrm.Id, "Perfiles cliente/prov", "modulo/perfiles-cliente-prov", "000166");
+        Item(syscrm.Id, "Servicios o productos", "modulo/servicios-o-productos", "000249");
+        Item(syscrm.Id, "Tipos de empresas", "modulo/tipos-de-empresas", "000231");
+        Item(syscrm.Id, "Vendedores", "modulo/vendedores", "000124");
+        Item(syscrm.Id, "Origen clientes", "modulo/origen-clientes", "000324");
+        Item(syscrm.Id, "Grupos de actividades", "modulo/grupos-de-actividades", "000126");
+
+        // ---- Seccion: Sistema - General (slug gen) ----
+        var gen = Add(MenuNodeKind.Section, "Sistema \u00b7 General", null, "gen", iconKey: "gear");
+        Item(gen.Id, "Configuracion de entidad", "configuracion", "000615");
+        Item(gen.Id, "Actividades", "actividades", "000270");
+        Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
+        Item(gen.Id, "Plantillas", "plantillas", "000893");
+        Item(gen.Id, "Dependencias", "dependencias", "000850");
+        Item(gen.Id, "Roles y permisos", "modulo/roles-y-permisos", "000194");
+        Item(gen.Id, "Administracion de usuarios", "modulo/administracion-de-usuarios", "000073");
+
+        // ---- Seccion: Sistema - Desarrollo (slug dev) ----
+        var dev = Add(MenuNodeKind.Section, "Sistema \u00b7 Desarrollo", null, "dev", iconKey: "gear");
+        Item(dev.Id, "Autocompletado formularios", "modulo/autocompletado-formularios", "000801");
+        Item(dev.Id, "Modulos web", "modulos-web", "000109");
+        Item(dev.Id, "Notificaciones", "modulo/notificaciones-config", "000288");
+        Item(dev.Id, "Objetos del sistema", "modulo/objetos-del-sistema", "000137");
+        Item(dev.Id, "Parametros XML", "modulo/parametros-xml", "000057");
+        Item(dev.Id, "Reglas", "reglas", "000802");
+        Item(dev.Id, "Reportes", "metricas", "000119");
+        Item(dev.Id, "Servicios web", "modulo/servicios-web", "000053");
+        Item(dev.Id, "SQL Admin", "modulo/sql-admin", "000077");
+        Item(dev.Id, "Tipos de documentos \u00b7 Consecutivos", "modulo/consecutivos", "000136");
+
+        // ---- Seccion: Infraestructura IA (slug ia) ----
+        var ia = Add(MenuNodeKind.Section, "Infraestructura IA", null, "ia", iconKey: "robot");
+        Item(ia.Id, "Agentes", "agentes", "000867");
+        Item(ia.Id, "Lineas WhatsApp", "lineas");
+        Item(ia.Id, "Conversaciones", "conversaciones");
+        Item(ia.Id, "Bitacora del agente", "bitacora-agente");
+        Item(ia.Id, "Plantillas WhatsApp", "plantillas-whatsapp");
+
+        // ---- Seccion: CRM (heredado) (slug crm) ----
+        var crm = Add(MenuNodeKind.Section, "CRM (heredado)", null, "crm", iconKey: "crm");
+        Item(crm.Id, "Asesores", "asesores");
+        Item(crm.Id, "Automatizaciones", "automatizaciones");
+        Item(crm.Id, "Lista negra", "lista-negra");
+
+        _db.MenuNodes.AddRange(nodes);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 2) Vista "Simple": subconjunto pequeno (Inicio + Anuncios; Mis Procesos con 3 items;
+        //    Inventarios con 1 item; Automatizacion con 1 item). Se construye directa.
+        var simple = new MenuView
+        {
+            TenantId = tenant.Id,
+            Name = MenuViewSimpleName,
+            Description = "Menu reducido para perfiles operativos.",
+            IsDefault = false,
+            SortOrder = 1
+        };
+        _db.MenuViews.Add(simple);
+
+        var simpleNodes = new List<MenuNode>();
+        var simpleOrder = 0;
+
+        MenuNode AddS(MenuNodeKind kind, string name, Guid? parentId, string? route,
+            string? iconKey = null, string? legacyCode = null)
+        {
+            var node = new MenuNode
+            {
+                TenantId = tenant.Id,
+                MenuViewId = simple.Id,
+                ParentId = parentId,
+                Kind = kind,
+                Name = name,
+                IconKey = iconKey,
+                LegacyCode = legacyCode,
+                Route = route,
+                State = StateFor(route),
+                IsVisible = true,
+                SortOrder = simpleOrder++
+            };
+            simpleNodes.Add(node);
+            return node;
+        }
+
+        AddS(MenuNodeKind.QuickLink, "Inicio", null, "inicio", iconKey: "home");
+        AddS(MenuNodeKind.QuickLink, "Anuncios", null, "anuncios", iconKey: "megaphone");
+
+        var sMisproc = AddS(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
+        AddS(MenuNodeKind.Item, "Crear una actividad", sMisproc.Id, "crear-actividad", legacyCode: "000038");
+        AddS(MenuNodeKind.Item, "Administrar actividades", sMisproc.Id, "actividades", legacyCode: "000636");
+        AddS(MenuNodeKind.Item, "Proyectos", sMisproc.Id, "proyectos", legacyCode: "000042");
+
+        var sInv = AddS(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
+        AddS(MenuNodeKind.Item, "Items de inventarios", sInv.Id, "inventario-items", legacyCode: "000066");
+
+        var sAuto = AddS(MenuNodeKind.Section, "Automatizacion", null, "auto", iconKey: "automation");
+        AddS(MenuNodeKind.Item, "Flujos del proceso", sAuto.Id, "flujos", legacyCode: "000291");
+
+        _db.MenuNodes.AddRange(simpleNodes);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 3) 2 usuarios demo asignados a cada vista (patron del seeder: PlatformUser + TenantUser).
+        await EnsureMenuDemoUserAsync(tenant.Id, MenuCompletoUserEmail, "Perfil Completo", completo.Id, cancellationToken);
+        await EnsureMenuDemoUserAsync(tenant.Id, MenuSimpleUserEmail, "Perfil Simple", simple.Id, cancellationToken);
+
+        _logger.LogInformation(
+            "Seed del menu configurable creado para {Tenant}: vista Completo ({CompletoNodes} nodos) + vista Simple ({SimpleNodes} nodos), usuarios {UserA}/{UserB}.",
+            tenant.Name, nodes.Count, simpleNodes.Count, MenuCompletoUserEmail, MenuSimpleUserEmail);
+    }
+
+    private async Task EnsureMenuDemoUserAsync(
+        Guid tenantId, string email, string displayName, Guid menuViewId, CancellationToken cancellationToken)
+    {
+        var existing = await _db.TenantUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.TenantId == tenantId && u.Email == email, cancellationToken);
+        if (existing is not null)
+        {
+            // Idempotente: asegura la asignacion de vista aunque el usuario ya existiera.
+            if (existing.MenuViewId != menuViewId)
+            {
+                existing.MenuViewId = menuViewId;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            return;
+        }
+
+        var platformUser = new PlatformUser
+        {
+            Email = email,
+            EmailVerified = true,
+            DisplayName = displayName,
+            Status = PlatformUserStatus.Active,
+            PasswordHash = _hasher.Hash(TenantUsersPassword)
+        };
+        _db.PlatformUsers.Add(platformUser);
+        _db.TenantUsers.Add(new TenantUser
+        {
+            TenantId = tenantId,
+            PlatformUserId = platformUser.Id,
+            Email = email,
+            TenantRole = TenantRole.Advisor,
+            Status = PlatformUserStatus.Active,
+            MenuViewId = menuViewId
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+    }
 }

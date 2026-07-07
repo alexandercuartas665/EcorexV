@@ -102,6 +102,8 @@ public static class DependencyInjection
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
+        // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
+        services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

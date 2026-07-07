@@ -193,6 +193,9 @@ else
     // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
     // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
     await seeder.EnsureInventoryDemoAsync();
+    // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
+    // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
+    await seeder.EnsureMenuConfigDemoAsync();
     // Plantillas HSM de WhatsApp demo (ADR-0029): 3 plantillas del tenant demo vinculadas a una
     // linea de WhatsApp. Idempotente, solo Development. Submit es un stub (sin integracion Meta).
     await seeder.EnsureWhatsAppTemplatesDemoAsync();

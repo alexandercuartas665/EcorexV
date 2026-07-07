@@ -2634,6 +2634,165 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("lead_notes", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MenuNode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("HelpText")
+                        .HasColumnType("text")
+                        .HasColumnName("help_text");
+
+                    b.Property<string>("IconKey")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("icon_key");
+
+                    b.Property<bool>("IsVisible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_visible");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LegacyCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("legacy_code");
+
+                    b.Property<Guid>("MenuViewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("menu_view_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<string>("Route")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("route");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_menu_nodes");
+
+                    b.HasIndex("ParentId")
+                        .HasDatabaseName("ix_menu_nodes_parent_id");
+
+                    b.HasIndex("TenantId", "MenuViewId")
+                        .HasDatabaseName("ix_menu_nodes_tenant_id_menu_view_id");
+
+                    b.HasIndex("MenuViewId", "ParentId", "SortOrder")
+                        .HasDatabaseName("ix_menu_nodes_menu_view_id_parent_id_sort_order");
+
+                    b.ToTable("menu_nodes", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MenuView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_default");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_menu_views");
+
+                    b.HasIndex("TenantId", "IsDefault")
+                        .HasDatabaseName("ix_menu_views_tenant_id_is_default");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_menu_views_tenant_id_name");
+
+                    b.ToTable("menu_views", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Message", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5974,6 +6133,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("lead_visibility");
 
+                    b.Property<Guid?>("MenuViewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("menu_view_id");
+
                     b.Property<Guid>("PlatformUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("platform_user_id");
@@ -6007,6 +6170,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("InvitationToken")
                         .HasDatabaseName("ix_tenant_users_invitation_token");
+
+                    b.HasIndex("MenuViewId")
+                        .HasDatabaseName("ix_tenant_users_menu_view_id");
 
                     b.HasIndex("PlatformUserId")
                         .HasDatabaseName("ix_tenant_users_platform_user_id");
@@ -7350,6 +7516,26 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Lead");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MenuNode", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MenuView", "MenuView")
+                        .WithMany()
+                        .HasForeignKey("MenuViewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_menu_nodes_menu_views_menu_view_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.MenuNode", "Parent")
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_menu_nodes_menu_nodes_parent_id");
+
+                    b.Navigation("MenuView");
+
+                    b.Navigation("Parent");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Message", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Conversation", "Conversation")
@@ -7799,12 +7985,20 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantUser", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.MenuView", "MenuView")
+                        .WithMany()
+                        .HasForeignKey("MenuViewId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_tenant_users_menu_views_menu_view_id");
+
                     b.HasOne("Ecorex.Domain.Entities.PlatformUser", "PlatformUser")
                         .WithMany()
                         .HasForeignKey("PlatformUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tenant_users_platform_users_platform_user_id");
+
+                    b.Navigation("MenuView");
 
                     b.Navigation("PlatformUser");
                 });

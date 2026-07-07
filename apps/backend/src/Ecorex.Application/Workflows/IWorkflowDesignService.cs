@@ -27,6 +27,9 @@ public interface IWorkflowDesignService
     /// <summary>Canvas completo (nodos con coordenadas + aristas + vinculos) o null.</summary>
     Task<FlowCanvasDto?> GetCanvasAsync(Guid definitionId, CancellationToken cancellationToken = default);
 
+    /// <summary>XML BPMN 2.0 crudo de la definicion (para hidratar bpmn-js), o null.</summary>
+    Task<string?> GetBpmnXmlAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
     /// <summary>"Nuevo flujo": crea un borrador minimo startEvent -> endEvent.</summary>
     Task<WorkflowResult<FlowCanvasDto>> CreateDraftAsync(string name, string? category, CancellationToken cancellationToken = default);
 
@@ -35,6 +38,19 @@ public interface IWorkflowDesignService
     /// crea, reusando el versionado del motor) la version borrador siguiente.
     /// </summary>
     Task<WorkflowResult<FlowCanvasDto>> EnsureDraftAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    // ---- Guardado desde bpmn-js (ADR-0034: el editor produce el XML completo) ----
+
+    /// <summary>
+    /// Guarda el grafo dibujado en bpmn-js: re-sincroniza workflow_node/edge y el layout
+    /// (bpmndi) IN PLACE sobre la definicion borrador, a partir del XML del modeler. Si la
+    /// definicion esta publicada, primero deriva/reusa la version borrador (EnsureDraft) y
+    /// devuelve su Id en el resultado. La parametrizacion por nodo (formularios, reglas,
+    /// AllowsAssignment, RestartNodeId) NO viaja en el XML: se CONSERVA emparejando por
+    /// BpmnElementId (los nodos que desaparecen del XML pierden sus vinculos). Reemplaza al
+    /// camino de mutacion nodo-a-nodo del canvas propio (ADR-0022).
+    /// </summary>
+    Task<WorkflowResult<FlowCanvasDto>> SaveBpmnAsync(Guid definitionId, string bpmnXml, CancellationToken cancellationToken = default);
 
     // ---- Mutaciones del grafo (solo borradores; regeneran el BpmnXml) ----
 
@@ -68,14 +84,27 @@ public interface IWorkflowDesignService
 
     Task<WorkflowResult<bool>> ResumeAsync(Guid definitionId, CancellationToken cancellationToken = default);
 
-    // ---- Exportar / importar JSON (formato del prototipo) ----
+    // ---- Importar BPMN (XML del modeler / archivo .bpmn) ----
 
-    /// <summary>JSON del prototipo: props + nodos (con layout) + conexiones. Null si no existe.</summary>
+    /// <summary>
+    /// Importa un XML BPMN 2.0 (el que produce bpmn-js o un archivo .bpmn) y crea una
+    /// definicion nueva en Borrador (version max+1 si el ProcessCode ya existe, via motor).
+    /// Deriva ProcessCode y nombre del XML si no vienen. Reemplaza a ImportJsonAsync (ADR-0034).
+    /// </summary>
+    Task<WorkflowResult<FlowCanvasDto>> ImportBpmnAsync(string bpmnXml, CancellationToken cancellationToken = default);
+
+    // ---- Exportar / importar JSON (formato del prototipo, DEPRECADO por ADR-0034) ----
+
+    /// <summary>
+    /// JSON del prototipo: props + nodos (con layout) + conexiones. Null si no existe.
+    /// DEPRECADO (ADR-0034): el editor exporta XML BPMN; se conserva por compatibilidad.
+    /// </summary>
     Task<string?> ExportJsonAsync(Guid definitionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Importa el JSON del prototipo: genera el XML BPMN (writer) y crea una definicion
     /// nueva en Borrador (version max+1 si el codigo ya existe, via motor).
+    /// DEPRECADO (ADR-0034): el editor importa/exporta XML BPMN via ImportBpmnAsync.
     /// </summary>
     Task<WorkflowResult<FlowCanvasDto>> ImportJsonAsync(string json, CancellationToken cancellationToken = default);
 

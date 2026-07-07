@@ -37,6 +37,9 @@
         })();
     </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    @* bpmn-js (editor de flujos, ADR-0034): estilos base de diagram-js + iconografia BPMN. *@
+    <link rel="stylesheet" href="lib/bpmnio/diagram-js.css" />
+    <link rel="stylesheet" href="lib/bpmnio/bpmn.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Ecorex.SuperAdmin.styles.css"]" />
     <ImportMap />
@@ -47,6 +50,8 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    @* bpmn-js UMD (expone window.BpmnJS); el modulo interop ecorex-bpmn.js se importa on-demand. *@
+    <script src="lib/bpmnio/bpmn-modeler.js"></script>
     <script src="js/wompi.js?v=3"></script>
     <script src="js/pipeline-dnd.js?v=3"></script>
     <script src="js/agent-editor.js?v=3"></script>

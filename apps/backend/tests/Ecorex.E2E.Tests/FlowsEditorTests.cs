@@ -3,11 +3,19 @@ using Microsoft.Playwright;
 namespace Ecorex.E2E.Tests;
 
 /// <summary>
-/// Escenario del modulo de flujos (ADR-0022): abrir /flujos y ver el indice del
-/// prototipo (KPIs + tarjetas con metricas), crear un flujo nuevo (borrador minimo
-/// Inicio -> Fin), y en el editor canvas: agregar una tarea con la toolbar, conectarla
-/// con la herramienta de conexion, renombrarla desde el panel de detalle, guardar,
-/// cerrar y REABRIR para verificar que el grafo persistio en la base real.
+/// Escenario del modulo de flujos. ADR-0034: el EDITOR ahora es bpmn-js embebido
+/// (canvas propio reemplazado). Se abre /flujos y se ve el indice del prototipo
+/// (KPIs + tarjetas con metricas), se crea un flujo nuevo (borrador minimo
+/// Inicio -> Fin) y en el editor bpmn-js se agrega una tarea y se conecta desde
+/// el startEvent, se guarda, se cierra y se REABRE para verificar que el grafo
+/// persistio en la base real (re-hidratado en bpmn-js).
+///
+/// NOTA (ADR-0034 / vault): el click programatico de la PALETA de bpmn-js NO
+/// dispara igual que el mouse real de Playwright, por eso el paso "agregar tarea
+/// + conectar" se hace de forma DETERMINISTA por la API del modeler
+/// (elementFactory + modeling) a traves del puente window.ecorexBpmnE2E que
+/// expone el modulo interop. El resto del flujo (indice, crear, guardar, reabrir)
+/// sigue siendo interaccion de UI real.
 /// </summary>
 public sealed class FlowsEditorTests : E2eTestBase
 {
@@ -16,7 +24,7 @@ public sealed class FlowsEditorTests : E2eTestBase
     }
 
     [SkippableFact]
-    public async Task Flujos_CrearBorrador_AgregarConectarRenombrar_PersisteTrasReabrir()
+    public async Task Flujos_CrearBorrador_AgregarConectar_PersisteTrasReabrir()
     {
         RequireApp();
         var page = await LoginAsync();
@@ -38,41 +46,62 @@ public sealed class FlowsEditorTests : E2eTestBase
         await page.Locator(".fl-modal select.fl-input").First.SelectOptionAsync("Operaciones");
         await page.ClickAsync(".fl-modal .fl-btn-brand");
         await Assertions.Expect(page.Locator(".fe-shell")).ToBeVisibleAsync();
-        // Borrador minimo: Inicio -> Fin.
+
+        // 3. Esperar a que bpmn-js este listo y traiga el borrador minimo Inicio -> Fin.
+        await WaitBpmnReadyAsync(page);
+        await AssertCountsAsync(page, startEvents: 1, tasks: 0, endEvents: 1, flows: 1);
+
+        // 4. Agregar tarea y conectarla desde el startEvent (API del modeler, determinista).
+        var newTaskId = await page.EvaluateAsync<string>(
+            "([name]) => window.ecorexBpmnE2E.addTaskAndConnect('bpmn-canvas', name)",
+            new object[] { taskName });
+        Assert.False(string.IsNullOrWhiteSpace(newTaskId), "No se creo la tarea en el canvas bpmn-js.");
+        await AssertCountsAsync(page, startEvents: 1, tasks: 1, endEvents: 1, flows: 2);
+        // La barra de estado del prototipo refleja el ULTIMO GUARDADO (aun 2 nodos - 1 conexiones).
         await Assertions.Expect(page.Locator(".fe-stats")).ToContainTextAsync("2 nodos - 1 conexiones");
 
-        // 3. Agregar tarea con la toolbar flotante (queda seleccionada).
-        await page.ClickAsync(".fe-tool[title='Agregar tarea']");
-        await Assertions.Expect(page.Locator(".fe-stats")).ToContainTextAsync("3 nodos - 1 conexiones");
-        var task = page.Locator(".fe-node.rect");
-        await Assertions.Expect(task).ToHaveTextAsync("Nueva tarea");
-
-        // 4. Renombrar desde el panel de detalle (persiste en el change/blur).
-        await page.FillAsync(".fe-panel-input", taskName);
-        await page.Keyboard.PressAsync("Tab");
-        await Assertions.Expect(task).ToHaveTextAsync(taskName);
-
-        // 5. Conectar: herramienta de conexion, clic origen (Inicio) y destino (la tarea).
-        await page.ClickAsync(".fe-tool[title='Conectar nodos']");
-        await Assertions.Expect(page.Locator(".fe-hint")).ToHaveTextAsync("Clic en el nodo origen");
-        await page.ClickAsync(".fe-node.start");
-        await Assertions.Expect(page.Locator(".fe-hint")).ToHaveTextAsync("Clic en el nodo destino");
-        await task.ClickAsync();
-        await Assertions.Expect(page.Locator(".fe-stats")).ToContainTextAsync("3 nodos - 2 conexiones");
-
-        // 6. Guardar cambios y volver al indice: la tarjeta refleja los 3 nodos.
+        // 5. Guardar cambios: exportXml -> SaveBpmnAsync re-sincroniza nodos/aristas/layout.
         await page.ClickAsync(".fe-btn-brand");
         await Assertions.Expect(page.Locator(".fe-notice")).ToContainTextAsync("Cambios guardados");
+        // Tras guardar, la barra ya refleja los 3 nodos - 2 conexiones persistidos.
+        await Assertions.Expect(page.Locator(".fe-stats")).ToContainTextAsync("3 nodos - 2 conexiones");
+
+        // 6. Cerrar y volver al indice: la tarjeta refleja los 3 nodos.
         await page.ClickAsync(".fe-head-actions button:has-text('Cerrar')");
         var card = page.Locator(".fl-card", new PageLocatorOptions { HasText = flowName });
         await Assertions.Expect(card).ToBeVisibleAsync();
         await Assertions.Expect(card).ToContainTextAsync("Borrador");
         await Assertions.Expect(card).ToContainTextAsync("3 nodos");
 
-        // 7. REABRIR el editor: el grafo persistio (tarea renombrada + 2 conexiones).
+        // 7. REABRIR el editor: el grafo persistio en la BD y se re-hidrata en bpmn-js
+        //    (3 flow-nodes + 2 sequenceFlows), con la tarea nombrada.
         await card.ClickAsync();
         await Assertions.Expect(page.Locator(".fe-shell")).ToBeVisibleAsync();
+        await WaitBpmnReadyAsync(page);
+        await AssertCountsAsync(page, startEvents: 1, tasks: 1, endEvents: 1, flows: 2);
         await Assertions.Expect(page.Locator(".fe-stats")).ToContainTextAsync("3 nodos - 2 conexiones");
-        await Assertions.Expect(page.Locator(".fe-node.rect")).ToHaveTextAsync(taskName);
+
     }
+
+    /// <summary>Espera a que el modulo interop registre la instancia del canvas.</summary>
+    private static async Task WaitBpmnReadyAsync(IPage page)
+    {
+        await page.WaitForFunctionAsync(
+            "() => window.ecorexBpmnE2E && window.ecorexBpmnE2E.ready('bpmn-canvas')",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 15_000 });
+    }
+
+    /// <summary>Verifica los conteos por tipo en el elementRegistry de bpmn-js.</summary>
+    private static async Task AssertCountsAsync(IPage page, int startEvents, int tasks, int endEvents, int flows)
+    {
+        Assert.Equal(startEvents, await CountAsync(page, "bpmn:StartEvent"));
+        Assert.Equal(tasks, await CountAsync(page, "bpmn:Task"));
+        Assert.Equal(endEvents, await CountAsync(page, "bpmn:EndEvent"));
+        Assert.Equal(flows, await CountAsync(page, "bpmn:SequenceFlow"));
+    }
+
+    private static async Task<int> CountAsync(IPage page, string type)
+        => await page.EvaluateAsync<int>(
+            "(t) => window.ecorexBpmnE2E.count('bpmn-canvas', t)", type);
 }

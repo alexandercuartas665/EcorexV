@@ -188,6 +188,85 @@ public abstract class WorkflowDesignServiceTestsBase
         }
     }
 
+    // ---- (5b) SaveBpmnAsync: resync in-place del grafo desde el XML de bpmn-js (ADR-0034) ----
+
+    [Fact]
+    public async Task SaveBpmn_ResyncsGraphInPlace_PreservesParametrizationByElementId()
+    {
+        var tenantId = await SeedTenantAsync("Design SaveBpmn");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var (engine, design) = BuildServices(ctx, tenantId);
+
+        // Borrador minimo Inicio -> Fin (Start_1, End_1) mas una tarea con config propia.
+        var canvas = (await design.CreateDraftAsync("Flujo bpmn-js", "Operaciones")).Value!;
+        var start = canvas.Nodes.Single(n => n.NodeType == WorkflowNodeType.StartEvent);
+        var end = canvas.Nodes.Single(n => n.NodeType == WorkflowNodeType.EndEvent);
+        var task = (await design.AddNodeAsync(canvas.DefinitionId, WorkflowNodeType.Task, 240, 150)).Value!;
+        Assert.True((await design.SetNodeConfigAsync(task.Id, allowsAssignment: false, restartNodeId: start.Id)).IsOk);
+
+        // El XML que "produce bpmn-js": conserva Start/End/Task por su BpmnElementId, renombra
+        // la tarea y agrega un gateway nuevo. La parametrizacion NO viaja aqui (va por tablas).
+        var startId = start.BpmnElementId;
+        var endId = end.BpmnElementId;
+        var taskId = task.BpmnElementId;
+        var xml = $"""
+            <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="http://ecorex.local/bpmn">
+              <bpmn:process id="P_Save">
+                <bpmn:startEvent id="{startId}" name="Inicio" />
+                <bpmn:task id="{taskId}" name="Aprobar (bpmn-js)" />
+                <bpmn:exclusiveGateway id="Gateway_New" name="Decision" />
+                <bpmn:endEvent id="{endId}" name="Fin" />
+                <bpmn:sequenceFlow id="S1" sourceRef="{startId}" targetRef="{taskId}" />
+                <bpmn:sequenceFlow id="S2" sourceRef="{taskId}" targetRef="Gateway_New" />
+                <bpmn:sequenceFlow id="S3" sourceRef="Gateway_New" targetRef="{endId}" />
+              </bpmn:process>
+            </bpmn:definitions>
+            """;
+
+        var saved = await design.SaveBpmnAsync(canvas.DefinitionId, xml);
+        Assert.True(saved.IsOk, saved.Error);
+        // Borrador: se re-sincroniza IN PLACE (misma definicion, NO version nueva).
+        Assert.Equal(canvas.DefinitionId, saved.Value!.DefinitionId);
+
+        var reloaded = (await design.GetCanvasAsync(canvas.DefinitionId))!;
+        Assert.Equal(4, reloaded.Nodes.Count); // start + task + gateway + end
+        Assert.Equal(3, reloaded.Edges.Count);
+
+        // La tarea CONSERVO su fila (mismo Id de BD) con su config, y tomo el nombre del XML.
+        var reloadedTask = reloaded.Nodes.Single(n => n.BpmnElementId == taskId);
+        Assert.Equal(task.Id, reloadedTask.Id);
+        Assert.Equal("Aprobar (bpmn-js)", reloadedTask.Name);
+        Assert.False(reloadedTask.AllowsAssignment);
+        Assert.Equal(start.Id, reloadedTask.RestartNodeId);
+        // El gateway nuevo se materializo.
+        Assert.Contains(reloaded.Nodes, n => n.BpmnElementId == "Gateway_New" && n.NodeType == WorkflowNodeType.ExclusiveGateway);
+
+        // El XML guardado es el de bpmn-js TAL CUAL (portabilidad, ADR-0014) e importable.
+        var stored = await ctx.WorkflowDefinitions.AsNoTracking().SingleAsync(d => d.Id == canvas.DefinitionId);
+        Assert.Equal(xml, stored.BpmnXml);
+        Assert.True((await engine.ImportBpmnAsync(new ImportBpmnRequest("SV-RT", "Round trip", stored.BpmnXml!))).IsOk);
+    }
+
+    [Fact]
+    public async Task SaveBpmn_OnPublished_DerivesDraftAndReturnsItsId()
+    {
+        var tenantId = await SeedTenantAsync("Design SaveBpmn Publicada");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var (engine, design) = BuildServices(ctx, tenantId);
+
+        var definition = (await engine.ImportBpmnAsync(new ImportBpmnRequest("SVP-01", "Publicado", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(definition.Id)).IsOk);
+
+        // Guardar sobre una publicada deriva/reusa el borrador y devuelve su Id (no el publicado).
+        var saved = await design.SaveBpmnAsync(definition.Id, LinearXml);
+        Assert.True(saved.IsOk, saved.Error);
+        Assert.NotEqual(definition.Id, saved.Value!.DefinitionId);
+        Assert.Equal(WorkflowDesignService.EstadoBorrador, saved.Value.Estado);
+        // La publicada sigue intacta.
+        var published = await design.GetCanvasAsync(definition.Id);
+        Assert.True(published!.IsPublished);
+    }
+
     // ---- (6) Indice: metricas reales ----
 
     [Fact]

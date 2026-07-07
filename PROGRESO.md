@@ -5,6 +5,56 @@
 
 ---
 
+## 2026-07-07 - Sesion: Editor de flujos migrado a bpmn-js (ADR-0034)
+
+**Agentes**: agente de feature (migracion del editor BPMN del modulo 000291).
+
+**Pedido**: reemplazar el canvas SVG propio del EDITOR de flujos (`/flujos`, ADR-0022) por
+**bpmn-js** embebido via JS interop, con paleta ACOTADA. Solo el editor; sin tocar la semantica
+del motor de ejecucion. Decisiones del usuario: bpmn-js vendored del legacy (self-hosted, sin
+descargas), desviacion de fidelidad aprobada, palette acotado, parametrizacion en tablas por
+BpmnElementId (no en extensionElements).
+
+**Hecho**:
+- **Assets vendoreados** a `Ecorex.SuperAdmin/wwwroot/lib/bpmnio/` desde el legacy GestionMovil:
+  `bpmn-modeler.js` (bpmn-js **v8.8.2** UMD, `window.BpmnJS`), `bpmn.css`, `diagram-js.css` +
+  `README.md` con nota de licencia MIT (bpmn.io). Cargados en `Components/App.razor` (link CSS +
+  script). Sin CSP en SuperAdmin -> no hubo ajuste de CSP.
+- **Interop** `wwwroot/js/ecorex-bpmn.js` (modulo ES on-demand): `init/exportXml/importXml/zoomFit/
+  destroy`; callbacks `OnElementSelected` (element.click/selection.changed) y `OnGraphChanged`
+  (commandStack.changed). **Palette ACOTADO** (PaletteProvider custom que sobreescribe
+  `paletteProvider`): SOLO startEvent/endEvent/task/exclusiveGateway + connect/hand/lasso, con
+  iconos SVG data-URI (no depende del webfont `bpmn-icon-*`, ausente en el legacy). Puente
+  `window.ecorexBpmnE2E` solo para pruebas.
+- **`Flujos.razor` / `FlowEditor.razor`**: se reemplazo SOLO la region del canvas SVG propio por
+  `<div id="bpmn-canvas">`; se CONSERVARON el indice (KPIs, busqueda, tarjetas), el header
+  (Propiedades/Importar/Exportar/Publicar/Guardar/Cerrar), el panel derecho (6 acordeones + "Saltar
+  a otro flujo") y todos los modales. El panel opera sobre el ULTIMO grafo guardado y resuelve la
+  seleccion por `BpmnElementId`. Export/Import pasaron de JSON a **XML BPMN**.
+- **Guardado** (`IWorkflowDesignService.SaveBpmnAsync`): exportar XML de bpmn-js -> `EnsureDraft` +
+  **resync in-place** de nodos/aristas/layout por BpmnElementId (conserva config y vinculos de los
+  nodos que sobreviven, agrega nuevos, elimina los que desaparecen). Guarda el XML tal cual
+  (portabilidad). Publicadas siguen inmutables (derivan borrador). Se agrego `GetBpmnXmlAsync` y
+  `ImportBpmnAsync`. `BpmnXmlWriter` deprecado en el camino de edicion pero CONSERVADO (seeder,
+  CreateDraft, EnsureDraft, ImportJson) con nota.
+- **ADR-0034** creado (reemplaza la Decision #1 de ADR-0022).
+
+**Tests / gate**: `dotnet build` 0 errores; `dotnet format --verify-no-changes` limpio. Unit
+workflow 31/31; integracion workflow (dual PG+SQLServer) **38/38** (incluye 4 nuevos de SaveBpmn:
+resync in-place preservando parametrizacion + derivar borrador desde publicada); E2E completo
+**29/29** (escenario del editor adaptado a bpmn-js: agregar+conectar via API del modeler,
+determinista, luego Guardar/reabrir/verificar por elementRegistry). Motor de ejecucion sin cambios.
+
+**Deudas**: bpmn-js 8.8.2 (linea vigente 17+, deuda de actualizacion); el canvas no conmuta a modo
+oscuro (fondo claro fijo); viewer de ejecucion pendiente (otra ola); "Saltar a otro flujo" sigue
+visual (call activity pendiente en el motor).
+
+**Siguiente**: viewer de ejecucion sobre bpmn-js; evaluar actualizar bpmn-js a la linea vigente.
+
+**No commit / no push** (segun instruccion de la sesion).
+
+---
+
 ## 2026-07-07 - Sesion: Roles de permisos dinamicos con matriz Modulo x Accion (Ola B1)
 
 **Agentes**: agente de feature (roles + matriz de permisos). Referencia de modelo: hermano Visal

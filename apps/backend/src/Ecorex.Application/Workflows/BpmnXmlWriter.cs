@@ -18,6 +18,12 @@ public sealed record BpmnWriterEdge(
 /// writer REGENERA el BpmnXml completo (bpmn:process + bpmndi con las coordenadas del
 /// canvas) para conservar la portabilidad bpmn.io del ADR-0014. Round-trip garantizado
 /// por test: BpmnProcessParser.Parse(Write(grafo)) reproduce el mismo grafo.
+///
+/// DEUDA / DEPRECACION PARCIAL (ADR-0034): el EDITOR migro a bpmn-js, que produce el XML
+/// directamente; el guardado del editor (SaveBpmnAsync) ya NO pasa por este writer. Se
+/// CONSERVA porque lo siguen usando: el seeder (backfill de layout), CreateDraftAsync
+/// (borrador minimo Inicio->Fin), EnsureDraftAsync (regenerar el XML de la version fuente)
+/// e ImportJsonAsync (import del formato JSON del prototipo, tambien deprecado). No borrar.
 /// </summary>
 public static class BpmnXmlWriter
 {

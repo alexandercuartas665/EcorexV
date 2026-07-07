@@ -97,6 +97,14 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return definition is null ? null : await BuildCanvasAsync(definition, cancellationToken);
     }
 
+    public async Task<string?> GetBpmnXmlAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        return await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.Id == definitionId)
+            .Select(d => d.BpmnXml)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<WorkflowResult<FlowCanvasDto>> CreateDraftAsync(string name, string? category, CancellationToken cancellationToken = default)
     {
         var trimmed = (name ?? "").Trim();
@@ -262,6 +270,137 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             await transaction.CommitAsync(cancellationToken);
         }
         return WorkflowResult<FlowCanvasDto>.Ok((await GetCanvasAsync(draft.Id, cancellationToken))!);
+    }
+
+    // ---- Guardado desde bpmn-js (ADR-0034) ----
+
+    public async Task<WorkflowResult<FlowCanvasDto>> SaveBpmnAsync(
+        Guid definitionId, string bpmnXml, CancellationToken cancellationToken = default)
+    {
+        // Editar publicadas es imposible: primero se deriva/reusa el borrador (EnsureDraft).
+        var ensured = await EnsureDraftAsync(definitionId, cancellationToken);
+        if (!ensured.IsOk || ensured.Value is null)
+        {
+            return ensured;
+        }
+        var draftId = ensured.Value.DefinitionId;
+
+        var parsed = BpmnProcessParser.Parse(bpmnXml);
+        if (!parsed.IsValid)
+        {
+            return WorkflowResult<FlowCanvasDto>.Invalid(
+                "XML BPMN invalido: " + string.Join(" | ", parsed.Errors));
+        }
+
+        var definition = await _db.WorkflowDefinitions.FirstOrDefaultAsync(d => d.Id == draftId, cancellationToken);
+        if (definition is null)
+        {
+            return WorkflowResult<FlowCanvasDto>.NotFound("Definicion de flujo no encontrada.");
+        }
+        if (definition.IsPublished || definition.IsArchived)
+        {
+            return WorkflowResult<FlowCanvasDto>.Invalid("El grafo publicado/archivado no se edita.");
+        }
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+
+        var existingNodes = await _db.WorkflowNodes
+            .Where(n => n.DefinitionId == draftId).ToListAsync(cancellationToken);
+        var existingByElement = existingNodes.ToDictionary(n => n.BpmnElementId, StringComparer.Ordinal);
+        var parsedByElement = parsed.Nodes.ToDictionary(n => n.BpmnElementId, StringComparer.Ordinal);
+
+        // Nodos que ya no estan en el XML: se eliminan con sus aristas, vinculos y
+        // referencias de reinicio (equivalente a EliminarNodos del legacy).
+        var removedNodes = existingNodes.Where(n => !parsedByElement.ContainsKey(n.BpmnElementId)).ToList();
+        if (removedNodes.Count > 0)
+        {
+            var removedIds = removedNodes.Select(n => n.Id).ToHashSet();
+            var removedForms = await _db.WorkflowNodeForms
+                .Where(f => removedIds.Contains(f.NodeId)).ToListAsync(cancellationToken);
+            _db.WorkflowNodeForms.RemoveRange(removedForms);
+            var removedRules = await _db.WorkflowNodeRules
+                .Where(r => removedIds.Contains(r.WorkflowNodeId)).ToListAsync(cancellationToken);
+            _db.WorkflowNodeRules.RemoveRange(removedRules);
+            foreach (var reference in existingNodes.Where(n => n.RestartNodeId is Guid rid && removedIds.Contains(rid)))
+            {
+                reference.RestartNodeId = null;
+            }
+        }
+
+        // Alta/actualizacion de nodos por BpmnElementId (conserva config y vinculos).
+        var nodeByElement = new Dictionary<string, WorkflowNode>(StringComparer.Ordinal);
+        foreach (var parsedNode in parsed.Nodes)
+        {
+            var (dw, dh) = BpmnXmlWriter.DefaultSize(parsedNode.NodeType);
+            if (existingByElement.TryGetValue(parsedNode.BpmnElementId, out var node))
+            {
+                node.Name = parsedNode.Name;
+                node.NodeType = parsedNode.NodeType;
+                node.StepNumber = parsedNode.StepNumber;
+                node.X = parsedNode.X ?? node.X;
+                node.Y = parsedNode.Y ?? node.Y;
+                node.W = parsedNode.W ?? node.W ?? dw;
+                node.H = parsedNode.H ?? node.H ?? dh;
+            }
+            else
+            {
+                node = new WorkflowNode
+                {
+                    TenantId = definition.TenantId,
+                    DefinitionId = draftId,
+                    BpmnElementId = parsedNode.BpmnElementId,
+                    Name = parsedNode.Name,
+                    NodeType = parsedNode.NodeType,
+                    StepNumber = parsedNode.StepNumber,
+                    AllowsAssignment = parsedNode.NodeType == WorkflowNodeType.Task,
+                    X = parsedNode.X ?? 0,
+                    Y = parsedNode.Y ?? 0,
+                    W = parsedNode.W ?? dw,
+                    H = parsedNode.H ?? dh
+                };
+                _db.WorkflowNodes.Add(node);
+            }
+            nodeByElement[parsedNode.BpmnElementId] = node;
+        }
+        _db.WorkflowNodes.RemoveRange(removedNodes);
+
+        // Aristas: se reemplazan por completo (mucho mas simple que diffear y con el mismo
+        // efecto neto; las condiciones se conservan re-aplicando desde el XML).
+        var existingEdges = await _db.WorkflowEdges
+            .Where(e => e.DefinitionId == draftId).ToListAsync(cancellationToken);
+        _db.WorkflowEdges.RemoveRange(existingEdges);
+        // SaveChanges intermedio: materializa las bajas antes de insertar las aristas nuevas
+        // (evita choques del indice unico BpmnElementId en la misma definicion).
+        await _db.SaveChangesAsync(cancellationToken);
+
+        foreach (var parsedEdge in parsed.Edges)
+        {
+            if (!nodeByElement.TryGetValue(parsedEdge.SourceRef, out var source)
+                || !nodeByElement.TryGetValue(parsedEdge.TargetRef, out var target))
+            {
+                continue;
+            }
+            _db.WorkflowEdges.Add(new WorkflowEdge
+            {
+                TenantId = definition.TenantId,
+                DefinitionId = draftId,
+                SourceNodeId = source.Id,
+                TargetNodeId = target.Id,
+                BpmnElementId = parsedEdge.BpmnElementId,
+                Name = parsedEdge.Name,
+                ConditionExpression = parsedEdge.ConditionExpression
+            });
+        }
+
+        // El XML se guarda TAL CUAL lo produjo bpmn-js (portabilidad bpmn.io, ADR-0014):
+        // el editor ya es la fuente del layout, no se regenera con BpmnXmlWriter.
+        definition.BpmnXml = bpmnXml;
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return WorkflowResult<FlowCanvasDto>.Ok((await GetCanvasAsync(draftId, cancellationToken))!);
     }
 
     // ---- Mutaciones del grafo (solo borradores) ----
@@ -576,6 +715,48 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         definition.IsPaused = paused;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
+    }
+
+    // ---- Importar BPMN (XML del modeler / archivo .bpmn) ----
+
+    public async Task<WorkflowResult<FlowCanvasDto>> ImportBpmnAsync(string bpmnXml, CancellationToken cancellationToken = default)
+    {
+        var parsed = BpmnProcessParser.Parse(bpmnXml);
+        if (!parsed.IsValid)
+        {
+            return WorkflowResult<FlowCanvasDto>.Invalid(
+                "XML BPMN invalido: " + string.Join(" | ", parsed.Errors));
+        }
+
+        // Nombre: primer nodo con nombre, o un rotulo generico. Codigo: FLW-### siguiente.
+        var name = parsed.Nodes.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n.Name))?.Name
+            ?? "Flujo importado";
+        var codes = await _db.WorkflowDefinitions.AsNoTracking()
+            .Where(d => d.ProcessCode.StartsWith("FLW-"))
+            .Select(d => d.ProcessCode)
+            .ToListAsync(cancellationToken);
+        var next = 1;
+        foreach (var code in codes)
+        {
+            var tail = code.Split('-')[^1];
+            if (int.TryParse(tail, out var n) && n >= next)
+            {
+                next = n + 1;
+            }
+        }
+        var processCode = $"FLW-{next:000}";
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+        var imported = await _engine.ImportBpmnAsync(new ImportBpmnRequest(processCode, name, bpmnXml), cancellationToken);
+        if (!imported.IsOk || imported.Value is null)
+        {
+            return WorkflowResult<FlowCanvasDto>.Invalid(imported.Error ?? "No se pudo importar el flujo.");
+        }
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return WorkflowResult<FlowCanvasDto>.Ok((await GetCanvasAsync(imported.Value.Id, cancellationToken))!);
     }
 
     // ---- Exportar / importar JSON (formato del prototipo) ----

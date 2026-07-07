@@ -277,7 +277,8 @@ public sealed class RolService : IRolService
             .FirstOrDefaultAsync(u => u.PlatformUserId == platformUserId, cancellationToken);
         if (tu is null)
         {
-            return EffectivePermissions.Empty();
+            // Sin TenantUser resoluble: no hay matriz que aplicar -> Unrestricted (back-compat).
+            return EffectivePermissions.UnrestrictedAccess();
         }
 
         var isOwnerOrAdmin = tu.TenantRole is TenantRole.Owner or TenantRole.Admin;
@@ -287,7 +288,8 @@ public sealed class RolService : IRolService
         }
         if (tu.RolId is not Guid rolId)
         {
-            return EffectivePermissions.Empty();
+            // Usuario sin rol de permisos finos: conserva el acceso del paso 1 (regla opt-in B2).
+            return EffectivePermissions.UnrestrictedAccess();
         }
 
         var permisos = await _db.RolPermisos.AsNoTracking().Where(p => p.RolId == rolId)

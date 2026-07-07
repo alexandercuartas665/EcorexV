@@ -1,10 +1,13 @@
 @page "/inventario-items"
-@attribute [Authorize(Policy = "Inventario.Ver")]
+@attribute [Authorize(Policy = "Perm:inventario-items:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using Ecorex.Application.Inventory
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
 @inject IItemService ItemSvc
 @inject IInventoryCatalogService CatalogSvc
+@inject ICurrentPermissions Perms
 
 <PageTitle>Items de inventarios - ECOREX.tareas</PageTitle>
 
@@ -30,7 +33,10 @@
         <p class="page-sub" style="margin-bottom:0;">Catalogo de items con marca, grupo y tipo normalizados, imagenes y stock por bodega.</p>
     </div>
     <div>
-        <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+        }
     </div>
 </div>
 
@@ -80,7 +86,10 @@ else if (_page.Items.Count == 0)
     <div class="coming-soon" style="padding:40px 24px;">
         <h3>Sin items</h3>
         <p>No hay items que coincidan con los filtros. Crea uno nuevo o ajusta la busqueda.</p>
-        <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
+        }
     </div>
 }
 else
@@ -134,10 +143,16 @@ else
                         }
                     </td>
                     <td style="text-align:right;white-space:nowrap;">
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(i.Id))">Editar</button>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(i))" disabled="@_busy">
-                            @(i.IsActive ? "Archivar" : "Restaurar")
-                        </button>
+                        @if (_canEdit)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(i.Id))">Editar</button>
+                        }
+                        @if (_canDelete)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(i))" disabled="@_busy">
+                                @(i.IsActive ? "Archivar" : "Restaurar")
+                            </button>
+                        }
                     </td>
                 </tr>
             }
@@ -318,6 +333,13 @@ else
     private bool _includeInactive;
     private string? _pageError;
 
+    // Gateo de acciones por permiso (Ola B2, ADR-0033): Owner/Admin/sin-rol ven todo (Unrestricted);
+    // un rol limitado oculta Crear/Editar/Archivar segun su matriz. La pagina ya paso el gate View.
+    private const string ModuleKey = "inventario-items";
+    private bool _canCreate = true;
+    private bool _canEdit = true;
+    private bool _canDelete = true;
+
     private ItemPageDto _page = new([], 0, 1, 20);
     private int _currentPage = 1;
 
@@ -362,6 +384,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+
         _warehouses = await CatalogSvc.ListWarehousesAsync();
         _brands = await CatalogSvc.ListAsync(CatalogKind.Brand);
         _groups = await CatalogSvc.ListAsync(CatalogKind.ItemGroup);

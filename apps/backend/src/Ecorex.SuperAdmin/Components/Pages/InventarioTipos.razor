@@ -1,5 +1,5 @@
 @page "/inventario-tipos"
-@attribute [Authorize(Policy = "Inventario.Ver")]
+@attribute [Authorize(Policy = "Perm:inventario-tipos:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Inventory
 

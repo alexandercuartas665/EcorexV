@@ -2290,12 +2290,8 @@ public sealed class DatabaseSeeder
             .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
         if (tenant is null) { return; }
 
-        // Idempotente: si ya existe el rol de sistema, no re-siembra.
-        if (await _db.Roles.IgnoreQueryFilters()
-                .AnyAsync(r => r.TenantId == tenant.Id && r.IsSystem, cancellationToken))
-        {
-            return;
-        }
+        var rolesExist = await _db.Roles.IgnoreQueryFilters()
+            .AnyAsync(r => r.TenantId == tenant.Id && r.IsSystem, cancellationToken);
 
         // Catalogo = Route de los Item Ready de la vista IsDefault del tenant.
         var defaultView = await _db.MenuViews.IgnoreQueryFilters()
@@ -2304,15 +2300,90 @@ public sealed class DatabaseSeeder
             .FirstOrDefaultAsync(cancellationToken);
         if (defaultView is null) { return; }
 
-        var moduleKeys = await _db.MenuNodes.IgnoreQueryFilters()
-            .Where(n => n.MenuViewId == defaultView.Id
-                && n.Kind == MenuNodeKind.Item
-                && n.State == MenuNodeState.Ready
-                && n.Route != null && n.Route != "")
-            .Select(n => n.Route!)
-            .Distinct()
+        // Nodos de la vista por defecto: los Item Ready dan el catalogo (Route) y, subiendo por
+        // ParentId hasta la Section ancestro, el slug de su seccion. Con eso el rol demo puede negar
+        // Ver por seccion (Ola B2, ADR-0033) sin listas hardcodeadas.
+        var viewNodes = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.MenuViewId == defaultView.Id)
+            .Select(n => new { n.Id, n.ParentId, n.Kind, n.Route, n.State })
             .ToListAsync(cancellationToken);
+        var nodeById = viewNodes.ToDictionary(n => n.Id);
+
+        string? SectionSlugFor(Guid? parentId)
+        {
+            var guard = 0;
+            var current = parentId;
+            while (current is Guid pid && nodeById.TryGetValue(pid, out var node) && guard++ < 100)
+            {
+                if (node.Kind == MenuNodeKind.Section) { return node.Route; }
+                current = node.ParentId;
+            }
+            return null;
+        }
+
+        // (Route, SectionSlug) de cada modulo real. Un mismo Route puede repetirse en varias
+        // secciones (gana el primero por orden de aparicion) -> lo usamos solo para el catalogo.
+        var moduleRows = viewNodes
+            .Where(n => n.Kind == MenuNodeKind.Item
+                && n.State == MenuNodeState.Ready
+                && !string.IsNullOrWhiteSpace(n.Route))
+            .Select(n => new { Route = n.Route!, Section = SectionSlugFor(n.ParentId) })
+            .ToList();
+
+        var moduleKeys = moduleRows.Select(m => m.Route).Distinct().ToList();
         if (moduleKeys.Count == 0) { return; }
+
+        // Rol demo "Asesor limitado" (Ola B2, ADR-0033): recorte DEMOSTRABLE del menu y de botones.
+        // - SIN Ver en las secciones de gobierno/tecnicas: Sistema . Desarrollo (dev), Sistema . CRM
+        //   (syscrm) y CRM heredado (crm) -> esas secciones desaparecen del sidebar de simple@.
+        // - CON Ver en el resto (Mis Procesos, Inventarios, Automatizacion, etc.).
+        // - Crea solo tareas/proyectos (no inventario, para que /inventario-items NO muestre "Nuevo
+        //   item" al Asesor aunque SI pueda verlo). Nunca Editar ni Eliminar.
+        var seccionesSinVer = new HashSet<string>(StringComparer.Ordinal) { "dev", "syscrm", "crm" };
+        var creaEn = new HashSet<string>(StringComparer.Ordinal) { "actividades", "crear-actividad", "proyectos" };
+        // Route -> puede verlo (true salvo que TODAS sus apariciones esten en secciones sin Ver).
+        var puedeVer = moduleKeys.ToDictionary(
+            route => route,
+            route => moduleRows.Where(m => m.Route == route)
+                .Any(m => m.Section is null || !seccionesSinVer.Contains(m.Section)),
+            StringComparer.Ordinal);
+
+        // Filas de permiso del Asesor limitado (mismo calculo para alta y reconciliacion).
+        List<RolPermiso> BuildAsesorPermisos(Guid tenantId, Guid rolId) => moduleKeys.Select(key =>
+        {
+            var canView = puedeVer[key];
+            return new RolPermiso
+            {
+                TenantId = tenantId,
+                RolId = rolId,
+                ModuleKey = key,
+                CanView = canView,
+                CanCreate = canView && creaEn.Contains(key), // Crear solo donde ademas puede Ver.
+                CanEdit = false,
+                CanDelete = false
+            };
+        }).ToList();
+
+        if (rolesExist)
+        {
+            // Idempotente: los roles ya existen. Reconcilia SOLO la matriz del "Asesor limitado" para
+            // aplicar el recorte de Ver por seccion (borra e reinserta sus filas). No toca el rol de
+            // sistema "Administrador" ni renombra nada.
+            var asesorExistente = await _db.Roles.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.TenantId == tenant.Id && r.Name == RolAsesorLimitadoName, cancellationToken);
+            if (asesorExistente is not null)
+            {
+                var prev = await _db.RolPermisos.IgnoreQueryFilters()
+                    .Where(p => p.RolId == asesorExistente.Id).ToListAsync(cancellationToken);
+                _db.RolPermisos.RemoveRange(prev);
+                _db.RolPermisos.AddRange(BuildAsesorPermisos(tenant.Id, asesorExistente.Id));
+                await _db.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Reconciliado el rol '{Asesor}' de {Tenant}: matriz reescrita con recorte de Ver por seccion.",
+                    RolAsesorLimitadoName, tenant.Name);
+            }
+            return;
+        }
 
         // Rol de sistema "Administrador": TODO en true para todos los modulos.
         var admin = new Rol
@@ -2338,30 +2409,16 @@ public sealed class DatabaseSeeder
             });
         }
 
-        // Rol demo "Asesor limitado": Ver en la mayoria; Crear en tareas/inventario; sin Eliminar.
-        var creaEn = new[] { "actividades", "crear-actividad", "proyectos", "inventario-items" };
         var asesor = new Rol
         {
             TenantId = tenant.Id,
             Name = RolAsesorLimitadoName,
-            Description = "Perfil operativo: consulta general, crea tareas e items, sin eliminar.",
+            Description = "Perfil operativo: consulta general, crea tareas, sin Desarrollo/CRM, sin editar ni eliminar.",
             IsActive = true,
             IsSystem = false
         };
         _db.Roles.Add(asesor);
-        foreach (var key in moduleKeys)
-        {
-            _db.RolPermisos.Add(new RolPermiso
-            {
-                TenantId = tenant.Id,
-                RolId = asesor.Id,
-                ModuleKey = key,
-                CanView = true,
-                CanCreate = creaEn.Contains(key),
-                CanEdit = false,
-                CanDelete = false
-            });
-        }
+        _db.RolPermisos.AddRange(BuildAsesorPermisos(tenant.Id, asesor.Id));
 
         await _db.SaveChangesAsync(cancellationToken);
 

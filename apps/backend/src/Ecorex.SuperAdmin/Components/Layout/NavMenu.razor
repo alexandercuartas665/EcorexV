@@ -325,6 +325,7 @@ else
 
             // Vista asignada al usuario (o null -> el servicio cae a la IsDefault del tenant).
             Guid? assignedViewId = null;
+            Ecorex.Application.Roles.EffectivePermissions? permissions = null;
             if (Guid.TryParse(platformUserIdClaim, out var platformUserId))
             {
                 var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
@@ -332,9 +333,16 @@ else
                     .Where(u => u.PlatformUserId == platformUserId)
                     .Select(u => u.MenuViewId)
                     .FirstOrDefaultAsync();
+
+                // Permisos efectivos para FILTRAR el menu por "Ver" (Ola B2, ADR-0033). Owner/Admin y
+                // usuario sin rol -> Unrestricted -> el filtro devuelve el arbol intacto.
+                var roles = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Roles.IRolService>();
+                permissions = await roles.ResolveEffectivePermissionsAsync(platformUserId);
             }
 
-            _menu = await menuSvc.GetMenuForTenantUserAsync(tenantId, assignedViewId);
+            var resolved = await menuSvc.GetMenuForTenantUserAsync(tenantId, assignedViewId);
+            // Poda los modulos (Item con Route) sin permiso de Ver; oculta secciones que quedan vacias.
+            _menu = Ecorex.Application.MenuConfig.MenuPermissionFilter.Filter(resolved, permissions);
         }
         catch { /* sin menu configurado: el bloque tenant no renderiza (fallback seguro) */ }
     }

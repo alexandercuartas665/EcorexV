@@ -20,35 +20,52 @@ public sealed record ModuleAccess(bool View, bool Create, bool Edit, bool Delete
 
 /// <summary>
 /// Permisos efectivos resueltos de un usuario del tenant (listo para el enforcement de Ola B2 y
-/// para la UI). AllowAll = manda por poder organico (Owner/Admin) y puede todo, sin mirar el rol.
-/// Si no es AllowAll, cada modulo se resuelve por su fila en el rol; un modulo ausente = sin acceso.
-/// Estructura inmutable y sin dependencias de EF (logica pura, testeable).
+/// para la UI). Dos ejes de "acceso total":
+/// - <see cref="AllowAll"/> = manda por poder organico (Owner/Admin): puede todo por gobierno.
+/// - <see cref="Unrestricted"/> = usuario SIN rol de permisos finos: no hay matriz que aplicar, asi
+///   que conserva el comportamiento anterior (acceso como en el paso 1, back-compat opt-in). Owner/
+///   Admin tambien son Unrestricted por definicion (AllowAll implica Unrestricted).
+/// Si NO es Unrestricted, cada modulo se resuelve por su fila en el rol; un modulo ausente = sin
+/// acceso. Estructura inmutable y sin dependencias de EF (logica pura, testeable).
 /// </summary>
 public sealed class EffectivePermissions
 {
     private readonly IReadOnlyDictionary<string, ModuleAccess> _byModule;
 
+    /// <summary>Acceso total por poder organico (Owner/Admin del tenant). Implica <see cref="Unrestricted"/>.</summary>
     public bool AllowAll { get; }
 
-    /// <summary>Id del rol de permisos aplicado (null si AllowAll o sin rol).</summary>
+    /// <summary>
+    /// No hay matriz de permisos que aplicar a este usuario (Owner/Admin, o usuario sin RolId): el
+    /// enforcement NO restringe (fail-open / back-compat). Solo un usuario CON rol queda sujeto a su
+    /// matriz. Todo <see cref="AllowAll"/> es Unrestricted, pero no al reves (sin-rol es Unrestricted
+    /// sin ser AllowAll: no ostenta poder organico pero tampoco tiene rol que lo limite).
+    /// </summary>
+    public bool Unrestricted { get; }
+
+    /// <summary>Id del rol de permisos aplicado (null si AllowAll, Unrestricted sin rol o sin rol).</summary>
     public Guid? RolId { get; }
 
-    private EffectivePermissions(bool allowAll, Guid? rolId, IReadOnlyDictionary<string, ModuleAccess> byModule)
+    private EffectivePermissions(bool allowAll, bool unrestricted, Guid? rolId, IReadOnlyDictionary<string, ModuleAccess> byModule)
     {
         AllowAll = allowAll;
+        Unrestricted = unrestricted;
         RolId = rolId;
         _byModule = byModule;
     }
 
-    /// <summary>Owner/Admin: acceso total, sin importar el rol de permisos.</summary>
+    /// <summary>Owner/Admin: acceso total por gobierno, sin importar el rol de permisos.</summary>
     public static EffectivePermissions AllowAllPermissions() =>
-        new(true, null, EmptyMap);
+        new(true, true, null, EmptyMap);
 
-    /// <summary>Usuario sin rol de permisos: acceso vacio (todo denegado).</summary>
-    public static EffectivePermissions Empty() =>
-        new(false, null, EmptyMap);
+    /// <summary>
+    /// Usuario sin rol de permisos finos (o sin TenantUser resoluble): SIN restriccion. Conserva el
+    /// comportamiento del paso 1 para no bloquear a nadie que hoy no tiene rol (regla opt-in de B2).
+    /// </summary>
+    public static EffectivePermissions UnrestrictedAccess() =>
+        new(false, true, null, EmptyMap);
 
-    /// <summary>Usuario con rol: resuelve el set desde sus filas de permiso.</summary>
+    /// <summary>Usuario con rol: resuelve el set desde sus filas de permiso (queda sujeto a la matriz).</summary>
     public static EffectivePermissions FromPermissions(Guid rolId, IEnumerable<ModulePermissionDto> permisos)
     {
         var map = new Dictionary<string, ModuleAccess>(StringComparer.Ordinal);
@@ -57,13 +74,13 @@ public sealed class EffectivePermissions
             if (string.IsNullOrWhiteSpace(p.ModuleKey)) { continue; }
             map[p.ModuleKey] = new ModuleAccess(p.CanView, p.CanCreate, p.CanEdit, p.CanDelete);
         }
-        return new EffectivePermissions(false, rolId, map);
+        return new EffectivePermissions(false, false, rolId, map);
     }
 
-    /// <summary>Set del modulo (None si AllowAll no aplica y el modulo no esta en el rol).</summary>
+    /// <summary>Set del modulo (All si Unrestricted; None si con rol y el modulo no esta en la matriz).</summary>
     public ModuleAccess For(string moduleKey)
     {
-        if (AllowAll) { return ModuleAccess.All; }
+        if (Unrestricted) { return ModuleAccess.All; }
         if (moduleKey is null) { return ModuleAccess.None; }
         return _byModule.TryGetValue(moduleKey, out var access) ? access : ModuleAccess.None;
     }
@@ -71,11 +88,11 @@ public sealed class EffectivePermissions
     /// <summary>Helper de conveniencia para el enforcement (Ola B2) y la UI.</summary>
     public bool Can(string moduleKey, PermissionAction action)
     {
-        if (AllowAll) { return true; }
+        if (Unrestricted) { return true; }
         return For(moduleKey).Can(action);
     }
 
-    /// <summary>Modulos con al menos un permiso (para depurar / mostrar). Vacio si AllowAll.</summary>
+    /// <summary>Modulos con al menos un permiso (para depurar / mostrar). Vacio si Unrestricted.</summary>
     public IReadOnlyCollection<string> ModuleKeys => (IReadOnlyCollection<string>)_byModule.Keys;
 
     private static readonly IReadOnlyDictionary<string, ModuleAccess> EmptyMap =
@@ -111,7 +128,8 @@ public static class PermissionResolver
 
     /// <summary>
     /// Resuelve el set efectivo dado el poder organico (isOwnerOrAdmin), el rol asignado y sus
-    /// permisos. Owner/Admin -> AllowAll; con rol -> set del rol; sin rol -> vacio.
+    /// permisos. Owner/Admin -> AllowAll; con rol -> set del rol; SIN rol -> Unrestricted (regla
+    /// opt-in de la Ola B2: quien no tiene rol conserva el acceso del paso 1, no se bloquea).
     /// </summary>
     public static EffectivePermissions Resolve(
         bool isOwnerOrAdmin,
@@ -126,6 +144,6 @@ public static class PermissionResolver
         {
             return EffectivePermissions.FromPermissions(id, permisos);
         }
-        return EffectivePermissions.Empty();
+        return EffectivePermissions.UnrestrictedAccess();
     }
 }

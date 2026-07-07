@@ -1,5 +1,5 @@
 @page "/inventario-bodegas"
-@attribute [Authorize(Policy = "Inventario.Ver")]
+@attribute [Authorize(Policy = "Perm:inventario-bodegas:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Inventory
 @inject IInventoryCatalogService CatalogSvc

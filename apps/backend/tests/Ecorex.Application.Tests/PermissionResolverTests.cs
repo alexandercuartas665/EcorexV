@@ -3,10 +3,11 @@ using Ecorex.Application.Roles;
 namespace Ecorex.Application.Tests;
 
 /// <summary>
-/// Tests PUROS (sin base de datos) de la resolucion de permisos efectivos (Ola B1, ADR-0032):
-/// Owner/Admin -> AllowAll; con rol -> set del rol; sin rol -> vacio; Can(modulo, accion); y el
-/// filtrado de filas persistibles (SavePermisos guarda solo las que tienen algun flag). La logica
-/// con BD (catalogo derivado del menu, round-trip) se cubre en Ecorex.Integration.Tests (dual).
+/// Tests PUROS (sin base de datos) de la resolucion de permisos efectivos (Ola B1/B2, ADR-0032/0033):
+/// Owner/Admin -> AllowAll; con rol -> set del rol; SIN rol -> Unrestricted (regla opt-in de B2, no
+/// bloquea a quien hoy no tiene rol); Can(modulo, accion); y el filtrado de filas persistibles
+/// (SavePermisos guarda solo las que tienen algun flag). La logica con BD (catalogo derivado del
+/// menu, round-trip) se cubre en Ecorex.Integration.Tests (dual).
 /// </summary>
 public class PermissionResolverTests
 {
@@ -50,14 +51,38 @@ public class PermissionResolverTests
     }
 
     [Fact]
-    public void Resolve_NoRole_IsEmpty()
+    public void Resolve_NoRole_IsUnrestricted()
     {
+        // Regla opt-in de la Ola B2: un usuario sin rol de permisos NO se restringe (conserva el
+        // acceso del paso 1). Unrestricted pero NO AllowAll (no ostenta poder organico Owner/Admin).
         var eff = PermissionResolver.Resolve(isOwnerOrAdmin: false, rolId: null, permisos: null);
 
         Assert.False(eff.AllowAll);
+        Assert.True(eff.Unrestricted);
         Assert.Null(eff.RolId);
-        Assert.False(eff.Can("actividades", PermissionAction.View));
-        Assert.Equal(ModuleAccess.None, eff.For("actividades"));
+        Assert.True(eff.Can("actividades", PermissionAction.View));
+        Assert.True(eff.Can("cualquier-modulo", PermissionAction.Delete));
+        Assert.Equal(ModuleAccess.All, eff.For("actividades"));
+    }
+
+    [Fact]
+    public void Resolve_OwnerOrAdmin_IsAlsoUnrestricted()
+    {
+        var eff = PermissionResolver.Resolve(isOwnerOrAdmin: true, rolId: null, permisos: null);
+
+        Assert.True(eff.AllowAll);
+        Assert.True(eff.Unrestricted);
+    }
+
+    [Fact]
+    public void Resolve_WithRole_IsNotUnrestricted()
+    {
+        var eff = PermissionResolver.Resolve(
+            isOwnerOrAdmin: false, rolId: Guid.NewGuid(),
+            permisos: new[] { P("actividades", v: true) });
+
+        Assert.False(eff.AllowAll);
+        Assert.False(eff.Unrestricted);
     }
 
     [Fact]

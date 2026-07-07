@@ -1,5 +1,5 @@
 @page "/inventario-grupos"
-@attribute [Authorize(Policy = "Inventario.Ver")]
+@attribute [Authorize(Policy = "Perm:inventario-grupos:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Inventory
 

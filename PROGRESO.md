@@ -2702,3 +2702,55 @@ implemento (reencuadre registrado en ADR-0024).
   suelta violeta del area admin), no el shell de auth; queda fuera del
   alcance de esta sesion.
 - Sin commit (pedido explicito): cambios en working tree.
+
+## 2026-07-07 - Sesion: Ola B2 - ENFORCEMENT REAL de permisos por rol (ADR-0033)
+
+- Agente: Claude Opus 4.8 (claude-opus-4-8).
+- Contexto: la Ola B1 (ADR-0032) dejo modelo + servicio + UI + resolucion efectiva,
+  pero NO aplicaba los permisos. Esta ola los HACE CUMPLIR.
+
+**Hecho**:
+- Regla opt-in / back-compat: `EffectivePermissions` gana el eje `Unrestricted`.
+  Owner/Admin -> AllowAll (implica Unrestricted); usuario SIN rol (o TenantUser no
+  resoluble) -> Unrestricted (conserva el acceso del paso 1, NO se restringe;
+  cambia respecto de B1 que devolvia Empty()); usuario CON rol -> sujeto a su
+  matriz. `PermissionResolver.Resolve` y `RolService.ResolveEffectivePermissionsAsync`
+  actualizados. Verificado: owner/admin/operator/viewer NO pierden acceso.
+- Autorizacion dinamica (via NUEVA, aditiva): `PermissionRequirement` +
+  `PermissionAuthorizationHandler` + `PermissionPolicyProvider` que materializa al
+  vuelo las policies `Perm:{moduleKey}:{action}` (gate tenant_id + requirement) y
+  DELEGA el resto en el DefaultAuthorizationPolicyProvider. Las policies clasicas
+  (Inventario.Ver, TenantMember, ...) quedan intactas. Registrados en Program.cs.
+- `ICurrentPermissions` (scoped, SuperAdmin/Auth): resuelve el set del usuario actual
+  UNA vez por scope (en scope propio, como NavMenu), cachea, y es FAIL-OPEN
+  (Unrestricted si no hay usuario o si la resolucion lanza) para no bloquear la consola.
+- Menu filtrado por Ver: `MenuPermissionFilter` (Application, pure) poda Item con
+  View=false y oculta secciones vacias; NavMenu lo aplica sobre el arbol resuelto.
+- Paginas con enforcement real (policy `Perm:{route}:View` + botones gateados por
+  Can Create/Edit/Delete): InventarioItems, catalogos de inventario
+  (Bodegas/Marcas/Grupos/Subgrupos/Tipos), AdmUsuarios, RolesPermisos. El wiring del
+  RESTO de modulos a `Perm:{route}:View` queda como follow-up mecanico (anotado en ADR).
+- Seed "Asesor limitado" ajustado y DEMOSTRABLE (idempotente + reconcilia si ya existe):
+  SIN Ver en Sistema-Desarrollo/Sistema-CRM/CRM-heredado; CON Ver en Mis Procesos/
+  Inventarios/Automatizacion; Crear solo en tareas/proyectos (no inventario). Asignado
+  a simple@sky-system.local.
+- ADR-0033 creado.
+
+**Pruebas** (dotnet build 0 errores; dotnet format --verify-no-changes limpio):
+- Unit Application: 319/319 (incluye PermissionResolver Unrestricted + MenuPermissionFilter).
+- Unit Domain: 35/35.
+- Unit SuperAdmin (proyecto NUEVO Ecorex.SuperAdmin.Tests): 18/18
+  (PermissionPolicy.TryParse, PermissionAuthorizationHandler, CurrentPermissions cache/fail-open).
+- Integracion DUAL (RolesTests, PG + SQL Server): 24/24 (incluye 2 nuevos de menu
+  filtrado: rol limitado excluye modulos sin Ver; Owner y sin-rol ven el menu completo).
+- E2E: 8/8 del subconjunto de permisos/menu/usuarios/roles
+  (PermissionEnforcementTests 3 nuevos + MenuProfile 2 + RolesPermisos 1 + AdmUsuarios 1
+  + MenuEditor 1), verde contra la app real (PG 5442). Los E2E existentes de menu/
+  usuarios/roles siguen verdes.
+
+**Deudas / TODO**:
+- Wiring del resto de paginas (Tareas, Proyectos, Flujos, Formularios, Reglas,
+  Conceptos, ...) a su `Perm:{route}:View` (mecanico).
+- Las policies clasicas migradas quedan sin uso en esas paginas pero se conservan por compat.
+- El claim `Permissions` del token sigue sin poblarse (la consola resuelve por servicio).
+- Sin commit ni push (pedido explicito): cambios en working tree.

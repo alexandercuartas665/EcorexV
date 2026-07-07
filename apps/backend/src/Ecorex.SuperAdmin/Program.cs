@@ -88,6 +88,14 @@ builder.Services.AddAuthorizationBuilder()
     // se movio del menu del tenant al area de plataforma.
     .AddPolicy("AdmEmpresas.Ver", p => p.RequireClaim("platform_role"));
 
+// Enforcement dinamico de permisos por rol (Ola B2, ADR-0033). El policy provider materializa al
+// vuelo las policies con prefijo "Perm:{moduleKey}:{action}" (gate tenant_id + PermissionRequirement)
+// y DELEGA el resto en el default provider, asi que las policies existentes no cambian. El handler
+// consulta ICurrentPermissions (regla opt-in: Owner/Admin y sin-rol = Unrestricted; fail-open).
+builder.Services.AddScoped<Ecorex.SuperAdmin.Auth.ICurrentPermissions, Ecorex.SuperAdmin.Auth.CurrentPermissions>();
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, Ecorex.SuperAdmin.Auth.PermissionPolicyProvider>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, Ecorex.SuperAdmin.Auth.PermissionAuthorizationHandler>();
+
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
 // Guard SSRF del modulo de extraccion (ADR-0025): en Development se permite SOLO loopback

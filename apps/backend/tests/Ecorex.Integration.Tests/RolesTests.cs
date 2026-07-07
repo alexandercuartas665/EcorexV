@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.MenuConfig;
 using Ecorex.Application.Roles;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -97,16 +98,20 @@ public abstract class RolesTestsBase
             new List<ModulePermissionDto> { new("inventario-items", true, true, false, false) },
             Guid.NewGuid()));
 
-        // Antes de asignar: sin rol -> vacio.
+        // Antes de asignar: sin rol -> Unrestricted (regla opt-in B2: conserva acceso del paso 1,
+        // no se restringe). No es AllowAll (no ostenta poder organico Owner/Admin) pero Can=true.
         var before = await RunAsync(tenantId, s => s.ResolveEffectivePermissionsAsync(platformUserId));
         Assert.False(before.AllowAll);
-        Assert.False(before.Can("inventario-items", PermissionAction.View));
+        Assert.True(before.Unrestricted);
+        Assert.True(before.Can("inventario-items", PermissionAction.View));
 
         var assigned = await RunAsync(tenantId, s => s.AssignRoleToUserAsync(tenantUserId, rolId, Guid.NewGuid()));
         Assert.True(assigned.IsOk, assigned.Error);
 
+        // Con rol asignado: ya NO es Unrestricted; queda sujeto a su matriz.
         var after = await RunAsync(tenantId, s => s.ResolveEffectivePermissionsAsync(platformUserId));
         Assert.False(after.AllowAll);
+        Assert.False(after.Unrestricted);
         Assert.Equal(rolId, after.RolId);
         Assert.True(after.Can("inventario-items", PermissionAction.View));
         Assert.True(after.Can("inventario-items", PermissionAction.Create));
@@ -280,7 +285,110 @@ public abstract class RolesTestsBase
         Assert.DoesNotContain(catalog, m => m.Key == "modulo/stub");
     }
 
+    // ---- Ola B2 (ADR-0033): menu filtrado por "Ver" ----
+
+    [Fact]
+    public async Task MenuFilter_LimitedRole_ExcludesModulesWithoutView()
+    {
+        var tenantId = await NewTenantAsync("Menu Filtrado");
+        Guid platformUserId, tenantUserId;
+        Guid viewId;
+
+        // Menu: seccion "Inventarios" (2 items) + seccion "Desarrollo" (1 item) + un usuario Advisor.
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var view = new MenuView { TenantId = tenantId, Name = "Completo", IsDefault = true, SortOrder = 0 };
+            ctx.MenuViews.Add(view);
+            viewId = view.Id;
+
+            var inv = new MenuNode { TenantId = tenantId, MenuViewId = view.Id, Kind = MenuNodeKind.Section, Name = "Inventarios", Route = "inv", SortOrder = 0 };
+            var dev = new MenuNode { TenantId = tenantId, MenuViewId = view.Id, Kind = MenuNodeKind.Section, Name = "Desarrollo", Route = "dev", SortOrder = 1 };
+            ctx.MenuNodes.AddRange(inv, dev);
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = view.Id, ParentId = inv.Id, Kind = MenuNodeKind.Item, Name = "Items", Route = "inventario-items", State = MenuNodeState.Ready, SortOrder = 0 });
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = view.Id, ParentId = inv.Id, Kind = MenuNodeKind.Item, Name = "Bodegas", Route = "inventario-bodegas", State = MenuNodeState.Ready, SortOrder = 1 });
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = view.Id, ParentId = dev.Id, Kind = MenuNodeKind.Item, Name = "Reglas", Route = "reglas", State = MenuNodeState.Ready, SortOrder = 0 });
+
+            var pu = new PlatformUser { Email = "lim@roles.local", DisplayName = "Limitado" };
+            ctx.PlatformUsers.Add(pu);
+            var tu = new TenantUser { TenantId = tenantId, PlatformUserId = pu.Id, Email = "lim@roles.local", TenantRole = TenantRole.Advisor };
+            ctx.TenantUsers.Add(tu);
+            await ctx.SaveChangesAsync();
+            platformUserId = pu.Id;
+            tenantUserId = tu.Id;
+        }
+
+        // Rol: Ver en inventario-items, NADA de la seccion Desarrollo, sin inventario-bodegas.
+        var rol = await RunAsync(tenantId, s => s.SaveAsync(null, "Limitado", null, true, Guid.NewGuid()));
+        await RunAsync(tenantId, s => s.SavePermisosAsync(rol.Value!.Id, new List<ModulePermissionDto>
+        {
+            new("inventario-items", true, false, false, false)
+        }, Guid.NewGuid()));
+        await RunAsync(tenantId, s => s.AssignRoleToUserAsync(tenantUserId, rol.Value!.Id, Guid.NewGuid()));
+
+        var eff = await RunAsync(tenantId, s => s.ResolveEffectivePermissionsAsync(platformUserId));
+        Assert.False(eff.Unrestricted);
+        Assert.True(eff.Can("inventario-items", PermissionAction.View));
+        Assert.False(eff.Can("reglas", PermissionAction.View));
+
+        var menu = await ResolveMenuAsync(tenantId, viewId);
+        var filtered = MenuPermissionFilter.Filter(menu, eff);
+
+        Assert.NotNull(filtered);
+        // Solo queda la seccion Inventarios con SU unico item visible (inventario-items).
+        var section = Assert.Single(filtered!.Roots, n => n.Kind == MenuNodeKind.Section);
+        Assert.Equal("inv", section.Route);
+        var leaf = Assert.Single(section.Children);
+        Assert.Equal("inventario-items", leaf.Route);
+        // La seccion Desarrollo (sin ningun item con Ver) desaparece del arbol.
+        Assert.DoesNotContain(filtered.Roots, n => n.Route == "dev");
+    }
+
+    [Fact]
+    public async Task MenuFilter_OwnerAndNoRole_SeeFullMenu()
+    {
+        var tenantId = await NewTenantAsync("Menu Completo");
+        Guid ownerUserId, noRoleUserId, viewId;
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var view = new MenuView { TenantId = tenantId, Name = "Completo", IsDefault = true, SortOrder = 0 };
+            ctx.MenuViews.Add(view);
+            viewId = view.Id;
+            var sec = new MenuNode { TenantId = tenantId, MenuViewId = view.Id, Kind = MenuNodeKind.Section, Name = "Sistema", Route = "sys", SortOrder = 0 };
+            ctx.MenuNodes.Add(sec);
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = view.Id, ParentId = sec.Id, Kind = MenuNodeKind.Item, Name = "Reglas", Route = "reglas", State = MenuNodeState.Ready, SortOrder = 0 });
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = view.Id, ParentId = sec.Id, Kind = MenuNodeKind.Item, Name = "Items", Route = "inventario-items", State = MenuNodeState.Ready, SortOrder = 1 });
+
+            var owner = new PlatformUser { Email = "own@roles.local", DisplayName = "Owner" };
+            var advisor = new PlatformUser { Email = "sr@roles.local", DisplayName = "SinRol" };
+            ctx.PlatformUsers.AddRange(owner, advisor);
+            ctx.TenantUsers.Add(new TenantUser { TenantId = tenantId, PlatformUserId = owner.Id, Email = "own@roles.local", TenantRole = TenantRole.Owner });
+            ctx.TenantUsers.Add(new TenantUser { TenantId = tenantId, PlatformUserId = advisor.Id, Email = "sr@roles.local", TenantRole = TenantRole.Advisor });
+            await ctx.SaveChangesAsync();
+            ownerUserId = owner.Id;
+            noRoleUserId = advisor.Id;
+        }
+
+        var menu = await ResolveMenuAsync(tenantId, viewId);
+
+        foreach (var uid in new[] { ownerUserId, noRoleUserId })
+        {
+            var eff = await RunAsync(tenantId, s => s.ResolveEffectivePermissionsAsync(uid));
+            Assert.True(eff.Unrestricted);
+            var filtered = MenuPermissionFilter.Filter(menu, eff);
+            var section = Assert.Single(filtered!.Roots, n => n.Kind == MenuNodeKind.Section);
+            Assert.Equal(2, section.Children.Count); // ambos items visibles
+        }
+    }
+
     // ---- Helpers ----
+
+    private async Task<ResolvedMenuDto?> ResolveMenuAsync(Guid tenantId, Guid viewId)
+    {
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var svc = new Ecorex.Application.MenuConfig.MenuConfigService(ctx, new TestTenantContext(tenantId));
+        return await svc.GetMenuForTenantUserAsync(tenantId, viewId);
+    }
 
     private async Task<Guid> NewTenantAsync(string name)
     {

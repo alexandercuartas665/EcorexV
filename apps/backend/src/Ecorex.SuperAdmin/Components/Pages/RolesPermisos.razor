@@ -1,12 +1,14 @@
 @page "/roles-permisos"
-@attribute [Authorize(Policy = "RolesPermisos.Administrar")]
+@attribute [Authorize(Policy = "Perm:roles-permisos:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Common
 @using Ecorex.Application.Roles
 @using Ecorex.Application.Tenancy
+@using Ecorex.SuperAdmin.Auth
 @inject IRolService RolesSvc
 @inject ITenantUserService UsersSvc
 @inject ITenantContext TenantCtx
+@inject ICurrentPermissions Perms
 
 <PageTitle>Roles y permisos - ECOREX.tareas</PageTitle>
 
@@ -29,7 +31,10 @@
         <h1 class="page-title" style="margin-top:12px;">Roles y permisos</h1>
         <p class="page-sub" style="margin-bottom:0;">Define roles de permisos por modulo (Ver / Crear / Editar / Eliminar) y asignalos a los usuarios de la empresa.</p>
     </div>
-    <button class="btn btn-primary" @onclick="OpenCreate" disabled="@_busy">+ Nuevo rol</button>
+    @if (_canCreate)
+    {
+        <button class="btn btn-primary" @onclick="OpenCreate" disabled="@_busy">+ Nuevo rol</button>
+    }
 </div>
 
 @if (_loading)
@@ -64,7 +69,10 @@ else
                 }
             </ul>
             <div class="rp-roles-foot">
-                <button class="btn btn-sm btn-outline-secondary" @onclick="OpenAssign" disabled="@_busy">Asignar usuarios</button>
+                @if (_canEdit)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="OpenAssign" disabled="@_busy">Asignar usuarios</button>
+                }
             </div>
         </aside>
 
@@ -88,8 +96,11 @@ else
                         }
                     </div>
                     <div class="rp-editor-actions">
-                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(_detail))" disabled="@_busy">Editar datos</button>
-                        @if (!_detail.IsSystem)
+                        @if (_canEdit)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(_detail))" disabled="@_busy">Editar datos</button>
+                        }
+                        @if (_canDelete && !_detail.IsSystem)
                         {
                             <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteAsync(_detail.Id))" disabled="@_busy">Eliminar</button>
                         }
@@ -147,7 +158,10 @@ else
                         </table>
                     </div>
                     <div class="rp-matrix-foot">
-                        <button class="btn btn-primary" @onclick="SavePermisosAsync" disabled="@_busy">Guardar permisos</button>
+                        @if (_canEdit)
+                        {
+                            <button class="btn btn-primary" @onclick="SavePermisosAsync" disabled="@_busy">Guardar permisos</button>
+                        }
                     </div>
                 </div>
             }
@@ -255,6 +269,12 @@ else
     private string? _toast;
     private bool _toastOk;
 
+    // Gateo de acciones por permiso (Ola B2, ADR-0033): Owner/Admin/sin-rol ven todo (Unrestricted).
+    private const string ModuleKey = "roles-permisos";
+    private bool _canCreate = true;
+    private bool _canEdit = true;
+    private bool _canDelete = true;
+
     private List<RolDto> _roles = new();
     private List<TenantUserDto> _users = new();
     private IReadOnlyList<ModuloInfo> _catalog = Array.Empty<ModuloInfo>();
@@ -278,6 +298,11 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+
         _catalog = await RolesSvc.GetModuleCatalogAsync();
         await ReloadRolesAsync();
         _loading = false;

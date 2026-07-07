@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-07-05 - Sesion: Primer DEPLOY a produccion Linux (10.0.0.3) + fix de bootstrap
+
+**Agentes**: coordinador en rol de deploy (no feature). Referencia: patron de deploy de
+Visal (C:\DesarrolloIA\Visal\deploy\docker-prod), modo build-from-git.
+
+**Pedido**: desplegar ECOREX en un Linux que ya corre otro proyecto (Visal), sin chocar,
+tras sondear el server "sin hacer nada" primero.
+
+**Hecho**:
+- Directorio nuevo `deploy/docker-prod/` (build-from-git): `docker-compose.from-git.yml`
+  (el server clona el repo publico rama fase-0/clon-backbone y construye
+  apps/backend/Dockerfile.superadmin; ecorex-app + Postgres AISLADOS: proyecto
+  ecorex-prod, contenedores ecorex-app/ecorex-postgres-prod, red ecorex-net, volumen
+  PERSISTENTE ecorex-pgdata). `.env.example`, `README-linux.md`, `backup.sh`, `.gitignore`
+  y `caddy/` (overlay TLS opcional). Todo ASCII, `docker compose config` valido.
+- Sondeo read-only de 10.0.0.3 (ssh con llave existente id_ed25519_visal): Ubuntu, Docker
+  29.5, 120 GB libres, 5.5 GB RAM sin swap. HALLAZGO: NO hay Caddy ni proxy en 80/443
+  (contrario al supuesto); cada app va en puerto plano (visal 5380, bookstack 6875...).
+  80/443 y 5480 libres. Decision del usuario: exponer ECOREX en 0.0.0.0:5480 HTTP plano.
+- Deploy real: build en el server (imagen ecorex-superadmin:local), up -d, migraciones
+  aplicadas, /login 200. Volumen persistente creado.
+- FIX DE BOOTSTRAP (bloqueante, cazado en la validacion): en Production nunca se creaba el
+  Super Admin (SeedAsync solo corre en Development; el camino de prod solo aseguraba tenant
+  interno y *actualizaba* la clave, con `if superAdmin is null return`). Nuevo
+  `DatabaseSeeder.EnsureSuperAdminAsync(password)` (crea admin@ecorex.local si falta,
+  idempotente, clave de ECOREX_SEED_ADMIN_PASSWORD) llamado en el arranque de Production
+  antes de asegurar tenant/clave. Redeploy verificado: admin creado + tenant interno
+  "Plataforma ECOREX". Login accesible en http://10.0.0.3:5480/login.
+
+**Estado de datos**: produccion arranca LIMPIA (env Production, sin seeder demo): solo
+admin@ecorex.local + tenant interno. NO comparte datos con desarrollo (que si corre
+SeedAsync + Ensure*DemoAsync con SKY SYSTEM y demas). Mismo esquema (100 tablas), datos
+distintos.
+
+**Siguiente**: seguridad de 5480 (hoy HTTP plano publico): firewall a red/VPN o activar el
+Caddy incluido (80/443 libres) para TLS con dominio. Comando de update y backup.sh en
+README-linux.md.
+
+**Bloqueos**: ninguno (el de bootstrap quedo resuelto).
+
+**Decisiones**: build-from-git (repo publico, sin registry); stack aislado con volumen
+persistente propio; exponer en puerto plano 5480 (no habia proxy en el box); el fix de
+bootstrap se hizo en codigo (no atajo por SQL) para que todo deploy limpio futuro sea
+self-service. Commits a01a3b9 (deploy dir), 7b9aa11 (fix bootstrap) en fase-0/clon-backbone.
+
+---
+
 ## 2026-07-05 - Sesion: Infraestructura IA (menu propio) + desacople del cierre (ADR-0028)
 
 **Agentes**: agente #3 de 3 integraciones CUBOT encadenadas. Tarea de REORGANIZACION +

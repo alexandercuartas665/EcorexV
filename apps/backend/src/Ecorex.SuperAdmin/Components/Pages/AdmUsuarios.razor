@@ -1,0 +1,535 @@
+@page "/admin-usuarios"
+@attribute [Authorize(Policy = "AdmUsuarios.Editar")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Common
+@using Ecorex.Application.MenuConfig
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject ITenantUserService UsersSvc
+@inject IMenuConfigService MenuSvc
+@inject ITenantContext TenantCtx
+
+<PageTitle>Administracion de usuarios - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Administracion de usuarios</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <span>Modulo 000073 &#183; Sistema &#183; General</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Administracion de usuarios</h1>
+        <p class="page-sub" style="margin-bottom:0;">Invita usuarios a la empresa, define su rol, su estado y la vista de menu con la que trabajan.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate" disabled="@_busy">+ Nuevo usuario</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_users.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Aun no hay usuarios</h3>
+        <p>Invita al primer usuario de la empresa con "+ Nuevo usuario".</p>
+        <button class="btn btn-primary" style="margin-top:14px;" @onclick="OpenCreate">+ Nuevo usuario</button>
+    </div>
+}
+else
+{
+    <div class="card" style="overflow:hidden;">
+        <table class="table" style="margin:0;">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Email</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Vista de menu</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in _users)
+                {
+                    <tr>
+                        <td><strong>@(string.IsNullOrWhiteSpace(u.DisplayName) ? "-" : u.DisplayName)</strong></td>
+                        <td><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;">@u.Email</span></td>
+                        <td><span class="badge" style="background:@RoleColor(u.TenantRole);color:#fff;">@RoleLabel(u.TenantRole)</span></td>
+                        <td><span class="badge" style="background:@StatusColor(u.Status);color:#fff;">@StatusLabel(u.Status)</span></td>
+                        <td style="font-size:12.5px;color:var(--muted-foreground);">@ViewNameFor(u.Id)</td>
+                        <td style="text-align:right;white-space:nowrap;">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(u))">Editar</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenPassword(u))">Cambiar clave</button>
+                            @if (u.Status == PlatformUserStatus.Active)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Suspended))" disabled="@_busy">Suspender</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Active))" disabled="@_busy">Activar</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* ===== Modal crear ===== *@
+@if (_createOpen)
+{
+    <div class="modal-overlay" @onclick="CloseCreate">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Nuevo usuario</h3>
+                <button class="modal-close" @onclick="CloseCreate">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Email *</label>
+                    <input class="form-control" type="email" @bind="_fEmail" placeholder="usuario@empresa.local" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre para mostrar</label>
+                    <input class="form-control" @bind="_fDisplayName" placeholder="Nombre Apellido" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Rol *</label>
+                    <select class="form-control" @bind="_fRole">
+                        @foreach (var r in AllRoles)
+                        {
+                            <option value="@r">@RoleLabel(r)</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Contrasena</label>
+                    <div style="display:flex;gap:6px;">
+                        <input class="form-control" type="@(_showPassword ? "text" : "password")" @bind="_fPassword" placeholder="Dejar vacio para invitar" autocomplete="new-password" />
+                        <button type="button" class="btn btn-outline-secondary" @onclick="@(() => _showPassword = !_showPassword)">@(_showPassword ? "Ocultar" : "Ver")</button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="GenerateRandomPassword">Generar</button>
+                    </div>
+                    <small class="text-muted">Vacio = queda <strong>Invitado</strong>. Con clave = queda <strong>Activo</strong> y puede iniciar sesion.</small>
+                </div>
+                <div class="field">
+                    <label class="form-label">Vista de menu</label>
+                    <select class="form-control" @bind="_fViewId">
+                        <option value="">Predeterminada</option>
+                        @foreach (var v in _views)
+                        {
+                            <option value="@v.Id">@v.Name</option>
+                        }
+                    </select>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseCreate">Cancelar</button>
+                <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">Crear usuario</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal editar ===== *@
+@if (_editOpen && _editTarget is not null)
+{
+    <div class="modal-overlay" @onclick="CloseEdit">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Editar usuario</h3>
+                <button class="modal-close" @onclick="CloseEdit">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Email</label>
+                    <input class="form-control" value="@_editTarget.Email" disabled />
+                    <small class="text-muted">El email no se puede cambiar.</small>
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre para mostrar</label>
+                    <input class="form-control" @bind="_fDisplayName" placeholder="Nombre Apellido" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Rol *</label>
+                    <select class="form-control" @bind="_fRole">
+                        @foreach (var r in AllRoles)
+                        {
+                            <option value="@r">@RoleLabel(r)</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Estado</label>
+                    <select class="form-control" @bind="_fStatus">
+                        <option value="@PlatformUserStatus.Active">Activo</option>
+                        <option value="@PlatformUserStatus.Suspended">Suspendido</option>
+                        <option value="@PlatformUserStatus.Blocked">Bloqueado</option>
+                        <option value="@PlatformUserStatus.Invited">Invitado</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Vista de menu</label>
+                    <select class="form-control" @bind="_fViewId">
+                        <option value="">Predeterminada</option>
+                        @foreach (var v in _views)
+                        {
+                            <option value="@v.Id">@v.Name</option>
+                        }
+                    </select>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseEdit">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveEditAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal cambiar clave ===== *@
+@if (_passwordOpen && _passwordTarget is not null)
+{
+    <div class="modal-overlay" @onclick="ClosePassword">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Cambiar clave</h3>
+                <button class="modal-close" @onclick="ClosePassword">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--muted-foreground);font-size:13px;margin-bottom:14px;">Asigna una nueva clave a <strong>@_passwordTarget.Email</strong>.</p>
+                <div class="field">
+                    <label class="form-label">Nueva clave *</label>
+                    <div style="display:flex;gap:6px;">
+                        <input class="form-control" type="@(_showPassword ? "text" : "password")" @bind="_fPassword" placeholder="Minimo 6 caracteres" autocomplete="new-password" />
+                        <button type="button" class="btn btn-outline-secondary" @onclick="@(() => _showPassword = !_showPassword)">@(_showPassword ? "Ocultar" : "Ver")</button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="GenerateRandomPassword">Generar</button>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Confirmar clave *</label>
+                    <input class="form-control" type="@(_showPassword ? "text" : "password")" @bind="_fPasswordConfirm" placeholder="Repite la clave" autocomplete="new-password" />
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="ClosePassword">Cancelar</button>
+                <button class="btn btn-primary" @onclick="ResetPasswordAsync" disabled="@_busy">Cambiar clave</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_toast is not null)
+{
+    <div class="tk-toast @(_toastOk ? "ok" : "err")" style="position:fixed;right:20px;bottom:20px;z-index:2000;">@_toast</div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private static readonly TenantRole[] AllRoles =
+        new[] { TenantRole.Owner, TenantRole.Admin, TenantRole.Supervisor, TenantRole.Advisor };
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _formError;
+    private string? _toast;
+    private bool _toastOk;
+
+    private List<TenantUserDto> _users = new();
+    private List<MenuViewDto> _views = new();
+    // TenantUserId -> nombre de la vista asignada (para la columna "Vista de menu").
+    private Dictionary<Guid, string> _assignedView = new();
+
+    // Form compartido.
+    private string _fEmail = "";
+    private string _fDisplayName = "";
+    private TenantRole _fRole = TenantRole.Advisor;
+    private PlatformUserStatus _fStatus = PlatformUserStatus.Active;
+    private string _fPassword = "";
+    private string _fPasswordConfirm = "";
+    private string _fViewId = "";
+    private bool _showPassword;
+
+    private bool _createOpen;
+    private bool _editOpen;
+    private TenantUserDto? _editTarget;
+    private bool _passwordOpen;
+    private TenantUserDto? _passwordTarget;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _users = (await UsersSvc.ListAsync()).ToList();
+        _views = (await MenuSvc.ListViewsAsync()).ToList();
+        var withView = await MenuSvc.ListTenantUsersWithViewAsync();
+        _assignedView = withView
+            .Where(x => x.MenuViewName is not null)
+            .ToDictionary(x => x.TenantUserId, x => x.MenuViewName!);
+    }
+
+    private string ViewNameFor(Guid tenantUserId) =>
+        _assignedView.TryGetValue(tenantUserId, out var name) ? name : "Predeterminada";
+
+    // ---- Crear ----
+
+    private void OpenCreate()
+    {
+        _fEmail = "";
+        _fDisplayName = "";
+        _fRole = TenantRole.Advisor;
+        _fPassword = "";
+        _fViewId = "";
+        _showPassword = false;
+        _formError = null;
+        _createOpen = true;
+    }
+
+    private void CloseCreate() { _createOpen = false; _formError = null; }
+
+    private async Task CreateAsync()
+    {
+        _formError = null;
+        var email = _fEmail.Trim();
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || !email.Contains('.'))
+        {
+            _formError = "Ingresa un email valido.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var created = await UsersSvc.InviteAsync(
+                new InviteTenantUserRequest(email, _fRole,
+                    Password: string.IsNullOrWhiteSpace(_fPassword) ? null : _fPassword,
+                    DisplayName: string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim()),
+                actor);
+            if (created is null)
+            {
+                _formError = "No se pudo crear: el email ya es miembro de la empresa o no hay tenant activo.";
+                return;
+            }
+
+            if (Guid.TryParse(_fViewId, out var viewId))
+            {
+                await MenuSvc.AssignUserToViewAsync(created.Id, viewId);
+            }
+
+            _createOpen = false;
+            await ReloadAsync();
+            ShowToast($"Usuario {created.Email} creado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Editar ----
+
+    private void OpenEdit(TenantUserDto u)
+    {
+        _editTarget = u;
+        _fDisplayName = u.DisplayName ?? "";
+        _fRole = u.TenantRole;
+        _fStatus = u.Status;
+        _fViewId = _assignedView.ContainsKey(u.Id)
+            ? (_views.FirstOrDefault(v => v.Name == _assignedView[u.Id])?.Id.ToString() ?? "")
+            : "";
+        _formError = null;
+        _editOpen = true;
+    }
+
+    private void CloseEdit() { _editOpen = false; _editTarget = null; _formError = null; }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editTarget is null) { return; }
+        _formError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var id = _editTarget.Id;
+
+            await UsersSvc.UpdateProfileAsync(id, string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(), actor);
+            if (_fRole != _editTarget.TenantRole)
+            {
+                await UsersSvc.ChangeRoleAsync(id, _fRole, actor);
+            }
+            if (_fStatus != _editTarget.Status)
+            {
+                await UsersSvc.SetStatusAsync(id, _fStatus, actor);
+            }
+            Guid? viewId = Guid.TryParse(_fViewId, out var vid) ? vid : null;
+            await MenuSvc.AssignUserToViewAsync(id, viewId);
+
+            _editOpen = false;
+            _editTarget = null;
+            await ReloadAsync();
+            ShowToast("Cambios guardados.", true);
+        }
+        catch (Exception ex)
+        {
+            _formError = "No se pudo guardar: " + ex.Message;
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Estado rapido ----
+
+    private async Task SetStatusAsync(TenantUserDto u, PlatformUserStatus status)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            await UsersSvc.SetStatusAsync(u.Id, status, actor);
+            await ReloadAsync();
+            ShowToast(status == PlatformUserStatus.Active ? "Usuario activado." : "Usuario suspendido.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Cambiar clave ----
+
+    private void OpenPassword(TenantUserDto u)
+    {
+        _passwordTarget = u;
+        _fPassword = "";
+        _fPasswordConfirm = "";
+        _showPassword = false;
+        _formError = null;
+        _passwordOpen = true;
+    }
+
+    private void ClosePassword() { _passwordOpen = false; _passwordTarget = null; _formError = null; }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_passwordTarget is null) { return; }
+        if (string.IsNullOrWhiteSpace(_fPassword) || _fPassword.Length < 6)
+        {
+            _formError = "La clave debe tener al menos 6 caracteres.";
+            return;
+        }
+        if (_fPassword != _fPasswordConfirm)
+        {
+            _formError = "Las claves no coinciden.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var updated = await UsersSvc.ResetPasswordAsync(_passwordTarget.Id, _fPassword, actor);
+            if (updated is null)
+            {
+                _formError = "No se pudo cambiar la clave.";
+                return;
+            }
+            _passwordOpen = false;
+            _passwordTarget = null;
+            await ReloadAsync();
+            ShowToast("Clave actualizada.", true);
+        }
+        catch (ArgumentException ex)
+        {
+            _formError = ex.Message;
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Helpers ----
+
+    private void GenerateRandomPassword()
+    {
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        var buf = new byte[12];
+        rng.GetBytes(buf);
+        var pwd = new char[12];
+        for (var i = 0; i < pwd.Length; i++) { pwd[i] = chars[buf[i] % chars.Length]; }
+        _fPassword = new string(pwd);
+        _fPasswordConfirm = _fPassword;
+        _showPassword = true;
+    }
+
+    private void ShowToast(string message, bool ok)
+    {
+        _toast = message;
+        _toastOk = ok;
+    }
+
+    private async Task<Guid> ResolveSelfIdAsync()
+    {
+        if (TenantCtx.UserId is Guid uid) { return uid; }
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string RoleLabel(TenantRole role) => role switch
+    {
+        TenantRole.Owner => "Propietario",
+        TenantRole.Admin => "Administrador",
+        TenantRole.Supervisor => "Supervisor",
+        TenantRole.Advisor => "Asesor",
+        _ => role.ToString(),
+    };
+
+    private static string RoleColor(TenantRole role) => role switch
+    {
+        TenantRole.Owner => "#7c4dff",
+        TenantRole.Admin => "#06b6d4",
+        TenantRole.Supervisor => "#f97316",
+        TenantRole.Advisor => "#10b981",
+        _ => "#94a3b8",
+    };
+
+    private static string StatusLabel(PlatformUserStatus status) => status switch
+    {
+        PlatformUserStatus.Active => "Activo",
+        PlatformUserStatus.Invited => "Invitado",
+        PlatformUserStatus.Blocked => "Bloqueado",
+        PlatformUserStatus.Suspended => "Suspendido",
+        PlatformUserStatus.PendingActivation => "Pendiente",
+        _ => status.ToString(),
+    };
+
+    private static string StatusColor(PlatformUserStatus status) => status switch
+    {
+        PlatformUserStatus.Active => "#10b981",
+        PlatformUserStatus.Invited => "#6366f1",
+        PlatformUserStatus.Blocked => "#ef4444",
+        PlatformUserStatus.Suspended => "#f59e0b",
+        PlatformUserStatus.PendingActivation => "#94a3b8",
+        _ => "#94a3b8",
+    };
+}

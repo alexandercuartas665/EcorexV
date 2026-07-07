@@ -72,6 +72,11 @@ builder.Services.AddAuthorizationBuilder()
     // para no cambiar el acceso. TODO (paso 2): restringir a Owner/Admin del tenant (tenant_role)
     // -es una pantalla de gobierno del tenant- derivandolo del rol del TenantUser.
     .AddPolicy("ConfiguracionMenu.Administrar", p => p.RequireClaim("tenant_id"))
+    // Administracion de usuarios del tenant (modulo 000073, ADR-0031): CRUD de usuarios del
+    // tenant (invitar, rol, estado, clave, vista de menu). Paso 1: mismo requisito que
+    // TenantMember (claim tenant_id) para no cambiar el acceso. TODO (paso 2): restringir a
+    // Owner/Admin del tenant (claim tenant_role) -es gobierno del tenant- derivandolo del rol.
+    .AddPolicy("AdmUsuarios.Editar", p => p.RequireClaim("tenant_id"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu

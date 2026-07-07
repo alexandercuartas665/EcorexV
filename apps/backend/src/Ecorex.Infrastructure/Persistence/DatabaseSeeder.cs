@@ -1912,6 +1912,10 @@ public sealed class DatabaseSeeder
 
         if (await _db.MenuViews.IgnoreQueryFilters().AnyAsync(v => v.TenantId == tenant.Id, cancellationToken))
         {
+            // El seeder es idempotente por existencia de vistas: no re-siembra. Pero para que un
+            // demo YA sembrado refleje las paginas reales que se fueron implementando, reconcilia
+            // (sin recrear la vista) los nodos cuyo route/state/name cambiaron. Ver ADR-0031.
+            await ReconcileMenuNodesAsync(tenant.Id, cancellationToken);
             return;
         }
 
@@ -2022,7 +2026,8 @@ public sealed class DatabaseSeeder
         // code 000194 (antes "Roles y permisos", que era un stub modulo/...) apuntandolo a la
         // pagina real /configuracion-menu; queda como Ready por ser una pantalla implementada.
         Item(gen.Id, "Administrador de Menu", "configuracion-menu", "000194");
-        Item(gen.Id, "Administracion de usuarios", "modulo/administracion-de-usuarios", "000073");
+        // Administracion de usuarios del tenant (modulo 000073, ADR-0031): pagina real /admin-usuarios.
+        Item(gen.Id, "Administracion de usuarios", "admin-usuarios", "000073");
 
         // ---- Seccion: Sistema - Desarrollo (slug dev) ----
         var dev = Add(MenuNodeKind.Section, "Sistema \u00b7 Desarrollo", null, "dev", iconKey: "gear");
@@ -2114,6 +2119,55 @@ public sealed class DatabaseSeeder
         _logger.LogInformation(
             "Seed del menu configurable creado para {Tenant}: vista Completo ({CompletoNodes} nodos) + vista Simple ({SimpleNodes} nodos), usuarios {UserA}/{UserB}.",
             tenant.Name, nodes.Count, simpleNodes.Count, MenuCompletoUserEmail, MenuSimpleUserEmail);
+    }
+
+    /// <summary>
+    /// Reconciliacion idempotente de nodos del menu para un demo YA sembrado (ADR-0031). No recrea
+    /// vistas: solo actualiza (si difieren) el Route/State/Name de los nodos por LegacyCode que
+    /// pasaron de stub a pagina real. Tenant-scoped (usa IgnoreQueryFilters + filtro por TenantId).
+    /// </summary>
+    private async Task ReconcileMenuNodesAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        // (LegacyCode, Route esperado, Name esperado o null=no tocar el nombre).
+        var expected = new (string LegacyCode, string Route, string? Name)[]
+        {
+            ("000073", "admin-usuarios", "Administracion de usuarios"),
+            ("000194", "configuracion-menu", "Administrador de Menu"),
+        };
+
+        var codes = expected.Select(e => e.LegacyCode).ToArray();
+        var nodes = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.LegacyCode != null && codes.Contains(n.LegacyCode))
+            .ToListAsync(cancellationToken);
+
+        var changed = 0;
+        foreach (var node in nodes)
+        {
+            var target = expected.First(e => e.LegacyCode == node.LegacyCode);
+            if (node.Route != target.Route)
+            {
+                node.Route = target.Route;
+                changed++;
+            }
+            if (target.Name is not null && node.Name != target.Name)
+            {
+                node.Name = target.Name;
+                changed++;
+            }
+            if (node.State != MenuNodeState.Ready)
+            {
+                node.State = MenuNodeState.Ready;
+                changed++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Reconciliacion del menu para el tenant {Tenant}: {Changed} campos ajustados en nodos 000073/000194.",
+                tenantId, changed);
+        }
     }
 
     private async Task EnsureMenuDemoUserAsync(

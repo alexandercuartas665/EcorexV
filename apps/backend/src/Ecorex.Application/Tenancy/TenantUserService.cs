@@ -133,6 +133,79 @@ public sealed class TenantUserService : ITenantUserService
         return Map(tenantUser);
     }
 
-    private static TenantUserDto Map(TenantUser u) =>
-        new(u.Id, u.PlatformUserId, u.Email, u.TenantRole, u.Status);
+    public async Task<TenantUserDto?> ResetPasswordAsync(Guid tenantUserId, string newPassword, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6)
+        {
+            throw new ArgumentException("La clave debe tener al menos 6 caracteres.", nameof(newPassword));
+        }
+
+        // Filtro global: solo alcanza usuarios del tenant activo.
+        var tenantUser = await _db.TenantUsers.FirstOrDefaultAsync(tu => tu.Id == tenantUserId, cancellationToken);
+        if (tenantUser is null)
+        {
+            return null;
+        }
+
+        var platformUser = await _db.PlatformUsers.FirstOrDefaultAsync(pu => pu.Id == tenantUser.PlatformUserId, cancellationToken);
+        if (platformUser is null)
+        {
+            return null;
+        }
+
+        platformUser.PasswordHash = _passwordHasher.Hash(newPassword);
+        // Un usuario invitado que ya recibe clave del admin queda activo (puede iniciar sesion).
+        var reactivated = false;
+        if (platformUser.Status == PlatformUserStatus.Invited)
+        {
+            platformUser.Status = PlatformUserStatus.Active;
+            reactivated = true;
+        }
+        if (tenantUser.Status == PlatformUserStatus.Invited)
+        {
+            tenantUser.Status = PlatformUserStatus.Active;
+            reactivated = true;
+        }
+
+        // Auditoria SIN la clave (solo el hecho y si reactivo la cuenta).
+        _audit.Write(actorUserId, "tenant-user.reset-password", nameof(TenantUser), tenantUser.Id,
+            previousValue: null,
+            newValue: new { Reactivated = reactivated },
+            tenantId: tenantUser.TenantId);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return Map(tenantUser, platformUser.DisplayName);
+    }
+
+    public async Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var tenantUser = await _db.TenantUsers.FirstOrDefaultAsync(tu => tu.Id == tenantUserId, cancellationToken);
+        if (tenantUser is null)
+        {
+            return null;
+        }
+
+        var platformUser = await _db.PlatformUsers.FirstOrDefaultAsync(pu => pu.Id == tenantUser.PlatformUserId, cancellationToken);
+        if (platformUser is null)
+        {
+            return null;
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
+        var previous = platformUser.DisplayName;
+        if (previous != normalized)
+        {
+            platformUser.DisplayName = normalized;
+            _audit.Write(actorUserId, "tenant-user.update-profile", nameof(TenantUser), tenantUser.Id,
+                previousValue: new { DisplayName = previous },
+                newValue: new { DisplayName = normalized },
+                tenantId: tenantUser.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Map(tenantUser, normalized);
+    }
+
+    private static TenantUserDto Map(TenantUser u, string? displayName = null) =>
+        new(u.Id, u.PlatformUserId, u.Email, u.TenantRole, u.Status, displayName);
 }

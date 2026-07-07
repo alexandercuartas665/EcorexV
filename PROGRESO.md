@@ -5,6 +5,55 @@
 
 ---
 
+## 2026-07-07 - Sesion: Modulo Administracion de usuarios del tenant (000073)
+
+**Agentes**: agente de feature (modulo de usuarios del tenant). Backend reusado del backbone.
+
+**Pedido**: construir el modulo de usuarios del tenant (legacy 000073, hoy stub) reutilizando
+el backend existente: pagina + policy + un par de metodos de servicio + enganche del menu. Sin
+roles/permisos dinamicos (otra ola).
+
+**Hecho**:
+- **Servicio ampliado** (`ITenantUserService`/`TenantUserService`, tenant-scoped, auditado,
+  patron transaccional de `InviteAsync`):
+  - `ResetPasswordAsync(tenantUserId, newPassword, actorUserId)`: hashea PBKDF2, actualiza
+    `PlatformUser.PasswordHash`, reactiva `Invited -> Active`, valida clave min 6
+    (`ArgumentException`), audita SIN la clave en claro.
+  - `UpdateProfileAsync(tenantUserId, displayName, actorUserId)`: edita `DisplayName`, audita.
+  - `Map` ampliado para poblar `DisplayName` en el DTO. Asignacion de vista via el
+    `IMenuConfigService.AssignUserToViewAsync` existente (no se duplica).
+- **Pagina** `Components/Pages/AdmUsuarios.razor` (`/admin-usuarios`, policy
+  `AdmUsuarios.Editar`, InteractiveServer, tokens ECOREX): tabla Usuario/Email/Rol/Estado/
+  Vista de menu/Acciones + modales Nuevo (Invite; vacio->Invited, con clave->Active; vista
+  opcional), Editar (DisplayName/Rol/Estado/Vista), Cambiar clave (Reset + confirmar + Generar)
+  y toast. Actor desde `ITenantContext.UserId`.
+- **Policy** `AdmUsuarios.Editar` en Program.cs (paso 1: `RequireClaim("tenant_id")`; paso 2
+  Owner/Admin pendiente).
+- **Menu**: seed del item 000073 -> ruta real `admin-usuarios` (Ready) y paso de
+  **reconciliacion idempotente** (`ReconcileMenuNodesAsync`, tenant-scoped) que ajusta
+  Route/State/Name de los nodos 000073/000194 cuando la vista ya existe (demo ya sembrado
+  refleja las paginas reales sin recrear la vista). Verificado en el Postgres dev (5442).
+- **Tests**: unit `TenantUserServiceTests` (Application.Tests, EF InMemory: reset hashea +
+  activa Invited, valida clave corta/vacia, user no encontrado, update DisplayName, blank ->
+  null) **6/6**. Integracion dual `TenantUserAdminTests` (PG + SQL Server: invite con/sin
+  clave, changeRole, setStatus, resetPassword, assignMenuView, aislamiento cross-tenant)
+  **12/12**. E2E `AdmUsuariosTests` (owner crea usuario Asesor con clave -> aparece; cambia a
+  Supervisor -> se refleja) **1/1**.
+
+**Sin migracion**: `TenantUser`/`PlatformUser` ya tenian todos los campos. Sin cambios de esquema.
+
+**Decisiones**: ADR-0031 (reusa el backend; pagina + policy + reconciliacion de menu; roles
+dinamicos en la siguiente ola).
+
+**Siguiente / deuda**: roles/permisos dinamicos; invitacion por correo real + self-service de
+clave; paso 2 de la policy (Owner/Admin via `tenant_role`); salvaguarda "no dejar el tenant
+sin ultimo Owner".
+
+**Gate**: `dotnet build Ecorex.sln` 0 errores; `dotnet format --verify-no-changes` limpio;
+unit 6/6 + integracion dual 12/12 + E2E 1/1 verdes.
+
+---
+
 ## 2026-07-07 - Sesion: Menu configurable por vista (perfil) - Olas 1 y 2
 
 **Agentes**: agente de feature (menu data-driven + editor). Referencia visual: prototipo

@@ -143,6 +143,34 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
+    /// Crea el Super Admin base (admin@ecorex.local) si aun no existe ninguno, usando la clave
+    /// entregada como secreto del entorno (ECOREX_SEED_ADMIN_PASSWORD). Pensado para el arranque en
+    /// Production, donde SeedAsync (que crea el admin + datos demo) NO corre. Idempotente: si ya hay
+    /// un SuperAdmin no hace nada. Si la clave viene vacia tampoco crea (no se crea admin sin credencial).
+    /// </summary>
+    public async Task EnsureSuperAdminAsync(string? password, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password)) { return; }
+        if (await _db.PlatformUsers.IgnoreQueryFilters()
+                .AnyAsync(u => u.PlatformRole == PlatformRole.SuperAdmin, cancellationToken))
+        {
+            return;
+        }
+
+        _db.PlatformUsers.Add(new PlatformUser
+        {
+            Email = SuperAdminEmail,
+            EmailVerified = true,
+            DisplayName = "Super Admin",
+            Status = PlatformUserStatus.Active,
+            PlatformRole = PlatformRole.SuperAdmin,
+            PasswordHash = _hasher.Hash(password.Trim())
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogWarning("Super Admin {Email} creado en el arranque de produccion.", SuperAdminEmail);
+    }
+
+    /// <summary>
     /// Fija la clave del Super Admin a partir de un valor provisto por el entorno (ECOREX_SEED_ADMIN_PASSWORD
     /// en Railway). Sirve para que en produccion el super admin tenga una clave FUERTE sin versionarla ni
     /// pasarla en claro: el operador la define como secreto en la plataforma y aqui solo se hashea. Es

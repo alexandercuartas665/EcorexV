@@ -134,6 +134,10 @@ if (!app.Environment.IsDevelopment())
         // idempotente: si el tenant interno o la membresia ya existen no hace nada. No crea datos
         // demo. Esto es lo unico del seeder que tiene sentido correr en produccion.
         var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+        // En una BD de produccion limpia no existe ningun Super Admin (SeedAsync solo corre en
+        // Development). Crearlo aqui si falta, con la clave del entorno, para que el sistema sea
+        // usable tras el primer arranque sin depender de restaurar un dump previo.
+        await seeder.EnsureSuperAdminAsync(Environment.GetEnvironmentVariable("ECOREX_SEED_ADMIN_PASSWORD"));
         await seeder.EnsurePlatformAdminTenantAsync();
         // Clave fuerte del Super Admin definida como secreto en la plataforma (Railway), no versionada.
         await seeder.EnsureSuperAdminPasswordAsync(Environment.GetEnvironmentVariable("ECOREX_SEED_ADMIN_PASSWORD"));

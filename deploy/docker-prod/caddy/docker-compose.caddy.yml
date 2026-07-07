@@ -1,0 +1,52 @@
+# =========================================================================
+#  Overlay OPCIONAL: HTTPS con Caddy + Let's Encrypt automatico para ECOREX.
+#
+#  Se compone SOBRE el stack principal:
+#    cd /opt/ecorex
+#    docker compose --env-file .env \
+#        -f docker-compose.from-git.yml -f caddy/docker-compose.caddy.yml \
+#        up -d
+#
+#  Requisitos ANTES de levantar:
+#    1) Un dominio (ECOREX_DOMAIN en .env) con registro A al IP del server.
+#    2) Puertos 80 y 443 LIBRES en el server.
+#
+#  CONFLICTO A REVISAR (mismo box que Visal):
+#    Si el server YA tiene un reverse proxy global (nginx-proxy-manager,
+#    traefik, otro Caddy) escuchando en 80/443, este Caddy NO puede levantar:
+#    solo un proceso puede bindear cada puerto. En ese caso NO uses este
+#    overlay; enruta desde el proxy global hacia 127.0.0.1:${ECOREX_PORT}.
+#
+#  Que hace:
+#    - Caddy escucha 80/443, hace TLS termination (cert renovado solo).
+#    - ecorex-app queda SOLO en la red interna (se le quita el mapeo al host).
+# =========================================================================
+
+services:
+  # Con Caddy delante, quitamos la exposicion al host de ecorex-app
+  # para no tener doble puerta de entrada.
+  ecorex-app:
+    ports: []
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ecorex-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC). Comenta esta linea si no lo quieres.
+    environment:
+      ECOREX_DOMAIN: ${ECOREX_DOMAIN}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ecorex-caddy-data:/data       # certs y estado ACME. Persistente: no perder.
+      - ecorex-caddy-config:/config
+    networks:
+      - ecorex-net
+    depends_on:
+      - ecorex-app
+
+volumes:
+  ecorex-caddy-data:
+  ecorex-caddy-config:

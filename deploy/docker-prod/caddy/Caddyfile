@@ -1,0 +1,43 @@
+# Caddyfile - reverse proxy + TLS para ECOREX.tareas.
+#
+# El nombre del site lo lee de ECOREX_DOMAIN del .env (pasado al container
+# por caddy/docker-compose.caddy.yml).
+#
+# Que hace:
+#   - HTTPS automatico con Let's Encrypt (challenge HTTP-01 en :80).
+#   - Reenvia todo a ecorex-app:8080 dentro de la red Docker interna.
+#   - Headers que ASP.NET Core / Blazor esperan detras de un proxy.
+#   - WebSockets (SignalR de Blazor Server) pasan por defecto.
+#   - Compresion gzip + zstd.
+
+{$ECOREX_DOMAIN} {
+    encode gzip zstd
+
+    reverse_proxy ecorex-app:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # Timeouts amplios para SignalR (conexiones long-lived de Blazor Server).
+        transport http {
+            read_timeout 1h
+            write_timeout 1h
+        }
+    }
+
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+
+    header {
+        # HSTS - activar SOLO cuando el cert este seguro.
+        # Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+}

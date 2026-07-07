@@ -1,0 +1,105 @@
+# =========================================================================
+#  Stack de PRODUCCION de ECOREX.tareas - variante BUILD-FROM-GIT.
+#
+#  El servidor Linux clona la rama indicada del repo PUBLICO
+#  https://github.com/alexandercuartas665/EcorexV.git y construye la imagen
+#  ahi mismo. No se necesita registry (GHCR) ni subir codigo desde tu maquina.
+#
+#  Aislamiento (conviven con Visal u otros stacks en el mismo Docker):
+#    - project name    : ecorex-prod  (prefija volumenes y red)
+#    - contenedores     : ecorex-app / ecorex-postgres-prod
+#    - volumen de datos : ecorex-pgdata  (PERSISTENTE, propio, no se comparte)
+#    - red              : ecorex-net
+#
+#  Requisitos en el server:
+#    - Docker Engine 24+ con Compose v2 (BuildKit por defecto).
+#    - Salida HTTPS a github.com:443.
+#    - ~3 GB libres para la imagen (.NET SDK + runtime + Chromium).
+#
+#  Uso en el server:
+#    1) mkdir -p /opt/ecorex && cd /opt/ecorex
+#    2) Copiar aqui: docker-compose.from-git.yml  y  .env (basado en .env.example)
+#    3) docker compose -f docker-compose.from-git.yml build     # ~5-10 min la 1a vez
+#    4) docker compose -f docker-compose.from-git.yml up -d
+#    5) curl http://127.0.0.1:${ECOREX_PORT}/login  -> debe devolver el HTML del login
+#    6) Enrutar el ingreso HTTPS (una de dos):
+#       a) Apuntar tu reverse proxy global (nginx-proxy-manager/traefik/caddy)
+#          a http://127.0.0.1:${ECOREX_PORT} con WebSockets habilitados, o
+#       b) Levantar el Caddy incluido (ver carpeta caddy/) SOLO si 80/443
+#          estan libres en el server.
+#
+#  Updates (tras un commit nuevo en la rama):
+#    docker compose -f docker-compose.from-git.yml build --no-cache
+#    docker compose -f docker-compose.from-git.yml up -d
+# =========================================================================
+
+name: ecorex-prod
+
+services:
+  ecorex-app:
+    # Build directo desde el repo publico, en la rama de ECOREX_BRANCH (.env).
+    # Sintaxis git context: <url>#<ref>  (ref = branch, tag o commit sha).
+    # Nota: mientras main no este mergeado, la rama viva es fase-0/clon-backbone.
+    build:
+      context: "https://github.com/alexandercuartas665/EcorexV.git#${ECOREX_BRANCH:-fase-0/clon-backbone}"
+      dockerfile: apps/backend/Dockerfile.superadmin
+    image: ecorex-superadmin:local
+    container_name: ecorex-app
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      ASPNETCORE_HTTP_PORTS: 8080
+      # DAL dual: en produccion elegimos Postgres (el servicio interno de abajo).
+      ECOREX_DB_PROVIDER: Postgres
+      ECOREX_DB_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # Aplica migraciones EF al arrancar (idempotente). En Production NO corren solas.
+      ECOREX_RUN_MIGRATIONS: "true"
+      # Clave del primer Super Admin (admin@ecorex.local) que se crea en Production.
+      # Sin datos demo: el sistema arranca limpio y con este admin.
+      ECOREX_SEED_ADMIN_PASSWORD: "${ECOREX_SEED_ADMIN_PASSWORD}"
+      # Confianza al proxy/Caddy que termina TLS por delante.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    ports:
+      # Expuesto en todas las interfaces del host (HTTP plano), igual que las
+      # demas apps de este box (Visal en 5380). Hoy 10.0.0.3 NO tiene reverse
+      # proxy ni TLS activo. Si mas adelante montas un proxy/Caddy delante,
+      # cambia esto a "127.0.0.1:${ECOREX_PORT:-5480}:8080".
+      - "${ECOREX_PORT:-5480}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ecorex-net
+    # Sin healthcheck explicito de la app: el runtime aspnet (Debian slim) no
+    # garantiza wget/curl. La app queda gobernada por restart: unless-stopped y
+    # el reverse proxy (o Caddy) hace su propio probe HTTP contra /login.
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecorex-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      # Volumen PERSISTENTE y propio de ECOREX (no se comparte con Visal).
+      - ecorex-pgdata:/var/lib/postgresql/data
+    networks:
+      - ecorex-net
+    # En produccion NO publicamos Postgres al host: solo la red interna.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  ecorex-pgdata:
+
+networks:
+  ecorex-net:
+    driver: bridge

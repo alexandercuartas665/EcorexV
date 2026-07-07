@@ -51,6 +51,10 @@
 .mc-row:hover { background: var(--surface-2); }
 .mc-row.selected { background: var(--brand-soft); box-shadow: inset 0 0 0 1px var(--line-2); }
 .mc-row.hidden { opacity: 0.5; }
+.mc-row[draggable="true"] { cursor: grab; }
+.mc-row.mc-drag { opacity: 0.4; }
+.mc-row.mc-drop-child { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand); }
+.mc-row.mc-drop-sibling { box-shadow: inset 0 -2px 0 0 var(--brand); }
 .mc-row-caret { background: none; border: 0; padding: 0; width: 18px; height: 18px; display: grid; place-items: center; color: var(--ink-3); cursor: pointer; flex: none; }
 .mc-row-caret svg { width: 14px; height: 14px; transition: transform 0.15s; }
 .mc-row-caret svg.open { transform: rotate(90deg); }

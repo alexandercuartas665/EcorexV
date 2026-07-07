@@ -665,6 +665,94 @@ else
         return parent?.Children.ToList() ?? new();
     }
 
+    // ---- Arrastrar y soltar (reparent + reordenar) ----
+    // Patron de la casa (FormDesigner): en Blazor Server 'dragover' solo hace preventDefault
+    // para habilitar el drop; NO cambia estado (dispararia un round-trip por cada pixel). El
+    // resaltado del objetivo se hace en 'dragenter' (infrecuente). El drop usa el nodo destino
+    // real y delega en MoveNodeAsync, que ya valida ciclo y coherencia de Kind.
+    private Guid? _dragId;
+    private Guid? _dropId;
+
+    private void OnDragStart(MenuEditorNodeDto node)
+    {
+        _dragId = node.Id;
+        _dropId = null;
+    }
+
+    private void OnDragEnter(MenuEditorNodeDto node)
+    {
+        if (_dragId is null || _dragId == node.Id) { return; }
+        _dropId = node.Id;
+    }
+
+    private void OnDragEnd()
+    {
+        _dragId = null;
+        _dropId = null;
+    }
+
+    private MenuEditorNodeDto? NodeById(Guid id)
+        => _tree is null ? null : FlattenAll(_tree.Roots).FirstOrDefault(n => n.Id == id);
+
+    private static bool IsDescendant(MenuEditorNodeDto ancestor, Guid id)
+        => ancestor.Children.Any(c => c.Id == id || IsDescendant(c, id));
+
+    // true si al soltar 'dragged' sobre 'target' quedaria como HIJO (contenedor compatible);
+    // false si quedaria como HERMANO debajo del objetivo.
+    private static bool WouldDropAsChild(MenuEditorNodeDto dragged, MenuEditorNodeDto target)
+        => target.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup
+           && MenuNodeKindRules.Validate(dragged.Kind, target.Kind) is null;
+
+    private async Task OnDropAsync(MenuEditorNodeDto target)
+    {
+        var draggedId = _dragId;
+        _dragId = null;
+        _dropId = null;
+        if (draggedId is not Guid dragId || dragId == target.Id) { return; }
+        var dragged = NodeById(dragId);
+        if (dragged is null) { return; }
+        if (IsDescendant(dragged, target.Id))
+        {
+            Flash("No puedes mover un elemento dentro de si mismo.", false);
+            return;
+        }
+
+        Guid? newParent;
+        int newOrder;
+        if (WouldDropAsChild(dragged, target))
+        {
+            newParent = target.Id;
+            newOrder = target.Children.Count; // al final del contenedor
+        }
+        else
+        {
+            newParent = target.ParentId;
+            var sibs = SiblingsOf(target);
+            var idx = sibs.FindIndex(n => n.Id == target.Id);
+            newOrder = idx < 0 ? 0 : idx + 1; // debajo del objetivo
+        }
+
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.MoveNodeAsync(dragId, newParent, newOrder);
+            if (res.IsOk) { await ReloadTreeAsync(); }
+            else { Flash(res.Error ?? "No se pudo mover el elemento.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    // Clase de resaltado de la fila destino segun donde caeria el nodo arrastrado.
+    private string DropClass(MenuEditorNodeDto node)
+    {
+        if (_dragId is null) { return ""; }
+        if (_dragId == node.Id) { return "mc-drag"; }
+        if (_dropId != node.Id) { return ""; }
+        var dragged = NodeById(_dragId.Value);
+        if (dragged is null) { return ""; }
+        return WouldDropAsChild(dragged, node) ? "mc-drop-child" : "mc-drop-sibling";
+    }
+
     private void SetAllExpanded(bool expanded)
     {
         _collapsed.Clear();
@@ -788,8 +876,15 @@ else
         var hasChildren = node.Children.Count > 0;
         var isCollapsed = _collapsed.Contains(node.Id);
 
-        <div class="mc-row @(isSelected ? "selected" : "") @(node.IsVisible ? "" : "hidden")"
-             style="padding-left:@(8 + depth * 18)px;" @onclick="@(() => SelectNode(node))">
+        <div class="mc-row @(isSelected ? "selected" : "") @(node.IsVisible ? "" : "hidden") @DropClass(node)"
+             style="padding-left:@(8 + depth * 18)px;"
+             draggable="true"
+             @onclick="@(() => SelectNode(node))"
+             @ondragstart="@(() => OnDragStart(node))" @ondragstart:stopPropagation="true"
+             @ondragenter="@(() => OnDragEnter(node))" @ondragenter:stopPropagation="true"
+             @ondragover:preventDefault @ondragover:stopPropagation="true"
+             @ondrop="@(() => OnDropAsync(node))" @ondrop:preventDefault @ondrop:stopPropagation="true"
+             @ondragend="OnDragEnd" @ondragend:stopPropagation="true">
             @if (hasChildren)
             {
                 <button type="button" class="mc-row-caret" @onclick:stopPropagation @onclick="@(() => ToggleCollapse(node.Id))">

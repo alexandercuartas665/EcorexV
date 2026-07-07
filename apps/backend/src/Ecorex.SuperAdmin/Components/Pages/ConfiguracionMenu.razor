@@ -1,0 +1,867 @@
+@page "/configuracion-menu"
+@attribute [Authorize(Policy = "ConfiguracionMenu.Administrar")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.MenuConfig
+@using Ecorex.Domain.Enums
+@inject IMenuConfigService MenuSvc
+@inject IJSRuntime JS
+
+<PageTitle>Administrador de Menu - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Administrador de Menu</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                @MenuIcons.Render("list")
+            </div>
+            <span>Modulo 000194 &#183; Sistema &#183; General</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Administrador de Menu</h1>
+        <p class="page-sub" style="margin-bottom:0;">Crea y administra distintas vistas del sistema y asigna cada usuario a la vista que le corresponde.</p>
+    </div>
+    <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline-secondary" @onclick="OpenAssignAsync">Asignar usuarios</button>
+        <button class="btn btn-primary" @onclick="@(() => OpenCreateView())">+ Nueva vista</button>
+    </div>
+</div>
+
+@if (_flash is not null)
+{
+    <div class="mc-flash @(_flashOk ? "ok" : "err")">@_flash</div>
+}
+
+@if (_loadingIndex)
+{
+    <p><em>Cargando vistas...</em></p>
+}
+else if (_views.Count == 0)
+{
+    <div class="coming-soon" style="padding:48px 24px;">
+        <div class="coming-soon-icon">@MenuIcons.Render("layout")</div>
+        <h3>Aun no hay vistas</h3>
+        <p>Crea la primera vista del menu para empezar a organizar las secciones y pantallas del workspace.</p>
+        <button class="btn btn-primary" style="margin-top:16px;" @onclick="@(() => OpenCreateView())">+ Nueva vista</button>
+    </div>
+}
+else
+{
+    <div class="mc-cards">
+        @foreach (var v in _views)
+        {
+            <div class="mc-card">
+                <div class="mc-card-top">
+                    <div class="mc-card-title">
+                        <span>@v.Name</span>
+                        @if (v.IsDefault)
+                        {
+                            <span class="mc-badge mc-badge-default">Predeterminada</span>
+                        }
+                    </div>
+                    <p class="mc-card-desc">@(string.IsNullOrWhiteSpace(v.Description) ? "Sin descripcion." : v.Description)</p>
+                </div>
+                <div class="mc-card-stats">
+                    <div class="mc-stat"><b>@CountSections(v.Id)</b><span>Secciones</span></div>
+                    <div class="mc-stat"><b>@v.NodeCount</b><span>Nodos</span></div>
+                    <div class="mc-stat"><b>@CountHidden(v.Id)</b><span>Ocultos</span></div>
+                </div>
+                <div class="mc-card-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="@(() => OpenEditorAsync(v.Id))">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => DuplicateAsync(v))" disabled="@_busy">Duplicar</button>
+                    @if (!v.IsDefault)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetDefaultAsync(v))" disabled="@_busy">Predeterminada</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteViewAsync(v))" disabled="@_busy">Eliminar</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* ================= Modal: crear / renombrar vista ================= *@
+@if (_showViewForm)
+{
+    <div class="modal-overlay" @onclick="@(() => _showViewForm = false)">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_viewFormId is null ? "Nueva vista" : "Editar vista")</h3>
+                <button class="modal-close" @onclick="@(() => _showViewForm = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_viewFormName" maxlength="150" placeholder="Ej. Completo, Operativo..." />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="400" @bind="_viewFormDesc"></textarea>
+                </div>
+                @if (_viewFormError is not null)
+                {
+                    <div class="tk-field-error">@_viewFormError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showViewForm = false)">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveViewFormAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ================= Editor (panel grande) ================= *@
+@if (_showEditor && _tree is not null)
+{
+    <div class="modal-overlay mc-editor-overlay" @onclick="CloseEditor">
+        <div class="mc-editor" @onclick:stopPropagation="true">
+            <div class="mc-editor-head">
+                <div class="mc-editor-title">
+                    <span class="mc-editor-eyebrow">Editando vista</span>
+                    <h2>@_tree.ViewName</h2>
+                </div>
+                <div class="mc-editor-head-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ExportAsync" disabled="@_busy">Exportar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ReloadTreeAsync())" disabled="@_busy">Restablecer</button>
+                    <button class="btn btn-sm btn-primary" @onclick="SaveEditorAsync" disabled="@_busy">Guardar</button>
+                    <button class="modal-close" @onclick="CloseEditor">&times;</button>
+                </div>
+            </div>
+
+            <div class="mc-kpis">
+                <div class="mc-kpi"><b>@KpiSections</b><span>Secciones</span></div>
+                <div class="mc-kpi"><b>@KpiModules</b><span>Modulos</span></div>
+                <div class="mc-kpi"><b>@KpiScreens</b><span>Pantallas</span></div>
+                <div class="mc-kpi"><b>@KpiHidden</b><span>Ocultos</span></div>
+            </div>
+
+            <div class="mc-tabs">
+                <button class="mc-tab @(_tab == EditorTab.Structure ? "active" : "")" @onclick="@(() => _tab = EditorTab.Structure)">Estructura</button>
+                <button class="mc-tab @(_tab == EditorTab.Preview ? "active" : "")" @onclick="@(() => _tab = EditorTab.Preview)">Vista previa</button>
+            </div>
+
+            @if (_tab == EditorTab.Structure)
+            {
+                <div class="mc-editor-body">
+                    <div class="mc-tree-pane">
+                        <div class="mc-toolbar">
+                            <input class="form-control" style="max-width:210px;" placeholder="Buscar en el arbol..." @bind="_search" @bind:event="oninput" />
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetAllExpanded(true))">Expandir</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetAllExpanded(false))">Contraer</button>
+                            <button class="btn btn-sm btn-primary" style="margin-left:auto;" @onclick="AddSectionAsync" disabled="@_busy">+ Seccion</button>
+                        </div>
+                        <div class="mc-tree">
+                            @if (_tree.Roots.Count == 0)
+                            {
+                                <div class="mc-tree-empty">Esta vista no tiene elementos. Usa "+ Seccion" para empezar.</div>
+                            }
+                            else
+                            {
+                                @foreach (var root in _tree.Roots)
+                                {
+                                    @RenderNode(root, 0)
+                                }
+                            }
+                        </div>
+                    </div>
+
+                    <div class="mc-props">
+                        @if (_selected is null)
+                        {
+                            <div class="mc-props-empty">
+                                @MenuIcons.Render("layout")
+                                <p>Selecciona un elemento del arbol para editar sus propiedades.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="mc-props-head">Propiedades</div>
+                            <div class="field">
+                                <label class="form-label">Nombre *</label>
+                                <input class="form-control" @bind="_pName" maxlength="200" />
+                            </div>
+                            <div class="field">
+                                <label class="form-label">Icono</label>
+                                <div class="mc-icon-grid">
+                                    @foreach (var key in MenuIcons.Keys)
+                                    {
+                                        <button type="button" title="@MenuIcons.Label(key)"
+                                                class="mc-icon-opt @(_pIconKey == key ? "active" : "")"
+                                                @onclick="@(() => _pIconKey = key)">
+                                            @MenuIcons.Render(key)
+                                        </button>
+                                    }
+                                    <button type="button" title="Sin icono"
+                                            class="mc-icon-opt mc-icon-none @(string.IsNullOrEmpty(_pIconKey) ? "active" : "")"
+                                            @onclick="@(() => _pIconKey = null)">&times;</button>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label class="form-label">Codigo (legacy)</label>
+                                <input class="form-control" @bind="_pLegacyCode" maxlength="40" placeholder="Ej. 000636" />
+                            </div>
+                            @if (_selected.Kind is MenuNodeKind.Item or MenuNodeKind.QuickLink)
+                            {
+                                <div class="field">
+                                    <label class="form-label">Ruta</label>
+                                    <input class="form-control" @bind="_pRoute" maxlength="200" placeholder="Ej. inventario-items" />
+                                </div>
+                            }
+                            <div class="field">
+                                <label class="form-label">Estado</label>
+                                <select class="form-control" @bind="_pState">
+                                    <option value="@MenuNodeState.Ready">Listo</option>
+                                    <option value="@MenuNodeState.InDevelopment">En desarrollo</option>
+                                    <option value="@MenuNodeState.Disabled">Deshabilitado</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label class="form-label">Descripcion</label>
+                                <textarea class="form-control" rows="2" maxlength="400" @bind="_pDescription"></textarea>
+                            </div>
+                            <div class="field">
+                                <label class="form-label">Texto de ayuda</label>
+                                <textarea class="form-control" rows="2" maxlength="400" @bind="_pHelpText"></textarea>
+                            </div>
+                            @if (_propError is not null)
+                            {
+                                <div class="tk-field-error">@_propError</div>
+                            }
+                            <button class="btn btn-primary" style="width:100%;margin-top:6px;" @onclick="SaveNodeAsync" disabled="@_busy">Aplicar cambios</button>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* ---- Vista previa: renderiza el sidebar tal como quedaria (solo visibles) ---- *@
+                <div class="mc-preview">
+                    <div class="mc-preview-sidebar ws-tenant">
+                        <div class="ecorex-nav">
+                            @foreach (var quick in VisibleRoots.Where(n => n.Kind == MenuNodeKind.QuickLink))
+                            {
+                                <a class="ecorex-nav-link" @onclick:preventDefault href="#">
+                                    @MenuIcons.Render(quick.IconKey)
+                                    <span>@quick.Name</span>
+                                </a>
+                            }
+                            @if (VisibleRoots.Any(n => n.Kind == MenuNodeKind.Section))
+                            {
+                                <div class="ecorex-nav-label">Modulos</div>
+                            }
+                            @foreach (var section in VisibleRoots.Where(n => n.Kind == MenuNodeKind.Section))
+                            {
+                                <details class="ecorex-acc" open>
+                                    <summary>
+                                        <span class="ecorex-acc-ico">@MenuIcons.Render(section.IconKey)</span>
+                                        <span class="ecorex-acc-name">@section.Name</span>
+                                        <span class="ecorex-acc-count">@VisibleChildren(section).Count</span>
+                                        <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                    </summary>
+                                    <div class="ecorex-acc-body">
+                                        @foreach (var child in VisibleChildren(section))
+                                        {
+                                            if (child.Kind == MenuNodeKind.Subgroup)
+                                            {
+                                                <details class="ecorex-acc-sub" open>
+                                                    <summary>
+                                                        <span class="ecorex-acc-name">@child.Name</span>
+                                                        <span class="ecorex-acc-count">@VisibleChildren(child).Count</span>
+                                                        <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                                    </summary>
+                                                    <div class="ecorex-acc-sub-body">
+                                                        @foreach (var leaf in VisibleChildren(child).Where(n => n.Kind == MenuNodeKind.Item))
+                                                        {
+                                                            <a class="ecorex-acc-item" @onclick:preventDefault href="#">
+                                                                <span class="lbl">@leaf.Name</span>
+                                                                @if (!string.IsNullOrEmpty(leaf.LegacyCode))
+                                                                {
+                                                                    <span class="code">@leaf.LegacyCode</span>
+                                                                }
+                                                            </a>
+                                                        }
+                                                    </div>
+                                                </details>
+                                            }
+                                            else
+                                            {
+                                                <a class="ecorex-acc-item" @onclick:preventDefault href="#">
+                                                    <span class="lbl">@child.Name</span>
+                                                    @if (!string.IsNullOrEmpty(child.LegacyCode))
+                                                    {
+                                                        <span class="code">@child.LegacyCode</span>
+                                                    }
+                                                </a>
+                                            }
+                                        }
+                                    </div>
+                                </details>
+                            }
+                        </div>
+                    </div>
+                    <p class="mc-preview-note">Vista previa del sidebar con los elementos visibles de esta vista. Los ocultos no aparecen.</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ================= Modal: asignar usuarios a vistas ================= *@
+@if (_showAssign)
+{
+    <div class="modal-overlay" @onclick="@(() => _showAssign = false)">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Asignar usuarios a vistas</h3>
+                <button class="modal-close" @onclick="@(() => _showAssign = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_assignUsers.Count == 0)
+                {
+                    <p class="page-sub">No hay usuarios en este tenant.</p>
+                }
+                else
+                {
+                    <table class="table table-hover">
+                        <thead>
+                            <tr><th>Usuario</th><th>Vista asignada</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var u in _assignUsers)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@(string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName)</strong>
+                                        <small style="display:block;color:var(--ink-3);">@u.Email</small>
+                                    </td>
+                                    <td>
+                                        <select class="form-control" style="max-width:240px;"
+                                                value="@(u.MenuViewId?.ToString() ?? "")"
+                                                @onchange="@(e => AssignAsync(u.TenantUserId, e.Value?.ToString()))">
+                                            <option value="">(Vista predeterminada)</option>
+                                            @foreach (var v in _views)
+                                            {
+                                                <option value="@v.Id">@v.Name</option>
+                                            }
+                                        </select>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum EditorTab { Structure, Preview }
+
+    private bool _loadingIndex = true;
+    private bool _busy;
+    private string? _flash;
+    private bool _flashOk;
+
+    private IReadOnlyList<MenuViewDto> _views = Array.Empty<MenuViewDto>();
+    // Conteos por vista para las tarjetas del index (secciones / ocultos): se calculan del arbol.
+    private readonly Dictionary<Guid, (int sections, int hidden)> _viewCounts = new();
+
+    // ---- Modal crear/renombrar vista ----
+    private bool _showViewForm;
+    private Guid? _viewFormId;
+    private string _viewFormName = "";
+    private string? _viewFormDesc;
+    private string? _viewFormError;
+
+    // ---- Editor ----
+    private bool _showEditor;
+    private MenuViewTreeDto? _tree;
+    private EditorTab _tab = EditorTab.Structure;
+    private string _search = "";
+    private readonly HashSet<Guid> _collapsed = new();
+    private MenuEditorNodeDto? _selected;
+
+    // Buffer de propiedades del nodo seleccionado.
+    private string _pName = "";
+    private string? _pIconKey;
+    private string? _pLegacyCode;
+    private string? _pRoute;
+    private string? _pDescription;
+    private string? _pHelpText;
+    private MenuNodeState _pState;
+    private string? _propError;
+
+    // ---- Asignacion ----
+    private bool _showAssign;
+    private IReadOnlyList<TenantUserViewDto> _assignUsers = Array.Empty<TenantUserViewDto>();
+
+    protected override async Task OnInitializedAsync() => await LoadIndexAsync();
+
+    private async Task LoadIndexAsync()
+    {
+        _loadingIndex = true;
+        _views = await MenuSvc.ListViewsAsync();
+        _viewCounts.Clear();
+        foreach (var v in _views)
+        {
+            var treeRes = await MenuSvc.GetViewTreeAsync(v.Id);
+            if (treeRes.IsOk && treeRes.Value is not null)
+            {
+                var all = FlattenAll(treeRes.Value.Roots).ToList();
+                _viewCounts[v.Id] = (
+                    all.Count(n => n.Kind == MenuNodeKind.Section),
+                    all.Count(n => !n.IsVisible));
+            }
+        }
+        _loadingIndex = false;
+    }
+
+    private int CountSections(Guid viewId) => _viewCounts.TryGetValue(viewId, out var c) ? c.sections : 0;
+    private int CountHidden(Guid viewId) => _viewCounts.TryGetValue(viewId, out var c) ? c.hidden : 0;
+
+    // ================= Index: crear / duplicar / default / eliminar =================
+
+    private void OpenCreateView()
+    {
+        _viewFormId = null;
+        _viewFormName = "";
+        _viewFormDesc = null;
+        _viewFormError = null;
+        _showViewForm = true;
+    }
+
+    private async Task SaveViewFormAsync()
+    {
+        _busy = true; _viewFormError = null;
+        try
+        {
+            if (_viewFormId is Guid id)
+            {
+                var res = await MenuSvc.UpdateViewAsync(id, _viewFormName, _viewFormDesc);
+                if (!res.IsOk) { _viewFormError = res.Error; return; }
+            }
+            else
+            {
+                var res = await MenuSvc.CreateViewAsync(_viewFormName, _viewFormDesc);
+                if (!res.IsOk) { _viewFormError = res.Error; return; }
+            }
+            _showViewForm = false;
+            Flash("Vista guardada.", true);
+            await LoadIndexAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DuplicateAsync(MenuViewDto v)
+    {
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.CloneViewAsync(v.Id, $"{v.Name} (copia)");
+            Flash(res.IsOk ? "Vista duplicada." : (res.Error ?? "No se pudo duplicar."), res.IsOk);
+            if (res.IsOk) { await LoadIndexAsync(); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetDefaultAsync(MenuViewDto v)
+    {
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.SetDefaultViewAsync(v.Id);
+            Flash(res.IsOk ? $"'{v.Name}' es ahora la vista predeterminada." : (res.Error ?? "No se pudo."), res.IsOk);
+            if (res.IsOk) { await LoadIndexAsync(); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteViewAsync(MenuViewDto v)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar la vista '{v.Name}' y todos sus elementos? Los usuarios asignados caeran a la vista predeterminada.")) { return; }
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.DeleteViewAsync(v.Id);
+            Flash(res.IsOk ? "Vista eliminada." : (res.Error ?? "No se pudo eliminar."), res.IsOk);
+            if (res.IsOk) { await LoadIndexAsync(); }
+        }
+        finally { _busy = false; }
+    }
+
+    // ================= Editor =================
+
+    private async Task OpenEditorAsync(Guid viewId)
+    {
+        await ReloadTreeAsync(viewId);
+        _selected = null;
+        _tab = EditorTab.Structure;
+        _collapsed.Clear();
+        _search = "";
+        _showEditor = true;
+    }
+
+    private void CloseEditor()
+    {
+        _showEditor = false;
+        _tree = null;
+        _selected = null;
+    }
+
+    private Guid _editingViewId;
+
+    private async Task ReloadTreeAsync(Guid? viewId = null)
+    {
+        _editingViewId = viewId ?? _editingViewId;
+        var res = await MenuSvc.GetViewTreeAsync(_editingViewId);
+        if (res.IsOk && res.Value is not null)
+        {
+            _tree = res.Value;
+            // Re-sincroniza la seleccion con el arbol recargado (o la limpia).
+            if (_selected is not null)
+            {
+                _selected = FlattenAll(_tree.Roots).FirstOrDefault(n => n.Id == _selected.Id);
+                if (_selected is not null) { LoadSelectedBuffer(); }
+            }
+        }
+    }
+
+    private void SelectNode(MenuEditorNodeDto node)
+    {
+        _selected = node;
+        _propError = null;
+        LoadSelectedBuffer();
+    }
+
+    private void LoadSelectedBuffer()
+    {
+        if (_selected is null) { return; }
+        _pName = _selected.Name;
+        _pIconKey = _selected.IconKey;
+        _pLegacyCode = _selected.LegacyCode;
+        _pRoute = _selected.Route;
+        _pDescription = _selected.Description;
+        _pHelpText = _selected.HelpText;
+        _pState = _selected.State;
+    }
+
+    private async Task SaveNodeAsync()
+    {
+        if (_selected is null) { return; }
+        _busy = true; _propError = null;
+        try
+        {
+            var edit = new MenuNodeEditDto(
+                Name: _pName,
+                IconKey: _pIconKey ?? "",
+                LegacyCode: _pLegacyCode ?? "",
+                Route: _pRoute ?? "",
+                Description: _pDescription ?? "",
+                HelpText: _pHelpText ?? "",
+                State: _pState);
+            var res = await MenuSvc.UpdateNodeAsync(_selected.Id, edit);
+            if (!res.IsOk) { _propError = res.Error; return; }
+            await ReloadTreeAsync();
+            Flash("Elemento actualizado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AddSectionAsync()
+    {
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.CreateNodeAsync(_editingViewId, null, MenuNodeKind.Section, "Nueva seccion", iconKey: "folder");
+            if (res.IsOk && res.Value is not null)
+            {
+                await ReloadTreeAsync();
+                var created = FlattenAll(_tree!.Roots).FirstOrDefault(n => n.Id == res.Value.Id);
+                if (created is not null) { SelectNode(created); }
+            }
+            else { Flash(res.Error ?? "No se pudo crear la seccion.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AddChildAsync(MenuEditorNodeDto parent)
+    {
+        _busy = true;
+        try
+        {
+            // Un Section recibe Item por defecto; un Subgroup recibe Item; se puede reclasificar luego.
+            var kind = MenuNodeKind.Item;
+            var name = parent.Kind == MenuNodeKind.Section ? "Nuevo elemento" : "Nuevo elemento";
+            var res = await MenuSvc.CreateNodeAsync(_editingViewId, parent.Id, kind, name);
+            if (res.IsOk && res.Value is not null)
+            {
+                _collapsed.Remove(parent.Id);
+                await ReloadTreeAsync();
+                var created = FlattenAll(_tree!.Roots).FirstOrDefault(n => n.Id == res.Value.Id);
+                if (created is not null) { SelectNode(created); }
+            }
+            else { Flash(res.Error ?? "No se pudo crear el elemento.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleVisibilityAsync(MenuEditorNodeDto node)
+    {
+        _busy = true;
+        try
+        {
+            await MenuSvc.ToggleNodeVisibilityAsync(node.Id);
+            await ReloadTreeAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteNodeAsync(MenuEditorNodeDto node)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Eliminar '{node.Name}' y todos sus elementos hijos?")) { return; }
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.DeleteNodeAsync(node.Id);
+            if (res.IsOk)
+            {
+                if (_selected?.Id == node.Id) { _selected = null; }
+                await ReloadTreeAsync();
+            }
+            else { Flash(res.Error ?? "No se pudo eliminar.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveAsync(MenuEditorNodeDto node, int delta)
+    {
+        var siblings = SiblingsOf(node);
+        var idx = siblings.FindIndex(n => n.Id == node.Id);
+        var target = idx + delta;
+        if (target < 0 || target >= siblings.Count) { return; }
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.MoveNodeAsync(node.Id, node.ParentId, target);
+            if (res.IsOk) { await ReloadTreeAsync(); }
+            else { Flash(res.Error ?? "No se pudo mover.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    private List<MenuEditorNodeDto> SiblingsOf(MenuEditorNodeDto node)
+    {
+        if (_tree is null) { return new(); }
+        if (node.ParentId is null) { return _tree.Roots.ToList(); }
+        var parent = FlattenAll(_tree.Roots).FirstOrDefault(n => n.Id == node.ParentId);
+        return parent?.Children.ToList() ?? new();
+    }
+
+    private void SetAllExpanded(bool expanded)
+    {
+        _collapsed.Clear();
+        if (!expanded && _tree is not null)
+        {
+            foreach (var n in FlattenAll(_tree.Roots).Where(n => n.Children.Count > 0))
+            {
+                _collapsed.Add(n.Id);
+            }
+        }
+    }
+
+    private async Task SaveEditorAsync()
+    {
+        // El editor aplica cada accion de inmediato (create/update/move/delete persisten al vuelo),
+        // asi que "Guardar" recarga desde BD y confirma. Se mantiene por coherencia con el prototipo.
+        await ReloadTreeAsync();
+        Flash("Cambios guardados.", true);
+    }
+
+    private async Task ExportAsync()
+    {
+        var res = await MenuSvc.ExportViewAsync(_editingViewId);
+        if (!res.IsOk || res.Value is null) { Flash(res.Error ?? "No se pudo exportar.", false); return; }
+        var json = System.Text.Json.JsonSerializer.Serialize(res.Value,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true });
+        var file = $"vista-menu-{Slug(res.Value.Name)}.json";
+        await JS.InvokeVoidAsync("ecorexMenuConfig.downloadText", file, json, "application/json");
+    }
+
+    // ================= Asignacion =================
+
+    private async Task OpenAssignAsync()
+    {
+        _assignUsers = await MenuSvc.ListTenantUsersWithViewAsync();
+        _showAssign = true;
+    }
+
+    private async Task AssignAsync(Guid tenantUserId, string? viewValue)
+    {
+        Guid? viewId = Guid.TryParse(viewValue, out var vid) ? vid : null;
+        var res = await MenuSvc.AssignUserToViewAsync(tenantUserId, viewId);
+        Flash(res.IsOk ? "Asignacion actualizada." : (res.Error ?? "No se pudo asignar."), res.IsOk);
+        _assignUsers = await MenuSvc.ListTenantUsersWithViewAsync();
+    }
+
+    // ================= KPIs y helpers de arbol =================
+
+    private int KpiSections => _tree is null ? 0 : FlattenAll(_tree.Roots).Count(n => n.Kind == MenuNodeKind.Section);
+    // Modulos = items directos de una seccion; Pantallas = items anidados en un subgrupo.
+    private int KpiModules => _tree is null ? 0 : SectionItems().Count(pair => IsSectionChild(pair));
+    private int KpiScreens => _tree is null ? 0 : SectionItems().Count(pair => !IsSectionChild(pair));
+    private int KpiHidden => _tree is null ? 0 : FlattenAll(_tree.Roots).Count(n => !n.IsVisible);
+
+    private IEnumerable<(MenuEditorNodeDto node, Guid? parentKindOwner)> SectionItems()
+    {
+        if (_tree is null) { yield break; }
+        foreach (var n in FlattenAll(_tree.Roots).Where(n => n.Kind == MenuNodeKind.Item))
+        {
+            yield return (n, n.ParentId);
+        }
+    }
+
+    private bool IsSectionChild((MenuEditorNodeDto node, Guid? parentKindOwner) pair)
+    {
+        if (_tree is null || pair.node.ParentId is null) { return false; }
+        var parent = FlattenAll(_tree.Roots).FirstOrDefault(x => x.Id == pair.node.ParentId);
+        return parent?.Kind == MenuNodeKind.Section;
+    }
+
+    private static IEnumerable<MenuEditorNodeDto> FlattenAll(IEnumerable<MenuEditorNodeDto> nodes)
+    {
+        foreach (var n in nodes)
+        {
+            yield return n;
+            foreach (var d in FlattenAll(n.Children)) { yield return d; }
+        }
+    }
+
+    // Vista previa: solo nodos visibles (imita MenuTreeBuilder pero sobre el arbol del editor).
+    private List<MenuEditorNodeDto> VisibleRoots => _tree is null
+        ? new()
+        : _tree.Roots.Where(n => n.IsVisible).ToList();
+
+    private static List<MenuEditorNodeDto> VisibleChildren(MenuEditorNodeDto node)
+        => node.Children.Where(n => n.IsVisible).ToList();
+
+    // Filtro de busqueda del arbol: un nodo se muestra si el o algun descendiente hace match.
+    private bool MatchesSearch(MenuEditorNodeDto node)
+    {
+        if (string.IsNullOrWhiteSpace(_search)) { return true; }
+        var q = _search.Trim();
+        if (node.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || (node.LegacyCode?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            return true;
+        }
+        return node.Children.Any(MatchesSearch);
+    }
+
+    private void Flash(string message, bool ok)
+    {
+        _flash = message;
+        _flashOk = ok;
+    }
+
+    private static string Slug(string name)
+    {
+        var chars = name.Trim().ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
+        var slug = new string(chars).Trim('-');
+        while (slug.Contains("--")) { slug = slug.Replace("--", "-"); }
+        return string.IsNullOrEmpty(slug) ? "vista" : slug;
+    }
+
+    // ---- Render recursivo de una fila del arbol ----
+    private RenderFragment RenderNode(MenuEditorNodeDto node, int depth) => __builder =>
+    {
+        if (!MatchesSearch(node)) { return; }
+        var isSelected = _selected?.Id == node.Id;
+        var hasChildren = node.Children.Count > 0;
+        var isCollapsed = _collapsed.Contains(node.Id);
+
+        <div class="mc-row @(isSelected ? "selected" : "") @(node.IsVisible ? "" : "hidden")"
+             style="padding-left:@(8 + depth * 18)px;" @onclick="@(() => SelectNode(node))">
+            @if (hasChildren)
+            {
+                <button type="button" class="mc-row-caret" @onclick:stopPropagation @onclick="@(() => ToggleCollapse(node.Id))">
+                    <svg class="@(isCollapsed ? "" : "open")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+            }
+            else
+            {
+                <span class="mc-row-caret-spacer"></span>
+            }
+            <span class="mc-row-ico">@MenuIcons.Render(node.IconKey)</span>
+            <span class="mc-row-name">@node.Name</span>
+            <span class="mc-row-kind">@KindLabel(node.Kind)</span>
+            @if (!string.IsNullOrEmpty(node.LegacyCode))
+            {
+                <span class="mc-row-code">@node.LegacyCode</span>
+            }
+            <span class="mc-row-dot @StateDot(node.State)" title="@node.State"></span>
+            <span class="mc-row-actions" @onclick:stopPropagation>
+                <button type="button" title="Visibilidad" class="mc-act" @onclick="@(() => ToggleVisibilityAsync(node))" disabled="@_busy">
+                    @if (node.IsVisible)
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9 9 0 0 1 12 4c6.5 0 10 7 10 7a13 13 0 0 1-2 2.7M6.6 6.6A13 13 0 0 0 2 11s3.5 7 10 7a9 9 0 0 0 3.4-.66"/><path d="m2 2 20 20"/></svg>
+                    }
+                </button>
+                <button type="button" title="Subir" class="mc-act" @onclick="@(() => MoveAsync(node, -1))" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+                <button type="button" title="Bajar" class="mc-act" @onclick="@(() => MoveAsync(node, 1))" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                @if (node.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                {
+                    <button type="button" title="Agregar hijo" class="mc-act" @onclick="@(() => AddChildAsync(node))" disabled="@_busy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
+                }
+                <button type="button" title="Eliminar" class="mc-act mc-act-danger" @onclick="@(() => DeleteNodeAsync(node))" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                </button>
+            </span>
+        </div>
+        @if (hasChildren && !isCollapsed)
+        {
+            @foreach (var child in node.Children)
+            {
+                @RenderNode(child, depth + 1)
+            }
+        }
+    };
+
+    private void ToggleCollapse(Guid id)
+    {
+        if (!_collapsed.Remove(id)) { _collapsed.Add(id); }
+    }
+
+    private static string KindLabel(MenuNodeKind kind) => kind switch
+    {
+        MenuNodeKind.QuickLink => "Enlace",
+        MenuNodeKind.Section => "Seccion",
+        MenuNodeKind.Subgroup => "Subgrupo",
+        _ => "Item"
+    };
+
+    private static string StateDot(MenuNodeState state) => state switch
+    {
+        MenuNodeState.Ready => "ok",
+        MenuNodeState.InDevelopment => "warn",
+        _ => "off"
+    };
+}

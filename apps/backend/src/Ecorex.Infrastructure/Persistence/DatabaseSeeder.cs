@@ -2018,7 +2018,10 @@ public sealed class DatabaseSeeder
         Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
         Item(gen.Id, "Plantillas", "plantillas", "000893");
         Item(gen.Id, "Dependencias", "dependencias", "000850");
-        Item(gen.Id, "Roles y permisos", "modulo/roles-y-permisos", "000194");
+        // Administrador de Menu (menu configurable por perfil, Ola 2, ADR-0030). Reutiliza el
+        // code 000194 (antes "Roles y permisos", que era un stub modulo/...) apuntandolo a la
+        // pagina real /configuracion-menu; queda como Ready por ser una pantalla implementada.
+        Item(gen.Id, "Administrador de Menu", "configuracion-menu", "000194");
         Item(gen.Id, "Administracion de usuarios", "modulo/administracion-de-usuarios", "000073");
 
         // ---- Seccion: Sistema - Desarrollo (slug dev) ----

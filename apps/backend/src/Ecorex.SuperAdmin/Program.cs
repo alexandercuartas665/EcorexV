@@ -67,6 +67,11 @@ builder.Services.AddAuthorizationBuilder()
     // Plantillas HSM de WhatsApp (ADR-0029): editor de plantillas del CRM heredado. Paso 1:
     // mismo requisito que TenantMember (claim tenant_id). Paso 2 (Module Registry) pendiente.
     .AddPolicy("PlantillasWhatsApp.Editar", p => p.RequireClaim("tenant_id"))
+    // Administrador de Menu (menu configurable por perfil, Ola 2, ADR-0030): editor de vistas
+    // y nodos del menu del workspace. Paso 1: mismo requisito que TenantMember (claim tenant_id)
+    // para no cambiar el acceso. TODO (paso 2): restringir a Owner/Admin del tenant (tenant_role)
+    // -es una pantalla de gobierno del tenant- derivandolo del rol del TenantUser.
+    .AddPolicy("ConfiguracionMenu.Administrar", p => p.RequireClaim("tenant_id"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu

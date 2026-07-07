@@ -80,7 +80,7 @@ else
         @foreach (var quick in _menu.Roots.Where(n => n.Kind == MenuNodeKind.QuickLink))
         {
             <NavLink class="ecorex-nav-link" href="@quick.Route">
-                @QuickIcon(quick.IconKey)
+                @MenuIcons.Render(quick.IconKey)
                 <span>@quick.Name</span>
                 @if (string.Equals(quick.Route, "anuncios", StringComparison.Ordinal))
                 {
@@ -97,7 +97,7 @@ else
             var slug = section.Route ?? section.Id.ToString();
             <details class="ecorex-acc @SectionTone(slug)" data-acc="@slug" open="@IsGroupOpen(slug)">
                 <summary>
-                    <span class="ecorex-acc-ico">@SectionIcon(section.IconKey)</span>
+                    <span class="ecorex-acc-ico">@MenuIcons.Render(section.IconKey)</span>
                     <span class="ecorex-acc-name">@section.Name</span>
                     <span class="ecorex-acc-count">@section.VisibleChildCount</span>
                     <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
@@ -439,25 +439,7 @@ else
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
     public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
 
-    // ---- Iconos por clave (IconKey -> SVG del prototipo). Reusa los mismos trazos del NavMenu
-    //      original; una clave desconocida cae a un icono neutro para no romper el render. ----
-
-    private RenderFragment QuickIcon(string? key) => key switch
-    {
-        "home" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"/></svg>,
-        "megaphone" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4a1 1 0 0 0 1 1h2l4 4V5L7 9H5a1 1 0 0 0-1 1Z"/><path d="M15 9a3.5 3.5 0 0 1 0 6"/></svg>,
-        _ => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
-    };
-
-    private RenderFragment SectionIcon(string? key) => key switch
-    {
-        "list" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>,
-        "briefcase" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
-        "automation" or "robot" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="6" height="6" rx="1.4"/><rect x="16" y="15" width="6" height="6" rx="1.4"/><path d="M5 9v3a4 4 0 0 0 4 4h7"/></svg>,
-        "cube" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg>,
-        "check-square" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg>,
-        "users" or "crm" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3.2"/><path d="M22 21v-2a4 4 0 0 0-3-3.85"/></svg>,
-        "gear" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 2.6 15H2.5a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 4.6h.1A1.6 1.6 0 0 0 11 3V2.9a2 2 0 1 1 4 0V3a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7h.1a2 2 0 1 1 0 4H21a1.6 1.6 0 0 0-1.6 1Z"/></svg>,
-        _ => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/></svg>
-    };
+    // Los iconos por clave (IconKey -> SVG del prototipo) viven ahora en el componente
+    // compartido MenuIcons (Components/Shared/MenuIcons.razor): misma fuente para el sidebar,
+    // el arbol/selector del editor (Ola 2) y la vista previa, para que coincidan 1:1.
 }

@@ -5,6 +5,68 @@
 
 ---
 
+## 2026-07-07 - Sesion: Menu configurable por vista (perfil) - Olas 1 y 2
+
+**Agentes**: agente de feature (menu data-driven + editor). Referencia visual: prototipo
+Claude Design "Administrador de Menu" (concepto TRONOX SGDEA) servido en
+http://localhost:5234/config-menu-proto.html, adaptado a los TOKENS de ECOREX.
+
+**Pedido**: hacer el sidebar del workspace configurable por perfil de usuario (Ola 1) y
+construir la pagina editora que administra las vistas y sus nodos (Ola 2), con fidelidad al
+prototipo pero con la identidad ECOREX (no el teal de TRONOX).
+
+**Hecho (Ola 1, commit `bdda279`)**:
+- Modelo: `MenuView` (perfil, Name unico por tenant, IsDefault, SortOrder) y `MenuNode`
+  (adjacency-list, Kind QuickLink/Section/Subgroup/Item, IconKey, LegacyCode, Route,
+  Description, HelpText, State Ready/InDevelopment/Disabled, IsVisible, SortOrder;
+  self-ref NO ACTION, FK a la vista en cascada). `TenantUser.MenuViewId` (Guid? NO ACTION).
+- `MenuTreeBuilder` (pura), `IMenuConfigService` (GetMenuForTenantUser, ListViews, CreateView,
+  CloneView), `NavMenu.razor` data-driven identico al prototipo. Seed Completo(67)/Simple(10)
+  + usuarios completo@/simple@sky-system.local.
+
+**Hecho (Ola 2, esta sesion)**:
+- **Servicio ampliado** (`MenuConfigService`, tenant-scoped, transaccional, resultados
+  tipados): `UpdateViewAsync`, `DeleteViewAsync` (cascade + desasigna usuarios; prohibe borrar
+  la IsDefault), `SetDefaultViewAsync`, `GetViewTreeAsync` (arbol completo incl. invisibles);
+  nodos `CreateNodeAsync`/`UpdateNodeAsync`/`ToggleNodeVisibilityAsync`/`SetNodeStateAsync`/
+  `MoveNodeAsync` (valida ciclos y coherencia de Kind)/`DeleteNodeAsync` (cascade a
+  descendientes); `AssignUserToViewAsync`/`ListTenantUsersWithViewAsync`;
+  `ExportViewAsync`/`ImportViewAsync` (System.Text.Json portable). Reglas de anidamiento
+  extraidas a `MenuNodeKindRules` (pura, testeable sin BD).
+- **Iconos compartidos**: diccionario `IconKey->SVG` extraido de NavMenu a
+  `Components/Shared/MenuIcons.razor` (fuente unica: sidebar + arbol/selector del editor +
+  vista previa). NavMenu ahora consume `MenuIcons.Render`.
+- **Pagina** `Components/Pages/ConfiguracionMenu.razor` (`/configuracion-menu`,
+  policy `ConfiguracionMenu.Administrar`): index de vistas (tarjetas con badges/contadores y
+  Editar/Duplicar/Predeterminada/Eliminar), editor (KPIs, tabs Estructura/Vista previa, arbol
+  con acciones por fila, toolbar buscar/expandir/contraer/+Seccion, panel de propiedades con
+  selector de iconos grid, Exportar/Restablecer/Guardar) y modal de asignacion de usuarios.
+  CSS scoped 100% con tokens ECOREX (--surface, --ink, --line, --brand, --ok/warn/danger,
+  --t-*, --rad, --sh-*), conmuta claro/oscuro por html.dark. JS helper `js/menu-config.js`
+  para descargar el JSON exportado.
+- **Policy** `ConfiguracionMenu.Administrar` en Program.cs (paso 1: RequireClaim tenant_id;
+  comentario del paso 2: restringir a Owner/Admin).
+- **Seed**: item "Administrador de Menu" en "Sistema . General" reutilizando el code **000194**
+  (antes "Roles y permisos", stub) apuntandolo a `/configuracion-menu` (rename, no alta; los
+  conteos del seed no cambian).
+- **Tests**: unit (Application.Tests `MenuConfigRulesTests`: reglas de Kind + round-trip JSON
+  export/import); integracion DUAL (`MenuConfigEditorTests`: CRUD nodos, move-reorder,
+  cascade delete, SetDefault, no-borrar-default, no-ciclo, export->import, assign refleja en
+  GetMenuForTenantUser, aislamiento) PG+SQL; E2E (`MenuEditorTests`: owner crea vista, agrega
+  seccion+item, guarda, asigna a usuario). MenuProfileTests de Ola 1 intactos.
+- **ADR** `docs/decisiones/0030-menu-configurable.md` (cubre ambas olas).
+
+**Migracion**: NINGUNA. El modelo de Ola 1 cubrio toda la Ola 2.
+
+**Deudas**: (1) drag-and-drop real (hoy botones subir/bajar = MoveNode reorder); (2) paso 2 de
+la policy (restringir a Owner/Admin via tenant_role); (3) "Guardar" del editor es
+confirmacion/recarga porque cada accion persiste al vuelo.
+
+**Siguiente**: conectar el paso 2 de las policies con el Module Registry (000109) + rol del
+TenantUser; drag-and-drop del arbol.
+
+---
+
 ## 2026-07-05 - Sesion: Primer DEPLOY a produccion Linux (10.0.0.3) + fix de bootstrap
 
 **Agentes**: coordinador en rol de deploy (no feature). Referencia: patron de deploy de

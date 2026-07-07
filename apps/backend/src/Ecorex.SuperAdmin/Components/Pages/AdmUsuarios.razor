@@ -3,10 +3,12 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Common
 @using Ecorex.Application.MenuConfig
+@using Ecorex.Application.Roles
 @using Ecorex.Application.Tenancy
 @using Ecorex.Domain.Enums
 @inject ITenantUserService UsersSvc
 @inject IMenuConfigService MenuSvc
+@inject IRolService RolesSvc
 @inject ITenantContext TenantCtx
 
 <PageTitle>Administracion de usuarios - ECOREX.tareas</PageTitle>
@@ -56,6 +58,7 @@ else
                     <th>Rol</th>
                     <th>Estado</th>
                     <th>Vista de menu</th>
+                    <th>Rol de permisos</th>
                     <th style="text-align:right;">Acciones</th>
                 </tr>
             </thead>
@@ -68,6 +71,16 @@ else
                         <td><span class="badge" style="background:@RoleColor(u.TenantRole);color:#fff;">@RoleLabel(u.TenantRole)</span></td>
                         <td><span class="badge" style="background:@StatusColor(u.Status);color:#fff;">@StatusLabel(u.Status)</span></td>
                         <td style="font-size:12.5px;color:var(--muted-foreground);">@ViewNameFor(u.Id)</td>
+                        <td>
+                            <select class="form-control" style="min-width:150px;" value="@RolIdFor(u.PlatformUserId)"
+                                    @onchange="@(e => AssignRolAsync(u, e.Value?.ToString()))">
+                                <option value="">Sin rol</option>
+                                @foreach (var r in _roles)
+                                {
+                                    <option value="@r.Id">@r.Name</option>
+                                }
+                            </select>
+                        </td>
                         <td style="text-align:right;white-space:nowrap;">
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(u))">Editar</button>
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenPassword(u))">Cambiar clave</button>
@@ -261,8 +274,11 @@ else
 
     private List<TenantUserDto> _users = new();
     private List<MenuViewDto> _views = new();
+    private List<RolDto> _roles = new();
     // TenantUserId -> nombre de la vista asignada (para la columna "Vista de menu").
     private Dictionary<Guid, string> _assignedView = new();
+    // PlatformUserId -> RolId de permisos efectivo del usuario (columna "Rol de permisos").
+    private Dictionary<Guid, Guid?> _userRol = new();
 
     // Form compartido.
     private string _fEmail = "";
@@ -290,14 +306,38 @@ else
     {
         _users = (await UsersSvc.ListAsync()).ToList();
         _views = (await MenuSvc.ListViewsAsync()).ToList();
+        _roles = (await RolesSvc.ListAsync()).ToList();
         var withView = await MenuSvc.ListTenantUsersWithViewAsync();
         _assignedView = withView
             .Where(x => x.MenuViewName is not null)
             .ToDictionary(x => x.TenantUserId, x => x.MenuViewName!);
+        _userRol = new Dictionary<Guid, Guid?>();
+        foreach (var u in _users)
+        {
+            var eff = await RolesSvc.ResolveEffectivePermissionsAsync(u.PlatformUserId);
+            _userRol[u.PlatformUserId] = eff.RolId;
+        }
     }
 
     private string ViewNameFor(Guid tenantUserId) =>
         _assignedView.TryGetValue(tenantUserId, out var name) ? name : "Predeterminada";
+
+    private string RolIdFor(Guid platformUserId) =>
+        _userRol.TryGetValue(platformUserId, out var rid) && rid is Guid g ? g.ToString() : "";
+
+    private async Task AssignRolAsync(TenantUserDto u, string? value)
+    {
+        Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            await RolesSvc.AssignRoleToUserAsync(u.Id, rolId, actor);
+            await ReloadAsync();
+            ShowToast("Rol de permisos actualizado.", true);
+        }
+        finally { _busy = false; }
+    }
 
     // ---- Crear ----
 

@@ -77,6 +77,11 @@ builder.Services.AddAuthorizationBuilder()
     // TenantMember (claim tenant_id) para no cambiar el acceso. TODO (paso 2): restringir a
     // Owner/Admin del tenant (claim tenant_role) -es gobierno del tenant- derivandolo del rol.
     .AddPolicy("AdmUsuarios.Editar", p => p.RequireClaim("tenant_id"))
+    // Roles y permisos (Ola B1, ADR-0032): matriz de permisos Modulo x Accion por tenant y
+    // asignacion de rol a usuario. Paso 1: mismo requisito que TenantMember (claim tenant_id)
+    // para no cambiar el acceso. TODO (paso 2 / Ola B2): restringir a Owner/Admin del tenant
+    // (claim tenant_role) -es gobierno del tenant- y hacer cumplir el set efectivo por modulo.
+    .AddPolicy("RolesPermisos.Administrar", p => p.RequireClaim("tenant_id"))
     // Ficha de empresa / administracion de tenants (modulo 000072, ADR-0026). Es GOBIERNO
     // multi-tenant: vive en el area PlatformAdmin junto a /tenants y /plans, por eso exige
     // platform_role (igual que PlatformOperator), NO tenant_id. El item 000072 del NavMenu
@@ -206,6 +211,10 @@ else
     // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
     // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
     await seeder.EnsureMenuConfigDemoAsync();
+    // Roles de permisos dinamicos (Ola B1, ADR-0032): rol de sistema "Administrador" (todos los
+    // modulos) + rol demo "Asesor limitado" asignado a simple@sky-system.local. El catalogo sale
+    // de los Item Ready de la vista IsDefault (por eso corre despues del seed de menu). Idempotente.
+    await seeder.EnsureRolesDemoAsync();
     // Plantillas HSM de WhatsApp demo (ADR-0029): 3 plantillas del tenant demo vinculadas a una
     // linea de WhatsApp. Idempotente, solo Development. Submit es un stub (sin integracion Meta).
     await seeder.EnsureWhatsAppTemplatesDemoAsync();

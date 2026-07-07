@@ -1,0 +1,537 @@
+@page "/roles-permisos"
+@attribute [Authorize(Policy = "RolesPermisos.Administrar")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Common
+@using Ecorex.Application.Roles
+@using Ecorex.Application.Tenancy
+@inject IRolService RolesSvc
+@inject ITenantUserService UsersSvc
+@inject ITenantContext TenantCtx
+
+<PageTitle>Roles y permisos - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Roles y permisos</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <span>Modulo 000198 &#183; Sistema &#183; General</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Roles y permisos</h1>
+        <p class="page-sub" style="margin-bottom:0;">Define roles de permisos por modulo (Ver / Crear / Editar / Eliminar) y asignalos a los usuarios de la empresa.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate" disabled="@_busy">+ Nuevo rol</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="rp-layout">
+        @* ===== Panel de roles ===== *@
+        <aside class="rp-roles card">
+            <div class="rp-roles-head">Roles del tenant</div>
+            <ul class="rp-role-list">
+                @foreach (var r in _roles)
+                {
+                    <li class="rp-role-item @(r.Id == _selectedId ? "sel" : "")" @onclick="@(() => SelectAsync(r.Id))">
+                        <div class="rp-role-main">
+                            <span class="rp-role-name">@r.Name</span>
+                            <div class="rp-role-badges">
+                                @if (r.IsSystem)
+                                {
+                                    <span class="rp-badge sys">Sistema</span>
+                                }
+                                @if (!r.IsActive)
+                                {
+                                    <span class="rp-badge off">Inactivo</span>
+                                }
+                                <span class="rp-badge users">@r.UserCount usuario(s)</span>
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ul>
+            <div class="rp-roles-foot">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="OpenAssign" disabled="@_busy">Asignar usuarios</button>
+            </div>
+        </aside>
+
+        @* ===== Editor del rol seleccionado ===== *@
+        <section class="rp-editor">
+            @if (_detail is null)
+            {
+                <div class="coming-soon" style="padding:40px 24px;">
+                    <h3>Selecciona un rol</h3>
+                    <p>Elige un rol de la izquierda para editar su matriz de permisos, o crea uno nuevo.</p>
+                </div>
+            }
+            else
+            {
+                <div class="card rp-editor-head">
+                    <div class="rp-editor-title">
+                        <h2>@_detail.Name</h2>
+                        @if (_detail.IsSystem)
+                        {
+                            <span class="rp-badge sys">Sistema</span>
+                        }
+                    </div>
+                    <div class="rp-editor-actions">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(_detail))" disabled="@_busy">Editar datos</button>
+                        @if (!_detail.IsSystem)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteAsync(_detail.Id))" disabled="@_busy">Eliminar</button>
+                        }
+                    </div>
+                </div>
+
+                @if (_detail.Description is not null)
+                {
+                    <p class="rp-editor-desc">@_detail.Description</p>
+                }
+
+                <div class="card rp-matrix-card">
+                    <div class="rp-matrix-scroll">
+                        <table class="rp-matrix">
+                            <thead>
+                                <tr>
+                                    <th class="rp-mod-col">Modulo</th>
+                                    @foreach (var act in Actions)
+                                    {
+                                        <th class="rp-act-col">
+                                            @ActionLabel(act)
+                                            <button class="rp-col-toggle" title="Marcar/desmarcar columna" @onclick="@(() => ToggleColumn(act))">&#8645;</button>
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var grp in _matrix.GroupBy(m => m.Grupo))
+                                {
+                                    <tr class="rp-group-row">
+                                        <td class="rp-group-name">@grp.Key</td>
+                                        @foreach (var act in Actions)
+                                        {
+                                            <td class="rp-group-cell">
+                                                <button class="rp-col-toggle" title="Toda la seccion" @onclick="@(() => ToggleGroupColumn(grp.Key, act))">&#8645;</button>
+                                            </td>
+                                        }
+                                    </tr>
+                                    @foreach (var row in grp)
+                                    {
+                                        <tr>
+                                            <td class="rp-mod-cell">
+                                                <span class="rp-mod-label">@row.Label</span>
+                                                <code class="rp-mod-key">@row.Key</code>
+                                                <button class="rp-row-toggle" title="Toda la fila" @onclick="@(() => ToggleRow(row.Key))">&#8645;</button>
+                                            </td>
+                                            <td class="rp-act-cell"><input type="checkbox" @bind="row.CanView" /></td>
+                                            <td class="rp-act-cell"><input type="checkbox" @bind="row.CanCreate" /></td>
+                                            <td class="rp-act-cell"><input type="checkbox" @bind="row.CanEdit" /></td>
+                                            <td class="rp-act-cell"><input type="checkbox" @bind="row.CanDelete" /></td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="rp-matrix-foot">
+                        <button class="btn btn-primary" @onclick="SavePermisosAsync" disabled="@_busy">Guardar permisos</button>
+                    </div>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@* ===== Modal crear / editar rol ===== *@
+@if (_formOpen)
+{
+    <div class="modal-overlay" @onclick="CloseForm">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_formId is null ? "Nuevo rol" : "Editar rol")</h3>
+                <button class="modal-close" @onclick="CloseForm">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" placeholder="Ej. Asesor limitado" autocomplete="off" disabled="@_fIsSystem" />
+                    @if (_fIsSystem)
+                    {
+                        <small class="text-muted">El rol de sistema no se puede renombrar.</small>
+                    }
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <input class="form-control" @bind="_fDescription" placeholder="Para que sirve este rol" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="rp-check"><input type="checkbox" @bind="_fIsActive" /> Rol activo</label>
+                </div>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseForm">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveRolAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal asignar usuarios ===== *@
+@if (_assignOpen)
+{
+    <div class="modal-overlay" @onclick="CloseAssign">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Asignar rol de permisos</h3>
+                <button class="modal-close" @onclick="CloseAssign">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--muted-foreground);font-size:13px;margin-bottom:12px;">
+                    Elige el rol de permisos de cada usuario. Owner/Admin mandan por su rol organico
+                    aunque no tengan rol de permisos (el enforcement se activa en la Ola B2).
+                </p>
+                <table class="table" style="margin:0;">
+                    <thead>
+                        <tr><th>Usuario</th><th>Email</th><th>Rol de permisos</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in _users)
+                        {
+                            <tr>
+                                <td><strong>@(string.IsNullOrWhiteSpace(u.DisplayName) ? "-" : u.DisplayName)</strong></td>
+                                <td><span style="font-family:ui-monospace,monospace;font-size:12px;">@u.Email</span></td>
+                                <td>
+                                    <select class="form-control" value="@ChosenRolFor(u.Id)"
+                                            @onchange="@(e => OnAssignChange(u.Id, e.Value?.ToString()))">
+                                        <option value="">Sin rol</option>
+                                        @foreach (var r in _roles)
+                                        {
+                                            <option value="@r.Id">@r.Name</option>
+                                        }
+                                    </select>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" @onclick="CloseAssign">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_toast is not null)
+{
+    <div class="tk-toast @(_toastOk ? "ok" : "err")" style="position:fixed;right:20px;bottom:20px;z-index:2000;">@_toast</div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private static readonly PermissionAction[] Actions =
+        new[] { PermissionAction.View, PermissionAction.Create, PermissionAction.Edit, PermissionAction.Delete };
+
+    private bool _loading = true;
+    private bool _busy;
+    private string? _toast;
+    private bool _toastOk;
+
+    private List<RolDto> _roles = new();
+    private List<TenantUserDto> _users = new();
+    private IReadOnlyList<ModuloInfo> _catalog = Array.Empty<ModuloInfo>();
+    private Guid? _selectedId;
+    private RolDetailDto? _detail;
+    private List<MatrixRow> _matrix = new();
+
+    // Asignacion en memoria mientras el modal esta abierto (TenantUserId -> RolId elegido).
+    private Dictionary<Guid, Guid?> _assignedRol = new();
+
+    // Form.
+    private bool _formOpen;
+    private Guid? _formId;
+    private bool _fIsSystem;
+    private string _fName = "";
+    private string _fDescription = "";
+    private bool _fIsActive = true;
+    private string? _formError;
+
+    private bool _assignOpen;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalog = await RolesSvc.GetModuleCatalogAsync();
+        await ReloadRolesAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadRolesAsync()
+    {
+        _roles = (await RolesSvc.ListAsync()).ToList();
+        if (_selectedId is null && _roles.Count > 0)
+        {
+            await SelectAsync(_roles[0].Id);
+        }
+    }
+
+    private sealed class MatrixRow
+    {
+        public string Key { get; init; } = "";
+        public string Label { get; init; } = "";
+        public string Grupo { get; init; } = "";
+        public bool CanView { get; set; }
+        public bool CanCreate { get; set; }
+        public bool CanEdit { get; set; }
+        public bool CanDelete { get; set; }
+    }
+
+    private async Task SelectAsync(Guid id)
+    {
+        _selectedId = id;
+        _detail = await RolesSvc.GetAsync(id);
+        BuildMatrix();
+    }
+
+    private void BuildMatrix()
+    {
+        var byKey = (_detail?.Permisos ?? Array.Empty<ModulePermissionDto>())
+            .ToDictionary(p => p.ModuleKey, StringComparer.Ordinal);
+        _matrix = _catalog.Select(m =>
+        {
+            byKey.TryGetValue(m.Key, out var p);
+            return new MatrixRow
+            {
+                Key = m.Key,
+                Label = m.Label,
+                Grupo = m.Grupo,
+                CanView = p?.CanView ?? false,
+                CanCreate = p?.CanCreate ?? false,
+                CanEdit = p?.CanEdit ?? false,
+                CanDelete = p?.CanDelete ?? false
+            };
+        }).ToList();
+    }
+
+    // ---- Matriz: utilidades marcar/desmarcar ----
+
+    private void ToggleRow(string key)
+    {
+        var row = _matrix.FirstOrDefault(r => r.Key == key);
+        if (row is null) { return; }
+        var target = !(row.CanView && row.CanCreate && row.CanEdit && row.CanDelete);
+        row.CanView = row.CanCreate = row.CanEdit = row.CanDelete = target;
+    }
+
+    private void ToggleColumn(PermissionAction act)
+    {
+        var target = !_matrix.All(r => Get(r, act));
+        foreach (var r in _matrix) { Set(r, act, target); }
+    }
+
+    private void ToggleGroupColumn(string grupo, PermissionAction act)
+    {
+        var rows = _matrix.Where(r => r.Grupo == grupo).ToList();
+        var target = !rows.All(r => Get(r, act));
+        foreach (var r in rows) { Set(r, act, target); }
+    }
+
+    private static bool Get(MatrixRow r, PermissionAction a) => a switch
+    {
+        PermissionAction.View => r.CanView,
+        PermissionAction.Create => r.CanCreate,
+        PermissionAction.Edit => r.CanEdit,
+        PermissionAction.Delete => r.CanDelete,
+        _ => false
+    };
+
+    private static void Set(MatrixRow r, PermissionAction a, bool v)
+    {
+        switch (a)
+        {
+            case PermissionAction.View: r.CanView = v; break;
+            case PermissionAction.Create: r.CanCreate = v; break;
+            case PermissionAction.Edit: r.CanEdit = v; break;
+            case PermissionAction.Delete: r.CanDelete = v; break;
+        }
+    }
+
+    private async Task SavePermisosAsync()
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var permisos = _matrix
+                .Select(r => new ModulePermissionDto(r.Key, r.CanView, r.CanCreate, r.CanEdit, r.CanDelete))
+                .ToList();
+            var res = await RolesSvc.SavePermisosAsync(_detail.Id, permisos, actor);
+            if (res.IsOk)
+            {
+                await SelectAsync(_detail.Id);
+                ShowToast("Permisos guardados.", true);
+            }
+            else
+            {
+                ShowToast(res.Error ?? "No se pudo guardar.", false);
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Crear / editar rol ----
+
+    private void OpenCreate()
+    {
+        _formId = null;
+        _fIsSystem = false;
+        _fName = "";
+        _fDescription = "";
+        _fIsActive = true;
+        _formError = null;
+        _formOpen = true;
+    }
+
+    private void OpenEdit(RolDetailDto d)
+    {
+        _formId = d.Id;
+        _fIsSystem = d.IsSystem;
+        _fName = d.Name;
+        _fDescription = d.Description ?? "";
+        _fIsActive = d.IsActive;
+        _formError = null;
+        _formOpen = true;
+    }
+
+    private void CloseForm() { _formOpen = false; _formError = null; }
+
+    private async Task SaveRolAsync()
+    {
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_fName))
+        {
+            _formError = "El nombre del rol es obligatorio.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var res = await RolesSvc.SaveAsync(_formId, _fName.Trim(),
+                string.IsNullOrWhiteSpace(_fDescription) ? null : _fDescription.Trim(),
+                _fIsActive, actor);
+            if (!res.IsOk)
+            {
+                _formError = res.Error;
+                return;
+            }
+            _formOpen = false;
+            var savedId = res.Value!.Id;
+            await ReloadRolesAsync();
+            await SelectAsync(savedId);
+            ShowToast(_formId is null ? "Rol creado." : "Rol actualizado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var res = await RolesSvc.DeleteAsync(id, actor);
+            if (!res.IsOk)
+            {
+                ShowToast(res.Error ?? "No se pudo eliminar.", false);
+                return;
+            }
+            if (_selectedId == id) { _selectedId = null; _detail = null; }
+            await ReloadRolesAsync();
+            ShowToast("Rol eliminado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Asignar usuarios ----
+
+    private async Task OpenAssign()
+    {
+        _users = (await UsersSvc.ListAsync()).ToList();
+        _assignedRol = new Dictionary<Guid, Guid?>();
+        foreach (var u in _users)
+        {
+            var eff = await RolesSvc.ResolveEffectivePermissionsAsync(u.PlatformUserId);
+            // RolId efectivo solo cuando no es AllowAll; para el selector partimos del rol real
+            // del usuario (via detalle no expuesto): usamos ResolveEffectivePermissions.RolId.
+            _assignedRol[u.Id] = eff.RolId;
+        }
+        _assignOpen = true;
+    }
+
+    private void CloseAssign() { _assignOpen = false; }
+
+    private string ChosenRolFor(Guid tenantUserId) =>
+        _assignedRol.TryGetValue(tenantUserId, out var rid) && rid is Guid g ? g.ToString() : "";
+
+    private async Task OnAssignChange(Guid tenantUserId, string? value)
+    {
+        Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
+        _assignedRol[tenantUserId] = rolId;
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var res = await RolesSvc.AssignRoleToUserAsync(tenantUserId, rolId, actor);
+            if (res.IsOk)
+            {
+                await ReloadRolesAsync();
+                ShowToast("Rol asignado.", true);
+            }
+            else
+            {
+                ShowToast(res.Error ?? "No se pudo asignar.", false);
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    // ---- Helpers ----
+
+    private static string ActionLabel(PermissionAction a) => a switch
+    {
+        PermissionAction.View => "Ver",
+        PermissionAction.Create => "Crear",
+        PermissionAction.Edit => "Editar",
+        PermissionAction.Delete => "Eliminar",
+        _ => a.ToString()
+    };
+
+    private void ShowToast(string message, bool ok) { _toast = message; _toastOk = ok; }
+
+    private async Task<Guid> ResolveSelfIdAsync()
+    {
+        if (TenantCtx.UserId is Guid uid) { return uid; }
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

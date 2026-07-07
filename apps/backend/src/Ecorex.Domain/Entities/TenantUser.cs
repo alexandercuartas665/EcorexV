@@ -26,6 +26,15 @@ public class TenantUser : TenantEntity
     public Guid? MenuViewId { get; set; }
     public MenuView? MenuView { get; set; }
 
+    /// <summary>
+    /// Rol de permisos (Ola B1) asignado a este usuario. Null = sin rol de permisos finos; el
+    /// enforcement (Ola B2) igual permite todo a Owner/Admin por su TenantRole. FK NO ACTION
+    /// (borrar un rol no arrastra al usuario; la app bloquea el borrado si tiene usuarios).
+    /// Distinto de <see cref="TenantRole"/> (poder organico): ver ADR-0032.
+    /// </summary>
+    public Guid? RolId { get; set; }
+    public Rol? Rol { get; set; }
+
     /// <summary>Token de invitacion para que el asesor complete su registro (clave + foto). Null si ya activo.</summary>
     public string? InvitationToken { get; set; }
     public DateTimeOffset? InvitationExpiresAt { get; set; }

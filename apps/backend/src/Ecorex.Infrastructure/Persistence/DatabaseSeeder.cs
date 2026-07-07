@@ -2028,6 +2028,9 @@ public sealed class DatabaseSeeder
         Item(gen.Id, "Administrador de Menu", "configuracion-menu", "000194");
         // Administracion de usuarios del tenant (modulo 000073, ADR-0031): pagina real /admin-usuarios.
         Item(gen.Id, "Administracion de usuarios", "admin-usuarios", "000073");
+        // Roles y permisos (Ola B1, ADR-0032): matriz de permisos por rol. LegacyCode libre 000198
+        // (no colisiona con 000194 = Administrador de Menu). Pagina real /roles-permisos (Ready).
+        Item(gen.Id, "Roles y permisos", "roles-permisos", "000198");
 
         // ---- Seccion: Sistema - Desarrollo (slug dev) ----
         var dev = Add(MenuNodeKind.Section, "Sistema \u00b7 Desarrollo", null, "dev", iconKey: "gear");
@@ -2168,6 +2171,69 @@ public sealed class DatabaseSeeder
                 "Reconciliacion del menu para el tenant {Tenant}: {Changed} campos ajustados en nodos 000073/000194.",
                 tenantId, changed);
         }
+
+        // Alta idempotente del item "Roles y permisos" (Ola B1, ADR-0032) en las vistas ya
+        // sembradas que aun no lo tienen. Se cuelga de la seccion "Sistema . General" (slug gen)
+        // de cada vista; si la vista no tiene esa seccion, se omite (vistas reducidas como Simple).
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "gen", route: "roles-permisos",
+            name: "Roles y permisos", legacyCode: "000198", cancellationToken);
+    }
+
+    /// <summary>
+    /// Alta idempotente de un Item hoja dentro de la seccion (por slug/route) de cada vista del
+    /// tenant que aun no tenga ese Route. Tenant-scoped (IgnoreQueryFilters + filtro por TenantId).
+    /// Lo usa la reconciliacion para propagar items nuevos a demos ya sembrados.
+    /// </summary>
+    private async Task EnsureMenuItemInSectionAsync(
+        Guid tenantId, string sectionSlug, string route, string name, string? legacyCode,
+        CancellationToken cancellationToken)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
+
+        var added = 0;
+        foreach (var viewId in views)
+        {
+            var alreadyThere = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == viewId && n.Route == route, cancellationToken);
+            if (alreadyThere) { continue; }
+
+            var section = await _db.MenuNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.MenuViewId == viewId
+                    && n.Kind == MenuNodeKind.Section && n.Route == sectionSlug, cancellationToken);
+            if (section is null) { continue; }
+
+            var nextOrder = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == viewId && n.ParentId == section.Id)
+                .Select(n => (int?)n.SortOrder)
+                .MaxAsync(cancellationToken);
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = viewId,
+                ParentId = section.Id,
+                Kind = MenuNodeKind.Item,
+                Name = name,
+                Route = route,
+                LegacyCode = legacyCode,
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = (nextOrder ?? -1) + 1
+            });
+            added++;
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Reconciliacion del menu para el tenant {Tenant}: item '{Name}' ({Route}) agregado a {Count} vista(s).",
+                tenantId, name, route, added);
+        }
     }
 
     private async Task EnsureMenuDemoUserAsync(
@@ -2205,5 +2271,111 @@ public sealed class DatabaseSeeder
             MenuViewId = menuViewId
         });
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public const string RolAdministradorName = "Administrador";
+    public const string RolAsesorLimitadoName = "Asesor limitado";
+
+    /// <summary>
+    /// Siembra los roles de permisos del tenant demo (Ola B1, ADR-0032): el rol de sistema
+    /// "Administrador" (IsSystem, todos los modulos con Ver/Crear/Editar/Eliminar) y un rol demo
+    /// "Asesor limitado" (solo Ver en la mayoria + Crear en tareas/inventario, sin Eliminar), y
+    /// asigna "Asesor limitado" al usuario simple@sky-system.local. Idempotente por existencia
+    /// del rol Administrador. El catalogo de modulos sale de los Item Ready de la vista IsDefault
+    /// del tenant (misma fuente que RolService.GetModuleCatalogAsync). Solo Development.
+    /// </summary>
+    public async Task EnsureRolesDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        // Idempotente: si ya existe el rol de sistema, no re-siembra.
+        if (await _db.Roles.IgnoreQueryFilters()
+                .AnyAsync(r => r.TenantId == tenant.Id && r.IsSystem, cancellationToken))
+        {
+            return;
+        }
+
+        // Catalogo = Route de los Item Ready de la vista IsDefault del tenant.
+        var defaultView = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenant.Id && v.IsDefault)
+            .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (defaultView is null) { return; }
+
+        var moduleKeys = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.MenuViewId == defaultView.Id
+                && n.Kind == MenuNodeKind.Item
+                && n.State == MenuNodeState.Ready
+                && n.Route != null && n.Route != "")
+            .Select(n => n.Route!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        if (moduleKeys.Count == 0) { return; }
+
+        // Rol de sistema "Administrador": TODO en true para todos los modulos.
+        var admin = new Rol
+        {
+            TenantId = tenant.Id,
+            Name = RolAdministradorName,
+            Description = "Rol de sistema con acceso total a todos los modulos.",
+            IsActive = true,
+            IsSystem = true
+        };
+        _db.Roles.Add(admin);
+        foreach (var key in moduleKeys)
+        {
+            _db.RolPermisos.Add(new RolPermiso
+            {
+                TenantId = tenant.Id,
+                RolId = admin.Id,
+                ModuleKey = key,
+                CanView = true,
+                CanCreate = true,
+                CanEdit = true,
+                CanDelete = true
+            });
+        }
+
+        // Rol demo "Asesor limitado": Ver en la mayoria; Crear en tareas/inventario; sin Eliminar.
+        var creaEn = new[] { "actividades", "crear-actividad", "proyectos", "inventario-items" };
+        var asesor = new Rol
+        {
+            TenantId = tenant.Id,
+            Name = RolAsesorLimitadoName,
+            Description = "Perfil operativo: consulta general, crea tareas e items, sin eliminar.",
+            IsActive = true,
+            IsSystem = false
+        };
+        _db.Roles.Add(asesor);
+        foreach (var key in moduleKeys)
+        {
+            _db.RolPermisos.Add(new RolPermiso
+            {
+                TenantId = tenant.Id,
+                RolId = asesor.Id,
+                ModuleKey = key,
+                CanView = true,
+                CanCreate = creaEn.Contains(key),
+                CanEdit = false,
+                CanDelete = false
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // Asigna "Asesor limitado" al usuario simple@ para tener un caso visible.
+        var simpleUser = await _db.TenantUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.TenantId == tenant.Id && u.Email == MenuSimpleUserEmail, cancellationToken);
+        if (simpleUser is not null && simpleUser.RolId != asesor.Id)
+        {
+            simpleUser.RolId = asesor.Id;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Seed de roles creado para {Tenant}: '{Admin}' (sistema, {Count} modulos) + '{Asesor}' asignado a {User}.",
+            tenant.Name, RolAdministradorName, moduleKeys.Count, RolAsesorLimitadoName, MenuSimpleUserEmail);
     }
 }

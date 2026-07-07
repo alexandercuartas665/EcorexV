@@ -48,6 +48,8 @@ public class TenantUserServiceTests
         public DbSet<PlatformUser> PlatformUsers => inner.PlatformUsers;
         public DbSet<TenantUser> TenantUsers => inner.TenantUsers;
         public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => inner.SuperAdminAuditLogs;
+        public DbSet<Rol> Roles => throw new NotSupportedException();
+        public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

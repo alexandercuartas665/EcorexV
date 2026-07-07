@@ -3722,6 +3722,131 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("quote_templates", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Rol", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_system");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_roles");
+
+                    b.HasIndex("TenantId", "IsActive")
+                        .HasDatabaseName("ix_roles_tenant_id_is_active");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_roles_tenant_id_name");
+
+                    b.ToTable("roles", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("CanCreate")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_create");
+
+                    b.Property<bool>("CanDelete")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_delete");
+
+                    b.Property<bool>("CanEdit")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_edit");
+
+                    b.Property<bool>("CanView")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_view");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ModuleKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("module_key");
+
+                    b.Property<Guid>("RolId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rol_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rol_permisos");
+
+                    b.HasIndex("RolId", "ModuleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_rol_permisos_rol_id_module_key");
+
+                    b.HasIndex("TenantId", "RolId")
+                        .HasDatabaseName("ix_rol_permisos_tenant_id_rol_id");
+
+                    b.ToTable("rol_permisos", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Rule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6141,6 +6266,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("platform_user_id");
 
+                    b.Property<Guid?>("RolId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rol_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -6176,6 +6305,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PlatformUserId")
                         .HasDatabaseName("ix_tenant_users_platform_user_id");
+
+                    b.HasIndex("RolId")
+                        .HasDatabaseName("ix_tenant_users_rol_id");
 
                     b.HasIndex("TenantId", "Email")
                         .IsUnique()
@@ -7616,6 +7748,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Rol", "Rol")
+                        .WithMany()
+                        .HasForeignKey("RolId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_rol_permisos_roles_rol_id");
+
+                    b.Navigation("Rol");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Rule", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.RuleDocument", "Document")
@@ -7998,9 +8142,17 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_tenant_users_platform_users_platform_user_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.Rol", "Rol")
+                        .WithMany()
+                        .HasForeignKey("RolId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_tenant_users_roles_rol_id");
+
                     b.Navigation("MenuView");
 
                     b.Navigation("PlatformUser");
+
+                    b.Navigation("Rol");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WhatsAppTemplate", b =>

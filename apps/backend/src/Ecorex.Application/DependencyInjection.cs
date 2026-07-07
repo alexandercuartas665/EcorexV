@@ -104,6 +104,10 @@ public static class DependencyInjection
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
         services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
+        // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant,
+        // catalogo derivado del menu, asignacion de rol a usuario y resolucion de permisos
+        // efectivos (lista para el enforcement de Ola B2). La aplicacion en backend NO va aqui.
+        services.AddScoped<Roles.IRolService, Roles.RolService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

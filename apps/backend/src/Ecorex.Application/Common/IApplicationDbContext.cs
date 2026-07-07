@@ -117,6 +117,10 @@ public interface IApplicationDbContext
     DbSet<MenuView> MenuViews { get; }
     DbSet<MenuNode> MenuNodes { get; }
 
+    // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant.
+    DbSet<Rol> Roles { get; }
+    DbSet<RolPermiso> RolPermisos { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

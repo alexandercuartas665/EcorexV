@@ -167,6 +167,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<MenuView> MenuViews => Set<MenuView>();
     public DbSet<MenuNode> MenuNodes => Set<MenuNode>();
 
+    // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant.
+    public DbSet<Rol> Roles => Set<Rol>();
+    public DbSet<RolPermiso> RolPermisos => Set<RolPermiso>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -418,10 +422,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Asignacion usuario->vista del menu (Ola 1). NO ACTION: borrar una vista no arrastra
             // al usuario por cascada (la app deja MenuViewId en null antes de borrar la vista).
             b.HasOne(x => x.MenuView).WithMany().HasForeignKey(x => x.MenuViewId).OnDelete(DeleteBehavior.Restrict);
+            // Rol de permisos (Ola B1). NO ACTION: borrar un rol no arrastra al usuario por cascada
+            // (la app bloquea el borrado de un rol con usuarios asignados). Ver ADR-0032.
+            b.HasOne(x => x.Rol).WithMany().HasForeignKey(x => x.RolId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.PlatformUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
             b.HasIndex(x => x.InvitationToken);
             b.HasIndex(x => x.MenuViewId);
+            b.HasIndex(x => x.RolId);
         });
 
         modelBuilder.Entity<TenantConfiguration>(b =>
@@ -1399,6 +1407,27 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.MenuViewId });
             b.HasIndex(x => new { x.MenuViewId, x.ParentId, x.SortOrder });
+        });
+
+        // Roles de permisos dinamicos (Ola B1, ADR-0032): rol por tenant + filas de permiso por modulo.
+        modelBuilder.Entity<Rol>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            // Nombre unico por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive });
+        });
+
+        modelBuilder.Entity<RolPermiso>(b =>
+        {
+            b.Property(x => x.ModuleKey).HasMaxLength(300).IsRequired();
+            // El permiso vive y muere con su rol.
+            b.HasOne(x => x.Rol).WithMany()
+                .HasForeignKey(x => x.RolId).OnDelete(DeleteBehavior.Cascade);
+            // Una fila por (rol, modulo).
+            b.HasIndex(x => new { x.RolId, x.ModuleKey }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.RolId });
         });
     }
 

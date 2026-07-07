@@ -1,0 +1,128 @@
+/* Roles y permisos (Ola B1, ADR-0032). Tokens del prototipo ECOREX (claro/oscuro por html.dark). */
+
+.rp-layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .rp-layout { grid-template-columns: 1fr; }
+}
+
+/* ---- Panel de roles ---- */
+
+.rp-roles { padding: 0; overflow: hidden; }
+
+.rp-roles-head {
+    padding: 14px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+}
+
+.rp-role-list { list-style: none; margin: 0; padding: 6px; }
+
+.rp-role-item {
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .12s ease;
+}
+
+.rp-role-item:hover { background: var(--brand-soft); }
+.rp-role-item.sel { background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand); }
+
+.rp-role-name { font-weight: 600; font-size: 14px; color: var(--ink); }
+
+.rp-role-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+
+.rp-badge {
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.rp-badge.sys { background: var(--t-green-bg); color: var(--t-green); }
+.rp-badge.off { background: var(--t-rose-bg); color: var(--t-rose); }
+.rp-badge.users { background: var(--line); color: var(--ink); }
+
+.rp-roles-foot { padding: 10px 12px; border-top: 1px solid var(--line); }
+
+/* ---- Editor ---- */
+
+.rp-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+}
+
+.rp-editor-title { display: flex; align-items: center; gap: 10px; }
+.rp-editor-title h2 { margin: 0; font-size: 18px; color: var(--ink); }
+.rp-editor-actions { display: flex; gap: 8px; }
+.rp-editor-desc { color: var(--muted-foreground); font-size: 13px; margin: 0 0 12px; }
+
+/* ---- Matriz ---- */
+
+.rp-matrix-card { padding: 0; overflow: hidden; }
+.rp-matrix-scroll { overflow-x: auto; }
+
+.rp-matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.rp-matrix th, .rp-matrix td {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 10px;
+    text-align: left;
+}
+
+.rp-matrix thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.rp-mod-col { min-width: 260px; }
+.rp-act-col { text-align: center; width: 90px; }
+.rp-act-cell { text-align: center; }
+
+.rp-group-row { background: var(--brand-soft); }
+.rp-group-name { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--brand); }
+.rp-group-cell { text-align: center; }
+
+.rp-mod-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rp-mod-label { font-weight: 500; color: var(--ink); }
+.rp-mod-key { font-size: 11px; color: var(--muted-foreground); background: var(--line); padding: 1px 6px; border-radius: 6px; }
+
+.rp-col-toggle, .rp-row-toggle {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--muted-foreground);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 5px;
+    margin-left: 6px;
+}
+
+.rp-col-toggle:hover, .rp-row-toggle:hover { color: var(--brand); border-color: var(--brand); }
+
+.rp-matrix input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--brand); }
+
+.rp-matrix-foot {
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.rp-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.rp-check input { width: 16px; height: 16px; accent-color: var(--brand); }

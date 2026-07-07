@@ -5,6 +5,59 @@
 
 ---
 
+## 2026-07-07 - Sesion: Roles de permisos dinamicos con matriz Modulo x Accion (Ola B1)
+
+**Agentes**: agente de feature (roles + matriz de permisos). Referencia de modelo: hermano Visal
+(Rol + RolPermiso), adaptado al menu real de ECOREX.
+
+**Pedido**: Ola B1 de roles dinamicos por-tenant con matriz (Modulo x Accion), inspirado en Visal.
+SIN enforcement en backend (eso es Ola B2), pero dejando lista la resolucion de permisos efectivos.
+
+**Hecho**:
+- **Dominio** (`Ecorex.Domain`): `Rol : TenantEntity` (Name unico/tenant, Description?, IsActive,
+  IsSystem) y `RolPermiso : TenantEntity` (RolId FK cascade, ModuleKey=Route del MenuNode,
+  CanView/CanCreate/CanEdit/CanDelete, unico (RolId, ModuleKey)). `TenantUser.RolId` (Guid?,
+  nullable, FK NO ACTION). DbSets en `IApplicationDbContext`/`EcorexDbContext` + config Fluent.
+- **Migracion DUAL `AddRoles`** (PG `20260707191724`, SQL Server `20260707191908`): tablas `roles`,
+  `rol_permisos` + columna `tenant_users.rol_id`. Aplicada y **verificada** en Postgres 5442 y SQL
+  Server 1443 (tablas + columna + FKs cascade/NO ACTION).
+- **Servicio** (`Ecorex.Application/Roles`, resultados tipados `RolResult<T>`): `IRolService`/
+  `RolService` con `ListAsync` (UserCount), `GetAsync`, `SaveAsync` (unicidad; IsSystem no se
+  renombra), `DeleteAsync` (bloquea IsSystem y rol con usuarios), `SavePermisosAsync` (borra e
+  reinserta solo filas con flag, transaccional), `GetModuleCatalogAsync` (DERIVA el catalogo de los
+  MenuNode Item Ready de la vista IsDefault; Grupo=Section ancestro; fallback minimo),
+  `ResolveEffectivePermissionsAsync` (Owner/Admin -> AllowAll; con rol -> set; sin rol -> vacio),
+  `AssignRoleToUserAsync`. Logica pura en `PermissionResolver`/`EffectivePermissions` (Can(mod,acc)).
+  Auditado y registrado en DI.
+- **Pagina** `Components/Pages/RolesPermisos.razor` (+.css) `/roles-permisos`, policy
+  `RolesPermisos.Administrar` (Program.cs, paso 1 tenant_id): cabecera de modulo, panel de roles con
+  badges (Sistema/Inactivo/UserCount), editor con la MATRIZ (filas=modulos por Grupo, columnas Ver/
+  Crear/Editar/Eliminar) + utilidades marcar fila/columna/grupo, modal crear/editar, modal "Asignar
+  usuarios". Columna "Rol de permisos" agregada tambien a `AdmUsuarios.razor`.
+- **Menu**: item "Roles y permisos" -> `roles-permisos` (Ready, LegacyCode libre 000198) en la
+  seccion "gen"; alta idempotente en el seed y en la reconciliacion (`EnsureMenuItemInSectionAsync`)
+  para propagarlo a demos ya sembrados.
+- **Seed** `EnsureRolesDemoAsync` (Development, idempotente): rol de sistema "Administrador" (31
+  modulos, todo en true) + "Asesor limitado" (Ver general + Crear en tareas/inventario, sin Eliminar)
+  asignado a `simple@sky-system.local`. Catalogo real = 31 modulos derivados del menu demo.
+- **Tests**: unit `PermissionResolverTests` (Owner/Admin AllowAll; con rol resuelve; sin rol vacio;
+  Can(mod,acc); FilterPersistable dedup/whitelist/blank) **8/8**; integracion dual `RolesTests` (PG +
+  SQL Server): crear+guardar+releer, resave reemplaza, asignar rol + effective, Owner AllowAll,
+  unicidad, cross-tenant, Delete bloquea IsSystem/con-usuarios, Delete ok cascada, catalogo del menu
+  **20/20**; E2E `RolesPermisosTests` (owner crea rol -> marca permisos -> guarda -> asigna) **1/1**.
+
+**Decisiones**: ADR-0032 (modelo Rol+RolPermiso; catalogo derivado del menu; `TenantRole` poder
+organico vs `Rol` permisos finos; enforcement = Ola B2).
+
+**Siguiente / deuda**: **Ola B2 = enforcement**: hacer cumplir el set por modulo en policies/
+endpoints usando `ResolveEffectivePermissionsAsync`, poblar el claim `Permissions` del token
+(`AuthService.BuildToken`) y derivar `RolesPermisos.Administrar` (y demas) a Owner/Admin.
+
+**Gate**: `dotnet build Ecorex.sln` 0 errores; `dotnet format --verify-no-changes` limpio; unit
+8/8 (+311 suite total) + integracion dual 20/20 + E2E 1/1 verdes. Migracion dual aplicada/verificada.
+
+---
+
 ## 2026-07-07 - Sesion: Modulo Administracion de usuarios del tenant (000073)
 
 **Agentes**: agente de feature (modulo de usuarios del tenant). Backend reusado del backbone.

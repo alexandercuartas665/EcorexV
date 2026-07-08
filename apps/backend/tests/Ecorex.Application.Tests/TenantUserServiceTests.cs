@@ -123,6 +123,7 @@ public class TenantUserServiceTests
         public DbSet<WorkflowNodeRule> WorkflowNodeRules => throw new NotSupportedException();
         public DbSet<OrgUnit> OrgUnits => throw new NotSupportedException();
         public DbSet<OrgUnitMember> OrgUnitMembers => throw new NotSupportedException();
+        public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => throw new NotSupportedException();
         public DbSet<ModuleDefinition> ModuleDefinitions => throw new NotSupportedException();
         public DbSet<TenantModule> TenantModules => throw new NotSupportedException();
         public DbSet<SaasPlan> SaasPlans => throw new NotSupportedException();

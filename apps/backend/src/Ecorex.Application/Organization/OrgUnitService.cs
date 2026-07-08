@@ -41,7 +41,7 @@ public sealed class OrgUnitService : IOrgUnitService
             return children.Select(u => new OrgUnitNodeDto(
                 u.Id, u.Name, u.Kind, u.ParentId, u.ResponsibleTenantUserId, u.ResponsibleName,
                 u.Description, u.SortOrder, u.IsArchived, u.MemberCount,
-                BuildChildren(u.Id))).ToList();
+                BuildChildren(u.Id), u.Classifier, u.TenantUserId, u.OccupantName)).ToList();
         }
 
         // Raices: sin padre O con padre fuera del conjunto visible (ej. padre archivado
@@ -53,7 +53,7 @@ public sealed class OrgUnitService : IOrgUnitService
             .Select(u => new OrgUnitNodeDto(
                 u.Id, u.Name, u.Kind, u.ParentId, u.ResponsibleTenantUserId, u.ResponsibleName,
                 u.Description, u.SortOrder, u.IsArchived, u.MemberCount,
-                BuildChildren(u.Id)))
+                BuildChildren(u.Id), u.Classifier, u.TenantUserId, u.OccupantName))
             .ToList();
         return roots;
     }
@@ -69,7 +69,8 @@ public sealed class OrgUnitService : IOrgUnitService
                 u.Id, u.Name, u.Kind, u.ParentId,
                 u.ParentId is Guid pid && nameById.TryGetValue(pid, out var pname) ? pname : null,
                 u.ResponsibleTenantUserId, u.ResponsibleName, u.Description,
-                u.SortOrder, u.IsArchived, u.MemberCount))
+                u.SortOrder, u.IsArchived, u.MemberCount,
+                u.Classifier, u.TenantUserId, u.OccupantName))
             .ToList();
     }
 
@@ -131,7 +132,10 @@ public sealed class OrgUnitService : IOrgUnitService
             ParentId = request.ParentId,
             ResponsibleTenantUserId = request.ResponsibleTenantUserId,
             Description = Normalize(request.Description),
-            SortOrder = request.SortOrder
+            SortOrder = request.SortOrder,
+            Classifier = request.Classifier,
+            // TenantUserId solo aplica a Funcionario; para Dependencia/Cargo se ignora.
+            TenantUserId = request.Classifier == OrgUnitClassifier.Funcionario ? request.TenantUserId : null
         };
         _db.OrgUnits.Add(unit);
         await _db.SaveChangesAsync(cancellationToken);
@@ -179,6 +183,8 @@ public sealed class OrgUnitService : IOrgUnitService
         unit.ResponsibleTenantUserId = request.ResponsibleTenantUserId;
         unit.Description = Normalize(request.Description);
         unit.SortOrder = request.SortOrder;
+        unit.Classifier = request.Classifier;
+        unit.TenantUserId = request.Classifier == OrgUnitClassifier.Funcionario ? request.TenantUserId : null;
         await _db.SaveChangesAsync(cancellationToken);
         return OrgResult<OrgUnitDto>.Ok(await ToDtoAsync(unit, cancellationToken));
     }
@@ -287,7 +293,8 @@ public sealed class OrgUnitService : IOrgUnitService
 
     private sealed record UnitMeta(
         Guid Id, string Name, OrgUnitKind Kind, Guid? ParentId, Guid? ResponsibleTenantUserId,
-        string? ResponsibleName, string? Description, int SortOrder, bool IsArchived, int MemberCount);
+        string? ResponsibleName, string? Description, int SortOrder, bool IsArchived, int MemberCount,
+        OrgUnitClassifier Classifier, Guid? TenantUserId, string? OccupantName);
 
     private async Task<List<UnitMeta>> LoadUnitsWithMetaAsync(bool includeArchived, CancellationToken cancellationToken)
     {
@@ -307,9 +314,16 @@ public sealed class OrgUnitService : IOrgUnitService
                 u.Description,
                 u.SortOrder,
                 u.IsArchived,
+                u.Classifier,
+                u.TenantUserId,
                 MemberCount = _db.OrgUnitMembers.Count(m => m.OrgUnitId == u.Id),
                 ResponsibleName = _db.TenantUsers
                     .Where(tu => tu.Id == u.ResponsibleTenantUserId)
+                    .Join(_db.PlatformUsers, tu => tu.PlatformUserId, pu => pu.Id,
+                        (tu, pu) => pu.DisplayName ?? tu.Email)
+                    .FirstOrDefault(),
+                OccupantName = _db.TenantUsers
+                    .Where(tu => tu.Id == u.TenantUserId)
                     .Join(_db.PlatformUsers, tu => tu.PlatformUserId, pu => pu.Id,
                         (tu, pu) => pu.DisplayName ?? tu.Email)
                     .FirstOrDefault()
@@ -317,7 +331,8 @@ public sealed class OrgUnitService : IOrgUnitService
             .ToListAsync(cancellationToken);
         return rows.Select(r => new UnitMeta(
             r.Id, r.Name, r.Kind, r.ParentId, r.ResponsibleTenantUserId, r.ResponsibleName,
-            r.Description, r.SortOrder, r.IsArchived, r.MemberCount)).ToList();
+            r.Description, r.SortOrder, r.IsArchived, r.MemberCount,
+            r.Classifier, r.TenantUserId, r.OccupantName)).ToList();
     }
 
     private async Task<OrgUnitDto> ToDtoAsync(OrgUnit unit, CancellationToken cancellationToken)
@@ -332,10 +347,17 @@ public sealed class OrgUnitService : IOrgUnitService
                 .FirstOrDefaultAsync(cancellationToken)
             : null;
         var memberCount = await _db.OrgUnitMembers.CountAsync(m => m.OrgUnitId == unit.Id, cancellationToken);
+        var occupantName = unit.TenantUserId is Guid occupantId
+            ? await _db.TenantUsers.AsNoTracking()
+                .Where(tu => tu.Id == occupantId)
+                .Join(_db.PlatformUsers, tu => tu.PlatformUserId, pu => pu.Id, (tu, pu) => pu.DisplayName ?? tu.Email)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
         return new OrgUnitDto(
             unit.Id, unit.Name, unit.Kind, unit.ParentId, parentName,
             unit.ResponsibleTenantUserId, responsibleName, unit.Description,
-            unit.SortOrder, unit.IsArchived, memberCount);
+            unit.SortOrder, unit.IsArchived, memberCount,
+            unit.Classifier, unit.TenantUserId, occupantName);
     }
 
     private async Task<string?> ValidateAsync(SaveOrgUnitRequest request, CancellationToken cancellationToken)
@@ -356,6 +378,40 @@ public sealed class OrgUnitService : IOrgUnitService
             && !await _db.TenantUsers.AnyAsync(tu => tu.Id == responsibleId, cancellationToken))
         {
             return "El responsable no pertenece al tenant.";
+        }
+
+        // Coherencia del clasificador de asignacion por nodo (ADR-0035). Jerarquia suave:
+        // un Cargo cuelga de una Dependencia (o raiz); un Funcionario cuelga de un Cargo y
+        // exige TenantUserId (el usuario que ocupa el puesto, del mismo tenant).
+        var parentClassifier = request.ParentId is Guid parentUnitId
+            ? await _db.OrgUnits.AsNoTracking()
+                .Where(u => u.Id == parentUnitId)
+                .Select(u => (OrgUnitClassifier?)u.Classifier)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
+
+        switch (request.Classifier)
+        {
+            case OrgUnitClassifier.Cargo:
+                if (parentClassifier is OrgUnitClassifier.Cargo or OrgUnitClassifier.Funcionario)
+                {
+                    return "Un Cargo debe colgar de una Dependencia (o ser raiz).";
+                }
+                break;
+            case OrgUnitClassifier.Funcionario:
+                if (request.TenantUserId is not Guid occupantId)
+                {
+                    return "Un Funcionario requiere el usuario del tenant que ocupa el puesto.";
+                }
+                if (!await _db.TenantUsers.AnyAsync(tu => tu.Id == occupantId, cancellationToken))
+                {
+                    return "El usuario ocupante no pertenece al tenant.";
+                }
+                if (parentClassifier is not null and not OrgUnitClassifier.Cargo)
+                {
+                    return "Un Funcionario debe colgar de un Cargo.";
+                }
+                break;
         }
         return null;
     }

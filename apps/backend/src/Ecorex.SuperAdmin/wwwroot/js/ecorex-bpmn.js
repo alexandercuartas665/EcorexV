@@ -289,10 +289,30 @@ export function e2eElementCount(containerId, type) {
     return state.modeler.get('elementRegistry').filter(function (el) { return el.type === type; }).length;
 }
 
+// Selecciona un nodo por su BpmnElementId (o por nombre, si no hay id): dispara el mismo
+// flujo que el click real (selection.changed -> Blazor carga el panel del nodo).
+export function e2eSelectElement(containerId, idOrName) {
+    const state = instances.get(containerId);
+    if (!state) { return null; }
+    const modeler = state.modeler;
+    const registry = modeler.get('elementRegistry');
+    let element = registry.get(idOrName);
+    if (!element) {
+        element = registry.filter(function (el) {
+            const bo = el.businessObject || {};
+            return bo.name === idOrName;
+        })[0];
+    }
+    if (!element) { return null; }
+    modeler.get('selection').select(element);
+    return element.id;
+}
+
 // Puente global SOLO para pruebas E2E (Playwright via page.evaluate no puede alcanzar el
 // modulo ES importado dentro del circuito Blazor). No lo usa la app en runtime normal.
 window.ecorexBpmnE2E = {
     addTaskAndConnect: function (containerId, name) { return e2eAddTaskAndConnect(containerId, name); },
     count: function (containerId, type) { return e2eElementCount(containerId, type); },
+    select: function (containerId, idOrName) { return e2eSelectElement(containerId, idOrName); },
     ready: function (containerId) { return instances.has(containerId); }
 };

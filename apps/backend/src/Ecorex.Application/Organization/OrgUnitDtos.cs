@@ -14,7 +14,11 @@ public sealed record OrgUnitDto(
     string? Description,
     int SortOrder,
     bool IsArchived,
-    int MemberCount);
+    int MemberCount,
+    // Asignacion por nodo (ADR-0035): clasificador semantico + usuario ocupante (Funcionario).
+    OrgUnitClassifier Classifier = OrgUnitClassifier.Dependencia,
+    Guid? TenantUserId = null,
+    string? OccupantName = null);
 
 /// <summary>Nodo del arbol del organigrama (hijos ordenados por SortOrder y nombre).</summary>
 public sealed record OrgUnitNodeDto(
@@ -28,7 +32,11 @@ public sealed record OrgUnitNodeDto(
     int SortOrder,
     bool IsArchived,
     int MemberCount,
-    IReadOnlyList<OrgUnitNodeDto> Children);
+    IReadOnlyList<OrgUnitNodeDto> Children,
+    // Asignacion por nodo (ADR-0035): clasificador semantico + usuario ocupante (Funcionario).
+    OrgUnitClassifier Classifier = OrgUnitClassifier.Dependencia,
+    Guid? TenantUserId = null,
+    string? OccupantName = null);
 
 /// <summary>Miembro de una unidad con los datos de presentacion del usuario.</summary>
 public sealed record OrgUnitMemberDto(
@@ -46,7 +54,10 @@ public sealed record SaveOrgUnitRequest(
     Guid? ParentId = null,
     Guid? ResponsibleTenantUserId = null,
     string? Description = null,
-    int SortOrder = 0);
+    int SortOrder = 0,
+    // Asignacion por nodo (ADR-0035): clasificador + usuario ocupante (solo Funcionario).
+    OrgUnitClassifier Classifier = OrgUnitClassifier.Dependencia,
+    Guid? TenantUserId = null);
 
 /// <summary>KPIs de cabecera del modulo (Dependencias / Usuarios / Areas, como el prototipo).</summary>
 public sealed record OrgKpisDto(int TotalUnits, int AssignedUsers, int Areas);

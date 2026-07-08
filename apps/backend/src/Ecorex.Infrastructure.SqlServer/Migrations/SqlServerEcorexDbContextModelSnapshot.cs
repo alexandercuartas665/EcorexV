@@ -3048,6 +3048,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("Classifier")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Dependencia")
+                        .HasColumnName("classifier");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -3093,6 +3101,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
 
+                    b.Property<Guid?>("TenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_user_id");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
@@ -3109,6 +3121,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("ResponsibleTenantUserId")
                         .HasDatabaseName("ix_org_units_responsible_tenant_user_id");
+
+                    b.HasIndex("TenantUserId")
+                        .HasDatabaseName("ix_org_units_tenant_user_id");
 
                     b.HasIndex("TenantId", "IsArchived")
                         .HasDatabaseName("ix_org_units_tenant_id_is_archived");
@@ -7145,6 +7160,58 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("workflow_node_forms", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodePolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("OrgUnitId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("org_unit_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("WorkflowNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("workflow_node_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_node_policies");
+
+                    b.HasIndex("OrgUnitId")
+                        .HasDatabaseName("ix_workflow_node_policies_org_unit_id");
+
+                    b.HasIndex("WorkflowNodeId", "OrgUnitId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_node_policies_workflow_node_id_org_unit_id");
+
+                    b.ToTable("workflow_node_policies", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -8257,6 +8324,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Definition");
 
                     b.Navigation("Node");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodePolicy", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.OrgUnit", "OrgUnit")
+                        .WithMany()
+                        .HasForeignKey("OrgUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_policies_org_units_org_unit_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "WorkflowNode")
+                        .WithMany()
+                        .HasForeignKey("WorkflowNodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_policies_workflow_nodes_workflow_node_id");
+
+                    b.Navigation("OrgUnit");
+
+                    b.Navigation("WorkflowNode");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeRule", b =>

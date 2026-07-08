@@ -1,11 +1,14 @@
 @using System.Globalization
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Organization
 @using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @implements IAsyncDisposable
 @inject IWorkflowDesignService DesignSvc
 @inject IWorkflowEngine Engine
 @inject IFormDefinitionService FormsSvc
+@inject IWorkflowNodePolicyService NodePolicySvc
+@inject INodeAssigneeResolver AssigneeResolver
 @inject IJSRuntime JS
 
 @* ============================================================
@@ -426,6 +429,12 @@ else
     private List<FormDefinitionListItemDto> _forms = [];
     private bool _rulePickerOpen;
     private IReadOnlyList<FlowRuleCatalogItemDto> _ruleCatalog = [];
+
+    // Asignacion por nodo (acordeon "Asignar usuarios", ADR-0035).
+    private IReadOnlyList<NodePolicyDto> _nodePolicies = [];
+    private IReadOnlyList<AssignableOrgUnitDto> _assignableUnits = [];
+    private string _assignUnitId = "";
+    private int _resolvedCandidates;
     private bool _jumpOpen;
     private string _jumpQuery = "";
     private Guid? _jumpSelected;
@@ -509,13 +518,44 @@ else
     // ---- Callbacks desde bpmn-js ----
 
     [JSInvokable]
-    public Task OnElementSelected(string? id, string? type, string? name)
+    public async Task OnElementSelected(string? id, string? type, string? name)
     {
         _selectedElementId = id;
         _selectedType = type;
         _selectedRawName = name;
+        _assignUnitId = "";
+        await LoadNodePoliciesAsync();
         StateHasChanged();
-        return Task.CompletedTask;
+    }
+
+    /// <summary>Carga las asignaciones por nodo (policies + selector + conteo de candidatos).</summary>
+    private async Task LoadNodePoliciesAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            _nodePolicies = [];
+            _resolvedCandidates = 0;
+            return;
+        }
+        _nodePolicies = await NodePolicySvc.ListNodePoliciesAsync(node.Id);
+        _assignableUnits = await NodePolicySvc.ListAssignableUnitsAsync();
+        _resolvedCandidates = (await AssigneeResolver.ResolveCandidatesAsync(node.Id)).Count;
+    }
+
+    private async Task AddNodePolicyAsync()
+    {
+        if (Selected is not FlowCanvasNodeDto node || !Guid.TryParse(_assignUnitId, out var unitId)) { return; }
+        var result = await NodePolicySvc.AddNodePolicyAsync(node.Id, unitId);
+        if (!result.IsOk) { _error = result.Error; }
+        _assignUnitId = "";
+        await LoadNodePoliciesAsync();
+    }
+
+    private async Task RemoveNodePolicyAsync(NodePolicyDto policy)
+    {
+        var result = await NodePolicySvc.RemoveNodePolicyAsync(policy.PolicyId);
+        if (!result.IsOk) { _error = result.Error; }
+        await LoadNodePoliciesAsync();
     }
 
     [JSInvokable]
@@ -625,12 +665,63 @@ else
         </label>
     };
 
-    // Acordeon 1: Asignar usuarios (placeholder legible, deuda documentada).
+    // Acordeon 1: Asignar usuarios (asignacion por nodo REAL, ADR-0035). Dependencias/Cargos
+    // del organigrama atienden el paso; el resolver expande a los funcionarios candidatos.
+    // Vinculo por nodo (no viaja en el XML): permitido tambien sobre publicadas (como formulario/regla).
     private RenderFragment UsersBody => __builder =>
     {
-        <div class="fe-acc-empty">Sin cargos ni funcionarios asignados.</div>
-        <div class="fe-todo">TODO cargo/ACL por nodo (PERMISO_CARGO del vault): el modelo de asignacion por dependencia llega con el modulo 000850.</div>
-        <button class="fe-add-dashed" disabled>+ Asignar desde dependencias</button>
+        if (Selected is not FlowCanvasNodeDto node)
+        {
+            <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
+            return;
+        }
+        if (node.NodeType != WorkflowNodeType.Task || !node.AllowsAssignment)
+        {
+            <div class="fe-acc-empty">Este nodo no admite asignacion (solo tareas con "Permite asignacion manual").</div>
+            return;
+        }
+        <div class="fe-rows">
+            @foreach (var policy in _nodePolicies)
+            {
+                <div class="fe-row">
+                    <span class="fe-row-dot" style="background:@ClassifierTone(policy.Classifier)"></span>
+                    <span class="fe-row-verb">@policy.OrgUnitName</span>
+                    <span class="fe-row-badge" style="color:@ClassifierTone(policy.Classifier)">@ClassifierLabel(policy.Classifier)</span>
+                    <span class="fe-row-auto" title="Funcionarios que resolveria esta unidad">@policy.CandidateCount cand.</span>
+                    <span class="fe-row-x" @onclick="@(() => RemoveNodePolicyAsync(policy))">x</span>
+                </div>
+            }
+            @if (_nodePolicies.Count == 0)
+            {
+                <div class="fe-acc-empty">Sin dependencias ni cargos asignados.</div>
+            }
+        </div>
+        <div class="fe-field" style="margin-top:8px;">
+            <select class="fe-input sm" @bind="_assignUnitId">
+                <option value="">-- Dependencia / Cargo --</option>
+                @foreach (var u in _assignableUnits)
+                {
+                    <option value="@u.Id">@(new string(' ', u.Depth * 2))@u.Name (@ClassifierLabel(u.Classifier))</option>
+                }
+            </select>
+        </div>
+        <button class="fe-add-dashed" @onclick="AddNodePolicyAsync"
+                disabled="@(string.IsNullOrEmpty(_assignUnitId))">+ Asignar</button>
+        <div class="fe-acc-note">@_resolvedCandidates funcionarios atenderan este paso (asignacion por dependencia/cargo, ADR-0035).</div>
+    };
+
+    private static string ClassifierTone(OrgUnitClassifier classifier) => classifier switch
+    {
+        OrgUnitClassifier.Dependencia => "var(--t-violet)",
+        OrgUnitClassifier.Cargo => "var(--t-blue)",
+        _ => "var(--ink-3)"
+    };
+
+    private static string ClassifierLabel(OrgUnitClassifier classifier) => classifier switch
+    {
+        OrgUnitClassifier.Dependencia => "Dependencia",
+        OrgUnitClassifier.Cargo => "Cargo",
+        _ => "Funcionario"
     };
 
     // Acordeon 2: Recursos y componentes (formulario del nodo, WorkflowNodeForm real).

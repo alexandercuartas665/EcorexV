@@ -15,6 +15,19 @@ public class OrgUnit : TenantEntity
 
     public OrgUnitKind Kind { get; set; } = OrgUnitKind.Area;
 
+    /// <summary>
+    /// Clasificador de asignacion por nodo (ADR-0035): Dependencia contiene Cargos y un
+    /// Cargo contiene Funcionarios (via ParentId). Default Dependencia para filas heredadas.
+    /// </summary>
+    public OrgUnitClassifier Classifier { get; set; } = OrgUnitClassifier.Dependencia;
+
+    /// <summary>
+    /// Usuario del tenant (TenantUser.Id) que ocupa este puesto. SOLO se usa cuando
+    /// Classifier=Funcionario; null para Dependencia y Cargo. FK NO ACTION (el usuario
+    /// nunca se borra en cascada desde el organigrama).
+    /// </summary>
+    public Guid? TenantUserId { get; set; }
+
     /// <summary>Unidad padre (null = raiz del organigrama).</summary>
     public Guid? ParentId { get; set; }
     public OrgUnit? Parent { get; set; }

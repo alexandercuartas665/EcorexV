@@ -97,6 +97,10 @@ public static class DependencyInjection
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
+        // Asignacion por nodo (ADR-0035, ola F1): policies Dependencia/Cargo por nodo Task y
+        // resolver de candidatos (nodo -> TenantUserIds). La bandeja/atender es la ola F2.
+        services.AddScoped<Organization.IWorkflowNodePolicyService, Organization.WorkflowNodePolicyService>();
+        services.AddScoped<Organization.INodeAssigneeResolver, Organization.NodeAssigneeResolver>();
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
         // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.

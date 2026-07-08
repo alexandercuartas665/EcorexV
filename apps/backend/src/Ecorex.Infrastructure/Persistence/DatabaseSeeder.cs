@@ -1495,6 +1495,112 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
+    /// Asignacion por nodo demo (ADR-0035, ola F1): mini organigrama con clasificador
+    /// (Dependencia -&gt; Cargo -&gt; Funcionario) y policies WorkflowNodePolicy sobre los nodos
+    /// Task del flujo publicado COT-COM (Cotizacion Comercial), para que la ola F2 (bandeja)
+    /// tenga datos reales que resolver:
+    ///   Dependencia "Comercial" -&gt; Cargo "Asesor Comercial" -&gt; Funcionario (owner/operator).
+    ///   Dependencia "Finanzas"  -&gt; Cargo "Aprobador"        -&gt; Funcionario (admin).
+    /// Task_Requerimiento -&gt; Cargo "Asesor Comercial"; Gateway/aprobacion via Task previo -&gt;
+    /// "Aprobador". Idempotente: si ya existen las unidades/policies no duplica. Solo Development.
+    /// </summary>
+    public async Task EnsureOrgAssignmentDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        var members = await _db.TenantUsers.IgnoreQueryFilters()
+            .Where(u => u.TenantId == tenant.Id)
+            .ToListAsync(cancellationToken);
+        var owner = members.FirstOrDefault(u => u.Email == TenantOwnerEmail);
+        var operatorUser = members.FirstOrDefault(u => u.Email == TenantOperatorEmail);
+        var admin = members.FirstOrDefault(u => u.Email == TenantAdminEmail);
+        var asesorOccupant = operatorUser ?? owner;
+        if (asesorOccupant is null || admin is null) { return; }
+
+        var existing = await _db.OrgUnits.IgnoreQueryFilters()
+            .Where(u => u.TenantId == tenant.Id)
+            .ToListAsync(cancellationToken);
+
+        // Helper idempotente: crea la unidad si no existe (por Name + Classifier + ParentId).
+        async Task<OrgUnit> EnsureUnitAsync(
+            string name, OrgUnitClassifier classifier, Guid? parentId, Guid? occupantUserId, int sortOrder)
+        {
+            var found = existing.FirstOrDefault(u =>
+                u.Name == name && u.Classifier == classifier && u.ParentId == parentId);
+            if (found is not null) { return found; }
+            found = new OrgUnit
+            {
+                TenantId = tenant.Id,
+                Name = name,
+                Kind = classifier == OrgUnitClassifier.Dependencia ? OrgUnitKind.Area : OrgUnitKind.Team,
+                Classifier = classifier,
+                ParentId = parentId,
+                TenantUserId = classifier == OrgUnitClassifier.Funcionario ? occupantUserId : null,
+                Description = $"{classifier} demo de asignacion por nodo (COT-COM).",
+                SortOrder = sortOrder
+            };
+            _db.OrgUnits.Add(found);
+            existing.Add(found);
+            await _db.SaveChangesAsync(cancellationToken);
+            return found;
+        }
+
+        // Comercial -> Asesor Comercial -> Funcionario ocupante.
+        var comercial = await EnsureUnitAsync("Comercial (asignacion)", OrgUnitClassifier.Dependencia, null, null, 10);
+        var asesorCargo = await EnsureUnitAsync("Asesor Comercial", OrgUnitClassifier.Cargo, comercial.Id, null, 0);
+        await EnsureUnitAsync(
+            asesorOccupant.Email, OrgUnitClassifier.Funcionario, asesorCargo.Id, asesorOccupant.Id, 0);
+
+        // Finanzas -> Aprobador -> Funcionario ocupante (admin).
+        var finanzas = await EnsureUnitAsync("Finanzas (asignacion)", OrgUnitClassifier.Dependencia, null, null, 11);
+        var aprobadorCargo = await EnsureUnitAsync("Aprobador", OrgUnitClassifier.Cargo, finanzas.Id, null, 0);
+        await EnsureUnitAsync(admin.Email, OrgUnitClassifier.Funcionario, aprobadorCargo.Id, admin.Id, 0);
+
+        // Policies sobre los nodos Task del flujo publicado COT-COM.
+        var definitionId = await _db.WorkflowDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenant.Id && d.ProcessCode == DemoWorkflowProcessCode && d.IsPublished)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (definitionId is not Guid wfId)
+        {
+            _logger.LogInformation("Asignacion por nodo demo: COT-COM aun no publicado; se sembraron unidades sin policies.");
+            return;
+        }
+
+        var nodes = await _db.WorkflowNodes.IgnoreQueryFilters()
+            .Where(n => n.DefinitionId == wfId)
+            .ToListAsync(cancellationToken);
+        var requerimiento = nodes.FirstOrDefault(n => n.BpmnElementId == "Task_Requerimiento");
+        var cotizacion = nodes.FirstOrDefault(n => n.BpmnElementId == "Task_Cotizacion");
+
+        async Task EnsurePolicyAsync(WorkflowNode? node, Guid orgUnitId)
+        {
+            if (node is null) { return; }
+            var already = await _db.WorkflowNodePolicies.IgnoreQueryFilters()
+                .AnyAsync(p => p.WorkflowNodeId == node.Id && p.OrgUnitId == orgUnitId, cancellationToken);
+            if (already) { return; }
+            _db.WorkflowNodePolicies.Add(new WorkflowNodePolicy
+            {
+                TenantId = tenant.Id,
+                WorkflowNodeId = node.Id,
+                OrgUnitId = orgUnitId,
+                SortOrder = 0
+            });
+        }
+
+        // Tarea inicial -> Asesor Comercial; paso de cotizacion/aprobacion -> Aprobador.
+        await EnsurePolicyAsync(requerimiento, asesorCargo.Id);
+        await EnsurePolicyAsync(cotizacion, aprobadorCargo.Id);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Asignacion por nodo demo sembrada para {Tenant}: 2 dependencias/cargos/funcionarios + policies COT-COM.",
+            tenant.Name);
+    }
+
+    /// <summary>
     /// Catalogo GLOBAL de modulos (module registry, legacy 000109, ADR-0017) con los modulos
     /// reales del sistema, y su estado por tenant: TODOS habilitados para el tenant demo
     /// SKY SYSTEM. Idempotente por LegacyCode (upsert) y por (tenant, modulo).

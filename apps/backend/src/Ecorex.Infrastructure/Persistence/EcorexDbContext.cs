@@ -146,6 +146,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // estado por tenant (scoped).
     public DbSet<OrgUnit> OrgUnits => Set<OrgUnit>();
     public DbSet<OrgUnitMember> OrgUnitMembers => Set<OrgUnitMember>();
+    public DbSet<WorkflowNodePolicy> WorkflowNodePolicies => Set<WorkflowNodePolicy>();
     public DbSet<ModuleDefinition> ModuleDefinitions => Set<ModuleDefinition>();
     public DbSet<TenantModule> TenantModules => Set<TenantModule>();
 
@@ -229,6 +230,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<OrgUnitKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<OrgUnitClassifier>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ModuleArea>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskBoardStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskBoardKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -1217,9 +1219,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // (y las unidades nunca se borran fisicamente: se archivan).
             b.HasOne(x => x.Parent).WithMany()
                 .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
+            // Clasificador de asignacion por nodo (ADR-0035): default Dependencia para las
+            // filas heredadas; TenantUserId solo se usa cuando Classifier=Funcionario.
+            b.Property(x => x.Classifier).HasDefaultValue(OrgUnitClassifier.Dependencia);
             b.HasIndex(x => new { x.TenantId, x.ParentId });
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
             b.HasIndex(x => x.ResponsibleTenantUserId);
+            b.HasIndex(x => x.TenantUserId);
         });
 
         modelBuilder.Entity<OrgUnitMember>(b =>
@@ -1230,6 +1236,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.OrgUnitId, x.TenantUserId }).IsUnique();
             b.HasIndex(x => x.TenantUserId);
+        });
+
+        // Asignacion por nodo (ADR-0035, ola F1): que Dependencia/Cargo atiende un paso Task.
+        modelBuilder.Entity<WorkflowNodePolicy>(b =>
+        {
+            // El vinculo vive y muere con el nodo (definicion de flujo); NO ACTION a la unidad
+            // (una unidad del organigrama nunca se borra fisicamente: se archiva).
+            b.HasOne(x => x.WorkflowNode).WithMany()
+                .HasForeignKey(x => x.WorkflowNodeId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.OrgUnit).WithMany()
+                .HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.WorkflowNodeId, x.OrgUnitId }).IsUnique();
+            b.HasIndex(x => x.OrgUnitId);
         });
 
         modelBuilder.Entity<ModuleDefinition>(b =>

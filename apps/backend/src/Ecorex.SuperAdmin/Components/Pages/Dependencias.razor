@@ -105,8 +105,9 @@ else
                         {
                             <span class="org-chevron placeholder"></span>
                         }
-                        <span class="org-kind-dot @(node.Kind == OrgUnitKind.Area ? "area" : "team")" title="@KindLabel(node.Kind)"></span>
+                        <span class="org-class-dot cls-@node.Classifier.ToString().ToLowerInvariant()" title="@ClassifierLabel(node.Classifier)"></span>
                         <span class="org-node-name">@node.Name</span>
+                        <span class="org-class-badge cls-@node.Classifier.ToString().ToLowerInvariant()">@ClassifierLabel(node.Classifier)</span>
                         @if (node.IsArchived)
                         {
                             <span class="tk-status st-closed" style="margin-left:6px;">Archivada</span>
@@ -226,16 +227,37 @@ else
                 </div>
                 <div class="row g-2">
                     <div class="col-md-6 field">
+                        <label class="form-label">Clasificacion</label>
+                        <select class="form-control" @bind="_fClassifier">
+                            <option value="@OrgUnitClassifier.Dependencia">Dependencia</option>
+                            <option value="@OrgUnitClassifier.Cargo">Cargo</option>
+                            <option value="@OrgUnitClassifier.Funcionario">Funcionario</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 field">
                         <label class="form-label">Tipo</label>
                         <select class="form-control" @bind="_fKind">
                             <option value="@OrgUnitKind.Area">Area</option>
                             <option value="@OrgUnitKind.Team">Equipo</option>
                         </select>
                     </div>
-                    <div class="col-md-6 field">
-                        <label class="form-label">Orden</label>
-                        <input type="number" class="form-control" @bind="_fSortOrder" />
+                </div>
+                @if (_fClassifier == OrgUnitClassifier.Funcionario)
+                {
+                    <div class="field">
+                        <label class="form-label">Usuario que ocupa el puesto *</label>
+                        <select class="form-control" @bind="_fTenantUserId">
+                            <option value="">-- Usuario del tenant --</option>
+                            @foreach (var u in _users)
+                            {
+                                <option value="@u.Id">@(u.DisplayName ?? u.Email)</option>
+                            }
+                        </select>
                     </div>
+                }
+                <div class="field">
+                    <label class="form-label">Orden</label>
+                    <input type="number" class="form-control" @bind="_fSortOrder" />
                 </div>
                 <div class="field">
                     <label class="form-label">Dependencia padre</label>
@@ -293,6 +315,14 @@ else
     .org-kind-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
     .org-kind-dot.area { background: var(--t-violet, #7C3AED); }
     .org-kind-dot.team { background: var(--t-blue, #2563EB); }
+    .org-class-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+    .org-class-dot.cls-dependencia { background: var(--t-violet, #7C3AED); }
+    .org-class-dot.cls-cargo { background: var(--t-blue, #2563EB); }
+    .org-class-dot.cls-funcionario { background: var(--t-green, #16A34A); }
+    .org-class-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 6px; flex: none; }
+    .org-class-badge.cls-dependencia { color: var(--t-violet, #7C3AED); background: var(--t-violet-bg, rgba(124,58,237,.12)); }
+    .org-class-badge.cls-cargo { color: var(--t-blue, #2563EB); background: var(--t-blue-bg, rgba(37,99,235,.12)); }
+    .org-class-badge.cls-funcionario { color: var(--t-green, #16A34A); background: var(--t-green-bg, rgba(22,163,74,.12)); }
     .org-node-name { font-size: 13.5px; color: var(--ink, var(--foreground)); }
     .org-node-count { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); font-variant-numeric: tabular-nums; }
     .org-node-count svg { width: 12px; height: 12px; }
@@ -333,6 +363,8 @@ else
     private OrgUnitDto? _editing;
     private string _fName = "";
     private OrgUnitKind _fKind = OrgUnitKind.Area;
+    private OrgUnitClassifier _fClassifier = OrgUnitClassifier.Dependencia;
+    private string _fTenantUserId = "";
     private string _fParentId = "";
     private string _fResponsibleId = "";
     private string? _fDescription;
@@ -473,6 +505,8 @@ else
         _editing = unit;
         _fName = unit?.Name ?? "";
         _fKind = unit?.Kind ?? OrgUnitKind.Area;
+        _fClassifier = unit?.Classifier ?? OrgUnitClassifier.Dependencia;
+        _fTenantUserId = unit?.TenantUserId?.ToString() ?? "";
         _fParentId = (unit?.ParentId ?? presetParentId)?.ToString() ?? "";
         _fResponsibleId = unit?.ResponsibleTenantUserId?.ToString() ?? "";
         _fDescription = unit?.Description;
@@ -491,7 +525,9 @@ else
             Guid.TryParse(_fParentId, out var parentId) ? parentId : null,
             Guid.TryParse(_fResponsibleId, out var responsibleId) ? responsibleId : null,
             _fDescription,
-            _fSortOrder);
+            _fSortOrder,
+            _fClassifier,
+            Guid.TryParse(_fTenantUserId, out var occupantId) ? occupantId : null);
         var result = _editing is null
             ? await OrgSvc.CreateAsync(request)
             : await OrgSvc.UpdateAsync(_editing.Id, request);
@@ -514,6 +550,13 @@ else
     // ---- Helpers de presentacion ----
 
     private static string KindLabel(OrgUnitKind kind) => kind == OrgUnitKind.Area ? "Area" : "Equipo";
+
+    private static string ClassifierLabel(OrgUnitClassifier classifier) => classifier switch
+    {
+        OrgUnitClassifier.Dependencia => "Dependencia",
+        OrgUnitClassifier.Cargo => "Cargo",
+        _ => "Funcionario"
+    };
 
     private static string Initials(string name)
     {

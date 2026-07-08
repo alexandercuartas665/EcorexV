@@ -80,6 +80,7 @@ public interface IApplicationDbContext
     DbSet<WorkflowNodeRule> WorkflowNodeRules { get; }
     DbSet<OrgUnit> OrgUnits { get; }
     DbSet<OrgUnitMember> OrgUnitMembers { get; }
+    DbSet<WorkflowNodePolicy> WorkflowNodePolicies { get; }
     DbSet<ModuleDefinition> ModuleDefinitions { get; }
     DbSet<TenantModule> TenantModules { get; }
     DbSet<SaasPlan> SaasPlans { get; }

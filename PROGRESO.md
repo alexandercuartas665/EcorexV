@@ -5,6 +5,56 @@
 
 ---
 
+## 2026-07-07 - Sesion: Asignacion por nodo (dependencias/cargos, ADR-0035, ola F1)
+
+**Agentes**: agente de feature (runtime de flujos - asignacion por nodo).
+
+**Pedido**: definir QUIEN atiende cada nodo Task del flujo por DEPENDENCIAS/CARGOS del
+organigrama (no por usuarios directos), decidido por el usuario (modelo `PERMISO_CARGO` del
+legacy). Ola F1: modelo de dominio + resolver listo; la bandeja/atender es la ola F2.
+
+**Hecho**:
+- **Dominio**: enum `OrgUnitClassifier { Dependencia, Cargo, Funcionario }`; `OrgUnit.Classifier`
+  (default Dependencia) + `OrgUnit.TenantUserId` (solo Funcionario). Entidad `WorkflowNodePolicy`
+  (TenantEntity: WorkflowNodeId FK cascade, OrgUnitId FK NO ACTION, SortOrder; unico
+  (WorkflowNodeId, OrgUnitId)). DbSet en IApplicationDbContext + EcorexDbContext + configs.
+- **Migracion DUAL** `AddNodeAssignment` (PG 20260708010501 + SQL Server 20260708010542):
+  columnas classifier (default 'Dependencia') + tenant_user_id en org_units; tabla
+  workflow_node_policies. Aplicada y VERIFICADA en PG 5442 y SQL Server 1443 (esquema chequeado
+  por psql/sqlcmd). Puramente aditiva.
+- **Servicio + resolver** (Application, resultados tipados): `IOrgUnitService`/DTOs/`SaveOrgUnitRequest`
+  extendidos con Classifier + TenantUserId + validacion de coherencia jerarquica (Cargo bajo
+  Dependencia, Funcionario bajo Cargo con TenantUserId). `IWorkflowNodePolicyService`
+  (List/Add/Remove + ListAssignableUnits; rechaza Funcionario y duplicados, tenant-scoped).
+  `INodeAssigneeResolver.ResolveCandidatesAsync(nodeId)` -> TenantUserIds distintos (funcionarios
+  descendientes + miembros + responsable), con la logica de arbol PURA en `OrgAssigneeTree`
+  (testeable sin EF, tolera ciclos). Registrados en DI.
+- **UI**: `FlowEditor.razor` acordeon "Asignar usuarios" REAL (reemplaza el placeholder): lista de
+  dependencias/cargos con quitar, selector del arbol filtrado a Dependencia|Cargo + Asignar, y
+  conteo "N funcionarios atenderan este paso"; mensaje si el nodo no admite asignacion. Vinculo por
+  nodo permitido tambien en publicadas (como formulario/regla). `Dependencias.razor`: selector de
+  Classifier + dropdown de usuario del tenant para Funcionario + badge de clasificador en el arbol.
+  Bridge E2E `window.ecorexBpmnE2E.select` agregado.
+- **Seed** `EnsureOrgAssignmentDemoAsync` (idempotente, Development, encadenado en Program.cs):
+  Comercial->Asesor Comercial->Funcionario (operator/owner) y Finanzas->Aprobador->Funcionario
+  (admin); policies sobre COT-COM (Task_Requerimiento->Asesor, Task_Cotizacion->Aprobador).
+- **Tests (todos verdes)**: Application.Tests `OrgAssigneeTreeTests` 7/7 (cargo->funcionarios,
+  dependencia->descendientes, miembros+responsable, vacio, distinct, ciclos); Integration.Tests
+  `NodeAssignmentTests` 8/8 DUAL PG+SQL (persistencia+resolver releido, unicidad+rechazo
+  Funcionario, aislamiento cross-tenant, cascada al borrar la definicion); E2E `NodeAssignmentTests`
+  1/1 (crear borrador -> tarea -> permite asignacion -> asignar dependencia -> persiste). Suite
+  Application.Tests completa 326/326.
+
+**Gate**: `dotnet build Ecorex.sln` 0 errores; `dotnet format --verify-no-changes` limpio.
+
+**Siguiente (ola F2)**: bandeja/atender que consume `INodeAssigneeResolver` (asignacion efectiva
+del paso: elegir el usuario concreto de entre los candidatos). Reordenar policies en el editor.
+
+**Decisiones**: ADR-0035 (clasificador Dependencia/Cargo/Funcionario, WorkflowNodePolicy solo
+Cargo/Dependencia, resolver nodo->usuarios, editor panel real; asignacion efectiva y bandeja en F2).
+
+---
+
 ## 2026-07-07 - Sesion: Editor de flujos migrado a bpmn-js (ADR-0034)
 
 **Agentes**: agente de feature (migracion del editor BPMN del modulo 000291).

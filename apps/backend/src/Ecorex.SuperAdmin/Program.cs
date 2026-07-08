@@ -212,6 +212,10 @@ else
     // Modulos de sistema (FASE 5, ADR-0017): organigrama demo (Dependencias, 000850) y
     // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
     await seeder.EnsureOrgUnitsDemoAsync();
+    // Asignacion por nodo (ADR-0035, ola F1): mini organigrama con clasificador
+    // (Dependencia/Cargo/Funcionario) + policies WorkflowNodePolicy sobre COT-COM, para que
+    // la ola F2 (bandeja) tenga datos reales que resolver. Idempotente, solo Development.
+    await seeder.EnsureOrgAssignmentDemoAsync();
     await seeder.EnsureModuleRegistryAsync();
     // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
     // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.

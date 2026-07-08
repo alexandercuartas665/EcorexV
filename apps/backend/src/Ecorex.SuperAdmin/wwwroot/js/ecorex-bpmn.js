@@ -21,20 +21,21 @@ const NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 // SVG data-URIs para las entradas de la paleta acotada (sin depender del webfont).
 function svgIcon(inner) {
     const svg =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="46" height="46" viewBox="0 0 46 46" ' +
-        'fill="none" stroke="#4b5563" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" ' +
+        'fill="none" stroke="#1f2937" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
         inner + '</svg>';
     return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
 const ICONS = {
-    start: svgIcon('<circle cx="23" cy="23" r="13"/>'),
-    end: svgIcon('<circle cx="23" cy="23" r="13" stroke-width="3.4"/>'),
-    task: svgIcon('<rect x="10" y="14" width="26" height="18" rx="3"/>'),
-    gateway: svgIcon('<path d="M23 9 37 23 23 37 9 23Z"/><path d="M18 18l10 10M28 18 18 28"/>'),
-    connect: svgIcon('<circle cx="14" cy="14" r="4"/><circle cx="32" cy="32" r="4"/><path d="M17 17l12 12"/>'),
-    hand: svgIcon('<path d="M15 22v-6a3 3 0 0 1 6 0M21 16v-2a3 3 0 0 1 6 0v2M27 15a3 3 0 0 1 6 0v9a9 9 0 0 1-9 9h-3a9 9 0 0 1-7-4l-4-6"/>'),
-    lasso: svgIcon('<rect x="10" y="10" width="26" height="26" rx="4" stroke-dasharray="4 4"/>')
+    start: svgIcon('<circle cx="12" cy="12" r="8"/>'),
+    end: svgIcon('<circle cx="12" cy="12" r="8" stroke-width="2.8"/>'),
+    task: svgIcon('<rect x="4" y="7" width="16" height="10" rx="2"/>'),
+    gateway: svgIcon('<path d="M12 3 21 12 12 21 3 12Z"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+    connect: svgIcon('<path d="M4 12h13"/><path d="M13 7l5 5-5 5"/>'),
+    trash: svgIcon('<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'),
+    hand: svgIcon('<path d="M8 11V7a1.6 1.6 0 0 1 3.2 0M11.2 8V5.5a1.6 1.6 0 0 1 3.2 0V8M14.4 7.5a1.6 1.6 0 0 1 3.2 0V13a5 5 0 0 1-5 5h-1.6a5 5 0 0 1-3.9-2l-2.3-3.2"/>'),
+    lasso: svgIcon('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>')
 };
 
 // ---- PaletteProvider ACOTADO ------------------------------------------------
@@ -117,6 +118,95 @@ const AcotadoPaletteModule = {
     paletteProvider: ['type', AcotadoPaletteProvider]
 };
 
+// ---- ContextPadProvider ACOTADO (SVG inline, sin webfont bpmn-icon) ---------
+// bpmn-js pinta el context pad nativo con clases 'bpmn-icon-*' que dependen del
+// webfont (no vendoreado) -> cuadros en blanco. Se sobreescribe 'contextPadProvider'
+// para dar SOLO las acciones soportadas (conectar / anexar tarea|compuerta|fin /
+// eliminar) con iconos SVG data-URI. Un endEvent o una arista solo ofrecen borrar.
+function AcotadoContextPadProvider(contextPad, modeling, elementFactory, create, connect, autoPlace, translate) {
+    this._modeling = modeling;
+    this._elementFactory = elementFactory;
+    this._create = create;
+    this._connect = connect;
+    this._autoPlace = autoPlace;
+    contextPad.registerProvider(this);
+}
+
+AcotadoContextPadProvider.$inject = [
+    'contextPad', 'modeling', 'elementFactory', 'create', 'connect', 'autoPlace', 'translate'
+];
+
+AcotadoContextPadProvider.prototype.getContextPadEntries = function (element) {
+    const modeling = this._modeling;
+    const elementFactory = this._elementFactory;
+    const create = this._create;
+    const connect = this._connect;
+    const autoPlace = this._autoPlace;
+    const entries = {};
+
+    function removeAction(event, el) { modeling.removeElements([el]); }
+
+    // Anexar un nodo nuevo conectado desde 'element' (auto-place si esta disponible,
+    // si no se arrastra para colocar).
+    function appendAction(type, title, imageUrl) {
+        function appendStart(event, el) {
+            const shape = elementFactory.createShape({ type: type });
+            create.start(event, shape, { source: el });
+        }
+        function append(event, el) {
+            if (autoPlace) {
+                const shape = elementFactory.createShape({ type: type });
+                autoPlace.append(el, shape);
+            } else {
+                appendStart(event, el);
+            }
+        }
+        return { group: 'model', title: title, imageUrl: imageUrl, action: { dragstart: appendStart, click: append } };
+    }
+
+    function startConnect(event, el) { connect.start(event, el); }
+
+    const isShape = element && element.type
+        && element.type !== 'bpmn:SequenceFlow'
+        && element.type !== 'label';
+
+    if (isShape && element.type !== 'bpmn:EndEvent') {
+        entries['append.task'] = appendAction('bpmn:Task', 'Anexar tarea', ICONS.task);
+        entries['append.gateway'] = appendAction('bpmn:ExclusiveGateway', 'Anexar compuerta', ICONS.gateway);
+        entries['append.end-event'] = appendAction('bpmn:EndEvent', 'Anexar fin', ICONS.end);
+        entries['connect'] = {
+            group: 'connect', title: 'Conectar', imageUrl: ICONS.connect,
+            action: { click: startConnect, dragstart: startConnect }
+        };
+    }
+
+    entries['delete'] = {
+        group: 'edit', title: 'Eliminar', imageUrl: ICONS.trash,
+        action: { click: removeAction }
+    };
+
+    return entries;
+};
+
+const AcotadoContextPadModule = {
+    __init__: ['contextPadProvider'],
+    contextPadProvider: ['type', AcotadoContextPadProvider]
+};
+
+// Estilos inline (sin archivo .css aparte): dimensiona los iconos SVG (imageUrl)
+// de la paleta y del context pad para que se vean nitidos y centrados.
+function injectStyle() {
+    if (document.getElementById('ecorex-bpmn-style')) { return; }
+    const css =
+        '.djs-palette .entry img, .djs-context-pad .entry img { width: 20px; height: 20px; }' +
+        '.djs-palette .entry, .djs-context-pad .entry { display: flex; align-items: center; justify-content: center; }' +
+        '.djs-palette .entry { width: 44px; height: 44px; }';
+    const style = document.createElement('style');
+    style.id = 'ecorex-bpmn-style';
+    style.textContent = css;
+    document.head.appendChild(style);
+}
+
 // Diagrama en blanco: un unico startEvent (el motor exige exactamente uno).
 const EMPTY_DIAGRAM =
     '<?xml version="1.0" encoding="UTF-8"?>' +
@@ -167,9 +257,11 @@ export async function init(containerId, dotnetRef, xml) {
         return false;
     }
 
+    injectStyle();
+
     const modeler = new window.BpmnJS({
         container: container,
-        additionalModules: [AcotadoPaletteModule]
+        additionalModules: [AcotadoPaletteModule, AcotadoContextPadModule]
     });
 
     const state = { modeler: modeler, dotnetRef: dotnetRef, dirty: false };

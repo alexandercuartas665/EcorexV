@@ -1,4 +1,5 @@
 using Ecorex.Application.Common.Auth;
+using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -1601,6 +1602,63 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
+    /// Runtime operativo de flujos demo (bandeja "mis pasos", ola F2, ADR-0036): crea una TAREA
+    /// del ActivityType vinculado a COT-COM ("Direccion Comercial/Cotizacion") via el flujo normal
+    /// (ITaskItemService.CreateAsync), lo que arranca una WorkflowInstance Running con el primer
+    /// paso (Requerimiento) Pending y SIN reclamar. Como el nodo Requerimiento tiene la policy del
+    /// cargo "Asesor Comercial" (ocupado por operator@), al entrar a /mis-pasos como operator@ hay
+    /// un paso listo para atender. Idempotente por titulo de la tarea. REQUIERE ambient del tenant
+    /// demo (el servicio consulta via el filtro global). Solo Development.
+    /// </summary>
+    public async Task EnsureWorkflowRuntimeDemoAsync(
+        ITaskItemService tasks, CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        // ActivityType demo vinculado a COT-COM publicado (lo prepara EnsureWorkflowDemoAsync).
+        var activityType = await _db.ActivityTypes.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.TenantId == tenant.Id
+                && t.Category == "Direccion Comercial" && t.Name == "Cotizacion"
+                && t.WorkflowDefinitionId != null, cancellationToken);
+        if (activityType is null)
+        {
+            _logger.LogInformation("Runtime de flujos demo: ActivityType COT-COM sin vincular; se omite la tarea demo.");
+            return;
+        }
+
+        const string demoTaskTitle = "Cotizacion de infraestructura para cliente demo";
+        if (await _db.TaskItems.IgnoreQueryFilters()
+                .AnyAsync(t => t.TenantId == tenant.Id && t.Title == demoTaskTitle, cancellationToken))
+        {
+            return;
+        }
+
+        // El owner del tenant crea la tarea; el flujo arranca en la MISMA transaccion (el paso
+        // Requerimiento queda Pending y sin reclamar, listo para el candidato Asesor Comercial).
+        var owner = await _db.TenantUsers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.TenantId == tenant.Id && u.Email == TenantOwnerEmail, cancellationToken);
+        var actorUserId = owner?.PlatformUserId ?? Guid.Empty;
+
+        var created = await tasks.CreateAsync(
+            new CreateTaskItemRequest(
+                demoTaskTitle, activityType.Id,
+                Description: "Tarea demo del runtime de flujos: arranca COT-COM en el paso Requerimiento.",
+                RequesterName: "Cliente Demo", RequesterEmail: "cliente.demo@ejemplo.com"),
+            actorUserId, "Seeder", cancellationToken);
+        if (!created.IsOk)
+        {
+            _logger.LogWarning("Runtime de flujos demo: no se pudo crear la tarea demo: {Error}", created.Error);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Runtime de flujos demo sembrado para {Tenant}: tarea '{Title}' con COT-COM Running en Requerimiento.",
+            tenant.Name, demoTaskTitle);
+    }
+
+    /// <summary>
     /// Catalogo GLOBAL de modulos (module registry, legacy 000109, ADR-0017) con los modulos
     /// reales del sistema, y su estado por tenant: TODOS habilitados para el tenant demo
     /// SKY SYSTEM. Idempotente por LegacyCode (upsert) y por (tenant, modulo).
@@ -2075,6 +2133,8 @@ public sealed class DatabaseSeeder
 
         // ---- Seccion: Mis Procesos (slug misproc) ----
         var misproc = Add(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
+        // Bandeja operativa de flujos "mis pasos pendientes" (runtime, ola F2, ADR-0036).
+        Item(misproc.Id, "Mis pasos", "mis-pasos", "000637");
         Item(misproc.Id, "Crear una actividad", "crear-actividad", "000038");
         Item(misproc.Id, "Proyectos", "proyectos", "000042");
         Item(misproc.Id, "Administrar actividades", "actividades", "000636");
@@ -2208,6 +2268,7 @@ public sealed class DatabaseSeeder
         AddS(MenuNodeKind.QuickLink, "Anuncios", null, "anuncios", iconKey: "megaphone");
 
         var sMisproc = AddS(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
+        AddS(MenuNodeKind.Item, "Mis pasos", sMisproc.Id, "mis-pasos", legacyCode: "000637");
         AddS(MenuNodeKind.Item, "Crear una actividad", sMisproc.Id, "crear-actividad", legacyCode: "000038");
         AddS(MenuNodeKind.Item, "Administrar actividades", sMisproc.Id, "actividades", legacyCode: "000636");
         AddS(MenuNodeKind.Item, "Proyectos", sMisproc.Id, "proyectos", legacyCode: "000042");
@@ -2284,6 +2345,12 @@ public sealed class DatabaseSeeder
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "gen", route: "roles-permisos",
             name: "Roles y permisos", legacyCode: "000198", cancellationToken);
+
+        // Alta idempotente del item "Mis pasos" (bandeja operativa de flujos, ola F2, ADR-0036)
+        // en la seccion "Mis Procesos" (slug misproc) de cada vista ya sembrada que aun no lo tenga.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "misproc", route: "mis-pasos",
+            name: "Mis pasos", legacyCode: "000637", cancellationToken);
     }
 
     /// <summary>

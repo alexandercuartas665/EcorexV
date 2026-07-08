@@ -55,6 +55,9 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("Tareas.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Proyectos.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id"))
+    // Bandeja operativa de flujos "mis pasos" (runtime, ola F2, ADR-0036): es la bandeja del
+    // usuario, cualquier miembro del tenant la ve. Mismo requisito que TenantMember, nombre estable.
+    .AddPolicy("MisPasos.Ver", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Reglas.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Conceptos.Editar", p => p.RequireClaim("tenant_id"))
@@ -216,6 +219,19 @@ else
     // (Dependencia/Cargo/Funcionario) + policies WorkflowNodePolicy sobre COT-COM, para que
     // la ola F2 (bandeja) tenga datos reales que resolver. Idempotente, solo Development.
     await seeder.EnsureOrgAssignmentDemoAsync();
+    // Runtime operativo de flujos demo (bandeja "mis pasos", ola F2, ADR-0036): una tarea del
+    // ActivityType vinculado a COT-COM arranca una instancia Running con el paso Requerimiento
+    // Pending (candidato: cargo Asesor Comercial -> operator@). Requiere ambient del tenant demo
+    // (ITaskItemService consulta via el filtro global). Corre despues de la asignacion por nodo.
+    if (workflowDemoTenantId is Guid runtimeTenantId)
+    {
+        using (AmbientTenantContext.Begin(runtimeTenantId))
+        {
+            var taskService = scope.ServiceProvider
+                .GetRequiredService<Ecorex.Application.Tenancy.ITaskItemService>();
+            await seeder.EnsureWorkflowRuntimeDemoAsync(taskService);
+        }
+    }
     await seeder.EnsureModuleRegistryAsync();
     // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
     // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.

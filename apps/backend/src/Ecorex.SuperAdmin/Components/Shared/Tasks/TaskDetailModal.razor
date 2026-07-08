@@ -1,5 +1,6 @@
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @using Ecorex.Domain.Rules
 @using Ecorex.SuperAdmin.Components.Shared.Forms
@@ -10,6 +11,7 @@
 @inject IProjectService ProjectsSvc
 @inject IActivityBoardService BoardsSvc
 @inject IFormResponseService FormResponsesSvc
+@inject IWorkflowInboxService InboxSvc
 @inject ITaskBroadcaster Broadcaster
 @inject IJSRuntime JS
 
@@ -471,6 +473,53 @@
                         </div>
                     }
 
+                    @* Flujo (runtime, ola F2, ADR-0036): paso current del flujo y, si el usuario
+                       es candidato, Atender directo (completar/aprobar). Los pasos con formulario
+                       se atienden por la seccion "Formularios del paso" de arriba. *@
+                    @if (_flowSteps.Count > 0)
+                    {
+                        <div class="tk-card">
+                            <div class="tk-card-head"><h3>Flujo</h3></div>
+                            @foreach (var fs in _flowSteps)
+                            {
+                                var step = fs;
+                                <div class="tk-summary-row" style="align-items:flex-start;gap:8px;flex-direction:column;">
+                                    <div style="display:flex;align-items:center;gap:8px;width:100%;">
+                                        <span style="flex:1;min-width:0;">
+                                            <strong style="display:block;">@(step.NodeName ?? "(paso sin nombre)")</strong>
+                                            <span style="font-size:11px;color:var(--muted-foreground);">@step.ProcessName @(step.IsMine ? "- Tuyo" : step.AssignedToTenantUserId is null ? "- Sin reclamar" : $"- de {step.AssignedToLabel}")</span>
+                                        </span>
+                                        @if (step.IsClaimable)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ClaimFlowStepAsync(step))" disabled="@_busy">Tomar</button>
+                                        }
+                                    </div>
+                                    @if (!step.HasForm)
+                                    {
+                                        <div style="display:flex;gap:6px;flex-wrap:wrap;width:100%;">
+                                            @if (step.IsGatewayAhead && step.ApprovalOptions.Count > 0)
+                                            {
+                                                @foreach (var option in step.ApprovalOptions)
+                                                {
+                                                    var opt = option;
+                                                    <button class="btn btn-sm btn-primary" @onclick="@(() => CompleteFlowStepAsync(step, opt))" disabled="@_busy">@opt</button>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <button class="btn btn-sm btn-primary" @onclick="@(() => CompleteFlowStepAsync(step, null))" disabled="@_busy">Completar paso</button>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span style="font-size:11px;color:var(--muted-foreground);">Este paso se completa en "Formularios del paso".</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
                     @* Actividad (comentarios + acciones) *@
                     <div class="tk-card">
                         <div class="tk-card-head"><h3>Actividad</h3></div>
@@ -618,6 +667,9 @@
     private TaskStepFormDto? _openStepForm;
     private Guid? _actorTenantUserId;
 
+    // Pasos del flujo atendibles por el usuario (bandeja, ola F2, ADR-0036).
+    private List<PendingStepDto> _flowSteps = new();
+
     public async Task OpenAsync(Guid taskId)
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
@@ -648,6 +700,11 @@
             _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
             var actor = await ActorAsync();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
+            // Pasos del flujo de ESTA tarea que el usuario puede atender (bandeja, ola F2).
+            // La query ya se limita a instancias Running; filtramos a esta tarea.
+            _flowSteps = _actorTenantUserId is Guid me
+                ? (await InboxSvc.GetMyPendingStepsAsync(me)).Where(s => s.TaskItemId == taskId).ToList()
+                : new List<PendingStepDto>();
             // Columnas del tablero para el dropdown "Mover a" (solo si la tarea esta en un tablero).
             _boardColumns = new List<ActivityBoardColumnDto>();
             if (_detail.Item.BoardId is Guid boardId)
@@ -823,6 +880,41 @@
         {
             _busy = false;
         }
+    }
+
+    // ===== Flujo: atender pasos del runtime (ola F2, ADR-0036) =====
+
+    private async Task ClaimFlowStepAsync(PendingStepDto step)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var result = await InboxSvc.ClaimStepAsync(step.StepId, me);
+            if (!result.IsOk) { _actionError = result.Error; }
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CompleteFlowStepAsync(PendingStepDto step, string? approvalResult)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var result = await InboxSvc.CompletePendingStepAsync(step.StepId, me, approvalResult, null);
+            if (!result.IsOk && result.Status != WorkflowEngineStatus.StuckDetected)
+            {
+                _actionError = result.Error;
+            }
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        finally { _busy = false; }
     }
 
     private void OpenStepForm(TaskStepFormDto stepForm) => _openStepForm = stepForm;

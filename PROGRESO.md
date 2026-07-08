@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-07-08 - Sesion: Runtime de flujos - bandeja "mis pasos" (ADR-0036, ola F2, final)
+
+**Agentes**: agente de feature (runtime operativo de flujos - bandeja + atender).
+
+**Pedido**: cerrar el objetivo de flujos operativos con la BANDEJA de "mis pasos pendientes",
+ATENDER un paso (formulario del nodo o completar/aprobar) y AVANZAR el caso. El motor ya hacia
+casi todo; esta ola es sobre todo la query + la UI + el cableado. Consume `INodeAssigneeResolver`
+de la ola F1 (ADR-0035).
+
+**Hecho** (SIN migracion: todo el modelo ya existia):
+- **Servicio** `IWorkflowInboxService`/`WorkflowInboxService` (Application/Workflows, tenant-scoped,
+  resultados tipados `WorkflowResult<T>`): `GetMyPendingStepsAsync(tenantUserId)` (pasos current+Pending
+  de instancias Running que el usuario puede atender: asignado, o sin asignar y candidato del resolver;
+  devuelve tarea/proceso/nodo, estado de asignacion, hasForm, isGatewayAhead + opciones, ciclo, fecha);
+  `ClaimStepAsync` (modelo "cualquiera lo toma"); `ReassignStepAsync` (solo si el nodo AllowsAssignment,
+  auditado); `CompletePendingStepAsync` (valida candidatura y delega en `IWorkflowEngine.CompleteStepAsync`).
+  Registrado en DI.
+- **Gateway adelante + opciones** (documentado): si una arista saliente del nodo apunta a un
+  ExclusiveGateway, las opciones = los `Name` de las aristas salientes DEL gateway (Aprobada/Rechazada),
+  que se pasan como `approvalResult` a CompleteStep (misma semantica que `ResolveOutgoing` del motor).
+  Logica pura aislada en `WorkflowInboxProjection` (sin EF, patron `OrgAssigneeTree`).
+- **UI**: `Components/Pages/MisPasos.razor` (+ `.css`), `@page "/mis-pasos"`, policy `MisPasos.Ver`
+  (RequireClaim tenant_id), InteractiveServer, tokens ECOREX. Tarjetas con "Tomar" y panel "Atender"
+  (DynamicFormRenderer si hasForm; botones Aprobada/Rechazada+comentario si gateway; "Completar" si no;
+  "Reasignar" si el nodo lo permite). Empty state + boton "Actualizar". Item de menu "Mis pasos"
+  (route `mis-pasos`, code 000637) en "Mis Procesos" (seed fresco vistas Completo+Simple + reconciliacion
+  de demos ya sembrados).
+- **Detalle de tarea**: `TaskDetailModal.razor` gana seccion "Flujo" que, si el usuario es candidato de
+  un paso current de la tarea, ofrece Tomar/Completar/Aprobar reusando el servicio de bandeja (los pasos
+  con formulario se siguen atendiendo por "Formularios del paso").
+- **Seed** `EnsureWorkflowRuntimeDemoAsync` (idempotente, Development, encadenado en Program.cs con
+  ambient del tenant demo tras la asignacion por nodo): crea una TAREA del ActivityType COT-COM via
+  `ITaskItemService.CreateAsync` -> instancia Running con Requerimiento Pending sin reclamar; candidato
+  = cargo Asesor Comercial (operator@). Al entrar como operator@ a /mis-pasos hay un paso listo.
+- **Tests**: Application.Tests `WorkflowInboxProjectionTests` (CanAttend candidato/dueno + gateway-ahead
+  y sus opciones, dedup/blanks); Integration.Tests `WorkflowInboxTests` DUAL PG+SQL (crear tarea -> paso
+  en bandeja del candidato y NO de un extrano -> Claim -> CompletePendingStep avanza al siguiente cargo
+  -> gateway Aprobada->Facturacion / Rechazada->reinicio ciclo 1; aislamiento cross-tenant); E2E
+  `WorkflowInboxTests` (login operator@ -> /mis-pasos -> ve el paso demo -> Tomar -> Atender -> Completar
+  -> desaparece).
+
+**Gate**: `dotnet build Ecorex.sln` 0 errores; `dotnet format --verify-no-changes` limpio.
+
+**Siguiente**: refresco SignalR de la bandeja (deuda declarada, no bloquea); selector de reasignacion
+acotado a candidatos del nodo.
+
+---
+
 ## 2026-07-07 - Sesion: Asignacion por nodo (dependencias/cargos, ADR-0035, ola F1)
 
 **Agentes**: agente de feature (runtime de flujos - asignacion por nodo).

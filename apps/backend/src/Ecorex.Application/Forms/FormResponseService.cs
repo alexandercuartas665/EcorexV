@@ -80,7 +80,8 @@ public sealed class FormResponseService : IFormResponseService
 
     public async Task<FormResult<FormResponseDto>> SaveAsync(
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
-        Guid? submittedByTenantUserId = null, CancellationToken cancellationToken = default)
+        Guid? submittedByTenantUserId = null, string? approvalResult = null,
+        CancellationToken cancellationToken = default)
     {
         var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
         if (response is null)
@@ -161,8 +162,11 @@ public sealed class FormResponseService : IFormResponseService
                     s.NodeId == link.WorkflowNodeId && s.Status == WorkflowStepStatus.Pending);
                 if (step is not null)
                 {
+                    // approvalResult (decision capturada junto al formulario): el paso lleva la
+                    // decision y el motor resuelve la compuerta adelante en su cascada (ADR-0037).
                     var completed = await _workflowEngine.CompleteStepAsync(
                         link.WorkflowInstanceId, step.Id, submittedByTenantUserId,
+                        approvalResult: approvalResult,
                         cancellationToken: cancellationToken);
                     if (!completed.IsOk && completed.Status != WorkflowEngineStatus.StuckDetected)
                     {
@@ -218,6 +222,22 @@ public sealed class FormResponseService : IFormResponseService
             return [];
         }
 
+        // Compuerta adelante y opciones de decision del nodo con formulario (misma logica pura
+        // que la bandeja, ADR-0036/0037): la UI del formulario pide la decision junto al form.
+        var definitionId = await _db.WorkflowInstances.AsNoTracking()
+            .Where(i => i.Id == instanceId).Select(i => i.DefinitionId)
+            .FirstAsync(cancellationToken);
+        var edges = (await _db.WorkflowEdges.AsNoTracking()
+            .Where(e => e.DefinitionId == definitionId)
+            .Select(e => new { e.SourceNodeId, e.TargetNodeId, e.Name })
+            .ToListAsync(cancellationToken))
+            .Select(e => new WorkflowInboxProjection.EdgeRow(e.SourceNodeId, e.TargetNodeId, e.Name))
+            .ToList();
+        var gatewayNodeIds = (await _db.WorkflowNodes.AsNoTracking()
+            .Where(n => n.DefinitionId == definitionId && n.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Select(n => n.Id)
+            .ToListAsync(cancellationToken)).ToHashSet();
+
         var result = new List<TaskStepFormDto>();
         foreach (var step in pendingSteps)
         {
@@ -257,10 +277,14 @@ public sealed class FormResponseService : IFormResponseService
                 await _db.SaveChangesAsync(cancellationToken);
             }
 
+            var (isGatewayAhead, approvalOptions) =
+                WorkflowInboxProjection.ResolveGatewayAhead(step.NodeId, edges, gatewayNodeIds);
+
             result.Add(new TaskStepFormDto(
                 draft.Value.Id, definition.Id, definition.Code, definition.Title,
                 instanceId, step.NodeId, step.NodeName,
-                link.Status, draft.Value.Status, draft.Value.Reference));
+                link.Status, draft.Value.Status, draft.Value.Reference,
+                isGatewayAhead, approvalOptions));
         }
         return result;
     }

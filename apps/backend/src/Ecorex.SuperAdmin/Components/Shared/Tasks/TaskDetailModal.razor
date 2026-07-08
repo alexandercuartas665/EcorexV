@@ -611,6 +611,7 @@
                                      Reference="@_openStepForm.Reference"
                                      Mode="FormRenderMode.Fill"
                                      SubmittedByTenantUserId="@_actorTenantUserId"
+                                     ApprovalOptions="@(_openStepForm.IsGatewayAhead ? _openStepForm.ApprovalOptions : null)"
                                      OnSubmitted="OnStepFormSubmittedAsync" />
             </div>
         </div>

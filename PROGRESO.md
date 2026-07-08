@@ -5,6 +5,64 @@
 
 ---
 
+## 2026-07-08 - Sesion: Compuertas exclusivas auto-resueltas en el motor (ADR-0037)
+
+**Agentes**: agente de fix (runtime de flujos - GAP de gateways estancados).
+
+**Pedido**: los `exclusiveGateway` se estancaban como paso current Pending y el caso no avanzaba.
+Verificado en la BD dev: 25 instancias de COT-COM con "Cotizacion" Completed y el gateway "Aprobacion"
+como paso ACTUAL sin resolver (0 gateways resueltos). Causa raiz: cuando "Cotizacion" tiene FORMULARIO,
+`FormResponseService.SaveAsync` completaba el paso via `CompleteStepAsync` SIN approvalResult; el motor
+dejaba el gateway Pending-current y la logica que lo completaba vivia SOLO en
+`WorkflowInboxService.CompletePendingStepAsync` (que el camino de formulario no usa).
+
+**Hecho** (SIN migracion: no se agrego ninguna columna):
+- **Motor** (`WorkflowEngine`): un `exclusiveGateway` ya NO queda Pending-current. Al activarlo,
+  `ActivateNodeAsync` lo marca `Completed` HEREDANDO el `ApprovalResult` del paso que lo activo; el bucle
+  de `AdvanceAsync` lo procesa (IsReady) en la MISMA pasada y `ResolveOutgoing` enruta por
+  ConditionExpression (o arista default). Sigue siendo fila de historial (auditoria, append-only). Sin
+  condicion que case ni default -> Stuck (comportamiento previo). Tope de 50 intacto.
+- **Rechazo**: `RejectStepAsync` ahora ATRAVIESA los gateways (nuevo `ResolveReactivableSources`, con
+  visitados anti-ciclo) para reactivar el nodo humano real, no el gateway.
+- **Inbox**: se ELIMINA de `CompletePendingStepAsync` la logica que completaba el gateway a mano; ahora
+  solo completa el paso Task con la decision y el motor resuelve el gateway.
+- **Camino de formulario**: `IFormResponseService.SaveAsync` acepta `approvalResult` opcional (lo propaga
+  a `CompleteStepAsync`). `GetTaskStepFormsAsync` calcula `IsGatewayAhead` + `ApprovalOptions`
+  (`WorkflowInboxProjection.ResolveGatewayAhead`), expuestos en `TaskStepFormDto`. `DynamicFormRenderer`
+  recibe `ApprovalOptions`: muestra la decision (radio) junto al formulario, deshabilita "Enviar" hasta
+  elegir y propaga la eleccion al enviar. Cableado en `MisPasos.razor` y `TaskDetailModal.razor`.
+- **Bug de circuito destapado y corregido**: pasar `ApprovalOptions` re-disparaba `OnParametersSetAsync`
+  del renderer durante su carga async -> dos operaciones concurrentes sobre el MISMO DbContext del circuito
+  ("a second operation was started on this context") -> circuito caido y el formulario quedaba en "Cargando
+  formulario". Se agrego un guard de reentrada (`_loadInProgress`) en `OnParametersSetAsync`.
+- **Datos varados**: `DatabaseSeeder.ResolveStuckGatewaysAsync(engine)` (idempotente, Development) resuelve
+  los gateways ya varados heredando la decision del paso previo (o default). Ademas
+  `AlignDemoGatewayConditionsAsync`: el seed demo COT-COM traia condiciones en ingles
+  (`approval == 'Approved'/'Rejected'`) que NUNCA casaban con las opciones en espanol (Aprobada/Rechazada);
+  se corrige el XML del seed y se realinean idempotentemente las aristas ya sembradas. Encadenados en
+  Program.cs con ambient del tenant demo.
+
+**Tests**:
+- Integracion DUAL (PG 5442 + SQL Server 1443), 38/38 verdes: `WorkflowEngineTests` (gateway approved->rama,
+  rejected->reinicio, decision capturada en el paso previo; append-only con gateway Completed heredado;
+  rechazo atraviesa gateway), `DynamicFormsTests` (NUEVO: form+gateway -> submit con decision Aprobada
+  enruta a Facturacion y el gateway queda resuelto), `WorkflowInboxTests`.
+- Unit 22/22 (`WorkflowConditionEvaluator`, `WorkflowInboxProjection`).
+- E2E flujos verdes: `WorkflowFormTests` (form del paso + decision Aprobada -> el motor resuelve la compuerta
+  y el paso vigente es Facturacion; ANTES estancaba en Gateway_Aprobacion), `WorkflowInboxTests`,
+  `FlowsEditorTests`, `NodeAssignmentTests`.
+- Verificado en vivo (5234): al diligenciar Cotizacion aparece la decision Aprobada/Rechazada junto al
+  formulario, Enviar deshabilitado hasta elegir, y el envio enruta (no se estanca).
+
+**Decisiones**: ADR-0037 (`docs/decisiones/0037-gateways-auto-resueltos.md`).
+
+**Deudas**: el guard de reentrada del renderer es puntual; convendria una revision general de la
+concurrencia DbContext/circuito del `DynamicFormRenderer`. La condicion de gateway sigue siendo un literal
+simple (`approval == 'X'`) evaluado contra el Name de la arista; el RulesEngine tipado llegara en otra ola.
+La reset del instance demo a Requerimiento fue manual en la BD dev (los E2E de bandeja son stateful).
+
+---
+
 ## 2026-07-08 - Sesion: Runtime de flujos - bandeja "mis pasos" (ADR-0036, ola F2, final)
 
 **Agentes**: agente de feature (runtime operativo de flujos - bandeja + atender).

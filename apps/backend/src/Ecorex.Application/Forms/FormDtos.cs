@@ -93,8 +93,15 @@ public sealed record FormTokenValidation(
     public static readonly FormTokenValidation Invalid = new(false);
 }
 
-/// <summary>Formulario exigido por un paso current del flujo de una tarea (ADR-0015).</summary>
+/// <summary>
+/// Formulario exigido por un paso current del flujo de una tarea (ADR-0015). Si el nodo
+/// tiene una compuerta exclusiva adelante (IsGatewayAhead), ApprovalOptions trae las salidas
+/// modeladas del gateway (p.ej. Aprobada/Rechazada): la UI pide esa decision JUNTO al
+/// formulario y la propaga al enviar, para que el paso lleve el ApprovalResult y el motor
+/// resuelva el gateway (ADR-0037). Sin gateway adelante, ApprovalOptions va vacio.
+/// </summary>
 public sealed record TaskStepFormDto(
     Guid ResponseId, Guid DefinitionId, string FormCode, string FormTitle,
     Guid WorkflowInstanceId, Guid WorkflowNodeId, string? NodeName,
-    FormFlowLinkStatus LinkStatus, FormResponseStatus ResponseStatus, string? Reference);
+    FormFlowLinkStatus LinkStatus, FormResponseStatus ResponseStatus, string? Reference,
+    bool IsGatewayAhead = false, IReadOnlyList<string>? ApprovalOptions = null);

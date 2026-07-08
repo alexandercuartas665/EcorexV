@@ -269,32 +269,12 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             return WorkflowResult<WorkflowInstanceDto>.Invalid("No estas autorizado para completar este paso.");
         }
 
-        var instanceId = step.InstanceId;
-        var completed = await _engine.CompleteStepAsync(
-            instanceId, step.Id, tenantUserId, approvalResult, approvalComment, cancellationToken);
-        if (!completed.IsOk)
-        {
-            return completed;
-        }
-
-        // Compuerta adelante: al completar el paso Task, el motor deja el ExclusiveGateway como
-        // paso current (espera la decision). Como la bandeja recoge la decision EN el paso Task
-        // (isGatewayAhead + opciones), aqui se resuelve el gateway con el mismo approvalResult:
-        // el motor enruta por el ConditionExpression de sus aristas. Sin approvalResult no se
-        // toca (una compuerta sin decision se queda esperando, comportamiento del motor).
-        if (!string.IsNullOrWhiteSpace(approvalResult))
-        {
-            var afterSteps = await _engine.GetCurrentStepsAsync(instanceId, cancellationToken);
-            var gatewayStep = afterSteps.FirstOrDefault(s =>
-                s.NodeType == WorkflowNodeType.ExclusiveGateway && s.Status == WorkflowStepStatus.Pending);
-            if (gatewayStep is not null)
-            {
-                return await _engine.CompleteStepAsync(
-                    instanceId, gatewayStep.Id, tenantUserId, approvalResult, approvalComment, cancellationToken);
-            }
-        }
-
-        return completed;
+        // La decision (approvalResult) se captura EN el paso Task que entra a la compuerta. El
+        // motor la propaga: al avanzar, el exclusiveGateway se auto-resuelve heredando este
+        // ApprovalResult y enruta por el ConditionExpression de sus aristas (ADR-0037). La
+        // bandeja ya no completa el gateway a mano: es una responsabilidad del motor.
+        return await _engine.CompleteStepAsync(
+            step.InstanceId, step.Id, tenantUserId, approvalResult, approvalComment, cancellationToken);
     }
 
     // ---- Helpers ----

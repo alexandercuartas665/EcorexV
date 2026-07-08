@@ -146,18 +146,25 @@ public abstract class WorkflowEngineTestsBase
         var engine = BuildEngine(ctx, seed);
         var definition = await ImportGatewayDefinitionAsync(engine);
 
-        // Camino Approved: A -> G(Approved) -> B.
+        // Camino Approved: la decision se captura EN Task_A (paso que entra a la compuerta). El
+        // gateway se auto-resuelve en la MISMA cascada (ADR-0037): A(Approved) -> G -> B.
         var approvedRun = (await engine.StartInstanceAsync(definition.Id)).Value!;
-        await CompleteSingleCurrentAsync(engine, approvedRun.Id);                       // Task_A
-        await CompleteSingleCurrentAsync(engine, approvedRun.Id, approval: "Approved"); // Gateway_G
+        await CompleteSingleCurrentAsync(engine, approvedRun.Id, approval: "Approved"); // Task_A
         var afterApproved = Assert.Single(await engine.GetCurrentStepsAsync(approvedRun.Id));
         Assert.Equal("Task_B", afterApproved.BpmnElementId);
         Assert.Equal(0, afterApproved.CycleIndex);
+        // El gateway NO quedo pendiente: es una fila Completed que heredo la decision.
+        var gwStep = await ctx.WorkflowStepHistories.AsNoTracking()
+            .Join(ctx.WorkflowNodes.AsNoTracking(), s => s.NodeId, n => n.Id, (s, n) => new { s, n })
+            .Where(x => x.s.InstanceId == approvedRun.Id && x.n.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Select(x => x.s).SingleAsync();
+        Assert.Equal(WorkflowStepStatus.Completed, gwStep.Status);
+        Assert.False(gwStep.IsCurrent);
+        Assert.Equal("Approved", gwStep.ApprovalResult);
 
-        // Camino Rejected: A -> G(Rejected) -> endEvent de reinicio -> ciclo nuevo en A.
+        // Camino Rejected: A(Rejected) -> G -> endEvent de reinicio -> ciclo nuevo en A.
         var rejectedRun = (await engine.StartInstanceAsync(definition.Id)).Value!;
-        await CompleteSingleCurrentAsync(engine, rejectedRun.Id);                       // Task_A
-        var result = await CompleteSingleCurrentAsync(engine, rejectedRun.Id, approval: "Rejected");
+        var result = await CompleteSingleCurrentAsync(engine, rejectedRun.Id, approval: "Rejected"); // Task_A
         Assert.Equal(WorkflowInstanceStatus.Running, result.Value!.Status);
 
         var restarted = Assert.Single(await engine.GetCurrentStepsAsync(rejectedRun.Id));
@@ -177,12 +184,14 @@ public abstract class WorkflowEngineTestsBase
         var definition = await ImportGatewayDefinitionAsync(engine);
 
         var run = (await engine.StartInstanceAsync(definition.Id)).Value!;
-        await CompleteSingleCurrentAsync(engine, run.Id); // Task_A
-        var gateway = Assert.Single(await engine.GetCurrentStepsAsync(run.Id));
-        Assert.Equal("Gateway_G", gateway.BpmnElementId);
+        // A(Approved) enruta a Task_B (el gateway se auto-resuelve, ADR-0037): Task_B queda vigente.
+        await CompleteSingleCurrentAsync(engine, run.Id, approval: "Approved"); // Task_A
+        var taskB = Assert.Single(await engine.GetCurrentStepsAsync(run.Id));
+        Assert.Equal("Task_B", taskB.BpmnElementId);
 
-        // Rechazar la compuerta: reactiva el paso anterior (Task_A) como fila NUEVA.
-        var rejected = await engine.RejectStepAsync(run.Id, gateway.Id, seed.TenantUserId, "faltan datos");
+        // Rechazar Task_B: reactiva el paso anterior reactivable. Su origen es el gateway (no
+        // reactivable como Task), asi que la reactivacion sube al ultimo Task Completed = Task_A.
+        var rejected = await engine.RejectStepAsync(run.Id, taskB.Id, seed.TenantUserId, "faltan datos");
         Assert.True(rejected.IsOk, rejected.Error);
         var reactivated = Assert.Single(await engine.GetCurrentStepsAsync(run.Id));
         Assert.Equal("Task_A", reactivated.BpmnElementId);
@@ -193,7 +202,7 @@ public abstract class WorkflowEngineTestsBase
         var history = await ctx.WorkflowStepHistories.AsNoTracking()
             .Where(s => s.InstanceId == run.Id).ToListAsync();
         var rejectedRow = Assert.Single(history, s => s.Status == WorkflowStepStatus.Rejected);
-        Assert.Equal(gateway.Id, rejectedRow.Id);
+        Assert.Equal(taskB.Id, rejectedRow.Id);
         Assert.Equal("faltan datos", rejectedRow.ApprovalComment);
         Assert.Equal(2, history.Count(s => s.NodeId == reactivated.NodeId)); // A completado + A reactivado
     }
@@ -275,16 +284,16 @@ public abstract class WorkflowEngineTestsBase
         var definition = await ImportGatewayDefinitionAsync(engine);
 
         var run = (await engine.StartInstanceAsync(definition.Id)).Value!;
-        await CompleteSingleCurrentAsync(engine, run.Id);                       // Task_A
         var beforeRestart = await ctx.WorkflowStepHistories.AsNoTracking()
             .Where(s => s.InstanceId == run.Id).ToListAsync();
 
-        await CompleteSingleCurrentAsync(engine, run.Id, approval: "Rejected"); // reinicio
+        // A(Rejected) -> gateway auto-resuelto (Rejected) -> End_Restart -> reinicio en A (ciclo 1).
+        await CompleteSingleCurrentAsync(engine, run.Id, approval: "Rejected"); // Task_A
 
         var after = await ctx.WorkflowStepHistories.AsNoTracking()
             .Where(s => s.InstanceId == run.Id).ToListAsync();
 
-        // Todas las filas del ciclo 0 siguen existiendo, con su MISMO estado final.
+        // Todas las filas previas siguen existiendo, con su MISMO estado final (append-only).
         foreach (var old in beforeRestart)
         {
             var survivor = after.SingleOrDefault(s => s.Id == old.Id);
@@ -292,8 +301,12 @@ public abstract class WorkflowEngineTestsBase
             Assert.Equal(old.CycleIndex, survivor!.CycleIndex);
             Assert.Equal(old.NodeId, survivor.NodeId);
         }
-        Assert.Equal(WorkflowStepStatus.Completed,
-            after.Single(s => s.CycleIndex == 0 && s.ApprovalResult == "Rejected").Status);
+        // El gateway del ciclo 0 quedo Completed con la decision heredada (no Pending-current).
+        var gatewayNodeId = definition.Nodes.Single(n => n.BpmnElementId == "Gateway_G").Id;
+        var gwRow = after.Single(s => s.CycleIndex == 0 && s.NodeId == gatewayNodeId);
+        Assert.Equal(WorkflowStepStatus.Completed, gwRow.Status);
+        Assert.Equal("Rejected", gwRow.ApprovalResult);
+        Assert.False(gwRow.IsCurrent);
         // Y el reinicio agrego la fila nueva del ciclo 1.
         var cycleOne = Assert.Single(after, s => s.CycleIndex == 1);
         Assert.True(cycleOne.IsCycleStart);

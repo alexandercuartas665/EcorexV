@@ -270,7 +270,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // Paso del startEvent (ciclo 0): los startEvent se completan solos y el avance
         // automatico deja como current el/los siguientes.
         var steps = new List<WorkflowStepHistory>();
-        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, cancellationToken);
+        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, inheritedApprovalResult: null, cancellationToken);
         var stuck = await AdvanceAsync(instance, steps, graph, task, cancellationToken);
 
         try
@@ -387,12 +387,10 @@ public sealed class WorkflowEngine : IWorkflowEngine
         }
 
         // Paso anterior reactivable: el paso Completed mas reciente de un nodo con arista
-        // hacia el nodo rechazado (nunca el startEvent: no es reactivable por un humano).
-        var sourceNodeIds = graph.Edges
-            .Where(e => e.TargetNodeId == step.NodeId)
-            .Select(e => e.SourceNodeId)
-            .Where(id => graph.NodesById[id].NodeType != WorkflowNodeType.StartEvent)
-            .ToHashSet();
+        // hacia el nodo rechazado (nunca el startEvent: no es reactivable por un humano). Los
+        // exclusiveGateway tampoco son reactivables (se auto-resuelven, ADR-0037): se ATRAVIESAN
+        // hacia sus propias fuentes hasta llegar a un nodo humano (Task).
+        var sourceNodeIds = ResolveReactivableSources(step.NodeId, graph);
         var previous = steps
             .Where(s => sourceNodeIds.Contains(s.NodeId) && s.Status == WorkflowStepStatus.Completed)
             .OrderByDescending(s => s.CompletedAt ?? DateTimeOffset.MinValue)
@@ -414,7 +412,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         step.ApprovalComment = reason.Trim();
 
         var previousNode = graph.NodesById[previous.NodeId];
-        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, cancellationToken);
+        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, inheritedApprovalResult: null, cancellationToken);
         if (task is not null)
         {
             AddTaskActivity(task, null, "Sistema",
@@ -475,7 +473,10 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         // REINICIO (port de ProcesarReinicio, en LINQ/memoria): en lugar de
                         // continuar, se abre el ciclo siguiente en el nodo destino del loop.
                         var cycle = step.CycleIndex + 1;
-                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, cancellationToken);
+                        var restartInherited = restartNode.NodeType == WorkflowNodeType.ExclusiveGateway
+                            ? step.ApprovalResult
+                            : null;
+                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, cancellationToken);
                         instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
                     }
                     else if (target.NodeType == WorkflowNodeType.EndEvent)
@@ -487,7 +488,16 @@ public sealed class WorkflowEngine : IWorkflowEngine
                     }
                     else
                     {
-                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, cancellationToken);
+                        // Gateways: NUNCA esperan a un humano. Al activar un exclusiveGateway se
+                        // hereda el ApprovalResult del paso que ENTRO (la decision se capturo en el
+                        // paso previo: bandeja, formulario o CompleteStep directo) para que en la
+                        // MISMA pasada el bucle lo procese (IsReady) y enrute por ConditionExpression
+                        // (o por la arista default). Sin herencia el gateway quedaba Pending-current
+                        // y estancaba el caso (GAP corregido, ADR-0037).
+                        var inherited = target.NodeType == WorkflowNodeType.ExclusiveGateway
+                            ? step.ApprovalResult
+                            : null;
+                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, cancellationToken);
                     }
                 }
             }
@@ -547,13 +557,51 @@ public sealed class WorkflowEngine : IWorkflowEngine
     }
 
     /// <summary>
+    /// Nodos fuente reactivables por un rechazo del paso <paramref name="targetNodeId"/>: los
+    /// origenes directos, saltando startEvents (no reactivables) y ATRAVESANDO exclusiveGateway
+    /// (auto-resueltos, ADR-0037) hacia sus propias fuentes, hasta nodos humanos. Evita ciclos.
+    /// </summary>
+    private static HashSet<Guid> ResolveReactivableSources(Guid targetNodeId, WorkflowGraph graph)
+    {
+        var result = new HashSet<Guid>();
+        var visited = new HashSet<Guid>();
+        var stack = new Stack<Guid>();
+        stack.Push(targetNodeId);
+        while (stack.Count > 0)
+        {
+            var nodeId = stack.Pop();
+            foreach (var edge in graph.Edges.Where(e => e.TargetNodeId == nodeId))
+            {
+                var source = graph.NodesById[edge.SourceNodeId];
+                if (source.NodeType == WorkflowNodeType.StartEvent)
+                {
+                    continue;
+                }
+                if (source.NodeType == WorkflowNodeType.ExclusiveGateway)
+                {
+                    if (visited.Add(source.Id))
+                    {
+                        stack.Push(source.Id);
+                    }
+                    continue;
+                }
+                result.Add(source.Id);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Crea el paso Pending del nodo y lo activa: los startEvent se completan solos; los
-    /// Task consultan el hook de reglas (AutoComplete = regla autonoma del legacy) y las
-    /// compuertas quedan Pending esperando la decision humana.
+    /// exclusiveGateway se completan AUTOMATICAMENTE heredando el ApprovalResult del paso que
+    /// los activo (nunca esperan a un humano, ADR-0037), de modo que el bucle de AdvanceAsync
+    /// los procese en la misma pasada y enrute; los Task consultan el hook de reglas
+    /// (AutoComplete = regla autonoma del legacy) y quedan Pending esperando atencion.
+    /// <paramref name="inheritedApprovalResult"/> solo aplica al exclusiveGateway.
     /// </summary>
     private async Task<WorkflowStepHistory> ActivateNodeAsync(
         WorkflowInstance instance, List<WorkflowStepHistory> steps, WorkflowNode node,
-        int cycleIndex, bool isCycleStart, CancellationToken cancellationToken)
+        int cycleIndex, bool isCycleStart, string? inheritedApprovalResult, CancellationToken cancellationToken)
     {
         var step = AddStep(instance, node, cycleIndex, isCycleStart, WorkflowStepStatus.Pending, isCurrent: true);
         steps.Add(step);
@@ -562,6 +610,15 @@ public sealed class WorkflowEngine : IWorkflowEngine
         {
             step.Status = WorkflowStepStatus.Completed;
             step.CompletedAt = DateTimeOffset.UtcNow;
+        }
+        else if (node.NodeType == WorkflowNodeType.ExclusiveGateway)
+        {
+            // Auto-resuelto: hereda la decision del paso de origen y se completa en el acto. El
+            // bucle lo tomara como IsReady y ResolveOutgoing evaluara sus aristas contra este
+            // ApprovalResult (o tomara la default). Sigue siendo una fila de historial (auditoria).
+            step.Status = WorkflowStepStatus.Completed;
+            step.CompletedAt = DateTimeOffset.UtcNow;
+            step.ApprovalResult = Normalize(inheritedApprovalResult);
         }
         else if (node.NodeType == WorkflowNodeType.Task)
         {

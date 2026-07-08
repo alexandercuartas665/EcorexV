@@ -569,10 +569,10 @@ public sealed class DatabaseSeeder
             <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_Requerimiento" targetRef="Task_Cotizacion" />
             <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_Cotizacion" targetRef="Gateway_Aprobacion" />
             <bpmn:sequenceFlow id="Flow_4" name="Aprobada" sourceRef="Gateway_Aprobacion" targetRef="Task_Facturacion">
-              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Approved'</bpmn:conditionExpression>
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Aprobada'</bpmn:conditionExpression>
             </bpmn:sequenceFlow>
             <bpmn:sequenceFlow id="Flow_5" name="Rechazada" sourceRef="Gateway_Aprobacion" targetRef="End_Reinicio">
-              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Rejected'</bpmn:conditionExpression>
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Rechazada'</bpmn:conditionExpression>
             </bpmn:sequenceFlow>
             <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_Facturacion" targetRef="Task_Entrega" />
             <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_Entrega" targetRef="End_Fin" />
@@ -632,6 +632,98 @@ public sealed class DatabaseSeeder
             "Flujo demo {Process} v{Version} sembrado y publicado para {Tenant} ({Nodes} nodos, {Edges} aristas).",
             DemoWorkflowProcessCode, definition.Version, tenant.Name,
             definition.Nodes.Count, definition.Edges.Count);
+    }
+
+    /// <summary>
+    /// Alineacion idempotente (ADR-0037) del flujo demo COT-COM: la decision que la UI ofrece es
+    /// el NOMBRE de la arista del gateway (Aprobada/Rechazada) y se evalua contra su
+    /// ConditionExpression, asi que el literal de la condicion debe COINCIDIR con el nombre. El
+    /// seed historico traia condiciones en ingles (approval == 'Approved'/'Rejected') que nunca
+    /// casaban con las opciones en espanol. Este paso reescribe la ConditionExpression de las
+    /// aristas del gateway a "approval == '{Name}'" cuando difieren. Solo Development.
+    /// </summary>
+    public async Task<int> AlignDemoGatewayConditionsAsync(CancellationToken cancellationToken = default)
+    {
+        var edges = await (
+            from edge in _db.WorkflowEdges
+            join def in _db.WorkflowDefinitions on edge.DefinitionId equals def.Id
+            join source in _db.WorkflowNodes on edge.SourceNodeId equals source.Id
+            where def.ProcessCode == DemoWorkflowProcessCode
+                && source.NodeType == WorkflowNodeType.ExclusiveGateway
+                && edge.Name != null
+            select edge).ToListAsync(cancellationToken);
+
+        var fixedCount = 0;
+        foreach (var edge in edges)
+        {
+            var expected = $"approval == '{edge.Name!.Trim()}'";
+            if (!string.Equals(edge.ConditionExpression, expected, StringComparison.Ordinal))
+            {
+                edge.ConditionExpression = expected;
+                fixedCount++;
+            }
+        }
+        if (fixedCount > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Condiciones de compuerta del flujo demo alineadas (ADR-0037): {Count}.", fixedCount);
+        }
+        return fixedCount;
+    }
+
+    /// <summary>
+    /// Limpieza idempotente (ADR-0037): resuelve compuertas exclusivas que quedaron varadas como
+    /// paso Pending-current de instancias Running (GAP historico: el camino de formulario no
+    /// llevaba approvalResult al gateway). Hereda la decision del paso Completed que ENTRO al
+    /// gateway (o toma la arista default si no hay decision) y delega en el motor, que las
+    /// auto-resuelve y continua el avance. Sin gateways varados es no-op. REQUIERE ambient del
+    /// tenant. Solo Development.
+    /// </summary>
+    public async Task<int> ResolveStuckGatewaysAsync(IWorkflowEngine engine, CancellationToken cancellationToken = default)
+    {
+        // Pasos current+Pending de compuertas exclusivas en instancias Running (filtro global).
+        var stuck = await (
+            from step in _db.WorkflowStepHistories
+            where step.IsCurrent && step.Status == WorkflowStepStatus.Pending
+            join instance in _db.WorkflowInstances on step.InstanceId equals instance.Id
+            where instance.Status == WorkflowInstanceStatus.Running
+            join node in _db.WorkflowNodes on step.NodeId equals node.Id
+            where node.NodeType == WorkflowNodeType.ExclusiveGateway
+            select new { Step = step, Node = node }).ToListAsync(cancellationToken);
+        if (stuck.Count == 0)
+        {
+            return 0;
+        }
+
+        var resolved = 0;
+        foreach (var row in stuck)
+        {
+            // Decision heredada: el paso Completed mas reciente de un nodo con arista hacia el
+            // gateway (normalmente el Task de Cotizacion). Si no hay decision, el motor tomara la
+            // arista default (o marcara Stuck si no existe: flujo mal modelado, no se fuerza).
+            var sourceNodeIds = await _db.WorkflowEdges
+                .Where(e => e.TargetNodeId == row.Node.Id)
+                .Select(e => e.SourceNodeId)
+                .ToListAsync(cancellationToken);
+            var decision = await _db.WorkflowStepHistories
+                .Where(s => s.InstanceId == row.Step.InstanceId
+                    && sourceNodeIds.Contains(s.NodeId)
+                    && s.Status == WorkflowStepStatus.Completed
+                    && s.ApprovalResult != null)
+                .OrderByDescending(s => s.CompletedAt)
+                .Select(s => s.ApprovalResult)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            var result = await engine.CompleteStepAsync(
+                row.Step.InstanceId, row.Step.Id, null, decision, "Resuelto automaticamente (ADR-0037)", cancellationToken);
+            if (result.IsOk || result.Status == WorkflowEngineStatus.StuckDetected)
+            {
+                resolved++;
+            }
+        }
+
+        _logger.LogInformation("Compuertas varadas resueltas automaticamente (ADR-0037): {Count}.", resolved);
+        return resolved;
     }
 
     // ---- Indice de flujos demo (editor canvas del prototipo, ADR-0022) ----

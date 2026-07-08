@@ -69,11 +69,31 @@ else
 
         @if (Mode == FormRenderMode.Fill && _response is not null)
         {
+            @* Decision de aprobacion (ADR-0037): cuando el nodo del paso tiene una compuerta
+               adelante, se pide la salida modelada (Aprobada/Rechazada) JUNTO al formulario y
+               se propaga al enviar; sin ella el submit queda deshabilitado. *@
+            @if (ApprovalOptions is { Count: > 0 } && !IsSubmitted)
+            {
+                <div class="dfr-decision">
+                    <label class="form-label dfr-label">Decision <span class="dfr-req">*</span></label>
+                    <div class="dfr-options">
+                        @foreach (var option in ApprovalOptions)
+                        {
+                            var opt = option;
+                            <label class="dfr-check">
+                                <input type="radio" name="dfr-approval" checked="@(_approvalChoice == opt)"
+                                       disabled="@_busy" @onchange="@(() => _approvalChoice = opt)" />
+                                <span>@opt</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            }
             <div class="dfr-foot">
                 <span class="dfr-autosave">
                     @(_lastSavedAt is null ? "Borrador sin guardar" : $"Borrador guardado {_lastSavedAt:HH:mm:ss}")
                 </span>
-                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted)">
+                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
                     @(IsSubmitted ? "Enviado" : "Enviar")
                 </button>
             </div>
@@ -98,6 +118,12 @@ else
     [Parameter] public Guid? AmbientTenantId { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
+    /// <summary>
+    /// Opciones de decision de la compuerta adelante (ADR-0037). Si trae valores, el renderer
+    /// pide elegir una (radio) y la propaga como approvalResult al enviar; el submit se
+    /// deshabilita hasta que haya eleccion. Vacio/null = paso sin compuerta adelante.
+    /// </summary>
+    [Parameter] public IReadOnlyList<string>? ApprovalOptions { get; set; }
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -107,6 +133,8 @@ else
     // derivado de las acciones (ocultos por regla / overrides de obligatoriedad).
     private IReadOnlySet<string> _ruleTriggerFields = new HashSet<string>(StringComparer.Ordinal);
     private FormRuleUiState _ruleUiState = new();
+    // Decision elegida para la compuerta adelante (ADR-0037); null hasta que el usuario elige.
+    private string? _approvalChoice;
     private bool _loading = true;
     private bool _busy;
     private bool _dirty;
@@ -114,6 +142,9 @@ else
     private DateTimeOffset? _lastSavedAt;
     private System.Threading.Timer? _autosaveTimer;
     private Guid _loadedKey;
+    // Reentrancy guard de OnParametersSetAsync: true mientras una carga esta en curso, para que
+    // un cambio de parametro del padre no dispare una segunda carga concurrente sobre el DbContext.
+    private bool _loadInProgress;
 
     // Serializa TODO acceso al DbContext del circuito desde este componente
     // (despacho de reglas, autosave y guardado/submit). Blazor solo garantiza
@@ -128,14 +159,22 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        // Evita recargas si los parametros no cambiaron (re-render del padre).
+        // Evita recargas si los parametros no cambiaron (re-render del padre) Y evita la
+        // RE-ENTRADA mientras una carga de la misma definicion sigue en curso: pasar un
+        // parametro nuevo (p.ej. ApprovalOptions) re-dispara OnParametersSetAsync antes de que
+        // el primer await termine y, sin este guard, dos cargas concurrentes usaban el MISMO
+        // DbContext del circuito y lo tumbaban con "a second operation was started on this
+        // context" (mismo bug que _dbGate ya cubre en autosave/reglas/submit).
         var key = DefinitionId;
-        if (_loadedKey == key && !_loading)
+        // Ya cargado para esta definicion (re-render del padre) -> nada que hacer.
+        // Carga en curso para esta definicion (re-entrada por parametro nuevo) -> NO reentrar.
+        if ((_loadedKey == key && !_loading) || _loadInProgress)
         {
             return;
         }
         _loadedKey = key;
         _loading = true;
+        _loadInProgress = true;
         try
         {
             using var ambient = BeginAmbient();
@@ -192,6 +231,7 @@ else
         finally
         {
             _loading = false;
+            _loadInProgress = false;
         }
 
         // Autosave del borrador cada 30 segundos (solo Fill y solo si hay cambios).
@@ -763,7 +803,8 @@ else
         {
             using var ambient = BeginAmbient();
             var result = await ResponsesSvc.SaveAsync(
-                _response.Id, BuildDocument(), submit, SubmittedByTenantUserId);
+                _response.Id, BuildDocument(), submit, SubmittedByTenantUserId,
+                approvalResult: submit ? _approvalChoice : null);
             if (result.Status == FormServiceStatus.ValidationFailed && result.FieldErrors is not null)
             {
                 // Errores del servidor bajo cada campo (fuente de verdad).

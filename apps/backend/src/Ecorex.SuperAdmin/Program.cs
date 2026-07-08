@@ -230,6 +230,15 @@ else
             var taskService = scope.ServiceProvider
                 .GetRequiredService<Ecorex.Application.Tenancy.ITaskItemService>();
             await seeder.EnsureWorkflowRuntimeDemoAsync(taskService);
+            // Alineacion idempotente (ADR-0037): las condiciones del gateway demo deben coincidir
+            // con el nombre de la arista (opcion de decision). Corre ANTES de resolver varados.
+            await seeder.AlignDemoGatewayConditionsAsync();
+            // Limpieza idempotente (ADR-0037): resuelve compuertas que quedaron varadas como
+            // paso pendiente por el GAP historico del camino de formulario (heredan la decision
+            // del paso previo o toman la default). Sin varados es no-op.
+            var runtimeEngine = scope.ServiceProvider
+                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
+            await seeder.ResolveStuckGatewaysAsync(runtimeEngine);
         }
     }
     await seeder.EnsureModuleRegistryAsync();

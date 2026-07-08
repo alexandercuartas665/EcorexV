@@ -23,10 +23,14 @@ public interface IFormResponseService
     /// opcion valida, fecha valida) y devuelve ValidationFailed con errores por fieldCode
     /// si algo falla. Al enviar con FormFlowLink Pending: marca el link Completed y
     /// completa el paso del workflow (misma transaccion; rollback total si el motor falla).
+    /// <paramref name="approvalResult"/> (opcional) es la DECISION capturada junto al formulario
+    /// cuando el nodo tiene una compuerta adelante: se propaga a CompleteStep para que el motor
+    /// resuelva el gateway (ADR-0037). Si el nodo no tiene compuerta adelante, se ignora.
     /// </summary>
     Task<FormResult<FormResponseDto>> SaveAsync(
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
-        Guid? submittedByTenantUserId = null, CancellationToken cancellationToken = default);
+        Guid? submittedByTenantUserId = null, string? approvalResult = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Formularios exigidos por los pasos current del flujo de una tarea: para cada paso

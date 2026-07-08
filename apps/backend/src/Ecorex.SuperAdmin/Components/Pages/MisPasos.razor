@@ -139,6 +139,7 @@ else
                                                      Reference="@_stepForm.Reference"
                                                      Mode="FormRenderMode.Fill"
                                                      SubmittedByTenantUserId="@_meTenantUserId"
+                                                     ApprovalOptions="@(_stepForm.IsGatewayAhead ? _stepForm.ApprovalOptions : null)"
                                                      OnSubmitted="OnStepFormSubmittedAsync" />
                             }
                             else

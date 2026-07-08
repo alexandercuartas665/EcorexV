@@ -59,20 +59,27 @@ public sealed class WorkflowFormTests : E2eTestBase
         await Assertions.Expect(formsCard).ToContainTextAsync("Paso: Cotizacion");
         await Assertions.Expect(formsCard.Locator(".tk-status.st-pending")).ToHaveTextAsync("Pendiente");
 
-        // 5. Diligenciar FRM-001 (campos requeridos) y enviar.
+        // 5. Diligenciar FRM-001 (campos requeridos). Como Cotizacion tiene la compuerta
+        //    Aprobacion adelante, el renderer pide la DECISION (ADR-0037): elegir "Aprobada"
+        //    y enviar (el boton Enviar esta deshabilitado hasta que haya decision).
         await formsCard.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Diligenciar" }).ClickAsync();
         var form = page.Locator(".dfr-root");
         await form.WaitForAsync();
         await PublicFormFiller.FillRequiredAsync(page, Sfx);
+        await form.Locator(".dfr-decision .dfr-check")
+            .Filter(new LocatorFilterOptions { HasText = "Aprobada" })
+            .Locator("input").CheckAsync();
         await page.Locator(".dfr-foot").GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = "Enviar" }).ClickAsync();
 
-        // 6. El submit completa el paso: el modal del formulario se cierra y, como el nuevo
-        //    paso current es la compuerta Aprobacion (sin formulario), la seccion desaparece.
+        // 6. El submit completa el paso con la decision: el modal del formulario se cierra y,
+        //    como el motor resuelve la compuerta y avanza a Facturacion (sin formulario), la
+        //    seccion "Formularios del paso" desaparece.
         await form.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached });
         await Assertions.Expect(page.Locator(".tk-card h3", new PageLocatorOptions { HasText = "Formularios del paso" }))
             .ToHaveCountAsync(0);
 
-        // 7. Estado del motor: el flujo avanzo de Cotizacion a la compuerta de aprobacion.
-        Assert.Equal(new[] { "Gateway_Aprobacion" }, await backdoor.GetCurrentStepElementIdsAsync(number));
+        // 7. Estado del motor: el flujo avanzo de Cotizacion, la compuerta se auto-resolvio con
+        //    "Aprobada" y el paso vigente es Facturacion (la compuerta NO quedo estancada).
+        Assert.Equal(new[] { "Task_Facturacion" }, await backdoor.GetCurrentStepElementIdsAsync(number));
     }
 }

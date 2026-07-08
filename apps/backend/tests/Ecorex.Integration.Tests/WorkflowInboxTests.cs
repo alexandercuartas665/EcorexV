@@ -98,7 +98,7 @@ public abstract class WorkflowInboxTestsBase
         Assert.Equal("Cotizacion", cotStep.NodeName);
         // Cotizacion apunta a la compuerta: gateway adelante con opciones Aprobada/Rechazada.
         Assert.True(cotStep.IsGatewayAhead);
-        Assert.Equal(new[] { "Aprobada", "Rechazada" }, cotStep.ApprovalOptions);
+        Assert.Equal(new[] { "Aprobada", "Rechazada" }, cotStep.ApprovalOptions.OrderBy(o => o, StringComparer.Ordinal));
     }
 
     [Fact]

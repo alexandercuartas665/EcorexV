@@ -273,6 +273,66 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal(seed.TenantUserId, stepA.ExecutedByTenantUserId);
     }
 
+    [Fact]
+    public async Task SubmittingFormWithGatewayAhead_PropagatesDecision_AndEngineResolvesGateway()
+    {
+        var seed = await SeedTenantAsync("Forms Gateway");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed, engine);
+
+        // Flujo con compuerta publicado + formulario asignado a Task_Cot (nodo con gateway adelante).
+        var workflow = (await engine.ImportBpmnAsync(new ImportBpmnRequest("FRM-GW", "Flujo con compuerta y formulario", GatewayFormXml))).Value!;
+        var restartEnd = workflow.Nodes.Single(n => n.BpmnElementId == "End_Re");
+        var restartTarget = workflow.Nodes.Single(n => n.BpmnElementId == "Task_Cot");
+        Assert.True((await engine.SetRestartTargetAsync(restartEnd.Id, restartTarget.Id)).IsOk);
+        Assert.True((await engine.PublishAsync(workflow.Id)).IsOk);
+        var activityType = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        activityType.WorkflowDefinitionId = workflow.Id;
+        await ctx.SaveChangesAsync();
+
+        var form = await BuildDemoDefinitionAsync(definitions);
+        var cotNode = workflow.Nodes.Single(n => n.BpmnElementId == "Task_Cot");
+        Assert.True((await definitions.AssignToWorkflowNodeAsync(cotNode.Id, form.Id)).IsOk);
+
+        var taskService = BuildTaskService(ctx, seed, engine);
+        var created = await taskService.CreateAsync(
+            new CreateTaskItemRequest("Tarea form+gateway", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == taskId);
+
+        // Requerimiento no tiene formulario: se completa con el motor para llegar a Cotizacion.
+        var reqStep = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_Req", reqStep.BpmnElementId);
+        Assert.True((await engine.CompleteStepAsync(instance.Id, reqStep.Id, seed.TenantUserId)).IsOk);
+
+        // El formulario del paso Cotizacion trae la compuerta adelante y sus opciones (ADR-0037).
+        var stepForm = Assert.Single(await responses.GetTaskStepFormsAsync(taskId));
+        Assert.Equal("Cotizacion", stepForm.NodeName);
+        Assert.True(stepForm.IsGatewayAhead);
+        Assert.Equal(new[] { "Aprobada", "Rechazada" }, stepForm.ApprovalOptions!.OrderBy(o => o, StringComparer.Ordinal));
+
+        // Enviar el formulario CON decision Aprobada: el paso lleva el ApprovalResult, el motor
+        // resuelve la compuerta en su cascada y enruta a Facturacion (gateway NO queda pendiente).
+        var submitted = await responses.SaveAsync(
+            stepForm.ResponseId, ValidDocument(), submit: true, seed.TenantUserId, approvalResult: "Aprobada");
+        Assert.True(submitted.IsOk, submitted.Error);
+
+        var current = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_Fac", current.BpmnElementId);
+
+        // El gateway quedo Completed (no Pending-current) heredando la decision.
+        var gwStep = await ctx.WorkflowStepHistories.AsNoTracking()
+            .Join(ctx.WorkflowNodes.AsNoTracking(), s => s.NodeId, n => n.Id, (s, n) => new { s, n })
+            .Where(x => x.s.InstanceId == instance.Id && x.n.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Select(x => x.s).SingleAsync();
+        Assert.Equal(WorkflowStepStatus.Completed, gwStep.Status);
+        Assert.False(gwStep.IsCurrent);
+        Assert.Equal("Aprobada", gwStep.ApprovalResult);
+    }
+
     // ---- (5) Aislamiento multi-tenant ----
 
     [Fact]
@@ -323,6 +383,36 @@ public abstract class DynamicFormsTestsBase
             <bpmn:sequenceFlow id="F1" sourceRef="Start_1" targetRef="Task_A" />
             <bpmn:sequenceFlow id="F2" sourceRef="Task_A" targetRef="Task_B" />
             <bpmn:sequenceFlow id="F3" sourceRef="Task_B" targetRef="End_1" />
+          </bpmn:process>
+        </bpmn:definitions>
+        """;
+
+    /// <summary>
+    /// start -> Requerimiento -> Cotizacion (con formulario) -> gateway Aprobacion;
+    /// Aprobada -> Facturacion -> end; Rechazada -> End_Re (reinicio hacia Cotizacion).
+    /// </summary>
+    private const string GatewayFormXml = """
+        <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                          id="frmgw" targetNamespace="http://ecorex.local/bpmn">
+          <bpmn:process id="P_FormsGw">
+            <bpmn:startEvent id="Start_1" name="Inicio" />
+            <bpmn:task id="Task_Req" name="Requerimiento" />
+            <bpmn:task id="Task_Cot" name="Cotizacion" />
+            <bpmn:exclusiveGateway id="Gw_Ap" name="Aprobacion" />
+            <bpmn:task id="Task_Fac" name="Facturacion" />
+            <bpmn:endEvent id="End_1" name="Fin" />
+            <bpmn:endEvent id="End_Re" name="Rechazada" />
+            <bpmn:sequenceFlow id="F1" sourceRef="Start_1" targetRef="Task_Req" />
+            <bpmn:sequenceFlow id="F2" sourceRef="Task_Req" targetRef="Task_Cot" />
+            <bpmn:sequenceFlow id="F3" sourceRef="Task_Cot" targetRef="Gw_Ap" />
+            <bpmn:sequenceFlow id="F4" name="Aprobada" sourceRef="Gw_Ap" targetRef="Task_Fac">
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Aprobada'</bpmn:conditionExpression>
+            </bpmn:sequenceFlow>
+            <bpmn:sequenceFlow id="F5" name="Rechazada" sourceRef="Gw_Ap" targetRef="End_Re">
+              <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">approval == 'Rechazada'</bpmn:conditionExpression>
+            </bpmn:sequenceFlow>
+            <bpmn:sequenceFlow id="F6" sourceRef="Task_Fac" targetRef="End_1" />
           </bpmn:process>
         </bpmn:definitions>
         """;

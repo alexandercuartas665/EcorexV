@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-07-08 - Sesion: Editor bpmn-js (iconos) + deploy a prod + dev conectado a la BD de prod
+
+**Agentes**: sesion principal + agente de fix de gateways (ADR-0037, ver entrada siguiente).
+
+**Hecho**:
+- **Editor de flujos (bpmn-js)**: la paleta y el context pad (herramientas sobre cada nodo) salian como
+  cuadros en blanco porque el webfont `bpmn-icon-*` no viene con los assets vendoreados. Se reemplazaron
+  por iconos SVG inline (data-URI, sin descargas): iconos de paleta mas marcados +
+  `AcotadoContextPadProvider` que sobreescribe al provider nativo (anexar tarea/compuerta/fin, conectar,
+  eliminar) + `injectStyle()`. Validado en Chrome (paleta 6 iconos, context pad 5). Commit `1c46c26`.
+- **Fix de gateways (ADR-0037)**: ver entrada siguiente (agente aparte). Commit `a352de3`.
+- **Deploy a produccion + dev conectado a la BD de prod** (decision del usuario):
+  - Push de `main` local -> `fase-0/clon-backbone` (fast-forward `5829de6 -> d49d7d9`, luego `a418419`).
+  - Redeploy del server `10.0.0.3` (`/opt/ecorex`, build-from-git): backup previo (`backup.sh`),
+    `docker compose -f docker-compose.from-git.yml build --no-cache` + `up -d`. Prod migro `85 -> 88`
+    (`AddMenuConfig`, `AddRoles`, `AddNodeAssignment` aplicadas al arrancar), login HTTP 200.
+  - Dev local apuntando a la BD de prod via tunel SSH (`localhost:15433`), cadena en
+    `appsettings.Development.local.json` (GITIGNORED). Guard `SkipDemoSeed` (Program.cs, `a418419`) para
+    NO sembrar demo en prod. Validado en Chrome: login `admin@ecorex.local` (existe solo en prod) ->
+    Dashboard Super Admin con datos de prod (1 empresa).
+  - Doc de conexion para el equipo: `docs/arquitectura/conexion-base-de-datos.md`.
+
+**Siguiente**:
+- (Opcional) redeploy de prod a `a418419` para dejar la imagen 1:1 con la rama (el guard no afecta a prod).
+- Tunel SSH persistente (autossh / tarea programada) para que el dev no dependa de la sesion.
+- Retomar validacion de EJECUCION de flujos en Chrome (pausada por el usuario).
+- Compañero nuevo trabajara en rama `formularios` (ver doc de conexion).
+
+**Bloqueos**: ninguno.
+
+**Decisiones**:
+- Iconos del editor por SVG inline (offline), no webfont.
+- El dev local se conecta a la BD de PRODUCCION (`10.0.0.3`), no a un dev/staging aparte.
+- Credenciales (BD/SSH) NUNCA en el repo publico: solo en `appsettings.*.local.json` gitignored y el
+  `.env` del server (chmod 600).
+
+---
+
 ## 2026-07-08 - Sesion: Compuertas exclusivas auto-resueltas en el motor (ADR-0037)
 
 **Agentes**: agente de fix (runtime de flujos - GAP de gateways estancados).

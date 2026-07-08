@@ -25,7 +25,8 @@
     `appsettings.Development.local.json` (GITIGNORED). Guard `SkipDemoSeed` (Program.cs, `a418419`) para
     NO sembrar demo en prod. Validado en Chrome: login `admin@ecorex.local` (existe solo en prod) ->
     Dashboard Super Admin con datos de prod (1 empresa).
-  - Doc de conexion para el equipo: `docs/arquitectura/conexion-base-de-datos.md`.
+  - Doc de conexion para el equipo (onboarding): vault Obsidian ->
+    `04. Notas para desarrollador/Conexion a la base de datos (dev y prod).md`.
 
 **Siguiente**:
 - (Opcional) redeploy de prod a `a418419` para dejar la imagen 1:1 con la rama (el guard no afecta a prod).

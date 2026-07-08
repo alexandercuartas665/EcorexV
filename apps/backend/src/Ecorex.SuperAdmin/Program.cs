@@ -16,6 +16,11 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Override local NO versionado (gitignored: appsettings.*.local.json) para apuntar el dev a una
+// BD propia (p.ej. la de la nube dev/staging) sin poner la credencial en el repo publico. Si el
+// archivo no existe, no pasa nada; la conexion sigue saliendo de ECOREX_DB_CONNECTION / appsettings.
+builder.Configuration.AddJsonFile("appsettings.Development.local.json", optional: true, reloadOnChange: false);
+
 // Formato numerico uniforme en todo el sistema, independiente del locale del servidor (dev o Railway):
 // coma = separador de miles, punto = decimal (ej. 3,500,000.50). Evita que el host cambie como se ven los montos.
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;

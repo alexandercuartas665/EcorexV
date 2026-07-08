@@ -180,96 +180,110 @@ else
     var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
     await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-    await seeder.SeedAsync();
-    await seeder.EnsurePlatformAdminTenantAsync();
-    await seeder.EnsureDemoTemplateAssetsAsync();
-    // Perfil de contacto de la ficha de empresa demo (modulo 000072, ADR-0026). Idempotente:
-    // rellena City/Address/Phone/Email del tenant demo si quedaron vacios tras la migracion.
-    await seeder.EnsureTenantProfileDemoAsync();
-    // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
-    await seeder.EnsureTaskCoreDemoAsync();
-    // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del
-    // filtro global de tenant, asi que la siembra fija el ambient del tenant demo.
-    var workflowDemoTenantId = await db.Tenants.IgnoreQueryFilters()
-        .Where(t => t.Kind == TenantKind.Demo)
-        .Select(t => (Guid?)t.Id)
-        .FirstOrDefaultAsync();
-    if (workflowDemoTenantId is Guid workflowTenantId)
+    // Guard: cuando el dev local apunta a una BD real/compartida (p.ej. produccion via tunel SSH),
+    // NO sembrar datos demo. Se activa con Ecorex:SkipDemoSeed=true (en appsettings.Development
+    // .local.json, gitignored) o la env var ECOREX_SKIP_DEMO_SEED=true. Migraciones y el tenant de
+    // plataforma corren igual (idempotentes, sin datos demo).
+    var skipDemoSeed = app.Configuration.GetValue<bool>("Ecorex:SkipDemoSeed")
+        || string.Equals(Environment.GetEnvironmentVariable("ECOREX_SKIP_DEMO_SEED"), "true", StringComparison.OrdinalIgnoreCase);
+    if (skipDemoSeed)
     {
-        using (AmbientTenantContext.Begin(workflowTenantId))
-        {
-            var workflowEngine = scope.ServiceProvider
-                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
-            await seeder.EnsureWorkflowDemoAsync(workflowEngine);
-            // Indice de flujos del prototipo (ADR-0022): backfill de layout + un borrador
-            // y una definicion pausada, para que /flujos muestre KPIs y filtros con datos.
-            var workflowDesign = scope.ServiceProvider
-                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowDesignService>();
-            await seeder.EnsureWorkflowIndexDemoAsync(workflowEngine, workflowDesign);
-        }
+        await seeder.EnsurePlatformAdminTenantAsync();
+        app.Logger.LogWarning("Ecorex:SkipDemoSeed activo -> se omite la siembra de datos demo (el dev apunta a una BD real).");
     }
-    // Formulario dinamico demo (FASE 4 ola 2, ADR-0015): FRM-001 activo, vinculado al
-    // nodo "Cotizacion" del flujo demo. Escribe con TenantId explicito (sin ambient).
-    await seeder.EnsureDynamicFormsDemoAsync();
-    // Constructor de formularios (ADR-0021): FRM-002 borrador y FRM-003 activo con
-    // contenedores Row/Col y tabla funcional, para que el indice muestre KPIs con datos.
-    await seeder.EnsureFormBuilderDemoAsync();
-    // Documento de reglas demo (FASE 4 ola 3, ADR-0016): RUL-005 con PASAR_CAMPOS y
-    // BLOQUEAR_CAMPO_XCONDICION (FRM-001) y ASIGNAR_CONSECUTIVO autonoma (COT-COM).
-    await seeder.EnsureRulesEngineDemoAsync();
-    // Modulos de sistema (FASE 5, ADR-0017): organigrama demo (Dependencias, 000850) y
-    // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
-    await seeder.EnsureOrgUnitsDemoAsync();
-    // Asignacion por nodo (ADR-0035, ola F1): mini organigrama con clasificador
-    // (Dependencia/Cargo/Funcionario) + policies WorkflowNodePolicy sobre COT-COM, para que
-    // la ola F2 (bandeja) tenga datos reales que resolver. Idempotente, solo Development.
-    await seeder.EnsureOrgAssignmentDemoAsync();
-    // Runtime operativo de flujos demo (bandeja "mis pasos", ola F2, ADR-0036): una tarea del
-    // ActivityType vinculado a COT-COM arranca una instancia Running con el paso Requerimiento
-    // Pending (candidato: cargo Asesor Comercial -> operator@). Requiere ambient del tenant demo
-    // (ITaskItemService consulta via el filtro global). Corre despues de la asignacion por nodo.
-    if (workflowDemoTenantId is Guid runtimeTenantId)
+    else
     {
-        using (AmbientTenantContext.Begin(runtimeTenantId))
+        await seeder.SeedAsync();
+        await seeder.EnsurePlatformAdminTenantAsync();
+        await seeder.EnsureDemoTemplateAssetsAsync();
+        // Perfil de contacto de la ficha de empresa demo (modulo 000072, ADR-0026). Idempotente:
+        // rellena City/Address/Phone/Email del tenant demo si quedaron vacios tras la migracion.
+        await seeder.EnsureTenantProfileDemoAsync();
+        // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
+        await seeder.EnsureTaskCoreDemoAsync();
+        // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del
+        // filtro global de tenant, asi que la siembra fija el ambient del tenant demo.
+        var workflowDemoTenantId = await db.Tenants.IgnoreQueryFilters()
+            .Where(t => t.Kind == TenantKind.Demo)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync();
+        if (workflowDemoTenantId is Guid workflowTenantId)
         {
-            var taskService = scope.ServiceProvider
-                .GetRequiredService<Ecorex.Application.Tenancy.ITaskItemService>();
-            await seeder.EnsureWorkflowRuntimeDemoAsync(taskService);
-            // Alineacion idempotente (ADR-0037): las condiciones del gateway demo deben coincidir
-            // con el nombre de la arista (opcion de decision). Corre ANTES de resolver varados.
-            await seeder.AlignDemoGatewayConditionsAsync();
-            // Limpieza idempotente (ADR-0037): resuelve compuertas que quedaron varadas como
-            // paso pendiente por el GAP historico del camino de formulario (heredan la decision
-            // del paso previo o toman la default). Sin varados es no-op.
-            var runtimeEngine = scope.ServiceProvider
-                .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
-            await seeder.ResolveStuckGatewaysAsync(runtimeEngine);
+            using (AmbientTenantContext.Begin(workflowTenantId))
+            {
+                var workflowEngine = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
+                await seeder.EnsureWorkflowDemoAsync(workflowEngine);
+                // Indice de flujos del prototipo (ADR-0022): backfill de layout + un borrador
+                // y una definicion pausada, para que /flujos muestre KPIs y filtros con datos.
+                var workflowDesign = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Workflows.IWorkflowDesignService>();
+                await seeder.EnsureWorkflowIndexDemoAsync(workflowEngine, workflowDesign);
+            }
         }
+        // Formulario dinamico demo (FASE 4 ola 2, ADR-0015): FRM-001 activo, vinculado al
+        // nodo "Cotizacion" del flujo demo. Escribe con TenantId explicito (sin ambient).
+        await seeder.EnsureDynamicFormsDemoAsync();
+        // Constructor de formularios (ADR-0021): FRM-002 borrador y FRM-003 activo con
+        // contenedores Row/Col y tabla funcional, para que el indice muestre KPIs con datos.
+        await seeder.EnsureFormBuilderDemoAsync();
+        // Documento de reglas demo (FASE 4 ola 3, ADR-0016): RUL-005 con PASAR_CAMPOS y
+        // BLOQUEAR_CAMPO_XCONDICION (FRM-001) y ASIGNAR_CONSECUTIVO autonoma (COT-COM).
+        await seeder.EnsureRulesEngineDemoAsync();
+        // Modulos de sistema (FASE 5, ADR-0017): organigrama demo (Dependencias, 000850) y
+        // catalogo global de modulos con todos habilitados para SKY SYSTEM (Modulos web, 000109).
+        await seeder.EnsureOrgUnitsDemoAsync();
+        // Asignacion por nodo (ADR-0035, ola F1): mini organigrama con clasificador
+        // (Dependencia/Cargo/Funcionario) + policies WorkflowNodePolicy sobre COT-COM, para que
+        // la ola F2 (bandeja) tenga datos reales que resolver. Idempotente, solo Development.
+        await seeder.EnsureOrgAssignmentDemoAsync();
+        // Runtime operativo de flujos demo (bandeja "mis pasos", ola F2, ADR-0036): una tarea del
+        // ActivityType vinculado a COT-COM arranca una instancia Running con el paso Requerimiento
+        // Pending (candidato: cargo Asesor Comercial -> operator@). Requiere ambient del tenant demo
+        // (ITaskItemService consulta via el filtro global). Corre despues de la asignacion por nodo.
+        if (workflowDemoTenantId is Guid runtimeTenantId)
+        {
+            using (AmbientTenantContext.Begin(runtimeTenantId))
+            {
+                var taskService = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Tenancy.ITaskItemService>();
+                await seeder.EnsureWorkflowRuntimeDemoAsync(taskService);
+                // Alineacion idempotente (ADR-0037): las condiciones del gateway demo deben coincidir
+                // con el nombre de la arista (opcion de decision). Corre ANTES de resolver varados.
+                await seeder.AlignDemoGatewayConditionsAsync();
+                // Limpieza idempotente (ADR-0037): resuelve compuertas que quedaron varadas como
+                // paso pendiente por el GAP historico del camino de formulario (heredan la decision
+                // del paso previo o toman la default). Sin varados es no-op.
+                var runtimeEngine = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Workflows.IWorkflowEngine>();
+                await seeder.ResolveStuckGatewaysAsync(runtimeEngine);
+            }
+        }
+        await seeder.EnsureModuleRegistryAsync();
+        // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
+        // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
+        await seeder.EnsureInventoryDemoAsync();
+        // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
+        // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
+        await seeder.EnsureMenuConfigDemoAsync();
+        // Roles de permisos dinamicos (Ola B1, ADR-0032): rol de sistema "Administrador" (todos los
+        // modulos) + rol demo "Asesor limitado" asignado a simple@sky-system.local. El catalogo sale
+        // de los Item Ready de la vista IsDefault (por eso corre despues del seed de menu). Idempotente.
+        await seeder.EnsureRolesDemoAsync();
+        // Plantillas HSM de WhatsApp demo (ADR-0029): 3 plantillas del tenant demo vinculadas a una
+        // linea de WhatsApp. Idempotente, solo Development. Submit es un stub (sin integracion Meta).
+        await seeder.EnsureWhatsAppTemplatesDemoAsync();
+        // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
+        // + 2 tableros simples para el indice. Idempotente, solo Development.
+        await seeder.EnsureActivityBoardsDemoAsync();
+        // Extraccion de datos (ADR-0025): 1 fuente Json demo apuntando al endpoint PROPIO
+        // /api/demo/scrape-sample (sin dependencia de internet; el guard SSRF permite loopback
+        // SOLO en Development). La base URL sale de la configuracion de arranque de Kestrel.
+        var scrapeDemoBaseUrl = (builder.Configuration["urls"]
+            ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS")
+            ?? "http://localhost:5253").Split(';', ',')[0].Trim().TrimEnd('/');
+        await seeder.EnsureScrapingDemoAsync(scrapeDemoBaseUrl);
     }
-    await seeder.EnsureModuleRegistryAsync();
-    // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
-    // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
-    await seeder.EnsureInventoryDemoAsync();
-    // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
-    // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
-    await seeder.EnsureMenuConfigDemoAsync();
-    // Roles de permisos dinamicos (Ola B1, ADR-0032): rol de sistema "Administrador" (todos los
-    // modulos) + rol demo "Asesor limitado" asignado a simple@sky-system.local. El catalogo sale
-    // de los Item Ready de la vista IsDefault (por eso corre despues del seed de menu). Idempotente.
-    await seeder.EnsureRolesDemoAsync();
-    // Plantillas HSM de WhatsApp demo (ADR-0029): 3 plantillas del tenant demo vinculadas a una
-    // linea de WhatsApp. Idempotente, solo Development. Submit es un stub (sin integracion Meta).
-    await seeder.EnsureWhatsAppTemplatesDemoAsync();
-    // Tableros de actividades unificados (ADR-0020): PRY-0042 con 10 tareas del prototipo
-    // + 2 tableros simples para el indice. Idempotente, solo Development.
-    await seeder.EnsureActivityBoardsDemoAsync();
-    // Extraccion de datos (ADR-0025): 1 fuente Json demo apuntando al endpoint PROPIO
-    // /api/demo/scrape-sample (sin dependencia de internet; el guard SSRF permite loopback
-    // SOLO en Development). La base URL sale de la configuracion de arranque de Kestrel.
-    var scrapeDemoBaseUrl = (builder.Configuration["urls"]
-        ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS")
-        ?? "http://localhost:5253").Split(';', ',')[0].Trim().TrimEnd('/');
-    await seeder.EnsureScrapingDemoAsync(scrapeDemoBaseUrl);
 }
 
 app.UseHttpsRedirection();

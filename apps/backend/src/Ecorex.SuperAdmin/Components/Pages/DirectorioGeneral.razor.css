@@ -11,8 +11,10 @@
 .dg-title { font-weight: 800; font-size: 28px; letter-spacing: -.03em; }
 .dg-sub { color: var(--ink-2); font-size: 14px; margin-top: 6px; }
 .dg-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.dg-btn-new { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: none; background: var(--brand); color: var(--on-brand); font: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; }
+.dg-btn-new { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: none; background: var(--brand); color: var(--on-brand); font: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
 .dg-btn-new:hover { opacity: .9; }
+.dg-btn-new svg { width: 16px; height: 16px; flex: none; }
+.dg-btn-new:disabled { opacity: .55; cursor: default; }
 .dg-btn-cfg { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; }
 .dg-btn-cfg:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
 .dg-btn-cfg svg { width: 16px; height: 16px; }
@@ -253,3 +255,37 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 /* Estados de carga / vacio de la tabla */
 .dg-loading { padding: 40px 24px; text-align: center; color: var(--ink-3); font-size: 13px; }
 .dg-page-error { margin-top: 12px; color: var(--danger); font-size: 12.5px; font-weight: 600; }
+
+/* ---- Contactos asociados: header con boton agregar + acciones por fila ---- */
+.dg-kids-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dg-kids-add { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.dg-kids-add:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.dg-kids-add svg { width: 13px; height: 13px; }
+.dg-kid-acts { display: flex; gap: 4px; flex: none; }
+
+/* ---- Editor de contacto (modal pequeno) ---- */
+.dg-co-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 18px 22px; }
+
+/* ---- Tab Relaciones ---- */
+.dg-rel { padding: 4px 2px; }
+.dg-rel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.dg-rel-note { font-size: 12px; color: var(--ink-3); margin-top: 2px; max-width: 460px; }
+.dg-rel-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---- Tab Contacto Cliente (notas / gestiones) ---- */
+.dg-notas { display: flex; flex-direction: column; gap: 16px; padding: 2px; }
+.dg-note-new { padding: 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface-2); }
+.dg-note-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.dg-note-chip { padding: 7px 13px; border-radius: 999px; border: 1.5px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.dg-note-chip:hover { border-color: var(--ink-3); }
+.dg-note-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.dg-note-err { color: var(--danger); font-size: 12px; font-weight: 600; margin-top: 8px; }
+.dg-note-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+.dg-note-list { display: flex; flex-direction: column; gap: 10px; }
+.dg-note-item { padding: 13px 15px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.dg-note-item-head { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.dg-note-tag { font-size: 10px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; }
+.dg-note-cat { font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.dg-note-date { font-size: 11px; color: var(--ink-3); margin-left: auto; font-variant-numeric: tabular-nums; }
+.dg-note-text { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
+@media (max-width: 720px) { .dg-co-body { grid-template-columns: 1fr; } .dg-note-meta { grid-template-columns: 1fr; } }

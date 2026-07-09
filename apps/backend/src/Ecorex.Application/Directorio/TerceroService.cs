@@ -352,6 +352,64 @@ public sealed class TerceroService : ITerceroService
         return TerceroResult<bool>.Ok(true);
     }
 
+    // ---- Notas / gestiones "Contacto cliente" ----
+
+    public async Task<IReadOnlyList<TerceroNotaDto>> ListNotasAsync(
+        Guid terceroId, CancellationToken cancellationToken = default)
+        => await _db.TerceroNotas.AsNoTracking()
+            .Where(n => n.TerceroId == terceroId)
+            .OrderByDescending(n => n.CreatedAt)
+            .Select(n => new TerceroNotaDto(
+                n.Id, n.TerceroId, n.Texto, n.Accion, n.Categoria, n.Subcategoria, n.Autor, n.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+    public async Task<TerceroResult<TerceroNotaDto>> AddNotaAsync(
+        Guid terceroId, SaveNotaRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId)
+        {
+            return TerceroResult<TerceroNotaDto>.Invalid("No hay tenant activo.");
+        }
+        var tercero = await _db.Terceros.AsNoTracking().FirstOrDefaultAsync(x => x.Id == terceroId, cancellationToken);
+        if (tercero is null)
+        {
+            return TerceroResult<TerceroNotaDto>.NotFound("El tercero no existe.");
+        }
+        var texto = (request.Texto ?? string.Empty).Trim();
+        if (texto.Length == 0)
+        {
+            return TerceroResult<TerceroNotaDto>.Invalid("El texto de la nota es obligatorio.");
+        }
+
+        var nota = new TerceroNota
+        {
+            TenantId = tenantId,
+            TerceroId = terceroId,
+            Texto = texto,
+            Accion = Normalize(request.Accion) ?? "Nota",
+            Categoria = Normalize(request.Categoria),
+            Subcategoria = Normalize(request.Subcategoria),
+            Autor = Normalize(request.Autor)
+        };
+        _db.TerceroNotas.Add(nota);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TerceroResult<TerceroNotaDto>.Ok(new TerceroNotaDto(
+            nota.Id, nota.TerceroId, nota.Texto, nota.Accion, nota.Categoria, nota.Subcategoria, nota.Autor, nota.CreatedAt));
+    }
+
+    public async Task<TerceroResult<bool>> DeleteNotaAsync(
+        Guid notaId, CancellationToken cancellationToken = default)
+    {
+        var nota = await _db.TerceroNotas.FirstOrDefaultAsync(x => x.Id == notaId, cancellationToken);
+        if (nota is null)
+        {
+            return TerceroResult<bool>.NotFound("La nota no existe.");
+        }
+        _db.TerceroNotas.Remove(nota);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TerceroResult<bool>.Ok(true);
+    }
+
     public async Task<TerceroKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
     {
         var activos = _db.Terceros.AsNoTracking().Where(t => t.Estado != TerceroEstado.Inactivo);

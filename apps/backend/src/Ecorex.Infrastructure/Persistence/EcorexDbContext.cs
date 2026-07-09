@@ -177,6 +177,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Tercero> Terceros => Set<Tercero>();
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
+    public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -1334,6 +1335,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Description).HasMaxLength(600);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
+        });
+
+        // Notas / gestiones "Contacto cliente" del tercero. Viven y mueren con el tercero (cascade).
+        modelBuilder.Entity<TerceroNota>(b =>
+        {
+            b.Property(x => x.Texto).HasMaxLength(4000).IsRequired();
+            b.Property(x => x.Accion).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Categoria).HasMaxLength(120);
+            b.Property(x => x.Subcategoria).HasMaxLength(120);
+            b.Property(x => x.Autor).HasMaxLength(150);
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

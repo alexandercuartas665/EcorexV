@@ -48,5 +48,16 @@ public interface ITerceroService
     Task<TerceroResult<bool>> DeleteContactoAsync(
         Guid contactoId, CancellationToken cancellationToken = default);
 
+    // ---- Notas / gestiones "Contacto cliente" (timeline) ----
+
+    Task<IReadOnlyList<TerceroNotaDto>> ListNotasAsync(
+        Guid terceroId, CancellationToken cancellationToken = default);
+
+    Task<TerceroResult<TerceroNotaDto>> AddNotaAsync(
+        Guid terceroId, SaveNotaRequest request, CancellationToken cancellationToken = default);
+
+    Task<TerceroResult<bool>> DeleteNotaAsync(
+        Guid notaId, CancellationToken cancellationToken = default);
+
     Task<TerceroKpisDto> GetKpisAsync(CancellationToken cancellationToken = default);
 }

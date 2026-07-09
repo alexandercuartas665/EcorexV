@@ -125,16 +125,9 @@
                 <div class="dg-rowwrap">
                     <div class="dg-grid dg-row">
                         <div class="dg-c-name">
-                            @if (r.EsEmpresa)
-                            {
-                                <button class="dg-expand" title="Ver contactos" @onclick="() => ToggleExpandAsync(r)">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(_expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
-                                </button>
-                            }
-                            else
-                            {
-                                <span class="dg-spacer"></span>
-                            }
+                            <button class="dg-expand" title="Ver contactos" @onclick="() => ToggleExpandAsync(r)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(_expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
+                            </button>
                             <span class="dg-av @(r.EsEmpresa ? "emp" : "per")" style="background:@AvatarColor(r.Nombre)">@Initials(r.Nombre)</span>
                             <div class="dg-name-main" @onclick="() => OpenEditAsync(r.Id)">
                                 <div class="dg-name-line">
@@ -191,15 +184,24 @@
                         </div>
                     </div>
 
-                    @if (r.EsEmpresa && _expanded.Contains(r.Id))
+                    @if (_expanded.Contains(r.Id))
                     {
                         <div class="dg-kids">
                             @{
                                 var kids = _kids.TryGetValue(r.Id, out var kl) ? kl : Array.Empty<TerceroContactoDto>();
                             }
+                            <div class="dg-kids-head">
+                                <div class="dg-kids-lbl">CONTACTOS ASOCIADOS</div>
+                                @if (_canEdit)
+                                {
+                                    <button class="dg-kids-add" @onclick="() => OpenContacto(r.Id, null)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                        Agregar contacto
+                                    </button>
+                                }
+                            </div>
                             @if (kids.Count > 0)
                             {
-                                <div class="dg-kids-lbl">CONTACTOS ASOCIADOS</div>
                                 @foreach (var k in kids)
                                 {
                                     <div class="dg-kid">
@@ -215,6 +217,17 @@
                                         @if (!string.IsNullOrWhiteSpace(k.Telefono))
                                         {
                                             <span class="dg-kid-meta">@k.Telefono</span>
+                                        }
+                                        @if (_canEdit)
+                                        {
+                                            <div class="dg-kid-acts">
+                                                <button class="dg-act edit" title="Editar contacto" @onclick="() => OpenContacto(r.Id, k)">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                                </button>
+                                                <button class="dg-act del" title="Eliminar contacto" @onclick="() => DeleteContactoAsync(r.Id, k.Id)" disabled="@_busy">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                                </button>
+                                            </div>
                                         }
                                     </div>
                                 }
@@ -274,6 +287,54 @@
     </div>
 }
 
+@* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
+@if (_coOpen)
+{
+    <div class="dg-overlay sm" @onclick="CloseContacto">
+        <div class="dg-modal sm" @onclick:stopPropagation="true">
+            <div class="dg-as-head">
+                <div>
+                    <div class="dg-as-kicker">@(_coEditId is null ? "AGREGAR CONTACTO" : "EDITAR CONTACTO")</div>
+                    <div class="dg-as-title">@(string.IsNullOrWhiteSpace(_coNombre) ? "Nuevo contacto" : _coNombre)</div>
+                    <div class="dg-as-sub">Persona de contacto vinculada a este tercero.</div>
+                </div>
+                <button class="dg-close" @onclick="CloseContacto">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="dg-co-body">
+                <div style="min-width:0">
+                    <label class="dg-flabel">Nombre <span class="dg-req">*</span></label>
+                    <input class="dg-input" value="@_coNombre" @oninput="e => _coNombre = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Cargo</label>
+                    <input class="dg-input" value="@_coCargo" @oninput="e => _coCargo = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Correo</label>
+                    <input class="dg-input" value="@_coEmail" @oninput="e => _coEmail = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Telefono</label>
+                    <input class="dg-input" value="@_coTelefono" @oninput="e => _coTelefono = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                @if (_coError is not null)
+                {
+                    <div class="dg-note-err" style="grid-column:1/-1">@_coError</div>
+                }
+            </div>
+            <div class="dg-m-foot">
+                <span class="dg-foot-note"></span>
+                <div class="dg-foot-actions">
+                    <button class="dg-btn-ghost" @onclick="CloseContacto" disabled="@_busy">Cancelar</button>
+                    <button class="dg-btn-new" @onclick="SaveContactoAsync" disabled="@_busy">Guardar contacto</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===================== MODAL CREAR / EDITAR ===================== *@
 @if (_modalOpen)
 {
@@ -298,7 +359,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>Relaciones
                 </button>
                 <button class="dg-m-tab @(_mTab == "notas" ? "active" : "")" @onclick='() => _mTab = "notas"'>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg>Notas
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>Contacto Cliente
                 </button>
                 <button class="dg-m-tab @(_mTab == "acts" ? "active" : "")" @onclick='() => _mTab = "acts"'>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>Actividades
@@ -490,23 +551,141 @@
                     }
                     else if (_mTab == "rel")
                     {
-                        <div class="dg-ph">
-                            <div>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
-                                <h4>Relaciones</h4>
-                                <p>Vinculacion de empresas y contactos de relacion. Disponible en una proxima iteracion.</p>
+                        @if (_editingId is null)
+                        {
+                            <div class="dg-ph">
+                                <div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
+                                    <h4>Relaciones</h4>
+                                    <p>Guarda el tercero primero para vincularle contactos y relaciones.</p>
+                                </div>
                             </div>
-                        </div>
+                        }
+                        else
+                        {
+                            <div class="dg-rel">
+                                <div class="dg-rel-head">
+                                    <div>
+                                        <div class="dg-sec-lbl">CONTACTOS DE RELACION</div>
+                                        <p class="dg-rel-note">Personas de contacto vinculadas a este tercero (reportan, gestionan o representan).</p>
+                                    </div>
+                                    <button class="dg-kids-add" @onclick="() => OpenContacto(_editingId!.Value, null)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                        Agregar contacto
+                                    </button>
+                                </div>
+                                @if (_relContactos.Count == 0)
+                                {
+                                    <div class="dg-empty-note">Sin contactos de relacion todavia.</div>
+                                }
+                                else
+                                {
+                                    <div class="dg-rel-list">
+                                        @foreach (var k in _relContactos)
+                                        {
+                                            <div class="dg-kid">
+                                                <span class="dg-kid-av" style="background:@AvatarColor(k.Nombre)">@Initials(k.Nombre)</span>
+                                                <div style="flex:1;min-width:0">
+                                                    <div class="dg-kid-name">@k.Nombre</div>
+                                                    <div class="dg-kid-cargo">@(string.IsNullOrWhiteSpace(k.Cargo) ? "Contacto" : k.Cargo)</div>
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(k.Email))
+                                                {
+                                                    <span class="dg-kid-meta">@k.Email</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(k.Telefono))
+                                                {
+                                                    <span class="dg-kid-meta">@k.Telefono</span>
+                                                }
+                                                <div class="dg-kid-acts">
+                                                    <button class="dg-act edit" title="Editar contacto" @onclick="() => OpenContacto(_editingId!.Value, k)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                                    </button>
+                                                    <button class="dg-act del" title="Eliminar contacto" @onclick="() => DeleteContactoAsync(_editingId!.Value, k.Id)" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
                     }
                     else if (_mTab == "notas")
                     {
-                        <div class="dg-ph">
-                            <div>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg>
-                                <h4>Notas y bitacora</h4>
-                                <p>Registro de notas y actividades de gestion. Disponible en una proxima iteracion.</p>
+                        @if (_editingId is null)
+                        {
+                            <div class="dg-ph">
+                                <div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                                    <h4>Contacto Cliente</h4>
+                                    <p>Guarda el tercero primero para registrar notas y gestiones.</p>
+                                </div>
                             </div>
-                        </div>
+                        }
+                        else
+                        {
+                            <div class="dg-notas">
+                                @* --- Compositor de nueva gestion --- *@
+                                <div class="dg-note-new">
+                                    <div class="dg-sec-lbl">@("NUEVA " + _noteAccion.ToUpperInvariant())</div>
+                                    <div class="dg-note-chips">
+                                        @foreach (var a in NoteAcciones)
+                                        {
+                                            var ai = AccionInfo(a);
+                                            <button class="dg-note-chip @(_noteAccion == a ? "on" : "")"
+                                                    style="@(_noteAccion == a ? $"border-color:var({ai.Color});background:var({ai.Bg});color:var({ai.Color})" : "")"
+                                                    @onclick="() => _noteAccion = a">@ai.Label</button>
+                                        }
+                                    </div>
+                                    <div class="dg-note-meta">
+                                        <input class="dg-input" placeholder="Categoria (ej. Comercial)" value="@_noteCategoria" @oninput="e => _noteCategoria = e.Value?.ToString() ?? string.Empty" />
+                                        <input class="dg-input" placeholder="Sub-categoria (ej. Llamada)" value="@_noteSubcategoria" @oninput="e => _noteSubcategoria = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <textarea class="dg-input dg-textarea" placeholder="@AccionPlaceholder(_noteAccion)" value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
+                                    @if (_noteError is not null)
+                                    {
+                                        <div class="dg-note-err">@_noteError</div>
+                                    }
+                                    <div class="dg-note-actions">
+                                        <button class="dg-btn-new" @onclick="AddNotaAsync" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                            Registrar @_noteAccion
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @* --- Timeline --- *@
+                                @if (_notas.Count == 0)
+                                {
+                                    <div class="dg-empty-note">Sin gestiones registradas todavia.</div>
+                                }
+                                else
+                                {
+                                    <div class="dg-note-list">
+                                        @foreach (var n in _notas)
+                                        {
+                                            var ni = AccionInfo(n.Accion);
+                                            <div class="dg-note-item">
+                                                <div class="dg-note-item-head">
+                                                    <span class="dg-note-tag" style="background:var(@ni.Bg);color:var(@ni.Color)">@ni.Label</span>
+                                                    @if (!string.IsNullOrWhiteSpace(n.Categoria))
+                                                    {
+                                                        <span class="dg-note-cat">@n.Categoria@(string.IsNullOrWhiteSpace(n.Subcategoria) ? "" : " / " + n.Subcategoria)</span>
+                                                    }
+                                                    <span class="dg-note-date">@n.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                                    <button class="dg-act del" title="Eliminar" @onclick="() => DeleteNotaAsync(n.Id)" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                                    </button>
+                                                </div>
+                                                <div class="dg-note-text">@n.Texto</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
                     }
                     else
                     {
@@ -738,6 +917,25 @@
     private readonly HashSet<string> _fichaOpen = new(StringComparer.Ordinal);
     private string? _modalError;
 
+    // ---- Tab Relaciones (contactos del tercero en edicion) ----
+    private IReadOnlyList<TerceroContactoDto> _relContactos = Array.Empty<TerceroContactoDto>();
+
+    // ---- Editor de contacto (reusado por tabla y tab Relaciones) ----
+    private bool _coOpen;
+    private Guid _coParentId;
+    private Guid? _coEditId;
+    private string _coNombre = "", _coCargo = "", _coEmail = "", _coTelefono = "";
+    private string? _coError;
+
+    // ---- Tab Contacto Cliente (notas / gestiones) ----
+    private static readonly string[] NoteAcciones = { "Nota", "Oportunidad", "Solicitud", "Actividad", "PQR", "Atencion" };
+    private IReadOnlyList<TerceroNotaDto> _notas = Array.Empty<TerceroNotaDto>();
+    private string _noteText = "";
+    private string _noteAccion = "Nota";
+    private string _noteCategoria = "";
+    private string _noteSubcategoria = "";
+    private string? _noteError;
+
     private IEnumerable<TerceroListItemDto> Displayed => _naturaleza switch
     {
         TerceroTabNaturaleza.Empresas => _allRows.Where(r => r.EsEmpresa),
@@ -886,6 +1084,130 @@
         await ReloadAsync();
     }
 
+    // ---- Contactos (editor reusado por tabla y tab Relaciones) ----
+    private void OpenContacto(Guid parentId, TerceroContactoDto? c)
+    {
+        _coParentId = parentId;
+        _coEditId = c?.Id;
+        _coNombre = c?.Nombre ?? "";
+        _coCargo = c?.Cargo ?? "";
+        _coEmail = c?.Email ?? "";
+        _coTelefono = c?.Telefono ?? "";
+        _coError = null;
+        _coOpen = true;
+    }
+
+    private void CloseContacto() => _coOpen = false;
+
+    private async Task SaveContactoAsync()
+    {
+        _coError = null;
+        var nombre = _coNombre.Trim();
+        if (nombre.Length == 0)
+        {
+            _coError = "El nombre del contacto es obligatorio.";
+            return;
+        }
+        var req = new SaveContactoRequest(nombre, Blank(_coCargo), Blank(_coEmail), Blank(_coTelefono));
+        _busy = true;
+        var res = _coEditId is null
+            ? await TerceroSvc.AddContactoAsync(_coParentId, req)
+            : await TerceroSvc.UpdateContactoAsync(_coEditId.Value, req);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _coError = res.Error;
+            return;
+        }
+        await RefreshContactosAsync(_coParentId);
+        _coOpen = false;
+    }
+
+    private async Task DeleteContactoAsync(Guid parentId, Guid contactoId)
+    {
+        _busy = true;
+        var res = await TerceroSvc.DeleteContactoAsync(contactoId);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _pageError = res.Error;
+            return;
+        }
+        await RefreshContactosAsync(parentId);
+    }
+
+    // Refresca la lista de contactos del padre en la tabla (si esta expandido) y en el
+    // tab Relaciones (si el tercero abierto en el modal es ese padre), y los contadores.
+    private async Task RefreshContactosAsync(Guid parentId)
+    {
+        var list = await TerceroSvc.ListContactosAsync(parentId);
+        if (_expanded.Contains(parentId)) { _kids[parentId] = list; }
+        if (_editingId == parentId) { _relContactos = list; }
+        await ReloadAsync();
+    }
+
+    // ---- Notas / gestiones "Contacto Cliente" ----
+    private void ResetNoteForm()
+    {
+        _noteText = "";
+        _noteAccion = "Nota";
+        _noteCategoria = "";
+        _noteSubcategoria = "";
+        _noteError = null;
+    }
+
+    private async Task AddNotaAsync()
+    {
+        _noteError = null;
+        if (_editingId is not Guid id) { return; }
+        var texto = _noteText.Trim();
+        if (texto.Length == 0)
+        {
+            _noteError = "Escribe la gestion antes de registrarla.";
+            return;
+        }
+        var req = new SaveNotaRequest(texto, _noteAccion, Blank(_noteCategoria), Blank(_noteSubcategoria));
+        _busy = true;
+        var res = await TerceroSvc.AddNotaAsync(id, req);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _noteError = res.Error;
+            return;
+        }
+        _noteText = "";
+        _notas = await TerceroSvc.ListNotasAsync(id);
+    }
+
+    private async Task DeleteNotaAsync(Guid notaId)
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        await TerceroSvc.DeleteNotaAsync(notaId);
+        _busy = false;
+        _notas = await TerceroSvc.ListNotasAsync(id);
+    }
+
+    private static TagInfo AccionInfo(string accion) => accion switch
+    {
+        "Oportunidad" => new("Oportunidad", "--t-violet", "--t-violet-bg"),
+        "Solicitud" => new("Solicitud", "--t-blue", "--t-blue-bg"),
+        "Actividad" => new("Actividad", "--t-green", "--t-green-bg"),
+        "PQR" => new("PQR", "--t-amber", "--t-amber-bg"),
+        "Atencion" => new("Proxima atencion", "--t-rose", "--t-rose-bg"),
+        _ => new("Nota", "--t-slate", "--t-slate-bg")
+    };
+
+    private static string AccionPlaceholder(string accion) => accion switch
+    {
+        "Oportunidad" => "Describe la oportunidad de negocio detectada...",
+        "Solicitud" => "Detalla la solicitud del cliente...",
+        "Actividad" => "Describe la actividad a realizar...",
+        "PQR" => "Registra la peticion, queja o reclamo...",
+        "Atencion" => "Programa la proxima atencion al cliente...",
+        _ => "Describe la gestion realizada con el contacto..."
+    };
+
     // ---- Crear / editar ----
     private async Task OpenCreate()
     {
@@ -900,6 +1222,9 @@
         _fichaValues.Clear();
         _fichaOpen.Clear();
         await LoadFichaFieldsAsync();
+        _relContactos = Array.Empty<TerceroContactoDto>();
+        _notas = Array.Empty<TerceroNotaDto>();
+        ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
     }
@@ -938,6 +1263,9 @@
             }
             _fichaValues[ficha.Key] = campos;
         }
+        _relContactos = await TerceroSvc.ListContactosAsync(id);
+        _notas = await TerceroSvc.ListNotasAsync(id);
+        ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
     }

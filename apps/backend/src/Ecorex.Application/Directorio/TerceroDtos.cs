@@ -78,6 +78,25 @@ public sealed record SaveContactoRequest(
     string? Email = null,
     string? Telefono = null);
 
+/// <summary>Nota / gestion "Contacto cliente" de un tercero (timeline).</summary>
+public sealed record TerceroNotaDto(
+    Guid Id,
+    Guid TerceroId,
+    string Texto,
+    string Accion,
+    string? Categoria,
+    string? Subcategoria,
+    string? Autor,
+    DateTimeOffset CreatedAt);
+
+/// <summary>Alta de una nota / gestion del tercero.</summary>
+public sealed record SaveNotaRequest(
+    string Texto,
+    string Accion = "Nota",
+    string? Categoria = null,
+    string? Subcategoria = null,
+    string? Autor = null);
+
 /// <summary>KPIs de cabecera del modulo (como el prototipo).</summary>
 public sealed record TerceroKpisDto(
     int Clientes,

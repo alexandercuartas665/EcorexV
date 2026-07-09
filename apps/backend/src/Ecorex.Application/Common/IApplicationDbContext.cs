@@ -127,6 +127,7 @@ public interface IApplicationDbContext
     DbSet<Tercero> Terceros { get; }
     DbSet<TerceroContacto> TerceroContactos { get; }
     DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
+    DbSet<TerceroNota> TerceroNotas { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

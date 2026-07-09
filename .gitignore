@@ -58,6 +58,8 @@ artifacts/
 .env.local
 appsettings.*.local.json
 appsettings.Local.json
+# Script local para abrir el tunel SSH a la BD de prod (tiene el host del server)
+abrir-tunel-prod.ps1
 deploy/docker/.env
 deploy/docker/postgres-data/
 deploy/docker/rabbitmq-data/

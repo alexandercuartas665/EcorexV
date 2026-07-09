@@ -34,7 +34,9 @@ public sealed record ActividadSubcategoriaDto(
     Guid? TaskBoardId,
     Guid? TaskBoardColumnId,
     IReadOnlyList<Guid> CargoIds,
-    IReadOnlyList<Guid> TerceroIds)
+    IReadOnlyList<Guid> TerceroIds,
+    IReadOnlyList<string> Sedes,
+    IReadOnlyList<Guid> NotificacionUserIds)
 {
     /// <summary>Numero de items de la lista de chequeo (separados por ';').</summary>
     public int ChequeoCount => string.IsNullOrWhiteSpace(Chequeo)
@@ -65,7 +67,9 @@ public sealed record SaveSubcategoriaRequest(
     Guid? TaskBoardId = null,
     Guid? TaskBoardColumnId = null,
     IReadOnlyList<Guid>? CargoIds = null,
-    IReadOnlyList<Guid>? TerceroIds = null);
+    IReadOnlyList<Guid>? TerceroIds = null,
+    IReadOnlyList<string>? Sedes = null,
+    IReadOnlyList<Guid>? NotificacionUserIds = null);
 
 /// <summary>KPIs de cabecera del modulo (como el prototipo).</summary>
 public sealed record ActividadKpisDto(
@@ -82,6 +86,7 @@ public sealed record BoardOptionDto(Guid Id, string Nombre, IReadOnlyList<BoardC
 public sealed record BoardColumnOptionDto(Guid Id, string Nombre, bool IsDone);
 public sealed record CargoOptionDto(Guid Id, string Nombre);
 public sealed record TerceroOptionDto(Guid Id, string Nombre);
+public sealed record UsuarioOptionDto(Guid Id, string Nombre);
 
 /// <summary>Todas las opciones de los combos del editor, cargadas de una sola vez.</summary>
 public sealed record ActividadComboOptionsDto(
@@ -89,4 +94,5 @@ public sealed record ActividadComboOptionsDto(
     IReadOnlyList<FormOptionDto> Forms,
     IReadOnlyList<BoardOptionDto> Boards,
     IReadOnlyList<CargoOptionDto> Cargos,
-    IReadOnlyList<TerceroOptionDto> Terceros);
+    IReadOnlyList<TerceroOptionDto> Terceros,
+    IReadOnlyList<UsuarioOptionDto> Usuarios);

@@ -161,6 +161,7 @@ public class TenantUserServiceTests
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => throw new NotSupportedException();
+        public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

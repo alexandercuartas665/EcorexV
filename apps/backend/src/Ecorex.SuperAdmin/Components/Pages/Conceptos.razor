@@ -503,6 +503,69 @@
                     </div>
                 </div>
 
+                @* -- 8. Notificaciones -- *@
+                <div class="cn-acc @(_acc8 ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _acc8 = !_acc8)">
+                        <div class="cn-acc-title">Notificaciones <span class="cn-chip">@_mNotifUserIds.Count</span></div>
+                        <span>@(_acc8 ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <p class="cn-hint">Usuarios que reciben aviso cuando se crea una tarea de este concepto.</p>
+                        <div class="cn-chip-list">
+                            @foreach (var id in _mNotifUserIds)
+                            {
+                                <span class="cn-chip removable">@UsuarioLabel(id)
+                                    <button class="cn-chip-x" @onclick="@(() => _mNotifUserIds.Remove(id))">&times;</button>
+                                </span>
+                            }
+                            @if (_mNotifUserIds.Count == 0)
+                            {
+                                <span class="cn-chip dashed">Sin notificaciones</span>
+                            }
+                        </div>
+                        <div class="cn-field cn-field-add">
+                            <label>Agregar usuario</label>
+                            <select value="" @onchange="AddNotifUser">
+                                <option value="">-- Selecciona un usuario --</option>
+                                @foreach (var u in _combos.Usuarios.Where(u => !_mNotifUserIds.Contains(u.Id)))
+                                {
+                                    <option value="@u.Id">@u.Nombre</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                @* -- 9. Sedes que aplica -- *@
+                <div class="cn-acc @(_acc9 ? "open" : "")">
+                    <div class="cn-acc-head" @onclick="@(() => _acc9 = !_acc9)">
+                        <div class="cn-acc-title">Sedes que aplica <span class="cn-chip">@_mSedes.Count</span></div>
+                        <span>@(_acc9 ? "-" : "+")</span>
+                    </div>
+                    <div class="cn-acc-body">
+                        <p class="cn-hint">Sucursales / sedes donde aplica el concepto (texto libre).</p>
+                        <div class="cn-chip-list">
+                            @foreach (var sede in _mSedes)
+                            {
+                                <span class="cn-chip removable">@sede
+                                    <button class="cn-chip-x" @onclick="@(() => _mSedes.Remove(sede))">&times;</button>
+                                </span>
+                            }
+                            @if (_mSedes.Count == 0)
+                            {
+                                <span class="cn-chip dashed">Aplica a todas las sedes</span>
+                            }
+                        </div>
+                        <div class="cn-field cn-field-add cn-sede-add">
+                            <label>Agregar sede</label>
+                            <input placeholder="Ej. Sucursal Cali (Enter para agregar)" value="@_sedeDraft"
+                                   @oninput="@(e => _sedeDraft = e.Value?.ToString() ?? "")"
+                                   @onkeydown="OnSedeKeyDown" />
+                            <button class="cn-btn sm" @onclick="AddSede" disabled="@string.IsNullOrWhiteSpace(_sedeDraft)">Agregar</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="cn-modal-foot">
                     @if (_mId is not null)
                     {
@@ -573,7 +636,7 @@
     private List<ActividadCategoriaDto> _cats = new();
     private List<ActividadSubcategoriaDto> _subs = new();
     private ActividadKpisDto _kpis = new(0, 0, 0, 0);
-    private ActividadComboOptionsDto _combos = new([], [], [], [], []);
+    private ActividadComboOptionsDto _combos = new([], [], [], [], [], []);
 
     private Guid? _selectedCatId;
     private string _catSearch = "";
@@ -599,9 +662,12 @@
     private Guid? _mColumnId;
     private readonly List<Guid> _mCargoIds = new();
     private readonly List<Guid> _mTerceroIds = new();
+    private readonly List<Guid> _mNotifUserIds = new();
+    private readonly List<string> _mSedes = new();
+    private string _sedeDraft = "";
     private string? _mError;
     private bool _confirmDelete;
-    private bool _acc1 = true, _acc2 = true, _acc3, _acc4, _acc5, _acc6, _acc7;
+    private bool _acc1 = true, _acc2 = true, _acc3, _acc4, _acc5, _acc6, _acc7, _acc8, _acc9;
 
     // Mini modal categoria
     private bool _catModalOpen;
@@ -663,6 +729,9 @@
     private string TerceroLabel(Guid id)
         => _combos.Terceros.FirstOrDefault(t => t.Id == id)?.Nombre ?? "(tercero)";
 
+    private string UsuarioLabel(Guid id)
+        => _combos.Usuarios.FirstOrDefault(u => u.Id == id)?.Nombre ?? "(usuario)";
+
     private IReadOnlyList<BoardColumnOptionDto> BoardColumns(Guid boardId)
         => _combos.Boards.FirstOrDefault(b => b.Id == boardId)?.Columnas ?? [];
 
@@ -703,9 +772,12 @@
     {
         _mError = null;
         _confirmDelete = false;
-        _acc1 = true; _acc2 = true; _acc3 = false; _acc4 = false; _acc5 = false; _acc6 = false; _acc7 = false;
+        _acc1 = true; _acc2 = true; _acc3 = false; _acc4 = false; _acc5 = false; _acc6 = false; _acc7 = false; _acc8 = false; _acc9 = false;
         _mCargoIds.Clear();
         _mTerceroIds.Clear();
+        _mNotifUserIds.Clear();
+        _mSedes.Clear();
+        _sedeDraft = "";
         if (sub is null)
         {
             _mId = null;
@@ -741,6 +813,8 @@
             _mColumnId = sub.TaskBoardColumnId;
             _mCargoIds.AddRange(sub.CargoIds);
             _mTerceroIds.AddRange(sub.TerceroIds);
+            _mNotifUserIds.AddRange(sub.NotificacionUserIds);
+            _mSedes.AddRange(sub.Sedes);
         }
         _mOpen = true;
     }
@@ -771,6 +845,29 @@
         {
             _mTerceroIds.Add(g);
         }
+    }
+
+    private void AddNotifUser(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var g) && !_mNotifUserIds.Contains(g))
+        {
+            _mNotifUserIds.Add(g);
+        }
+    }
+
+    private void AddSede()
+    {
+        var sede = _sedeDraft.Trim();
+        if (sede.Length > 0 && !_mSedes.Contains(sede, StringComparer.OrdinalIgnoreCase))
+        {
+            _mSedes.Add(sede);
+        }
+        _sedeDraft = "";
+    }
+
+    private void OnSedeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { AddSede(); }
     }
 
     private async Task SaveSubAsync()
@@ -805,7 +902,9 @@
                 _mBoardId,
                 _mColumnId,
                 _mCargoIds.ToList(),
-                _mTerceroIds.ToList());
+                _mTerceroIds.ToList(),
+                _mSedes.ToList(),
+                _mNotifUserIds.ToList());
 
             var result = _mId is Guid id
                 ? await Svc.UpdateSubcategoriaAsync(id, request)

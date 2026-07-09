@@ -136,6 +136,7 @@ public interface IApplicationDbContext
     DbSet<ActividadSubcategoria> ActividadSubcategorias { get; }
     DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos { get; }
     DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros { get; }
+    DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

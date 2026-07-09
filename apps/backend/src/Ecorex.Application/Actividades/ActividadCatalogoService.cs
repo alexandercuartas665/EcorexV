@@ -149,6 +149,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         var query = _db.ActividadSubcategorias.AsNoTracking()
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
+            .Include(s => s.Notificaciones)
             .AsQueryable();
         if (categoriaId is Guid cid) { query = query.Where(s => s.CategoriaId == cid); }
         if (!includeArchived) { query = query.Where(s => !s.IsArchived); }
@@ -165,6 +166,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         var entity = await _db.ActividadSubcategorias.AsNoTracking()
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
+            .Include(s => s.Notificaciones)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         return entity is null ? null : ToDto(entity);
     }
@@ -204,6 +206,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         ApplyRequest(entity, request, tenantId);
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
+        SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
 
         // Alta con relaciones hijas: una sola operacion atomica (SaveChanges inserta padre e hijas).
         _db.ActividadSubcategorias.Add(entity);
@@ -223,6 +226,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         var entity = await _db.ActividadSubcategorias
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
+            .Include(s => s.Notificaciones)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -247,6 +251,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         // SaveChanges (transaccion implicita). Las FK hijas son Cascade sobre la subcategoria.
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
+        SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -260,6 +265,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         var entity = await _db.ActividadSubcategorias
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
+            .Include(s => s.Notificaciones)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -270,6 +276,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         // remueve la subcategoria en el mismo SaveChanges (operacion multi-tabla atomica).
         _db.ActividadSubcategoriaCargos.RemoveRange(entity.Cargos);
         _db.ActividadSubcategoriaTerceros.RemoveRange(entity.Terceros);
+        _db.ActividadSubcategoriaNotificaciones.RemoveRange(entity.Notificaciones);
         _db.ActividadSubcategorias.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return TaskCoreResult<bool>.Ok(true);
@@ -339,7 +346,12 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Select(t => new TerceroOptionDto(t.Id, t.Nombre))
             .ToListAsync(cancellationToken);
 
-        return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros);
+        var usuarios = await _db.TenantUsers.AsNoTracking()
+            .OrderBy(u => u.Email)
+            .Select(u => new UsuarioOptionDto(u.Id, u.Email))
+            .ToListAsync(cancellationToken);
+
+        return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros, usuarios);
     }
 
     public async Task<ActividadKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
@@ -440,8 +452,29 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         entity.TaskBoardId = request.TaskBoardId;
         // La columna terminal solo aplica si hay tablero; si no, se limpia.
         entity.TaskBoardColumnId = request.TaskBoardId is null ? null : request.TaskBoardColumnId;
+        entity.Sedes = NormalizeSedes(request.Sedes);
     }
 
+    private void SyncNotificaciones(ActividadSubcategoria entity, IReadOnlyList<Guid>? userIds, Guid tenantId)
+    {
+        _db.ActividadSubcategoriaNotificaciones.RemoveRange(entity.Notificaciones);
+        entity.Notificaciones.Clear();
+        if (userIds is null) { return; }
+        foreach (var id in userIds.Distinct())
+        {
+            _db.ActividadSubcategoriaNotificaciones.Add(new ActividadSubcategoriaNotificacion
+            {
+                TenantId = tenantId,
+                SubcategoriaId = entity.Id,
+                TenantUserId = id
+            });
+        }
+    }
+
+    // Los hijos M:N se AGREGAN via DbSet (estado Added -> INSERT), no via la coleccion de
+    // navegacion: agregar por navegacion con PK ya asignada hace que EF los trate como
+    // Modified y genere un UPDATE espurio (DbUpdateConcurrencyException). Para el borrado si
+    // se usa la coleccion cargada (Include) con RemoveRange.
     private void SyncCargos(ActividadSubcategoria entity, IReadOnlyList<Guid>? cargoIds, Guid tenantId)
     {
         _db.ActividadSubcategoriaCargos.RemoveRange(entity.Cargos);
@@ -449,7 +482,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         if (cargoIds is null) { return; }
         foreach (var id in cargoIds.Distinct())
         {
-            entity.Cargos.Add(new ActividadSubcategoriaCargo
+            _db.ActividadSubcategoriaCargos.Add(new ActividadSubcategoriaCargo
             {
                 TenantId = tenantId,
                 SubcategoriaId = entity.Id,
@@ -465,7 +498,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         if (terceroIds is null) { return; }
         foreach (var id in terceroIds.Distinct())
         {
-            entity.Terceros.Add(new ActividadSubcategoriaTercero
+            _db.ActividadSubcategoriaTerceros.Add(new ActividadSubcategoriaTercero
             {
                 TenantId = tenantId,
                 SubcategoriaId = entity.Id,
@@ -539,10 +572,30 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         s.RequiereCliente, s.IniciaModulo, s.CierreManual, s.TituloAuto, s.DetalleAuto,
         s.WorkflowDefinitionId, s.FormDefinitionId, s.TaskBoardId, s.TaskBoardColumnId,
         s.Cargos.Select(c => c.OrgUnitId).ToList(),
-        s.Terceros.Select(t => t.TerceroId).ToList());
+        s.Terceros.Select(t => t.TerceroId).ToList(),
+        SplitSedes(s.Sedes),
+        s.Notificaciones.Select(n => n.TenantUserId).ToList());
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Normaliza la lista de sedes (nombres libres): recorta, descarta vacios y duplicados,
+    /// une con ';'.</summary>
+    private static string? NormalizeSedes(IReadOnlyList<string>? sedes)
+    {
+        if (sedes is null) { return null; }
+        var items = sedes
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return items.Count == 0 ? null : string.Join(";", items);
+    }
+
+    private static IReadOnlyList<string> SplitSedes(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? Array.Empty<string>()
+            : value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>Normaliza la lista de chequeo: recorta cada item y descarta vacios, une con ';'.</summary>
     private static string? NormalizeChequeo(string? value)

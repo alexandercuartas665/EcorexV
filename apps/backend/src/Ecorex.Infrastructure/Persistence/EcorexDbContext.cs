@@ -185,6 +185,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
     public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => Set<ActividadSubcategoriaCargo>();
     public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
+    public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => Set<ActividadSubcategoriaNotificacion>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -1382,6 +1383,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Descripcion).HasMaxLength(2000);
             b.Property(x => x.TituloAuto).HasMaxLength(300);
             b.Property(x => x.DetalleAuto).HasMaxLength(2000);
+            b.Property(x => x.Sedes).HasMaxLength(2000);
             // Vinculos opcionales a otros modulos: NO ACTION (borrar el destino no toca el catalogo).
             b.HasOne(x => x.WorkflowDefinition).WithMany()
                 .HasForeignKey(x => x.WorkflowDefinitionId).OnDelete(DeleteBehavior.Restrict);
@@ -1414,6 +1416,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.SubcategoriaId, x.TerceroId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoriaNotificacion>(b =>
+        {
+            // Vive y muere con la subcategoria (Cascade). La FK al usuario es NO ACTION.
+            b.HasOne(x => x.Subcategoria).WithMany(x => x.Notificaciones)
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.TenantUser).WithMany()
+                .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.SubcategoriaId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

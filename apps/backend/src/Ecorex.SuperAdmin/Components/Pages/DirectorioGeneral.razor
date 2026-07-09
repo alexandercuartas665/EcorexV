@@ -586,8 +586,10 @@
                     }
                 </div>
 
+                <div class="dg-cfg-cols">
+                <div class="dg-cfg-left">
                 @* --- Lista de campos --- *@
-                <label class="dg-sec-lbl" style="margin-top:18px">CAMPOS DE LA FICHA</label>
+                <label class="dg-sec-lbl">CAMPOS DE LA FICHA</label>
                 @if (_cfgFields.Count == 0)
                 {
                     <div class="dg-empty-note" style="padding:14px 0">Esta ficha no tiene campos todavia. Agrega el primero abajo.</div>
@@ -624,9 +626,10 @@
                         </button>
                     </div>
                 }
+                </div>
 
-                @* --- Form nuevo / editar --- *@
-                <div class="dg-cfg-form">
+                @* --- Form nuevo / editar (columna derecha) --- *@
+                <div class="dg-cfg-form dg-cfg-right">
                     <div class="dg-cfg-form-title">@(_cfgEditingId is null ? "Nuevo campo" : "Editar campo")</div>
                     <div class="dg-fields">
                         <div style="min-width:0">
@@ -676,6 +679,7 @@
                             <button class="dg-btn-ghost" disabled="@_busy" @onclick="CancelEditCfgField">Cancelar</button>
                         }
                     </div>
+                </div>
                 </div>
             </div>
 

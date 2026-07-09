@@ -1868,6 +1868,129 @@ public sealed class DatabaseSeeder
     /// (algunos en 0 para probar el filtro de disponibles) e imagenes placeholder. Idempotente
     /// por tabla vacia (guard por tenant en cada bloque). Solo Development.
     /// </summary>
+    /// <summary>
+    /// Siembra los terceros de ejemplo del Directorio General (modulo 000232) para el tenant
+    /// indicado: 3 empresas (ANDINA, Produvarios, INGETEL) con contactos y 2 personas (una cliente
+    /// individual, un empleado). Idempotente: si el tenant ya tiene terceros, no hace nada. Estampa
+    /// TenantId explicito (no depende del ambient). Rellena FichasJson con un ejemplo por perfil.
+    /// </summary>
+    public async Task EnsureDirectorioGeneralDemoAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (await _db.Terceros.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenantId, cancellationToken))
+        {
+            return;
+        }
+
+        var andina = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = "ANDINA S.A.S",
+            Tipo = TerceroTipo.Empresa,
+            Perfiles = TerceroPerfil.Cliente,
+            Estado = TerceroEstado.Activo,
+            Vendedor = "Julian R.",
+            Ciudad = "Bogota",
+            IdTipo = TerceroIdTipo.Nit,
+            IdValor = "901.111.222",
+            Sector = "Manufactura",
+            FichasJson = "{\"fiscal\":{\"regimen\":\"Comun\",\"responsableIva\":\"Si\"},"
+                + "\"comercial\":{\"vendedor\":\"Julian R.\",\"segmento\":\"Corporativo\"},"
+                + "\"cliente\":{\"cupo\":\"50000000\",\"condicionPago\":\"30 dias\"}}"
+        };
+        var produvarios = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = "Produvarios",
+            Tipo = TerceroTipo.Empresa,
+            Perfiles = TerceroPerfil.Cliente | TerceroPerfil.Proveedor,
+            Estado = TerceroEstado.Activo,
+            Ciudad = "Medellin",
+            IdTipo = TerceroIdTipo.Nit,
+            IdValor = "900.222.333",
+            Sector = "Distribucion",
+            FichasJson = "{\"fiscal\":{\"regimen\":\"Comun\",\"responsableIva\":\"Si\"},"
+                + "\"cliente\":{\"cupo\":\"20000000\",\"condicionPago\":\"Contado\"},"
+                + "\"proveedor\":{\"categoria\":\"Insumos\",\"plazoEntrega\":\"5 dias\"}}"
+        };
+        var ingetel = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = "INGETEL",
+            Tipo = TerceroTipo.Empresa,
+            Perfiles = TerceroPerfil.Proveedor,
+            Estado = TerceroEstado.Activo,
+            Ciudad = "Bogota",
+            IdTipo = TerceroIdTipo.Nit,
+            IdValor = "830.444.555",
+            Sector = "Telecomunicaciones",
+            FichasJson = "{\"fiscal\":{\"regimen\":\"Comun\",\"responsableIva\":\"Si\"},"
+                + "\"proveedor\":{\"categoria\":\"Servicios\",\"plazoEntrega\":\"15 dias\"}}"
+        };
+        var maria = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = "Maria Fernanda Lopez",
+            Tipo = TerceroTipo.Persona,
+            Perfiles = TerceroPerfil.Cliente,
+            Estado = TerceroEstado.Activo,
+            Ciudad = "Cali",
+            IdTipo = TerceroIdTipo.Identificacion,
+            IdValor = "1.020.334.556",
+            Cargo = "Independiente",
+            Email = "mfernanda@ejemplo.local",
+            FichasJson = "{\"comercial\":{\"segmento\":\"Personal\"},"
+                + "\"cliente\":{\"cupo\":\"3000000\",\"condicionPago\":\"Contado\"}}"
+        };
+        var roberto = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = "Roberto Salcedo",
+            Tipo = TerceroTipo.Persona,
+            Perfiles = TerceroPerfil.Empleado,
+            Estado = TerceroEstado.Activo,
+            Ciudad = "Bogota",
+            IdTipo = TerceroIdTipo.Correo,
+            IdValor = "rsalcedo@ejemplo.local",
+            Cargo = "Consultor",
+            Email = "rsalcedo@ejemplo.local",
+            FichasJson = "{\"empleado\":{\"cargo\":\"Consultor\",\"area\":\"Comercial\"}}"
+        };
+        _db.Terceros.AddRange(andina, produvarios, ingetel, maria, roberto);
+
+        _db.TerceroContactos.AddRange(
+            new TerceroContacto
+            {
+                TenantId = tenantId,
+                TerceroId = andina.Id,
+                Nombre = "Carlos Mesa",
+                Cargo = "Gerente de Compras",
+                Email = "cmesa@andina.local",
+                Telefono = "3101112233"
+            },
+            new TerceroContacto
+            {
+                TenantId = tenantId,
+                TerceroId = andina.Id,
+                Nombre = "Laura Prieto",
+                Cargo = "Asistente Administrativa",
+                Email = "lprieto@andina.local",
+                Telefono = "3104445566"
+            },
+            new TerceroContacto
+            {
+                TenantId = tenantId,
+                TerceroId = produvarios.Id,
+                Nombre = "Andres Gil",
+                Cargo = "Jefe de Logistica",
+                Email = "agil@produvarios.local",
+                Telefono = "3117778899"
+            });
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Directorio General demo sembrado para tenant {Tenant}: 3 empresas, 2 personas, 3 contactos.", tenantId);
+    }
+
     public async Task EnsureInventoryDemoAsync(CancellationToken cancellationToken = default)
     {
         var tenant = await _db.Tenants.IgnoreQueryFilters()

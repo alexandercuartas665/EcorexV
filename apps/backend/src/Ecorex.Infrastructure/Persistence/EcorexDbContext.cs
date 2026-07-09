@@ -172,6 +172,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Rol> Roles => Set<Rol>();
     public DbSet<RolPermiso> RolPermisos => Set<RolPermiso>();
 
+    // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
+    // negocio, contactos embebidos y fichas dinamicas (jsonb). Multi-tenant (filtro global).
+    public DbSet<Tercero> Terceros => Set<Tercero>();
+    public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -242,6 +247,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<MenuNodeKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<MenuNodeState>().HaveConversion<string>().HaveMaxLength(40);
+        // Directorio General (000232): Tipo/Estado/IdTipo como texto legible. TerceroPerfil NO
+        // se convierte a texto: es [Flags] y se guarda como int para filtrar por bits en SQL.
+        configurationBuilder.Properties<TerceroTipo>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TerceroEstado>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TerceroIdTipo>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1270,6 +1280,44 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ModuleDefinition).WithMany()
                 .HasForeignKey(x => x.ModuleDefinitionId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ModuleDefinitionId }).IsUnique();
+        });
+
+        // ---- Directorio General (modulo 000232) ----
+        // Terceros (empresas / personas) con perfiles de negocio ([Flags] como int), contactos
+        // embebidos y fichas dinamicas por perfil (jsonb en PG / nvarchar(max) en SQL Server).
+
+        modelBuilder.Entity<Tercero>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Vendedor).HasMaxLength(150);
+            b.Property(x => x.Ciudad).HasMaxLength(120);
+            b.Property(x => x.IdValor).HasMaxLength(100);
+            b.Property(x => x.Sector).HasMaxLength(150);
+            b.Property(x => x.Cargo).HasMaxLength(150);
+            b.Property(x => x.Email).HasMaxLength(200);
+            b.Property(x => x.Telefono).HasMaxLength(80);
+            // Fichas dinamicas por perfil: documento JSON (jsonb en PG, nvarchar(max) en SQL Server).
+            b.Property(x => x.FichasJson).HasColumnType(jsonColumnType);
+            // Self-FK opcional persona -> empresa. NO ACTION (Restrict): una empresa con personas
+            // asignadas no se borra en cascada, y se evitan rutas multiples de cascada (SQL Server).
+            b.HasOne(x => x.Empresa).WithMany()
+                .HasForeignKey(x => x.EmpresaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasMany(x => x.Contactos).WithOne(x => x.Tercero!)
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.Tipo });
+            b.HasIndex(x => new { x.TenantId, x.Estado });
+            b.HasIndex(x => new { x.TenantId, x.EmpresaId });
+            b.HasIndex(x => x.Nombre);
+        });
+
+        modelBuilder.Entity<TerceroContacto>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Cargo).HasMaxLength(150);
+            b.Property(x => x.Email).HasMaxLength(200);
+            b.Property(x => x.Telefono).HasMaxLength(80);
+            // El contacto vive y muere con su empresa (la relacion se declara desde Tercero arriba).
+            b.HasIndex(x => x.TerceroId);
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

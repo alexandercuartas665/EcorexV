@@ -226,7 +226,7 @@ public sealed class RolService : IRolService
 
         if (defaultView is null)
         {
-            return ModuleCatalogFallback.Modules;
+            return WithSubPermisos(ModuleCatalogFallback.Modules);
         }
 
         var nodes = await _db.MenuNodes.AsNoTracking()
@@ -267,7 +267,27 @@ public sealed class RolService : IRolService
             .OrderBy(m => m.Grupo, StringComparer.Ordinal).ThenBy(m => m.Label, StringComparer.Ordinal)
             .ToList();
 
-        return catalog.Count > 0 ? catalog : ModuleCatalogFallback.Modules;
+        return WithSubPermisos(catalog.Count > 0 ? catalog : ModuleCatalogFallback.Modules);
+    }
+
+    /// <summary>
+    /// Agrega los sub-permisos NOMBRADOS de modulos que los declaran (hoy: Directorio General,
+    /// 000232) al catalogo de la matriz de roles, SOLO si el modulo padre esta presente. Asi la
+    /// matriz puede listar acciones finas (crear-empresa / crear-cliente / crear-sospechoso) como
+    /// filas propias, resolubles por EffectivePermissions.Can(key, Create). No altera el
+    /// enforcement: Owner/Admin y usuarios sin rol siguen Unrestricted.
+    /// </summary>
+    private static IReadOnlyList<ModuloInfo> WithSubPermisos(IReadOnlyList<ModuloInfo> catalog)
+    {
+        var tieneDirectorio = catalog.Any(m =>
+            string.Equals(m.Key, Directorio.DirectorioSubPermisos.ModuleRoute, StringComparison.Ordinal));
+        if (!tieneDirectorio)
+        {
+            return catalog;
+        }
+        var extended = new List<ModuloInfo>(catalog);
+        extended.AddRange(Directorio.DirectorioSubPermisos.Entradas);
+        return extended;
     }
 
     public async Task<EffectivePermissions> ResolveEffectivePermissionsAsync(

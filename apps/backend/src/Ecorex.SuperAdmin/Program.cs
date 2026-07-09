@@ -267,6 +267,12 @@ else
         // Inventario demo (grupo Sistema - Inventarios, ADR-0027): bodegas, marcas, grupos,
         // subgrupos, tipos e items con stock por bodega e imagenes. Idempotente, solo Development.
         await seeder.EnsureInventoryDemoAsync();
+        // Directorio General demo (modulo 000232): 3 empresas + 2 personas + contactos del prototipo
+        // para el tenant demo. Idempotente, solo Development. Estampa TenantId explicito.
+        if (workflowDemoTenantId is Guid directorioTenantId)
+        {
+            await seeder.EnsureDirectorioGeneralDemoAsync(directorioTenantId);
+        }
         // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
         // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
         await seeder.EnsureMenuConfigDemoAsync();

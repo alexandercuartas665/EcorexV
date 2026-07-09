@@ -116,6 +116,9 @@ public static class DependencyInjection
         // catalogo derivado del menu, asignacion de rol a usuario y resolucion de permisos
         // efectivos (lista para el enforcement de Ola B2). La aplicacion en backend NO va aqui.
         services.AddScoped<Roles.IRolService, Roles.RolService>();
+        // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
+        // negocio, contactos embebidos, fichas dinamicas (jsonb) y sub-permisos nombrados.
+        services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

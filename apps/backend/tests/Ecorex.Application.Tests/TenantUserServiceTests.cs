@@ -153,6 +153,8 @@ public class TenantUserServiceTests
         public DbSet<WhatsAppTemplate> WhatsAppTemplates => throw new NotSupportedException();
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();
+        public DbSet<Tercero> Terceros => throw new NotSupportedException();
+        public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

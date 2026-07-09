@@ -122,6 +122,11 @@ public interface IApplicationDbContext
     DbSet<Rol> Roles { get; }
     DbSet<RolPermiso> RolPermisos { get; }
 
+    // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
+    // negocio, contactos embebidos y fichas dinamicas (jsonb).
+    DbSet<Tercero> Terceros { get; }
+    DbSet<TerceroContacto> TerceroContactos { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

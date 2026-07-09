@@ -400,10 +400,10 @@
                                     </div>
                                 </div>
 
-                                @{
-                                    var fichas = VisibleFichas();
-                                }
-                                @if (fichas.Count > 0)
+                            </div>
+                        </div>
+                        var fichas = VisibleFichas();
+                        if (fichas.Count > 0)
                                 {
                                     <div class="dg-fichas">
                                         @foreach (var fc in fichas)
@@ -458,8 +458,6 @@
                                 {
                                     <div class="dg-empty-fichas">Selecciona un perfil (cliente, proveedor o empleado) en la columna izquierda para configurar sus datos.</div>
                                 }
-                            </div>
-                        </div>
                     }
                     else if (_mTab == "rel")
                     {

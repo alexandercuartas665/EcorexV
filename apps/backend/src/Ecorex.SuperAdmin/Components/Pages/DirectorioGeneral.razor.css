@@ -89,7 +89,7 @@
 /* ---- Overlay + modales ---- */
 .dg-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(15, 15, 18, .5); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 24px; animation: dg-fade .15s ease; }
 .dg-overlay.sm { z-index: 60; background: rgba(15, 15, 18, .45); backdrop-filter: blur(4px); }
-.dg-modal { width: min(1180px, 98vw); height: min(880px, 94vh); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lg); overflow: hidden; animation: dg-pop .2s ease; }
+.dg-modal { width: min(1416px, 98vw); height: min(880px, 94vh); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lg); overflow: hidden; animation: dg-pop .2s ease; }
 .dg-modal.sm { width: min(460px, 94vw); height: auto; border-radius: 18px; }
 @keyframes dg-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dg-pop { from { transform: scale(.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -152,6 +152,8 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 
 /* Fichas dinamicas */
 .dg-fichas { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+/* Las fichas ocupan todo el ancho del cuerpo (debajo de las columnas); sus campos fluyen en varias columnas. */
+.dg-ficha-body .dg-fields { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .dg-ficha { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .dg-ficha-head { display: flex; align-items: center; gap: 11px; padding: 13px 15px; cursor: pointer; background: var(--surface-2); }
 .dg-ficha-head:hover { background: var(--surface-3); }

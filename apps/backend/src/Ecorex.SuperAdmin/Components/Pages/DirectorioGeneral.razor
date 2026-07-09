@@ -1,0 +1,979 @@
+@page "/directorio-general"
+@attribute [Authorize(Policy = "TenantMember")]
+@* Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
+   negocio, contactos y fichas dinamicas por perfil. UI fiel al prototipo ECOREX.dc.html.
+   Los botones de crear se gatean por los sub-permisos nombrados (crear-empresa /
+   crear-cliente / crear-sospechoso); editar/eliminar por el modulo padre. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
+@using Ecorex.Application.Directorio
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@inject ITerceroService TerceroSvc
+@inject ICurrentPermissions Perms
+
+<PageTitle>Directorio General - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Negocio</span>
+    <span class="sep">/</span>
+    <span class="cur">Directorio General</span>
+</nav>
+
+<div class="dg-wrap">
+    <div class="dg-head">
+        <div>
+            <div class="dg-eyebrow">CATALOGO 000232 &#183; NEGOCIO</div>
+            <h1 class="dg-title">Directorio General</h1>
+            <p class="dg-sub">Clientes tipo empresa o persona natural. Las empresas agrupan sus contactos asociados.</p>
+        </div>
+        @if (CanCreateAny)
+        {
+            <button class="dg-btn-new" @onclick="() => OpenCreate()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                Nuevo cliente
+            </button>
+        }
+    </div>
+
+    @* ===== KPIs ===== *@
+    <div class="dg-kpis">
+        <div class="dg-kpi">
+            <div class="dg-kpi-ic" style="background:var(--t-violet-bg);color:var(--t-violet)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            </div>
+            <div style="min-width:0"><div class="dg-kpi-val">@_kpis.Clientes</div><div class="dg-kpi-lbl">Clientes</div></div>
+        </div>
+        <div class="dg-kpi">
+            <div class="dg-kpi-ic" style="background:var(--t-blue-bg);color:var(--t-blue)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>
+            </div>
+            <div style="min-width:0"><div class="dg-kpi-val">@_kpis.Empresas</div><div class="dg-kpi-lbl">Empresas</div></div>
+        </div>
+        <div class="dg-kpi">
+            <div class="dg-kpi-ic" style="background:var(--t-amber-bg);color:var(--t-amber)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>
+            </div>
+            <div style="min-width:0"><div class="dg-kpi-val">@_kpis.Personas</div><div class="dg-kpi-lbl">Personas</div></div>
+        </div>
+        <div class="dg-kpi">
+            <div class="dg-kpi-ic" style="background:var(--t-green-bg);color:var(--t-green)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 11l-3 3-2-2" /></svg>
+            </div>
+            <div style="min-width:0"><div class="dg-kpi-val">@_kpis.ContactosAsociados</div><div class="dg-kpi-lbl">Contactos asociados</div></div>
+        </div>
+    </div>
+
+    @* ===== Tabs TIPO ===== *@
+    <div class="dg-tipo-row">
+        <span class="dg-tipo-lbl">TIPO:</span>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Todos ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Todos)">Todos los tipos</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Clientes ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Clientes)">Clientes</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Proveedores ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Proveedores)">Proveedores</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Empleados ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Empleados)">Empleados</button>
+    </div>
+
+    @* ===== Tabs naturaleza + busqueda ===== *@
+    <div class="dg-filter-row">
+        <div class="dg-tabs">
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Todos ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Todos">Todos <span class="dg-tab-count">@CountTodos</span></button>
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Empresas ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Empresas">Empresas <span class="dg-tab-count">@CountEmpresas</span></button>
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Contactos ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Contactos">Contactos <span class="dg-tab-count">@CountContactos</span></button>
+        </div>
+        <div class="dg-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+            <input placeholder="Buscar cliente..." value="@_search" @oninput="OnSearch" />
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="dg-table"><div class="dg-loading">Cargando directorio...</div></div>
+    }
+    else
+    {
+        <div class="dg-table">
+            <div class="dg-grid dg-thead">
+                <div class="dg-th">CLIENTE</div>
+                <div class="dg-th pad12">IDENTIFICACION</div>
+                <div class="dg-th pad12">VENDEDOR</div>
+                <div class="dg-th pad12">ESTADO</div>
+                <div class="dg-th pad12"></div>
+            </div>
+
+            @if (!Displayed.Any())
+            {
+                <div class="dg-rowwrap"><div class="dg-empty-note" style="padding:24px 18px">No hay terceros que coincidan con los filtros.</div></div>
+            }
+
+            @foreach (var r in Displayed)
+            {
+                var est = EstadoInfo(r.Estado);
+                <div class="dg-rowwrap">
+                    <div class="dg-grid dg-row">
+                        <div class="dg-c-name">
+                            @if (r.EsEmpresa)
+                            {
+                                <button class="dg-expand" title="Ver contactos" @onclick="() => ToggleExpandAsync(r)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(_expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="dg-spacer"></span>
+                            }
+                            <span class="dg-av @(r.EsEmpresa ? "emp" : "per")" style="background:@AvatarColor(r.Nombre)">@Initials(r.Nombre)</span>
+                            <div class="dg-name-main" @onclick="() => OpenEditAsync(r.Id)">
+                                <div class="dg-name-line">
+                                    <span class="dg-name-txt">@r.Nombre</span>
+                                    @if (r.EsEmpresa)
+                                    {
+                                        <span class="dg-badge" style="background:var(--t-blue-bg);color:var(--t-blue)">EMPRESA &#183; @r.ContadorContactos</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="dg-badge" style="background:var(--t-amber-bg);color:var(--t-amber)">PERSONA</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(r.Sub))
+                                {
+                                    <div class="dg-name-sub">@r.Sub</div>
+                                }
+                                @{
+                                    var tags = TipoTags(r.Perfiles);
+                                }
+                                @if (tags.Count > 0)
+                                {
+                                    <div class="dg-tags">
+                                        @foreach (var tg in tags)
+                                        {
+                                            <span class="dg-tag" style="background:var(@tg.Bg);color:var(@tg.Color)">@tg.Label</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <div class="dg-c mono">@r.Identificacion</div>
+                        <div class="dg-c">@(string.IsNullOrWhiteSpace(r.Vendedor) ? "-" : r.Vendedor)</div>
+                        <div class="dg-c" style="padding:11px 12px"><span class="dg-estado" style="background:var(@est.Bg);color:var(@est.Color)">@est.Label</span></div>
+                        <div class="dg-c acts" style="padding:11px 12px">
+                            @if (_canEdit)
+                            {
+                                <button class="dg-act edit" title="Editar tercero" @onclick="() => OpenEditAsync(r.Id)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                            }
+                            @if (r.EsPersona && _canEdit)
+                            {
+                                <button class="dg-act assign" title="Asignar a una empresa" @onclick="() => OpenAssign(r)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M12 12h.01" /><path d="M9 21v-4h6v4" /></svg>
+                                </button>
+                            }
+                            @if (_canDelete)
+                            {
+                                <button class="dg-act del" title="Eliminar" @onclick="() => DeleteAsync(r)" disabled="@_busy">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (r.EsEmpresa && _expanded.Contains(r.Id))
+                    {
+                        <div class="dg-kids">
+                            @{
+                                var kids = _kids.TryGetValue(r.Id, out var kl) ? kl : Array.Empty<TerceroContactoDto>();
+                            }
+                            @if (kids.Count > 0)
+                            {
+                                <div class="dg-kids-lbl">CONTACTOS ASOCIADOS</div>
+                                @foreach (var k in kids)
+                                {
+                                    <div class="dg-kid">
+                                        <span class="dg-kid-av" style="background:@AvatarColor(k.Nombre)">@Initials(k.Nombre)</span>
+                                        <div style="flex:1;min-width:0">
+                                            <div class="dg-kid-name">@k.Nombre</div>
+                                            <div class="dg-kid-cargo">@(string.IsNullOrWhiteSpace(k.Cargo) ? "Contacto" : k.Cargo)</div>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(k.Email))
+                                        {
+                                            <span class="dg-kid-meta">@k.Email</span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(k.Telefono))
+                                        {
+                                            <span class="dg-kid-meta">@k.Telefono</span>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="dg-empty-note">Sin contactos asociados todavia.</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        @if (_pageError is not null)
+        {
+            <div class="dg-page-error">@_pageError</div>
+        }
+    }
+</div>
+
+@* ===================== MODAL ASIGNAR A EMPRESA ===================== *@
+@if (_assignOpen && _assignPersona is not null)
+{
+    <div class="dg-overlay sm" @onclick="CloseAssign">
+        <div class="dg-modal sm" @onclick:stopPropagation="true">
+            <div class="dg-as-head">
+                <div>
+                    <div class="dg-as-kicker">ASIGNAR A EMPRESA</div>
+                    <div class="dg-as-title">@_assignPersona.Nombre</div>
+                    <div class="dg-as-sub">Dejara de aparecer como cliente individual y pasara dentro de la empresa.</div>
+                </div>
+                <button class="dg-close" @onclick="CloseAssign">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="dg-as-list">
+                @{
+                    var empresas = _allRows.Where(x => x.EsEmpresa).ToList();
+                }
+                @if (empresas.Count == 0)
+                {
+                    <div class="dg-as-empty">No hay empresas registradas. Crea una empresa primero.</div>
+                }
+                @foreach (var e in empresas)
+                {
+                    <button class="dg-as-item" @onclick="() => AssignToAsync(e.Id)" disabled="@_busy">
+                        <span class="dg-as-av" style="background:@AvatarColor(e.Nombre)">@Initials(e.Nombre)</span>
+                        <span style="flex:1;min-width:0">
+                            <span class="dg-as-name">@e.Nombre</span>
+                            <span class="dg-as-isub">@(string.IsNullOrWhiteSpace(e.Sub) ? e.Identificacion : e.Sub)</span>
+                        </span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL CREAR / EDITAR ===================== *@
+@if (_modalOpen)
+{
+    <div class="dg-overlay" @onclick="CloseModal">
+        <div class="dg-modal" @onclick:stopPropagation="true">
+            <div class="dg-m-head">
+                <span class="dg-m-av" style="background:@AvatarColor(string.IsNullOrWhiteSpace(_mNombre) ? "Nuevo" : _mNombre)">@Initials(string.IsNullOrWhiteSpace(_mNombre) ? "?" : _mNombre)</span>
+                <div style="flex:1;min-width:0">
+                    <div class="dg-m-kicker">@(_editingId is null ? "NUEVO CLIENTE" : "EDITAR TERCERO")</div>
+                    <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
+                </div>
+                <button class="dg-close" @onclick="CloseModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="dg-m-tabs">
+                <button class="dg-m-tab @(_mTab == "datos" ? "active" : "")" @onclick='() => _mTab = "datos"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>Datos
+                </button>
+                <button class="dg-m-tab @(_mTab == "rel" ? "active" : "")" @onclick='() => _mTab = "rel"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>Relaciones
+                </button>
+                <button class="dg-m-tab @(_mTab == "notas" ? "active" : "")" @onclick='() => _mTab = "notas"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg>Notas
+                </button>
+                <button class="dg-m-tab @(_mTab == "acts" ? "active" : "")" @onclick='() => _mTab = "acts"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>Actividades
+                </button>
+            </div>
+
+            <div class="dg-m-body">
+                <div class="dg-m-main">
+                    @if (_mTab == "datos")
+                    {
+                        <div class="dg-m-cols">
+                            @* ---- Aside: perfiles ---- *@
+                            <aside class="dg-aside">
+                                <label class="dg-aside-lbl">PERFILES DEL TERCERO</label>
+                                <div class="dg-chips-col">
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Cliente) ? "on-violet" : "")" disabled="@(!_canCrearCliente && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Cliente)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Cliente
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Sospechoso) ? "on-rose" : "")" disabled="@(!_canCrearSospechoso && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Sospechoso)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01" /></svg>Cliente sospechoso
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Proveedor) ? "on-amber" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Proveedor)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" /></svg>Proveedor
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Empleado) ? "on-blue" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Empleado)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>Empleado
+                                    </button>
+                                </div>
+                                <p class="dg-aside-note">Un tercero puede tener varios perfiles. Cada perfil activa su ficha de datos.</p>
+                            </aside>
+
+                            @* ---- Campos principales ---- *@
+                            <div class="dg-field-col">
+                                <label class="dg-sec-lbl">TIPO DE CONTACTO</label>
+                                <div class="dg-kind-row">
+                                    <button class="dg-kind @(_mTipo == TerceroTipo.Empresa ? "active" : "")" disabled="@(!_canCrearEmpresa && _editingId is null)" @onclick="() => SetTipoModal(TerceroTipo.Empresa)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>Empresa
+                                    </button>
+                                    <button class="dg-kind @(_mTipo == TerceroTipo.Persona ? "active" : "")" @onclick="() => SetTipoModal(TerceroTipo.Persona)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Contacto
+                                    </button>
+                                </div>
+
+                                <div class="dg-idbox">
+                                    <label class="dg-idbox-lbl">IDENTIFICAR POR</label>
+                                    <div class="dg-idchips">
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Nit ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Nit">NIT</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Identificacion ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Identificacion">Identificacion</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Correo ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Correo">Correo</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Telefono ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Telefono">Telefono</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Ninguno ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Ninguno">No se identifica</button>
+                                    </div>
+                                    @if (_mIdTipo == TerceroIdTipo.Ninguno)
+                                    {
+                                        <div class="dg-idnote">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
+                                            Este tercero se registra sin documento de identificacion.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
+                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" value="@_mIdValor" @oninput="e => _mIdValor = e.Value?.ToString() ?? string.Empty" />
+                                    }
+                                </div>
+
+                                <label class="dg-sec-lbl">CAMPOS</label>
+                                <div class="dg-fields">
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
+                                        <input class="dg-input" value="@_mNombre" @oninput="e => _mNombre = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Ciudad</label>
+                                        <input class="dg-input" value="@_mCiudad" @oninput="e => _mCiudad = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    @if (_mTipo == TerceroTipo.Empresa)
+                                    {
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Sector / Industria</label>
+                                            <input class="dg-input" value="@_mSector" @oninput="e => _mSector = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Cargo</label>
+                                            <input class="dg-input" value="@_mCargo" @oninput="e => _mCargo = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Correo</label>
+                                            <input class="dg-input" value="@_mEmail" @oninput="e => _mEmail = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Telefono</label>
+                                            <input class="dg-input" value="@_mTelefono" @oninput="e => _mTelefono = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    }
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Vendedor asignado</label>
+                                        <input class="dg-input" value="@_mVendedor" @oninput="e => _mVendedor = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Estado</label>
+                                        <select class="dg-input" value="@_mEstado" @onchange="e => _mEstado = Enum.Parse<TerceroEstado>(e.Value!.ToString()!)">
+                                            <option value="@TerceroEstado.Activo">Activo</option>
+                                            <option value="@TerceroEstado.Prospecto">Prospecto</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                @{
+                                    var fichas = VisibleFichas();
+                                }
+                                @if (fichas.Count > 0)
+                                {
+                                    <div class="dg-fichas">
+                                        @foreach (var fc in fichas)
+                                        {
+                                            var open = _fichaOpen.Contains(fc.Key);
+                                            <div class="dg-ficha">
+                                                <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.Key)">
+                                                    <span class="dg-ficha-ic" style="background:var(@fc.Bg);color:var(@fc.Color)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="@fc.IconPath" /></svg>
+                                                    </span>
+                                                    <div style="flex:1;min-width:0">
+                                                        <div class="dg-ficha-title">@fc.Title</div>
+                                                        <div class="dg-ficha-desc">@fc.Desc</div>
+                                                    </div>
+                                                    <span class="dg-ficha-count">@fc.Fields.Count campos</span>
+                                                    <span class="dg-ficha-chev" style="transform:rotate(@(open ? "90deg" : "0deg"))">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                                                    </span>
+                                                </div>
+                                                @if (open)
+                                                {
+                                                    <div class="dg-ficha-body">
+                                                        <div class="dg-fields">
+                                                            @foreach (var f in fc.Fields)
+                                                            {
+                                                                <div style="min-width:0">
+                                                                    <label class="dg-flabel">@f.Label</label>
+                                                                    @if (f.Options is not null)
+                                                                    {
+                                                                        <select class="dg-input" value="@GetFicha(fc.Key, f.Label)" @onchange="e => SetFicha(fc.Key, f.Label, e.Value?.ToString())">
+                                                                            <option value="">-</option>
+                                                                            @foreach (var o in f.Options)
+                                                                            {
+                                                                                <option value="@o">@o</option>
+                                                                            }
+                                                                        </select>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <input class="dg-input" type="@f.Type" value="@GetFicha(fc.Key, f.Label)" @oninput="e => SetFicha(fc.Key, f.Label, e.Value?.ToString())" />
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dg-empty-fichas">Selecciona un perfil (cliente, proveedor o empleado) en la columna izquierda para configurar sus datos.</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (_mTab == "rel")
+                    {
+                        <div class="dg-ph">
+                            <div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
+                                <h4>Relaciones</h4>
+                                <p>Vinculacion de empresas y contactos de relacion. Disponible en una proxima iteracion.</p>
+                            </div>
+                        </div>
+                    }
+                    else if (_mTab == "notas")
+                    {
+                        <div class="dg-ph">
+                            <div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" /></svg>
+                                <h4>Notas y bitacora</h4>
+                                <p>Registro de notas y actividades de gestion. Disponible en una proxima iteracion.</p>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dg-ph">
+                            <div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                                <h4>Actividades</h4>
+                                <p>Actividades ligadas a Tareas (000270). Disponible en una proxima iteracion.</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (_mTab == "datos")
+                {
+                    <aside class="dg-prosp">
+                        <div class="dg-prosp-head">
+                            <span class="dg-prosp-ic">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
+                            </span>
+                            <div>
+                                <div class="dg-prosp-t">Prospecto de cliente</div>
+                                <div class="dg-prosp-s">Oportunidad de negocio</div>
+                            </div>
+                        </div>
+                        <p class="dg-aside-note">El panel de prospecto / oportunidad (nivel de interes, etapa, probabilidad, presupuesto y proxima accion) se habilitara en una proxima iteracion. Los datos y las fichas del tercero se guardan con el boton Guardar.</p>
+                    </aside>
+                }
+            </div>
+
+            <div class="dg-m-foot">
+                @if (_modalError is not null)
+                {
+                    <span class="dg-m-error">@_modalError</span>
+                }
+                else
+                {
+                    <span class="dg-foot-note">Los campos y las fichas por perfil se guardan con el tercero.</span>
+                }
+                <div class="dg-foot-actions">
+                    <button class="dg-btn-ghost" @onclick="CloseModal" disabled="@_busy">Cancelar</button>
+                    <button class="dg-btn-save" @onclick="SaveAsync" disabled="@_busy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
+                        @(_editingId is null ? "Crear tercero" : "Guardar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ---- Estado de lista ----
+    private bool _loading = true;
+    private bool _busy;
+    private string? _pageError;
+    private TerceroKpisDto _kpis = new(0, 0, 0, 0);
+    private IReadOnlyList<TerceroListItemDto> _allRows = Array.Empty<TerceroListItemDto>();
+    private TerceroTabTipo _tipo = TerceroTabTipo.Todos;
+    private TerceroTabNaturaleza _naturaleza = TerceroTabNaturaleza.Todos;
+    private string _search = "";
+    private readonly HashSet<Guid> _expanded = new();
+    private readonly Dictionary<Guid, IReadOnlyList<TerceroContactoDto>> _kids = new();
+
+    // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
+    private bool _canCrearEmpresa = true;
+    private bool _canCrearCliente = true;
+    private bool _canCrearSospechoso = true;
+    private bool _canEdit = true;
+    private bool _canDelete = true;
+    private bool CanCreateAny => _canCrearEmpresa || _canCrearCliente || _canCrearSospechoso;
+
+    // ---- Modal asignar ----
+    private bool _assignOpen;
+    private TerceroListItemDto? _assignPersona;
+
+    // ---- Modal crear / editar ----
+    private bool _modalOpen;
+    private Guid? _editingId;
+    private string _mTab = "datos";
+    private TerceroTipo _mTipo = TerceroTipo.Empresa;
+    private TerceroPerfil _mPerfiles = TerceroPerfil.Ninguno;
+    private TerceroEstado _mEstado = TerceroEstado.Activo;
+    private TerceroIdTipo _mIdTipo = TerceroIdTipo.Nit;
+    private string _mIdValor = "";
+    private string _mNombre = "";
+    private string _mVendedor = "";
+    private string _mCiudad = "";
+    private string _mSector = "";
+    private string _mCargo = "";
+    private string _mEmail = "";
+    private string _mTelefono = "";
+    private readonly Dictionary<string, Dictionary<string, string>> _fichaValues = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _fichaOpen = new(StringComparer.Ordinal);
+    private string? _modalError;
+
+    private IEnumerable<TerceroListItemDto> Displayed => _naturaleza switch
+    {
+        TerceroTabNaturaleza.Empresas => _allRows.Where(r => r.EsEmpresa),
+        TerceroTabNaturaleza.Contactos => _allRows.Where(r => r.EsPersona),
+        _ => _allRows
+    };
+
+    private int CountTodos => _allRows.Count;
+    private int CountEmpresas => _allRows.Count(r => r.EsEmpresa);
+    private int CountContactos => _allRows.Count(r => r.EsPersona);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _canCrearEmpresa = eff.Can(DirectorioSubPermisos.CrearEmpresa, PermissionAction.Create);
+        _canCrearCliente = eff.Can(DirectorioSubPermisos.CrearCliente, PermissionAction.Create);
+        _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
+        _canEdit = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Edit);
+        _canDelete = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Delete);
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        // Se pide siempre naturaleza=Todos: los tabs de naturaleza filtran en cliente para
+        // que los contadores (Todos/Empresas/Contactos) queden siempre visibles.
+        _allRows = await TerceroSvc.ListAsync(new TerceroListFilter(_tipo, TerceroTabNaturaleza.Todos, _search));
+        _kpis = await TerceroSvc.GetKpisAsync();
+        // Purga expansiones/contactos de filas ya no visibles.
+        _expanded.RemoveWhere(id => _allRows.All(r => r.Id != id));
+    }
+
+    private async Task SetTipo(TerceroTabTipo tipo)
+    {
+        _tipo = tipo;
+        await ReloadAsync();
+    }
+
+    private async Task OnSearch(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        await ReloadAsync();
+    }
+
+    private async Task ToggleExpandAsync(TerceroListItemDto row)
+    {
+        if (_expanded.Contains(row.Id))
+        {
+            _expanded.Remove(row.Id);
+            return;
+        }
+        _expanded.Add(row.Id);
+        if (!_kids.ContainsKey(row.Id))
+        {
+            _kids[row.Id] = await TerceroSvc.ListContactosAsync(row.Id);
+        }
+    }
+
+    // ---- Asignar ----
+    private void OpenAssign(TerceroListItemDto persona)
+    {
+        _assignPersona = persona;
+        _assignOpen = true;
+    }
+
+    private void CloseAssign()
+    {
+        _assignOpen = false;
+        _assignPersona = null;
+    }
+
+    private async Task AssignToAsync(Guid empresaId)
+    {
+        if (_assignPersona is null) { return; }
+        _busy = true;
+        var res = await TerceroSvc.AssignToEmpresaAsync(_assignPersona.Id, empresaId);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _pageError = res.Error;
+            return;
+        }
+        _kids.Remove(empresaId);
+        CloseAssign();
+        await ReloadAsync();
+    }
+
+    // ---- Eliminar ----
+    private async Task DeleteAsync(TerceroListItemDto row)
+    {
+        _busy = true;
+        _pageError = null;
+        var res = await TerceroSvc.DeleteAsync(row.Id);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _pageError = res.Error;
+            return;
+        }
+        await ReloadAsync();
+    }
+
+    // ---- Crear / editar ----
+    private void OpenCreate()
+    {
+        _editingId = null;
+        _mTab = "datos";
+        _mTipo = _canCrearEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
+        _mPerfiles = TerceroPerfil.Ninguno;
+        _mEstado = TerceroEstado.Activo;
+        _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        _mIdValor = "";
+        _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _fichaValues.Clear();
+        _fichaOpen.Clear();
+        _modalError = null;
+        _modalOpen = true;
+    }
+
+    private async Task OpenEditAsync(Guid id)
+    {
+        var d = await TerceroSvc.GetAsync(id);
+        if (d is null)
+        {
+            _pageError = "El tercero no existe.";
+            return;
+        }
+        _editingId = id;
+        _mTab = "datos";
+        _mTipo = d.Tipo;
+        _mPerfiles = d.Perfiles;
+        _mEstado = d.Estado == TerceroEstado.Inactivo ? TerceroEstado.Activo : d.Estado;
+        _mIdTipo = d.IdTipo;
+        _mIdValor = d.IdValor ?? "";
+        _mNombre = d.Nombre;
+        _mVendedor = d.Vendedor ?? "";
+        _mCiudad = d.Ciudad ?? "";
+        _mSector = d.Sector ?? "";
+        _mCargo = d.Cargo ?? "";
+        _mEmail = d.Email ?? "";
+        _mTelefono = d.Telefono ?? "";
+        _fichaValues.Clear();
+        _fichaOpen.Clear();
+        foreach (var ficha in d.Fichas)
+        {
+            var campos = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var campo in ficha.Value)
+            {
+                campos[campo.Key] = campo.Value ?? "";
+            }
+            _fichaValues[ficha.Key] = campos;
+        }
+        _modalError = null;
+        _modalOpen = true;
+    }
+
+    private void CloseModal()
+    {
+        _modalOpen = false;
+        _editingId = null;
+    }
+
+    private void SetTipoModal(TerceroTipo tipo)
+    {
+        _mTipo = tipo;
+        // Ajusta el documento por defecto solo si aun no hay valor capturado.
+        if (string.IsNullOrEmpty(_mIdValor))
+        {
+            _mIdTipo = tipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        }
+    }
+
+    private bool HasPerfil(TerceroPerfil p) => (_mPerfiles & p) == p;
+
+    private void TogglePerfil(TerceroPerfil p)
+    {
+        if (HasPerfil(p)) { _mPerfiles &= ~p; }
+        else { _mPerfiles |= p; }
+    }
+
+    private void ToggleFicha(string key)
+    {
+        if (!_fichaOpen.Add(key)) { _fichaOpen.Remove(key); }
+    }
+
+    private string GetFicha(string ficha, string field)
+        => _fichaValues.TryGetValue(ficha, out var m) && m.TryGetValue(field, out var v) ? v : "";
+
+    private void SetFicha(string ficha, string field, string? val)
+    {
+        if (!_fichaValues.TryGetValue(ficha, out var m))
+        {
+            m = new Dictionary<string, string>(StringComparer.Ordinal);
+            _fichaValues[ficha] = m;
+        }
+        m[field] = val ?? "";
+    }
+
+    private string IdLabel() => _mIdTipo switch
+    {
+        TerceroIdTipo.Nit => "NIT",
+        TerceroIdTipo.Identificacion => "Numero de identificacion",
+        TerceroIdTipo.Correo => "Correo electronico",
+        TerceroIdTipo.Telefono => "Telefono",
+        _ => "Documento"
+    };
+
+    private string IdPlaceholder() => _mIdTipo switch
+    {
+        TerceroIdTipo.Nit => "900.123.456-7",
+        TerceroIdTipo.Identificacion => "1.234.567.890",
+        TerceroIdTipo.Correo => "correo@empresa.com",
+        TerceroIdTipo.Telefono => "300 000 0000",
+        _ => ""
+    };
+
+    private async Task SaveAsync()
+    {
+        _modalError = null;
+        var nombre = _mNombre.Trim();
+        if (nombre.Length == 0)
+        {
+            _modalError = "El nombre es obligatorio.";
+            return;
+        }
+        if (_mIdTipo != TerceroIdTipo.Ninguno && string.IsNullOrWhiteSpace(_mIdValor))
+        {
+            _modalError = $"{IdLabel()} es obligatorio (o elige 'No se identifica').";
+            return;
+        }
+
+        // Serializa solo las fichas visibles con al menos un campo con valor.
+        var fichas = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        foreach (var def in VisibleFichas())
+        {
+            if (!_fichaValues.TryGetValue(def.Key, out var vals)) { continue; }
+            var nonEmpty = vals
+                .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+            if (nonEmpty.Count > 0) { fichas[def.Key] = nonEmpty; }
+        }
+        var fichasJson = fichas.Count > 0 ? JsonSerializer.Serialize(fichas) : null;
+
+        var request = new SaveTerceroRequest(
+            Nombre: nombre,
+            Tipo: _mTipo,
+            Perfiles: _mPerfiles,
+            Estado: _mEstado,
+            Vendedor: Blank(_mVendedor),
+            Ciudad: Blank(_mCiudad),
+            IdTipo: _mIdTipo,
+            IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),
+            Sector: _mTipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
+            Cargo: _mTipo == TerceroTipo.Persona ? Blank(_mCargo) : null,
+            Email: _mTipo == TerceroTipo.Persona ? Blank(_mEmail) : null,
+            Telefono: _mTipo == TerceroTipo.Persona ? Blank(_mTelefono) : null,
+            EmpresaId: null,
+            FichasJson: fichasJson);
+
+        _busy = true;
+        var res = _editingId is null
+            ? await TerceroSvc.CreateAsync(request)
+            : await TerceroSvc.UpdateAsync(_editingId.Value, request);
+        _busy = false;
+
+        if (!res.IsOk)
+        {
+            _modalError = res.Error;
+            return;
+        }
+        CloseModal();
+        await ReloadAsync();
+    }
+
+    private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    // ---- Fichas dinamicas por perfil (campos por defecto del spec) ----
+    private List<FichaDef> VisibleFichas()
+    {
+        var list = new List<FichaDef>();
+        var cliente = HasPerfil(TerceroPerfil.Cliente);
+        var sospechoso = HasPerfil(TerceroPerfil.Sospechoso);
+        var proveedor = HasPerfil(TerceroPerfil.Proveedor);
+        var empleado = HasPerfil(TerceroPerfil.Empleado);
+
+        if (cliente || proveedor) { list.Add(FichaFiscal); }
+        if (cliente || sospechoso) { list.Add(FichaComercial); }
+        if (cliente) { list.Add(FichaCliente); }
+        if (proveedor) { list.Add(FichaProveedor); }
+        if (empleado) { list.Add(FichaEmpleado); }
+        return list;
+    }
+
+    private sealed record FieldDef(string Label, string Type = "text", string[]? Options = null);
+
+    private sealed record FichaDef(string Key, string Title, string Desc, string Color, string Bg, string IconPath, List<FieldDef> Fields);
+
+    private static readonly FichaDef FichaFiscal = new(
+        "fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "--t-amber", "--t-amber-bg",
+        "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5",
+        new List<FieldDef>
+        {
+            new("Tipo de persona", Options: new[] { "Natural", "Juridica" }),
+            new("Regimen tributario"),
+            new("Actividad economica (CIIU)"),
+            new("Autorretenedor", Options: new[] { "Si", "No" }),
+            new("Razon social"),
+            new("Sector / Industria"),
+            new("Tamano empresa", Options: new[] { "Micro", "Pequena", "Mediana", "Grande" }),
+            new("Sitio web"),
+            new("Representante legal"),
+            new("Direccion"),
+        });
+
+    private static readonly FichaDef FichaComercial = new(
+        "comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "--t-violet", "--t-violet-bg",
+        "m3 11 19-9-9 19-2-8-8-2z",
+        new List<FieldDef>
+        {
+            new("Vendedor asignado"),
+            new("Zona / Territorio"),
+            new("Lista de precios", Options: new[] { "General", "Mayorista", "Distribuidor" }),
+            new("Origen", Options: new[] { "LinkedIn", "Maps", "Web", "Referido", "Campana", "Importado", "Manual", "Frio" }),
+            new("Motivo de sospecha"),
+            new("Nivel de riesgo", Options: new[] { "Alto", "Medio", "Bajo" }),
+            new("Estado de riesgo", Options: new[] { "En revision", "Bloqueado", "Liberado" }),
+            new("Reportado por"),
+        });
+
+    private static readonly FichaDef FichaCliente = new(
+        "cliente", "Ficha de cliente", "Condiciones comerciales de venta", "--t-green", "--t-green-bg",
+        "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+        new List<FieldDef>
+        {
+            new("Cupo de credito", "number"),
+            new("Dias de pago", "number"),
+            new("Direccion de factura"),
+            new("Direccion de despacho"),
+        });
+
+    private static readonly FichaDef FichaProveedor = new(
+        "proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "--t-blue", "--t-blue-bg",
+        "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
+        new List<FieldDef>
+        {
+            new("Dias de pago", "number"),
+            new("Forma de pago", Options: new[] { "Contado", "Credito", "Anticipo" }),
+            new("Cuenta bancaria"),
+        });
+
+    private static readonly FichaDef FichaEmpleado = new(
+        "empleado", "Ficha de empleado", "Vinculacion laboral", "--t-rose", "--t-rose-bg",
+        "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6",
+        new List<FieldDef>
+        {
+            new("Cargo"),
+            new("Tipo de contrato", Options: new[] { "Indefinido", "Fijo", "Prestacion de servicios", "Aprendizaje" }),
+            new("Salario", "number"),
+            new("Fecha de ingreso", "date"),
+        });
+
+    // ---- Helpers de presentacion ----
+    private sealed record TagInfo(string Label, string Color, string Bg);
+
+    private static List<TagInfo> TipoTags(TerceroPerfil perfiles)
+    {
+        var tags = new List<TagInfo>();
+        if ((perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente) { tags.Add(new("Cliente", "--t-violet", "--t-violet-bg")); }
+        if ((perfiles & TerceroPerfil.Sospechoso) == TerceroPerfil.Sospechoso) { tags.Add(new("Sospechoso", "--t-rose", "--t-rose-bg")); }
+        if ((perfiles & TerceroPerfil.Proveedor) == TerceroPerfil.Proveedor) { tags.Add(new("Proveedor", "--t-amber", "--t-amber-bg")); }
+        if ((perfiles & TerceroPerfil.Empleado) == TerceroPerfil.Empleado) { tags.Add(new("Empleado", "--t-blue", "--t-blue-bg")); }
+        return tags;
+    }
+
+    private static TagInfo EstadoInfo(TerceroEstado estado) => estado switch
+    {
+        TerceroEstado.Activo => new("Activo", "--t-green", "--t-green-bg"),
+        TerceroEstado.Prospecto => new("Prospecto", "--t-amber", "--t-amber-bg"),
+        _ => new("Inactivo", "--t-slate", "--t-slate-bg")
+    };
+
+    private static readonly string[] AvatarPalette =
+        { "--t-violet", "--t-blue", "--t-amber", "--t-green", "--t-rose", "--t-slate" };
+
+    private static string AvatarColor(string name)
+    {
+        var hash = 0;
+        foreach (var ch in name) { hash = (hash * 31 + ch) & 0x7fffffff; }
+        return $"var({AvatarPalette[hash % AvatarPalette.Length]})";
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : string.Concat(char.ToUpperInvariant(parts[0][0]), char.ToUpperInvariant(parts[1][0]));
+    }
+}

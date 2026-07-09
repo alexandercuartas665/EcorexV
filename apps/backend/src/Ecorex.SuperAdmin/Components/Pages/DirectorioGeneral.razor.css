@@ -10,8 +10,12 @@
 .dg-eyebrow { font-size: 11px; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; margin-bottom: 5px; }
 .dg-title { font-weight: 800; font-size: 28px; letter-spacing: -.03em; }
 .dg-sub { color: var(--ink-2); font-size: 14px; margin-top: 6px; }
+.dg-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dg-btn-new { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: none; background: var(--brand); color: var(--on-brand); font: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; }
 .dg-btn-new:hover { opacity: .9; }
+.dg-btn-cfg { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer; }
+.dg-btn-cfg:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.dg-btn-cfg svg { width: 16px; height: 16px; }
 
 /* ---- KPIs ---- */
 .dg-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
@@ -147,8 +151,13 @@
 .dg-input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface-2); font: inherit; font-size: 13.5px; color: var(--ink); outline: none; }
 .dg-input:focus { border-color: var(--ink-3); }
 .dg-input.tall { height: 42px; background: var(--surface); }
+.dg-textarea { height: auto; min-height: 66px; padding: 9px 12px; line-height: 1.45; resize: vertical; }
 select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-req { color: var(--danger); }
+/* Campo a ancho completo dentro de la grilla de campos */
+.dg-fld-full { grid-column: 1 / -1; }
+.dg-fld-sep { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--ink-3); text-transform: uppercase; margin: 4px 0; }
+.dg-fld-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
 /* Fichas dinamicas */
 .dg-fichas { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
@@ -204,6 +213,37 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-as-name { display: block; font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .dg-as-isub { display: block; font-size: 11.5px; color: var(--ink-3); }
 .dg-as-empty { padding: 26px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
+
+/* ---- Modal configurar campos ---- */
+.dg-cfg-modal { width: min(760px, 96vw); height: min(820px, 92vh); }
+.dg-cfg-body { flex: 1; overflow: auto; padding: 22px; }
+.dg-cfg-fichas { display: flex; gap: 8px; flex-wrap: wrap; }
+.dg-cfg-fchip { height: 34px; padding: 0 15px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.dg-cfg-fchip:hover { border-color: var(--ink-3); }
+.dg-cfg-fchip.active { border-color: var(--brand); background: var(--brand); color: var(--on-brand); }
+.dg-cfg-fchip:disabled { opacity: .55; cursor: not-allowed; }
+.dg-cfg-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); margin-bottom: 8px; }
+.dg-cfg-move { display: flex; flex-direction: column; gap: 3px; flex: none; }
+.dg-cfg-mbtn { width: 24px; height: 20px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.dg-cfg-mbtn:hover:not(:disabled) { background: var(--surface-3); }
+.dg-cfg-mbtn:disabled { opacity: .35; cursor: not-allowed; }
+.dg-cfg-mbtn svg { width: 12px; height: 12px; }
+.dg-cfg-info { flex: 1; min-width: 0; }
+.dg-cfg-flabel { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+.dg-cfg-tag { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: var(--surface-3); color: var(--ink-3); letter-spacing: .03em; text-transform: uppercase; }
+.dg-cfg-fmeta { font-size: 11px; color: var(--ink-3); font-family: monospace; margin-top: 2px; }
+.dg-cfg-wbtn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; flex: none; border: 1px solid var(--line-2); background: var(--surface); border-radius: 8px; cursor: pointer; color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; }
+.dg-cfg-wbtn:hover:not(:disabled) { border-color: var(--ink-3); }
+.dg-cfg-wbtn svg { width: 13px; height: 13px; }
+.dg-cfg-ebtn, .dg-cfg-dbtn { width: 28px; height: 28px; flex: none; border: 1px solid var(--line-2); background: var(--surface); border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.dg-cfg-ebtn:hover:not(:disabled) { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+.dg-cfg-dbtn:hover:not(:disabled) { background: var(--t-rose-bg); border-color: var(--danger); color: var(--danger); }
+.dg-cfg-ebtn svg, .dg-cfg-dbtn svg { width: 14px; height: 14px; }
+.dg-cfg-wbtn:disabled, .dg-cfg-ebtn:disabled, .dg-cfg-dbtn:disabled { opacity: .4; cursor: not-allowed; }
+.dg-cfg-form { margin-top: 16px; padding: 16px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface-2); }
+.dg-cfg-form-title { font-size: 12.5px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 12px; }
+.dg-cfg-err { color: var(--danger); font-size: 12px; font-weight: 600; margin-top: 10px; }
+.dg-cfg-form-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
 
 /* Estados de carga / vacio de la tabla */
 .dg-loading { padding: 40px 24px; text-align: center; color: var(--ink-3); font-size: 13px; }

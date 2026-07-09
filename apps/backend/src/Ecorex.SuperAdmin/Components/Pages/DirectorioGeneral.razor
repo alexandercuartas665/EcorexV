@@ -11,6 +11,7 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @inject ITerceroService TerceroSvc
+@inject ITerceroFieldService FieldSvc
 @inject ICurrentPermissions Perms
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
@@ -30,13 +31,22 @@
             <h1 class="dg-title">Directorio General</h1>
             <p class="dg-sub">Clientes tipo empresa o persona natural. Las empresas agrupan sus contactos asociados.</p>
         </div>
-        @if (CanCreateAny)
-        {
-            <button class="dg-btn-new" @onclick="() => OpenCreate()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                Nuevo cliente
-            </button>
-        }
+        <div class="dg-head-actions">
+            @if (_canEdit)
+            {
+                <button class="dg-btn-cfg" @onclick="OpenConfigAsync" title="Configurar los campos de cada ficha">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                    Configurar campos
+                </button>
+            }
+            @if (CanCreateAny)
+            {
+                <button class="dg-btn-new" @onclick="() => OpenCreate()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                    Nuevo cliente
+                </button>
+            }
+        </div>
     </div>
 
     @* ===== KPIs ===== *@
@@ -409,6 +419,7 @@
                                         @foreach (var fc in fichas)
                                         {
                                             var open = _fichaOpen.Contains(fc.Key);
+                                            var fcFields = FieldsFor(fc.Key);
                                             <div class="dg-ficha">
                                                 <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.Key)">
                                                     <span class="dg-ficha-ic" style="background:var(@fc.Bg);color:var(@fc.Color)">
@@ -418,7 +429,7 @@
                                                         <div class="dg-ficha-title">@fc.Title</div>
                                                         <div class="dg-ficha-desc">@fc.Desc</div>
                                                     </div>
-                                                    <span class="dg-ficha-count">@fc.Fields.Count campos</span>
+                                                    <span class="dg-ficha-count">@fcFields.Count campos</span>
                                                     <span class="dg-ficha-chev" style="transform:rotate(@(open ? "90deg" : "0deg"))">
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
                                                     </span>
@@ -426,28 +437,46 @@
                                                 @if (open)
                                                 {
                                                     <div class="dg-ficha-body">
-                                                        <div class="dg-fields">
-                                                            @foreach (var f in fc.Fields)
-                                                            {
-                                                                <div style="min-width:0">
-                                                                    <label class="dg-flabel">@f.Label</label>
-                                                                    @if (f.Options is not null)
-                                                                    {
-                                                                        <select class="dg-input" value="@GetFicha(fc.Key, f.Label)" @onchange="e => SetFicha(fc.Key, f.Label, e.Value?.ToString())">
-                                                                            <option value="">-</option>
-                                                                            @foreach (var o in f.Options)
+                                                        @if (fcFields.Count == 0)
+                                                        {
+                                                            <div class="dg-empty-note">Esta ficha no tiene campos. Configuralos con el boton "Configurar campos".</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="dg-fields">
+                                                                @foreach (var f in fcFields)
+                                                                {
+                                                                    <div style="min-width:0" class="@(f.Column >= 2 || f.FieldType == TerceroFieldType.Separator ? "dg-fld-full" : "")">
+                                                                        @if (f.FieldType == TerceroFieldType.Separator)
+                                                                        {
+                                                                            <div class="dg-fld-sep">@f.Label</div>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <label class="dg-flabel">@f.Label</label>
+                                                                            @switch (f.FieldType)
                                                                             {
-                                                                                <option value="@o">@o</option>
+                                                                                case TerceroFieldType.Select:
+                                                                                    <select class="dg-input" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())">
+                                                                                        <option value="">-</option>
+                                                                                        @foreach (var o in SplitOptions(f.Options))
+                                                                                        {
+                                                                                            <option value="@o">@o</option>
+                                                                                        }
+                                                                                    </select>
+                                                                                    break;
+                                                                                case TerceroFieldType.TextArea:
+                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                                                    break;
+                                                                                default:
+                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
+                                                                                    break;
                                                                             }
-                                                                        </select>
-                                                                    }
-                                                                    else
-                                                                    {
-                                                                        <input class="dg-input" type="@f.Type" value="@GetFicha(fc.Key, f.Label)" @oninput="e => SetFicha(fc.Key, f.Label, e.Value?.ToString())" />
-                                                                    }
-                                                                </div>
-                                                            }
-                                                        </div>
+                                                                        }
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
                                                     </div>
                                                 }
                                             </div>
@@ -529,6 +558,137 @@
     </div>
 }
 
+@* ===================== MODAL CONFIGURAR CAMPOS ===================== *@
+@if (_cfgOpen)
+{
+    <div class="dg-overlay" @onclick="CloseConfig">
+        <div class="dg-modal dg-cfg-modal" @onclick:stopPropagation="true">
+            <div class="dg-m-head">
+                <span class="dg-m-av" style="background:var(--brand)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                </span>
+                <div style="flex:1;min-width:0">
+                    <div class="dg-m-kicker">DIRECTORIO GENERAL &#183; 000232</div>
+                    <div class="dg-m-title">Configurar campos de las fichas</div>
+                </div>
+                <button class="dg-close" @onclick="CloseConfig">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="dg-cfg-body">
+                @* --- Selector de ficha --- *@
+                <label class="dg-sec-lbl">FICHA</label>
+                <div class="dg-cfg-fichas">
+                    @foreach (var m in FichaCatalog)
+                    {
+                        <button class="dg-cfg-fchip @(_cfgFicha == m.Key ? "active" : "")" @onclick="() => SelectCfgFichaAsync(m.Key)" disabled="@_busy">@m.ConfigLabel</button>
+                    }
+                </div>
+
+                @* --- Lista de campos --- *@
+                <label class="dg-sec-lbl" style="margin-top:18px">CAMPOS DE LA FICHA</label>
+                @if (_cfgFields.Count == 0)
+                {
+                    <div class="dg-empty-note" style="padding:14px 0">Esta ficha no tiene campos todavia. Agrega el primero abajo.</div>
+                }
+                @for (var i = 0; i < _cfgFields.Count; i++)
+                {
+                    var f = _cfgFields[i];
+                    var idx = i;
+                    <div class="dg-cfg-row">
+                        <div class="dg-cfg-move">
+                            <button class="dg-cfg-mbtn" disabled="@(idx == 0 || _busy)" @onclick="() => MoveCfgFieldAsync(idx, idx - 1)" title="Subir">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                            </button>
+                            <button class="dg-cfg-mbtn" disabled="@(idx == _cfgFields.Count - 1 || _busy)" @onclick="() => MoveCfgFieldAsync(idx, idx + 1)" title="Bajar">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                            </button>
+                        </div>
+                        <div class="dg-cfg-info">
+                            <div class="dg-cfg-flabel">
+                                @f.Label
+                                @if (f.IsSystem) { <span class="dg-cfg-tag">sistema</span> }
+                            </div>
+                            <div class="dg-cfg-fmeta">@TypeLabel(f.FieldType) &#183; @f.FieldKey</div>
+                        </div>
+                        <button class="dg-cfg-wbtn" disabled="@_busy" @onclick="() => ToggleCfgColumnAsync(f)" title="Ancho del campo. Clic para cambiar entre media y completa.">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4" /></svg>
+                            @(f.Column >= 2 ? "completa" : "media")
+                        </button>
+                        <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgField(f)" title="Editar campo">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                        </button>
+                        <button class="dg-cfg-dbtn" disabled="@_busy" @onclick="() => DeleteCfgFieldAsync(f)" title="Eliminar campo">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                        </button>
+                    </div>
+                }
+
+                @* --- Form nuevo / editar --- *@
+                <div class="dg-cfg-form">
+                    <div class="dg-cfg-form-title">@(_cfgEditingId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <div class="dg-fields">
+                        <div style="min-width:0">
+                            <label class="dg-flabel">Etiqueta <span class="dg-req">*</span></label>
+                            <input class="dg-input" value="@_cfgLabel" @oninput="e => _cfgLabel = e.Value?.ToString() ?? string.Empty" />
+                        </div>
+                        <div style="min-width:0">
+                            <label class="dg-flabel">Tipo</label>
+                            <select class="dg-input" @bind="_cfgType">
+                                <option value="@TerceroFieldType.Text">Texto</option>
+                                <option value="@TerceroFieldType.Number">Numero</option>
+                                <option value="@TerceroFieldType.Currency">Moneda</option>
+                                <option value="@TerceroFieldType.TextArea">Texto largo</option>
+                                <option value="@TerceroFieldType.Select">Lista</option>
+                                <option value="@TerceroFieldType.Date">Fecha</option>
+                                <option value="@TerceroFieldType.Phone">Telefono</option>
+                                <option value="@TerceroFieldType.Separator">Separador</option>
+                            </select>
+                        </div>
+                        <div style="min-width:0">
+                            <label class="dg-flabel">Ancho</label>
+                            <select class="dg-input" @bind="_cfgColumn">
+                                <option value="1">Media</option>
+                                <option value="2">Completa</option>
+                            </select>
+                        </div>
+                        <div style="min-width:0">
+                            <label class="dg-flabel">Descripcion <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
+                            <input class="dg-input" value="@_cfgDescription" @oninput="e => _cfgDescription = e.Value?.ToString() ?? string.Empty" />
+                        </div>
+                        @if (_cfgType == TerceroFieldType.Select)
+                        {
+                            <div style="min-width:0" class="dg-fld-full">
+                                <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
+                                <textarea class="dg-input dg-textarea" value="@_cfgOptions" @oninput="e => _cfgOptions = e.Value?.ToString() ?? string.Empty"></textarea>
+                            </div>
+                        }
+                    </div>
+                    @if (_cfgError is not null)
+                    {
+                        <div class="dg-cfg-err">@_cfgError</div>
+                    }
+                    <div class="dg-cfg-form-actions">
+                        <button class="dg-btn-save" disabled="@_busy" @onclick="SaveCfgFieldAsync">@(_cfgEditingId is null ? "Agregar campo" : "Guardar cambios")</button>
+                        @if (_cfgEditingId is not null)
+                        {
+                            <button class="dg-btn-ghost" disabled="@_busy" @onclick="CancelEditCfgField">Cancelar</button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="dg-m-foot">
+                <span class="dg-foot-note">Los cambios aplican a las fichas del modal de tercero.</span>
+                <div class="dg-foot-actions">
+                    <button class="dg-btn-ghost" @onclick="CloseConfig" disabled="@_busy">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // ---- Estado de lista ----
     private bool _loading = true;
@@ -593,9 +753,54 @@
         _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
         _canEdit = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Edit);
         _canDelete = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Delete);
+        await FieldSvc.EnsureDefaultsAsync();
         await ReloadAsync();
         _loading = false;
     }
+
+    // ---- Campos configurables por ficha (cache; se recarga al abrir el modal de tercero
+    // y tras cerrar el configurador para reflejar altas/bajas/reordenamientos). ----
+    private readonly Dictionary<string, List<TerceroFieldDto>> _fichaFields = new(StringComparer.Ordinal);
+
+    private async Task LoadFichaFieldsAsync()
+    {
+        _fichaFields.Clear();
+        foreach (var m in FichaCatalog)
+        {
+            var list = await FieldSvc.ListByFichaAsync(m.Key);
+            _fichaFields[m.Key] = list.OrderBy(f => f.SortOrder).ToList();
+        }
+    }
+
+    private IReadOnlyList<TerceroFieldDto> FieldsFor(string ficha)
+        => _fichaFields.TryGetValue(ficha, out var l) ? l : (IReadOnlyList<TerceroFieldDto>)Array.Empty<TerceroFieldDto>();
+
+    private static IEnumerable<string> SplitOptions(string? options)
+        => string.IsNullOrWhiteSpace(options)
+            ? Array.Empty<string>()
+            : options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string InputType(TerceroFieldType t) => t switch
+    {
+        TerceroFieldType.Number => "number",
+        TerceroFieldType.Currency => "number",
+        TerceroFieldType.Date => "date",
+        TerceroFieldType.Phone => "tel",
+        _ => "text"
+    };
+
+    private static string TypeLabel(TerceroFieldType t) => t switch
+    {
+        TerceroFieldType.Text => "Texto",
+        TerceroFieldType.Number => "Numero",
+        TerceroFieldType.Currency => "Moneda",
+        TerceroFieldType.TextArea => "Texto largo",
+        TerceroFieldType.Select => "Lista",
+        TerceroFieldType.Date => "Fecha",
+        TerceroFieldType.Phone => "Telefono",
+        TerceroFieldType.Separator => "Separador",
+        _ => t.ToString()
+    };
 
     private async Task ReloadAsync()
     {
@@ -678,7 +883,7 @@
     }
 
     // ---- Crear / editar ----
-    private void OpenCreate()
+    private async Task OpenCreate()
     {
         _editingId = null;
         _mTab = "datos";
@@ -690,6 +895,7 @@
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
         _fichaValues.Clear();
         _fichaOpen.Clear();
+        await LoadFichaFieldsAsync();
         _modalError = null;
         _modalOpen = true;
     }
@@ -702,6 +908,7 @@
             _pageError = "El tercero no existe.";
             return;
         }
+        await LoadFichaFieldsAsync();
         _editingId = id;
         _mTab = "datos";
         _mTipo = d.Tipo;
@@ -851,90 +1058,186 @@
 
     private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
 
-    // ---- Fichas dinamicas por perfil (campos por defecto del spec) ----
-    private List<FichaDef> VisibleFichas()
+    // ---- Fichas dinamicas por perfil: metadatos visuales; los CAMPOS se leen del servicio. ----
+    private List<FichaMeta> VisibleFichas()
     {
-        var list = new List<FichaDef>();
+        var list = new List<FichaMeta>();
         var cliente = HasPerfil(TerceroPerfil.Cliente);
         var sospechoso = HasPerfil(TerceroPerfil.Sospechoso);
         var proveedor = HasPerfil(TerceroPerfil.Proveedor);
         var empleado = HasPerfil(TerceroPerfil.Empleado);
 
-        if (cliente || proveedor) { list.Add(FichaFiscal); }
-        if (cliente || sospechoso) { list.Add(FichaComercial); }
-        if (cliente) { list.Add(FichaCliente); }
-        if (proveedor) { list.Add(FichaProveedor); }
-        if (empleado) { list.Add(FichaEmpleado); }
+        if (cliente || proveedor) { list.Add(FichaCatalog[0]); }
+        if (cliente || sospechoso) { list.Add(FichaCatalog[1]); }
+        if (cliente) { list.Add(FichaCatalog[2]); }
+        if (proveedor) { list.Add(FichaCatalog[3]); }
+        if (empleado) { list.Add(FichaCatalog[4]); }
         return list;
     }
 
-    private sealed record FieldDef(string Label, string Type = "text", string[]? Options = null);
+    private sealed record FichaMeta(string Key, string Title, string Desc, string ConfigLabel, string Color, string Bg, string IconPath);
 
-    private sealed record FichaDef(string Key, string Title, string Desc, string Color, string Bg, string IconPath, List<FieldDef> Fields);
+    // Catalogo de fichas (mismas claves que ITerceroFieldService.FichaKeys). Solo metadatos
+    // de presentacion: los campos son 100% configurables via el servicio.
+    private static readonly FichaMeta[] FichaCatalog =
+    {
+        new("fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "Datos fiscales", "--t-amber", "--t-amber-bg",
+            "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
+        new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
+            "m3 11 19-9-9 19-2-8-8-2z"),
+        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
+            "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
+        new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
+            "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
+        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
+            "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
+    };
 
-    private static readonly FichaDef FichaFiscal = new(
-        "fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "--t-amber", "--t-amber-bg",
-        "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5",
-        new List<FieldDef>
+    // ---- Configurador de campos ----
+    private bool _cfgOpen;
+    private string _cfgFicha = "fiscal";
+    private List<TerceroFieldDto> _cfgFields = new();
+    private Guid? _cfgEditingId;
+    private string _cfgLabel = "";
+    private TerceroFieldType _cfgType = TerceroFieldType.Text;
+    private int _cfgColumn = 1;
+    private string _cfgOptions = "";
+    private string _cfgDescription = "";
+    private string? _cfgError;
+
+    private async Task OpenConfigAsync()
+    {
+        _cfgFicha = FichaCatalog[0].Key;
+        ResetCfgForm();
+        await FieldSvc.EnsureDefaultsAsync();
+        await LoadCfgFieldsAsync();
+        _cfgOpen = true;
+    }
+
+    private async Task CloseConfig()
+    {
+        _cfgOpen = false;
+        // Refresca la cache que consume el modal de tercero.
+        await LoadFichaFieldsAsync();
+    }
+
+    private async Task LoadCfgFieldsAsync()
+    {
+        var list = await FieldSvc.ListByFichaAsync(_cfgFicha);
+        _cfgFields = list.OrderBy(f => f.SortOrder).ToList();
+    }
+
+    private async Task SelectCfgFichaAsync(string ficha)
+    {
+        _cfgFicha = ficha;
+        ResetCfgForm();
+        await LoadCfgFieldsAsync();
+    }
+
+    private void ResetCfgForm()
+    {
+        _cfgEditingId = null;
+        _cfgLabel = "";
+        _cfgType = TerceroFieldType.Text;
+        _cfgColumn = 1;
+        _cfgOptions = "";
+        _cfgDescription = "";
+        _cfgError = null;
+    }
+
+    private void EditCfgField(TerceroFieldDto f)
+    {
+        _cfgEditingId = f.Id;
+        _cfgLabel = f.Label;
+        _cfgType = f.FieldType;
+        _cfgColumn = f.Column >= 2 ? 2 : 1;
+        _cfgOptions = f.Options ?? "";
+        _cfgDescription = f.Description ?? "";
+        _cfgError = null;
+    }
+
+    private void CancelEditCfgField() => ResetCfgForm();
+
+    private async Task SaveCfgFieldAsync()
+    {
+        _cfgError = null;
+        var label = _cfgLabel.Trim();
+        if (label.Length == 0)
         {
-            new("Tipo de persona", Options: new[] { "Natural", "Juridica" }),
-            new("Regimen tributario"),
-            new("Actividad economica (CIIU)"),
-            new("Autorretenedor", Options: new[] { "Si", "No" }),
-            new("Razon social"),
-            new("Sector / Industria"),
-            new("Tamano empresa", Options: new[] { "Micro", "Pequena", "Mediana", "Grande" }),
-            new("Sitio web"),
-            new("Representante legal"),
-            new("Direccion"),
-        });
+            _cfgError = "La etiqueta es obligatoria.";
+            return;
+        }
+        var options = _cfgType == TerceroFieldType.Select
+            ? (string.IsNullOrWhiteSpace(_cfgOptions) ? null : _cfgOptions.Trim())
+            : null;
+        var desc = string.IsNullOrWhiteSpace(_cfgDescription) ? null : _cfgDescription.Trim();
 
-    private static readonly FichaDef FichaComercial = new(
-        "comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "--t-violet", "--t-violet-bg",
-        "m3 11 19-9-9 19-2-8-8-2z",
-        new List<FieldDef>
+        _busy = true;
+        try
         {
-            new("Vendedor asignado"),
-            new("Zona / Territorio"),
-            new("Lista de precios", Options: new[] { "General", "Mayorista", "Distribuidor" }),
-            new("Origen", Options: new[] { "LinkedIn", "Maps", "Web", "Referido", "Campana", "Importado", "Manual", "Frio" }),
-            new("Motivo de sospecha"),
-            new("Nivel de riesgo", Options: new[] { "Alto", "Medio", "Bajo" }),
-            new("Estado de riesgo", Options: new[] { "En revision", "Bloqueado", "Liberado" }),
-            new("Reportado por"),
-        });
+            if (_cfgEditingId is Guid editId)
+            {
+                var upd = await FieldSvc.UpdateFieldAsync(editId, new UpdateTerceroFieldRequest(label, _cfgType, _cfgColumn, options, desc));
+                if (upd is null)
+                {
+                    _cfgError = "No se pudo guardar el campo.";
+                    return;
+                }
+            }
+            else
+            {
+                var created = await FieldSvc.CreateFieldAsync(new CreateTerceroFieldRequest(_cfgFicha, label, _cfgType, _cfgColumn, options, null, desc));
+                if (created is null)
+                {
+                    _cfgError = "No se pudo crear el campo. Revisa la ficha seleccionada.";
+                    return;
+                }
+            }
+            ResetCfgForm();
+            await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
 
-    private static readonly FichaDef FichaCliente = new(
-        "cliente", "Ficha de cliente", "Condiciones comerciales de venta", "--t-green", "--t-green-bg",
-        "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
-        new List<FieldDef>
+    private async Task DeleteCfgFieldAsync(TerceroFieldDto f)
+    {
+        _busy = true;
+        try
         {
-            new("Cupo de credito", "number"),
-            new("Dias de pago", "number"),
-            new("Direccion de factura"),
-            new("Direccion de despacho"),
-        });
+            await FieldSvc.DeleteFieldAsync(f.Id);
+            if (_cfgEditingId == f.Id) { ResetCfgForm(); }
+            await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
 
-    private static readonly FichaDef FichaProveedor = new(
-        "proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "--t-blue", "--t-blue-bg",
-        "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
-        new List<FieldDef>
+    private async Task MoveCfgFieldAsync(int from, int to)
+    {
+        if (to < 0 || to >= _cfgFields.Count) { return; }
+        var ordered = _cfgFields.Select(f => f.Id).ToList();
+        var moved = ordered[from];
+        ordered.RemoveAt(from);
+        ordered.Insert(to, moved);
+        _busy = true;
+        try
         {
-            new("Dias de pago", "number"),
-            new("Forma de pago", Options: new[] { "Contado", "Credito", "Anticipo" }),
-            new("Cuenta bancaria"),
-        });
+            await FieldSvc.ReorderFieldsAsync(new ReorderFieldsRequest(ordered));
+            await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
 
-    private static readonly FichaDef FichaEmpleado = new(
-        "empleado", "Ficha de empleado", "Vinculacion laboral", "--t-rose", "--t-rose-bg",
-        "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6",
-        new List<FieldDef>
+    private async Task ToggleCfgColumnAsync(TerceroFieldDto f)
+    {
+        var newCol = f.Column >= 2 ? 1 : 2;
+        _busy = true;
+        try
         {
-            new("Cargo"),
-            new("Tipo de contrato", Options: new[] { "Indefinido", "Fijo", "Prestacion de servicios", "Aprendizaje" }),
-            new("Salario", "number"),
-            new("Fecha de ingreso", "date"),
-        });
+            await FieldSvc.UpdateFieldAsync(f.Id, new UpdateTerceroFieldRequest(f.Label, f.FieldType, newCol, f.Options, f.Description, f.AllowMultiple));
+            await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
 
     // ---- Helpers de presentacion ----
     private sealed record TagInfo(string Label, string Color, string Bg);

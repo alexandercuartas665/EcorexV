@@ -273,6 +273,18 @@ else
         {
             await seeder.EnsureDirectorioGeneralDemoAsync(directorioTenantId);
         }
+        // Conceptos de actividades demo (modulo 000270): CAT-01..CAT-04 con 1-3 subcategorias del
+        // prototipo para el tenant demo. Idempotente, solo Development. El servicio lee el tenant
+        // del ambient (fija el ambient del tenant demo, como el runtime de flujos).
+        if (workflowDemoTenantId is Guid conceptosTenantId)
+        {
+            using (AmbientTenantContext.Begin(conceptosTenantId))
+            {
+                var conceptosSvc = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
+                await conceptosSvc.EnsureConceptosDemoAsync();
+            }
+        }
         // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
         // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
         await seeder.EnsureMenuConfigDemoAsync();
@@ -324,6 +336,29 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_DIRECTORIO"), 
     {
         await seeder.EnsureDirectorioGeneralDemoAsync(t.Id);
         app.Logger.LogWarning("[directorio-seed] terceros de ejemplo sembrados en tenant {Name}", t.Name);
+    }
+}
+
+// Siembra del catalogo de Conceptos de actividades (000270) en cada tenant de negocio
+// (ECOREX_SEED_CONCEPTOS=true). Idempotente. Corre despues de migraciones; util para poblar
+// prod con las categorias/subcategorias de ejemplo. El servicio lee el tenant del ambient.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CONCEPTOS"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var conceptosSvc = scope.ServiceProvider
+        .GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        using (AmbientTenantContext.Begin(t.Id))
+        {
+            await conceptosSvc.EnsureConceptosDemoAsync();
+        }
+        app.Logger.LogWarning("[conceptos-seed] catalogo de actividades sembrado en tenant {Name}", t.Name);
     }
 }
 

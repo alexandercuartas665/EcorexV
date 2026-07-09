@@ -179,6 +179,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
     public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
 
+    // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
+    // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
+    public DbSet<ActividadCategoria> ActividadCategorias => Set<ActividadCategoria>();
+    public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
+    public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => Set<ActividadSubcategoriaCargo>();
+    public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -1347,6 +1354,65 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Autor).HasMaxLength(150);
             b.HasOne(x => x.Tercero).WithMany()
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
+        });
+
+        // ---- Conceptos de actividades (modulo 000270) ----
+        // Jerarquia de dos niveles Categoria -> Subcategoria (concepto). Los vinculos a otros
+        // modulos (flujo/formulario/tablero/columna) y a cargos/terceros son NO ACTION (Restrict)
+        // para evitar rutas multiples de cascada en SQL Server; las subcategorias y sus relaciones
+        // hijas mueren con la categoria (Cascade). Codigos unicos por (TenantId, Codigo).
+
+        modelBuilder.Entity<ActividadCategoria>(b =>
+        {
+            b.Property(x => x.Codigo).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(600);
+            b.HasMany(x => x.Subcategorias).WithOne(x => x.Categoria!)
+                .HasForeignKey(x => x.CategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsArchived, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoria>(b =>
+        {
+            b.Property(x => x.Codigo).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Chequeo).HasMaxLength(2000);
+            b.Property(x => x.Descripcion).HasMaxLength(2000);
+            b.Property(x => x.TituloAuto).HasMaxLength(300);
+            b.Property(x => x.DetalleAuto).HasMaxLength(2000);
+            // Vinculos opcionales a otros modulos: NO ACTION (borrar el destino no toca el catalogo).
+            b.HasOne(x => x.WorkflowDefinition).WithMany()
+                .HasForeignKey(x => x.WorkflowDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.FormDefinition).WithMany()
+                .HasForeignKey(x => x.FormDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.TaskBoard).WithMany()
+                .HasForeignKey(x => x.TaskBoardId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.TaskBoardColumn).WithMany()
+                .HasForeignKey(x => x.TaskBoardColumnId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.CategoriaId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoriaCargo>(b =>
+        {
+            // Vive y muere con la subcategoria (Cascade). La FK al cargo es NO ACTION.
+            b.HasOne(x => x.Subcategoria).WithMany(x => x.Cargos)
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.OrgUnit).WithMany()
+                .HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.SubcategoriaId, x.OrgUnitId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.OrgUnitId });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoriaTercero>(b =>
+        {
+            b.HasOne(x => x.Subcategoria).WithMany(x => x.Terceros)
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.SubcategoriaId, x.TerceroId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
         });
 

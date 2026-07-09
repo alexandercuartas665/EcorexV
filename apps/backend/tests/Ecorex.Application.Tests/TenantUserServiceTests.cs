@@ -157,6 +157,10 @@ public class TenantUserServiceTests
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => throw new NotSupportedException();
         public DbSet<TerceroNota> TerceroNotas => throw new NotSupportedException();
+        public DbSet<ActividadCategoria> ActividadCategorias => throw new NotSupportedException();
+        public DbSet<ActividadSubcategoria> ActividadSubcategorias => throw new NotSupportedException();
+        public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => throw new NotSupportedException();
+        public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

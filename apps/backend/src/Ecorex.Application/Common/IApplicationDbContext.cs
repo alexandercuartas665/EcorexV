@@ -129,6 +129,14 @@ public interface IApplicationDbContext
     DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
     DbSet<TerceroNota> TerceroNotas { get; }
 
+    // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
+    // Subcategoria (concepto) con flags RQ07, vinculos opcionales (flujo/formulario/tablero)
+    // y relaciones M:N (cargos/terceros) en tablas hijas.
+    DbSet<ActividadCategoria> ActividadCategorias { get; }
+    DbSet<ActividadSubcategoria> ActividadSubcategorias { get; }
+    DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos { get; }
+    DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

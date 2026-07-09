@@ -296,6 +296,84 @@
 .cn-flag:has(input:disabled) { color: var(--ink-3); cursor: not-allowed; }
 .cn-flag input[type="checkbox"] { accent-color: var(--brand); }
 
+/* ---- Cabecera hero (eyebrow + titulo grande, proto 000270) ---- */
+.cn-hero { margin-bottom: 18px; }
+.cn-eyebrow {
+    font-size: 11px; color: var(--ink-3); font-weight: 600;
+    letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px;
+}
+.cn-hero-title { font-size: 28px; font-weight: 800; letter-spacing: -.03em; margin: 0; color: var(--ink); }
+.cn-hero-sub { font-size: 13.5px; color: var(--ink-2); margin: 6px 0 0; }
+
+/* KPIs de cabecera (fuera de una card, sin borde inferior) */
+.cn-kpis-top {
+    border-bottom: none; padding: 0; margin-bottom: 18px;
+}
+.cn-kpis-top .cn-kpi {
+    border: 1px solid var(--line); box-shadow: var(--sh-sm); background: var(--surface);
+}
+
+/* ---- Descripcion + cabecera de sub-categorias del panel derecho ---- */
+.cn-detail-desc { padding: 14px 20px 0; font-size: 12.5px; color: var(--ink-2); }
+.cn-sub-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 10px; gap: 12px; flex-wrap: wrap;
+}
+.cn-sub-head-title {
+    font-size: 12.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--ink);
+}
+
+/* ---- Grid de sub-categorias (cards con chips) ---- */
+.cn-sub-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px; padding: 0 20px 20px;
+}
+.cn-sub-grid .cn-empty-dashed { grid-column: 1 / -1; }
+.cn-sub-card {
+    border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+    background: var(--surface); cursor: pointer; transition: border-color .1s, box-shadow .1s;
+}
+.cn-sub-card:hover { border-color: var(--brand); box-shadow: var(--sh-sm); }
+.cn-sub-card.archived { opacity: .6; }
+.cn-sub-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.cn-sub-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.cn-sub-meta { font-size: 11.5px; color: var(--ink-2); margin-bottom: 8px; }
+.cn-chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* ---- Tags de estado de la sub-categoria (tokens --t-*) ---- */
+.cn-tag {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    text-transform: none; letter-spacing: .01em; white-space: nowrap;
+}
+.cn-tag.t-blue { background: var(--t-blue-bg); color: var(--t-blue); }
+.cn-tag.t-violet { background: var(--t-violet-bg); color: var(--t-violet); }
+.cn-tag.t-amber { background: var(--t-amber-bg); color: var(--t-amber); }
+.cn-tag.t-green { background: var(--t-green-bg); color: var(--t-green); }
+.cn-tag.t-rose { background: var(--t-rose-bg); color: var(--t-rose); }
+
+/* ---- Switch (Inicia modulo, proto: 42x24 r13, knob 20) ---- */
+.cn-switch-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.cn-switch {
+    width: 42px; height: 24px; border-radius: 13px; position: relative;
+    background: var(--line-2); transition: background .15s; flex-shrink: 0; cursor: pointer;
+}
+.cn-switch.on { background: var(--brand); }
+.cn-switch-knob {
+    position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+    border-radius: 50%; background: #fff; box-shadow: var(--sh-sm); transition: left .15s;
+}
+.cn-switch.on .cn-switch-knob { left: 20px; }
+
+/* ---- Chips removibles (cargos / terceros) ---- */
+.cn-chip.removable { padding-right: 3px; }
+.cn-chip-x {
+    border: none; background: transparent; color: inherit; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 0 3px; margin-left: 2px;
+}
+.cn-chip-x:hover { color: var(--danger); }
+.cn-field-add { margin-top: 10px; }
+
 /* ---- Responsive (proto @900: split a 1 columna, kpis 2x2) ---- */
 @media (max-width: 900px) {
     .cn-split { grid-template-columns: 1fr; }

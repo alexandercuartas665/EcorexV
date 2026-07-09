@@ -121,6 +121,9 @@ public static class DependencyInjection
         services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
+        // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
+        // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
+        services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

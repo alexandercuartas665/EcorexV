@@ -308,6 +308,25 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_RUN_ONBOARDING"), "
     foreach (var e in rep.Errores) { app.Logger.LogError("[onboarding][ERR] {Msg}", e); }
 }
 
+// Siembra de ejemplos del Directorio General (000232) en cada tenant de negocio
+// (ECOREX_SEED_DIRECTORIO=true). Idempotente. Corre despues de migraciones; util para
+// poblar prod (los tenants BITCODE / SKY SYSTEM / agrometalicas) con clientes de ejemplo.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_DIRECTORIO"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureDirectorioGeneralDemoAsync(t.Id);
+        app.Logger.LogWarning("[directorio-seed] terceros de ejemplo sembrados en tenant {Name}", t.Name);
+    }
+}
+
 app.UseHttpsRedirection();
 // Sirve archivos subidos en tiempo de ejecucion (logos de agencias en wwwroot/uploads).
 app.UseStaticFiles();

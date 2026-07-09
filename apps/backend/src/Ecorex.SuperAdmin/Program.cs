@@ -132,6 +132,10 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
+// Onboarding one-shot desde db3dev (crea tenants cliente + usuarios). Se dispara con
+// ECOREX_RUN_ONBOARDING=true al arrancar; los datos sensibles (cadena db3dev, cedulas) van en
+// configuracion NO versionada (appsettings.Development.local.json).
+builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.LegacyOnboardingSeeder>();
 
 var app = builder.Build();
 
@@ -284,6 +288,18 @@ else
             ?? "http://localhost:5253").Split(';', ',')[0].Trim().TrimEnd('/');
         await seeder.EnsureScrapingDemoAsync(scrapeDemoBaseUrl);
     }
+}
+
+// Onboarding one-shot desde db3dev (ECOREX_RUN_ONBOARDING=true). Corre despues de migraciones/seed,
+// en cualquier entorno, una sola vez por arranque. Idempotente. Loguea el reporte (sin claves).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_RUN_ONBOARDING"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var onboarder = scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.LegacyOnboardingSeeder>();
+    var rep = await onboarder.RunAsync();
+    foreach (var c in rep.Creados) { app.Logger.LogWarning("[onboarding][OK] {Msg}", c); }
+    foreach (var o in rep.Omitidos) { app.Logger.LogWarning("[onboarding][skip] {Msg}", o); }
+    foreach (var e in rep.Errores) { app.Logger.LogError("[onboarding][ERR] {Msg}", e); }
 }
 
 app.UseHttpsRedirection();

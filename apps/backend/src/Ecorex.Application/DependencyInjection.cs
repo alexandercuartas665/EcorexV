@@ -119,6 +119,8 @@ public static class DependencyInjection
         // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
         // negocio, contactos embebidos, fichas dinamicas (jsonb) y sub-permisos nombrados.
         services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
+        // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
+        services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

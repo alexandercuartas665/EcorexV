@@ -1876,6 +1876,10 @@ public sealed class DatabaseSeeder
     /// </summary>
     public async Task EnsureDirectorioGeneralDemoAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
+        // Los campos configurables por ficha se siembran siempre (idempotente por su cuenta),
+        // aunque el tenant ya tenga terceros de ejemplo.
+        await EnsureDirectorioFieldDefaultsAsync(tenantId, cancellationToken);
+
         if (await _db.Terceros.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenantId, cancellationToken))
         {
             return;
@@ -1989,6 +1993,25 @@ public sealed class DatabaseSeeder
         await _db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation(
             "Directorio General demo sembrado para tenant {Tenant}: 3 empresas, 2 personas, 3 contactos.", tenantId);
+    }
+
+    /// <summary>
+    /// Siembra los campos configurables por ficha por defecto (IsSystem=true) del Directorio
+    /// General (000232) para el tenant indicado, si aun no tiene ninguno. Idempotente. Estampa
+    /// TenantId explicito. Reusa el catalogo de defaults del servicio (fuente unica).
+    /// </summary>
+    public async Task EnsureDirectorioFieldDefaultsAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (await _db.TerceroFieldDefinitions.IgnoreQueryFilters().AnyAsync(f => f.TenantId == tenantId, cancellationToken))
+        {
+            return;
+        }
+
+        _db.TerceroFieldDefinitions.AddRange(
+            Ecorex.Application.Directorio.TerceroFieldService.BuildDefaultFields(tenantId));
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Directorio General: campos por defecto sembrados para tenant {Tenant}.", tenantId);
     }
 
     public async Task EnsureInventoryDemoAsync(CancellationToken cancellationToken = default)

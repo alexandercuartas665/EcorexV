@@ -126,6 +126,7 @@ public interface IApplicationDbContext
     // negocio, contactos embebidos y fichas dinamicas (jsonb).
     DbSet<Tercero> Terceros { get; }
     DbSet<TerceroContacto> TerceroContactos { get; }
+    DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

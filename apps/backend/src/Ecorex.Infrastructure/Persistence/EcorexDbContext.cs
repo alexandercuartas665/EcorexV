@@ -176,6 +176,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // negocio, contactos embebidos y fichas dinamicas (jsonb). Multi-tenant (filtro global).
     public DbSet<Tercero> Terceros => Set<Tercero>();
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
+    public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -252,6 +253,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TerceroTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TerceroEstado>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TerceroIdTipo>().HaveConversion<string>().HaveMaxLength(40);
+        // Campos configurables por ficha (000232): el tipo del campo se guarda como texto legible.
+        configurationBuilder.Properties<TerceroFieldType>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1318,6 +1321,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Telefono).HasMaxLength(80);
             // El contacto vive y muere con su empresa (la relacion se declara desde Tercero arriba).
             b.HasIndex(x => x.TerceroId);
+        });
+
+        // Campos configurables por ficha (fiscal/comercial/cliente/proveedor/empleado): datos que
+        // vuelven las fichas del tercero personalizables por tenant. FieldType como texto.
+        modelBuilder.Entity<TerceroFieldDefinition>(b =>
+        {
+            b.Property(x => x.FichaKey).HasMaxLength(40).IsRequired();
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Options).HasMaxLength(2000);
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

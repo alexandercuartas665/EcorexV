@@ -1,0 +1,1330 @@
+@page "/contenedor-datos"
+@attribute [Authorize(Policy = "Perm:contenedor-datos:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using System.Security.Claims
+@using Ecorex.Application.DataContainers
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject IDataModelService ModelSvc
+@inject IDataImportConfigService ConfigSvc
+@inject ICurrentPermissions Perms
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Contenedor de datos - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Contenedor de datos</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+            </div>
+            <span>Sistema &#183; Datos personalizados</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Contenedor de datos</h1>
+        <p class="page-sub" style="margin-bottom:0;">Un contenedor agrupa varias tablas relacionadas (modelo ER) y define como se alimentan: Excel, API REST o base de datos.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="OpenCreate">+ Nuevo contenedor</button>
+        }
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_models.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin contenedores</h3>
+        <p>Aun no tienes contenedores. Crea el primero con "+ Nuevo contenedor".</p>
+    </div>
+}
+else
+{
+    <div class="dc-grid">
+        @foreach (var m in _models)
+        {
+            <div class="dc-card">
+                <div class="dc-card-head">
+                    <div class="dc-card-name">@m.Name</div>
+                    <span class="dc-badge">@m.TableCount tablas</span>
+                </div>
+                <div class="dc-card-desc">@(string.IsNullOrWhiteSpace(m.Description) ? "(sin descripcion)" : Truncate(m.Description!, 140))</div>
+                <div class="dc-card-meta">@m.TableCount tablas &#183; @m.RelationCount relaciones &#183; act. @m.UpdatedAt.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</div>
+                <div class="dc-card-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="() => OpenModelAsync(m.Id)">Abrir</button>
+                    @if (_canDelete)
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteModelAsync(m.Id, m.Name)" disabled="@_busy">Eliminar</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_pageError is not null)
+{
+    <div class="tk-field-error">@_pageError</div>
+}
+
+@* ===== Modal GRANDE del contenedor (2 columnas: lienzo ER | alimentacion) ===== *@
+@if (_modalOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog dc-model-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_mId is null ? "Nuevo contenedor" : _mName)</h3>
+                <button class="modal-close" @onclick="CloseModal">&times;</button>
+            </div>
+            <div class="modal-body dc-model-body">
+                @* ---- Cabecera del contenedor (nombre/descripcion) ---- *@
+                <div class="dc-model-headform">
+                    <div class="field" style="flex:1;min-width:220px;">
+                        <label class="form-label">Nombre del contenedor</label>
+                        <input class="form-control" @bind="_mName" maxlength="120" placeholder="Ej. Facturacion" />
+                    </div>
+                    <div class="field" style="flex:2;min-width:260px;">
+                        <label class="form-label">Descripcion (opcional)</label>
+                        <input class="form-control" @bind="_mDescription" maxlength="400" placeholder="Para que sirve este contenedor..." />
+                    </div>
+                    <div style="display:flex;align-items:flex-end;">
+                        <button class="btn btn-primary" @onclick="SaveModelHeaderAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_mName))">
+                            @(_busy ? "..." : (_mId is null ? "Crear contenedor" : "Guardar"))
+                        </button>
+                    </div>
+                </div>
+                @if (_headError is not null)
+                {
+                    <div class="tk-field-error">@_headError</div>
+                }
+
+                @if (_mId is null)
+                {
+                    <div class="coming-soon" style="padding:26px 20px;margin-top:14px;">
+                        <p style="margin:0;">Guarda el contenedor para empezar a agregar tablas y configurar su alimentacion.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="dc-model-grid">
+                        @* ================= IZQUIERDA: LIENZO ER ================= *@
+                        <div class="dc-model-left">
+                            <div class="dc-left-head">
+                                <div class="dc-cfg-title" style="margin:0;border:0;padding:0;">Modelo ER (@(_detail?.Tables.Count ?? 0) tablas)</div>
+                                <div style="display:flex;gap:6px;">
+                                    @if (_canEdit)
+                                    {
+                                        <button class="btn btn-sm btn-primary" @onclick="OpenNewTable">+ Tabla</button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="dc-canvas">
+                                @if (_detail is not null)
+                                {
+                                    @* Capa SVG con las lineas de relacion (debajo de las cajas). *@
+                                    <svg class="dc-canvas-svg" width="3000" height="2000" xmlns="http://www.w3.org/2000/svg">
+                                        @foreach (var rel in _detail.Relations)
+                                        {
+                                            @if (TryEdge(rel, out var x1, out var y1, out var x2, out var y2))
+                                            {
+                                                var stroke = rel.Kind == DataContainerColumnType.RelationMany ? "#e08b2f" : "#7c5cff";
+                                                var mx = (x1 + x2) / 2;
+                                                var my = (y1 + y2) / 2;
+                                                <line x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)" stroke="@stroke" stroke-width="2"
+                                                      stroke-dasharray="@(rel.Kind == DataContainerColumnType.RelationMany ? "6 4" : "0")" />
+                                                <circle cx="@F(x2)" cy="@F(y2)" r="4" fill="@stroke" />
+                                                @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.FromColumnName)}</text>")
+                                            }
+                                        }
+                                    </svg>
+
+                                    @foreach (var t in _detail.Tables)
+                                    {
+                                        <div class="dc-table-node" data-table-id="@t.Id"
+                                             style="left:@Px(GetX(t.Id))px; top:@Px(GetY(t.Id))px;">
+                                            <div class="dc-node-head">
+                                                <span class="dc-node-title" title="@t.Name">@t.Name</span>
+                                                <span class="dc-node-tools">
+                                                    @if (_canEdit)
+                                                    {
+                                                        <button class="dc-node-btn" title="Editar tabla" @onclick="() => OpenEditTable(t)">&#9998;</button>
+                                                    }
+                                                    @if (_canDelete)
+                                                    {
+                                                        <button class="dc-node-btn dc-node-btn-del" title="Eliminar tabla" @onclick="() => DeleteTableAsync(t.Id, t.Name)">&times;</button>
+                                                    }
+                                                </span>
+                                            </div>
+                                            <div class="dc-node-fields">
+                                                @if (t.Columns.Count == 0)
+                                                {
+                                                    <div class="dc-node-empty">sin campos</div>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var col in t.Columns.OrderBy(c => c.SortOrder))
+                                                    {
+                                                        <div class="dc-node-field @(IsRelationType(col.Type) ? "is-rel" : "")">
+                                                            <span class="dc-field-name">@col.Name</span>
+                                                            <span class="dc-field-type">@TypeShort(col.Type)</span>
+                                                        </div>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @if (_detail.Tables.Count == 0)
+                                    {
+                                        <div class="dc-canvas-hint">Sin tablas todavia. Usa "+ Tabla" para crear la primera.</div>
+                                    }
+                                }
+                            </div>
+                            <div class="dc-legend">
+                                <span><i class="dc-lg dc-lg-ref"></i> Referencia (N:1)</span>
+                                <span><i class="dc-lg dc-lg-many"></i> Relacion (N:N)</span>
+                                <span class="text-muted">Arrastra el encabezado de una caja para moverla.</span>
+                            </div>
+                        </div>
+
+                        @* ================= DERECHA: ALIMENTACION ================= *@
+                        <div class="dc-model-right">
+                            <div class="dc-cfg-title">Alimentacion</div>
+
+                            @* ----- Conectores ----- *@
+                            <div class="dc-section-title">Conectores</div>
+                            @if (_connectors.Count > 0)
+                            {
+                                <ul class="dc-mini-list">
+                                    @foreach (var c in _connectors)
+                                    {
+                                        <li>
+                                            <div>
+                                                <strong>@c.Name</strong> <span class="dc-badge">@ConnectorKindLabel(c.Kind)</span>
+                                                <div class="text-muted" style="font-size:11px;">
+                                                    @ConnectorSummary(c)@(c.HasCredentials ? " · con credenciales" : "")@(c.IsActive ? "" : " · inactivo")
+                                                </div>
+                                            </div>
+                                            <div style="display:flex;gap:4px;">
+                                                @if (_canEdit)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditConnector(c)" disabled="@_busy">Editar</button>
+                                                }
+                                                @if (_canDelete)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteConnectorAsync(c.Id)" disabled="@_busy">&times;</button>
+                                                }
+                                            </div>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (_canEdit)
+                            {
+                                <div class="dc-mini-form">
+                                    <div class="dc-section-sub">@(_conEditId is null ? "Nuevo conector" : "Editar conector")</div>
+                                    <input class="form-control" placeholder="Nombre" @bind="_conName" />
+                                    <select class="form-control" @bind="_conKind">
+                                        <option value="@ConnectorKind.Excel">Excel</option>
+                                        <option value="@ConnectorKind.RestApi">API REST</option>
+                                        <option value="@ConnectorKind.Database">Base de datos</option>
+                                    </select>
+
+                                    @if (_conKind == ConnectorKind.RestApi)
+                                    {
+                                        <input class="form-control" placeholder="Endpoint URL" @bind="_conEndpoint" />
+                                        <div style="display:flex;gap:6px;">
+                                            <input class="form-control" placeholder="Metodo (GET)" @bind="_conMethod" style="max-width:110px;" />
+                                            <select class="form-control" @bind="_conAuth">
+                                                <option value="@ConnectorAuthKind.None">Sin auth</option>
+                                                <option value="@ConnectorAuthKind.ApiKey">API Key</option>
+                                                <option value="@ConnectorAuthKind.Bearer">Bearer</option>
+                                                <option value="@ConnectorAuthKind.Basic">Basic</option>
+                                            </select>
+                                        </div>
+                                        <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
+                                        <textarea class="form-control" rows="2" placeholder="Mapeo JSON (opcional)" @bind="_conMapping"></textarea>
+                                    }
+                                    else if (_conKind == ConnectorKind.Database)
+                                    {
+                                        <select class="form-control" @bind="_conEngine">
+                                            <option value="">Motor...</option>
+                                            @foreach (var e in Enum.GetValues<DbEngine>())
+                                            {
+                                                <option value="@e">@e</option>
+                                            }
+                                        </select>
+                                        <div style="display:flex;gap:6px;">
+                                            <input class="form-control" placeholder="Host" @bind="_conHost" />
+                                            <input class="form-control" placeholder="Puerto" @bind="_conPort" style="max-width:100px;" />
+                                        </div>
+                                        <input class="form-control" placeholder="Base de datos" @bind="_conDatabase" />
+                                        <input class="form-control" placeholder="Usuario" @bind="_conUser" />
+                                        <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
+                                    }
+
+                                    <label class="dc-req"><input type="checkbox" @bind="_conActive" /> Activo</label>
+                                    @if (_conError is not null)
+                                    {
+                                        <div class="tk-field-error">@_conError</div>
+                                    }
+                                    <div style="display:flex;gap:6px;">
+                                        <button class="btn btn-sm btn-primary" @onclick="SaveConnectorAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_conName))">@(_conEditId is null ? "+ Agregar" : "Guardar")</button>
+                                        @if (_conEditId is not null)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetConnectorForm">Cancelar</button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @* ----- Destino ----- *@
+                            <div class="dc-section-title" style="margin-top:14px;">Destino</div>
+                            <div class="dc-mini-form">
+                                <select class="form-control" @bind="_destKind">
+                                    <option value="@DestinationKind.System">Sistema (tablas del contenedor)</option>
+                                    <option value="@DestinationKind.AlliedDatabase">Base de datos aliada</option>
+                                </select>
+                                @if (_destKind == DestinationKind.AlliedDatabase)
+                                {
+                                    <select class="form-control" @bind="_destEngine">
+                                        <option value="">Motor...</option>
+                                        @foreach (var e in Enum.GetValues<DbEngine>())
+                                        {
+                                            <option value="@e">@e</option>
+                                        }
+                                    </select>
+                                    <div style="display:flex;gap:6px;">
+                                        <input class="form-control" placeholder="Host" @bind="_destHost" />
+                                        <input class="form-control" placeholder="Puerto" @bind="_destPort" style="max-width:100px;" />
+                                    </div>
+                                    <input class="form-control" placeholder="Base de datos" @bind="_destDatabase" />
+                                    <input class="form-control" placeholder="Usuario" @bind="_destUser" />
+                                    <input class="form-control" type="password" placeholder="@(_destHasCreds ? "Credenciales (vacio = conservar)" : "Credenciales")" @bind="_destCreds" />
+                                }
+                                @if (_destError is not null)
+                                {
+                                    <div class="tk-field-error">@_destError</div>
+                                }
+                                @if (_canEdit)
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="SaveDestinationAsync" disabled="@_busy">Guardar destino</button>
+                                }
+                            </div>
+
+                            @* ----- Clientes ----- *@
+                            <div class="dc-section-title" style="margin-top:14px;">Clientes remotos</div>
+                            @if (_revealedSecret is not null)
+                            {
+                                <div class="dc-secret">
+                                    <div style="font-size:12px;font-weight:700;">Guarda este secreto ahora (no se vuelve a mostrar):</div>
+                                    <div class="dc-secret-row"><code>ClientId: @_revealedSecret.ClientId</code></div>
+                                    <div class="dc-secret-row">
+                                        <code>Secret: @_revealedSecret.ClientSecret</code>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyAsync(_revealedSecret!.ClientSecret)">Copiar</button>
+                                    </div>
+                                </div>
+                            }
+                            @if (_clients.Count > 0)
+                            {
+                                <ul class="dc-mini-list">
+                                    @foreach (var c in _clients)
+                                    {
+                                        <li>
+                                            <div>
+                                                <strong>@c.Name</strong> @(c.IsActive ? "" : "(inactivo)")
+                                                <div class="text-muted" style="font-size:11px;">@c.ClientId @(c.HasSecret ? "· con secreto" : "")</div>
+                                            </div>
+                                            <div style="display:flex;gap:4px;">
+                                                @if (_canEdit)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => RotateSecretAsync(c.Id)" disabled="@_busy">Rotar</button>
+                                                }
+                                                @if (_canDelete)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteClientAsync(c.Id)" disabled="@_busy">&times;</button>
+                                                }
+                                            </div>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (_canCreate)
+                            {
+                                <div class="dc-mini-form">
+                                    <div class="dc-section-sub">Nuevo cliente</div>
+                                    <input class="form-control" placeholder="Nombre" @bind="_clName" />
+                                    <input class="form-control" placeholder="Descripcion (opcional)" @bind="_clDescription" />
+                                    <label class="dc-req"><input type="checkbox" @bind="_clActive" /> Activo</label>
+                                    @if (_clError is not null)
+                                    {
+                                        <div class="tk-field-error">@_clError</div>
+                                    }
+                                    <button class="btn btn-sm btn-primary" @onclick="CreateClientAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_clName))">+ Crear cliente</button>
+                                </div>
+                            }
+
+                            @* ----- Procesos ----- *@
+                            <div class="dc-section-title" style="margin-top:14px;">Procesos (horarios)</div>
+                            @if (_processes.Count > 0)
+                            {
+                                <ul class="dc-mini-list">
+                                    @foreach (var p in _processes)
+                                    {
+                                        <li>
+                                            <div>
+                                                <strong>@p.Name</strong> <span class="dc-badge">@ScheduleLabel(p.ScheduleKind)</span>
+                                                <div class="text-muted" style="font-size:11px;">
+                                                    @(p.ConnectorName ?? "sin conector")@(p.ClientName is not null ? " · " + p.ClientName : "")
+                                                    @(p.ScheduleKind == ImportScheduleKind.Interval && p.IntervalMinutes is int m ? $" · cada {m} min" : "")
+                                                    @(p.ScheduleKind == ImportScheduleKind.Cron && !string.IsNullOrWhiteSpace(p.CronExpression) ? $" · {p.CronExpression}" : "")
+                                                    @(p.IsActive ? "" : " · inactivo")
+                                                </div>
+                                            </div>
+                                            <div style="display:flex;gap:4px;">
+                                                @if (_canEdit)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditProcess(p)" disabled="@_busy">Editar</button>
+                                                }
+                                                @if (_canDelete)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteProcessAsync(p.Id)" disabled="@_busy">&times;</button>
+                                                }
+                                            </div>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (_canEdit)
+                            {
+                                <div class="dc-mini-form">
+                                    <div class="dc-section-sub">@(_procEditId is null ? "Nuevo proceso" : "Editar proceso")</div>
+                                    <input class="form-control" placeholder="Nombre" @bind="_procName" />
+                                    <select class="form-control" @bind="_procConnector">
+                                        <option value="">(Sin conector)</option>
+                                        @foreach (var c in _connectors)
+                                        {
+                                            <option value="@c.Id">@c.Name</option>
+                                        }
+                                    </select>
+                                    <select class="form-control" @bind="_procClient">
+                                        <option value="">(Sin cliente)</option>
+                                        @foreach (var c in _clients)
+                                        {
+                                            <option value="@c.Id">@c.Name</option>
+                                        }
+                                    </select>
+                                    <select class="form-control" @bind="_procSchedule">
+                                        <option value="@ImportScheduleKind.Manual">Manual</option>
+                                        <option value="@ImportScheduleKind.Interval">Intervalo</option>
+                                        <option value="@ImportScheduleKind.Cron">Cron</option>
+                                    </select>
+                                    @if (_procSchedule == ImportScheduleKind.Interval)
+                                    {
+                                        <input class="form-control" type="number" min="1" placeholder="Minutos" @bind="_procIntervalText" />
+                                    }
+                                    else if (_procSchedule == ImportScheduleKind.Cron)
+                                    {
+                                        <input class="form-control" placeholder="Expresion cron (ej. 0 * * * *)" @bind="_procCron" />
+                                    }
+                                    <label class="dc-req"><input type="checkbox" @bind="_procActive" /> Activo</label>
+                                    @if (_procError is not null)
+                                    {
+                                        <div class="tk-field-error">@_procError</div>
+                                    }
+                                    <div style="display:flex;gap:6px;">
+                                        <button class="btn btn-sm btn-primary" @onclick="SaveProcessAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_procName))">@(_procEditId is null ? "+ Agregar" : "Guardar")</button>
+                                        @if (_procEditId is not null)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="ResetProcessForm">Cancelar</button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseModal" disabled="@_busy">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Sub-modal: editor de una tabla (campos) ===== *@
+@if (_tblOpen)
+{
+    <div class="modal-overlay" style="z-index:1060;">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_tblId is null ? "Nueva tabla" : "Editar tabla")</h3>
+                <button class="modal-close" @onclick="() => _tblOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre de la tabla</label>
+                    <input class="form-control" @bind="_tblName" maxlength="120" placeholder="Ej. Facturas" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion (opcional)</label>
+                    <input class="form-control" @bind="_tblDescription" maxlength="400" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Campos</label>
+                    <div class="dc-cols">
+                        @for (var i = 0; i < _tblColumns.Count; i++)
+                        {
+                            var idx = i;
+                            var item = _tblColumns[idx];
+                            <div class="dc-col-row">
+                                <input class="form-control" placeholder="Nombre" @bind="item.Name" />
+                                <select class="form-control" @bind="item.Type">
+                                    <option value="@DataContainerColumnType.Text">Texto</option>
+                                    <option value="@DataContainerColumnType.Number">Numero</option>
+                                    <option value="@DataContainerColumnType.Decimal">Decimal</option>
+                                    <option value="@DataContainerColumnType.Date">Fecha</option>
+                                    <option value="@DataContainerColumnType.Boolean">Booleano</option>
+                                    <option value="@DataContainerColumnType.Submodel">Submodelo</option>
+                                    <option value="@DataContainerColumnType.Reference">Referencia (N:1)</option>
+                                    <option value="@DataContainerColumnType.RelationMany">Relacion (N:N)</option>
+                                </select>
+                                <label class="dc-req"><input type="checkbox" @bind="item.IsRequired" /> Oblig.</label>
+                                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveColumn(idx)" title="Quitar campo">&times;</button>
+                            </div>
+                            @if (IsRelationType(item.Type))
+                            {
+                                <div class="dc-rel-config">
+                                    <span class="text-muted" style="font-size:11.5px;white-space:nowrap;">Tabla destino</span>
+                                    <select class="form-control" value="@(item.ReferencedContainerId?.ToString() ?? "")"
+                                            @onchange="e => SetDraftReference(item, e.Value?.ToString())">
+                                        <option value="">(elige tabla destino)</option>
+                                        @foreach (var t in OtherTables())
+                                        {
+                                            <option value="@t.Id">@t.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddColumn" style="margin-top:6px;">+ Agregar campo</button>
+                </div>
+                @if (_tblError is not null)
+                {
+                    <div class="tk-field-error">@_tblError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _tblOpen = false" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveTableAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_tblName))">@(_busy ? "Guardando..." : "Guardar tabla")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+    .dc-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; min-height: 150px; border: 1px solid var(--line, var(--border)); border-radius: 12px; background: var(--surface, var(--card)); }
+    .dc-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .dc-card-name { font-weight: 700; font-size: 1.0rem; line-height: 1.25; }
+    .dc-card-desc { color: var(--ink-3, var(--muted-foreground)); font-size: 0.85rem; line-height: 1.45; flex: 1; }
+    .dc-card-meta { font-size: 0.78rem; color: var(--ink-3, var(--muted-foreground)); }
+    .dc-card-actions { display: flex; gap: 6px; margin-top: auto; }
+    .dc-badge { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
+
+    /* Modal grande casi pantalla completa */
+    .dc-model-dialog { max-width: 1400px; width: 96vw; height: 92vh; display: flex; flex-direction: column; }
+    .dc-model-body { flex: 1; overflow: auto; }
+    .dc-model-headform { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .dc-model-grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; margin-top: 14px; }
+    .dc-model-left { min-width: 0; display: flex; flex-direction: column; }
+    .dc-model-right { min-width: 0; border-left: 1px solid var(--line, var(--border)); padding-left: 16px; }
+    .dc-left-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+
+    /* Lienzo ER */
+    .dc-canvas { position: relative; overflow: auto; min-height: 520px; height: 60vh; border: 1px solid var(--line, var(--border)); border-radius: 12px; background:
+        repeating-linear-gradient(0deg, transparent, transparent 23px, var(--line, var(--border)) 23px, var(--line, var(--border)) 24px),
+        repeating-linear-gradient(90deg, transparent, transparent 23px, var(--line, var(--border)) 23px, var(--line, var(--border)) 24px),
+        var(--surface, var(--card)); }
+    .dc-canvas-svg { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1; }
+    .dc-canvas-hint { position: absolute; top: 20px; left: 20px; color: var(--ink-3, var(--muted-foreground)); font-size: 13px; z-index: 2; }
+    .dc-table-node { position: absolute; width: 220px; background: var(--surface, var(--card)); border: 1px solid var(--line, var(--border)); border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.10); z-index: 3; user-select: none; }
+    .dc-table-node.dragging { box-shadow: 0 8px 22px rgba(0,0,0,.20); opacity: .95; }
+    .dc-node-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 10px; background: var(--t-violet, var(--primary)); color: #fff; border-radius: 9px 9px 0 0; cursor: grab; }
+    .dc-node-head:active { cursor: grabbing; }
+    .dc-node-title { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dc-node-tools { display: flex; gap: 2px; flex-shrink: 0; }
+    .dc-node-btn { border: 0; background: rgba(255,255,255,.18); color: #fff; width: 20px; height: 20px; border-radius: 5px; font-size: 12px; line-height: 1; cursor: pointer; }
+    .dc-node-btn-del { background: rgba(0,0,0,.18); }
+    .dc-node-fields { padding: 4px 0; max-height: 220px; overflow: auto; }
+    .dc-node-field { display: flex; justify-content: space-between; gap: 8px; padding: 3px 10px; font-size: 12px; }
+    .dc-node-field.is-rel { color: var(--t-violet, var(--primary)); font-weight: 600; }
+    .dc-field-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dc-field-type { color: var(--ink-3, var(--muted-foreground)); font-size: 10.5px; flex-shrink: 0; }
+    .dc-node-empty { padding: 4px 10px; font-size: 11px; color: var(--ink-3, var(--muted-foreground)); }
+    .dc-node-field.is-rel .dc-field-type { color: var(--t-violet, var(--primary)); }
+    .dc-legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: var(--ink-2, var(--muted-foreground)); margin-top: 8px; }
+    .dc-lg { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+    .dc-lg-ref { border-color: #7c5cff; }
+    .dc-lg-many { border-top-style: dashed; border-color: #e08b2f; }
+
+    /* Editor de columnas */
+    .dc-cols { display: flex; flex-direction: column; gap: 6px; }
+    .dc-col-row { display: grid; grid-template-columns: 1.4fr 1fr auto auto; gap: 6px; align-items: center; }
+    .dc-req { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); white-space: nowrap; }
+    .dc-rel-config { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 8px; border-left: 2px dashed var(--line, var(--border)); margin: 2px 0 4px; }
+    .dc-rel-config select { max-width: 260px; }
+
+    /* Alimentacion (columna derecha) */
+    .dc-cfg-title { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, var(--muted-foreground)); margin-bottom: 10px; border-bottom: 1px solid var(--line, var(--border)); padding-bottom: 6px; }
+    .dc-section-title { font-weight: 700; font-size: 12.5px; color: var(--ink-2, var(--muted-foreground)); margin: 8px 0 6px; }
+    .dc-section-sub { font-weight: 700; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); margin-bottom: 4px; }
+    .dc-mini-list { list-style: none; padding: 0; margin: 0 0 8px; }
+    .dc-mini-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line, var(--border)); }
+    .dc-mini-form { display: flex; flex-direction: column; gap: 6px; border: 1px dashed var(--line, var(--border)); border-radius: 10px; padding: 10px 12px; margin-top: 6px; }
+    .dc-secret { border: 1px solid var(--line, var(--border)); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--surface-2, var(--accent)); }
+    .dc-secret-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; word-break: break-all; }
+
+    @@media (max-width: 980px) { .dc-model-grid { grid-template-columns: 1fr; } .dc-model-right { border-left: 0; padding-left: 0; border-top: 1px solid var(--line, var(--border)); padding-top: 12px; } }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private Guid _actor;
+    private string? _pageError;
+
+    private const string ModuleKey = "contenedor-datos";
+    private bool _canCreate = true;
+    private bool _canEdit = true;
+    private bool _canDelete = true;
+
+    private List<DataModelDto> _models = new();
+
+    // Modal del contenedor abierto.
+    private bool _modalOpen;
+    private Guid? _mId;
+    private string _mName = "";
+    private string _mDescription = "";
+    private string? _headError;
+    private DataModelDetailDto? _detail;
+
+    // Posiciones de las tablas en el lienzo (overlay mutable sobre el detalle inmutable).
+    private readonly Dictionary<Guid, (double X, double Y)> _pos = new();
+
+    // Interop lienzo (arrastre).
+    private DotNetObjectReference<ContenedorDatos>? _selfRef;
+    private bool _canvasInit;
+
+    // Editor de tabla.
+    private bool _tblOpen;
+    private Guid? _tblId;
+    private string _tblName = "";
+    private string _tblDescription = "";
+    private List<ColumnDraft> _tblColumns = new();
+    private string? _tblError;
+
+    // Conectores.
+    private IReadOnlyList<DataConnectorDto> _connectors = Array.Empty<DataConnectorDto>();
+    private Guid? _conEditId;
+    private string _conName = "";
+    private ConnectorKind _conKind = ConnectorKind.Excel;
+    private string _conEndpoint = "";
+    private string _conMethod = "GET";
+    private ConnectorAuthKind _conAuth = ConnectorAuthKind.None;
+    private string _conEngine = "";
+    private string _conHost = "";
+    private string _conPort = "";
+    private string _conDatabase = "";
+    private string _conUser = "";
+    private string _conCreds = "";
+    private string _conMapping = "";
+    private bool _conActive = true;
+    private string? _conError;
+
+    // Destino.
+    private DestinationKind _destKind = DestinationKind.System;
+    private string _destEngine = "";
+    private string _destHost = "";
+    private string _destPort = "";
+    private string _destDatabase = "";
+    private string _destUser = "";
+    private string _destCreds = "";
+    private bool _destHasCreds;
+    private string? _destError;
+
+    // Clientes.
+    private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
+    private string _clName = "";
+    private string _clDescription = "";
+    private bool _clActive = true;
+    private string? _clError;
+    private DataClientSecretDto? _revealedSecret;
+
+    // Procesos.
+    private IReadOnlyList<ImportProcessDto> _processes = Array.Empty<ImportProcessDto>();
+    private Guid? _procEditId;
+    private string _procName = "";
+    private string _procConnector = "";
+    private string _procClient = "";
+    private ImportScheduleKind _procSchedule = ImportScheduleKind.Manual;
+    private string _procIntervalText = "";
+    private string _procCron = "";
+    private bool _procActive = true;
+    private string? _procError;
+
+    // Serializa el acceso a la BD del circuito (evita "A second operation was started on this context").
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
+    private sealed class ColumnDraft
+    {
+        public Guid? Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public DataContainerColumnType Type { get; set; } = DataContainerColumnType.Text;
+        public bool IsRequired { get; set; }
+        public Guid? ReferencedContainerId { get; set; }
+        public Guid? ChildContainerId { get; set; }
+    }
+
+    private async Task GuardAsync(Func<Task> op)
+    {
+        await _dbGate.WaitAsync();
+        try { await op(); }
+        finally { _dbGate.Release(); }
+    }
+
+    public void Dispose()
+    {
+        _selfRef?.Dispose();
+        _dbGate.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+
+        _models = (await ModelSvc.ListAsync()).ToList();
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+        }
+        if (_modalOpen && _detail is not null && _selfRef is not null && !_canvasInit)
+        {
+            _canvasInit = true;
+            try { await JS.InvokeVoidAsync("ecorexDcCanvas.init", _selfRef); }
+            catch { /* JS no disponible: el arrastre no funcionara, pero la pagina sigue */ }
+        }
+    }
+
+    // ---------- Lista ----------
+    private Task ReloadListAsync() => GuardAsync(async () => _models = (await ModelSvc.ListAsync()).ToList());
+
+    private void OpenCreate()
+    {
+        _mId = null;
+        _mName = "";
+        _mDescription = "";
+        _detail = null;
+        _headError = null;
+        _pos.Clear();
+        _connectors = Array.Empty<DataConnectorDto>();
+        _processes = Array.Empty<ImportProcessDto>();
+        _clients = Array.Empty<DataClientDto>();
+        ResetConnectorForm();
+        ResetProcessForm();
+        ResetDestinationForm();
+        _revealedSecret = null;
+        _modalOpen = true;
+    }
+
+    private Task OpenModelAsync(Guid id) => GuardAsync(async () =>
+    {
+        _headError = null;
+        _revealedSecret = null;
+        ResetConnectorForm();
+        ResetProcessForm();
+        await LoadDetailCoreAsync(id);
+        await LoadFeedingCoreAsync(id);
+        _modalOpen = true;
+    });
+
+    private async Task LoadDetailCoreAsync(Guid id)
+    {
+        _detail = await ModelSvc.GetAsync(id);
+        if (_detail is null) { return; }
+        _mId = _detail.Id;
+        _mName = _detail.Name;
+        _mDescription = _detail.Description ?? "";
+        RebuildPositions();
+    }
+
+    private void RebuildPositions()
+    {
+        _pos.Clear();
+        if (_detail is null) { return; }
+        var i = 0;
+        foreach (var t in _detail.Tables)
+        {
+            var x = t.CanvasX;
+            var y = t.CanvasY;
+            if (x == 0 && y == 0)
+            {
+                // Posicion en cascada para que las tablas sin posicion no se apilen.
+                x = 40 + i * 40;
+                y = 40 + i * 40;
+            }
+            _pos[t.Id] = (x, y);
+            i++;
+        }
+    }
+
+    private void CloseModal()
+    {
+        _modalOpen = false;
+        _canvasInit = false;
+        _detail = null;
+        _ = ReloadListAsync();
+    }
+
+    private Task SaveModelHeaderAsync() => GuardAsync(async () =>
+    {
+        _headError = null;
+        if (string.IsNullOrWhiteSpace(_mName)) { _headError = "El nombre es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            var req = new SaveDataModelRequest(_mId, _mName.Trim(), string.IsNullOrWhiteSpace(_mDescription) ? null : _mDescription.Trim());
+            var saved = await ModelSvc.SaveModelAsync(req, _actor);
+            if (saved is null) { _headError = "No se pudo guardar el contenedor."; return; }
+            var isNew = _mId is null;
+            _mId = saved.Id;
+            await LoadDetailCoreAsync(saved.Id);
+            if (isNew) { await LoadFeedingCoreAsync(saved.Id); }
+        }
+        catch (Exception ex) { _headError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteModelAsync(Guid id, string name) => GuardAsync(async () =>
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Eliminar el contenedor '{name}' y todas sus tablas?");
+        if (!ok) { return; }
+        _busy = true;
+        _pageError = null;
+        try
+        {
+            await ModelSvc.DeleteModelAsync(id, _actor);
+            _models = (await ModelSvc.ListAsync()).ToList();
+        }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Lienzo: posiciones + aristas ----------
+    private double GetX(Guid tableId) => _pos.TryGetValue(tableId, out var p) ? p.X : 40;
+    private double GetY(Guid tableId) => _pos.TryGetValue(tableId, out var p) ? p.Y : 40;
+
+    private const double NodeW = 220;
+
+    private double NodeH(Guid tableId)
+    {
+        var t = _detail?.Tables.FirstOrDefault(x => x.Id == tableId);
+        var cols = t?.Columns.Count ?? 0;
+        return 40 + Math.Max(1, cols) * 22;
+    }
+
+    private bool TryEdge(ModelRelationDto rel, out double x1, out double y1, out double x2, out double y2)
+    {
+        x1 = y1 = x2 = y2 = 0;
+        if (_detail is null) { return false; }
+        var from = _detail.Tables.FirstOrDefault(t => t.Id == rel.FromTableId);
+        var to = _detail.Tables.FirstOrDefault(t => t.Id == rel.ToTableId);
+        if (from is null || to is null) { return false; }
+        x1 = GetX(rel.FromTableId) + NodeW / 2;
+        y1 = GetY(rel.FromTableId) + NodeH(rel.FromTableId) / 2;
+        x2 = GetX(rel.ToTableId) + NodeW / 2;
+        y2 = GetY(rel.ToTableId) + NodeH(rel.ToTableId) / 2;
+        return true;
+    }
+
+    [JSInvokable]
+    public async Task OnTableMoved(string tableId, double x, double y)
+    {
+        if (!Guid.TryParse(tableId, out var tid)) { return; }
+        _pos[tid] = (x, y);
+        await GuardAsync(async () =>
+        {
+            try { await ModelSvc.UpdateTablePositionAsync(new UpdateTablePositionRequest(tid, x, y)); }
+            catch (Exception ex) { _pageError = ex.Message; }
+        });
+        StateHasChanged();
+    }
+
+    // ---------- Editor de tabla ----------
+    private IEnumerable<ModelTableDto> OtherTables()
+        => _detail is null ? Enumerable.Empty<ModelTableDto>() : _detail.Tables.Where(t => _tblId is null || t.Id != _tblId);
+
+    private void OpenNewTable()
+    {
+        _tblId = null;
+        _tblName = "";
+        _tblDescription = "";
+        _tblColumns = new List<ColumnDraft> { new ColumnDraft() };
+        _tblError = null;
+        _tblOpen = true;
+    }
+
+    private void OpenEditTable(ModelTableDto t)
+    {
+        _tblId = t.Id;
+        _tblName = t.Name;
+        _tblDescription = t.Description ?? "";
+        _tblColumns = t.Columns.OrderBy(c => c.SortOrder).Select(c => new ColumnDraft
+        {
+            Id = c.Id,
+            Name = c.Name,
+            Description = c.Description,
+            Type = c.Type,
+            IsRequired = c.IsRequired,
+            ReferencedContainerId = c.ReferencedContainerId,
+            ChildContainerId = c.ChildContainerId
+        }).ToList();
+        if (_tblColumns.Count == 0) { _tblColumns.Add(new ColumnDraft()); }
+        _tblError = null;
+        _tblOpen = true;
+    }
+
+    private void AddColumn() => _tblColumns.Add(new ColumnDraft());
+
+    private void RemoveColumn(int idx)
+    {
+        if (idx >= 0 && idx < _tblColumns.Count) { _tblColumns.RemoveAt(idx); }
+    }
+
+    private void SetDraftReference(ColumnDraft item, string? value)
+        => item.ReferencedContainerId = Guid.TryParse(value, out var g) ? g : null;
+
+    private Task SaveTableAsync() => GuardAsync(async () =>
+    {
+        _tblError = null;
+        if (_mId is not Guid modelId) { _tblError = "Guarda el contenedor primero."; return; }
+        if (string.IsNullOrWhiteSpace(_tblName)) { _tblError = "El nombre es obligatorio."; return; }
+        var cols = _tblColumns
+            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+            .Select((c, i) => new SaveDataColumnInput(
+                c.Id, c.Name.Trim(), c.Description, c.Type, i, c.IsRequired,
+                c.Type == DataContainerColumnType.Submodel ? c.ChildContainerId : null,
+                IsRelationType(c.Type) ? c.ReferencedContainerId : null))
+            .ToList();
+        if (cols.Count == 0) { _tblError = "Define al menos un campo."; return; }
+        // Reference/N:N deben tener tabla destino.
+        if (_tblColumns.Any(c => !string.IsNullOrWhiteSpace(c.Name) && IsRelationType(c.Type) && c.ReferencedContainerId is null))
+        {
+            _tblError = "Cada campo de referencia/relacion necesita una tabla destino.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            double x, y;
+            if (_tblId is Guid existing && _pos.TryGetValue(existing, out var p))
+            {
+                x = p.X; y = p.Y;
+            }
+            else
+            {
+                var n = _detail?.Tables.Count ?? 0;
+                x = 40 + n * 40;
+                y = 40 + n * 40;
+            }
+            var req = new SaveModelTableRequest(modelId, _tblId, _tblName.Trim(),
+                string.IsNullOrWhiteSpace(_tblDescription) ? null : _tblDescription.Trim(), x, y, cols);
+            var saved = await ModelSvc.SaveTableAsync(req, _actor);
+            if (saved is null) { _tblError = "No se pudo guardar la tabla."; return; }
+            _tblOpen = false;
+            await LoadDetailCoreAsync(modelId);
+        }
+        catch (Exception ex) { _tblError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteTableAsync(Guid tableId, string name) => GuardAsync(async () =>
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Eliminar la tabla '{name}'?");
+        if (!ok) { return; }
+        _busy = true;
+        try
+        {
+            await ModelSvc.DeleteTableAsync(tableId, _actor);
+            if (_mId is Guid modelId) { await LoadDetailCoreAsync(modelId); }
+        }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Alimentacion: carga ----------
+    private async Task LoadFeedingCoreAsync(Guid modelId)
+    {
+        _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
+        _processes = await ConfigSvc.ListProcessesAsync(modelId);
+        _clients = await ConfigSvc.ListClientsAsync();
+        var dest = await ConfigSvc.GetDestinationAsync(modelId);
+        LoadDestination(dest);
+    }
+
+    private void LoadDestination(DataDestinationDto? dest)
+    {
+        if (dest is null)
+        {
+            ResetDestinationForm();
+            return;
+        }
+        _destKind = dest.Kind;
+        _destEngine = dest.DbEngine?.ToString() ?? "";
+        _destHost = dest.Host ?? "";
+        _destPort = dest.Port?.ToString(CultureInfo.InvariantCulture) ?? "";
+        _destDatabase = dest.DatabaseName ?? "";
+        _destUser = dest.Username ?? "";
+        _destCreds = "";
+        _destHasCreds = dest.HasCredentials;
+        _destError = null;
+    }
+
+    private void ResetDestinationForm()
+    {
+        _destKind = DestinationKind.System;
+        _destEngine = "";
+        _destHost = "";
+        _destPort = "";
+        _destDatabase = "";
+        _destUser = "";
+        _destCreds = "";
+        _destHasCreds = false;
+        _destError = null;
+    }
+
+    // ---------- Conectores ----------
+    private void EditConnector(DataConnectorDto c)
+    {
+        _conEditId = c.Id;
+        _conName = c.Name;
+        _conKind = c.Kind;
+        _conEndpoint = c.EndpointUrl ?? "";
+        _conMethod = c.HttpMethod ?? "GET";
+        _conAuth = c.AuthKind;
+        _conEngine = c.DbEngine?.ToString() ?? "";
+        _conHost = c.Host ?? "";
+        _conPort = c.Port?.ToString(CultureInfo.InvariantCulture) ?? "";
+        _conDatabase = c.DatabaseName ?? "";
+        _conUser = c.Username ?? "";
+        _conCreds = "";
+        _conMapping = c.MappingJson ?? "";
+        _conActive = c.IsActive;
+        _conError = null;
+    }
+
+    private void ResetConnectorForm()
+    {
+        _conEditId = null;
+        _conName = "";
+        _conKind = ConnectorKind.Excel;
+        _conEndpoint = "";
+        _conMethod = "GET";
+        _conAuth = ConnectorAuthKind.None;
+        _conEngine = "";
+        _conHost = "";
+        _conPort = "";
+        _conDatabase = "";
+        _conUser = "";
+        _conCreds = "";
+        _conMapping = "";
+        _conActive = true;
+        _conError = null;
+    }
+
+    private Task SaveConnectorAsync() => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _conError = null;
+        if (string.IsNullOrWhiteSpace(_conName)) { _conError = "El nombre es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            DbEngine? engine = _conKind == ConnectorKind.Database ? ParseEngine(_conEngine) : null;
+            int? port = _conKind == ConnectorKind.Database && int.TryParse(_conPort, out var pp) ? pp : null;
+            var req = new SaveDataConnectorRequest(
+                _conEditId, modelId, _conName.Trim(), _conKind,
+                _conKind == ConnectorKind.RestApi ? NullIfBlank(_conEndpoint) : null,
+                _conKind == ConnectorKind.RestApi ? NullIfBlank(_conMethod) : null,
+                _conKind == ConnectorKind.RestApi ? _conAuth : ConnectorAuthKind.None,
+                engine,
+                _conKind == ConnectorKind.Database ? NullIfBlank(_conHost) : null,
+                port,
+                _conKind == ConnectorKind.Database ? NullIfBlank(_conDatabase) : null,
+                _conKind == ConnectorKind.Database ? NullIfBlank(_conUser) : null,
+                NullIfBlank(_conCreds),
+                _conKind == ConnectorKind.RestApi ? NullIfBlank(_conMapping) : null,
+                _conActive);
+            var saved = await ConfigSvc.SaveConnectorAsync(req, _actor);
+            if (saved is null) { _conError = "No se pudo guardar el conector."; return; }
+            _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
+            ResetConnectorForm();
+        }
+        catch (Exception ex) { _conError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteConnectorAsync(Guid id) => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _busy = true;
+        try
+        {
+            await ConfigSvc.DeleteConnectorAsync(id, _actor);
+            _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
+            if (_conEditId == id) { ResetConnectorForm(); }
+        }
+        catch (Exception ex) { _conError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Destino ----------
+    private Task SaveDestinationAsync() => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _destError = null;
+        _busy = true;
+        try
+        {
+            DbEngine? engine = _destKind == DestinationKind.AlliedDatabase ? ParseEngine(_destEngine) : null;
+            int? port = _destKind == DestinationKind.AlliedDatabase && int.TryParse(_destPort, out var pp) ? pp : null;
+            var req = new SaveDataDestinationRequest(
+                modelId, _destKind, engine,
+                _destKind == DestinationKind.AlliedDatabase ? NullIfBlank(_destHost) : null,
+                port,
+                _destKind == DestinationKind.AlliedDatabase ? NullIfBlank(_destDatabase) : null,
+                _destKind == DestinationKind.AlliedDatabase ? NullIfBlank(_destUser) : null,
+                NullIfBlank(_destCreds));
+            var saved = await ConfigSvc.SaveDestinationAsync(req, _actor);
+            LoadDestination(saved);
+        }
+        catch (Exception ex) { _destError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Clientes ----------
+    private Task CreateClientAsync() => GuardAsync(async () =>
+    {
+        _clError = null;
+        if (string.IsNullOrWhiteSpace(_clName)) { _clError = "El nombre es obligatorio."; return; }
+        _busy = true;
+        try
+        {
+            var req = new SaveDataClientRequest(null, _clName.Trim(), NullIfBlank(_clDescription), _clActive);
+            var (_, secret) = await ConfigSvc.SaveClientAsync(req, _actor);
+            _revealedSecret = secret;
+            _clName = "";
+            _clDescription = "";
+            _clActive = true;
+            _clients = await ConfigSvc.ListClientsAsync();
+        }
+        catch (InvalidOperationException ex) { _clError = ex.Message; }
+        catch (Exception ex) { _clError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task RotateSecretAsync(Guid clientId) => GuardAsync(async () =>
+    {
+        _clError = null;
+        _busy = true;
+        try
+        {
+            var secret = await ConfigSvc.RotateClientSecretAsync(clientId, _actor);
+            _revealedSecret = secret;
+            _clients = await ConfigSvc.ListClientsAsync();
+        }
+        catch (InvalidOperationException ex) { _clError = ex.Message; }
+        catch (Exception ex) { _clError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteClientAsync(Guid clientId) => GuardAsync(async () =>
+    {
+        _clError = null;
+        _busy = true;
+        try
+        {
+            await ConfigSvc.DeleteClientAsync(clientId, _actor);
+            _clients = await ConfigSvc.ListClientsAsync();
+        }
+        catch (Exception ex) { _clError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Procesos ----------
+    private void EditProcess(ImportProcessDto p)
+    {
+        _procEditId = p.Id;
+        _procName = p.Name;
+        _procConnector = p.ConnectorId?.ToString() ?? "";
+        _procClient = p.ClientId?.ToString() ?? "";
+        _procSchedule = p.ScheduleKind;
+        _procIntervalText = p.IntervalMinutes?.ToString(CultureInfo.InvariantCulture) ?? "";
+        _procCron = p.CronExpression ?? "";
+        _procActive = p.IsActive;
+        _procError = null;
+    }
+
+    private void ResetProcessForm()
+    {
+        _procEditId = null;
+        _procName = "";
+        _procConnector = "";
+        _procClient = "";
+        _procSchedule = ImportScheduleKind.Manual;
+        _procIntervalText = "";
+        _procCron = "";
+        _procActive = true;
+        _procError = null;
+    }
+
+    private Task SaveProcessAsync() => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _procError = null;
+        if (string.IsNullOrWhiteSpace(_procName)) { _procError = "El nombre es obligatorio."; return; }
+        int? interval = null;
+        if (_procSchedule == ImportScheduleKind.Interval)
+        {
+            if (!int.TryParse(_procIntervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m) || m <= 0)
+            {
+                _procError = "Indica un intervalo en minutos valido."; return;
+            }
+            interval = m;
+        }
+        _busy = true;
+        try
+        {
+            var req = new SaveImportProcessRequest(
+                _procEditId, modelId,
+                Guid.TryParse(_procConnector, out var conId) ? conId : null,
+                Guid.TryParse(_procClient, out var cliId) ? cliId : null,
+                _procName.Trim(),
+                _procSchedule,
+                interval,
+                _procSchedule == ImportScheduleKind.Cron ? NullIfBlank(_procCron) : null,
+                _procActive);
+            var saved = await ConfigSvc.SaveProcessAsync(req, _actor);
+            if (saved is null) { _procError = "No se pudo guardar el proceso."; return; }
+            _processes = await ConfigSvc.ListProcessesAsync(modelId);
+            ResetProcessForm();
+        }
+        catch (Exception ex) { _procError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteProcessAsync(Guid id) => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _busy = true;
+        try
+        {
+            await ConfigSvc.DeleteProcessAsync(id, _actor);
+            _processes = await ConfigSvc.ListProcessesAsync(modelId);
+            if (_procEditId == id) { ResetProcessForm(); }
+        }
+        catch (Exception ex) { _procError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Helpers ----------
+    private async Task CopyAsync(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); }
+        catch { /* clipboard bloqueado: se ignora */ }
+    }
+
+    private static bool IsRelationType(DataContainerColumnType t)
+        => t is DataContainerColumnType.Reference or DataContainerColumnType.RelationMany;
+
+    private static DbEngine? ParseEngine(string s) => Enum.TryParse<DbEngine>(s, out var e) ? e : null;
+
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string Px(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Truncate(string s, int max)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return ""; }
+        s = s.Trim();
+        return s.Length <= max ? s : s[..max] + "...";
+    }
+
+    private static string TypeShort(DataContainerColumnType t) => t switch
+    {
+        DataContainerColumnType.Text => "texto",
+        DataContainerColumnType.Number => "num",
+        DataContainerColumnType.Decimal => "dec",
+        DataContainerColumnType.Date => "fecha",
+        DataContainerColumnType.Boolean => "bool",
+        DataContainerColumnType.Submodel => "submodelo",
+        DataContainerColumnType.Reference => "N:1",
+        DataContainerColumnType.RelationMany => "N:N",
+        _ => t.ToString()
+    };
+
+    private static string ConnectorKindLabel(ConnectorKind k) => k switch
+    {
+        ConnectorKind.Excel => "Excel",
+        ConnectorKind.RestApi => "API REST",
+        ConnectorKind.Database => "Base de datos",
+        _ => k.ToString()
+    };
+
+    private static string ConnectorSummary(DataConnectorDto c) => c.Kind switch
+    {
+        ConnectorKind.Excel => "archivo Excel",
+        ConnectorKind.RestApi => string.IsNullOrWhiteSpace(c.EndpointUrl) ? "(sin endpoint)" : c.EndpointUrl!,
+        ConnectorKind.Database => $"{c.DbEngine?.ToString() ?? "BD"} {c.Host}{(c.Port is int p ? ":" + p : "")}",
+        _ => ""
+    };
+
+    private static string ScheduleLabel(ImportScheduleKind k) => k switch
+    {
+        ImportScheduleKind.Manual => "Manual",
+        ImportScheduleKind.Interval => "Intervalo",
+        ImportScheduleKind.Cron => "Cron",
+        _ => k.ToString()
+    };
+}

@@ -112,6 +112,13 @@ public static class DependencyInjection
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
         services.AddScoped<Inventory.IItemFieldService, Inventory.ItemFieldService>();
+        // Contenedor de datos: modelos dinamicos EAV (arbol/submodelos) + import/export Excel, y
+        // la configuracion de importacion (conectores con credenciales cifradas, clientes, procesos).
+        services.AddScoped<DataContainers.IDataContainerService, DataContainers.DataContainerService>();
+        // Contenedor (DataModel): agrupa varias tablas + relaciones internas (lienzo ER). Reusa el
+        // nivel tabla via IDataContainerService.
+        services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();
+        services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
         // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
         services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
         // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant,

@@ -162,6 +162,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ItemStock> ItemStocks => Set<ItemStock>();
     public DbSet<ItemFieldDefinition> ItemFieldDefinitions => Set<ItemFieldDefinition>();
 
+    // Contenedor de datos (un DataModel agrupa varias tablas EAV + config de importacion).
+    public DbSet<DataModel> DataModels => Set<DataModel>();
+    public DbSet<DataDestination> DataDestinations => Set<DataDestination>();
+    public DbSet<DataContainer> DataContainers => Set<DataContainer>();
+    public DbSet<DataContainerColumn> DataContainerColumns => Set<DataContainerColumn>();
+    public DbSet<DataContainerRow> DataContainerRows => Set<DataContainerRow>();
+    public DbSet<DataContainerCell> DataContainerCells => Set<DataContainerCell>();
+    public DbSet<DataContainerLink> DataContainerLinks => Set<DataContainerLink>();
+    public DbSet<DataConnector> DataConnectors => Set<DataConnector>();
+    public DbSet<DataClient> DataClients => Set<DataClient>();
+    public DbSet<ImportProcess> ImportProcesses => Set<ImportProcess>();
+
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
 
@@ -273,6 +285,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TerceroIdTipo>().HaveConversion<string>().HaveMaxLength(40);
         // Campos configurables por ficha (000232): el tipo del campo se guarda como texto legible.
         configurationBuilder.Properties<TerceroFieldType>().HaveConversion<string>().HaveMaxLength(40);
+        // Contenedor de datos: enums como texto.
+        configurationBuilder.Properties<DataContainerColumnType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DataSourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ConnectorAuthKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ImportScheduleKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ConnectorKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DbEngine>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DestinationKind>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1628,6 +1648,152 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.ItemId, x.WarehouseId }).IsUnique();
             // Listado de stock por bodega (filtro de disponibles).
             b.HasIndex(x => new { x.TenantId, x.WarehouseId });
+        });
+
+        // ---- Contenedor de datos (un DataModel agrupa varias tablas EAV + config de importacion) ----
+        // Cascadas recursivas PG-friendly: borrar un contenedor arrastra su arbol completo (tablas,
+        // sub-tablas, columnas, filas, celdas, conectores, destino y procesos). Nota DAL-dual: las
+        // cascadas auto-referenciales y multi-ruta son validas en PostgreSQL; el proveedor SQL
+        // Server (backlog) requerira revisarlas (se documenta como deuda, igual que el resto del DAL dual).
+        modelBuilder.Entity<DataModel>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            // Nombre de contenedor unico por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<DataDestination>(b =>
+        {
+            b.Property(x => x.Host).HasMaxLength(255);
+            b.Property(x => x.DatabaseName).HasMaxLength(150);
+            b.Property(x => x.Username).HasMaxLength(150);
+            b.Property(x => x.CredentialsEncrypted).HasColumnType(longTextColumnType);
+            // 1:1 con el contenedor: borrar el contenedor borra su destino.
+            b.HasOne(x => x.Model).WithMany()
+                .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.ModelId).IsUnique();
+        });
+
+        modelBuilder.Entity<DataContainer>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            // Tabla -> contenedor (modelo): borrar el contenedor borra sus tablas.
+            b.HasOne(x => x.Model).WithMany(x => x.Tables)
+                .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
+            // Arbol de sub-tablas (matrices anidadas): al borrar el padre se borran las hijas.
+            b.HasOne(x => x.ParentContainer).WithMany()
+                .HasForeignKey(x => x.ParentContainerId).OnDelete(DeleteBehavior.Cascade);
+            // Nombre de tabla unico DENTRO del contenedor (modelo).
+            b.HasIndex(x => new { x.ModelId, x.Name }).IsUnique()
+                .HasFilter(isNpgsql ? "model_id IS NOT NULL AND parent_container_id IS NULL" : "[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
+            b.HasIndex(x => new { x.TenantId, x.ModelId });
+            b.HasIndex(x => new { x.TenantId, x.ParentContainerId });
+        });
+
+        modelBuilder.Entity<DataContainerColumn>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasOne(x => x.Container).WithMany(x => x.Columns)
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.Cascade);
+            // Campo Submodel -> contenedor hijo: borrar el campo borra la sub-tabla anidada.
+            b.HasOne(x => x.ChildContainer).WithMany()
+                .HasForeignKey(x => x.ChildContainerId).OnDelete(DeleteBehavior.Cascade);
+            // Campo Reference/RelationMany -> tabla destino independiente: NO ACTION (Restrict). No se
+            // borra la tabla destino al borrar el campo; y no se puede borrar una tabla referenciada
+            // mientras exista el campo (el servicio da un error claro).
+            b.HasOne(x => x.ReferencedContainer).WithMany()
+                .HasForeignKey(x => x.ReferencedContainerId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.ContainerId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ContainerId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<DataContainerRow>(b =>
+        {
+            b.HasOne(x => x.Container).WithMany(x => x.Rows)
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.Cascade);
+            // Arbol de filas: borrar la fila padre borra las filas hijas de sus sub-tablas.
+            b.HasOne(x => x.ParentRow).WithMany()
+                .HasForeignKey(x => x.ParentRowId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.ContainerId, x.CreatedAt });
+            b.HasIndex(x => new { x.ParentRowId, x.ParentFieldId });
+        });
+
+        modelBuilder.Entity<DataContainerCell>(b =>
+        {
+            b.Property(x => x.Value).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Row).WithMany(x => x.Cells)
+                .HasForeignKey(x => x.RowId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Column).WithMany()
+                .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Cascade);
+            // Una celda por (fila, columna).
+            b.HasIndex(x => new { x.RowId, x.ColumnId }).IsUnique();
+        });
+
+        modelBuilder.Entity<DataContainerLink>(b =>
+        {
+            // Vinculo N:N. Muere con la columna de relacion o con cualquiera de los dos registros
+            // (cascadas multi-ruta validas en PG). El registro destino (TargetRow) es NO ACTION para
+            // evitar tercera ruta de cascada ambigua; el servicio limpia los vinculos al borrar filas.
+            b.HasOne(x => x.Column).WithMany()
+                .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Row).WithMany()
+                .HasForeignKey(x => x.RowId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.TargetRow).WithMany()
+                .HasForeignKey(x => x.TargetRowId).OnDelete(DeleteBehavior.Restrict);
+            // Un vinculo por (columna, fila, destino).
+            b.HasIndex(x => new { x.ColumnId, x.RowId, x.TargetRowId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TargetRowId });
+        });
+
+        modelBuilder.Entity<DataConnector>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.EndpointUrl).HasMaxLength(1000);
+            b.Property(x => x.HttpMethod).HasMaxLength(10);
+            b.Property(x => x.Host).HasMaxLength(255);
+            b.Property(x => x.DatabaseName).HasMaxLength(150);
+            b.Property(x => x.Username).HasMaxLength(150);
+            b.Property(x => x.CredentialsEncrypted).HasColumnType(longTextColumnType);
+            b.Property(x => x.MappingJson).HasColumnType(jsonColumnType);
+            // Conector cuelga del contenedor (modelo): borrar el modelo borra sus conectores.
+            b.HasOne(x => x.Model).WithMany()
+                .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
+            // ContainerId deprecado (diseno anterior): SetNull para no bloquear.
+            b.HasOne(x => x.Container).WithMany()
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(x => new { x.TenantId, x.ModelId });
+        });
+
+        modelBuilder.Entity<DataClient>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.ClientId).HasMaxLength(80).IsRequired();
+            b.Property(x => x.ClientSecretEncrypted).HasColumnType(longTextColumnType);
+            // ClientId publico unico por tenant.
+            b.HasIndex(x => new { x.TenantId, x.ClientId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive });
+        });
+
+        modelBuilder.Entity<ImportProcess>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.CronExpression).HasMaxLength(120);
+            // Proceso cuelga del contenedor (modelo): borrar el modelo borra sus procesos.
+            b.HasOne(x => x.Model).WithMany()
+                .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
+            // ContainerId deprecado (diseno anterior): SetNull.
+            b.HasOne(x => x.Container).WithMany()
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
+            // Refs opcionales a conector/cliente: si se borran, el proceso queda sin ref (SetNull).
+            b.HasOne(x => x.Connector).WithMany()
+                .HasForeignKey(x => x.ConnectorId).OnDelete(DeleteBehavior.SetNull);
+            b.HasOne(x => x.Client).WithMany()
+                .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(x => new { x.TenantId, x.ModelId });
         });
 
         modelBuilder.Entity<WhatsAppTemplate>(b =>

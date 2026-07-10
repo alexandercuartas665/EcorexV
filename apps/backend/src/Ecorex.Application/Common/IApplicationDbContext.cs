@@ -113,6 +113,19 @@ public interface IApplicationDbContext
     // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
     DbSet<ItemFieldDefinition> ItemFieldDefinitions { get; }
 
+    // Contenedor de datos: un DataModel (contenedor) agrupa VARIAS tablas (DataContainer) con
+    // relaciones internas + config de importacion (conectores multi-tipo, destino, cliente, proceso).
+    DbSet<DataModel> DataModels { get; }
+    DbSet<DataDestination> DataDestinations { get; }
+    DbSet<DataContainer> DataContainers { get; }
+    DbSet<DataContainerColumn> DataContainerColumns { get; }
+    DbSet<DataContainerRow> DataContainerRows { get; }
+    DbSet<DataContainerCell> DataContainerCells { get; }
+    DbSet<DataContainerLink> DataContainerLinks { get; }
+    DbSet<DataConnector> DataConnectors { get; }
+    DbSet<DataClient> DataClients { get; }
+    DbSet<ImportProcess> ImportProcesses { get; }
+
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }
 

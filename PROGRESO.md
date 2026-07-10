@@ -3050,3 +3050,149 @@ contra Postgres local (5442); luego se restauro. **PENDIENTE**: desplegar el COD
   antes y `EnsureInventoryDemoAsync` sale temprano en el bloque de items); no es funcional, la
   1a imagen que sube un usuario se marca principal sola.
 - Sin commit ni push (pedido explicito): cambios en working tree.
+
+## 2026-07-10 - Sesion: Modulo CONTENEDOR DE DATOS (modelos dinamicos + anidados + config de importacion)
+
+**Contexto**: portar el feature "Contenedor de datos" (DataContainer) del proyecto hermano
+CUBOT.redmanager al sistema de Tareas, con estilo visual de Tareas, y EVOLUCIONARLO segun el
+usuario: modelos ANIDADOS (submodelos/matrices), configurador en 2 columnas (campos | procesos de
+importacion), y config (SOLO config, sin ejecutor) de conectores/credenciales/clientes/horarios.
+Se estudio el hermano (solo lectura; sus servicios se bajaron para no chocar con otras sesiones).
+Decisiones del usuario: todo el config de una; anidados desde v1; cliente/webhook solo config +
+documentado; nombre "Contenedor de datos" (ruta /contenedor-datos, entidades DataContainer*).
+
+**Hecho** (Claude Opus 4.8 + 3 subagentes: 1 de mapeo, 1 servicios, 1 UI):
+- **C1 Dominio+EF+migracion**: `DataContainer` como ARBOL (ParentContainerId/ParentFieldId para
+  submodelos), `DataContainerColumn` (tipo + `Submodel` -> ChildContainerId), `DataContainerRow`
+  (ParentRowId/ParentFieldId), `DataContainerCell` (EAV, valor string). Config: `DataConnector`
+  (fuente + credenciales CIFRADAS + MappingJson jsonb), `DataClient` (ClientId + secreto cifrado),
+  `ImportProcess` (horarios). Enums DataContainerColumnType/DataSourceKind/ConnectorAuthKind/
+  ImportScheduleKind (string). EF con cascadas recursivas PG-friendly del arbol (nota: SQL Server
+  DAL-dual requerira revisar las cascadas auto-ref/multi-ruta, como el resto del DAL dual).
+  Migracion `AddDataContainers`. DbSets en IApplicationDbContext + fake de tests.
+- **C2 Servicios**: `DataContainerService` (CRUD arbol + filas EAV anidadas + import/export Excel
+  con **ClosedXML 0.105.0** portado del hermano; opera sobre columnas escalares). `DataImportConfigService`
+  (conectores/clientes/procesos; credenciales y secretos cifrados via `ISecretProtector`; genera
+  ClientId + secreto fuerte mostrado una vez). DI registrado.
+- **C3 UI** `/contenedor-datos` (estilo Tareas, gated Perm:contenedor-datos:View, semaforo _dbGate):
+  lista de contenedores raiz (tarjetas), detalle con tabla de filas (columnas escalares + boton
+  "ver" que expande sub-filas del submodelo), import/export Excel, **modal de configuracion en 2
+  COLUMNAS** (izquierda campos con constructor recursivo de submodelos; derecha conectores +
+  clientes + procesos), modal de clientes (crea/rota secreto mostrado una vez), modal de fila
+  tipado, modal de import. Menu: item "Contenedor de datos" en seccion "Sistema . General" (seed +
+  reconcile para demos ya sembrados).
+- **C4 Doc handoff**: `docs/contenedor-datos-cliente-remoto.md` — contrato del cliente remoto
+  (auth ClientId/Secret + HMAC, flujo de sincronizacion, endpoint de ingesta `/api/data-ingest/{id}`
+  a construir con upsert anidado + idempotencia, checklist de lo pendiente). Para pasar a otra sesion.
+
+**Pruebas** (build Ecorex.sln 0 errores; validado en Chrome contra Postgres LOCAL 5442, tenant demo):
+- Modal 2 columnas OK. Constructor de submodelos: creado "Facturas" (raiz) con campo "Items"
+  (Submodel) -> genero contenedor hijo "Items (detalle)" enlazado (verificado en BD: arbol
+  data_containers + columna Submodel con child_container_id).
+- Cliente "Agente Alegra": ClientId cli_... + secreto mostrado una vez; secreto **cifrado** en BD
+  (prefijo DataProtection CfDJ8..., el texto en claro no aparece).
+- Fila de datos EAV (Numero=F-001) guardada y renderizada; columna Submodel como "ver".
+- **0** errores de concurrencia en el log. Migracion aplico limpio en PG (cascadas recursivas OK).
+
+**Nota**: para validar sin tocar prod se aparto el `appsettings.Development.local.json` (que apunta
+a prod y en Program.cs:22 pisa las env vars) y se corrio contra Postgres local; ya se restauro. La
+migracion AddDataContainers **NO** esta en prod todavia.
+
+**Deudas / TODO**:
+- Deploy a prod pendiente de OK del usuario (schema + codigo). El usuario probara y dara credenciales/
+  estructuras; luego se construye el cliente remoto y el endpoint de ingesta (ver doc de handoff).
+- No probado en Chrome (bajo riesgo, codigo portado/CRUD): descarga de export Excel (usa data-URL via
+  JS eval; sin CSP en SuperAdmin), guardar conector con credenciales, agregar sub-fila anidada por
+  "ver", guardar proceso con horario.
+- Ejecutor de horarios + canal websocket + endpoint de ingesta: fase siguiente (documentados).
+- SQL Server DAL-dual de estas cascadas: revisar (PG-only por ahora).
+- Sin commit ni push aun (pendiente de validacion final del usuario).
+
+### Addendum (misma sesion) - Contenedor de datos: RELACIONES entre tablas (Referencia N:1 + N:N)
+
+El usuario noto que faltaba definir VARIAS tablas y RELACIONARLAS (distinto del submodelo anidado,
+que es composicion). Se agrego:
+- **C5a dominio+EF+migracion**: tipos de campo `Reference` (N:1) y `RelationMany` (N:N) en el enum;
+  `DataContainerColumn.ReferencedContainerId` (FK Restrict a otra tabla raiz); entidad
+  `DataContainerLink` (N:N: ColumnId, RowId, TargetRowId). Migracion `AddDataContainerRelations`.
+- **C5b servicios**: Reference guarda el id del registro destino en la celda EAV; RelationMany en
+  DataContainerLink (add/remove por SaveRow). `ListRowOptionsAsync` (registros de la tabla destino
+  con etiqueta = 1a columna Text). Guard al borrar una tabla referenciada. DeleteRow limpia links.
+- **C5c UI**: en el editor de campos, tipos Referencia/N:N + selector "Tabla destino" (excluye la
+  tabla actual); en el modal de fila, Reference = dropdown de registros, N:N = multi-select; en la
+  tabla, referencia como etiqueta y N:N como chips.
+
+**Pruebas** (build 0 errores; validado en Chrome local): se crearon 2 tablas independientes
+(Clientes + Facturas), un registro "Acme Corp" en Clientes, un campo `Cliente` (Referencia -> tabla
+Clientes) en Facturas, y se asigno en la fila F-001. La tabla muestra CLIENTE = "Acme Corp" (etiqueta,
+no Guid); la celda guarda el id destino; el selector "Tabla destino" excluye Facturas; 0 errores de
+concurrencia. N:N (RelationMany) quedo construido (tipo + tabla de enlace + multi-select + chips) con
+el mismo patron; se valido en vivo la N:1 (la integracion mas delicada).
+
+Nota N:N con atributos (ej. Pedidos<->Productos con cantidad): se resuelve con submodelo anidado +
+Reference (ya posible); la N:N pura (solo vinculo) usa RelationMany.
+
+### Addendum 2 - Validacion N:1 + N:N en vivo + nota de menu/permisos
+
+- **N:1 (Referencia)**: Facturas.Cliente -> Clientes; la fila muestra la etiqueta "Acme Corp".
+- **N:N (RelationMany)**: Facturas.Productos -> Productos; multi-select (Monitor/Teclado), chips en la
+  tabla, vinculos en data_container_links. 0 errores de concurrencia. Validado con el MENU COMPLETO
+  (usuario admin@ Owner + vista "Completo", navegando por el menu; item "Contenedor de datos" visible
+  en Sistema . General).
+- **Nota menu/permisos (ADR-0033)**: el menu se poda por permisos (MenuPermissionFilter). El usuario
+  demo completo@ tiene la VISTA "Completo" pero rol limitado (Advisor) SIN el permiso del modulo nuevo,
+  asi que NO ve ni accede a "Contenedor de datos" (se le poda; redirige a login al entrar directo). Los
+  usuarios Owner/Admin (Unrestricted) SI lo ven y acceden. TODO: al desplegar, el modulo nuevo debe
+  quedar grantable en Roles y permisos para roles limitados (el catalogo de permisos se deriva del menu;
+  los roles limitados requieren grant explicito de contenedor-datos:View).
+- Tweak local (solo BD dev): se reasigno admin@sky-system.local a la vista "Completo" para validar con
+  menu completo (antes tenia una vista E2E minima). Es la BD local, no prod.
+
+### Addendum 3 (2026-07-10) - REDISENO Contenedor de datos: modelo con VARIAS tablas + lienzo ER
+
+El usuario rechazo la version previa ("ha quedado mal"): un Contenedor NO es una tabla sino un
+**MODELO que contiene VARIAS tablas relacionadas entre si** (esquema ER interno), correspondiente a un
+JSON de importacion que trae varias estructuras (cada estructura = una tabla del contenedor). El modal
+debe ser mas grande, en 2 columnas: IZQUIERDA = lienzo ER interactivo (cajas de tabla arrastrables que
+se conectan); DERECHA = configuracion de alimentacion (conectores Excel/API REST/BD de distintos
+motores + credenciales, clientes, motor de horario, y un DESTINO: dentro del sistema o BD aliada).
+Solo configuracion en esta fase; el motor de ejecucion y el conector remoto quedan diferidos.
+
+- **R1 dominio+EF+migracion**: entidad `DataModel` (el Contenedor top-level: Name, Description,
+  ICollection<DataContainer> Tables) + `DataDestination` (1:1 con el modelo: Kind System/AlliedDatabase,
+  DbEngine?, Host/Port/DatabaseName/Username, credenciales cifradas). `DataContainer` pasa a ser la
+  TABLA: +ModelId, +CanvasX/CanvasY (posicion en el lienzo). Nuevos enums: `ConnectorKind`
+  (Excel/RestApi/Database), `DbEngine` (PostgreSql/MySql/SqlServer/Oracle/MariaDb/SqLite),
+  `DestinationKind` (System/AlliedDatabase). `DataConnector` e `ImportProcess` pasan de ContainerId a
+  ModelId; el conector gana Kind + campos de BD. Migracion `RedesignDataModelContainers` (crea
+  data_models, data_destinations; agrega model_id/canvas_x/canvas_y a data_containers; model_id/kind/
+  db_engine/host/... a data_connectors; model_id a import_processes). Indice unico (model_id, name)
+  filtrado para tablas de primer nivel del modelo.
+- **R2 servicios**: `IDataModelService` (listar/get con relaciones = columnas Reference/RelationMany que
+  apuntan a otra tabla del MISMO modelo; guardar modelo; guardar tabla estampando ModelId + posicion,
+  validando que el destino de la relacion sea del mismo modelo; borrar tabla; actualizar posicion).
+  `IDataContainerService.SaveTableAsync` reusa la maquinaria de columnas. `IDataImportConfigService`
+  reescrito a nivel de modelo (conectores por ModelId con campos segun Kind + cifrado; destino 1:1;
+  clientes por tenant; procesos por ModelId).
+- **R3 UI**: `ContenedorDatos.razor` reescrito. Listado de contenedores (tarjetas). Modal grande
+  (96vw x 92vh) en 2 columnas: IZQUIERDA `.dc-canvas` con overlay SVG (lineas de relacion: violeta
+  solida = Reference, naranja discontinua = RelationMany, con etiqueta del campo) y cajas
+  `.dc-table-node` arrastrables (posicion CanvasX/Y); DERECHA "ALIMENTACION" (conectores con Kind
+  condicional, destino Sistema/BD aliada, clientes, procesos). Drag por `dc-canvas.js` (pointer events)
+  -> `[JSInvokable] OnTableMoved` -> UpdateTablePositionAsync. `_dbGate` SemaphoreSlim + GuardAsync +
+  IDisposable. Editor de tabla con columnas incluye Reference/RelationMany + selector "Tabla destino"
+  limitado a las otras tablas del modelo.
+- **R4 validacion (Chrome local, BD local Postgres 5442)**: build de la solucion 0 errores. Se creo el
+  contenedor "Ventas" con 2 tablas (Facturas, Clientes) que se renderizan como cajas del lienzo ER;
+  el DRAG persiste la posicion (Facturas 40,40 -> 391,301 en data_containers). Se agrego el campo
+  Facturas.Cliente (Referencia N:1) apuntando a Clientes -> el lienzo DIBUJA la linea de relacion entre
+  ambas cajas (etiqueta "Cliente"); relacion verificada en BD (referenced_container_id -> Clientes).
+  0 errores de concurrencia. El destino por defecto es "Sistema (tablas del contenedor)"; el cliente
+  "Agente Alegra" persiste a nivel de tenant. Los contratos deprecados (SourceKind a nivel de contenedor,
+  ContainerId en conector/proceso) se conservan por compatibilidad; ContainerId paso a SetNull.
+
+Pendiente: (a) DESPLIEGUE a prod (requiere OK del usuario; la migracion se aplico SOLO a la BD local;
+appsettings.Development.local.json esta apartado como .bak durante la validacion local). (b) captura de
+DATOS por tabla en el nuevo diseno (filas por tabla del modelo; excluido de R3). (c) doc del conector/
+cliente remoto (docs/contenedor-datos-cliente-remoto.md) por actualizar al concepto de destino
+sistema/BD-aliada. (d) grant del permiso contenedor-datos:View a roles limitados. (e) DAL-dual SQL Server.

@@ -82,3 +82,6 @@ tools/
 
 # Fotos protegidas (clasificacion de cabello) - nunca versionar
 apps/backend/src/Ecorex.SuperAdmin/protected-media/
+
+# backup local con secretos de prod (nunca commitear)
+appsettings.Development.local.json.bak

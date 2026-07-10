@@ -151,6 +151,16 @@ public class TenantUserServiceTests
         public DbSet<ItemImage> ItemImages => throw new NotSupportedException();
         public DbSet<ItemStock> ItemStocks => throw new NotSupportedException();
         public DbSet<ItemFieldDefinition> ItemFieldDefinitions => throw new NotSupportedException();
+        public DbSet<DataModel> DataModels => throw new NotSupportedException();
+        public DbSet<DataDestination> DataDestinations => throw new NotSupportedException();
+        public DbSet<DataContainer> DataContainers => throw new NotSupportedException();
+        public DbSet<DataContainerColumn> DataContainerColumns => throw new NotSupportedException();
+        public DbSet<DataContainerRow> DataContainerRows => throw new NotSupportedException();
+        public DbSet<DataContainerCell> DataContainerCells => throw new NotSupportedException();
+        public DbSet<DataContainerLink> DataContainerLinks => throw new NotSupportedException();
+        public DbSet<DataConnector> DataConnectors => throw new NotSupportedException();
+        public DbSet<DataClient> DataClients => throw new NotSupportedException();
+        public DbSet<ImportProcess> ImportProcesses => throw new NotSupportedException();
         public DbSet<WhatsAppTemplate> WhatsAppTemplates => throw new NotSupportedException();
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();

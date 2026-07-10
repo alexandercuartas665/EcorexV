@@ -2614,6 +2614,8 @@ public sealed class DatabaseSeeder
         // Roles y permisos (Ola B1, ADR-0032): matriz de permisos por rol. LegacyCode libre 000198
         // (no colisiona con 000194 = Administrador de Menu). Pagina real /roles-permisos (Ready).
         Item(gen.Id, "Roles y permisos", "roles-permisos", "000198");
+        // Contenedor de datos (modelos dinamicos + importacion): pagina real /contenedor-datos.
+        Item(gen.Id, "Contenedor de datos", "contenedor-datos", "000920");
 
         // ---- Seccion: Sistema - Desarrollo (slug dev) ----
         var dev = Add(MenuNodeKind.Section, "Sistema \u00b7 Desarrollo", null, "dev", iconKey: "gear");
@@ -2768,6 +2770,12 @@ public sealed class DatabaseSeeder
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "misproc", route: "mis-pasos",
             name: "Mis pasos", legacyCode: "000637", cancellationToken);
+
+        // Alta idempotente del item "Contenedor de datos" (modelos dinamicos + importacion) en la
+        // seccion "Sistema . General" (slug gen) de cada vista ya sembrada que aun no lo tenga.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "gen", route: "contenedor-datos",
+            name: "Contenedor de datos", legacyCode: "000920", cancellationToken);
     }
 
     /// <summary>

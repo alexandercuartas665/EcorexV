@@ -178,6 +178,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
     public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
+    // ---- Gestor de Clientes (000740) ----
+    public DbSet<BolsaColumna> BolsaColumnas => Set<BolsaColumna>();
+    public DbSet<Oportunidad> Oportunidades => Set<Oportunidad>();
+    public DbSet<Cita> Citas => Set<Cita>();
+    public DbSet<TerceroFiltro> TerceroFiltros => Set<TerceroFiltro>();
+    public DbSet<ProspectoScrapeado> ProspectosScrapeados => Set<ProspectoScrapeado>();
 
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
@@ -227,6 +233,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<BusinessUnitModalKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ProjectStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1427,6 +1435,75 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.SubcategoriaId, x.TenantUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        // ---- Gestor de Clientes (000740): bolsa, oportunidades, citas, filtros, prospectos ----
+
+        modelBuilder.Entity<BolsaColumna>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(40).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.IsArchived, x.SortOrder });
+        });
+
+        // El tercero apunta a su columna de bolsa (NO ACTION: borrar la columna no borra terceros).
+        modelBuilder.Entity<Tercero>(b =>
+        {
+            b.HasOne(x => x.BolsaColumna).WithMany()
+                .HasForeignKey(x => x.BolsaColumnaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.BolsaColumnaId });
+        });
+
+        modelBuilder.Entity<Oportunidad>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Responsable).HasMaxLength(150);
+            b.Property(x => x.Fuente).HasMaxLength(80);
+            b.Property(x => x.Descripcion).HasMaxLength(2000);
+            b.Property(x => x.Valor).HasColumnType(isNpgsql ? "numeric(18,2)" : "decimal(18,2)");
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
+            b.HasIndex(x => new { x.TenantId, x.Etapa, x.SortOrder });
+        });
+
+        modelBuilder.Entity<Cita>(b =>
+        {
+            b.Property(x => x.Titulo).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Nota).HasMaxLength(2000);
+            // Tercero/Oportunidad opcionales: al borrarlos la cita queda huerfana (SetNull), no se borra.
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.SetNull);
+            b.HasOne(x => x.Oportunidad).WithMany()
+                .HasForeignKey(x => x.OportunidadId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(x => new { x.TenantId, x.Inicio });
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
+        });
+
+        modelBuilder.Entity<TerceroFiltro>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(600);
+            b.Property(x => x.Fuente).HasMaxLength(80);
+            b.Property(x => x.CriteriosJson).HasColumnType(jsonColumnType);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ProspectoScrapeado>(b =>
+        {
+            b.Property(x => x.Fuente).HasMaxLength(40).IsRequired();
+            b.Property(x => x.NombreCompleto).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Cargo).HasMaxLength(200);
+            b.Property(x => x.Empresa).HasMaxLength(200);
+            b.Property(x => x.Ciudad).HasMaxLength(120);
+            b.Property(x => x.Metrica).HasMaxLength(200);
+            b.Property(x => x.Badge).HasMaxLength(40);
+            b.Property(x => x.Telefono).HasMaxLength(80);
+            b.Property(x => x.Correo).HasMaxLength(200);
+            b.Property(x => x.DataJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Tercero).WithMany()
+                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.SetNull);
+            b.HasIndex(x => new { x.TenantId, x.Fuente });
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

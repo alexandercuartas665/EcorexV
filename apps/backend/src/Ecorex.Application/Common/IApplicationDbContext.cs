@@ -129,6 +129,14 @@ public interface IApplicationDbContext
     DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
     DbSet<TerceroNota> TerceroNotas { get; }
 
+    // Gestor de Clientes (modulo 000740): bolsa (kanban de terceros por estado), oportunidades,
+    // citas/agenda, filtros dinamicos guardados y prospectos scrapeados (demo).
+    DbSet<BolsaColumna> BolsaColumnas { get; }
+    DbSet<Oportunidad> Oportunidades { get; }
+    DbSet<Cita> Citas { get; }
+    DbSet<TerceroFiltro> TerceroFiltros { get; }
+    DbSet<ProspectoScrapeado> ProspectosScrapeados { get; }
+
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto) con flags RQ07, vinculos opcionales (flujo/formulario/tablero)
     // y relaciones M:N (cargos/terceros) en tablas hijas.

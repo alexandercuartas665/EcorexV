@@ -162,6 +162,11 @@ public class TenantUserServiceTests
         public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => throw new NotSupportedException();
+        public DbSet<BolsaColumna> BolsaColumnas => throw new NotSupportedException();
+        public DbSet<Oportunidad> Oportunidades => throw new NotSupportedException();
+        public DbSet<Cita> Citas => throw new NotSupportedException();
+        public DbSet<TerceroFiltro> TerceroFiltros => throw new NotSupportedException();
+        public DbSet<ProspectoScrapeado> ProspectosScrapeados => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

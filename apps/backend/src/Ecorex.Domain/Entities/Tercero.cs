@@ -54,4 +54,9 @@ public class Tercero : TenantEntity
 
     /// <summary>Datos de las fichas por perfil, dinamicos. jsonb en PG / nvarchar(max) en SQL Server.</summary>
     public string? FichasJson { get; set; }
+
+    /// <summary>Columna/estado de la Bolsa de contactos del Gestor de Clientes (000740) en la que
+    /// esta este tercero. Null = no esta en la bolsa (solo vive en el Directorio). NO ACTION.</summary>
+    public Guid? BolsaColumnaId { get; set; }
+    public BolsaColumna? BolsaColumna { get; set; }
 }

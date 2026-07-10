@@ -272,6 +272,10 @@ else
         if (workflowDemoTenantId is Guid directorioTenantId)
         {
             await seeder.EnsureDirectorioGeneralDemoAsync(directorioTenantId);
+            // Gestor de Clientes demo (modulo 000740): Bolsa, oportunidades, agenda, filtros y
+            // prospectos scrapeados del tenant demo. Idempotente. Corre DESPUES del Directorio
+            // (reutiliza sus terceros). Solo Development. Estampa TenantId explicito.
+            await seeder.EnsureGestorContactosDemoAsync(directorioTenantId);
         }
         // Conceptos de actividades demo (modulo 000270): CAT-01..CAT-04 con 1-3 subcategorias del
         // prototipo para el tenant demo. Idempotente, solo Development. El servicio lee el tenant
@@ -336,6 +340,26 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_DIRECTORIO"), 
     {
         await seeder.EnsureDirectorioGeneralDemoAsync(t.Id);
         app.Logger.LogWarning("[directorio-seed] terceros de ejemplo sembrados en tenant {Name}", t.Name);
+    }
+}
+
+// Siembra de datos demo del Gestor de Clientes (000740) en cada tenant de negocio
+// (ECOREX_SEED_GESTOR=true). Idempotente. Corre despues de migraciones; asegura primero los
+// terceros del Directorio y luego la Bolsa/oportunidades/agenda/filtros/prospectos por tenant.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_GESTOR"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureDirectorioGeneralDemoAsync(t.Id);
+        await seeder.EnsureGestorContactosDemoAsync(t.Id);
+        app.Logger.LogWarning("[gestor-seed] datos demo del Gestor de Clientes sembrados en tenant {Name}", t.Name);
     }
 }
 

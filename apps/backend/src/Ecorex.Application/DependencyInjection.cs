@@ -124,6 +124,9 @@ public static class DependencyInjection
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();
+        // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
+        // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
+        services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

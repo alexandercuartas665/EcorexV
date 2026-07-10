@@ -1996,6 +1996,135 @@ public sealed class DatabaseSeeder
     }
 
     /// <summary>
+    /// Siembra los datos demo del Gestor de Clientes (000740) para el tenant indicado, si aun no
+    /// tiene columnas de Bolsa. Idempotente. Estampa TenantId explicito. Debe correr DESPUES de
+    /// <see cref="EnsureDirectorioGeneralDemoAsync"/> (reutiliza los terceros ya sembrados). Siembra:
+    /// 5 columnas de Bolsa, asignacion de terceros a columnas, oportunidades, citas del mes actual,
+    /// filtros dinamicos con snapshot distinto al conteo actual y prospectos scrapeados.
+    /// </summary>
+    public async Task EnsureGestorContactosDemoAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (await _db.BolsaColumnas.IgnoreQueryFilters().AnyAsync(c => c.TenantId == tenantId, cancellationToken))
+        {
+            return;
+        }
+
+        // 1) Columnas de la Bolsa (mismo set que usa el servicio como default).
+        var columnas = Ecorex.Application.Gestor.GestorContactosService.BuildDefaultColumnas(tenantId).ToList();
+        _db.BolsaColumnas.AddRange(columnas);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 2) Asignar algunos terceros ya sembrados del Directorio a columnas de la Bolsa.
+        // Indices de columnas: 0 Sospechoso, 1 Incubadora, 2 Clientes, 3 Seguimiento, 4 Cierre.
+        var terceros = await _db.Terceros.IgnoreQueryFilters()
+            .Where(t => t.TenantId == tenantId && t.EmpresaId == null)
+            .OrderBy(t => t.Nombre)
+            .ToListAsync(cancellationToken);
+        var asignaciones = new[] { 2, 1, 0, 3, 2, 4 };
+        for (var i = 0; i < terceros.Count && i < asignaciones.Length; i++)
+        {
+            terceros[i].BolsaColumnaId = columnas[asignaciones[i]].Id;
+        }
+
+        // 3) Oportunidades sobre esos terceros (varias etapas, valores COP).
+        var oportunidades = new List<Oportunidad>();
+        void AddOp(int idx, string nombre, OportunidadEtapa etapa, decimal valor, string resp, int prob, string fuente)
+        {
+            if (idx >= terceros.Count) { return; }
+            oportunidades.Add(new Oportunidad
+            {
+                TenantId = tenantId,
+                TerceroId = terceros[idx].Id,
+                Nombre = nombre,
+                Etapa = etapa,
+                Valor = valor,
+                Responsable = resp,
+                Probabilidad = prob,
+                Fuente = fuente,
+                SortOrder = oportunidades.Count
+            });
+        }
+        AddOp(0, "Renovacion enlace dedicado", OportunidadEtapa.Negociacion, 45000000m, "Julian R.", 70, "Referido");
+        AddOp(1, "Suministro insumos Q3", OportunidadEtapa.Propuesta, 28500000m, "Ana M.", 50, "Campana");
+        AddOp(2, "Plan hogar fibra", OportunidadEtapa.Calificada, 3200000m, "Carlos T.", 40, "LinkedIn");
+        AddOp(3, "Contrato soporte anual", OportunidadEtapa.Nueva, 18000000m, "Julian R.", 25, "Web");
+        AddOp(0, "Ampliacion datacenter", OportunidadEtapa.Ganada, 62000000m, "Julian R.", 100, "Referido");
+        _db.Oportunidades.AddRange(oportunidades);
+
+        // 4) Citas del mes actual (fechas relativas a UtcNow; dias <= 28 seguros en cualquier mes).
+        var now = DateTimeOffset.UtcNow;
+        DateTimeOffset Dia(int d, int h, int m) => new(now.Year, now.Month, d, h, m, 0, TimeSpan.Zero);
+        Guid? PrimeraOpId() => oportunidades.Count > 0 ? oportunidades[0].Id : null;
+        Guid? TerceroId(int idx) => idx < terceros.Count ? terceros[idx].Id : null;
+        var citas = new List<Cita>
+        {
+            new() { TenantId = tenantId, TerceroId = TerceroId(0), OportunidadId = PrimeraOpId(), Titulo = "Cotizacion enlace dedicado", Tipo = CitaTipo.Cotizacion, Inicio = Dia(3, 10, 0), DuracionMinutos = 60, Nota = "Enviar propuesta comercial.", Completada = false },
+            new() { TenantId = tenantId, TerceroId = TerceroId(1), Titulo = "Llamada seguimiento", Tipo = CitaTipo.Llamada, Inicio = Dia(6, 15, 30), DuracionMinutos = 20, Nota = "Confirmar interes.", Completada = true },
+            new() { TenantId = tenantId, TerceroId = TerceroId(2), Titulo = "Reunion de arranque", Tipo = CitaTipo.Reunion, Inicio = Dia(9, 9, 0), DuracionMinutos = 45, Nota = "Alcance del plan.", Completada = false },
+            new() { TenantId = tenantId, TerceroId = TerceroId(3), Titulo = "Visita tecnica en sitio", Tipo = CitaTipo.Visita, Inicio = Dia(14, 14, 0), DuracionMinutos = 120, Nota = "Levantamiento de requerimientos.", Completada = false },
+            new() { TenantId = tenantId, TerceroId = TerceroId(0), Titulo = "Atencion PQR", Tipo = CitaTipo.Pqr, Inicio = Dia(20, 11, 0), DuracionMinutos = 30, Nota = "Seguimiento a caso abierto.", Completada = false },
+            new() { TenantId = tenantId, TerceroId = TerceroId(4), Titulo = "Cierre de negociacion", Tipo = CitaTipo.Reunion, Inicio = Dia(25, 16, 0), DuracionMinutos = 60, Nota = "Firma de contrato.", Completada = false }
+        };
+        _db.Citas.AddRange(citas);
+
+        // 5) Filtros dinamicos: criterios que aciertan sobre los terceros del Directorio, con
+        // ConteoAnterior distinto al conteo actual para que el % de crecimiento se vea.
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        string Crit(string campo, string op, string valor)
+            => System.Text.Json.JsonSerializer.Serialize(
+                new[] { new Ecorex.Application.Gestor.FiltroCriterio(campo, op, valor) }, jsonOpts);
+        var filtros = new List<TerceroFiltro>
+        {
+            new() { TenantId = tenantId, Nombre = "Clientes activos", Descripcion = "Terceros con perfil cliente.", Fuente = "Todos", CriteriosJson = Crit("perfil", "=", "Cliente"), ConteoAnterior = 2, FechaSnapshot = now, SortOrder = 0 },
+            new() { TenantId = tenantId, Nombre = "Proveedores", Descripcion = "Terceros con perfil proveedor.", Fuente = "Todos", CriteriosJson = Crit("perfil", "=", "Proveedor"), ConteoAnterior = 1, FechaSnapshot = now, SortOrder = 1 },
+            new() { TenantId = tenantId, Nombre = "Contactos Bogota", Descripcion = "Terceros de la ciudad de Bogota.", Fuente = "Maps", CriteriosJson = Crit("ciudad", "=", "Bogota"), ConteoAnterior = 4, FechaSnapshot = now, SortOrder = 2 },
+            new() { TenantId = tenantId, Nombre = "Empleados", Descripcion = "Terceros con perfil empleado.", Fuente = "Todos", CriteriosJson = Crit("perfil", "=", "Empleado"), ConteoAnterior = 0, FechaSnapshot = now, SortOrder = 3 },
+            new() { TenantId = tenantId, Nombre = "Sector Manufactura", Descripcion = "Empresas del sector manufactura.", Fuente = "LinkedIn", CriteriosJson = Crit("sector", "LIKE", "Manufactura"), ConteoAnterior = 1, FechaSnapshot = now, SortOrder = 4 }
+        };
+        _db.TerceroFiltros.AddRange(filtros);
+
+        // 6) Prospectos scrapeados (LinkedIn / Maps) sin promover.
+        (string Fuente, string Nombre, string Cargo, string Empresa, string Ciudad, string Metrica, string Badge, string Tel, string Correo)[] prospectos =
+        {
+            ("LinkedIn", "Andrea Cardona", "Gerente de Compras", "Nutresa", "Medellin", "2.340 conexiones", "Hot", "3001112233", "acardona@nutresa.local"),
+            ("LinkedIn", "Julian Restrepo", "Director de TI", "Bancolombia", "Medellin", "3.120 conexiones", "Calificado", "3002223344", "jrestrepo@banco.local"),
+            ("Maps", "Ferreteria El Tornillo", "Propietario", "Ferreteria El Tornillo", "Bogota", "4.9 estrellas - 89 resenas", "Nuevo", "6013334455", "ventas@eltornillo.local"),
+            ("Maps", "Cafe de la Montana", "Administrador", "Cafe de la Montana", "Manizales", "4.7 estrellas - 210 resenas", "Nuevo", "6068889900", "hola@cafemontana.local"),
+            ("LinkedIn", "Paola Nunez", "CEO", "Innovatek", "Bogota", "5.400 conexiones", "Hot", "3005556677", "pnunez@innovatek.local"),
+            ("LinkedIn", "Carlos Mejia", "Jefe de Logistica", "Coordinadora", "Cali", "1.980 conexiones", "Calificado", "3007778899", "cmejia@coord.local"),
+            ("Maps", "TecnoServicios SAS", "Gerente", "TecnoServicios SAS", "Barranquilla", "4.5 estrellas - 54 resenas", "Nuevo", "6053332211", "info@tecnoservicios.local"),
+            ("LinkedIn", "Mariana Vega", "Directora Comercial", "Alkosto", "Bogota", "2.760 conexiones", "Hot", "3009990011", "mvega@alkosto.local"),
+            ("Maps", "Distribuciones Norte", "Propietario", "Distribuciones Norte", "Cucuta", "4.3 estrellas - 32 resenas", "Nuevo", "6075554433", "contacto@distnorte.local"),
+            ("LinkedIn", "Sergio Ospina", "Coordinador de Proyectos", "Sura", "Medellin", "1.450 conexiones", "Calificado", "3002224466", "sospina@sura.local")
+        };
+        var i2 = 0;
+        foreach (var p in prospectos)
+        {
+            _db.ProspectosScrapeados.Add(new ProspectoScrapeado
+            {
+                TenantId = tenantId,
+                Fuente = p.Fuente,
+                NombreCompleto = p.Nombre,
+                Cargo = p.Cargo,
+                Empresa = p.Empresa,
+                Ciudad = p.Ciudad,
+                Metrica = p.Metrica,
+                Badge = p.Badge,
+                Telefono = p.Tel,
+                Correo = p.Correo,
+                FechaCaptura = now.AddDays(-i2)
+            });
+            i2++;
+        }
+
+        // Un solo SaveChanges para la asignacion de terceros + oportunidades + citas + filtros + prospectos.
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Gestor de Clientes demo sembrado para tenant {Tenant}: 5 columnas, {Ops} oportunidades, {Citas} citas, 5 filtros, 10 prospectos.",
+            tenantId, oportunidades.Count, citas.Count);
+    }
+
+    /// <summary>
     /// Siembra los campos configurables por ficha por defecto (IsSystem=true) del Directorio
     /// General (000232) para el tenant indicado, si aun no tiene ninguno. Idempotente. Estampa
     /// TenantId explicito. Reusa el catalogo de defaults del servicio (fuente unica).

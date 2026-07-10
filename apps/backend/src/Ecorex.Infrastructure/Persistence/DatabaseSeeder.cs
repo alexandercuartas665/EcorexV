@@ -2236,6 +2236,56 @@ public sealed class DatabaseSeeder
                 .Where(t => t.TenantId == tenant.Id).OrderBy(t => t.SortOrder).ToListAsync(cancellationToken);
         }
 
+        // ---- Campos configurables por tipo (ItemFieldDefinition, 000066) ----
+        // Se siembran aparte de los items (guard propio), para que la ficha muestre campos segun
+        // el tipo. Producto/Insumo/Servicio son los tipos sembrados arriba (por SortOrder 0/1/2).
+        if (!await _db.ItemFieldDefinitions.IgnoreQueryFilters().AnyAsync(f => f.TenantId == tenant.Id, cancellationToken))
+        {
+            ItemType? TypeByName(string name) => types.FirstOrDefault(t => t.Name == name);
+            // (tipo, [ (clave, label, tipoCampo, opciones, columna) ])
+            var fieldDefs = new (string TypeName, (string Key, string Label, TerceroFieldType Type, string? Options, int Column)[] Fields)[]
+            {
+                ("Producto",
+                [
+                    ("material", "Material", TerceroFieldType.Text, null, 1),
+                    ("garantia_meses", "Garantia (meses)", TerceroFieldType.Number, null, 1),
+                    ("color", "Color", TerceroFieldType.Text, null, 1)
+                ]),
+                ("Insumo",
+                [
+                    ("unidad_de_medida", "Unidad de medida", TerceroFieldType.Select, "Unidad\nCaja\nKilogramo\nLitro", 1),
+                    ("presentacion", "Presentacion", TerceroFieldType.Text, null, 1)
+                ]),
+                ("Servicio",
+                [
+                    ("modalidad", "Modalidad", TerceroFieldType.Select, "Presencial\nRemoto\nMixto", 1),
+                    ("duracion_estimada", "Duracion estimada", TerceroFieldType.Text, null, 1)
+                ])
+            };
+            foreach (var (typeName, fields) in fieldDefs)
+            {
+                var type = TypeByName(typeName);
+                if (type is null) { continue; }
+                var order = 0;
+                foreach (var (key, label, ftype, options, column) in fields)
+                {
+                    _db.ItemFieldDefinitions.Add(new ItemFieldDefinition
+                    {
+                        TenantId = tenant.Id,
+                        ItemTypeId = type.Id,
+                        FieldKey = key,
+                        Label = label,
+                        FieldType = ftype,
+                        Options = options,
+                        Column = column,
+                        SortOrder = order++,
+                        IsSystem = true
+                    });
+                }
+            }
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         // ---- Items (con stock e imagenes) ----
         if (await _db.Items.IgnoreQueryFilters().AnyAsync(i => i.TenantId == tenant.Id, cancellationToken))
         {
@@ -2313,8 +2363,8 @@ public sealed class DatabaseSeeder
             {
                 _db.ItemStocks.Add(new ItemStock { TenantId = tenant.Id, ItemId = items[idx].Id, WarehouseId = norte.Id, Stock = b });
             }
-            // 1-2 imagenes placeholder por item.
-            _db.ItemImages.Add(new ItemImage { TenantId = tenant.Id, ItemId = items[idx].Id, Url = placeholderImages[0], FileName = "principal.png", SortOrder = 0 });
+            // 1-2 imagenes placeholder por item; la primera queda como principal (portada).
+            _db.ItemImages.Add(new ItemImage { TenantId = tenant.Id, ItemId = items[idx].Id, Url = placeholderImages[0], FileName = "principal.png", SortOrder = 0, EsPrincipal = true, Texto = "Oferta" });
             if (idx % 2 == 0)
             {
                 _db.ItemImages.Add(new ItemImage { TenantId = tenant.Id, ItemId = items[idx].Id, Url = placeholderImages[1], FileName = "secundaria.png", SortOrder = 1 });

@@ -60,8 +60,8 @@ public sealed record SaveWarehouseRequest(
 /// <summary>Existencia de un item en una bodega (para el detalle y el grid).</summary>
 public sealed record ItemStockDto(Guid WarehouseId, string WarehouseName, int Stock);
 
-/// <summary>Imagen de un item por URL.</summary>
-public sealed record ItemImageDto(Guid Id, string Url, string? FileName, int SortOrder);
+/// <summary>Imagen de un item por URL. EsPrincipal marca la portada; Texto se superpone sobre la imagen.</summary>
+public sealed record ItemImageDto(Guid Id, string Url, string? FileName, int SortOrder, bool EsPrincipal = false, string? Texto = null);
 
 /// <summary>Fila del grid de items (con marca/grupo/tipo resueltos, stock total y por bodega).</summary>
 public sealed record ItemListDto(
@@ -99,7 +99,9 @@ public sealed record ItemDetailDto(
     IReadOnlyList<ItemImageDto> Images,
     IReadOnlyList<ItemStockDto> StockByWarehouse,
     int TotalStock,
-    IReadOnlyList<string> AvailableAt);
+    IReadOnlyList<string> AvailableAt,
+    // Datos tienda: pares etiqueta/valor ad-hoc del propio item (ya parseados del JSON).
+    IReadOnlyList<DatoTiendaDto> DatosTienda);
 
 /// <summary>
 /// Alta/edicion de un item. StockByWarehouse es un mapa WarehouseId -> cantidad; el servicio
@@ -118,7 +120,9 @@ public sealed record SaveItemRequest(
     string? FieldValuesJson = null,
     IReadOnlyDictionary<Guid, int>? StockByWarehouse = null,
     // Si es true, el servicio asigna un SKU consecutivo (prefijo "ITM") cuando el SKU viene vacio.
-    bool GenerateSku = false);
+    bool GenerateSku = false,
+    // Datos tienda: pares etiqueta/valor ad-hoc; el servicio serializa a DatosTiendaJson.
+    IReadOnlyList<DatoTiendaDto>? DatosTienda = null);
 
 /// <summary>Filtros y paginado del grid de items.</summary>
 public sealed record ItemQuery(

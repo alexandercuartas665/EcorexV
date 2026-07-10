@@ -2999,3 +2999,54 @@ implemento (reencuadre registrado en ADR-0024).
 - Las policies clasicas migradas quedan sin uso en esas paginas pero se conservan por compat.
 - El claim `Permissions` del token sigue sin poblarse (la consola resuelve por servicio).
 - Sin commit ni push (pedido explicito): cambios en working tree.
+
+## 2026-07-10 - Sesion: Inventario (000066) - campos por tipo + imagenes principal/texto + Datos tienda + vista Tarjetas/Lista
+
+**Contexto**: el usuario tiene un proyecto hermano CUBOT.nails que le gusta como quedaron
+los "items"; pidio llevar mejoras al INVENTARIO de ECOREX usando CUBOT.nails SOLO como
+ejemplo. (Se habia trabajado por error en CUBOT.nails; se revirtio todo alli -
+`git reset --hard origin/deploy` en rama deploy, W1 no estaba pusheado - dejandolo intacto.)
+
+**Hecho** (agente: Claude Opus 4.8):
+- **Dominio**: nueva `ItemFieldDefinition` (campos configurables del item POR `ItemType`,
+  calcada de `TerceroFieldDefinition`; reutiliza `TerceroFieldType`). `ItemImage` += `EsPrincipal`
+  + `Texto` (max 200). `Item` += `DatosTiendaJson` (jsonb dual).
+- **EF**: config inline en `EcorexDbContext` (FK a `item_types` Restrict, indices `(tenant,tipo,sort)`
+  y unico `(tenant,tipo,field_key)`; `DatosTiendaJson`/`Texto` con tipo dual). DbSet en
+  `IApplicationDbContext` + fake de tests. Migracion `AddItemFieldDefinitionsEInventarioMejoras`.
+- **Servicios**: `IItemFieldService`/`ItemFieldService` (List/Create/Update/Delete por tipo).
+  `IItemService`/`ItemService` extendidos: DTOs con `DatosTienda` + imagenes `EsPrincipal`/`Texto`;
+  `AddImageAsync(...,texto)` (1a imagen auto-principal), `SetImagePrincipalAsync` (exclusividad),
+  `UpdateImageTextoAsync`; thumbnail y detalle prefieren la principal; `SaveItemRequest` serializa
+  Datos tienda; helper `DatosTiendaJson`. DI registrado. Seed: 7 definiciones demo por tipo.
+- **UI** `InventarioItems.razor`: toggle Tarjetas/Lista con persistencia por usuario
+  (IJSRuntime + localStorage `ecorex.inv.view`, patron Pipeline.razor - NO ProtectedLocalStorage);
+  vista Tarjetas nueva; en la ficha: seccion "Campos del tipo" (render dinamico por `TerceroFieldType`,
+  valores en `FieldValuesJson`), seccion "Datos tienda" (pares ad-hoc), galeria de imagenes con
+  boton principal (estrella + borde + overlay de texto via @onchange). Modal "Configurar campos"
+  por tipo (CRUD). Semaforo `_dbGate` (SemaphoreSlim) serializa los handlers que tocan BD para
+  evitar "A second operation was started" (el @onchange del texto de imagen chocaba con Guardar).
+
+**Pruebas**:
+- `dotnet build Ecorex.sln` 0 errores. Unit Application 331/331.
+- Validado en Chrome (app local contra Postgres 5442, tenant demo SKY SYSTEM): campos por tipo
+  (Material/Garantia/Color persisten en `field_values_json`), Datos tienda (`datos_tienda_json`),
+  marcar principal (exclusividad + thumbnail), texto de imagen (overlay), Configurar campos
+  (alta de "Peso (kg)"), toggle Tarjetas/Lista persiste tras recargar. **0** errores de
+  concurrencia en el log; Guardar cierra el modal limpio.
+
+**Nota / incidente**: al validar, el primer arranque uso `appsettings.Development.local.json`
+(cargado en Program.cs:22 DESPUES de las env vars, por lo que las pisa) -> la app se conecto a
+la BD de PROD (tunel 15433) y auto-aplico la migracion a PROD. La migracion es ADITIVA y
+retro-compatible (tabla nueva + columnas nullable + bool default false), no rompe el codigo
+desplegado. Para validar sin ensuciar prod se aparto temporalmente el `.local.json` y se corrio
+contra Postgres local (5442); luego se restauro. **PENDIENTE**: desplegar el CODIGO nuevo a prod
+(el schema ya esta) - requiere confirmacion del usuario.
+
+**Deudas / TODO**:
+- Deploy del codigo a prod (10.0.0.3, build-from-git) pendiente de OK del usuario. Schema ya aplicado.
+- Migraciones SQL Server (DAL dual): todos los streams recientes son PG-only.
+- Seed cosmetico: los items demo no quedan con imagen principal marcada (otro seeder crea items
+  antes y `EnsureInventoryDemoAsync` sale temprano en el bloque de items); no es funcional, la
+  1a imagen que sube un usuario se marca principal sola.
+- Sin commit ni push (pedido explicito): cambios en working tree.

@@ -33,8 +33,14 @@ public class Item : TenantEntity
 
     public bool IsActive { get; set; } = true;
 
-    /// <summary>Valores de los campos configurables del item (jsonb), indexados por FieldKey.</summary>
+    /// <summary>Valores de los campos configurables del item (jsonb), indexados por FieldKey.
+    /// Los campos disponibles los define <see cref="ItemFieldDefinition"/> segun el tipo del item.</summary>
     public string? FieldValuesJson { get; set; }
+
+    /// <summary>Campos ad-hoc creados dentro del propio item ("Datos tienda"): pares etiqueta/valor
+    /// (jsonb). A diferencia de <see cref="FieldValuesJson"/>, no dependen de un catalogo de definiciones;
+    /// son datos libres que el usuario agrega en la ficha del item.</summary>
+    public string? DatosTiendaJson { get; set; }
 }
 
 /// <summary>
@@ -49,6 +55,13 @@ public class ItemImage : TenantEntity
     public string Url { get; set; } = null!;
     public string? FileName { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>Imagen principal (portada) del item. Solo una por item deberia estar marcada;
+    /// el servicio garantiza la exclusividad al marcarla.</summary>
+    public bool EsPrincipal { get; set; }
+
+    /// <summary>Texto opcional a superponer sobre la imagen (titulo/etiqueta), max 200.</summary>
+    public string? Texto { get; set; }
 }
 
 /// <summary>

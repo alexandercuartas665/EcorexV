@@ -160,6 +160,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Item> Items => Set<Item>();
     public DbSet<ItemImage> ItemImages => Set<ItemImage>();
     public DbSet<ItemStock> ItemStocks => Set<ItemStock>();
+    public DbSet<ItemFieldDefinition> ItemFieldDefinitions => Set<ItemFieldDefinition>();
 
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
@@ -1566,6 +1567,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Specifications).HasColumnType(longTextColumnType);
             b.Property(x => x.Price).HasPrecision(14, 2);
             b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
+            // "Datos tienda": pares etiqueta/valor ad-hoc del propio item (jsonb en PG / nvarchar(max) en SQL Server).
+            b.Property(x => x.DatosTiendaJson).HasColumnType(jsonColumnType);
             // Catalogos normalizados: todas las FKs NO ACTION (Restrict = NO ACTION en ambos
             // motores). Borrar/archivar un catalogo nunca arrastra items por cascada.
             b.HasOne(x => x.Brand).WithMany()
@@ -1590,10 +1593,26 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Url).HasMaxLength(500).IsRequired();
             b.Property(x => x.FileName).HasMaxLength(255);
+            b.Property(x => x.Texto).HasMaxLength(200);
             // La imagen vive y muere con el item.
             b.HasOne(x => x.Item).WithMany()
                 .HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.ItemId, x.SortOrder });
+        });
+
+        // Campos configurables del item POR tipo (000066). Calcado de TerceroFieldDefinition,
+        // agrupando por ItemType en vez de por ficha. FK al tipo NO ACTION (Restrict): borrar el
+        // catalogo de tipo no arrastra sus definiciones por cascada. FieldKey unico por (tenant, tipo).
+        modelBuilder.Entity<ItemFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Options).HasMaxLength(2000);
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasOne(x => x.ItemType).WithMany()
+                .HasForeignKey(x => x.ItemTypeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ItemTypeId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.ItemTypeId, x.FieldKey }).IsUnique();
         });
 
         modelBuilder.Entity<ItemStock>(b =>

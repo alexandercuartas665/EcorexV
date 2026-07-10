@@ -110,6 +110,8 @@ public interface IApplicationDbContext
     DbSet<Item> Items { get; }
     DbSet<ItemImage> ItemImages { get; }
     DbSet<ItemStock> ItemStocks { get; }
+    // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
+    DbSet<ItemFieldDefinition> ItemFieldDefinitions { get; }
 
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }

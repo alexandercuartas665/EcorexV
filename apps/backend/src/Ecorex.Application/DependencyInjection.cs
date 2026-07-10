@@ -110,6 +110,8 @@ public static class DependencyInjection
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
+        // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
+        services.AddScoped<Inventory.IItemFieldService, Inventory.ItemFieldService>();
         // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
         services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
         // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant,

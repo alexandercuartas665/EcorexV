@@ -2,11 +2,16 @@
 @attribute [Authorize(Policy = "Perm:inventario-items:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
+@using System.Text.Json
 @using Ecorex.Application.Inventory
 @using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
+@implements IDisposable
 @inject IItemService ItemSvc
 @inject IInventoryCatalogService CatalogSvc
+@inject IItemFieldService FieldSvc
+@inject IJSRuntime JS
 @inject ICurrentPermissions Perms
 
 <PageTitle>Items de inventarios - ECOREX.tareas</PageTitle>
@@ -32,7 +37,11 @@
         <h1 class="page-title" style="margin-top:12px;">Items de inventarios</h1>
         <p class="page-sub" style="margin-bottom:0;">Catalogo de items con marca, grupo y tipo normalizados, imagenes y stock por bodega.</p>
     </div>
-    <div>
+    <div style="display:flex;gap:8px;">
+        @if (_canEdit)
+        {
+            <button class="btn btn-outline-secondary" @onclick="OpenFieldsConfig">&#9881; Configurar campos</button>
+        }
         @if (_canCreate)
         {
             <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nuevo item</button>
@@ -75,6 +84,10 @@
         <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await ApplyFiltersAsync(); })" />
         Ver archivados
     </label>
+    <div class="inv-viewtoggle" role="group" aria-label="Modo de vista">
+        <button type="button" class="@(_view == "cards" ? "active" : "")" @onclick="@(() => SetViewAsync("cards"))" title="Tarjetas">&#9632;&#9632; Tarjetas</button>
+        <button type="button" class="@(_view == "list" ? "active" : "")" @onclick="@(() => SetViewAsync("list"))" title="Lista">&#9776; Lista</button>
+    </div>
 </div>
 
 @if (_loading)
@@ -94,6 +107,8 @@ else if (_page.Items.Count == 0)
 }
 else
 {
+    @if (_view == "list")
+    {
     <table class="table table-hover inv-items-table">
         <thead>
             <tr>
@@ -158,6 +173,55 @@ else
             }
         </tbody>
     </table>
+    }
+    else
+    {
+        <div class="inv-cards">
+            @foreach (var i in _page.Items)
+            {
+                <div class="inv-card @(i.IsActive ? "" : "inactive")">
+                    <div class="inv-card-media">
+                        @if (!string.IsNullOrEmpty(i.ThumbnailUrl))
+                        {
+                            <img src="@i.ThumbnailUrl" alt="@i.Name" />
+                        }
+                        else
+                        {
+                            <span class="inv-card-noimg">@Initials(i.Name)</span>
+                        }
+                        @if (!i.IsActive)
+                        {
+                            <span class="inv-card-badge">Archivado</span>
+                        }
+                    </div>
+                    <div class="inv-card-body">
+                        <div class="inv-card-title">@i.Name</div>
+                        <div class="inv-card-sub">@(string.IsNullOrEmpty(i.Sku) ? "Sin SKU" : i.Sku) &#183; @(i.ItemTypeName ?? "Sin tipo")</div>
+                        <div class="inv-card-meta">
+                            <span class="inv-card-price">@FormatPrice(i.Price)</span>
+                            <span class="inv-card-stock">Stock: <strong>@i.TotalStock</strong></span>
+                        </div>
+                        <div class="inv-card-tags">
+                            @if (!string.IsNullOrEmpty(i.BrandName)) { <span class="inv-card-tag">@i.BrandName</span> }
+                            @if (!string.IsNullOrEmpty(i.GroupName)) { <span class="inv-card-tag">@i.GroupName</span> }
+                        </div>
+                    </div>
+                    <div class="inv-card-actions">
+                        @if (_canEdit)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(i.Id))">Editar</button>
+                        }
+                        @if (_canDelete)
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(i))" disabled="@_busy">
+                                @(i.IsActive ? "Archivar" : "Restaurar")
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
 
     @if (_page.Total > _page.PageSize)
     {
@@ -226,7 +290,7 @@ else
                     </div>
                     <div class="col-md-3 field">
                         <label class="form-label">Tipo</label>
-                        <select class="form-control" @bind="_fType">
+                        <select class="form-control" @bind="_fType" @bind:after="OnTypeChangedAsync">
                             <option value="">(Ninguno)</option>
                             @foreach (var t in _types)
                             {
@@ -252,6 +316,66 @@ else
                 <div class="field">
                     <label class="form-label">Especificaciones</label>
                     <textarea class="form-control" rows="2" @bind="_fSpecifications"></textarea>
+                </div>
+
+                @* ---- Campos configurables segun el tipo ---- *@
+                @if (_typeFields.Count > 0)
+                {
+                    <div class="inv-dynfields">
+                        <div class="inv-section-title">Campos del tipo</div>
+                        <div class="row g-2">
+                            @foreach (var f in _typeFields)
+                            {
+                                if (f.FieldType == TerceroFieldType.Separator)
+                                {
+                                    <div class="col-12"><div class="inv-fld-sep">@f.Label</div></div>
+                                }
+                                else
+                                {
+                                    <div class="@(f.Column >= 2 ? "col-12" : "col-md-6") field">
+                                        <label class="form-label">@f.Label</label>
+                                        @if (f.FieldType == TerceroFieldType.Select)
+                                        {
+                                            <select class="form-control" value="@GetFieldValue(f.FieldKey)" @onchange="@(e => SetFieldValue(f.FieldKey, e.Value?.ToString()))">
+                                                <option value="">(Sin valor)</option>
+                                                @foreach (var opt in SplitOptions(f.Options))
+                                                {
+                                                    <option value="@opt">@opt</option>
+                                                }
+                                            </select>
+                                        }
+                                        else if (f.FieldType == TerceroFieldType.TextArea)
+                                        {
+                                            <textarea class="form-control" rows="2" value="@GetFieldValue(f.FieldKey)" @onchange="@(e => SetFieldValue(f.FieldKey, e.Value?.ToString()))"></textarea>
+                                        }
+                                        else
+                                        {
+                                            <input class="form-control" type="@FieldInputType(f.FieldType)" value="@GetFieldValue(f.FieldKey)" @onchange="@(e => SetFieldValue(f.FieldKey, e.Value?.ToString()))" />
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(f.Description))
+                                        {
+                                            <small class="inv-fld-help">@f.Description</small>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+
+                @* ---- Datos tienda (pares ad-hoc del item) ---- *@
+                <div class="field">
+                    <label class="form-label">Datos tienda</label>
+                    <div class="inv-fld-help" style="margin-bottom:6px;">Pares etiqueta / valor propios de este item.</div>
+                    @foreach (var d in _datos)
+                    {
+                        <div class="inv-dato-row">
+                            <input class="form-control" placeholder="Etiqueta" @bind="d.Etiqueta" />
+                            <input class="form-control" placeholder="Valor" @bind="d.Valor" />
+                            <button class="btn btn-sm btn-outline-danger" type="button" @onclick="@(() => _datos.Remove(d))" title="Quitar">&times;</button>
+                        </div>
+                    }
+                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="@(() => _datos.Add(new FormDato()))">+ Agregar dato</button>
                 </div>
 
                 @* ---- Stock por bodega ---- *@
@@ -286,9 +410,25 @@ else
                         <div class="inv-images">
                             @foreach (var img in _images)
                             {
-                                <div class="inv-image-chip">
+                                <div class="inv-image-chip @(img.EsPrincipal ? "principal" : "")">
                                     <img src="@img.Url" alt="@img.FileName" />
+                                    @if (!string.IsNullOrWhiteSpace(img.Texto))
+                                    {
+                                        <span class="inv-image-overlay">@img.Texto</span>
+                                    }
+                                    @if (img.EsPrincipal)
+                                    {
+                                        <span class="inv-image-star" title="Imagen principal">&#9733;</span>
+                                    }
                                     <button class="inv-image-del" title="Quitar" @onclick="@(() => RemoveImageAsync(img.Id))" disabled="@_busy">&times;</button>
+                                    <div class="inv-image-tools">
+                                        @if (!img.EsPrincipal)
+                                        {
+                                            <button type="button" class="inv-image-mkprin" title="Marcar principal" @onclick="@(() => SetPrincipalAsync(img.Id))" disabled="@_busy">&#9734; Principal</button>
+                                        }
+                                        <input class="form-control form-control-sm inv-image-texto" placeholder="Texto sobre la imagen" maxlength="200"
+                                               value="@img.Texto" @onchange="@(e => UpdateTextoAsync(img.Id, e.Value?.ToString()))" disabled="@_busy" />
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -312,6 +452,118 @@ else
     </div>
 }
 
+@* ===== Modal configurar campos por tipo ===== *@
+@if (_showFieldsConfig)
+{
+    <div class="modal-overlay" @onclick="@(() => _showFieldsConfig = false)">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configurar campos por tipo</h3>
+                <button class="modal-close" @onclick="@(() => _showFieldsConfig = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="inv-fld-help">Los campos se capturan en la ficha de cada item segun su tipo (producto, servicio, insumo...).</p>
+                <div class="field">
+                    <label class="form-label">Tipo</label>
+                    <select class="form-control" @bind="_cfgType" @bind:after="OnCfgTypeChangedAsync">
+                        <option value="">(Elige un tipo)</option>
+                        @foreach (var t in _types)
+                        {
+                            <option value="@t.Id">@t.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_cfgType))
+                {
+                    @if (_cfgFields.Count == 0)
+                    {
+                        <p class="inv-fld-help">Sin campos para este tipo. Agrega el primero abajo.</p>
+                    }
+                    else
+                    {
+                        <ul class="inv-cfg-list">
+                            @foreach (var f in _cfgFields)
+                            {
+                                <li>
+                                    <div>
+                                        <strong>@f.Label</strong> <span class="inv-fld-help">(@f.FieldKey)</span>
+                                        <div class="inv-fld-help">@TypeLabel(f.FieldType) &#183; col @f.Column @(f.IsRequired ? "· obligatorio" : "")</div>
+                                    </div>
+                                    <div style="display:flex;gap:6px;">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditCfgField(f))" disabled="@_busy">Editar</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteCfgFieldAsync(f.Id))" disabled="@_busy">&times;</button>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+
+                    <div class="inv-cfg-form">
+                        <div class="inv-section-title">@(_cfgEditId is null ? "Nuevo campo" : "Editar campo")</div>
+                        <div class="row g-2">
+                            <div class="col-md-6 field">
+                                <label class="form-label">Etiqueta *</label>
+                                <input class="form-control" @bind="_cfgLabel" maxlength="150" placeholder="Ej. Material, Garantia" />
+                            </div>
+                            <div class="col-md-6 field">
+                                <label class="form-label">Tipo de campo</label>
+                                <select class="form-control" @bind="_cfgFieldType">
+                                    <option value="@TerceroFieldType.Text">Texto</option>
+                                    <option value="@TerceroFieldType.TextArea">Texto largo</option>
+                                    <option value="@TerceroFieldType.Number">Numero</option>
+                                    <option value="@TerceroFieldType.Currency">Monto ($)</option>
+                                    <option value="@TerceroFieldType.Select">Lista</option>
+                                    <option value="@TerceroFieldType.Date">Fecha</option>
+                                    <option value="@TerceroFieldType.Phone">Telefono</option>
+                                    <option value="@TerceroFieldType.Separator">Separador</option>
+                                </select>
+                            </div>
+                        </div>
+                        @if (_cfgFieldType == TerceroFieldType.Select)
+                        {
+                            <div class="field">
+                                <label class="form-label">Opciones (una por linea)</label>
+                                <textarea class="form-control" rows="3" @bind="_cfgOptions"></textarea>
+                            </div>
+                        }
+                        <div class="row g-2">
+                            <div class="col-md-6 field">
+                                <label class="form-label">Ayuda / descripcion</label>
+                                <input class="form-control" @bind="_cfgDescription" maxlength="600" />
+                            </div>
+                            <div class="col-md-3 field">
+                                <label class="form-label">Columna</label>
+                                <select class="form-control" @bind="_cfgColumn">
+                                    <option value="1">1 (media)</option>
+                                    <option value="2">2 (completa)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 field" style="display:flex;align-items:flex-end;">
+                                <label class="pl-toggle"><input type="checkbox" @bind="_cfgRequired" /> Obligatorio</label>
+                            </div>
+                        </div>
+                        @if (_cfgError is not null)
+                        {
+                            <div class="tk-field-error">@_cfgError</div>
+                        }
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-sm btn-primary" @onclick="SaveCfgFieldAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_cfgLabel))">@(_cfgEditId is null ? "+ Agregar campo" : "Guardar campo")</button>
+                            @if (_cfgEditId is not null)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="ResetCfgForm">Cancelar</button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showFieldsConfig = false)">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .inv-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
     .inv-thumb { width: 40px; height: 40px; border-radius: 9px; object-fit: cover; border: 1px solid var(--line, var(--border)); }
@@ -325,6 +577,49 @@ else
     .inv-image-chip img { width: 56px; height: 56px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line, var(--border)); }
     .inv-image-del { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border: 0; border-radius: 999px; background: var(--danger, var(--destructive)); color: #fff; font-size: 13px; line-height: 1; cursor: pointer; }
     .muted-cell small { color: var(--ink-3, var(--muted-foreground)); font-size: 11px; }
+
+    /* Toggle de vista Tarjetas/Lista */
+    .inv-viewtoggle { display: inline-flex; border: 1px solid var(--line, var(--border)); border-radius: 9px; overflow: hidden; }
+    .inv-viewtoggle button { border: 0; background: transparent; padding: 6px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink-2, var(--muted-foreground)); cursor: pointer; }
+    .inv-viewtoggle button.active { background: var(--t-violet, var(--primary)); color: #fff; }
+
+    /* Tarjetas */
+    .inv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+    .inv-card { display: flex; flex-direction: column; border: 1px solid var(--line, var(--border)); border-radius: 12px; overflow: hidden; background: var(--surface, var(--card)); }
+    .inv-card.inactive { opacity: .6; }
+    .inv-card-media { position: relative; height: 140px; background: var(--surface-2, var(--accent)); display: grid; place-items: center; }
+    .inv-card-media img { width: 100%; height: 100%; object-fit: cover; }
+    .inv-card-noimg { font-size: 26px; font-weight: 800; color: var(--t-violet, var(--primary)); }
+    .inv-card-badge { position: absolute; top: 8px; left: 8px; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.6); color: #fff; }
+    .inv-card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .inv-card-title { font-weight: 800; font-size: 14px; line-height: 1.25; }
+    .inv-card-sub { font-size: 11.5px; color: var(--ink-3, var(--muted-foreground)); }
+    .inv-card-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; font-size: 12.5px; }
+    .inv-card-price { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .inv-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+    .inv-card-tag { font-size: 10.5px; padding: 2px 7px; border-radius: 6px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
+    .inv-card-actions { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line, var(--border)); }
+
+    /* Campos dinamicos + datos tienda */
+    .inv-section-title { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3, var(--muted-foreground)); margin: 6px 0; }
+    .inv-fld-help { color: var(--ink-3, var(--muted-foreground)); font-size: 11.5px; display: block; }
+    .inv-fld-sep { border-top: 1px solid var(--line, var(--border)); padding-top: 6px; margin-top: 4px; font-weight: 700; font-size: 12px; color: var(--ink-2, var(--muted-foreground)); }
+    .inv-dynfields { border: 1px dashed var(--line, var(--border)); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+    .inv-dato-row { display: flex; gap: 6px; margin-bottom: 6px; }
+
+    /* Galeria de imagenes: principal + texto */
+    .inv-image-chip.principal img { outline: 2px solid var(--t-violet, var(--primary)); outline-offset: -2px; }
+    .inv-image-chip img { width: 96px; height: 96px; }
+    .inv-image-overlay { position: absolute; left: 4px; bottom: 22px; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: rgba(0,0,0,.6); color: #fff; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inv-image-star { position: absolute; top: -6px; left: -6px; color: #f5b301; font-size: 15px; }
+    .inv-image-tools { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
+    .inv-image-mkprin { border: 1px solid var(--line, var(--border)); background: transparent; border-radius: 6px; font-size: 10.5px; padding: 1px 5px; cursor: pointer; }
+    .inv-image-texto { font-size: 11px; padding: 2px 6px; width: 96px; }
+
+    /* Configurador de campos */
+    .inv-cfg-list { list-style: none; padding: 0; margin: 8px 0; }
+    .inv-cfg-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line, var(--border)); }
+    .inv-cfg-form { border-top: 1px solid var(--line, var(--border)); margin-top: 8px; padding-top: 10px; }
 </style>
 
 @code {
@@ -375,7 +670,68 @@ else
     private string? _newImageUrl;
     private string? _editorError;
 
+    // Campos configurables segun el tipo del item + valores capturados.
+    private IReadOnlyList<ItemFieldDto> _typeFields = [];
+    private readonly Dictionary<string, string?> _fieldValues = new();
+    // "Datos tienda": pares etiqueta/valor ad-hoc del item.
+    private readonly List<FormDato> _datos = new();
+
+    // Vista Tarjetas/Lista, persistida por usuario (localStorage).
+    private string _view = "list";
+    private bool _viewLoaded;
+    private const string ViewStorageKey = "ecorex.inv.view";
+
+    // Serializa el acceso a la BD (el DbContext scoped se comparte en el circuito): el @onchange
+    // del texto de imagen puede chocar con Guardar. Gate en handlers de nivel superior.
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
+    // Configurador de campos por tipo.
+    private bool _showFieldsConfig;
+    private string _cfgType = "";
+    private IReadOnlyList<ItemFieldDto> _cfgFields = [];
+    private Guid? _cfgEditId;
+    private string _cfgLabel = "";
+    private TerceroFieldType _cfgFieldType = TerceroFieldType.Text;
+    private string? _cfgOptions;
+    private string? _cfgDescription;
+    private int _cfgColumn = 1;
+    private bool _cfgRequired;
+    private string? _cfgError;
+
     private int TotalPages => (int)Math.Ceiling(_page.Total / (double)_page.PageSize);
+
+    private async Task GuardAsync(Func<Task> op)
+    {
+        await _dbGate.WaitAsync();
+        try { await op(); }
+        finally { _dbGate.Release(); }
+    }
+
+    public void Dispose() => _dbGate.Dispose();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _viewLoaded) { return; }
+        _viewLoaded = true;
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", ViewStorageKey);
+            if (saved is "cards" or "list" && saved != _view)
+            {
+                _view = saved;
+                StateHasChanged();
+            }
+        }
+        catch { /* localStorage no disponible: se queda con la vista por defecto */ }
+    }
+
+    private async Task SetViewAsync(string view)
+    {
+        if (_view == view) { return; }
+        _view = view;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", ViewStorageKey, view); }
+        catch { /* tolerante */ }
+    }
 
     private IEnumerable<CatalogEntryDto> SubgroupsForSelectedGroup
         => Guid.TryParse(_fGroup, out var gid)
@@ -456,9 +812,13 @@ else
         _newImageUrl = null;
         _stock.Clear();
         _images = [];
+        _fieldValues.Clear();
+        _datos.Clear();
+        _typeFields = [];
         if (itemId is Guid id)
         {
-            var detail = await ItemSvc.GetDetailAsync(id);
+            ItemDetailDto? detail = null;
+            await GuardAsync(async () => detail = await ItemSvc.GetDetailAsync(id));
             if (detail is null) { return; }
             _editingId = id;
             _fName = detail.Name;
@@ -476,6 +836,12 @@ else
                 _stock[s.WarehouseId] = s.Stock;
             }
             _images = detail.Images;
+            LoadFieldValues(detail.FieldValuesJson);
+            foreach (var d in detail.DatosTienda)
+            {
+                _datos.Add(new FormDato { Etiqueta = d.Etiqueta, Valor = d.Valor });
+            }
+            await LoadTypeFieldsAsync();
         }
         else
         {
@@ -491,83 +857,266 @@ else
         _showEditor = true;
     }
 
+    private Task OnTypeChangedAsync() => LoadTypeFieldsAsync();
+
+    private async Task LoadTypeFieldsAsync()
+    {
+        if (Guid.TryParse(_fType, out var typeId))
+        {
+            await GuardAsync(async () => _typeFields = await FieldSvc.ListByTypeAsync(typeId));
+        }
+        else
+        {
+            _typeFields = [];
+        }
+    }
+
+    private void LoadFieldValues(string? json)
+    {
+        _fieldValues.Clear();
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, string?>>(json);
+            if (dict is not null)
+            {
+                foreach (var (k, v) in dict) { _fieldValues[k] = v; }
+            }
+        }
+        catch (JsonException) { /* json invalido: se ignora */ }
+    }
+
+    private string GetFieldValue(string key) => _fieldValues.TryGetValue(key, out var v) ? v ?? "" : "";
+    private void SetFieldValue(string key, string? value) => _fieldValues[key] = string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string[] SplitOptions(string? options)
+        => string.IsNullOrWhiteSpace(options)
+            ? []
+            : options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string FieldInputType(TerceroFieldType type) => type switch
+    {
+        TerceroFieldType.Number or TerceroFieldType.Currency => "number",
+        TerceroFieldType.Date => "date",
+        TerceroFieldType.Phone => "tel",
+        _ => "text"
+    };
+
+    private static string TypeLabel(TerceroFieldType type) => type switch
+    {
+        TerceroFieldType.Text => "Texto",
+        TerceroFieldType.TextArea => "Texto largo",
+        TerceroFieldType.Number => "Numero",
+        TerceroFieldType.Currency => "Monto",
+        TerceroFieldType.Select => "Lista",
+        TerceroFieldType.Date => "Fecha",
+        TerceroFieldType.Phone => "Telefono",
+        TerceroFieldType.Separator => "Separador",
+        _ => type.ToString()
+    };
+
     private async Task SaveAsync()
     {
         _busy = true;
         _editorError = null;
-        var request = new SaveItemRequest(
-            _fName,
-            _fSku,
-            _fDescription,
-            _fSpecifications,
-            _fPrice,
-            Guid.TryParse(_fBrand, out var b) ? b : null,
-            Guid.TryParse(_fGroup, out var g) ? g : null,
-            Guid.TryParse(_fSubgroup, out var s) ? s : null,
-            Guid.TryParse(_fType, out var t) ? t : null,
-            null,
-            new Dictionary<Guid, int>(_stock),
-            _generateSku);
-        var result = _editingId is null
-            ? await ItemSvc.CreateAsync(request)
-            : await ItemSvc.UpdateAsync(_editingId.Value, request);
-        if (!result.IsOk)
+        await _dbGate.WaitAsync();
+        try
         {
-            _editorError = result.Error;
-            _busy = false;
-            return;
+            var request = new SaveItemRequest(
+                _fName,
+                _fSku,
+                _fDescription,
+                _fSpecifications,
+                _fPrice,
+                Guid.TryParse(_fBrand, out var b) ? b : null,
+                Guid.TryParse(_fGroup, out var g) ? g : null,
+                Guid.TryParse(_fSubgroup, out var s) ? s : null,
+                Guid.TryParse(_fType, out var t) ? t : null,
+                BuildFieldValuesJson(),
+                new Dictionary<Guid, int>(_stock),
+                _generateSku,
+                _datos.Where(d => !string.IsNullOrWhiteSpace(d.Etiqueta))
+                    .Select(d => new DatoTiendaDto(d.Etiqueta, d.Valor ?? "")).ToList());
+            var result = _editingId is null
+                ? await ItemSvc.CreateAsync(request)
+                : await ItemSvc.UpdateAsync(_editingId.Value, request);
+            if (!result.IsOk)
+            {
+                _editorError = result.Error;
+                return;
+            }
+            _showEditor = false;
+            await ReloadAsync();
         }
-        _showEditor = false;
-        _busy = false;
-        await ReloadAsync();
+        finally
+        {
+            _dbGate.Release();
+            _busy = false;
+        }
+    }
+
+    // Serializa solo los valores de los campos que pertenecen al tipo actual (evita claves
+    // huerfanas de un tipo anterior) y no vacios. Null si no hay ninguno.
+    private string? BuildFieldValuesJson()
+    {
+        var keys = _typeFields.Select(f => f.FieldKey).ToHashSet();
+        var dict = _fieldValues
+            .Where(kv => keys.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        return dict.Count == 0 ? null : JsonSerializer.Serialize(dict);
     }
 
     private async Task ToggleActiveAsync(ItemListDto item)
     {
         _busy = true;
         _pageError = null;
-        var result = await ItemSvc.SetActiveAsync(item.Id, !item.IsActive);
-        if (!result.IsOk)
+        await _dbGate.WaitAsync();
+        try
         {
-            _pageError = result.Error;
+            var result = await ItemSvc.SetActiveAsync(item.Id, !item.IsActive);
+            if (!result.IsOk) { _pageError = result.Error; }
+            else { await ReloadAsync(); }
         }
-        else
-        {
-            await ReloadAsync();
-        }
-        _busy = false;
+        finally { _dbGate.Release(); _busy = false; }
     }
+
+    // ---- Configurador de campos por tipo ----
+
+    private void OpenFieldsConfig()
+    {
+        _cfgType = "";
+        _cfgFields = [];
+        ResetCfgForm();
+        _showFieldsConfig = true;
+    }
+
+    private Task OnCfgTypeChangedAsync() => GuardAsync(async () =>
+    {
+        ResetCfgForm();
+        _cfgFields = Guid.TryParse(_cfgType, out var typeId)
+            ? await FieldSvc.ListByTypeAsync(typeId)
+            : [];
+    });
+
+    private void EditCfgField(ItemFieldDto f)
+    {
+        _cfgEditId = f.Id;
+        _cfgLabel = f.Label;
+        _cfgFieldType = f.FieldType;
+        _cfgOptions = f.Options;
+        _cfgDescription = f.Description;
+        _cfgColumn = f.Column;
+        _cfgRequired = f.IsRequired;
+        _cfgError = null;
+    }
+
+    private void ResetCfgForm()
+    {
+        _cfgEditId = null;
+        _cfgLabel = "";
+        _cfgFieldType = TerceroFieldType.Text;
+        _cfgOptions = null;
+        _cfgDescription = null;
+        _cfgColumn = 1;
+        _cfgRequired = false;
+        _cfgError = null;
+    }
+
+    private Task SaveCfgFieldAsync() => GuardAsync(async () =>
+    {
+        _cfgError = null;
+        if (!Guid.TryParse(_cfgType, out var typeId)) { _cfgError = "Elige un tipo."; return; }
+        if (string.IsNullOrWhiteSpace(_cfgLabel)) { _cfgError = "La etiqueta es obligatoria."; return; }
+        _busy = true;
+        try
+        {
+            if (_cfgEditId is Guid editId)
+            {
+                var upd = new UpdateItemFieldRequest(_cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, _cfgDescription, _cfgRequired);
+                var r = await FieldSvc.UpdateFieldAsync(editId, upd);
+                if (r is null) { _cfgError = "No se pudo guardar el campo."; return; }
+            }
+            else
+            {
+                var req = new CreateItemFieldRequest(typeId, _cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, null, _cfgDescription, _cfgRequired);
+                var r = await FieldSvc.CreateFieldAsync(req);
+                if (r is null) { _cfgError = "No se pudo crear el campo."; return; }
+            }
+            ResetCfgForm();
+            _cfgFields = await FieldSvc.ListByTypeAsync(typeId);
+            // Si el item abierto es de este tipo, refresca sus campos en vivo.
+            if (_showEditor && _fType == _cfgType) { _typeFields = _cfgFields; }
+        }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteCfgFieldAsync(Guid fieldId) => GuardAsync(async () =>
+    {
+        _busy = true;
+        try
+        {
+            await FieldSvc.DeleteFieldAsync(fieldId);
+            if (Guid.TryParse(_cfgType, out var typeId))
+            {
+                _cfgFields = await FieldSvc.ListByTypeAsync(typeId);
+                if (_showEditor && _fType == _cfgType) { _typeFields = _cfgFields; }
+            }
+        }
+        finally { _busy = false; }
+    });
 
     private async Task AddImageAsync()
     {
         if (_editingId is not Guid id || string.IsNullOrWhiteSpace(_newImageUrl)) { return; }
         _busy = true;
         _editorError = null;
-        var result = await ItemSvc.AddImageAsync(id, _newImageUrl.Trim());
-        if (!result.IsOk)
+        await _dbGate.WaitAsync();
+        try
         {
-            _editorError = result.Error;
+            var result = await ItemSvc.AddImageAsync(id, _newImageUrl.Trim());
+            if (!result.IsOk) { _editorError = result.Error; }
+            else { _newImageUrl = null; await RefreshImagesAsync(id); }
         }
-        else
-        {
-            _newImageUrl = null;
-            var detail = await ItemSvc.GetDetailAsync(id);
-            _images = detail?.Images ?? [];
-        }
-        _busy = false;
+        finally { _dbGate.Release(); _busy = false; }
     }
 
     private async Task RemoveImageAsync(Guid imageId)
     {
         if (_editingId is not Guid id) { return; }
         _busy = true;
-        var result = await ItemSvc.RemoveImageAsync(imageId);
-        if (result.IsOk)
+        await _dbGate.WaitAsync();
+        try
         {
-            var detail = await ItemSvc.GetDetailAsync(id);
-            _images = detail?.Images ?? [];
+            var result = await ItemSvc.RemoveImageAsync(imageId);
+            if (result.IsOk) { await RefreshImagesAsync(id); }
         }
-        _busy = false;
+        finally { _dbGate.Release(); _busy = false; }
+    }
+
+    private async Task SetPrincipalAsync(Guid imageId)
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        await _dbGate.WaitAsync();
+        try
+        {
+            var result = await ItemSvc.SetImagePrincipalAsync(imageId);
+            if (result.IsOk) { await RefreshImagesAsync(id); }
+        }
+        finally { _dbGate.Release(); _busy = false; }
+    }
+
+    private Task UpdateTextoAsync(Guid imageId, string? texto) => GuardAsync(async () =>
+    {
+        if (_editingId is not Guid id) { return; }
+        await ItemSvc.UpdateImageTextoAsync(imageId, texto);
+        await RefreshImagesAsync(id);
+    });
+
+    private async Task RefreshImagesAsync(Guid itemId)
+    {
+        var detail = await ItemSvc.GetDetailAsync(itemId);
+        _images = detail?.Images ?? [];
     }
 
     private static string FormatPrice(decimal? price)
@@ -580,5 +1129,12 @@ else
         return parts.Length == 1
             ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
             : string.Concat(char.ToUpperInvariant(parts[0][0]), char.ToUpperInvariant(parts[1][0]));
+    }
+
+    /// <summary>Fila editable de "Datos tienda" (par etiqueta/valor) en el formulario.</summary>
+    private sealed class FormDato
+    {
+        public string Etiqueta { get; set; } = "";
+        public string? Valor { get; set; }
     }
 }

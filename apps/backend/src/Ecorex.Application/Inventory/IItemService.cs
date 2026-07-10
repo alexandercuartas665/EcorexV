@@ -19,6 +19,12 @@ public interface IItemService
     Task<InventoryResult<bool>> SetActiveAsync(Guid id, bool active, CancellationToken cancellationToken = default);
 
     // ---- Imagenes por URL ----
-    Task<InventoryResult<ItemImageDto>> AddImageAsync(Guid itemId, string url, string? fileName = null, CancellationToken cancellationToken = default);
+    Task<InventoryResult<ItemImageDto>> AddImageAsync(Guid itemId, string url, string? fileName = null, string? texto = null, CancellationToken cancellationToken = default);
     Task<InventoryResult<bool>> RemoveImageAsync(Guid imageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Marca una imagen como principal (portada) y desmarca las demas del mismo item.</summary>
+    Task<InventoryResult<bool>> SetImagePrincipalAsync(Guid imageId, CancellationToken cancellationToken = default);
+
+    /// <summary>Actualiza el texto a superponer sobre una imagen (max 200; null/vacio lo borra).</summary>
+    Task<InventoryResult<bool>> UpdateImageTextoAsync(Guid imageId, string? texto, CancellationToken cancellationToken = default);
 }

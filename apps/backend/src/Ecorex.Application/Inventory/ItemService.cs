@@ -86,8 +86,10 @@ public sealed class ItemService : IItemService
                 i.ItemTypeId,
                 ItemTypeName = _db.ItemTypes.Where(t => t.Id == i.ItemTypeId).Select(t => t.Name).FirstOrDefault(),
                 i.IsActive,
+                // La miniatura prefiere la imagen principal; si ninguna esta marcada, la primera por orden.
                 ThumbnailUrl = _db.ItemImages.Where(im => im.ItemId == i.Id)
-                    .OrderBy(im => im.SortOrder).Select(im => im.Url).FirstOrDefault()
+                    .OrderByDescending(im => im.EsPrincipal).ThenBy(im => im.SortOrder)
+                    .Select(im => im.Url).FirstOrDefault()
             })
             .ToListAsync(cancellationToken);
 
@@ -130,8 +132,8 @@ public sealed class ItemService : IItemService
 
         var images = await _db.ItemImages.AsNoTracking()
             .Where(im => im.ItemId == id)
-            .OrderBy(im => im.SortOrder)
-            .Select(im => new ItemImageDto(im.Id, im.Url, im.FileName, im.SortOrder))
+            .OrderByDescending(im => im.EsPrincipal).ThenBy(im => im.SortOrder)
+            .Select(im => new ItemImageDto(im.Id, im.Url, im.FileName, im.SortOrder, im.EsPrincipal, im.Texto))
             .ToListAsync(cancellationToken);
 
         var stock = await _db.ItemStocks.AsNoTracking()
@@ -147,7 +149,8 @@ public sealed class ItemService : IItemService
         return new ItemDetailDto(
             item.Id, item.Sku, item.Name, item.Description, item.Specifications, item.Price,
             item.BrandId, item.GroupId, item.SubgroupId, item.ItemTypeId, item.IsActive,
-            item.FieldValuesJson, images, stock, stock.Sum(s => s.Stock), availableAt);
+            item.FieldValuesJson, images, stock, stock.Sum(s => s.Stock), availableAt,
+            DatosTiendaJson.Parse(item.DatosTiendaJson));
     }
 
     public async Task<InventoryResult<ItemDetailDto>> CreateAsync(
@@ -288,7 +291,7 @@ public sealed class ItemService : IItemService
     // ---- Imagenes por URL ----
 
     public async Task<InventoryResult<ItemImageDto>> AddImageAsync(
-        Guid itemId, string url, string? fileName = null, CancellationToken cancellationToken = default)
+        Guid itemId, string url, string? fileName = null, string? texto = null, CancellationToken cancellationToken = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)
         {
@@ -307,6 +310,7 @@ public sealed class ItemService : IItemService
             return InventoryResult<ItemImageDto>.NotFound("El item no existe.");
         }
 
+        var count = await _db.ItemImages.CountAsync(im => im.ItemId == itemId, cancellationToken);
         var nextOrder = (await _db.ItemImages
             .Where(im => im.ItemId == itemId)
             .Select(im => (int?)im.SortOrder)
@@ -318,11 +322,14 @@ public sealed class ItemService : IItemService
             ItemId = itemId,
             Url = url.Trim(),
             FileName = Normalize(fileName),
-            SortOrder = nextOrder
+            SortOrder = nextOrder,
+            // La primera imagen del item queda como principal automaticamente.
+            EsPrincipal = count == 0,
+            Texto = NormalizeTexto(texto)
         };
         _db.ItemImages.Add(image);
         await _db.SaveChangesAsync(cancellationToken);
-        return InventoryResult<ItemImageDto>.Ok(new ItemImageDto(image.Id, image.Url, image.FileName, image.SortOrder));
+        return InventoryResult<ItemImageDto>.Ok(new ItemImageDto(image.Id, image.Url, image.FileName, image.SortOrder, image.EsPrincipal, image.Texto));
     }
 
     public async Task<InventoryResult<bool>> RemoveImageAsync(
@@ -333,9 +340,62 @@ public sealed class ItemService : IItemService
         {
             return InventoryResult<bool>.NotFound("La imagen no existe.");
         }
+        var wasPrincipal = image.EsPrincipal;
+        var itemId = image.ItemId;
         _db.ItemImages.Remove(image);
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Si se quito la principal y quedan imagenes, promover la primera por orden a principal.
+        if (wasPrincipal)
+        {
+            var next = await _db.ItemImages
+                .Where(im => im.ItemId == itemId)
+                .OrderBy(im => im.SortOrder)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (next is not null)
+            {
+                next.EsPrincipal = true;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
         return InventoryResult<bool>.Ok(true);
+    }
+
+    public async Task<InventoryResult<bool>> SetImagePrincipalAsync(
+        Guid imageId, CancellationToken cancellationToken = default)
+    {
+        var image = await _db.ItemImages.FirstOrDefaultAsync(im => im.Id == imageId, cancellationToken);
+        if (image is null)
+        {
+            return InventoryResult<bool>.NotFound("La imagen no existe.");
+        }
+        // Exclusividad: desmarca las demas imagenes del mismo item y marca esta.
+        var siblings = await _db.ItemImages
+            .Where(im => im.ItemId == image.ItemId && im.Id != image.Id && im.EsPrincipal)
+            .ToListAsync(cancellationToken);
+        foreach (var s in siblings) { s.EsPrincipal = false; }
+        image.EsPrincipal = true;
+        await _db.SaveChangesAsync(cancellationToken);
+        return InventoryResult<bool>.Ok(true);
+    }
+
+    public async Task<InventoryResult<bool>> UpdateImageTextoAsync(
+        Guid imageId, string? texto, CancellationToken cancellationToken = default)
+    {
+        var image = await _db.ItemImages.FirstOrDefaultAsync(im => im.Id == imageId, cancellationToken);
+        if (image is null)
+        {
+            return InventoryResult<bool>.NotFound("La imagen no existe.");
+        }
+        image.Texto = NormalizeTexto(texto);
+        await _db.SaveChangesAsync(cancellationToken);
+        return InventoryResult<bool>.Ok(true);
+    }
+
+    private static string? NormalizeTexto(string? texto)
+    {
+        var t = Normalize(texto);
+        return t is { Length: > 200 } ? t[..200] : t;
     }
 
     // ---- Internos ----
@@ -431,6 +491,7 @@ public sealed class ItemService : IItemService
         item.SubgroupId = request.SubgroupId;
         item.ItemTypeId = request.ItemTypeId;
         item.FieldValuesJson = Normalize(request.FieldValuesJson);
+        item.DatosTiendaJson = DatosTiendaJson.Serialize(request.DatosTienda);
     }
 
     private static string? ValidateItem(SaveItemRequest request)

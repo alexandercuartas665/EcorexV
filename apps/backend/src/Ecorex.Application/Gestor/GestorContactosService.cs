@@ -271,8 +271,17 @@ public sealed class GestorContactosService : IGestorContactosService
             .OrderBy(o => o.Etapa).ThenBy(o => o.SortOrder).ThenByDescending(o => o.Valor)
             .Select(o => new
             {
-                o.Id, o.TerceroId, TerceroNombre = o.Tercero!.Nombre, o.Nombre, o.Etapa, o.Valor,
-                o.Responsable, o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion
+                o.Id,
+                o.TerceroId,
+                TerceroNombre = o.Tercero!.Nombre,
+                o.Nombre,
+                o.Etapa,
+                o.Valor,
+                o.Responsable,
+                o.Probabilidad,
+                o.FechaCierre,
+                o.Fuente,
+                o.Descripcion
             })
             .ToListAsync(cancellationToken);
         return rows.Select(o => new OportunidadDto(
@@ -287,8 +296,17 @@ public sealed class GestorContactosService : IGestorContactosService
             .Where(o => o.TerceroId == terceroId)
             .Select(o => new
             {
-                o.Id, o.TerceroId, TerceroNombre = o.Tercero!.Nombre, o.Nombre, o.Etapa, o.Valor,
-                o.Responsable, o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion
+                o.Id,
+                o.TerceroId,
+                TerceroNombre = o.Tercero!.Nombre,
+                o.Nombre,
+                o.Etapa,
+                o.Valor,
+                o.Responsable,
+                o.Probabilidad,
+                o.FechaCierre,
+                o.Fuente,
+                o.Descripcion
             })
             .ToListAsync(cancellationToken);
         // Abiertas primero (Nueva..Negociacion antes de Ganada/Perdida), luego por etapa.
@@ -402,8 +420,16 @@ public sealed class GestorContactosService : IGestorContactosService
             .OrderBy(c => c.Inicio)
             .Select(c => new
             {
-                c.Id, c.TerceroId, TerceroNombre = c.Tercero != null ? c.Tercero.Nombre : null,
-                c.OportunidadId, c.Titulo, c.Tipo, c.Inicio, c.DuracionMinutos, c.Nota, c.Completada
+                c.Id,
+                c.TerceroId,
+                TerceroNombre = c.Tercero != null ? c.Tercero.Nombre : null,
+                c.OportunidadId,
+                c.Titulo,
+                c.Tipo,
+                c.Inicio,
+                c.DuracionMinutos,
+                c.Nota,
+                c.Completada
             })
             .ToListAsync(cancellationToken);
         return rows.Select(c => new CitaDto(
@@ -419,8 +445,16 @@ public sealed class GestorContactosService : IGestorContactosService
             .OrderByDescending(c => c.Inicio)
             .Select(c => new
             {
-                c.Id, c.TerceroId, TerceroNombre = c.Tercero != null ? c.Tercero.Nombre : null,
-                c.OportunidadId, c.Titulo, c.Tipo, c.Inicio, c.DuracionMinutos, c.Nota, c.Completada
+                c.Id,
+                c.TerceroId,
+                TerceroNombre = c.Tercero != null ? c.Tercero.Nombre : null,
+                c.OportunidadId,
+                c.Titulo,
+                c.Tipo,
+                c.Inicio,
+                c.DuracionMinutos,
+                c.Nota,
+                c.Completada
             })
             .ToListAsync(cancellationToken);
         return rows.Select(c => new CitaDto(

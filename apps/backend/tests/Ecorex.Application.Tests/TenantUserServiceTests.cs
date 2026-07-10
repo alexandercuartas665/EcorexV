@@ -150,6 +150,7 @@ public class TenantUserServiceTests
         public DbSet<Item> Items => throw new NotSupportedException();
         public DbSet<ItemImage> ItemImages => throw new NotSupportedException();
         public DbSet<ItemStock> ItemStocks => throw new NotSupportedException();
+        public DbSet<ItemFieldDefinition> ItemFieldDefinitions => throw new NotSupportedException();
         public DbSet<WhatsAppTemplate> WhatsAppTemplates => throw new NotSupportedException();
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();

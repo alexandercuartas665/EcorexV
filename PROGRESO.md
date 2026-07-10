@@ -3196,3 +3196,28 @@ appsettings.Development.local.json esta apartado como .bak durante la validacion
 DATOS por tabla en el nuevo diseno (filas por tabla del modelo; excluido de R3). (c) doc del conector/
 cliente remoto (docs/contenedor-datos-cliente-remoto.md) por actualizar al concepto de destino
 sistema/BD-aliada. (d) grant del permiso contenedor-datos:View a roles limitados. (e) DAL-dual SQL Server.
+
+### Addendum 4 (2026-07-10) - Contenedor de datos: panel de DATOS por tabla (Excel + filas + relaciones)
+
+A peticion del usuario ("crea un excel, cargalo y dale relaciones para probar"), se cablea la
+captura de datos que faltaba (backlog de R3). Cada tabla del contenedor gana un panel "Datos"
+(boton en la caja del lienzo ER) con: importar Excel (InputFile -> ImportFromExcelAsync, solo
+columnas escalares), exportar Excel (descarga via nuevo ecorexDcCanvas.downloadBase64),
+alta/edicion/borrado de filas, y enlace de relaciones a nivel de fila -> Referencia N:1 como
+dropdown de la tabla destino (etiqueta resuelta por ListRowOptionsAsync, no el Guid) y N:N como
+multi-check con chips. El grid muestra cada celda con su valor resuelto. Reusa
+IDataContainerService existente; _dbGate + GuardAsync. Se inyecta IDataContainerService en la
+pagina. Sin migracion (UI-only).
+
+**Validado en vivo** (preview contra BD prod): contenedor "Ventas comerciales" con Clientes
+(Nombre, Ciudad) y Facturas (Numero, Monto, Fecha, Cliente=Referencia N:1). 3 clientes + 3
+facturas enlazadas; el grid de Facturas muestra CLIENTE como chip con el nombre; el join en BD
+resuelve F-001->Acme, F-002->Globex, F-003->Initech; export sin errores; lienzo ER dibuja la
+linea Facturas.Cliente->Clientes (drag OK). La carga por archivo Excel quedo cableada (compila);
+el sandbox de pruebas MCP no permite empujar archivos al selector, asi que las filas se poblaron
+con "+ Fila" (mismo SaveRowAsync). Commit 63bda1a en main + fase-0/clon-backbone; DESPLEGADO a
+prod (build-from-git, sin migracion, login 200).
+
+Pendiente: (a) grant contenedor-datos:View a roles limitados. (b) doc del destino/cliente remoto.
+(c) DAL-dual SQL Server. (d) resolver Reference en el import de Excel por clave (hoy las relaciones
+se enlazan en la app tras importar los escalares).

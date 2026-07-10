@@ -12,6 +12,7 @@
 @inject IDataModelService ModelSvc
 @inject IDataContainerService ContainerSvc
 @inject IDataImportConfigService ConfigSvc
+@inject IApiImportService ApiSvc
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
@@ -225,6 +226,10 @@ else
                                                 </div>
                                             </div>
                                             <div style="display:flex;gap:4px;">
+                                                @if (_canEdit && c.Kind == ConnectorKind.RestApi && c.IsActive)
+                                                {
+                                                    <button class="btn btn-sm btn-primary" @onclick="() => OpenApiImport(c)" disabled="@_busy" title="Traer datos del API a una tabla">Importar</button>
+                                                }
                                                 @if (_canEdit)
                                                 {
                                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditConnector(c)" disabled="@_busy">Editar</button>
@@ -680,6 +685,81 @@ else
     </div>
 }
 
+@* ===== Sub-modal: Importar desde API REST (descubrir campos + mapeo + importar) ===== *@
+@if (_apiOpen && _apiConnector is not null)
+{
+    <div class="modal-overlay" style="z-index:1075;">
+        <div class="modal-dialog dc-data-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Importar desde API &#183; @_apiConnector.Name</h3>
+                <button class="modal-close" @onclick="() => _apiOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="text-muted" style="font-size:12px;margin-bottom:8px;word-break:break-all;">
+                    @(string.IsNullOrWhiteSpace(_apiConnector.HttpMethod) ? "GET" : _apiConnector.HttpMethod!.ToUpperInvariant()) @_apiConnector.EndpointUrl
+                </div>
+                <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;">
+                    <div class="field" style="flex:1;min-width:180px;margin:0;">
+                        <label class="form-label">Ruta del arreglo (opcional)</label>
+                        <input class="form-control" @bind="_apiArrayPath" placeholder="vacio = auto (ej. data)" />
+                    </div>
+                    <button class="btn btn-outline-secondary" @onclick="ProbeApiAsync" disabled="@_busy">@(_busy ? "..." : "Descubrir campos")</button>
+                </div>
+                @if (_apiFlash is not null) { <div class="dc-flash-ok">@_apiFlash</div> }
+                @if (_apiError is not null) { <div class="tk-field-error">@_apiError</div> }
+
+                @if (_apiProbed)
+                {
+                    <div class="dc-section-title">Campos detectados (@_apiFields.Count) &#183; @_apiCount registros en el API</div>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                        <div style="flex:1;min-width:300px;">
+                            <div class="field">
+                                <label class="form-label">Tabla destino</label>
+                                <select class="form-control" value="@(_apiTargetTableId?.ToString() ?? "")" @onchange="OnApiTargetChanged">
+                                    <option value="">(elige tabla)</option>
+                                    @foreach (var t in (_detail?.Tables ?? Enumerable.Empty<ModelTableDto>()))
+                                    {
+                                        <option value="@t.Id">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            @if (_apiTargetTableId is not null)
+                            {
+                                <div class="dc-section-title" style="margin-top:8px;">Mapeo: columna &#8592; campo del API</div>
+                                @if (!ApiTargetColumns().Any())
+                                {
+                                    <div class="text-muted" style="font-size:12px;">La tabla destino no tiene columnas escalares. Agrega campos (Texto/Numero/...) a la tabla.</div>
+                                }
+                                @foreach (var col in ApiTargetColumns())
+                                {
+                                    <div class="dc-map-row">
+                                        <span class="dc-map-col">@col.Name <span class="dc-th-type">@TypeShort(col.Type)</span></span>
+                                        <select class="form-control" value="@GetMap(col.Id)" @onchange="e => SetMap(col.Id, e.Value?.ToString())">
+                                            <option value="">(no importar)</option>
+                                            @foreach (var f in _apiFields)
+                                            {
+                                                <option value="@f">@f</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                                <button class="btn btn-primary" style="margin-top:10px;" @onclick="ImportApiAsync" disabled="@(_busy || _apiMap.Count == 0)">@(_busy ? "Importando..." : $"Importar {_apiCount} registros ahora")</button>
+                            }
+                        </div>
+                        <div style="flex:1;min-width:280px;">
+                            <div class="dc-section-title">Muestra (primer registro)</div>
+                            <pre class="dc-api-sample">@_apiSample</pre>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _apiOpen = false" disabled="@_busy">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
     .dc-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; min-height: 150px; border: 1px solid var(--line, var(--border)); border-radius: 12px; background: var(--surface, var(--card)); }
@@ -766,6 +846,9 @@ else
     .dc-chip-ref { background: rgba(124,92,255,.14); color: #6b4bd8; font-weight: 600; }
     .dc-nn-box { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
     .dc-nn-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; border: 1px solid var(--line, var(--border)); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+    .dc-map-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .dc-map-col { font-size: 13px; }
+    .dc-api-sample { max-height: 340px; overflow: auto; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); border-radius: 8px; padding: 10px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 </style>
 
 @code {
@@ -1608,6 +1691,117 @@ else
             _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
         }
         catch (Exception ex) { _dataError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Importacion desde API REST (conector RestApi -> tabla) ----------
+    private bool _apiOpen;
+    private DataConnectorDto? _apiConnector;
+    private IReadOnlyList<string> _apiFields = Array.Empty<string>();
+    private int _apiCount;
+    private string? _apiSample;
+    private string _apiArrayPath = "";
+    private bool _apiProbed;
+    private Guid? _apiTargetTableId;
+    private readonly Dictionary<Guid, string> _apiMap = new();
+    private string? _apiError;
+    private string? _apiFlash;
+
+    private void OpenApiImport(DataConnectorDto c)
+    {
+        _apiConnector = c;
+        _apiFields = Array.Empty<string>();
+        _apiCount = 0;
+        _apiSample = null;
+        _apiArrayPath = "";
+        _apiProbed = false;
+        _apiTargetTableId = null;
+        _apiMap.Clear();
+        _apiError = null;
+        _apiFlash = null;
+        _apiOpen = true;
+    }
+
+    private Task ProbeApiAsync() => GuardAsync(async () =>
+    {
+        if (_apiConnector is null) { return; }
+        _apiError = null; _apiFlash = null;
+        _busy = true;
+        try
+        {
+            var r = await ApiSvc.ProbeAsync(_apiConnector.Id, string.IsNullOrWhiteSpace(_apiArrayPath) ? null : _apiArrayPath.Trim());
+            if (!r.Success) { _apiError = r.Error ?? "No se pudo leer el API."; _apiProbed = false; return; }
+            _apiFields = r.Fields;
+            _apiCount = r.Count;
+            _apiSample = r.SamplePretty;
+            if (string.IsNullOrWhiteSpace(_apiArrayPath) && !string.IsNullOrEmpty(r.DetectedArrayPath)) { _apiArrayPath = r.DetectedArrayPath!; }
+            _apiProbed = true;
+            _apiFlash = $"Se detectaron {_apiFields.Count} campos y {_apiCount} registros.";
+            AutoMapIfPossible();
+        }
+        catch (Exception ex) { _apiError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private void OnApiTargetChanged(ChangeEventArgs e)
+    {
+        _apiTargetTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null;
+        _apiMap.Clear();
+        AutoMapIfPossible();
+    }
+
+    private IEnumerable<DataContainerColumnDto> ApiTargetColumns()
+    {
+        var t = _detail?.Tables.FirstOrDefault(x => x.Id == _apiTargetTableId);
+        if (t is null) { return Enumerable.Empty<DataContainerColumnDto>(); }
+        return t.Columns
+            .Where(c => c.Type is DataContainerColumnType.Text or DataContainerColumnType.Number
+                or DataContainerColumnType.Decimal or DataContainerColumnType.Date or DataContainerColumnType.Boolean)
+            .OrderBy(c => c.SortOrder);
+    }
+
+    private void AutoMapIfPossible()
+    {
+        if (_apiTargetTableId is null || _apiFields.Count == 0) { return; }
+        foreach (var col in ApiTargetColumns())
+        {
+            if (_apiMap.ContainsKey(col.Id)) { continue; }
+            var match = _apiFields.FirstOrDefault(f => string.Equals(f, col.Name, StringComparison.OrdinalIgnoreCase));
+            if (match is not null) { _apiMap[col.Id] = match; }
+        }
+    }
+
+    private string GetMap(Guid colId) => _apiMap.TryGetValue(colId, out var v) ? v : "";
+    private void SetMap(Guid colId, string? field)
+    {
+        if (string.IsNullOrWhiteSpace(field)) { _apiMap.Remove(colId); }
+        else { _apiMap[colId] = field.Trim(); }
+    }
+
+    private Task ImportApiAsync() => GuardAsync(async () =>
+    {
+        if (_apiConnector is null || _apiTargetTableId is null) { _apiError = "Elige la tabla destino."; return; }
+        if (_apiMap.Count == 0) { _apiError = "Mapea al menos una columna."; return; }
+        _apiError = null; _apiFlash = null;
+        _busy = true;
+        try
+        {
+            var req = new ApiImportRequest(_apiConnector.Id, _apiTargetTableId.Value,
+                new Dictionary<Guid, string>(_apiMap),
+                string.IsNullOrWhiteSpace(_apiArrayPath) ? null : _apiArrayPath.Trim());
+            var res = await ApiSvc.ImportAsync(req, _actor);
+            if (res.Success)
+            {
+                _apiFlash = $"Importadas {res.RowsImported} filas" + (res.RowsFailed > 0 ? $" ({res.RowsFailed} con error)" : "") + " a la tabla.";
+            }
+            if (res.Errors.Count > 0) { _apiError = string.Join(" | ", res.Errors.Take(4)); }
+            // Si el panel de datos de esa tabla esta abierto, refresca las filas visibles.
+            if (_dataTable is not null && _dataTable.Id == _apiTargetTableId)
+            {
+                _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
+            }
+        }
+        catch (Exception ex) { _apiError = ex.Message; }
         finally { _busy = false; }
     });
 

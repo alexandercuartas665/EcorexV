@@ -89,6 +89,9 @@ public static class DependencyInjection
         services.AddHttpClient<Ecorex.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>();
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
+        // Importacion manual desde API REST del Contenedor de datos (disparo por el usuario).
+        services.AddHttpClient<Ecorex.Application.DataContainers.IApiImportService, Ecorex.Application.DataContainers.ApiImportService>(
+                static client => client.Timeout = TimeSpan.FromSeconds(35));
         // Ejecutor de extraccion de datos (modulo 000730, ADR-0025): limites por defecto
         // SEGUROS (sin loopback, 15s, 2 MB, redirecciones re-validadas). La app host puede
         // re-registrar ScrapeGuardOptions DESPUES de AddInfrastructure para habilitar el

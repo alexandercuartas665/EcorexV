@@ -1,0 +1,297 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Ecorex.Application.Common;
+using Ecorex.Domain.Entities;
+using Ecorex.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace Ecorex.Application.DataContainers;
+
+/// <summary>
+/// Motor minimo de importacion desde API REST (disparo manual). Hace el GET del conector con la
+/// autenticacion configurada (credenciales descifradas en el servidor), interpreta el arreglo JSON
+/// y crea una fila por elemento mapeando campos->columnas. El HttpClient inyectado lo registra
+/// AddHttpClient en Infrastructure.
+/// </summary>
+public sealed class ApiImportService : IApiImportService
+{
+    private readonly HttpClient _http;
+    private readonly IApplicationDbContext _db;
+    private readonly ITenantContext _tenantContext;
+    private readonly ISecretProtector _protector;
+
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+    private const int MaxFieldScan = 50;
+    private const int MaxImportRows = 5000;
+
+    public ApiImportService(HttpClient http, IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector)
+    {
+        _http = http;
+        _db = db;
+        _tenantContext = tenantContext;
+        _protector = protector;
+    }
+
+    public async Task<ApiProbeResult> ProbeAsync(Guid connectorId, string? arrayPath = null, CancellationToken ct = default)
+    {
+        var (doc, error) = await FetchAsync(connectorId, ct);
+        if (doc is null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, error); }
+        using (doc)
+        {
+            if (!TryGetArray(doc.RootElement, arrayPath, out var arr, out var detectedPath))
+            {
+                return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath,
+                    null, "La respuesta no contiene un arreglo JSON. Indica la ruta del arreglo si viene envuelto (ej. data).");
+            }
+
+            // Campos: union de llaves escalares de los primeros elementos objeto.
+            var fields = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var scanned = 0;
+            string? sample = null;
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) { continue; }
+                sample ??= Pretty(el);
+                foreach (var prop in el.EnumerateObject())
+                {
+                    if (seen.Add(prop.Name)) { fields.Add(prop.Name); }
+                }
+                if (++scanned >= MaxFieldScan) { break; }
+            }
+            return new ApiProbeResult(true, fields, arr.GetArrayLength(), detectedPath, sample, null);
+        }
+    }
+
+    public async Task<DataImportResult> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return new DataImportResult(false, 0, 0, new[] { "Sin tenant activo." });
+        }
+        if (req.ColumnToField.Count == 0)
+        {
+            return new DataImportResult(false, 0, 0, new[] { "Define al menos un mapeo columna -> campo." });
+        }
+
+        // Columnas escalares de la tabla destino (las de tipo relacion/submodelo no se alimentan por API en v1).
+        var columns = await _db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == req.TargetContainerId && (
+                c.Type == DataContainerColumnType.Text || c.Type == DataContainerColumnType.Number ||
+                c.Type == DataContainerColumnType.Decimal || c.Type == DataContainerColumnType.Date ||
+                c.Type == DataContainerColumnType.Boolean))
+            .ToListAsync(ct);
+        if (columns.Count == 0)
+        {
+            return new DataImportResult(false, 0, 0, new[] { "La tabla destino no tiene columnas escalares." });
+        }
+        var byId = columns.ToDictionary(c => c.Id);
+        // Solo mapeos hacia columnas escalares validas y con campo no vacio.
+        var mapping = req.ColumnToField
+            .Where(kv => byId.ContainsKey(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (mapping.Count == 0)
+        {
+            return new DataImportResult(false, 0, 0, new[] { "Ningun mapeo apunta a una columna escalar de la tabla." });
+        }
+
+        var (doc, error) = await FetchAsync(req.ConnectorId, ct);
+        if (doc is null) { return new DataImportResult(false, 0, 0, new[] { error ?? "No se pudo leer el API." }); }
+
+        var imported = 0;
+        var failed = 0;
+        var errors = new List<string>();
+        using (doc)
+        {
+            if (!TryGetArray(doc.RootElement, req.ArrayPath, out var arr, out _))
+            {
+                return new DataImportResult(false, 0, 0, new[] { "La respuesta no contiene un arreglo JSON." });
+            }
+
+            var index = 0;
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (imported >= MaxImportRows)
+                {
+                    errors.Add($"Se alcanzo el limite de {MaxImportRows} filas por corrida; el resto no se importo.");
+                    break;
+                }
+                index++;
+                if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
+
+                var row = new DataContainerRow { TenantId = tenantId, ContainerId = req.TargetContainerId };
+                _db.DataContainerRows.Add(row);
+                foreach (var (colId, field) in mapping)
+                {
+                    var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
+                    _db.DataContainerCells.Add(new DataContainerCell
+                    {
+                        TenantId = tenantId,
+                        RowId = row.Id,
+                        ColumnId = colId,
+                        Value = value
+                    });
+                }
+                imported++;
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return new DataImportResult(imported > 0 || failed == 0, imported, failed, errors);
+    }
+
+    // ---- Fetch + auth ----
+
+    private async Task<(JsonDocument? Doc, string? Error)> FetchAsync(Guid connectorId, CancellationToken ct)
+    {
+        var c = await _db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(x => x.Id == connectorId, ct);
+        if (c is null) { return (null, "Conector no encontrado."); }
+        if (c.Kind != ConnectorKind.RestApi) { return (null, "El conector no es de tipo API REST."); }
+        if (string.IsNullOrWhiteSpace(c.EndpointUrl)) { return (null, "El conector no tiene endpoint configurado."); }
+        if (!Uri.TryCreate(c.EndpointUrl.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return (null, "El endpoint debe ser una URL http(s) absoluta.");
+        }
+        if (IsBlockedHost(uri))
+        {
+            return (null, "El endpoint apunta a una direccion interna/no permitida.");
+        }
+
+        var method = string.IsNullOrWhiteSpace(c.HttpMethod) ? HttpMethod.Get : new HttpMethod(c.HttpMethod!.Trim().ToUpperInvariant());
+        using var request = new HttpRequestMessage(method, uri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var cred = c.CredentialsEncrypted is null ? null : SafeUnprotect(c.CredentialsEncrypted);
+        ApplyAuth(request, c.AuthKind, cred);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(Timeout);
+        try
+        {
+            using var resp = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cts.Token);
+            var body = await resp.Content.ReadAsStringAsync(cts.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var snippet = body.Length > 300 ? body[..300] : body;
+                return (null, $"El API respondio {(int)resp.StatusCode} {resp.StatusCode}. {snippet}");
+            }
+            try { return (JsonDocument.Parse(body), null); }
+            catch (JsonException) { return (null, "La respuesta no es JSON valido."); }
+        }
+        catch (OperationCanceledException) { return (null, "Tiempo de espera agotado al llamar al API."); }
+        catch (HttpRequestException ex) { return (null, $"Error de red al llamar al API: {ex.Message}"); }
+    }
+
+    private static void ApplyAuth(HttpRequestMessage req, ConnectorAuthKind kind, string? cred)
+    {
+        if (string.IsNullOrWhiteSpace(cred)) { return; }
+        switch (kind)
+        {
+            case ConnectorAuthKind.Basic:
+                // cred = "usuario:clave"; si ya viene en base64 (sin ':') se usa tal cual.
+                var token = cred.Contains(':')
+                    ? Convert.ToBase64String(Encoding.UTF8.GetBytes(cred))
+                    : cred;
+                req.Headers.Authorization = new AuthenticationHeaderValue("Basic", token);
+                break;
+            case ConnectorAuthKind.Bearer:
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cred);
+                break;
+            case ConnectorAuthKind.ApiKey:
+                // Se envia como header Authorization crudo (valor completo configurado por el usuario).
+                req.Headers.TryAddWithoutValidation("Authorization", cred);
+                break;
+            case ConnectorAuthKind.None:
+            default:
+                break;
+        }
+    }
+
+    private string? SafeUnprotect(string cipher)
+    {
+        try { return _protector.Unprotect(cipher); }
+        catch { return null; }
+    }
+
+    // ---- JSON helpers ----
+
+    private static bool TryGetArray(JsonElement root, string? arrayPath, out JsonElement array, out string? detectedPath)
+    {
+        array = default;
+        detectedPath = null;
+
+        if (!string.IsNullOrWhiteSpace(arrayPath))
+        {
+            var cur = root;
+            foreach (var seg in arrayPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (cur.ValueKind != JsonValueKind.Object || !cur.TryGetProperty(seg, out var next)) { return false; }
+                cur = next;
+            }
+            if (cur.ValueKind != JsonValueKind.Array) { return false; }
+            array = cur; detectedPath = arrayPath; return true;
+        }
+
+        if (root.ValueKind == JsonValueKind.Array) { array = root; detectedPath = ""; return true; }
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            // Envoltorios comunes, luego el primer arreglo de nivel 1.
+            foreach (var candidate in new[] { "data", "items", "results", "records", "rows" })
+            {
+                if (root.TryGetProperty(candidate, out var el) && el.ValueKind == JsonValueKind.Array)
+                {
+                    array = el; detectedPath = candidate; return true;
+                }
+            }
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Array)
+                {
+                    array = prop.Value; detectedPath = prop.Name; return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static string? ScalarString(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        // Objetos/arreglos anidados: se guarda el JSON crudo para no perder informacion.
+        _ => el.GetRawText()
+    };
+
+    private static string Pretty(JsonElement el)
+    {
+        try { return JsonSerializer.Serialize(el, new JsonSerializerOptions { WriteIndented = true }); }
+        catch { return el.GetRawText(); }
+    }
+
+    private static bool IsBlockedHost(Uri uri)
+    {
+        var host = uri.Host;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) { return true; }
+        if (System.Net.IPAddress.TryParse(host, out var ip))
+        {
+            if (System.Net.IPAddress.IsLoopback(ip)) { return true; }
+            var b = ip.GetAddressBytes();
+            if (b.Length == 4)
+            {
+                // 10/8, 127/8, 169.254/16, 172.16-31/12, 192.168/16
+                if (b[0] == 10 || b[0] == 127) { return true; }
+                if (b[0] == 169 && b[1] == 254) { return true; }
+                if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) { return true; }
+                if (b[0] == 192 && b[1] == 168) { return true; }
+            }
+        }
+        return false;
+    }
+}

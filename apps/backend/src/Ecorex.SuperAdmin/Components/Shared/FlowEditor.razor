@@ -410,6 +410,21 @@ else
     private string? _error;
     private string? _notice;
 
+    // El EcorexDbContext es scoped al circuito Blazor (una sola instancia compartida). Los
+    // callbacks [JSInvokable] de bpmn-js (OnElementSelected) pueden dispararse en medio de un
+    // handler que ya esta usando el contexto (ej. SaveAsync) -> "A second operation was started
+    // on this context instance". Este gate serializa TODO el acceso a BD del editor. No es
+    // reentrante: solo se toma en los handlers de nivel superior, nunca en helpers internos
+    // (RefreshAndReimportAsync / LoadNodePoliciesAsync) que se llaman desde metodos ya gateados.
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
+    private async Task GuardAsync(Func<Task> op)
+    {
+        await _dbGate.WaitAsync();
+        try { await op(); }
+        finally { _dbGate.Release(); }
+    }
+
     // Seleccion actual del canvas (por BpmnElementId; el DB node se resuelve en _canvas).
     private string? _selectedElementId;
     private string? _selectedType;
@@ -477,7 +492,7 @@ else
 
     private async Task LoadAsync()
     {
-        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        await GuardAsync(async () => _canvas = await DesignSvc.GetCanvasAsync(DefinitionId));
         if (_canvas is null)
         {
             _error = "El flujo no existe.";
@@ -506,7 +521,8 @@ else
         {
             _bpmn ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ecorex-bpmn.js");
             _selfRef ??= DotNetObjectReference.Create(this);
-            var xml = await DesignSvc.GetBpmnXmlAsync(DefinitionId) ?? "";
+            var xml = "";
+            await GuardAsync(async () => xml = await DesignSvc.GetBpmnXmlAsync(DefinitionId) ?? "");
             _bpmnReady = await _bpmn.InvokeAsync<bool>("init", CanvasId, _selfRef, xml);
         }
         catch (Exception ex)
@@ -524,7 +540,7 @@ else
         _selectedType = type;
         _selectedRawName = name;
         _assignUnitId = "";
-        await LoadNodePoliciesAsync();
+        await GuardAsync(LoadNodePoliciesAsync);
         StateHasChanged();
     }
 
@@ -545,17 +561,23 @@ else
     private async Task AddNodePolicyAsync()
     {
         if (Selected is not FlowCanvasNodeDto node || !Guid.TryParse(_assignUnitId, out var unitId)) { return; }
-        var result = await NodePolicySvc.AddNodePolicyAsync(node.Id, unitId);
-        if (!result.IsOk) { _error = result.Error; }
-        _assignUnitId = "";
-        await LoadNodePoliciesAsync();
+        await GuardAsync(async () =>
+        {
+            var result = await NodePolicySvc.AddNodePolicyAsync(node.Id, unitId);
+            if (!result.IsOk) { _error = result.Error; }
+            _assignUnitId = "";
+            await LoadNodePoliciesAsync();
+        });
     }
 
     private async Task RemoveNodePolicyAsync(NodePolicyDto policy)
     {
-        var result = await NodePolicySvc.RemoveNodePolicyAsync(policy.PolicyId);
-        if (!result.IsOk) { _error = result.Error; }
-        await LoadNodePoliciesAsync();
+        await GuardAsync(async () =>
+        {
+            var result = await NodePolicySvc.RemoveNodePolicyAsync(policy.PolicyId);
+            if (!result.IsOk) { _error = result.Error; }
+            await LoadNodePoliciesAsync();
+        });
     }
 
     [JSInvokable]
@@ -601,12 +623,15 @@ else
     private async Task OnPanelNameChangeAsync(ChangeEventArgs e)
     {
         if (Selected is not FlowCanvasNodeDto node || !RequireEditable()) { return; }
-        var result = await DesignSvc.RenameNodeAsync(node.Id, e.Value?.ToString());
-        if (!result.IsOk)
+        await GuardAsync(async () =>
         {
-            _error = result.Error ?? "No se pudo renombrar el nodo.";
-        }
-        await RefreshAndReimportAsync();
+            var result = await DesignSvc.RenameNodeAsync(node.Id, e.Value?.ToString());
+            if (!result.IsOk)
+            {
+                _error = result.Error ?? "No se pudo renombrar el nodo.";
+            }
+            await RefreshAndReimportAsync();
+        });
     }
 
     private sealed record AccDef(int Index, string Name, string Svg, string IconBg, string IconFg);
@@ -857,9 +882,12 @@ else
     private async Task OnRestartChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? restartId = Guid.TryParse(e.Value?.ToString(), out var parsed) ? parsed : null;
-        var result = await DesignSvc.SetNodeConfigAsync(node.Id, node.AllowsAssignment, restartId);
-        if (!result.IsOk) { _error = result.Error; }
-        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeConfigAsync(node.Id, node.AllowsAssignment, restartId);
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
     }
 
     private async Task OnAllowsAssignmentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
@@ -965,6 +993,7 @@ else
         _busy = true;
         _error = null;
         _notice = null;
+        await _dbGate.WaitAsync();
         try
         {
             var xml = _bpmnReady ? await _bpmn.InvokeAsync<string?>("exportXml", CanvasId) : null;
@@ -1002,6 +1031,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -1011,6 +1041,7 @@ else
         if (_canvas is null) { return; }
         _busy = true;
         _error = null;
+        await _dbGate.WaitAsync();
         try
         {
             var result = await Engine.PublishAsync(_canvas.DefinitionId);
@@ -1024,6 +1055,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -1033,6 +1065,7 @@ else
         if (_canvas is null) { return; }
         _busy = true;
         _error = null;
+        await _dbGate.WaitAsync();
         try
         {
             var result = await DesignSvc.EnsureDraftAsync(_canvas.DefinitionId);
@@ -1046,6 +1079,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -1061,6 +1095,7 @@ else
         if (_canvas is null) { return; }
         _busy = true;
         _error = null;
+        await _dbGate.WaitAsync();
         try
         {
             var props = await DesignSvc.UpdateDefinitionPropsAsync(
@@ -1094,6 +1129,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -1125,6 +1161,7 @@ else
     {
         _busy = true;
         _ioError = null;
+        await _dbGate.WaitAsync();
         try
         {
             var result = await DesignSvc.ImportBpmnAsync(_importXml);
@@ -1139,6 +1176,7 @@ else
         }
         finally
         {
+            _dbGate.Release();
             _busy = false;
         }
     }
@@ -1192,5 +1230,6 @@ else
             catch { /* circuito ya cerrado */ }
         }
         _selfRef?.Dispose();
+        _dbGate.Dispose();
     }
 }

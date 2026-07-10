@@ -65,8 +65,29 @@ window.ecorexDcCanvas = (function () {
     document.addEventListener('pointercancel', onUp, true);
   }
 
+  // Descarga un archivo binario (ej. xlsx exportado) desde base64, sin librerias.
+  function downloadBase64(filename, b64, mime) {
+    try {
+      const bin = atob(b64);
+      const len = bin.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) { bytes[i] = bin.charCodeAt(i); }
+      const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'export.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      return true;
+    } catch (e) { return false; }
+  }
+
   return {
     init: function (ref) { dotnet = ref; wire(); },
-    dispose: function () { dotnet = null; }
+    dispose: function () { dotnet = null; },
+    downloadBase64: downloadBase64
   };
 })();

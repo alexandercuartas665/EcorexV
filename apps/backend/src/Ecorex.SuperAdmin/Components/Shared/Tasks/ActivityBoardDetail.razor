@@ -1,4 +1,5 @@
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Actividades
 @using Ecorex.Domain.Enums
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
@@ -7,6 +8,7 @@
 @inject ITaskItemService TasksSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
+@inject IActividadCatalogoService CatalogoSvc
 @inject ITaskBroadcaster Broadcaster
 @inject NavigationManager Nav
 @inject IServiceScopeFactory ScopeFactory
@@ -515,12 +517,14 @@
                     </div>
                 </div>
                 <div class="ab-field">
-                    <label>Tipo de actividad</label>
-                    <select class="ab-select" @bind="_qcTypeId">
-                        <option value="">Automatico (primer tipo activo)</option>
-                        @foreach (var t in _types)
+                    <label>Actividad (concepto)</label>
+                    @* Ola 6: crear-desde-tablero ofrece SOLO actividades sin proceso (las de
+                       proceso se crean desde el menu "Mis Procesos"). *@
+                    <select class="ab-select" @bind="_qcSubId">
+                        <option value="">Automatico (tipo por defecto)</option>
+                        @foreach (var s in _freeSubs)
                         {
-                            <option value="@t.Id">@t.Category / @t.Name</option>
+                            <option value="@s.Id">@s.Nombre</option>
                         }
                     </select>
                 </div>
@@ -650,6 +654,7 @@
     private List<TenantUserDto> _users = new();
     private List<TaskItemTagDto> _tags = new();
     private List<ActivityTypeDto> _types = new();
+    private List<ActividadSubcategoriaDto> _freeSubs = new();
     private Guid? _meTenantUserId;
     private Guid _loadedBoardId;
 
@@ -708,6 +713,7 @@
     private DateTime? _qcDue;
     private readonly HashSet<Guid> _qcTagIds = new();
     private string _qcTypeId = "";
+    private string _qcSubId = "";
     private string? _qcError;
 
     // Editar tablero.
@@ -748,6 +754,10 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _tags = (await TasksSvc.ListTagsAsync()).ToList();
         _types = (await TypesSvc.ListAsync()).ToList();
+        // Ola 6: actividades SIN proceso (subcategorias sin flujo) para el crear-desde-tablero.
+        _freeSubs = (await CatalogoSvc.ListSubcategoriasAsync(includeArchived: false))
+            .Where(s => s.WorkflowDefinitionId is null)
+            .OrderBy(s => s.Nombre).ToList();
         _meTenantUserId = await MeTenantUserIdAsync();
         await LoadMembersAsync();
         await ReloadAsync();
@@ -989,7 +999,7 @@
         if (_detail is null || _detail.Columns.Count == 0) { return; }
         _qcColumnId = columnId ?? _detail.Columns[0].Id;
         _qcTitle = ""; _qcDesc = ""; _qcPriority = TaskPriority.Medium;
-        _qcAssignee = ""; _qcDue = dueDate; _qcTagIds.Clear(); _qcTypeId = "";
+        _qcAssignee = ""; _qcDue = dueDate; _qcTagIds.Clear(); _qcTypeId = ""; _qcSubId = "";
         _qcError = null;
         _qcOpen = true;
     }
@@ -1219,7 +1229,8 @@
                 AssigneeTenantUserId: Guid.TryParse(_qcAssignee, out var assignee) ? assignee : null,
                 DueDate: due,
                 TagIds: _qcTagIds.Count == 0 ? null : _qcTagIds.ToList(),
-                ActivityTypeId: Guid.TryParse(_qcTypeId, out var typeId) ? typeId : null);
+                ActivityTypeId: Guid.TryParse(_qcTypeId, out var typeId) ? typeId : null,
+                SubcategoriaId: Guid.TryParse(_qcSubId, out var subId) ? subId : null);
             var result = await BoardsSvc.QuickCreateTaskAsync(request, await ActorAsync(), await ActorNameAsync());
             if (!result.IsOk)
             {

@@ -655,27 +655,28 @@ public sealed class ActivityBoardService : IActivityBoardService
             return TaskCoreResult<TaskItemDetailDto>.Invalid("La columna no pertenece al tablero.");
         }
 
-        // Tipo de actividad: el quick-add del prototipo no lo pide; default = primer tipo
-        // activo del tenant (decision ADR-0020). Sin tipos, error claro.
-        var activityTypeId = request.ActivityTypeId;
-        if (activityTypeId is null)
+        // Ola 6 (crear-desde-tablero): si viene un CONCEPTO (subcategoria, tipicamente SIN proceso)
+        // se clasifica por el; si no, se cae al ActivityType (default = primer tipo activo, ADR-0020).
+        Guid? activityTypeId = null;
+        if (request.SubcategoriaId is null)
         {
-            activityTypeId = await _db.ActivityTypes.AsNoTracking()
-                .Where(t => !t.IsArchived)
-                .OrderBy(t => t.SortOrder).ThenBy(t => t.Category).ThenBy(t => t.Name)
-                .Select(t => (Guid?)t.Id)
-                .FirstOrDefaultAsync(cancellationToken);
+            activityTypeId = request.ActivityTypeId
+                ?? await _db.ActivityTypes.AsNoTracking()
+                    .Where(t => !t.IsArchived)
+                    .OrderBy(t => t.SortOrder).ThenBy(t => t.Category).ThenBy(t => t.Name)
+                    .Select(t => (Guid?)t.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
             if (activityTypeId is null)
             {
                 return TaskCoreResult<TaskItemDetailDto>.Invalid("El tenant no tiene tipos de actividad activos.");
             }
         }
 
-        // Delegar en CreateAsync: consecutivo T + etiquetas + actividad + flujo del tipo,
+        // Delegar en CreateAsync: consecutivo T + etiquetas + actividad + flujo del concepto/tipo,
         // TODO en una sola transaccion, con la tarea ya colgada del board/columna.
         return await _taskItems.CreateAsync(new CreateTaskItemRequest(
             Title: request.Title,
-            ActivityTypeId: activityTypeId.Value,
+            ActivityTypeId: activityTypeId,
             Description: request.Description,
             Priority: request.Priority,
             AssigneeTenantUserId: request.AssigneeTenantUserId,
@@ -683,7 +684,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             TagIds: request.TagIds,
             StartDate: request.StartDate,
             BoardId: request.BoardId,
-            ColumnId: request.ColumnId), actorUserId, actorName, cancellationToken);
+            ColumnId: request.ColumnId,
+            SubcategoriaId: request.SubcategoriaId), actorUserId, actorName, cancellationToken);
     }
 
     // ---- Helpers ----

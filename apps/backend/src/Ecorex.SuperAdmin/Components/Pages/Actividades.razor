@@ -3,18 +3,26 @@
 @attribute [Authorize(Policy = "Tareas.Ver")]
 @* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Microsoft.Extensions.DependencyInjection
 @using Ecorex.SuperAdmin.Components.Shared.Tasks
 @inject NavigationManager Nav
+@inject IServiceScopeFactory ScopeFactory
 
 @* Ola 2 (prototipo corregido, pantalla 'work'): la experiencia de /actividades es el
-   INDICE DE TABLEROS + DETALLE DE TABLERO por columnas propias (ADR-0020). El kanban
-   por estado (TaskKanban) queda desconectado de esta ruta; sigue vivo en ProyectoDetalle.
-   El wizard de 3 pasos (tipo + flujo BPMN) sobrevive como "Actividad completa" en el
-   indice. Deep-link: /actividades?board={id}. *@
+   INDICE DE TABLEROS + DETALLE DE TABLERO por columnas propias (ADR-0020). Deep-links:
+   /actividades?board={id} (abrir un tablero) y, Ola 6, /actividades?sub={subcategoriaId}
+   (menu Mis Procesos): CARGA EL TABLERO DEL CONCEPTO. La creacion con cat/sub fijadas se hace
+   con el crear rapido del tablero o el wizard preset (crear-actividad?sub=). *@
 
 <PageTitle>Tableros - ECOREX.tareas</PageTitle>
 
-@if (BoardIdOrNull is Guid boardId)
+@if (_resolving)
+{
+    @* Mientras se resuelve el tablero del concepto NO se pinta el indice: sus cargas chocarian
+       con las del detalle sobre el DbContext del circuito. *@
+    <div style="padding:48px 24px;color:var(--ink-3);font-size:14px">Abriendo el tablero del proceso...</div>
+}
+else if (BoardIdOrNull is Guid boardId)
 {
     <ActivityBoardDetail BoardId="boardId" OnBack="BackToIndex" />
 }
@@ -27,7 +35,33 @@ else
     [SupplyParameterFromQuery(Name = "board")]
     public string? Board { get; set; }
 
-    private Guid? BoardIdOrNull => Guid.TryParse(Board, out var id) ? id : null;
+    [SupplyParameterFromQuery(Name = "sub")]
+    public string? Sub { get; set; }
+
+    private Guid? _resolvedBoardId;   // tablero del concepto (Ola 6, ?sub=)
+    private bool _resolving;
+
+    // El tablero visible: el ?board= explicito o el derivado del concepto (?sub=).
+    private Guid? BoardIdOrNull => Guid.TryParse(Board, out var id) ? id : _resolvedBoardId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Ola 6: al llegar desde "Mis Procesos" (?sub=), resolver el tablero del concepto en un
+        // scope AISLADO (no el DbContext del circuito, que comparte con el detalle del tablero).
+        if (Guid.TryParse(Sub, out var subId))
+        {
+            _resolving = true; // se pone antes del primer render (parte sincrona de OnInit)
+            try
+            {
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var catalogo = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
+                var sub = await catalogo.GetSubcategoriaAsync(subId);
+                _resolvedBoardId = sub?.TaskBoardId;
+            }
+            catch { /* concepto sin tablero o sin acceso: cae al indice */ }
+            finally { _resolving = false; }
+        }
+    }
 
     private void OpenBoard(Guid boardId)
         => Nav.NavigateTo($"/actividades?board={boardId}");

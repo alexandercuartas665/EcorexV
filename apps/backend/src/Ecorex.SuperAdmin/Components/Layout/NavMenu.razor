@@ -123,7 +123,7 @@ else
                                 <div class="ecorex-acc-sub-body">
                                     @foreach (var s in pc.Subs)
                                     {
-                                        <NavLink class="ecorex-acc-item" href="@($"crear-actividad?sub={s.Id}")">
+                                        <NavLink class="ecorex-acc-item" href="@($"actividades?sub={s.Id}")">
                                             <span class="lbl">@s.Nombre</span>
                                             <span class="code" title="Actividad tipo proceso">proc</span>
                                         </NavLink>

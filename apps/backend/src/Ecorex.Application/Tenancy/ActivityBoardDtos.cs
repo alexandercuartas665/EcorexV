@@ -127,7 +127,9 @@ public sealed record QuickCreateTaskRequest(
     TaskPriority Priority = TaskPriority.Medium,
     Guid? AssigneeTenantUserId = null, DateTimeOffset? DueDate = null,
     IReadOnlyList<Guid>? TagIds = null,
-    Guid? ActivityTypeId = null, DateTimeOffset? StartDate = null);
+    Guid? ActivityTypeId = null, DateTimeOffset? StartDate = null,
+    // Ola 6: crear-desde-tablero clasifica por CONCEPTO (subcategoria sin proceso).
+    Guid? SubcategoriaId = null);
 
 /// <summary>
 /// Resultado del movimiento de tarjeta. StatusChangedToDone indica si la transicion

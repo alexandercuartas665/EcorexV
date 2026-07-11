@@ -151,6 +151,8 @@ public class TenantUserServiceTests
         public DbSet<ItemImage> ItemImages => throw new NotSupportedException();
         public DbSet<ItemStock> ItemStocks => throw new NotSupportedException();
         public DbSet<ItemFieldDefinition> ItemFieldDefinitions => throw new NotSupportedException();
+        public DbSet<Entidad> Entidades => throw new NotSupportedException();
+        public DbSet<EntidadFieldDefinition> EntidadFieldDefinitions => throw new NotSupportedException();
         public DbSet<DataModel> DataModels => throw new NotSupportedException();
         public DbSet<DataDestination> DataDestinations => throw new NotSupportedException();
         public DbSet<DataContainer> DataContainers => throw new NotSupportedException();

@@ -113,6 +113,10 @@ public interface IApplicationDbContext
     // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
     DbSet<ItemFieldDefinition> ItemFieldDefinitions { get; }
 
+    // Configuracion de la entidad (000615): agencias/areas/sucursales del tenant + campos dinamicos.
+    DbSet<Entidad> Entidades { get; }
+    DbSet<EntidadFieldDefinition> EntidadFieldDefinitions { get; }
+
     // Contenedor de datos: un DataModel (contenedor) agrupa VARIAS tablas (DataContainer) con
     // relaciones internas + config de importacion (conectores multi-tipo, destino, cliente, proceso).
     DbSet<DataModel> DataModels { get; }

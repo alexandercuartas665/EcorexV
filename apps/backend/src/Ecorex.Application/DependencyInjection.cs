@@ -133,6 +133,8 @@ public static class DependencyInjection
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();
+        // Configuracion de la entidad (000615): agencias/areas/sucursales del tenant + campos dinamicos.
+        services.AddScoped<Entidades.IEntidadService, Entidades.EntidadService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
         // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
         services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();

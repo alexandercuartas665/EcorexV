@@ -162,6 +162,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ItemStock> ItemStocks => Set<ItemStock>();
     public DbSet<ItemFieldDefinition> ItemFieldDefinitions => Set<ItemFieldDefinition>();
 
+    // Configuracion de la entidad (agencias/areas/sucursales del tenant + campos dinamicos).
+    public DbSet<Entidad> Entidades => Set<Entidad>();
+    public DbSet<EntidadFieldDefinition> EntidadFieldDefinitions => Set<EntidadFieldDefinition>();
+
     // Contenedor de datos (un DataModel agrupa varias tablas EAV + config de importacion).
     public DbSet<DataModel> DataModels => Set<DataModel>();
     public DbSet<DataDestination> DataDestinations => Set<DataDestination>();
@@ -1633,6 +1637,47 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.ItemTypeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ItemTypeId, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.ItemTypeId, x.FieldKey }).IsUnique();
+        });
+
+        // Configuracion de la entidad (000615). Entidad = agencia/area/sucursal del tenant; varias
+        // por tenant, con identidad legal + ubicacion + config + logo + campos dinamicos. Codigo
+        // unico por tenant; los valores de campos dinamicos van en FieldValuesJson (jsonb/nvarchar).
+        modelBuilder.Entity<Entidad>(b =>
+        {
+            b.Property(x => x.Codigo).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Nombre).HasMaxLength(250).IsRequired();
+            b.Property(x => x.NombreComercial).HasMaxLength(250);
+            b.Property(x => x.Sigla).HasMaxLength(60);
+            b.Property(x => x.TipoEntidad).HasMaxLength(80);
+            b.Property(x => x.TaxId).HasMaxLength(40);
+            b.Property(x => x.TaxIdDv).HasMaxLength(5);
+            b.Property(x => x.RepresentanteLegal).HasMaxLength(200);
+            b.Property(x => x.NaturalezaJuridica).HasMaxLength(120);
+            b.Property(x => x.Pais).HasMaxLength(80);
+            b.Property(x => x.Departamento).HasMaxLength(120);
+            b.Property(x => x.Ciudad).HasMaxLength(120);
+            b.Property(x => x.Direccion).HasMaxLength(300);
+            b.Property(x => x.Telefono).HasMaxLength(60);
+            b.Property(x => x.Email).HasMaxLength(150);
+            b.Property(x => x.Web).HasMaxLength(200);
+            b.Property(x => x.ZonaHoraria).HasMaxLength(60);
+            b.Property(x => x.Idioma).HasMaxLength(40);
+            b.Property(x => x.Observaciones).HasMaxLength(2000);
+            b.Property(x => x.LogoBase64).HasColumnType(longTextColumnType);
+            b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
+            b.HasIndex(x => new { x.TenantId, x.IsArchived });
+            b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
+        });
+
+        // Campos dinamicos de la entidad, a nivel de tenant (aplican a todas las entidades).
+        modelBuilder.Entity<EntidadFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Options).HasMaxLength(2000);
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.FieldKey }).IsUnique();
         });
 
         modelBuilder.Entity<ItemStock>(b =>

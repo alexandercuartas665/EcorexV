@@ -1,0 +1,549 @@
+@page "/configuracion-entidad"
+@attribute [Authorize(Policy = "Perm:configuracion-entidad:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using System.Security.Claims
+@using Ecorex.Application.Entidades
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject IEntidadService EntidadSvc
+@inject ICurrentPermissions Perms
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Configuracion de la entidad - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span class="cur">Configuracion de la entidad</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>
+            </div>
+            <span>Sistema &#183; Configuracion de la entidad</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Configuracion de la entidad</h1>
+        <p class="page-sub" style="margin-bottom:0;">Las entidades (agencias, areas o sucursales) de tu cuenta: identidad, ubicacion, logo y campos propios. Alimentan el selector "Empresa/Area" de las actividades.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+        @if (_canEdit)
+        {
+            <button class="btn btn-outline-secondary" @onclick="OpenFields">Campos personalizados</button>
+            <button class="btn btn-primary" @onclick="() => OpenEntidad(null)">+ Nueva entidad</button>
+        }
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_list.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin entidades</h3>
+        <p>Crea la primera con "+ Nueva entidad".</p>
+    </div>
+}
+else
+{
+    <div class="ent-grid">
+        @foreach (var e in _list)
+        {
+            <div class="ent-card">
+                <div class="ent-card-head">
+                    <div class="ent-logo">
+                        @if (e.HasLogo)
+                        {
+                            <img src="@_logoCache.GetValueOrDefault(e.Id)" alt="logo" />
+                        }
+                        else
+                        {
+                            <span>@Initials(e.Nombre)</span>
+                        }
+                    </div>
+                    <div style="min-width:0;flex:1;">
+                        <div class="ent-name" title="@e.Nombre">@e.Nombre @if (e.IsPrincipal) { <span class="ent-badge ent-badge-pri">Principal</span> }</div>
+                        <div class="ent-meta">@e.Codigo @(string.IsNullOrWhiteSpace(e.TipoEntidad) ? "" : " · " + e.TipoEntidad)@(string.IsNullOrWhiteSpace(e.Ciudad) ? "" : " · " + e.Ciudad)</div>
+                    </div>
+                    @if (!e.IsActive) { <span class="ent-badge">Inactiva</span> }
+                </div>
+                <div class="ent-card-actions">
+                    <button class="btn btn-sm btn-primary" @onclick="() => OpenEntidad(e.Id)">Editar</button>
+                    @if (_canEdit && !e.IsPrincipal)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => SetPrincipalAsync(e.Id)" disabled="@_busy">Principal</button>
+                    }
+                    @if (_canDelete)
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ArchiveAsync(e.Id, e.Nombre)" disabled="@_busy">Archivar</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_pageError is not null) { <div class="tk-field-error">@_pageError</div> }
+
+@* ===== Modal editor de entidad ===== *@
+@if (_modalOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog ent-dialog" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_id is null ? "Nueva entidad" : _f.Nombre)</h3>
+                <button class="modal-close" @onclick="() => _modalOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                @* Identidad legal *@
+                <div class="ent-section-title">Informacion legal y corporativa</div>
+                <div class="ent-grid-form">
+                    <div class="field" style="grid-column:span 2;"><label class="form-label">Razon social / nombre *</label><input class="form-control" @bind="_f.Nombre" maxlength="240" /></div>
+                    <div class="field"><label class="form-label">Nombre comercial</label><input class="form-control" @bind="_f.NombreComercial" maxlength="240" /></div>
+                    <div class="field"><label class="form-label">Sigla</label><input class="form-control" @bind="_f.Sigla" maxlength="60" /></div>
+                    <div class="field"><label class="form-label">Tipo de entidad</label><input class="form-control" list="ent-tipos" @bind="_f.TipoEntidad" maxlength="80" placeholder="Empresa / Agencia / Sucursal" /><datalist id="ent-tipos"><option value="Empresa" /><option value="Agencia" /><option value="Sucursal" /><option value="Area" /></datalist></div>
+                    <div class="field"><label class="form-label">Identificacion fiscal (NIT/RUT/Tax ID)</label><input class="form-control" @bind="_f.TaxId" maxlength="40" /></div>
+                    <div class="field"><label class="form-label">Digito verificador</label><input class="form-control" @bind="_f.TaxIdDv" maxlength="5" /></div>
+                    <div class="field"><label class="form-label">Representante legal</label><input class="form-control" @bind="_f.RepresentanteLegal" maxlength="200" /></div>
+                    <div class="field"><label class="form-label">Naturaleza juridica</label><input class="form-control" @bind="_f.NaturalezaJuridica" maxlength="120" /></div>
+                </div>
+
+                @* Ubicacion *@
+                <div class="ent-section-title">Ubicacion y contacto</div>
+                <div class="ent-grid-form">
+                    <div class="field"><label class="form-label">Pais</label><input class="form-control" @bind="_f.Pais" maxlength="80" /></div>
+                    <div class="field"><label class="form-label">Departamento / Estado</label><input class="form-control" @bind="_f.Departamento" maxlength="120" /></div>
+                    <div class="field"><label class="form-label">Ciudad / Municipio</label><input class="form-control" @bind="_f.Ciudad" maxlength="120" /></div>
+                    <div class="field" style="grid-column:span 2;"><label class="form-label">Direccion principal</label><input class="form-control" @bind="_f.Direccion" maxlength="300" /></div>
+                    <div class="field"><label class="form-label">Telefono</label><input class="form-control" @bind="_f.Telefono" maxlength="60" /></div>
+                    <div class="field"><label class="form-label">Correo institucional</label><input class="form-control" @bind="_f.Email" maxlength="150" /></div>
+                    <div class="field"><label class="form-label">Pagina web</label><input class="form-control" @bind="_f.Web" maxlength="200" /></div>
+                </div>
+
+                @* Config sistema + logo *@
+                <div class="ent-section-title">Configuracion del sistema</div>
+                <div class="ent-grid-form">
+                    <div class="field"><label class="form-label">Zona horaria</label><input class="form-control" @bind="_f.ZonaHoraria" maxlength="60" placeholder="America/Bogota" /></div>
+                    <div class="field"><label class="form-label">Idioma por defecto</label><input class="form-control" @bind="_f.Idioma" maxlength="40" placeholder="es" /></div>
+                    <div class="field" style="display:flex;align-items:flex-end;gap:16px;">
+                        <label class="dc-req"><input type="checkbox" @bind="_f.IsActive" /> Activa</label>
+                        <label class="dc-req"><input type="checkbox" @bind="_f.IsPrincipal" /> Principal</label>
+                    </div>
+                    <div class="field" style="grid-column:span 3;"><label class="form-label">Observaciones</label><textarea class="form-control" rows="2" @bind="_f.Observaciones" maxlength="2000"></textarea></div>
+                    <div class="field" style="grid-column:span 3;">
+                        <label class="form-label">Logo de la entidad</label>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div class="ent-logo ent-logo-lg">
+                                @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <img src="@_f.LogoBase64" alt="logo" /> }
+                                else { <span>@Initials(_f.Nombre)</span> }
+                            </div>
+                            <label class="btn btn-sm btn-outline-secondary dc-file-btn"><InputFile OnChange="OnLogoAsync" accept="image/*" /> Subir logo</label>
+                            @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <button class="btn btn-sm btn-outline-danger" @onclick="() => _f.LogoBase64 = null">Quitar</button> }
+                        </div>
+                    </div>
+                </div>
+
+                @* Campos dinamicos *@
+                @if (_fieldDefs.Count > 0)
+                {
+                    <div class="ent-section-title">Campos personalizados</div>
+                    <div class="ent-grid-form">
+                        @foreach (var fd in _fieldDefs)
+                        {
+                            @if (fd.FieldType == TerceroFieldType.Separator)
+                            {
+                                <div style="grid-column:span 3;font-weight:700;font-size:12.5px;color:var(--ink-2, var(--muted-foreground));border-bottom:1px solid var(--line, var(--border));padding-bottom:4px;margin-top:4px;">@fd.Label</div>
+                            }
+                            else
+                            {
+                                <div class="field" style="@(fd.Column == 2 ? "grid-column:span 3;" : "")">
+                                    <label class="form-label">@fd.Label @(fd.IsRequired ? "*" : "")</label>
+                                    @switch (fd.FieldType)
+                                    {
+                                        case TerceroFieldType.TextArea:
+                                            <textarea class="form-control" rows="2" value="@GetFv(fd.FieldKey)" @onchange="e => SetFv(fd.FieldKey, e.Value?.ToString())"></textarea>
+                                            break;
+                                        case TerceroFieldType.Number:
+                                        case TerceroFieldType.Currency:
+                                            <input class="form-control" type="number" step="any" value="@GetFv(fd.FieldKey)" @onchange="e => SetFv(fd.FieldKey, e.Value?.ToString())" />
+                                            break;
+                                        case TerceroFieldType.Date:
+                                            <input class="form-control" type="date" value="@GetFv(fd.FieldKey)" @onchange="e => SetFv(fd.FieldKey, e.Value?.ToString())" />
+                                            break;
+                                        case TerceroFieldType.Select:
+                                            <select class="form-control" value="@GetFv(fd.FieldKey)" @onchange="e => SetFv(fd.FieldKey, e.Value?.ToString())">
+                                                <option value="">(elige)</option>
+                                                @foreach (var opt in OptionLines(fd.Options)) { <option value="@opt">@opt</option> }
+                                            </select>
+                                            break;
+                                        default:
+                                            <input class="form-control" value="@GetFv(fd.FieldKey)" @onchange="e => SetFv(fd.FieldKey, e.Value?.ToString())" />
+                                            break;
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+
+                @if (_modalError is not null) { <div class="tk-field-error">@_modalError</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _modalOpen = false" disabled="@_busy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SaveEntidadAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_f.Nombre))">@(_busy ? "Guardando..." : "Guardar entidad")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: campos personalizados (definiciones) ===== *@
+@if (_fieldsOpen)
+{
+    <div class="modal-overlay" style="z-index:1075;">
+        <div class="modal-dialog" style="max-width:620px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Campos personalizados de la entidad</h3>
+                <button class="modal-close" @onclick="() => _fieldsOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:12px;">Estos campos se agregan a la ficha de TODAS tus entidades. Utiles para datos propios de tu pais/negocio.</p>
+                @if (_fieldDefs.Count > 0)
+                {
+                    <ul class="dc-mini-list">
+                        @foreach (var fd in _fieldDefs)
+                        {
+                            <li>
+                                <div><strong>@fd.Label</strong> <span class="ent-badge">@FieldTypeLabel(fd.FieldType)</span></div>
+                                <div style="display:flex;gap:4px;">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditFieldDef(fd)" disabled="@_busy">Editar</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFieldDefAsync(fd.Id)" disabled="@_busy">&times;</button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+                <div class="dc-mini-form">
+                    <div class="dc-section-sub">@(_fdId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <input class="form-control" placeholder="Etiqueta (ej. Codigo DIVIPOLA)" @bind="_fdLabel" />
+                    <select class="form-control" @bind="_fdType">
+                        @foreach (var t in Enum.GetValues<TerceroFieldType>()) { <option value="@t">@FieldTypeLabel(t)</option> }
+                    </select>
+                    @if (_fdType == TerceroFieldType.Select)
+                    {
+                        <textarea class="form-control" rows="3" placeholder="Opciones (una por linea)" @bind="_fdOptions"></textarea>
+                    }
+                    <div style="display:flex;gap:16px;align-items:center;">
+                        <label class="dc-req"><input type="checkbox" @bind="_fdRequired" /> Obligatorio</label>
+                        <label class="dc-req"><input type="checkbox" @bind="_fdWide" /> Ancho completo</label>
+                    </div>
+                    @if (_fdError is not null) { <div class="tk-field-error">@_fdError</div> }
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-sm btn-primary" @onclick="SaveFieldDefAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_fdLabel))">@(_fdId is null ? "+ Agregar" : "Guardar")</button>
+                        @if (_fdId is not null) { <button class="btn btn-sm btn-outline-secondary" @onclick="ResetFieldForm">Cancelar</button> }
+                    </div>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _fieldsOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .ent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+    .ent-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line, var(--border)); border-radius: 12px; background: var(--surface, var(--card)); }
+    .ent-card-head { display: flex; align-items: center; gap: 12px; }
+    .ent-logo { width: 44px; height: 44px; flex: none; border-radius: 10px; background: var(--surface-2, var(--accent)); display: grid; place-items: center; overflow: hidden; font-weight: 800; color: var(--ink-2, var(--muted-foreground)); font-size: 15px; }
+    .ent-logo img { width: 100%; height: 100%; object-fit: cover; }
+    .ent-logo-lg { width: 60px; height: 60px; font-size: 18px; }
+    .ent-name { font-weight: 700; font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ent-meta { font-size: 0.78rem; color: var(--ink-3, var(--muted-foreground)); }
+    .ent-badge { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
+    .ent-badge-pri { background: rgba(124,92,255,.14); color: #6b4bd8; }
+    .ent-card-actions { display: flex; gap: 6px; margin-top: auto; }
+    .ent-dialog { max-width: 980px; width: 94vw; max-height: 92vh; display: flex; flex-direction: column; }
+    .ent-dialog .modal-body { flex: 1; overflow: auto; }
+    .ent-section-title { font-weight: 800; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, var(--muted-foreground)); margin: 16px 0 10px; border-bottom: 1px solid var(--line, var(--border)); padding-bottom: 6px; }
+    .ent-section-title:first-child { margin-top: 0; }
+    .ent-grid-form { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .ent-grid-form .field { margin: 0; }
+    .dc-file-btn { position: relative; overflow: hidden; cursor: pointer; }
+    .dc-file-btn ::deep input[type=file], .dc-file-btn input[type=file] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+    @@media (max-width: 820px) { .ent-grid-form { grid-template-columns: 1fr 1fr; } }
+</style>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private Guid _actor;
+    private string? _pageError;
+
+    private const string ModuleKey = "configuracion-entidad";
+    private bool _canEdit = true;
+    private bool _canDelete = true;
+
+    private List<EntidadDto> _list = new();
+    private readonly Dictionary<Guid, string> _logoCache = new();
+    private IReadOnlyList<EntidadFieldDefDto> _fieldDefs = Array.Empty<EntidadFieldDefDto>();
+
+    // Modal entidad.
+    private bool _modalOpen;
+    private Guid? _id;
+    private EntidadForm _f = new();
+    private string? _modalError;
+
+    // Modal campos.
+    private bool _fieldsOpen;
+    private Guid? _fdId;
+    private string _fdLabel = "";
+    private TerceroFieldType _fdType = TerceroFieldType.Text;
+    private string _fdOptions = "";
+    private bool _fdRequired;
+    private bool _fdWide;
+    private string? _fdError;
+
+    private readonly SemaphoreSlim _dbGate = new(1, 1);
+
+    private sealed class EntidadForm
+    {
+        public string Nombre { get; set; } = "";
+        public string? NombreComercial { get; set; }
+        public string? Sigla { get; set; }
+        public string? TipoEntidad { get; set; }
+        public string? TaxId { get; set; }
+        public string? TaxIdDv { get; set; }
+        public string? RepresentanteLegal { get; set; }
+        public string? NaturalezaJuridica { get; set; }
+        public string? Pais { get; set; }
+        public string? Departamento { get; set; }
+        public string? Ciudad { get; set; }
+        public string? Direccion { get; set; }
+        public string? Telefono { get; set; }
+        public string? Email { get; set; }
+        public string? Web { get; set; }
+        public string? ZonaHoraria { get; set; }
+        public string? Idioma { get; set; }
+        public string? Observaciones { get; set; }
+        public string? LogoBase64 { get; set; }
+        public bool IsActive { get; set; } = true;
+        public bool IsPrincipal { get; set; }
+        public Dictionary<string, string?> FieldValues { get; set; } = new();
+    }
+
+    private async Task GuardAsync(Func<Task> op)
+    {
+        await _dbGate.WaitAsync();
+        try { await op(); }
+        finally { _dbGate.Release(); }
+    }
+
+    public void Dispose() => _dbGate.Dispose();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+
+        _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _list = (await EntidadSvc.ListAsync()).ToList();
+        // Cargar logos de las que tienen (para las tarjetas).
+        _logoCache.Clear();
+        foreach (var e in _list.Where(x => x.HasLogo))
+        {
+            var d = await EntidadSvc.GetAsync(e.Id);
+            if (d?.LogoBase64 is { } logo) { _logoCache[e.Id] = logo; }
+        }
+    }
+
+    private Task OpenEntidad(Guid? id) => GuardAsync(async () =>
+    {
+        _modalError = null;
+        _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
+        if (id is null)
+        {
+            _id = null;
+            _f = new EntidadForm { IsActive = true, IsPrincipal = _list.Count == 0 };
+        }
+        else
+        {
+            var d = await EntidadSvc.GetAsync(id.Value);
+            if (d is null) { _pageError = "No se encontro la entidad."; return; }
+            _id = d.Id;
+            _f = new EntidadForm
+            {
+                Nombre = d.Nombre, NombreComercial = d.NombreComercial, Sigla = d.Sigla, TipoEntidad = d.TipoEntidad,
+                TaxId = d.TaxId, TaxIdDv = d.TaxIdDv, RepresentanteLegal = d.RepresentanteLegal, NaturalezaJuridica = d.NaturalezaJuridica,
+                Pais = d.Pais, Departamento = d.Departamento, Ciudad = d.Ciudad, Direccion = d.Direccion,
+                Telefono = d.Telefono, Email = d.Email, Web = d.Web, ZonaHoraria = d.ZonaHoraria, Idioma = d.Idioma,
+                Observaciones = d.Observaciones, LogoBase64 = d.LogoBase64, IsActive = d.IsActive, IsPrincipal = d.IsPrincipal,
+                FieldValues = new Dictionary<string, string?>(d.FieldValues)
+            };
+        }
+        _modalOpen = true;
+    });
+
+    private Task SaveEntidadAsync() => GuardAsync(async () =>
+    {
+        _modalError = null;
+        if (string.IsNullOrWhiteSpace(_f.Nombre)) { _modalError = "La razon social es obligatoria."; return; }
+        // Validar requeridos de campos dinamicos.
+        foreach (var fd in _fieldDefs.Where(f => f.IsRequired && f.FieldType != TerceroFieldType.Separator))
+        {
+            if (string.IsNullOrWhiteSpace(GetFv(fd.FieldKey))) { _modalError = $"'{fd.Label}' es obligatorio."; return; }
+        }
+        _busy = true;
+        try
+        {
+            var req = new SaveEntidadRequest(
+                _id, _f.Nombre.Trim(), _f.NombreComercial, _f.Sigla, _f.TipoEntidad,
+                _f.TaxId, _f.TaxIdDv, _f.RepresentanteLegal, _f.NaturalezaJuridica,
+                _f.Pais, _f.Departamento, _f.Ciudad, _f.Direccion, _f.Telefono, _f.Email, _f.Web,
+                _f.ZonaHoraria, _f.Idioma, _f.Observaciones, _f.LogoBase64, _f.IsPrincipal, _f.IsActive,
+                _f.FieldValues);
+            var saved = await EntidadSvc.SaveAsync(req, _actor);
+            if (saved is null) { _modalError = "No se pudo guardar."; return; }
+            _modalOpen = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _modalError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task SetPrincipalAsync(Guid id) => GuardAsync(async () =>
+    {
+        _busy = true;
+        try { await EntidadSvc.SetPrincipalAsync(id, _actor); await ReloadAsync(); }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task ArchiveAsync(Guid id, string name) => GuardAsync(async () =>
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Archivar la entidad '{name}'?");
+        if (!ok) { return; }
+        _busy = true;
+        try { await EntidadSvc.SetArchivedAsync(id, true, _actor); await ReloadAsync(); }
+        catch (Exception ex) { _pageError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private async Task OnLogoAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            using var ms = new MemoryStream();
+            await using (var rs = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024)) { await rs.CopyToAsync(ms); }
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+            _f.LogoBase64 = $"data:{mime};base64,{b64}";
+        }
+        catch (Exception ex) { _modalError = "Logo: " + ex.Message; }
+    }
+
+    private string GetFv(string key) => _f.FieldValues.TryGetValue(key, out var v) ? (v ?? "") : "";
+    private void SetFv(string key, string? val) => _f.FieldValues[key] = string.IsNullOrWhiteSpace(val) ? null : val;
+
+    // ---- Campos personalizados ----
+    private Task OpenFields() => GuardAsync(async () =>
+    {
+        _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
+        ResetFieldForm();
+        _fieldsOpen = true;
+    });
+
+    private void EditFieldDef(EntidadFieldDefDto fd)
+    {
+        _fdId = fd.Id;
+        _fdLabel = fd.Label;
+        _fdType = fd.FieldType;
+        _fdOptions = fd.Options ?? "";
+        _fdRequired = fd.IsRequired;
+        _fdWide = fd.Column == 2;
+        _fdError = null;
+    }
+
+    private void ResetFieldForm()
+    {
+        _fdId = null; _fdLabel = ""; _fdType = TerceroFieldType.Text; _fdOptions = ""; _fdRequired = false; _fdWide = false; _fdError = null;
+    }
+
+    private Task SaveFieldDefAsync() => GuardAsync(async () =>
+    {
+        _fdError = null;
+        if (string.IsNullOrWhiteSpace(_fdLabel)) { _fdError = "La etiqueta es obligatoria."; return; }
+        _busy = true;
+        try
+        {
+            var req = new SaveEntidadFieldDefRequest(_fdId, _fdLabel.Trim(), _fdType,
+                _fdType == TerceroFieldType.Select ? _fdOptions : null, _fdWide ? 2 : 1, _fdRequired, null);
+            var saved = await EntidadSvc.SaveFieldDefAsync(req, _actor);
+            if (saved is null) { _fdError = "No se pudo guardar el campo."; return; }
+            _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
+            ResetFieldForm();
+        }
+        catch (Exception ex) { _fdError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteFieldDefAsync(Guid id) => GuardAsync(async () =>
+    {
+        _busy = true;
+        try
+        {
+            await EntidadSvc.DeleteFieldDefAsync(id, _actor);
+            _fieldDefs = await EntidadSvc.ListFieldDefsAsync();
+            if (_fdId == id) { ResetFieldForm(); }
+        }
+        catch (Exception ex) { _fdError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---- Helpers ----
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "?"; }
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1 ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : (parts[0][..1] + parts[1][..1]).ToUpperInvariant();
+    }
+
+    private static IEnumerable<string> OptionLines(string? options)
+        => string.IsNullOrWhiteSpace(options) ? Enumerable.Empty<string>()
+            : options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string FieldTypeLabel(TerceroFieldType t) => t switch
+    {
+        TerceroFieldType.Text => "Texto",
+        TerceroFieldType.Number => "Numero",
+        TerceroFieldType.Currency => "Moneda",
+        TerceroFieldType.TextArea => "Texto largo",
+        TerceroFieldType.Select => "Seleccion",
+        TerceroFieldType.Date => "Fecha",
+        TerceroFieldType.Phone => "Telefono",
+        TerceroFieldType.Separator => "Separador",
+        _ => t.ToString()
+    };
+}

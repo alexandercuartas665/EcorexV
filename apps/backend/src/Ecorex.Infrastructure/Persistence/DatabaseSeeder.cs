@@ -2600,7 +2600,10 @@ public sealed class DatabaseSeeder
 
         // ---- Seccion: Sistema - General (slug gen) ----
         var gen = Add(MenuNodeKind.Section, "Sistema \u00b7 General", null, "gen", iconKey: "gear");
-        Item(gen.Id, "Configuracion de entidad", "configuracion", "000615");
+        // "Configuracion de entidad" legacy = el plan/cuenta del tenant -> se renombra a "Mi cuenta".
+        // La verdadera configuracion de la entidad (agencias/areas/sucursales) es el modulo nuevo.
+        Item(gen.Id, "Mi cuenta", "mi-cuenta", "000615");
+        Item(gen.Id, "Configuracion de la entidad", "configuracion-entidad", "000616");
         Item(gen.Id, "Actividades", "actividades", "000270");
         Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
         Item(gen.Id, "Plantillas", "plantillas", "000893");

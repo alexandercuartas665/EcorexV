@@ -87,10 +87,13 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5"/></svg>
                             Compartir
                         </button>
-                        <button type="button" class="ecorex-bell" title="Notificaciones (proximamente)">
+                        <NavLink class="ecorex-bell" href="notificaciones" title="Notificaciones">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-                            <span class="dot" aria-hidden="true"></span>
-                        </button>
+                            @if (_unread > 0)
+                            {
+                                <span class="count" aria-label="@_unread notificaciones sin leer">@(_unread > 99 ? "99+" : _unread.ToString())</span>
+                            }
+                        </NavLink>
                     }
                     else
                     {
@@ -186,6 +189,7 @@
     private string? _tenantName;
     private string? _userName;
     private string _avatar = "U";
+    private int _unread;   // notificaciones no leidas del usuario (badge de la campana)
 
     protected override async Task OnInitializedAsync()
     {
@@ -209,8 +213,15 @@
                 await using var scope = ScopeFactory.CreateAsyncScope();
                 var tenants = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Admin.ITenantAdminService>();
                 _tenantName = (await tenants.GetAsync(tenantId))?.Name;
+
+                // Ola 7: conteo de notificaciones no leidas para el badge de la campana.
+                if (Guid.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var platformUserId))
+                {
+                    var notifs = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Notifications.INotificationService>();
+                    _unread = await notifs.UnreadCountForPlatformUserAsync(platformUserId);
+                }
             }
-            catch { /* sin nombre: se muestra el generico */ }
+            catch { /* sin nombre/conteo: se muestra el generico */ }
         }
     }
 

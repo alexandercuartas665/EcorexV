@@ -69,6 +69,9 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IActivityTypeService, Tenancy.ActivityTypeService>();
         services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
         services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
+        // Notificaciones in-app (Ola 7 - entrega real). La entrega la escriben los servicios de
+        // dominio (TaskItemService al asignar); este servicio cubre lectura/campana y marcado.
+        services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();
         // Tableros de actividades unificados (ADR-0020): tarjetas = TaskItem.
         services.AddScoped<Tenancy.IActivityBoardService, Tenancy.ActivityBoardService>();
         services.AddScoped<Tenancy.IBusinessUnitService, Tenancy.BusinessUnitService>();

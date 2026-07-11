@@ -57,6 +57,7 @@ public interface IApplicationDbContext
     DbSet<TaskItemTagAssignment> TaskItemTagAssignments { get; }
     DbSet<TaskWorkLog> TaskWorkLogs { get; }
     DbSet<TaskItemActivity> TaskItemActivities { get; }
+    DbSet<Notification> Notifications { get; }
     DbSet<TaskItemAttachment> TaskItemAttachments { get; }
     DbSet<TaskItemChecklistItem> TaskItemChecklistItems { get; }
     DbSet<TaskItemAssignment> TaskItemAssignments { get; }

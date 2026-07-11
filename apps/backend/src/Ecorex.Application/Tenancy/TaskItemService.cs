@@ -407,11 +407,15 @@ public sealed class TaskItemService : ITaskItemService
         task.AssigneeTenantUserId = tenantUserId;
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, $"asigno la tarea a {assignee.Email}"));
-        // Ola 7 (endurecimiento): notificacion al asignar. Se deja traza dirigida al encargado
-        // (la entrega email/in-app con plantilla es backlog); si la tarea tiene concepto, tambien
-        // se notifica a los destinatarios configurados del concepto.
+        // Ola 7 (endurecimiento): notificacion al asignar. Ademas de la traza en la historia de la
+        // tarea, se ENTREGA una notificacion in-app al encargado (bandeja/campana). La entrega por
+        // email con plantilla queda como backlog (el canal existe: IEmailSender).
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, $"notifico a {assignee.Email}: le asignaron la tarea {task.Number}"));
+        _db.Notifications.Add(BuildNotification(task.TenantId, tenantUserId, NotificationKind.TaskAssigned,
+            title: $"Te asignaron la tarea {task.Number}",
+            body: string.IsNullOrWhiteSpace(task.Title) ? $"Tarea {task.Number}" : task.Title!,
+            actorName: actorName, relatedTaskItemId: task.Id));
         if (task.SubcategoriaId is Guid subcategoriaId)
         {
             await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
@@ -438,17 +442,41 @@ public sealed class TaskItemService : ITaskItemService
     {
         var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
             .Where(n => n.SubcategoriaId == subcategoriaId)
-            .Join(_db.TenantUsers.AsNoTracking(), n => n.TenantUserId, u => u.Id, (n, u) => u.Email)
-            .Where(e => excludeEmail == null || e != excludeEmail)
-            .OrderBy(e => e)
+            .Join(_db.TenantUsers.AsNoTracking(), n => n.TenantUserId, u => u.Id,
+                (n, u) => new { u.Id, u.Email })
+            .Where(x => excludeEmail == null || x.Email != excludeEmail)
+            .OrderBy(x => x.Email)
             .ToListAsync(cancellationToken);
         if (recipients.Count > 0)
         {
             _db.TaskItemActivities.Add(BuildActivity(tenantId, taskId, actorUserId, actorName,
                 TaskActivityType.Action,
-                $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients)}"));
+                $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients.Select(r => r.Email))}"));
+            // Entrega real in-app: una notificacion por destinatario configurado en el concepto.
+            foreach (var r in recipients)
+            {
+                _db.Notifications.Add(BuildNotification(tenantId, r.Id, NotificationKind.ConceptNotice,
+                    title: "Nueva actividad del proceso",
+                    body: "Se registro una actividad de un proceso en el que estas configurado como destinatario.",
+                    actorName: actorName, relatedTaskItemId: taskId));
+            }
         }
     }
+
+    /// <summary>Construye una notificacion in-app (Ola 7) con TenantId explicito (no hay stamping automatico).</summary>
+    private static Notification BuildNotification(Guid tenantId, Guid recipientTenantUserId, NotificationKind kind,
+        string title, string body, string? actorName, Guid? relatedTaskItemId)
+        => new()
+        {
+            TenantId = tenantId,
+            RecipientTenantUserId = recipientTenantUserId,
+            Kind = kind,
+            Title = title,
+            Body = body,
+            LinkRoute = "actividades",
+            RelatedTaskItemId = relatedTaskItemId,
+            ActorName = string.IsNullOrWhiteSpace(actorName) ? null : actorName.Trim(),
+        };
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
     {

@@ -348,6 +348,31 @@ public abstract class TaskCoreTestsBase
         Assert.Contains(activities, t => t.StartsWith("notifico a") && t.Contains("le asignaron la tarea"));
     }
 
+    [Fact]
+    public async Task Assign_CreatesInAppNotification_ForAssignee()
+    {
+        // Ola 7 (entrega real): al asignar, ademas de la traza se ENTREGA una notificacion in-app
+        // (fila Notification) al encargado, no leida, con el tipo TaskAssigned.
+        var seed = await SeedTenantAsync("Nucleo Notif InApp");
+        var created = await CreateTaskAsync(seed, "Tarea con notificacion in-app");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+        var assigned = await service.AssignAsync(taskId, seed.TenantUserId, seed.PlatformUserId, "Tester");
+        Assert.True(assigned.IsOk, assigned.Error);
+
+        var notifs = await ctx.Notifications.AsNoTracking()
+            .Where(n => n.RecipientTenantUserId == seed.TenantUserId)
+            .ToListAsync();
+        var assignNotif = Assert.Single(notifs);
+        Assert.Equal(Ecorex.Domain.Enums.NotificationKind.TaskAssigned, assignNotif.Kind);
+        Assert.False(assignNotif.IsRead);
+        Assert.Equal(taskId, assignNotif.RelatedTaskItemId);
+        Assert.Equal(seed.TenantId, assignNotif.TenantId);
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

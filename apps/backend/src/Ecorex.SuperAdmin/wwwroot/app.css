@@ -1735,6 +1735,15 @@ html.dark {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--danger); border: 1.5px solid var(--surface);
 }
+/* Ola 7: badge con el conteo real de notificaciones sin leer. */
+.ecorex-bell .count {
+  position: absolute; top: -5px; right: -5px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--danger); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  border: 1.5px solid var(--surface); box-sizing: border-box;
+}
+.ecorex-bell.active { background: var(--surface-3); color: var(--ink); }
 
 /* Toggle de colapso del sidebar (fuente: 34x34 r9 borde line, icono panel 17px) */
 .ecorex-collapse {

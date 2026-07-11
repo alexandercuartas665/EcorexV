@@ -105,6 +105,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => Set<TaskItemTagAssignment>();
     public DbSet<TaskWorkLog> TaskWorkLogs => Set<TaskWorkLog>();
     public DbSet<TaskItemActivity> TaskItemActivities => Set<TaskItemActivity>();
+    public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<TaskItemAttachment> TaskItemAttachments => Set<TaskItemAttachment>();
 
     // Tableros de actividades unificados (ADR-0020): checklist y asignados M:N del TaskItem.
@@ -250,6 +251,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<PipelineFieldType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<BusinessUnitModalKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<NotificationKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -1000,6 +1002,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Text).HasColumnType(longTextColumnType).IsRequired();
             b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TaskItemId, x.CreatedAt });
+        });
+
+        // Ola 7 (endurecimiento): bandeja de notificaciones in-app por usuario (entrega real).
+        modelBuilder.Entity<Notification>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Body).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.LinkRoute).HasMaxLength(300);
+            b.Property(x => x.ActorName).HasMaxLength(200);
+            b.HasOne(x => x.RecipientTenantUser).WithMany()
+                .HasForeignKey(x => x.RecipientTenantUserId).OnDelete(DeleteBehavior.Cascade);
+            // Consulta caliente: no leidas del usuario, mas recientes primero.
+            b.HasIndex(x => new { x.RecipientTenantUserId, x.IsRead, x.CreatedAt });
         });
 
         modelBuilder.Entity<TaskItemAttachment>(b =>

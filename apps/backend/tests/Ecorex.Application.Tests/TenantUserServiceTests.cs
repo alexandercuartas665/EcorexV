@@ -100,6 +100,7 @@ public class TenantUserServiceTests
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();
         public DbSet<TaskWorkLog> TaskWorkLogs => throw new NotSupportedException();
         public DbSet<TaskItemActivity> TaskItemActivities => throw new NotSupportedException();
+        public DbSet<Notification> Notifications => throw new NotSupportedException();
         public DbSet<TaskItemAttachment> TaskItemAttachments => throw new NotSupportedException();
         public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => throw new NotSupportedException();
         public DbSet<TaskItemAssignment> TaskItemAssignments => throw new NotSupportedException();

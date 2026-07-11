@@ -35,7 +35,9 @@ public sealed class ApiImportService : IApiImportService
 
     public async Task<ApiProbeResult> ProbeAsync(Guid connectorId, string? arrayPath = null, CancellationToken ct = default)
     {
-        var (doc, error) = await FetchAsync(connectorId, ct);
+        var (connector, baseUri, loadError) = await LoadConnectorAsync(connectorId, ct);
+        if (connector is null || baseUri is null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, loadError); }
+        var (doc, error) = await FetchJsonAsync(connector, baseUri, ct);
         if (doc is null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, error); }
         using (doc)
         {
@@ -96,47 +98,82 @@ public sealed class ApiImportService : IApiImportService
             return new DataImportResult(false, 0, 0, new[] { "Ningun mapeo apunta a una columna escalar de la tabla." });
         }
 
-        var (doc, error) = await FetchAsync(req.ConnectorId, ct);
-        if (doc is null) { return new DataImportResult(false, 0, 0, new[] { error ?? "No se pudo leer el API." }); }
+        var (connector, baseUri, loadError) = await LoadConnectorAsync(req.ConnectorId, ct);
+        if (connector is null || baseUri is null) { return new DataImportResult(false, 0, 0, new[] { loadError ?? "No se pudo leer el API." }); }
 
         var imported = 0;
         var failed = 0;
         var errors = new List<string>();
-        using (doc)
+
+        var paging = req.Paging;
+        var paginated = paging is not null && paging.Mode != PagingMode.None && paging.PageSize > 0;
+        var maxPages = paginated ? Math.Max(1, paging!.MaxPages) : 1;
+        var stop = false;
+
+        for (var page = 0; page < maxPages && !stop; page++)
         {
-            if (!TryGetArray(doc.RootElement, req.ArrayPath, out var arr, out _))
+            // Reescribe el desplazamiento/pagina + limite en el query string de la URI base.
+            var uri = baseUri;
+            if (paginated && paging!.Mode == PagingMode.Offset)
             {
-                return new DataImportResult(false, 0, 0, new[] { "La respuesta no contiene un arreglo JSON." });
+                uri = WithQueryParam(uri, string.IsNullOrWhiteSpace(paging.OffsetParam) ? "start" : paging.OffsetParam!, paging.StartValue + page * paging.PageSize);
+                if (!string.IsNullOrWhiteSpace(paging.LimitParam)) { uri = WithQueryParam(uri, paging.LimitParam!, paging.PageSize); }
+            }
+            else if (paginated && paging!.Mode == PagingMode.Page)
+            {
+                uri = WithQueryParam(uri, string.IsNullOrWhiteSpace(paging.PageParam) ? "page" : paging.PageParam!, paging.StartValue + page);
+                if (!string.IsNullOrWhiteSpace(paging.LimitParam)) { uri = WithQueryParam(uri, paging.LimitParam!, paging.PageSize); }
             }
 
-            var index = 0;
-            foreach (var el in arr.EnumerateArray())
+            var (doc, error) = await FetchJsonAsync(connector, uri, ct);
+            if (doc is null)
             {
-                if (imported >= MaxImportRows)
+                if (imported == 0) { return new DataImportResult(false, 0, 0, new[] { error ?? "No se pudo leer el API." }); }
+                errors.Add($"Pagina {page + 1}: {error}");
+                break;
+            }
+            using (doc)
+            {
+                if (!TryGetArray(doc.RootElement, req.ArrayPath, out var arr, out _))
                 {
-                    errors.Add($"Se alcanzo el limite de {MaxImportRows} filas por corrida; el resto no se importo.");
+                    if (imported == 0) { return new DataImportResult(false, 0, 0, new[] { "La respuesta no contiene un arreglo JSON." }); }
                     break;
                 }
-                index++;
-                if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
 
-                var row = new DataContainerRow { TenantId = tenantId, ContainerId = req.TargetContainerId };
-                _db.DataContainerRows.Add(row);
-                foreach (var (colId, field) in mapping)
+                var pageCount = 0;
+                foreach (var el in arr.EnumerateArray())
                 {
-                    var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
-                    _db.DataContainerCells.Add(new DataContainerCell
+                    if (imported >= MaxImportRows)
                     {
-                        TenantId = tenantId,
-                        RowId = row.Id,
-                        ColumnId = colId,
-                        Value = value
-                    });
-                }
-                imported++;
-            }
+                        errors.Add($"Se alcanzo el limite de {MaxImportRows} filas por corrida; el resto no se importo.");
+                        stop = true;
+                        break;
+                    }
+                    pageCount++;
+                    if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
 
-            await _db.SaveChangesAsync(ct);
+                    var row = new DataContainerRow { TenantId = tenantId, ContainerId = req.TargetContainerId };
+                    _db.DataContainerRows.Add(row);
+                    foreach (var (colId, field) in mapping)
+                    {
+                        var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
+                        _db.DataContainerCells.Add(new DataContainerCell
+                        {
+                            TenantId = tenantId,
+                            RowId = row.Id,
+                            ColumnId = colId,
+                            Value = value
+                        });
+                    }
+                    imported++;
+                }
+
+                await _db.SaveChangesAsync(ct);
+
+                // Fin de la paginacion: sin paginacion es una sola pasada; con paginacion, una pagina
+                // vacia o mas corta que el tamano de pagina significa que ya no hay mas.
+                if (!paginated || pageCount == 0 || pageCount < paging!.PageSize) { stop = true; }
+            }
         }
 
         return new DataImportResult(imported > 0 || failed == 0, imported, failed, errors);
@@ -144,22 +181,28 @@ public sealed class ApiImportService : IApiImportService
 
     // ---- Fetch + auth ----
 
-    private async Task<(JsonDocument? Doc, string? Error)> FetchAsync(Guid connectorId, CancellationToken ct)
+    /// <summary>Carga el conector, valida que sea RestApi con endpoint http(s) permitido y devuelve su URI base.</summary>
+    private async Task<(Domain.Entities.DataConnector? Connector, Uri? BaseUri, string? Error)> LoadConnectorAsync(Guid connectorId, CancellationToken ct)
     {
         var c = await _db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(x => x.Id == connectorId, ct);
-        if (c is null) { return (null, "Conector no encontrado."); }
-        if (c.Kind != ConnectorKind.RestApi) { return (null, "El conector no es de tipo API REST."); }
-        if (string.IsNullOrWhiteSpace(c.EndpointUrl)) { return (null, "El conector no tiene endpoint configurado."); }
+        if (c is null) { return (null, null, "Conector no encontrado."); }
+        if (c.Kind != ConnectorKind.RestApi) { return (null, null, "El conector no es de tipo API REST."); }
+        if (string.IsNullOrWhiteSpace(c.EndpointUrl)) { return (null, null, "El conector no tiene endpoint configurado."); }
         if (!Uri.TryCreate(c.EndpointUrl.Trim(), UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            return (null, "El endpoint debe ser una URL http(s) absoluta.");
+            return (null, null, "El endpoint debe ser una URL http(s) absoluta.");
         }
         if (IsBlockedHost(uri))
         {
-            return (null, "El endpoint apunta a una direccion interna/no permitida.");
+            return (null, null, "El endpoint apunta a una direccion interna/no permitida.");
         }
+        return (c, uri, null);
+    }
 
+    /// <summary>Hace el GET del conector sobre la URI indicada (que puede diferir de la base por paginacion).</summary>
+    private async Task<(JsonDocument? Doc, string? Error)> FetchJsonAsync(Domain.Entities.DataConnector c, Uri uri, CancellationToken ct)
+    {
         var method = string.IsNullOrWhiteSpace(c.HttpMethod) ? HttpMethod.Get : new HttpMethod(c.HttpMethod!.Trim().ToUpperInvariant());
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -183,6 +226,31 @@ public sealed class ApiImportService : IApiImportService
         }
         catch (OperationCanceledException) { return (null, "Tiempo de espera agotado al llamar al API."); }
         catch (HttpRequestException ex) { return (null, $"Error de red al llamar al API: {ex.Message}"); }
+    }
+
+    /// <summary>Reescribe (o agrega) un parametro del query string y devuelve la URI resultante.</summary>
+    private static Uri WithQueryParam(Uri baseUri, string name, int value)
+    {
+        var pairs = new List<string>();
+        var replaced = false;
+        var q = baseUri.Query.TrimStart('?');
+        if (!string.IsNullOrEmpty(q))
+        {
+            foreach (var part in q.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var eq = part.IndexOf('=');
+                var key = eq >= 0 ? part[..eq] : part;
+                if (string.Equals(Uri.UnescapeDataString(key), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    pairs.Add($"{Uri.EscapeDataString(name)}={value}");
+                    replaced = true;
+                }
+                else { pairs.Add(part); }
+            }
+        }
+        if (!replaced) { pairs.Add($"{Uri.EscapeDataString(name)}={value}"); }
+        var ub = new UriBuilder(baseUri) { Query = string.Join('&', pairs) };
+        return ub.Uri;
     }
 
     private static void ApplyAuth(HttpRequestMessage req, ConnectorAuthKind kind, string? cred)

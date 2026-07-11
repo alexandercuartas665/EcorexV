@@ -15,12 +15,29 @@ public sealed record ApiProbeResult(
     string? SamplePretty,
     string? Error);
 
+/// <summary>Estilo de paginacion del API. None = una sola llamada; Offset = desplazamiento
+/// (ej. start/limit de Alegra); Page = numero de pagina incremental (ej. page/limit).</summary>
+public enum PagingMode { None, Offset, Page }
+
+/// <summary>Config de paginacion para recorrer TODAS las paginas. El motor incrementa el
+/// desplazamiento (o el numero de pagina) reescribiendo esos parametros en el query string y
+/// se detiene cuando una pagina trae menos de PageSize elementos, viene vacia o se alcanza MaxPages.</summary>
+public sealed record ApiPaging(
+    PagingMode Mode,
+    string? OffsetParam,   // Offset: parametro de desplazamiento (ej. "start")
+    string? PageParam,     // Page: parametro de numero de pagina (ej. "page")
+    string? LimitParam,    // ambos: parametro de tamano de pagina (ej. "limit")
+    int PageSize,
+    int StartValue,        // valor inicial (Offset: 0; Page: 1 tipico)
+    int MaxPages);
+
 /// <summary>Peticion de importacion: conector origen, tabla destino y mapeo columnaId -> campo JSON.</summary>
 public sealed record ApiImportRequest(
     Guid ConnectorId,
     Guid TargetContainerId,
     IReadOnlyDictionary<Guid, string> ColumnToField,
-    string? ArrayPath = null);
+    string? ArrayPath = null,
+    ApiPaging? Paging = null);
 
 /// <summary>
 /// Motor minimo de importacion desde API REST (disparo manual). Reusa DataImportResult.

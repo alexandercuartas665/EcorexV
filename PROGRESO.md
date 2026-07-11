@@ -3221,3 +3221,49 @@ prod (build-from-git, sin migracion, login 200).
 Pendiente: (a) grant contenedor-datos:View a roles limitados. (b) doc del destino/cliente remoto.
 (c) DAL-dual SQL Server. (d) resolver Reference en el import de Excel por clave (hoy las relaciones
 se enlazan en la app tras importar los escalares).
+
+### Addendum 5 (2026-07-11) - Contenedor de datos: "Guardar y nueva" + import desde API REST (paginacion + modos)
+
+Continuacion del panel de Datos (Addendum 4), a pedido del usuario y validado EN VIVO contra prod.
+
+- **"+ Guardar y nueva"** en el alta de fila (commit `1de0ad7`): el editor de fila gana un tercer
+  boton que persiste la fila y deja el formulario limpio en modo "nueva fila" (mismo modal abierto)
+  para capturar varias seguidas, con flash "Fila guardada. Van N en la tabla.". Los otros pasan a
+  "Cerrar" y "Guardar y cerrar". SaveRowAsync -> SaveRowCoreAsync(keepOpen).
+
+- **Item de menu "Contenedor de datos"**: no estaba en el menu (el modulo se alcanzaba por URL). Se
+  agrego a la vista "Completo" en Sistema . General via Administrador de Menu (000194). OJO en ese
+  editor: primero "Aplicar cambios" (confirma el nodo) y LUEGO "Guardar" (persiste la vista); si solo
+  se da Guardar, el item queda como "Nuevo elemento" sin ruta. Es config por-tenant en la BD
+  (menu_nodes/menu_views), no en codigo.
+
+- **Importacion desde API REST** (motor generico, NO atado a Alegra):
+  - **C_API1 servicio** (`IApiImportService` + `ApiImportService`, registrado con AddHttpClient en
+    Infrastructure; commit `882cc0b`): `ProbeAsync` hace el GET del conector RestApi con su auth
+    (credenciales descifradas server-side: Basic=base64 de usuario:clave, Bearer, ApiKey), detecta el
+    arreglo JSON (raiz array, envoltorios data/items/... o ruta con puntos) y descubre los campos
+    (llaves del primer objeto) + una muestra. `ImportAsync` crea una fila por elemento mapeando
+    campo->columna escalar. Guard SSRF minimo (http/https, bloquea loopback/privadas), timeout 30s.
+  - **C_API2 paginacion** (commit `84d2539`): `ApiPaging` (Offset start/limit o Page page/limit,
+    tamano de pagina, valor inicial, tope de paginas). El motor recorre pagina por pagina reescribiendo
+    esos parametros en el query string y para cuando una pagina viene vacia/mas corta que el tamano (o
+    al tope / al limite de 5000 filas). FetchAsync se partio en LoadConnectorAsync + FetchJsonAsync(uri)
+    + WithQueryParam.
+  - **C_API3 modos de re-carga** (commit `8509b36`): `ApiImportMode` Append/Replace/Upsert + KeyColumnId;
+    `ImportAsync` devuelve `ApiImportOutcome` (insertadas/actualizadas/borradas/fallidas). Replace vacia
+    la tabla (filas+celdas+enlaces) antes; Upsert precarga clave->fila y actualiza la fila cuya columna
+    clave (mapeada, ej. id) coincide o inserta (idempotente en re-cargas).
+  - **UI**: en cada conector REST activo, boton "Importar" abre un sub-modal -> "Descubrir campos" ->
+    tabla destino + mapeo columna<-campo (auto-match por nombre) + muestra + seccion "Modo de
+    importacion" + "Paginacion" (activada por defecto, tamano leido del limit del endpoint).
+
+- **Pruebas en vivo (prod, tenant SKY SYSTEM)**: contenedor "Prueba API" con tabla "Categorias"
+  (id/name/description). Conector "Alegra categorias" (endpoint Alegra, Basic; la credencial la pego el
+  USUARIO en el campo -- el agente NO teclea secretos). item-categories daba 0 (cuenta vacia, no error);
+  con /items: Descubrir = 16 campos / 30 por pagina; import de una pagina = 30 filas; import con
+  paginacion = 318 filas (todo el catalogo). Modo Reemplazar = "348 borradas, 318 insertadas"; modo
+  Upsert por id = "318 actualizadas" (0 duplicadas). Todo sin migracion.
+
+Pendiente: (a) rotar la credencial de Alegra compartida por chat. (b) programar el import por horario
+(la seccion "Procesos" existe pero sin motor de ejecucion/scheduler). (c) mapear campos anidados
+(ej. category.name). (d) grant contenedor-datos:View a roles limitados. (e) DAL-dual SQL Server.

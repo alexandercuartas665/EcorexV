@@ -52,6 +52,7 @@ public interface IApplicationDbContext
     DbSet<ActivityType> ActivityTypes { get; }
     DbSet<Project> Projects { get; }
     DbSet<ProjectMember> ProjectMembers { get; }
+    DbSet<ProjectMilestone> ProjectMilestones { get; }
     DbSet<TaskItem> TaskItems { get; }
     DbSet<TaskItemTag> TaskItemTags { get; }
     DbSet<TaskItemTagAssignment> TaskItemTagAssignments { get; }

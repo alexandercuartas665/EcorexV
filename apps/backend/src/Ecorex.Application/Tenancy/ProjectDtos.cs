@@ -18,5 +18,15 @@ public sealed record UpdateProjectRequest(
 
 public sealed record ProjectMemberDto(Guid TenantUserId, string Email, bool CanEdit, bool IsOwner);
 
+// ---- Proyectos P1: hitos ----
+
+public sealed record ProjectMilestoneDto(
+    Guid Id, Guid ProjectId, string Name, string? Description, DateOnly? DueDate,
+    int SortOrder, bool IsCompleted, int TaskCount);
+
+public sealed record CreateMilestoneRequest(string Name, DateOnly? DueDate = null, string? Description = null);
+
+public sealed record UpdateMilestoneRequest(string Name, DateOnly? DueDate, string? Description);
+
 /// <summary>Resultado del chequeo de acceso al proyecto: owner o member ven; CanEdit permite editar.</summary>
 public sealed record ProjectAccessDto(bool CanView, bool CanEdit);

@@ -136,6 +136,45 @@ else
         }
     </div>
 
+    @* ===== Hitos del proyecto (Proyectos P1) ===== *@
+    <div class="card" style="padding:18px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <h2 style="font-size:15px;font-weight:700;margin:0;flex:1;">Hitos del proyecto</h2>
+            <span class="wlbl">@_milestones.Count(m => m.IsCompleted)/@_milestones.Count completados</span>
+        </div>
+
+        @if (_milestones.Count == 0)
+        {
+            <p class="page-sub" style="margin:0 0 12px;">Aun no hay hitos. Agrega el primero abajo.</p>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+                @foreach (var m in _milestones)
+                {
+                    <div class="tk-member-row" style="gap:10px;">
+                        <input type="checkbox" checked="@m.IsCompleted" title="Marcar completado"
+                               @onchange="@(e => SetMilestoneCompletedAsync(m.Id, (bool)e.Value!))" disabled="@_busy" />
+                        <span style="flex:1;@(m.IsCompleted ? "text-decoration:line-through;color:var(--ink-3);" : "")">@m.Name</span>
+                        <span class="wlbl">@(m.DueDate?.ToString("dd MMM yyyy") ?? "sin fecha")</span>
+                        <span class="tk-status st-active" title="Actividades enlazadas">@m.TaskCount act.</span>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveMilestoneAsync(m.Id))" disabled="@_busy">Quitar</button>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="tk-member-add">
+            <input class="form-control form-control-sm" style="flex:1;" placeholder="Nombre del hito" @bind="_newMilestoneName" />
+            <input class="form-control form-control-sm" type="date" style="max-width:170px;" @bind="_newMilestoneDue" />
+            <button class="btn btn-sm btn-primary" @onclick="AddMilestoneAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newMilestoneName))">Agregar hito</button>
+        </div>
+        @if (_milestoneError is not null)
+        {
+            <div class="tk-field-error">@_milestoneError</div>
+        }
+    </div>
+
     @* ===== Kanban del proyecto (componente reutilizado con filtro fijo) ===== *@
     <TaskKanban @ref="_kanban" ProjectId="@ProjectId" />
 }
@@ -156,6 +195,12 @@ else
     private string? _memberError;
     private string? _statusError;
 
+    // Proyectos P1: hitos
+    private List<ProjectMilestoneDto> _milestones = new();
+    private string _newMilestoneName = "";
+    private DateOnly? _newMilestoneDue;
+    private string? _milestoneError;
+
     protected override async Task OnInitializedAsync()
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
@@ -167,6 +212,49 @@ else
     {
         _project = await ProjectsSvc.GetAsync(ProjectId);
         _members = _project is null ? new List<ProjectMemberDto>() : (await ProjectsSvc.ListMembersAsync(ProjectId)).ToList();
+        _milestones = _project is null ? new List<ProjectMilestoneDto>() : (await ProjectsSvc.ListMilestonesAsync(ProjectId)).ToList();
+    }
+
+    private async Task AddMilestoneAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newMilestoneName)) { return; }
+        _busy = true;
+        _milestoneError = null;
+        try
+        {
+            var result = await ProjectsSvc.AddMilestoneAsync(ProjectId, new CreateMilestoneRequest(_newMilestoneName.Trim(), _newMilestoneDue));
+            if (!result.IsOk) { _milestoneError = result.Error; return; }
+            _newMilestoneName = "";
+            _newMilestoneDue = null;
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetMilestoneCompletedAsync(Guid milestoneId, bool completed)
+    {
+        _busy = true;
+        _milestoneError = null;
+        try
+        {
+            var result = await ProjectsSvc.SetMilestoneCompletedAsync(milestoneId, completed);
+            if (!result.IsOk) { _milestoneError = result.Error; }
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveMilestoneAsync(Guid milestoneId)
+    {
+        _busy = true;
+        _milestoneError = null;
+        try
+        {
+            var result = await ProjectsSvc.RemoveMilestoneAsync(milestoneId);
+            if (!result.IsOk) { _milestoneError = result.Error; }
+            await LoadAsync();
+        }
+        finally { _busy = false; }
     }
 
     private string UserEmail(Guid tenantUserId)

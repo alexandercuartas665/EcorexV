@@ -82,6 +82,10 @@ public class TaskItem : TenantEntity, IVersioned
     public Guid? ProjectId { get; set; }
     public Project? Project { get; set; }
 
+    /// <summary>Proyectos P3: hito del proyecto al que se enlaza la actividad (opcional).</summary>
+    public Guid? MilestoneId { get; set; }
+    public ProjectMilestone? Milestone { get; set; }
+
     /// <summary>Color HEX para acentuar la tarea en la UI. Null = sin color especifico.</summary>
     public string? Color { get; set; }
 

@@ -373,6 +373,45 @@ public abstract class TaskCoreTestsBase
         Assert.Equal(seed.TenantId, assignNotif.TenantId);
     }
 
+    [Fact]
+    public async Task CreateActivity_LinkedToProjectMilestone_IsPersisted_AndCrossProjectRejected()
+    {
+        // Proyectos P3: una actividad creada en un proyecto se enlaza a un hito DEL MISMO proyecto;
+        // un hito de otro proyecto es rechazado (Invalid).
+        var seed = await SeedTenantAsync("Proyectos Hito");
+
+        Guid projectId, milestoneId, otherMilestoneId;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var project = new Project { TenantId = seed.TenantId, Code = "PRJ-T1", Name = "Proyecto test", OwnerTenantUserId = seed.TenantUserId };
+            var other = new Project { TenantId = seed.TenantId, Code = "PRJ-T2", Name = "Otro proyecto", OwnerTenantUserId = seed.TenantUserId };
+            ctx.Projects.AddRange(project, other);
+            var milestone = new ProjectMilestone { TenantId = seed.TenantId, ProjectId = project.Id, Name = "Hito 1", SortOrder = 0 };
+            var otherMilestone = new ProjectMilestone { TenantId = seed.TenantId, ProjectId = other.Id, Name = "Hito de otro", SortOrder = 0 };
+            ctx.ProjectMilestones.AddRange(milestone, otherMilestone);
+            await ctx.SaveChangesAsync();
+            projectId = project.Id; milestoneId = milestone.Id; otherMilestoneId = otherMilestone.Id;
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx2, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+
+        // OK: hito del mismo proyecto -> se enlaza y el summary trae el nombre.
+        var ok = await service.CreateAsync(
+            new CreateTaskItemRequest("Actividad del hito", seed.ActivityTypeId, ProjectId: projectId, MilestoneId: milestoneId),
+            seed.PlatformUserId, "Tester");
+        Assert.True(ok.IsOk, ok.Error);
+        Assert.Equal(projectId, ok.Value!.Item.ProjectId);
+        Assert.Equal(milestoneId, ok.Value.Item.MilestoneId);
+        Assert.Equal("Hito 1", ok.Value.Item.MilestoneName);
+
+        // Invalid: hito de OTRO proyecto no pertenece al proyecto indicado.
+        var bad = await service.CreateAsync(
+            new CreateTaskItemRequest("Actividad hito ajeno", seed.ActivityTypeId, ProjectId: projectId, MilestoneId: otherMilestoneId),
+            seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.Invalid, bad.Status);
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

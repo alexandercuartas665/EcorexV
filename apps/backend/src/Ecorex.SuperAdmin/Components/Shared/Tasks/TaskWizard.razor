@@ -167,11 +167,16 @@
                                         <input placeholder="Numero de actividad (se asigna al crear)" style="@InStyle;opacity:.7" disabled />
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                                        <select style="@SelStyle" value="@(_projectId?.ToString() ?? "")" @onchange="@(e => _projectId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(_presetProjectId is not null)">
+                                        <select style="@SelStyle" value="@(_projectId?.ToString() ?? "")" @onchange="OnProjectChanged" disabled="@(_presetProjectId is not null)">
                                             <option value="">Proyecto...</option>
                                             @foreach (var p in _projects) { <option value="@p.Id">@p.Code - @p.Name</option> }
                                         </select>
-                                        <select style="@SelStyle;opacity:.7" disabled><option>Hito del proyecto...</option></select>
+                                        <select style="@SelStyle" value="@(_milestoneId?.ToString() ?? "")"
+                                                @onchange="@(e => _milestoneId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)"
+                                                disabled="@(_projectId is null || _milestones.Count == 0)">
+                                            <option value="">@(_projectId is null ? "Hito del proyecto..." : _milestones.Count == 0 ? "Sin hitos" : "Hito del proyecto...")</option>
+                                            @foreach (var m in _milestones) { <option value="@m.Id">@m.Name</option> }
+                                        </select>
                                     </div>
                                 </div>
                                 <div style="@CardStyle">
@@ -362,6 +367,9 @@
     private string _ccInput = "";
     private Guid? _projectId;
     private Guid? _presetProjectId;
+    // Proyectos P3: hito del proyecto elegido (se cargan al elegir proyecto).
+    private Guid? _milestoneId;
+    private List<ProjectMilestoneDto> _milestones = new();
 
     // Ola 5 (form-first): cuando el concepto tiene IniciaModulo + FormDefinitionId, al entrar al
     // paso Formulario se crea la tarea (arranca su flujo) y su numero referencia el formulario;
@@ -400,6 +408,8 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _projects = (await ProjectsSvc.ListAsync()).ToList();
         _allTags = (await TasksSvc.ListTagsAsync()).ToList();
+        // Proyectos P3: si viene proyecto preseleccionado, cargar sus hitos.
+        if (_projectId is Guid presetPid) { _milestones = (await ProjectsSvc.ListMilestonesAsync(presetPid)).ToList(); }
 
         // Preseleccion de concepto (camino Mis Procesos).
         _categoriaId = presetCategoriaId;
@@ -430,6 +440,7 @@
         _tags.Clear(); _tagInput = "";
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
         _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
+        _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
         _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
     }
@@ -441,7 +452,8 @@
         _tags.Clear(); _tagInput = ""; _dueDate = null;
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
         _ccEmails.Clear(); _ccInput = "";
-        if (_presetProjectId is null) { _projectId = null; }
+        if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
+        _milestoneId = null;
         _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
         _errors.Clear();
         _step = 1;
@@ -467,6 +479,14 @@
 
     private void OnEntidadChanged(ChangeEventArgs e)
         => _entidadId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+
+    // Proyectos P3: al elegir proyecto, cargar sus hitos y resetear el hito seleccionado.
+    private async Task OnProjectChanged(ChangeEventArgs e)
+    {
+        _projectId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        _milestoneId = null;
+        _milestones = _projectId is Guid pid ? (await ProjectsSvc.ListMilestonesAsync(pid)).ToList() : new();
+    }
 
     private async Task OnCategoriaChanged(ChangeEventArgs e)
     {
@@ -568,7 +588,8 @@
             Color: null,
             TagIds: tagIds.Count == 0 ? null : tagIds,
             SubcategoriaId: _subcategoriaId,
-            EntidadId: _entidadId);
+            EntidadId: _entidadId,
+            MilestoneId: _milestoneId);
 
         var result = await TasksSvc.CreateAsync(request, actor, actorName);
         if (result.IsOk && await TenantIdAsync() is Guid tenantId)

@@ -111,6 +111,18 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El proyecto no existe en el tenant.");
         }
+        // Proyectos P3: el hito debe pertenecer al proyecto indicado.
+        if (request.MilestoneId is Guid milestoneId)
+        {
+            if (request.ProjectId is not Guid milestoneProjectId)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El hito requiere indicar el proyecto.");
+            }
+            if (!await _db.ProjectMilestones.AnyAsync(m => m.Id == milestoneId && m.ProjectId == milestoneProjectId, cancellationToken))
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El hito no pertenece al proyecto indicado.");
+            }
+        }
         if (request.AssigneeTenantUserId is Guid assigneeId
             && !await _db.TenantUsers.AnyAsync(u => u.Id == assigneeId, cancellationToken))
         {
@@ -211,6 +223,7 @@ public sealed class TaskItemService : ITaskItemService
             RequesterPhone = Normalize(request.RequesterPhone),
             CcEmails = SerializeCcEmails(request.CcEmails),
             ProjectId = request.ProjectId,
+            MilestoneId = request.MilestoneId,
             Color = Normalize(request.Color)
         };
         _db.TaskItems.Add(task);
@@ -315,6 +328,18 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El proyecto no existe en el tenant.");
         }
+        // Proyectos P3: el hito debe pertenecer al proyecto indicado en el request.
+        if (request.MilestoneId is Guid updMilestoneId)
+        {
+            if (request.ProjectId is not Guid updMilestoneProjectId)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El hito requiere indicar el proyecto.");
+            }
+            if (!await _db.ProjectMilestones.AnyAsync(m => m.Id == updMilestoneId && m.ProjectId == updMilestoneProjectId, cancellationToken))
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El hito no pertenece al proyecto indicado.");
+            }
+        }
 
         task.Title = title;
         task.Description = Normalize(request.Description);
@@ -331,6 +356,8 @@ public sealed class TaskItemService : ITaskItemService
         task.RequesterPhone = Normalize(request.RequesterPhone);
         task.CcEmails = SerializeCcEmails(request.CcEmails);
         task.ProjectId = request.ProjectId;
+        // Al reasignar proyecto, el hito sigue el request (coherente con ProjectId reemplazado).
+        task.MilestoneId = request.ProjectId is null ? null : request.MilestoneId;
         task.Color = Normalize(request.Color);
 
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
@@ -946,6 +973,10 @@ public sealed class TaskItemService : ITaskItemService
         {
             query = query.Where(t => t.ProjectId == projectId);
         }
+        if (filter.MilestoneId is Guid filterMilestoneId)
+        {
+            query = query.Where(t => t.MilestoneId == filterMilestoneId);
+        }
         if (filter.TagIds is { Count: > 0 })
         {
             var tagIds = filter.TagIds.ToList();
@@ -1041,6 +1072,15 @@ public sealed class TaskItemService : ITaskItemService
                 .Where(s => subcategoriaIds.Contains(s.Id))
                 .ToDictionaryAsync(s => s.Id, s => s.Nombre, cancellationToken);
 
+        // Proyectos P3: nombre del hito enlazado (para las tarjetas del tablero).
+        var milestoneIds = tasks.Where(t => t.MilestoneId.HasValue)
+            .Select(t => t.MilestoneId!.Value).Distinct().ToList();
+        var milestoneNames = milestoneIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.ProjectMilestones.AsNoTracking()
+                .Where(m => milestoneIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
+
         return tasks.Select(t => new TaskItemSummaryDto(
             t.Id, t.Number, t.Title, t.ActivityTypeId,
             t.ActivityTypeId is Guid atid && activityTypeNames.TryGetValue(atid, out var name) ? name : null,
@@ -1050,7 +1090,9 @@ public sealed class TaskItemService : ITaskItemService
             t.StartDate, t.BoardId, t.ColumnId,
             t.SubcategoriaId,
             t.SubcategoriaId is Guid scid && subcategoriaNames.TryGetValue(scid, out var scname) ? scname : null,
-            t.EntidadId)).ToList();
+            t.EntidadId,
+            t.MilestoneId,
+            t.MilestoneId is Guid msid && milestoneNames.TryGetValue(msid, out var msname) ? msname : null)).ToList();
     }
 
     /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>

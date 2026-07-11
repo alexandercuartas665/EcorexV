@@ -258,6 +258,114 @@ public sealed class ProjectService : IProjectService
             : new ProjectAccessDto(true, member.CanEdit);
     }
 
+    // ---- Proyectos P1: hitos ----
+
+    public async Task<IReadOnlyList<ProjectMilestoneDto>> ListMilestonesAsync(Guid projectId, CancellationToken cancellationToken = default)
+    {
+        var milestones = await _db.ProjectMilestones.AsNoTracking()
+            .Where(m => m.ProjectId == projectId)
+            .OrderBy(m => m.SortOrder)
+            .ToListAsync(cancellationToken);
+        if (milestones.Count == 0) { return Array.Empty<ProjectMilestoneDto>(); }
+
+        var ids = milestones.Select(m => m.Id).ToList();
+        var taskCounts = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.MilestoneId != null && ids.Contains(t.MilestoneId.Value) && !t.IsArchived)
+            .GroupBy(t => t.MilestoneId!.Value)
+            .Select(g => new { MilestoneId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.MilestoneId, x => x.Count, cancellationToken);
+
+        return milestones.Select(m => ToMilestoneDto(m,
+            taskCounts.TryGetValue(m.Id, out var c) ? c : 0)).ToList();
+    }
+
+    public async Task<TaskCoreResult<ProjectMilestoneDto>> AddMilestoneAsync(Guid projectId, CreateMilestoneRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.Invalid("No hay tenant activo.");
+        }
+        var name = (request.Name ?? "").Trim();
+        if (name.Length == 0)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.Invalid("El nombre del hito es obligatorio.");
+        }
+        var project = await _db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, cancellationToken);
+        if (project is null)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.NotFound("Proyecto no encontrado.");
+        }
+        var nextOrder = await _db.ProjectMilestones.Where(m => m.ProjectId == projectId)
+            .Select(m => (int?)m.SortOrder).MaxAsync(cancellationToken) ?? -1;
+
+        var milestone = new ProjectMilestone
+        {
+            TenantId = tenantId,
+            ProjectId = projectId,
+            Name = name,
+            Description = Normalize(request.Description),
+            DueDate = request.DueDate,
+            SortOrder = nextOrder + 1
+        };
+        _db.ProjectMilestones.Add(milestone);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<ProjectMilestoneDto>.Ok(ToMilestoneDto(milestone, 0));
+    }
+
+    public async Task<TaskCoreResult<ProjectMilestoneDto>> UpdateMilestoneAsync(Guid milestoneId, UpdateMilestoneRequest request, CancellationToken cancellationToken = default)
+    {
+        var milestone = await _db.ProjectMilestones.FirstOrDefaultAsync(m => m.Id == milestoneId, cancellationToken);
+        if (milestone is null)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.NotFound("Hito no encontrado.");
+        }
+        var name = (request.Name ?? milestone.Name).Trim();
+        if (name.Length == 0)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.Invalid("El nombre del hito es obligatorio.");
+        }
+        milestone.Name = name;
+        milestone.Description = Normalize(request.Description);
+        milestone.DueDate = request.DueDate;
+        await _db.SaveChangesAsync(cancellationToken);
+        var count = await _db.TaskItems.CountAsync(t => t.MilestoneId == milestoneId && !t.IsArchived, cancellationToken);
+        return TaskCoreResult<ProjectMilestoneDto>.Ok(ToMilestoneDto(milestone, count));
+    }
+
+    public async Task<TaskCoreResult<ProjectMilestoneDto>> SetMilestoneCompletedAsync(Guid milestoneId, bool completed, CancellationToken cancellationToken = default)
+    {
+        var milestone = await _db.ProjectMilestones.FirstOrDefaultAsync(m => m.Id == milestoneId, cancellationToken);
+        if (milestone is null)
+        {
+            return TaskCoreResult<ProjectMilestoneDto>.NotFound("Hito no encontrado.");
+        }
+        milestone.IsCompleted = completed;
+        milestone.CompletedAt = completed ? DateTimeOffset.UtcNow : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        var count = await _db.TaskItems.CountAsync(t => t.MilestoneId == milestoneId && !t.IsArchived, cancellationToken);
+        return TaskCoreResult<ProjectMilestoneDto>.Ok(ToMilestoneDto(milestone, count));
+    }
+
+    public async Task<TaskCoreResult<bool>> RemoveMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default)
+    {
+        var milestone = await _db.ProjectMilestones.FirstOrDefaultAsync(m => m.Id == milestoneId, cancellationToken);
+        if (milestone is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Hito no encontrado.");
+        }
+        // El FK TaskItem.MilestoneId es Restrict: no se borra un hito con actividades enlazadas.
+        if (await _db.TaskItems.AnyAsync(t => t.MilestoneId == milestoneId, cancellationToken))
+        {
+            return TaskCoreResult<bool>.Invalid("El hito tiene actividades enlazadas; desenlazalas antes de borrarlo.");
+        }
+        _db.ProjectMilestones.Remove(milestone);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    private static ProjectMilestoneDto ToMilestoneDto(ProjectMilestone m, int taskCount) => new(
+        m.Id, m.ProjectId, m.Name, m.Description, m.DueDate, m.SortOrder, m.IsCompleted, taskCount);
+
     private static ProjectDto ToDto(Project p, int taskCount, int memberCount) => new(
         p.Id, p.Code, p.Name, p.Description, p.Status, p.StartDate, p.EndDate,
         p.OwnerTenantUserId, p.IsArchived, p.Version, taskCount, memberCount);

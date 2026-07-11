@@ -100,6 +100,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ActivityType> ActivityTypes => Set<ActivityType>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<ProjectMilestone> ProjectMilestones => Set<ProjectMilestone>();
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
     public DbSet<TaskItemTag> TaskItemTags => Set<TaskItemTag>();
     public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => Set<TaskItemTagAssignment>();
@@ -904,6 +905,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
         });
 
+        // Proyectos P1: hitos del proyecto (legacy PROYECTOS_HITO). Cascada al borrar el proyecto.
+        modelBuilder.Entity<ProjectMilestone>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ProjectId, x.SortOrder });
+        });
+
         modelBuilder.Entity<TaskItem>(b =>
         {
             b.Property(x => x.Number).HasMaxLength(20).IsRequired();
@@ -926,6 +936,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.SubcategoriaId });
             b.HasIndex(x => new { x.TenantId, x.EntidadId });
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            // Proyectos P3: enlace opcional a un hito del proyecto. Restrict (NO ACTION en ambos motores).
+            b.HasOne(x => x.Milestone).WithMany()
+                .HasForeignKey(x => x.MilestoneId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.MilestoneId });
             b.HasOne(x => x.AssigneeTenantUser).WithMany().HasForeignKey(x => x.AssigneeTenantUserId).OnDelete(DeleteBehavior.Restrict);
             // FASE 4 (ADR-0014): la instancia de flujo que gobierna la tarea; sin cascada
             // (referencia circular controlada con workflow_instances.task_item_id).

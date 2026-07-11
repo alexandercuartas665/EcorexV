@@ -33,7 +33,9 @@ public sealed record TaskItemSummaryDto(
     // ADR-0020: fecha de inicio (Gantt) y ubicacion en el tablero de actividades.
     DateTimeOffset? StartDate = null, Guid? BoardId = null, Guid? ColumnId = null,
     // Ola 1 (puente Concepto->Tarea): clasificacion por concepto + Empresa/Area.
-    Guid? SubcategoriaId = null, string? SubcategoriaName = null, Guid? EntidadId = null);
+    Guid? SubcategoriaId = null, string? SubcategoriaName = null, Guid? EntidadId = null,
+    // Proyectos P3: hito del proyecto al que se enlaza la actividad.
+    Guid? MilestoneId = null, string? MilestoneName = null);
 
 public sealed record TaskItemDetailDto(
     TaskItemSummaryDto Item,
@@ -60,7 +62,9 @@ public sealed record CreateTaskItemRequest(
     // Ola 1: clasificacion por concepto (subcategoria) + Empresa/Area. Debe venir al menos
     // uno de ActivityTypeId o SubcategoriaId. Con SubcategoriaId y sin BoardId, el tablero/
     // columna se derivan del concepto.
-    Guid? SubcategoriaId = null, Guid? EntidadId = null);
+    Guid? SubcategoriaId = null, Guid? EntidadId = null,
+    // Proyectos P3: hito (debe pertenecer al ProjectId indicado).
+    Guid? MilestoneId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateTaskItemRequest(
@@ -69,7 +73,9 @@ public sealed record UpdateTaskItemRequest(
     IReadOnlyList<string>? CcEmails, Guid? ProjectId, string? Color, long Version,
     DateTimeOffset? StartDate = null,
     // Ola 1: reclasificar por concepto + Empresa/Area (null = no tocar).
-    Guid? SubcategoriaId = null, Guid? EntidadId = null);
+    Guid? SubcategoriaId = null, Guid? EntidadId = null,
+    // Proyectos P3: hito (debe pertenecer al ProjectId).
+    Guid? MilestoneId = null);
 
 /// <summary>
 /// Filtros combinables con AND para el listado de tareas. Todos opcionales; los rangos de
@@ -83,6 +89,7 @@ public sealed record TaskItemListFilter(
     Guid? SubcategoriaId = null,
     Guid? EntidadId = null,
     Guid? ProjectId = null,
+    Guid? MilestoneId = null,
     IReadOnlyList<Guid>? TagIds = null,
     DateTimeOffset? DueFrom = null,
     DateTimeOffset? DueTo = null,

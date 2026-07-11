@@ -416,6 +416,17 @@ public sealed class DatabaseSeeder
                 .FirstOrDefaultAsync(p => p.TenantId == tenant.Id, cancellationToken);
         }
 
+        // ---- Hitos demo del proyecto (Proyectos P1) ----
+        if (project is not null &&
+            !await _db.ProjectMilestones.IgnoreQueryFilters().AnyAsync(m => m.ProjectId == project.Id, cancellationToken))
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+            _db.ProjectMilestones.AddRange(
+                new ProjectMilestone { TenantId = tenant.Id, ProjectId = project.Id, Name = "Kickoff y alcance", DueDate = today.AddDays(7), SortOrder = 0 },
+                new ProjectMilestone { TenantId = tenant.Id, ProjectId = project.Id, Name = "Puesta en produccion", DueDate = today.AddDays(30), SortOrder = 1 });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         // ---- Tareas demo (con consecutivo + secuencia coherente) ----
         if (await _db.TaskItems.IgnoreQueryFilters().AnyAsync(t => t.TenantId == tenant.Id, cancellationToken))
         {

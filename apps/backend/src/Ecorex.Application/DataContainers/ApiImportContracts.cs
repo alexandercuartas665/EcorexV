@@ -31,13 +31,29 @@ public sealed record ApiPaging(
     int StartValue,        // valor inicial (Offset: 0; Page: 1 tipico)
     int MaxPages);
 
-/// <summary>Peticion de importacion: conector origen, tabla destino y mapeo columnaId -> campo JSON.</summary>
+/// <summary>Que hacer con las filas existentes al re-importar. Append = agrega siempre (puede duplicar);
+/// Replace = vacia la tabla antes; Upsert = actualiza la fila cuya columna clave coincide, o inserta.</summary>
+public enum ApiImportMode { Append, Replace, Upsert }
+
+/// <summary>Peticion de importacion: conector origen, tabla destino, mapeo columnaId -> campo JSON,
+/// paginacion y modo. En Upsert, KeyColumnId indica la columna que hace de clave (debe estar mapeada).</summary>
 public sealed record ApiImportRequest(
     Guid ConnectorId,
     Guid TargetContainerId,
     IReadOnlyDictionary<Guid, string> ColumnToField,
     string? ArrayPath = null,
-    ApiPaging? Paging = null);
+    ApiPaging? Paging = null,
+    ApiImportMode Mode = ApiImportMode.Append,
+    Guid? KeyColumnId = null);
+
+/// <summary>Resultado detallado de una importacion desde API: insertadas/actualizadas/borradas/fallidas.</summary>
+public sealed record ApiImportOutcome(
+    bool Success,
+    int Inserted,
+    int Updated,
+    int Deleted,
+    int Failed,
+    IReadOnlyList<string> Errors);
 
 /// <summary>
 /// Motor minimo de importacion desde API REST (disparo manual). Reusa DataImportResult.
@@ -49,6 +65,7 @@ public interface IApiImportService
     /// arrayPath opcional (ruta con puntos) cuando el arreglo viene envuelto en un objeto.</summary>
     Task<ApiProbeResult> ProbeAsync(Guid connectorId, string? arrayPath = null, CancellationToken ct = default);
 
-    /// <summary>Trae los datos del API y crea una fila por cada elemento, mapeando campos->columnas.</summary>
-    Task<DataImportResult> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Trae los datos del API (con paginacion) y aplica el modo (agregar/reemplazar/upsert),
+    /// mapeando campos->columnas. Devuelve el detalle insertadas/actualizadas/borradas.</summary>
+    Task<ApiImportOutcome> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default);
 }

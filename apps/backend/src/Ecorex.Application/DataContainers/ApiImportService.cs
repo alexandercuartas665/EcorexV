@@ -66,15 +66,15 @@ public sealed class ApiImportService : IApiImportService
         }
     }
 
-    public async Task<DataImportResult> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default)
+    public async Task<ApiImportOutcome> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)
         {
-            return new DataImportResult(false, 0, 0, new[] { "Sin tenant activo." });
+            return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Sin tenant activo." });
         }
         if (req.ColumnToField.Count == 0)
         {
-            return new DataImportResult(false, 0, 0, new[] { "Define al menos un mapeo columna -> campo." });
+            return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Define al menos un mapeo columna -> campo." });
         }
 
         // Columnas escalares de la tabla destino (las de tipo relacion/submodelo no se alimentan por API en v1).
@@ -86,7 +86,7 @@ public sealed class ApiImportService : IApiImportService
             .ToListAsync(ct);
         if (columns.Count == 0)
         {
-            return new DataImportResult(false, 0, 0, new[] { "La tabla destino no tiene columnas escalares." });
+            return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "La tabla destino no tiene columnas escalares." });
         }
         var byId = columns.ToDictionary(c => c.Id);
         // Solo mapeos hacia columnas escalares validas y con campo no vacio.
@@ -95,15 +95,55 @@ public sealed class ApiImportService : IApiImportService
             .ToDictionary(kv => kv.Key, kv => kv.Value);
         if (mapping.Count == 0)
         {
-            return new DataImportResult(false, 0, 0, new[] { "Ningun mapeo apunta a una columna escalar de la tabla." });
+            return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Ningun mapeo apunta a una columna escalar de la tabla." });
+        }
+
+        // Upsert: la columna clave debe estar mapeada a un campo del API.
+        Guid keyColId = Guid.Empty;
+        string? keyField = null;
+        if (req.Mode == ApiImportMode.Upsert)
+        {
+            if (req.KeyColumnId is not Guid k || !mapping.TryGetValue(k, out keyField))
+            {
+                return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Para Upsert elige una columna clave que este mapeada a un campo del API." });
+            }
+            keyColId = k;
         }
 
         var (connector, baseUri, loadError) = await LoadConnectorAsync(req.ConnectorId, ct);
-        if (connector is null || baseUri is null) { return new DataImportResult(false, 0, 0, new[] { loadError ?? "No se pudo leer el API." }); }
+        if (connector is null || baseUri is null) { return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { loadError ?? "No se pudo leer el API." }); }
 
-        var imported = 0;
+        var inserted = 0;
+        var updated = 0;
+        var deleted = 0;
         var failed = 0;
         var errors = new List<string>();
+
+        // Reemplazar: vaciar la tabla antes de importar (borra filas + celdas + enlaces).
+        if (req.Mode == ApiImportMode.Replace)
+        {
+            deleted = await DeleteAllRowsAsync(req.TargetContainerId, ct);
+        }
+
+        // Upsert: precargar clave -> filaId y las celdas mapeadas (tracked) para poder actualizarlas.
+        Dictionary<string, Guid>? keyToRow = null;
+        Dictionary<Guid, List<DataContainerCell>>? cellsByRow = null;
+        if (req.Mode == ApiImportMode.Upsert)
+        {
+            var mappedColIds = mapping.Keys.ToList();
+            var rowIds = await _db.DataContainerRows
+                .Where(r => r.ContainerId == req.TargetContainerId).Select(r => r.Id).ToListAsync(ct);
+            var cells = rowIds.Count == 0
+                ? new List<DataContainerCell>()
+                : await _db.DataContainerCells
+                    .Where(c => rowIds.Contains(c.RowId) && mappedColIds.Contains(c.ColumnId)).ToListAsync(ct);
+            cellsByRow = cells.GroupBy(c => c.RowId).ToDictionary(g => g.Key, g => g.ToList());
+            keyToRow = new Dictionary<string, Guid>(StringComparer.Ordinal);
+            foreach (var kc in cells.Where(c => c.ColumnId == keyColId))
+            {
+                keyToRow[kc.Value ?? ""] = kc.RowId;
+            }
+        }
 
         var paging = req.Paging;
         var paginated = paging is not null && paging.Mode != PagingMode.None && paging.PageSize > 0;
@@ -128,7 +168,7 @@ public sealed class ApiImportService : IApiImportService
             var (doc, error) = await FetchJsonAsync(connector, uri, ct);
             if (doc is null)
             {
-                if (imported == 0) { return new DataImportResult(false, 0, 0, new[] { error ?? "No se pudo leer el API." }); }
+                if (inserted + updated == 0) { return new ApiImportOutcome(false, 0, 0, deleted, 0, new[] { error ?? "No se pudo leer el API." }); }
                 errors.Add($"Pagina {page + 1}: {error}");
                 break;
             }
@@ -136,14 +176,14 @@ public sealed class ApiImportService : IApiImportService
             {
                 if (!TryGetArray(doc.RootElement, req.ArrayPath, out var arr, out _))
                 {
-                    if (imported == 0) { return new DataImportResult(false, 0, 0, new[] { "La respuesta no contiene un arreglo JSON." }); }
+                    if (inserted + updated == 0) { return new ApiImportOutcome(false, 0, 0, deleted, 0, new[] { "La respuesta no contiene un arreglo JSON." }); }
                     break;
                 }
 
                 var pageCount = 0;
                 foreach (var el in arr.EnumerateArray())
                 {
-                    if (imported >= MaxImportRows)
+                    if (inserted + updated >= MaxImportRows)
                     {
                         errors.Add($"Se alcanzo el limite de {MaxImportRows} filas por corrida; el resto no se importo.");
                         stop = true;
@@ -152,20 +192,40 @@ public sealed class ApiImportService : IApiImportService
                     pageCount++;
                     if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
 
-                    var row = new DataContainerRow { TenantId = tenantId, ContainerId = req.TargetContainerId };
-                    _db.DataContainerRows.Add(row);
-                    foreach (var (colId, field) in mapping)
+                    if (req.Mode == ApiImportMode.Upsert)
                     {
-                        var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
-                        _db.DataContainerCells.Add(new DataContainerCell
+                        var keyStr = (el.TryGetProperty(keyField!, out var kv) ? ScalarString(kv) : null) ?? "";
+                        if (keyToRow!.TryGetValue(keyStr, out var existingRowId))
                         {
-                            TenantId = tenantId,
-                            RowId = row.Id,
-                            ColumnId = colId,
-                            Value = value
-                        });
+                            cellsByRow!.TryGetValue(existingRowId, out var rowCells);
+                            rowCells ??= new List<DataContainerCell>();
+                            foreach (var (colId, field) in mapping)
+                            {
+                                var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
+                                var cell = rowCells.FirstOrDefault(c => c.ColumnId == colId);
+                                if (cell is not null) { cell.Value = value; }
+                                else
+                                {
+                                    var nc = new DataContainerCell { TenantId = tenantId, RowId = existingRowId, ColumnId = colId, Value = value };
+                                    _db.DataContainerCells.Add(nc);
+                                    rowCells.Add(nc);
+                                }
+                            }
+                            cellsByRow[existingRowId] = rowCells;
+                            updated++;
+                            continue;
+                        }
+                        // No existe la clave: insertar y registrar para posibles repetidos en la misma corrida.
+                        var newRow = InsertRow(el, mapping, tenantId, req.TargetContainerId, out var newCells);
+                        keyToRow[keyStr] = newRow.Id;
+                        cellsByRow![newRow.Id] = newCells;
+                        inserted++;
+                        continue;
                     }
-                    imported++;
+
+                    // Append / Replace: siempre inserta.
+                    InsertRow(el, mapping, tenantId, req.TargetContainerId, out _);
+                    inserted++;
                 }
 
                 await _db.SaveChangesAsync(ct);
@@ -176,7 +236,45 @@ public sealed class ApiImportService : IApiImportService
             }
         }
 
-        return new DataImportResult(imported > 0 || failed == 0, imported, failed, errors);
+        var success = inserted + updated + deleted > 0 || failed == 0;
+        return new ApiImportOutcome(success, inserted, updated, deleted, failed, errors);
+    }
+
+    /// <summary>Inserta una fila con sus celdas mapeadas y devuelve la fila + las celdas creadas.</summary>
+    private DataContainerRow InsertRow(JsonElement el, IReadOnlyDictionary<Guid, string> mapping, Guid tenantId, Guid containerId, out List<DataContainerCell> cells)
+    {
+        var row = new DataContainerRow { TenantId = tenantId, ContainerId = containerId };
+        _db.DataContainerRows.Add(row);
+        cells = new List<DataContainerCell>();
+        foreach (var (colId, field) in mapping)
+        {
+            var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
+            var cell = new DataContainerCell { TenantId = tenantId, RowId = row.Id, ColumnId = colId, Value = value };
+            _db.DataContainerCells.Add(cell);
+            cells.Add(cell);
+        }
+        return row;
+    }
+
+    /// <summary>Borra TODAS las filas de una tabla (con sus celdas y enlaces). Devuelve cuantas filas borro.</summary>
+    private async Task<int> DeleteAllRowsAsync(Guid containerId, CancellationToken ct)
+    {
+        var rowIds = await _db.DataContainerRows
+            .Where(r => r.ContainerId == containerId).Select(r => r.Id).ToListAsync(ct);
+        if (rowIds.Count == 0) { return 0; }
+
+        var cells = await _db.DataContainerCells.Where(c => rowIds.Contains(c.RowId)).ToListAsync(ct);
+        if (cells.Count > 0) { _db.DataContainerCells.RemoveRange(cells); }
+
+        var links = await _db.DataContainerLinks
+            .Where(l => rowIds.Contains(l.RowId) || rowIds.Contains(l.TargetRowId)).ToListAsync(ct);
+        if (links.Count > 0) { _db.DataContainerLinks.RemoveRange(links); }
+
+        var rows = await _db.DataContainerRows.Where(r => rowIds.Contains(r.Id)).ToListAsync(ct);
+        _db.DataContainerRows.RemoveRange(rows);
+
+        await _db.SaveChangesAsync(ct);
+        return rowIds.Count;
     }
 
     // ---- Fetch + auth ----

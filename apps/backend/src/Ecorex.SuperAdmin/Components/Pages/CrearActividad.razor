@@ -52,7 +52,13 @@
     private async Task OpenWizardAsync()
     {
         if (_wizard is null) { return; }
-        await _wizard.OpenAsync();
+        // Ola 4: al llegar desde el menu "Mis Procesos" (crear-actividad?sub=<subcategoriaId>)
+        // el wizard abre con la categoria/subcategoria fijadas (no las vuelve a pedir).
+        Guid? presetSub = null;
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("sub", out var subVal) && Guid.TryParse(subVal, out var sid)) { presetSub = sid; }
+        await _wizard.OpenAsync(presetSubcategoriaId: presetSub);
         // Vigia JS: al desaparecer el overlay del wizard redirige a /actividades.
         try { await Js.InvokeVoidAsync("ecorexWatchWizard"); }
         catch { /* interop no disponible: quedan los botones de la pagina como respaldo */ }

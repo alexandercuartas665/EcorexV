@@ -107,6 +107,35 @@ else
                     <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                 </summary>
                 <div class="ecorex-acc-body">
+                    @* Ola 4: grupo dinamico "Mis Procesos" -> categoria -> subcategoria (proceso,
+                       con flujo) desde el catalogo de Conceptos. Click abre el wizard con la
+                       categoria/subcategoria fijadas (crear-actividad?sub=). *@
+                    @if (section.IsProcessGroup)
+                    {
+                        @foreach (var pc in _procesoCats)
+                        {
+                            <details class="ecorex-acc-sub" data-acc="@pc.Slug" open="@IsGroupOpen(pc.Slug)">
+                                <summary>
+                                    <span class="ecorex-acc-name">@pc.Nombre</span>
+                                    <span class="ecorex-acc-count">@pc.Subs.Count</span>
+                                    <svg class="ecorex-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                </summary>
+                                <div class="ecorex-acc-sub-body">
+                                    @foreach (var s in pc.Subs)
+                                    {
+                                        <NavLink class="ecorex-acc-item" href="@($"crear-actividad?sub={s.Id}")">
+                                            <span class="lbl">@s.Nombre</span>
+                                            <span class="code" title="Actividad tipo proceso">proc</span>
+                                        </NavLink>
+                                    }
+                                </div>
+                            </details>
+                        }
+                        @if (_procesoCats.Count == 0)
+                        {
+                            <div style="padding:8px 12px;font-size:11.5px;color:var(--ink-3)">Sin actividades tipo proceso. Vincula un flujo a una subcategoria en Conceptos.</div>
+                        }
+                    }
                     @foreach (var child in section.Children)
                     {
                         if (child.Kind == MenuNodeKind.Subgroup)
@@ -347,9 +376,30 @@ else
             var resolved = await menuSvc.GetMenuForTenantUserAsync(tenantId, assignedViewId);
             // Poda los modulos (Item con Route) sin permiso de Ver; oculta secciones que quedan vacias.
             _menu = Ecorex.Application.MenuConfig.MenuPermissionFilter.Filter(resolved, permissions);
+
+            // Ola 4: si alguna seccion es "grupo de procesos" (IsProcessGroup), cargar el catalogo
+            // de Conceptos y armar el arbol dinamico categoria -> subcategorias TIPO PROCESO
+            // (las que tienen un flujo vinculado). Mismo scope aislado.
+            if (_menu is not null && _menu.Roots.Any(n => n.Kind == MenuNodeKind.Section && n.IsProcessGroup))
+            {
+                var catalogo = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
+                var cats = await catalogo.ListCategoriasAsync(includeArchived: false);
+                var subs = await catalogo.ListSubcategoriasAsync(includeArchived: false);
+                _procesoCats = cats
+                    .Select(c => new ProcesoCat(c.Nombre, "proc-" + c.Id.ToString("N")[..8],
+                        subs.Where(s => s.CategoriaId == c.Id && s.WorkflowDefinitionId != null && !s.IsArchived)
+                            .Select(s => new ProcesoSub(s.Id, s.Nombre)).ToList()))
+                    .Where(pc => pc.Subs.Count > 0)
+                    .ToList();
+            }
         }
         catch { /* sin menu configurado: el bloque tenant no renderiza (fallback seguro) */ }
     }
+
+    /// <summary>Arbol dinamico de "Mis Procesos" (Ola 4): categorias con sus subcategorias tipo proceso.</summary>
+    private List<ProcesoCat> _procesoCats = new();
+    private sealed record ProcesoCat(string Nombre, string Slug, List<ProcesoSub> Subs);
+    private sealed record ProcesoSub(Guid Id, string Nombre);
 
     /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
     private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();

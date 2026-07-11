@@ -3267,3 +3267,50 @@ Continuacion del panel de Datos (Addendum 4), a pedido del usuario y validado EN
 Pendiente: (a) rotar la credencial de Alegra compartida por chat. (b) programar el import por horario
 (la seccion "Procesos" existe pero sin motor de ejecucion/scheduler). (c) mapear campos anidados
 (ej. category.name). (d) grant contenedor-datos:View a roles limitados. (e) DAL-dual SQL Server.
+
+---
+
+## Sesion 2026-07-11 - Modulo de Tareas: puente Concepto<->Tarea (PRE-1..5 + Olas 1-7)
+
+**Agentes**: Claude (Opus 4.8). **Contexto**: doc del vault `Capa 2 Tareas y Proyectos/Modulo de
+Tareas - Creacion y ejecucion/` (indice, decisiones, UX, plan por olas). Los motores ya existian
+(Conceptos 2-niveles, WorkflowEngine, DynamicFormRenderer, Organigrama, Menu data-driven); faltaba
+el PUENTE: la tarea se clasificaba por `ActivityType` y NO consumia el concepto.
+
+**Prerequisitos (los 5, 2026-07-11):**
+- PRE-1 (`5590545`): `Entidad` (Sede/Area) desde Config de la entidad (000616); el modal pregunta
+  primero el tipo. FK del TaskItem = `EntidadId->Entidad` (NO OrgUnit).
+- PRE-2/PRE-3: mapa de lectores del concepto (vacio, este modulo es el 1er consumidor) + backfill
+  (`SubcategoriaId` nullable, 206 tareas en NULL, `ActivityTypeId` deprecado no dropeado).
+- PRE-4 (`66bb60d`): `OrgUnitMember.IsResponsible` (jefe por unidad, sincroniza `ResponsibleTenantUserId`).
+- PRE-5 (`66bb60d`): `MenuNode.IsProcessGroup` (flag + editor + badge).
+
+**Olas:**
+- Ola 1 (`a60252e`): `TaskItem` pivota a `SubcategoriaId`+`EntidadId` (ActivityTypeId nullable);
+  migracion `TaskItemConceptoBridge`; `CreateAsync` exige >=1 clasificacion y hereda tablero+1a columna
+  del concepto.
+- Ola 2 (`c95c5f5`): el alta arranca el flujo desde `subcategoria.WorkflowDefinitionId`, aplica
+  `TituloAuto`/`DetalleAuto` (token `@cliente`), deja traza de notificacion.
+- Ola 3 (`9af2202`): `TaskWizard.razor` reescrito al wizard 4 pasos MILIMETRICO al prototipo
+  (Informacion/Contacto/Formulario/Documentos + aside resumen; cascada Empresa/Area->Tipo->Actividad->Encargado).
+- Ola 4 (`8de3521`): `NavMenu` expande el grupo `IsProcessGroup` con el arbol dinamico
+  categoria->subcategoria-proceso desde Conceptos.
+- Ola 5 (`16bf824`): form-first -- al entrar al paso Formulario de un concepto `IniciaModulo`+`FormDefinitionId`
+  el wizard crea la tarea y renderiza `DynamicFormRenderer` (Fill).
+- Ola 6 (`4e17144`): tableros (ADR-0020) ya maduros; cerre 3 pendientes -- SignalR vivo,
+  `/actividades?sub=` carga el tablero del concepto, crear-desde-tablero solo conceptos SIN proceso.
+- **Ola 7 (`7111cbb`) endurecimiento**: NUEVO = notificacion al asignar (`AssignAsync` deja traza al
+  encargado + destinatarios del concepto via `AddConceptNotificationAsync`). Verificado con 4 tests de
+  integracion verdes (PG): notificacion al asignar, consecutivos transaccionales, concurrencia optimista,
+  aislamiento cross-tenant (permisos). Auditoria = trazas `TaskItemActivity`.
+
+**Validado en Chrome** (tenant SKY SYSTEM): tareas T00207-T00211 creadas por concepto; wizard 4 pasos,
+menu Mis Procesos dinamico, form-first (FRM-001 Submitted ref=T00210), tablero por `?sub=`.
+
+**Diferido (Ola 7 mayor)**: policies COMPUESTAS por vista (hoy placeholder `Tareas.Ver`==claim tenant_id;
+refactor de auth) y ENTREGA real de notificaciones (canal email/in-app + plantilla; hoy solo traza).
+
+**PENDIENTE OPERATIVO GRANDE**: desplegar a prod TODO lo acumulado -- migraciones
+`AddEntidadConfig`/`AddEntidadKind`/`AddJefeMemberAndProcessGroupMenu`/`TaskItemConceptoBridge` + olas 1-7
+(hoy solo local) + config demo hecha por DB (vincular flujo/form/tablero a subcategorias) que en prod se
+hace por el editor de Conceptos. Backlog: Proyectos P1-P3; sincronizar SqlServer (DAL-dual).

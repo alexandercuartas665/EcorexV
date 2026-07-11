@@ -3314,3 +3314,33 @@ refactor de auth) y ENTREGA real de notificaciones (canal email/in-app + plantil
 `AddEntidadConfig`/`AddEntidadKind`/`AddJefeMemberAndProcessGroupMenu`/`TaskItemConceptoBridge` + olas 1-7
 (hoy solo local) + config demo hecha por DB (vincular flujo/form/tablero a subcategorias) que en prod se
 hace por el editor de Conceptos. Backlog: Proyectos P1-P3; sincronizar SqlServer (DAL-dual).
+
+---
+
+## Sesion 2026-07-11 (cont.) - Goal: menu completo acuartas (prod) + Ola 7 diferidos
+
+**Agentes**: Claude (Opus 4.8).
+
+**Parte 1 - vista de menu "Completo" a acuartas@bitcode.com.co (PROD)**: el tenant BITCODE se creo
+SIN ninguna vista de menu (los 13 usuarios con `menu_view_id` NULL -> sidebar vacio). Como las
+`menu_views` son por-tenant, se clono la vista "Completo" (70 nodos) de SKY SYSTEM hacia BITCODE
+(nueva `menu_views.id=87104d1f-dc92-47c4-a966-93dfd712386b`, no default) via SQL transaccional con
+idmap de nodos, y se asigno a acuartas (Owner). Reversible. GAP: los otros 12 usuarios BITCODE siguen
+sin vista (falta un seed/reconcile de vista Completo IsDefault por tenant real).
+
+**Parte 2 - diferidos de endurecimiento (Ola 7), AMBOS resueltos:**
+- **Policies COMPUESTAS por vista** (`f9ea27b`): el motor `Perm:{mod}:{accion}` (ADR-0033) ahora
+  soporta AND multi-permiso (`Perm:m1:a1+m2:a2` -> varios `PermissionRequirement`). La familia Tareas
+  dejo de ser placeholder de `tenant_id`: `Tareas.Ver`/`Proyectos.Ver`/`Flujos.Ver` exigen el permiso
+  real; `Formularios.Disenar` es COMPUESTA (ver+editar). Sin tocar paginas. 26/26 unit tests verdes.
+- **Entrega REAL de notificaciones in-app** (`ef9ef06`): entidad `Notification` (tenant-scoped, por
+  usuario, leido/no leido) + `INotificationService` + migracion `AddNotifications` (PG local).
+  `AssignAsync` entrega notificacion al encargado (TaskAssigned) y a los destinatarios del concepto
+  (ConceptNotice), en la misma transaccion. La campana del topbar paso de placeholder a badge REAL con
+  conteo -> pagina `/notificaciones` (marcar leida / todas / abrir). Test integracion verde + validado
+  en Chrome (badge 2, marcar leida -> 1 no leida en BD).
+
+**Backlog Ola 7 (documentado)**: canal EMAIL de notificaciones con plantilla (IEmailSender ya existe),
+refresco en vivo del badge por SignalR, policies de gobierno (AdmUsuarios/RolesPermisos/ConfiguracionMenu
+a Owner/Admin) y Conceptos.Editar/Dependencias.Ver.
+**Pendiente operativo**: desplegar a prod la migracion `AddNotifications` (se suma a las 4 acumuladas).

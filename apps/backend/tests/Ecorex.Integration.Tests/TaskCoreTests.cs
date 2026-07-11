@@ -223,6 +223,70 @@ public abstract class TaskCoreTestsBase
         Assert.Equal(TaskItemStatus.Closed, restored.Value!.Status);
     }
 
+    [Fact]
+    public async Task CreateWithSubcategoria_LinksConcept_AndDerivesBoardAndFirstColumn()
+    {
+        // Ola 1 (puente Concepto->Tarea): un alta clasificada por concepto (subcategoria), sin
+        // ActivityType, hereda el TABLERO del concepto y se ubica en su PRIMERA columna (no la
+        // columna "terminada" que el concepto marca como fin).
+        var seed = await SeedTenantAsync("Nucleo Concepto");
+
+        Guid subcategoriaId;
+        Guid boardId;
+        Guid firstColumnId;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var board = new TaskBoard { TenantId = seed.TenantId, Name = "Tablero Comercial", Kind = TaskBoardKind.Activities };
+            ctx.TaskBoards.Add(board);
+            var firstColumn = new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Por hacer", SortOrder = 0 };
+            var doneColumn = new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Terminado", SortOrder = 1, IsDone = true };
+            ctx.TaskBoardColumns.AddRange(firstColumn, doneColumn);
+            var categoria = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-9", Nombre = "Comercial" };
+            ctx.ActividadCategorias.Add(categoria);
+            var subcategoria = new ActividadSubcategoria
+            {
+                TenantId = seed.TenantId,
+                CategoriaId = categoria.Id,
+                Codigo = "CAT-9-1",
+                Nombre = "Cotizacion",
+                TaskBoardId = board.Id,
+                TaskBoardColumnId = doneColumn.Id // el concepto marca la columna "terminado"
+            };
+            ctx.ActividadSubcategorias.Add(subcategoria);
+            await ctx.SaveChangesAsync();
+            subcategoriaId = subcategoria.Id;
+            boardId = board.Id;
+            firstColumnId = firstColumn.Id;
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx2, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea desde concepto", ActivityTypeId: null, SubcategoriaId: subcategoriaId),
+            seed.PlatformUserId, "Tester");
+
+        Assert.True(created.IsOk, created.Error);
+        var item = created.Value!.Item;
+        Assert.Equal(subcategoriaId, item.SubcategoriaId);
+        Assert.Equal("Cotizacion", item.SubcategoriaName);
+        Assert.Null(item.ActivityTypeId); // clasificada solo por concepto
+        Assert.Equal(boardId, item.BoardId); // tablero heredado del concepto
+        Assert.Equal(firstColumnId, item.ColumnId); // primera columna, NO la "terminado"
+    }
+
+    [Fact]
+    public async Task Create_WithoutActivityTypeNorSubcategoria_IsInvalid()
+    {
+        // La tarea debe clasificarse por al menos uno de los dos (D1).
+        var seed = await SeedTenantAsync("Nucleo Sin Clasificacion");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+        var result = await service.CreateAsync(
+            new CreateTaskItemRequest("Sin clasificar", ActivityTypeId: null),
+            seed.PlatformUserId, "Tester");
+        Assert.Equal(TaskCoreStatus.Invalid, result.Status);
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

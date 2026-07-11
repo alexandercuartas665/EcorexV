@@ -25,13 +25,15 @@ public sealed record TaskItemChecklistItemDto(
 public sealed record TaskItemAssigneeDto(Guid TenantUserId, string Initials, string DisplayName);
 
 public sealed record TaskItemSummaryDto(
-    Guid Id, string Number, string Title, Guid ActivityTypeId, string? ActivityTypeName,
+    Guid Id, string Number, string Title, Guid? ActivityTypeId, string? ActivityTypeName,
     TaskPriority Priority, TaskItemStatus Status, Guid? AssigneeTenantUserId,
     DateTimeOffset? DueDate, Guid? ProjectId, string? Color, bool IsArchived,
     DateTimeOffset? ClosedAt, long Version, DateTimeOffset CreatedAt,
     IReadOnlyList<TaskItemTagDto> Tags,
     // ADR-0020: fecha de inicio (Gantt) y ubicacion en el tablero de actividades.
-    DateTimeOffset? StartDate = null, Guid? BoardId = null, Guid? ColumnId = null);
+    DateTimeOffset? StartDate = null, Guid? BoardId = null, Guid? ColumnId = null,
+    // Ola 1 (puente Concepto->Tarea): clasificacion por concepto + Empresa/Area.
+    Guid? SubcategoriaId = null, string? SubcategoriaName = null, Guid? EntidadId = null);
 
 public sealed record TaskItemDetailDto(
     TaskItemSummaryDto Item,
@@ -46,7 +48,7 @@ public sealed record TaskItemDetailDto(
     IReadOnlyList<TaskItemAssigneeDto> Assignees);
 
 public sealed record CreateTaskItemRequest(
-    string Title, Guid ActivityTypeId, string? Description = null,
+    string Title, Guid? ActivityTypeId, string? Description = null,
     TaskPriority Priority = TaskPriority.Medium,
     Guid? AssigneeTenantUserId = null, DateTimeOffset? DueDate = null,
     string? RequesterName = null, string? RequesterEmail = null, string? RequesterPhone = null,
@@ -54,14 +56,20 @@ public sealed record CreateTaskItemRequest(
     IReadOnlyList<Guid>? TagIds = null,
     // ADR-0020: inicio planificado y cuelgue opcional en un tablero de actividades
     // (ColumnId debe pertenecer a BoardId; null = primera columna del tablero).
-    DateTimeOffset? StartDate = null, Guid? BoardId = null, Guid? ColumnId = null);
+    DateTimeOffset? StartDate = null, Guid? BoardId = null, Guid? ColumnId = null,
+    // Ola 1: clasificacion por concepto (subcategoria) + Empresa/Area. Debe venir al menos
+    // uno de ActivityTypeId o SubcategoriaId. Con SubcategoriaId y sin BoardId, el tablero/
+    // columna se derivan del concepto.
+    Guid? SubcategoriaId = null, Guid? EntidadId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateTaskItemRequest(
-    string Title, string? Description, Guid ActivityTypeId, TaskPriority Priority,
+    string Title, string? Description, Guid? ActivityTypeId, TaskPriority Priority,
     DateTimeOffset? DueDate, string? RequesterName, string? RequesterEmail, string? RequesterPhone,
     IReadOnlyList<string>? CcEmails, Guid? ProjectId, string? Color, long Version,
-    DateTimeOffset? StartDate = null);
+    DateTimeOffset? StartDate = null,
+    // Ola 1: reclasificar por concepto + Empresa/Area (null = no tocar).
+    Guid? SubcategoriaId = null, Guid? EntidadId = null);
 
 /// <summary>
 /// Filtros combinables con AND para el listado de tareas. Todos opcionales; los rangos de
@@ -72,6 +80,8 @@ public sealed record TaskItemListFilter(
     TaskPriority? Priority = null,
     Guid? AssigneeTenantUserId = null,
     Guid? ActivityTypeId = null,
+    Guid? SubcategoriaId = null,
+    Guid? EntidadId = null,
     Guid? ProjectId = null,
     IReadOnlyList<Guid>? TagIds = null,
     DateTimeOffset? DueFrom = null,

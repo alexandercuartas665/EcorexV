@@ -142,8 +142,11 @@ public sealed class ActivityTypeService : IActivityTypeService
 
     public async Task<IReadOnlyList<ActivityTypeUsageDto>> GetUsageAsync(CancellationToken cancellationToken = default)
     {
+        // Solo tareas clasificadas por ActivityType (las que pivotaron a concepto tienen
+        // ActivityTypeId null y no cuentan aqui).
         return await _db.TaskItems.AsNoTracking()
-            .GroupBy(t => t.ActivityTypeId)
+            .Where(t => t.ActivityTypeId != null)
+            .GroupBy(t => t.ActivityTypeId!.Value)
             .Select(g => new ActivityTypeUsageDto(
                 g.Key,
                 g.Count(),

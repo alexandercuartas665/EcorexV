@@ -47,17 +47,51 @@ public sealed class TaskItemService : ITaskItemService
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El titulo es obligatorio.");
         }
 
+        // Clasificacion (D1): la tarea se clasifica por concepto (subcategoria) y/o por el
+        // ActivityType legacy. Debe venir al menos uno.
+        if (request.ActivityTypeId is null && request.SubcategoriaId is null)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("Indica un concepto (subcategoria) o un tipo de actividad.");
+        }
+
         // Validaciones de pertenencia al tenant: el filtro global oculta filas de otros
         // tenants, asi que un id ajeno simplemente "no existe".
-        var activityType = await _db.ActivityTypes.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Id == request.ActivityTypeId, cancellationToken);
-        if (activityType is null)
+        ActivityType? activityType = null;
+        if (request.ActivityTypeId is Guid activityTypeId)
         {
-            return TaskCoreResult<TaskItemDetailDto>.Invalid("El tipo de actividad no existe en el tenant.");
+            activityType = await _db.ActivityTypes.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == activityTypeId, cancellationToken);
+            if (activityType is null)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El tipo de actividad no existe en el tenant.");
+            }
+            if (activityType.IsArchived)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El tipo de actividad esta archivado.");
+            }
         }
-        if (activityType.IsArchived)
+
+        // Concepto (subcategoria): valida y, mas abajo, deriva tablero/columna si el request no
+        // los fijo. Los flags/flujo del concepto los consumira la Ola 2.
+        ActividadSubcategoria? subcategoria = null;
+        if (request.SubcategoriaId is Guid subcategoriaId)
         {
-            return TaskCoreResult<TaskItemDetailDto>.Invalid("El tipo de actividad esta archivado.");
+            subcategoria = await _db.ActividadSubcategorias.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
+            if (subcategoria is null)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El concepto (subcategoria) no existe en el tenant.");
+            }
+            if (subcategoria.IsArchived)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El concepto (subcategoria) esta archivado.");
+            }
+        }
+
+        if (request.EntidadId is Guid entidadId
+            && !await _db.Entidades.AnyAsync(e => e.Id == entidadId, cancellationToken))
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("La entidad (Empresa/Area) no existe en el tenant.");
         }
         if (request.ProjectId is Guid projectId
             && !await _db.Projects.AnyAsync(p => p.Id == projectId, cancellationToken))
@@ -83,6 +117,13 @@ public sealed class TaskItemService : ITaskItemService
         // al BoardId; sin ColumnId se usa la primera columna del tablero.
         Guid? boardId = request.BoardId;
         Guid? columnId = request.ColumnId;
+        // Ola 1: si el request no fijo tablero y el concepto tiene uno, se hereda del concepto.
+        // Solo el tablero: la columna inicial la resuelve el bloque de abajo (primera columna),
+        // NO la TaskBoardColumnId del concepto (que marca "terminado", no el inicio).
+        if (boardId is null && subcategoria?.TaskBoardId is Guid conceptBoardId)
+        {
+            boardId = conceptBoardId;
+        }
         if (columnId is not null && boardId is null)
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("ColumnId requiere BoardId.");
@@ -141,6 +182,8 @@ public sealed class TaskItemService : ITaskItemService
             Title = title,
             Description = Normalize(request.Description),
             ActivityTypeId = request.ActivityTypeId,
+            SubcategoriaId = request.SubcategoriaId,
+            EntidadId = request.EntidadId,
             Priority = request.Priority,
             // Estado inicial: Pending; Active si nace asignada.
             Status = request.AssigneeTenantUserId is null ? TaskItemStatus.Pending : TaskItemStatus.Active,
@@ -174,10 +217,11 @@ public sealed class TaskItemService : ITaskItemService
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // FASE 4 (ADR-0014): si el tipo de actividad tiene flujo PUBLICADO, arrancar la
-        // instancia dentro de la MISMA transaccion (el motor detecta la transaccion abierta
-        // y se une; un fallo del flujo revierte tambien la tarea).
-        if (activityType.WorkflowDefinitionId is Guid workflowDefinitionId
+        // FASE 4 (ADR-0014): si el tipo de actividad legacy tiene flujo PUBLICADO, arrancar la
+        // instancia dentro de la MISMA transaccion (el motor detecta la transaccion abierta y se
+        // une; un fallo del flujo revierte tambien la tarea). El arranque desde el CONCEPTO
+        // (subcategoria.WorkflowDefinitionId) es la Ola 2.
+        if (activityType?.WorkflowDefinitionId is Guid workflowDefinitionId
             && await _db.WorkflowDefinitions.AnyAsync(
                 d => d.Id == workflowDefinitionId && d.IsPublished && !d.IsArchived, cancellationToken))
         {
@@ -218,11 +262,20 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El titulo es obligatorio.");
         }
-        var activityType = await _db.ActivityTypes.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Id == request.ActivityTypeId, cancellationToken);
-        if (activityType is null)
+        if (request.ActivityTypeId is Guid updActivityTypeId
+            && !await _db.ActivityTypes.AnyAsync(t => t.Id == updActivityTypeId, cancellationToken))
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("El tipo de actividad no existe en el tenant.");
+        }
+        if (request.SubcategoriaId is Guid updSubcategoriaId
+            && !await _db.ActividadSubcategorias.AnyAsync(s => s.Id == updSubcategoriaId, cancellationToken))
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("El concepto (subcategoria) no existe en el tenant.");
+        }
+        if (request.EntidadId is Guid updEntidadId
+            && !await _db.Entidades.AnyAsync(e => e.Id == updEntidadId, cancellationToken))
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("La entidad (Empresa/Area) no existe en el tenant.");
         }
         if (request.ProjectId is Guid projectId
             && !await _db.Projects.AnyAsync(p => p.Id == projectId, cancellationToken))
@@ -232,7 +285,11 @@ public sealed class TaskItemService : ITaskItemService
 
         task.Title = title;
         task.Description = Normalize(request.Description);
-        task.ActivityTypeId = request.ActivityTypeId;
+        // null = no tocar la clasificacion existente (Ola 1). El modal (Ola 3) hara la semantica
+        // completa (incluido limpiar).
+        if (request.ActivityTypeId is not null) { task.ActivityTypeId = request.ActivityTypeId; }
+        if (request.SubcategoriaId is not null) { task.SubcategoriaId = request.SubcategoriaId; }
+        if (request.EntidadId is not null) { task.EntidadId = request.EntidadId; }
         task.Priority = request.Priority;
         task.DueDate = request.DueDate;
         task.StartDate = request.StartDate;
@@ -784,6 +841,14 @@ public sealed class TaskItemService : ITaskItemService
         {
             query = query.Where(t => t.ActivityTypeId == activityTypeId);
         }
+        if (filter.SubcategoriaId is Guid filterSubcategoriaId)
+        {
+            query = query.Where(t => t.SubcategoriaId == filterSubcategoriaId);
+        }
+        if (filter.EntidadId is Guid filterEntidadId)
+        {
+            query = query.Where(t => t.EntidadId == filterEntidadId);
+        }
         if (filter.ProjectId is Guid projectId)
         {
             query = query.Where(t => t.ProjectId == projectId);
@@ -869,18 +934,30 @@ public sealed class TaskItemService : ITaskItemService
             .GroupBy(x => x.TaskItemId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<TaskItemTagDto>)g.Select(x => x.Tag).OrderBy(t => t.Name).ToList());
 
-        var activityTypeIds = tasks.Select(t => t.ActivityTypeId).Distinct().ToList();
+        var activityTypeIds = tasks.Where(t => t.ActivityTypeId.HasValue)
+            .Select(t => t.ActivityTypeId!.Value).Distinct().ToList();
         var activityTypeNames = await _db.ActivityTypes.AsNoTracking()
             .Where(t => activityTypeIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => $"{t.Category}/{t.Name}", cancellationToken);
 
+        var subcategoriaIds = tasks.Where(t => t.SubcategoriaId.HasValue)
+            .Select(t => t.SubcategoriaId!.Value).Distinct().ToList();
+        var subcategoriaNames = subcategoriaIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.ActividadSubcategorias.AsNoTracking()
+                .Where(s => subcategoriaIds.Contains(s.Id))
+                .ToDictionaryAsync(s => s.Id, s => s.Nombre, cancellationToken);
+
         return tasks.Select(t => new TaskItemSummaryDto(
             t.Id, t.Number, t.Title, t.ActivityTypeId,
-            activityTypeNames.TryGetValue(t.ActivityTypeId, out var name) ? name : null,
+            t.ActivityTypeId is Guid atid && activityTypeNames.TryGetValue(atid, out var name) ? name : null,
             t.Priority, t.Status, t.AssigneeTenantUserId, t.DueDate, t.ProjectId, t.Color,
             t.IsArchived, t.ClosedAt, t.Version, t.CreatedAt,
             tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
-            t.StartDate, t.BoardId, t.ColumnId)).ToList();
+            t.StartDate, t.BoardId, t.ColumnId,
+            t.SubcategoriaId,
+            t.SubcategoriaId is Guid scid && subcategoriaNames.TryGetValue(scid, out var scname) ? scname : null,
+            t.EntidadId)).ToList();
     }
 
     /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>

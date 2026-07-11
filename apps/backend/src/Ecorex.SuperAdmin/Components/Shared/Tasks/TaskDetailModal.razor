@@ -319,7 +319,7 @@
                     <div class="tk-card">
                         <div class="tk-card-head"><h3>Resumen</h3></div>
                         <div class="tk-summary">
-                            <div class="tk-summary-row"><span>Tipo</span><strong>@TypeLabel(item.ActivityTypeId, item.ActivityTypeName)</strong></div>
+                            <div class="tk-summary-row"><span>Tipo</span><strong>@TypeLabel(item.ActivityTypeId, item.ActivityTypeName ?? item.SubcategoriaName)</strong></div>
                             <div class="tk-summary-row">
                                 <span>Proyecto</span>
                                 @if (item.ProjectId is Guid pid && _projects.FirstOrDefault(p => p.Id == pid) is ProjectDto proj)
@@ -958,9 +958,10 @@
     private string UserEmail(Guid tenantUserId)
         => _users.FirstOrDefault(u => u.Id == tenantUserId) is TenantUserDto u ? TaskUi.UserLabel(u) : "?";
 
-    private string TypeLabel(Guid typeId, string? fallback)
+    private string TypeLabel(Guid? typeId, string? fallback)
     {
-        var t = _types.FirstOrDefault(x => x.Id == typeId);
+        if (typeId is not Guid id) { return fallback ?? "-"; }
+        var t = _types.FirstOrDefault(x => x.Id == id);
         return t is null ? (fallback ?? "-") : $"{t.Category} / {t.Name}";
     }
 

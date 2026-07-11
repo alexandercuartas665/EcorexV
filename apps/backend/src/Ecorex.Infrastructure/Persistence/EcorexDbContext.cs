@@ -915,6 +915,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Concurrencia optimista portable (ADR-0013), igual que Project.
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasOne(x => x.ActivityType).WithMany().HasForeignKey(x => x.ActivityTypeId).OnDelete(DeleteBehavior.Restrict);
+            // Ola 1 (puente Concepto->Tarea): clasificacion por concepto (subcategoria) y
+            // Empresa/Area (entidad). Ambas nullable, FK Restrict (NO ACTION en ambos motores).
+            b.HasOne(x => x.Subcategoria).WithMany()
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Entidad).WithMany()
+                .HasForeignKey(x => x.EntidadId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.SubcategoriaId });
+            b.HasIndex(x => new { x.TenantId, x.EntidadId });
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.AssigneeTenantUser).WithMany().HasForeignKey(x => x.AssigneeTenantUserId).OnDelete(DeleteBehavior.Restrict);
             // FASE 4 (ADR-0014): la instancia de flujo que gobierna la tarea; sin cascada

@@ -18,8 +18,28 @@ public class TaskItem : TenantEntity, IVersioned
 
     public string? Description { get; set; }
 
-    public Guid ActivityTypeId { get; set; }
+    /// <summary>
+    /// Clasificacion legacy (catalogo plano ActivityType). DEPRECADA por D1: la tarea pivota a
+    /// <see cref="SubcategoriaId"/> (concepto). Nullable en la transicion: se conserva en las tareas
+    /// existentes y en el alta antigua, pero las tareas nuevas se clasifican por subcategoria.
+    /// </summary>
+    public Guid? ActivityTypeId { get; set; }
     public ActivityType? ActivityType { get; set; }
+
+    /// <summary>
+    /// Concepto (subcategoria del catalogo 000270) que clasifica y gobierna la tarea: de el se
+    /// derivan tablero/columna, y (FASE Ola 2) flujo, formulario y flags. Nullable: las tareas
+    /// legacy quedan en null; el alta nueva lo exige. FK Restrict (NO ACTION).
+    /// </summary>
+    public Guid? SubcategoriaId { get; set; }
+    public ActividadSubcategoria? Subcategoria { get; set; }
+
+    /// <summary>
+    /// Entidad (Empresa/Area, modulo 000616) a la que pertenece la tarea; fuente del selector
+    /// "Empresa/Area" del alta. Nullable. FK Restrict (NO ACTION).
+    /// </summary>
+    public Guid? EntidadId { get; set; }
+    public Entidad? Entidad { get; set; }
 
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
 

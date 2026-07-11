@@ -1,7 +1,9 @@
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Actividades
 @using Ecorex.Application.Entidades
+@using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject ITaskItemService TasksSvc
 @inject IEntidadService EntidadSvc
 @inject IActividadCatalogoService CatalogoSvc
@@ -188,14 +190,35 @@
                         else if (_step == 3)
                         {
                             <div style="width:100%">
-                                @if (HasForm)
+                                @if (IsFormFirst)
+                                {
+                                    @* Ola 5 (form-first): al entrar a este paso ya se creo la tarea (arranca su
+                                       flujo); el formulario referencia su numero y su propio "Enviar" finaliza. *@
+                                    <div style="@CardStyle">
+                                        @if (_createdTaskNumber is null)
+                                        {
+                                            <p style="font-size:13px;color:var(--ink-3)">Preparando el formulario del proceso...</p>
+                                        }
+                                        else
+                                        {
+                                            <div style="font-weight:700;font-size:15px;margin-bottom:4px">Formulario del proceso</div>
+                                            <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">Actividad <strong>@_createdTaskNumber</strong> creada. Diligencia y envia el formulario para continuar el proceso.</p>
+                                            <DynamicFormRenderer DefinitionId="@SelectedSub!.FormDefinitionId!.Value"
+                                                                 Mode="FormRenderMode.Fill"
+                                                                 Reference="@_createdTaskNumber"
+                                                                 ShowHeader="true"
+                                                                 OnSubmitted="OnFormSubmittedAsync" />
+                                        }
+                                    </div>
+                                }
+                                else if (HasForm)
                                 {
                                     <div style="@CardStyle">
                                         <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
-                                        <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Esta actividad tiene un formulario asociado. Se diligenciara al crear la tarea (arranque form-first, Ola 5).</p>
+                                        <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Esta actividad tiene un formulario asociado (no marcado "inicia modulo"): se podra diligenciar desde el detalle.</p>
                                         <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-2);font-size:13px">
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
-                                            Formulario del proceso listo para diligenciar.
+                                            Formulario del proceso disponible.
                                         </div>
                                     </div>
                                 }
@@ -227,20 +250,31 @@
 
                     @* footer *@
                     <div style="display:flex;align-items:center;gap:10px;padding:16px 26px;border-top:1px solid var(--line);flex:none">
-                        @if (_step > 1)
+                        @if (_step > 1 && !FormStepLocked)
                         {
                             <button @onclick="@(() => _step--)" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">&larr; Atras</button>
                         }
-                        <button @onclick="ClearDraft" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:none;background:none;font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-3);cursor:pointer">Limpiar</button>
-                        <div style="flex:1"></div>
-                        <button @onclick="@(() => SaveAsync(keepOpen: true))" disabled="@_busy" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">Guardar y crear otra</button>
-                        @if (_step >= Steps.Length)
+                        @if (FormStepLocked)
                         {
-                            <button @onclick="@(() => SaveAsync(keepOpen: false))" disabled="@_busy" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">@(_busy ? "Guardando..." : "Guardar actividad")</button>
+                            @* Form-first: la tarea ya se creo y arranco su flujo; el "Enviar" del
+                               formulario finaliza. No hay guardar/siguiente aqui. *@
+                            <span style="font-size:12.5px;color:var(--ink-3)">Envia el formulario para continuar el proceso.</span>
+                            <div style="flex:1"></div>
+                            <button @onclick="OnFormSkipAsync" disabled="@_busy" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">Diligenciar luego</button>
                         }
                         else
                         {
-                            <button @onclick="NextStep" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">Siguiente &rarr;</button>
+                            <button @onclick="ClearDraft" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:none;background:none;font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-3);cursor:pointer">Limpiar</button>
+                            <div style="flex:1"></div>
+                            <button @onclick="@(() => SaveAsync(keepOpen: true))" disabled="@_busy" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">Guardar y crear otra</button>
+                            @if (_step >= Steps.Length)
+                            {
+                                <button @onclick="@(() => SaveAsync(keepOpen: false))" disabled="@_busy" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">@(_busy ? "Guardando..." : "Guardar actividad")</button>
+                            }
+                            else
+                            {
+                                <button @onclick="NextStep" disabled="@_busy" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">@(_busy ? "..." : "Siguiente →")</button>
+                            }
                         }
                     </div>
                 </div>
@@ -329,8 +363,17 @@
     private Guid? _projectId;
     private Guid? _presetProjectId;
 
+    // Ola 5 (form-first): cuando el concepto tiene IniciaModulo + FormDefinitionId, al entrar al
+    // paso Formulario se crea la tarea (arranca su flujo) y su numero referencia el formulario;
+    // el "Enviar" del formulario finaliza y enlaza la respuesta.
+    private Guid? _createdTaskId;
+    private string? _createdTaskNumber;
+    private TaskItemDetailDto? _createdDetail;
+
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
     private bool HasForm => SelectedSub?.FormDefinitionId is not null;
+    private bool IsFormFirst => SelectedSub is { IniciaModulo: true } s && s.FormDefinitionId is not null;
+    private bool FormStepLocked => IsFormFirst && _step == 3 && _createdTaskId is not null;
     private IEnumerable<TenantUserDto> EncargadoOptions =>
         _encargadoIds.Count == 0 ? _users : _users.Where(u => _encargadoIds.Contains(u.Id));
 
@@ -388,6 +431,7 @@
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
         _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
+        _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
     }
 
     /// <summary>Limpia el borrador conservando la clasificacion (Empresa/Tipo/Actividad/Encargado).</summary>
@@ -398,6 +442,7 @@
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
         _ccEmails.Clear(); _ccInput = "";
         if (_presetProjectId is null) { _projectId = null; }
+        _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
         _errors.Clear();
         _step = 1;
     }
@@ -408,12 +453,16 @@
         _visible = false;
     }
 
-    private void GoStep(int n)
+    private async Task GoStep(int n)
     {
         if (n < _step) { _step = n; return; }
-        // Avanzar validando los pasos intermedios.
-        for (var s = _step; s < n; s++) { if (!ValidateStep(s)) { _step = s; return; } }
-        _step = n;
+        // Avanzar por NextStep (valida cada paso y, en form-first, crea la tarea al entrar al 3).
+        while (_step < n)
+        {
+            var before = _step;
+            await NextStep();
+            if (_step == before) { return; } // validacion bloqueo o fallo la creacion
+        }
     }
 
     private void OnEntidadChanged(ChangeEventArgs e)
@@ -472,10 +521,75 @@
         _ccInput = "";
     }
 
-    private void NextStep()
+    private async Task NextStep()
     {
         if (!ValidateStep(_step)) { return; }
+        // Form-first (Ola 5): al pasar de Contacto (2) al paso Formulario (3), si el concepto
+        // "inicia modulo" se CREA la tarea aqui (arranca su flujo) para que su numero referencie
+        // el formulario. El "Enviar" del formulario finaliza y enlaza la respuesta.
+        if (_step == 2 && IsFormFirst && _createdTaskId is null)
+        {
+            _busy = true;
+            try
+            {
+                var result = await CreateTaskCoreAsync();
+                if (!result.IsOk) { _errors["create"] = result.Error ?? "No se pudo crear la actividad."; return; }
+                _createdDetail = result.Value!;
+                _createdTaskId = _createdDetail.Item.Id;
+                _createdTaskNumber = _createdDetail.Item.Number;
+            }
+            finally { _busy = false; }
+        }
         _step++;
+    }
+
+    /// <summary>Construye el request y crea la tarea (con broadcast). No cierra ni notifica OnCreated.</summary>
+    private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskCoreAsync()
+    {
+        var actor = await ActorAsync();
+        var actorName = await ActorNameAsync();
+        DateTimeOffset? due = _dueDate is null
+            ? null
+            : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
+        var tagIds = await ResolveTagIdsAsync();
+
+        var request = new CreateTaskItemRequest(
+            Title: _title.Trim(),
+            ActivityTypeId: null,
+            Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            Priority: _priority,
+            AssigneeTenantUserId: _assigneeId,
+            DueDate: due,
+            RequesterName: string.IsNullOrWhiteSpace(_requesterName) ? null : _requesterName.Trim(),
+            RequesterEmail: string.IsNullOrWhiteSpace(_requesterEmail) ? null : _requesterEmail.Trim(),
+            RequesterPhone: string.IsNullOrWhiteSpace(_requesterPhone) ? null : _requesterPhone.Trim(),
+            CcEmails: _ccEmails.Count == 0 ? null : _ccEmails.ToList(),
+            ProjectId: _projectId,
+            Color: null,
+            TagIds: tagIds.Count == 0 ? null : tagIds,
+            SubcategoriaId: _subcategoriaId,
+            EntidadId: _entidadId);
+
+        var result = await TasksSvc.CreateAsync(request, actor, actorName);
+        if (result.IsOk && await TenantIdAsync() is Guid tenantId)
+        {
+            await Broadcaster.TaskChangedAsync(tenantId, result.Value!.Item.Id, result.Value.Item.Status);
+        }
+        return result;
+    }
+
+    /// <summary>Form-first: el formulario se envio -> la tarea (ya creada) queda con su respuesta y el flujo sigue.</summary>
+    private async Task OnFormSubmittedAsync(FormResponseDto _)
+    {
+        if (_createdDetail is not null) { await OnCreated.InvokeAsync(_createdDetail); }
+        _visible = false;
+    }
+
+    /// <summary>Form-first "diligenciar luego": la tarea ya se creo (flujo pendiente del formulario); se cierra.</summary>
+    private async Task OnFormSkipAsync()
+    {
+        if (_createdDetail is not null) { await OnCreated.InvokeAsync(_createdDetail); }
+        _visible = false;
     }
 
     private bool ValidateStep(int step)
@@ -504,44 +618,13 @@
         _busy = true;
         try
         {
-            var actor = await ActorAsync();
-            var actorName = await ActorNameAsync();
-            DateTimeOffset? due = _dueDate is null
-                ? null
-                : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
-
-            var tagIds = await ResolveTagIdsAsync();
-
-            var request = new CreateTaskItemRequest(
-                Title: _title.Trim(),
-                ActivityTypeId: null,
-                Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
-                Priority: _priority,
-                AssigneeTenantUserId: _assigneeId,
-                DueDate: due,
-                RequesterName: string.IsNullOrWhiteSpace(_requesterName) ? null : _requesterName.Trim(),
-                RequesterEmail: string.IsNullOrWhiteSpace(_requesterEmail) ? null : _requesterEmail.Trim(),
-                RequesterPhone: string.IsNullOrWhiteSpace(_requesterPhone) ? null : _requesterPhone.Trim(),
-                CcEmails: _ccEmails.Count == 0 ? null : _ccEmails.ToList(),
-                ProjectId: _projectId,
-                Color: null,
-                TagIds: tagIds.Count == 0 ? null : tagIds,
-                SubcategoriaId: _subcategoriaId,
-                EntidadId: _entidadId);
-
-            var result = await TasksSvc.CreateAsync(request, actor, actorName);
+            var result = await CreateTaskCoreAsync();
             if (!result.IsOk)
             {
                 _errors["create"] = result.Error ?? "No se pudo crear la actividad.";
                 return;
             }
-
-            var detail = result.Value!;
-            if (await TenantIdAsync() is Guid tenantId)
-            {
-                await Broadcaster.TaskChangedAsync(tenantId, detail.Item.Id, detail.Item.Status);
-            }
-            await OnCreated.InvokeAsync(detail);
+            await OnCreated.InvokeAsync(result.Value!);
 
             if (keepOpen)
             {

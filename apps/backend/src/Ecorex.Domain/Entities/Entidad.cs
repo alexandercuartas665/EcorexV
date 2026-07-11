@@ -1,4 +1,5 @@
 using Ecorex.Domain.Common;
+using Ecorex.Domain.Enums;
 
 namespace Ecorex.Domain.Entities;
 
@@ -15,6 +16,13 @@ public class Entidad : TenantEntity
 {
     /// <summary>Codigo legible unico por tenant (ej. "ENT-01").</summary>
     public string Codigo { get; set; } = null!;
+
+    /// <summary>
+    /// Naturaleza de la entidad: <see cref="EntidadKind.Sede"/> (ubicacion fisica con identidad
+    /// legal) o <see cref="EntidadKind.Area"/> (unidad organizativa interna). Decide que campos
+    /// aplican en el modal de edicion.
+    /// </summary>
+    public EntidadKind Kind { get; set; } = EntidadKind.Sede;
 
     /// <summary>Razon social / nombre de la entidad.</summary>
     public string Nombre { get; set; } = null!;

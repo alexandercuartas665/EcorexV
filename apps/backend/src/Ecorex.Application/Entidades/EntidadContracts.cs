@@ -10,12 +10,12 @@ namespace Ecorex.Application.Entidades;
 /// <summary>Fila del listado de entidades (tarjeta/lista).</summary>
 public sealed record EntidadDto(
     Guid Id, string Codigo, string Nombre, string? NombreComercial, string? Ciudad,
-    string? TipoEntidad, bool IsPrincipal, bool IsActive, bool IsArchived, bool HasLogo,
+    string? TipoEntidad, EntidadKind Kind, bool IsPrincipal, bool IsActive, bool IsArchived, bool HasLogo,
     DateTimeOffset UpdatedAt);
 
 /// <summary>Detalle completo de una entidad, incluyendo los valores de sus campos dinamicos.</summary>
 public sealed record EntidadDetailDto(
-    Guid Id, string Codigo, string Nombre, string? NombreComercial, string? Sigla, string? TipoEntidad,
+    Guid Id, string Codigo, EntidadKind Kind, string Nombre, string? NombreComercial, string? Sigla, string? TipoEntidad,
     string? TaxId, string? TaxIdDv, string? RepresentanteLegal, string? NaturalezaJuridica,
     string? Pais, string? Departamento, string? Ciudad, string? Direccion, string? Telefono,
     string? Email, string? Web, string? ZonaHoraria, string? Idioma, string? Observaciones,
@@ -24,7 +24,7 @@ public sealed record EntidadDetailDto(
 
 /// <summary>Alta/edicion de una entidad (Id null = nueva). FieldValues = dict FieldKey -&gt; valor.</summary>
 public sealed record SaveEntidadRequest(
-    Guid? Id, string Nombre, string? NombreComercial, string? Sigla, string? TipoEntidad,
+    Guid? Id, EntidadKind Kind, string Nombre, string? NombreComercial, string? Sigla, string? TipoEntidad,
     string? TaxId, string? TaxIdDv, string? RepresentanteLegal, string? NaturalezaJuridica,
     string? Pais, string? Departamento, string? Ciudad, string? Direccion, string? Telefono,
     string? Email, string? Web, string? ZonaHoraria, string? Idioma, string? Observaciones,

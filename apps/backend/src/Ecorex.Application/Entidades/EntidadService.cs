@@ -32,7 +32,7 @@ public sealed class EntidadService : IEntidadService
             .OrderByDescending(e => e.IsPrincipal).ThenBy(e => e.SortOrder).ThenBy(e => e.Codigo)
             .ToListAsync(ct);
         return list.Select(e => new EntidadDto(
-            e.Id, e.Codigo, e.Nombre, e.NombreComercial, e.Ciudad, e.TipoEntidad,
+            e.Id, e.Codigo, e.Nombre, e.NombreComercial, e.Ciudad, e.TipoEntidad, e.Kind,
             e.IsPrincipal, e.IsActive, e.IsArchived, !string.IsNullOrEmpty(e.LogoBase64),
             e.UpdatedAt ?? e.CreatedAt)).ToList();
     }
@@ -67,28 +67,34 @@ public sealed class EntidadService : IEntidadService
             _db.Entidades.Add(entity);
         }
 
+        var isArea = req.Kind == EntidadKind.Area;
+        entity.Kind = req.Kind;
         entity.Nombre = nombre;
-        entity.NombreComercial = Clean(req.NombreComercial);
         entity.Sigla = Clean(req.Sigla);
-        entity.TipoEntidad = Clean(req.TipoEntidad);
-        entity.TaxId = Clean(req.TaxId);
-        entity.TaxIdDv = Clean(req.TaxIdDv);
+        // Un Area es una unidad organizativa interna: reusamos RepresentanteLegal como "Responsable".
         entity.RepresentanteLegal = Clean(req.RepresentanteLegal);
-        entity.NaturalezaJuridica = Clean(req.NaturalezaJuridica);
-        entity.Pais = Clean(req.Pais);
-        entity.Departamento = Clean(req.Departamento);
-        entity.Ciudad = Clean(req.Ciudad);
-        entity.Direccion = Clean(req.Direccion);
         entity.Telefono = Clean(req.Telefono);
         entity.Email = Clean(req.Email);
-        entity.Web = Clean(req.Web);
         entity.ZonaHoraria = Clean(req.ZonaHoraria);
         entity.Idioma = Clean(req.Idioma);
         entity.Observaciones = Clean(req.Observaciones);
-        entity.LogoBase64 = string.IsNullOrWhiteSpace(req.LogoBase64) ? null : req.LogoBase64;
         entity.IsActive = req.IsActive;
         entity.IsPrincipal = req.IsPrincipal;
         entity.FieldValuesJson = SerializeValues(req.FieldValues);
+
+        // Los datos legales / de ubicacion fisica / logo solo aplican a una Sede. Para un Area se
+        // limpian, para no arrastrar datos que su modal no expone.
+        entity.TipoEntidad = isArea ? "Area" : Clean(req.TipoEntidad);
+        entity.NombreComercial = isArea ? null : Clean(req.NombreComercial);
+        entity.TaxId = isArea ? null : Clean(req.TaxId);
+        entity.TaxIdDv = isArea ? null : Clean(req.TaxIdDv);
+        entity.NaturalezaJuridica = isArea ? null : Clean(req.NaturalezaJuridica);
+        entity.Pais = isArea ? null : Clean(req.Pais);
+        entity.Departamento = isArea ? null : Clean(req.Departamento);
+        entity.Ciudad = isArea ? null : Clean(req.Ciudad);
+        entity.Direccion = isArea ? null : Clean(req.Direccion);
+        entity.Web = isArea ? null : Clean(req.Web);
+        entity.LogoBase64 = isArea || string.IsNullOrWhiteSpace(req.LogoBase64) ? null : req.LogoBase64;
 
         // Solo una principal por tenant.
         if (req.IsPrincipal)
@@ -198,6 +204,7 @@ public sealed class EntidadService : IEntidadService
         {
             TenantId = tenantId,
             Codigo = "ENT-01",
+            Kind = EntidadKind.Sede,
             Nombre = "SKY SYSTEM S.A.S",
             NombreComercial = "SKY SYSTEM",
             Sigla = "SKY",
@@ -224,7 +231,7 @@ public sealed class EntidadService : IEntidadService
     // ---- Helpers ----
 
     private static EntidadDetailDto MapDetail(Entidad e) => new(
-        e.Id, e.Codigo, e.Nombre, e.NombreComercial, e.Sigla, e.TipoEntidad,
+        e.Id, e.Codigo, e.Kind, e.Nombre, e.NombreComercial, e.Sigla, e.TipoEntidad,
         e.TaxId, e.TaxIdDv, e.RepresentanteLegal, e.NaturalezaJuridica,
         e.Pais, e.Departamento, e.Ciudad, e.Direccion, e.Telefono, e.Email, e.Web,
         e.ZonaHoraria, e.Idioma, e.Observaciones, e.LogoBase64,

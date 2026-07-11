@@ -73,7 +73,7 @@ else
                         }
                     </div>
                     <div style="min-width:0;flex:1;">
-                        <div class="ent-name" title="@e.Nombre">@e.Nombre @if (e.IsPrincipal) { <span class="ent-badge ent-badge-pri">Principal</span> }</div>
+                        <div class="ent-name" title="@e.Nombre">@e.Nombre @if (e.Kind == EntidadKind.Area) { <span class="ent-badge ent-badge-area">Area</span> } @if (e.IsPrincipal) { <span class="ent-badge ent-badge-pri">Principal</span> }</div>
                         <div class="ent-meta">@e.Codigo @(string.IsNullOrWhiteSpace(e.TipoEntidad) ? "" : " · " + e.TipoEntidad)@(string.IsNullOrWhiteSpace(e.Ciudad) ? "" : " · " + e.Ciudad)</div>
                     </div>
                     @if (!e.IsActive) { <span class="ent-badge">Inactiva</span> }
@@ -102,57 +102,106 @@ else
     <div class="modal-overlay">
         <div class="modal-dialog ent-dialog" @onclick:stopPropagation="true">
             <div class="modal-head">
-                <h3>@(_id is null ? "Nueva entidad" : _f.Nombre)</h3>
+                <h3>@ModalTitle()</h3>
                 <button class="modal-close" @onclick="() => _modalOpen = false">&times;</button>
             </div>
             <div class="modal-body">
-                @* Identidad legal *@
-                <div class="ent-section-title">Informacion legal y corporativa</div>
-                <div class="ent-grid-form">
-                    <div class="field" style="grid-column:span 2;"><label class="form-label">Razon social / nombre *</label><input class="form-control" @bind="_f.Nombre" maxlength="240" /></div>
-                    <div class="field"><label class="form-label">Nombre comercial</label><input class="form-control" @bind="_f.NombreComercial" maxlength="240" /></div>
-                    <div class="field"><label class="form-label">Sigla</label><input class="form-control" @bind="_f.Sigla" maxlength="60" /></div>
-                    <div class="field"><label class="form-label">Tipo de entidad</label><input class="form-control" list="ent-tipos" @bind="_f.TipoEntidad" maxlength="80" placeholder="Empresa / Agencia / Sucursal" /><datalist id="ent-tipos"><option value="Empresa" /><option value="Agencia" /><option value="Sucursal" /><option value="Area" /></datalist></div>
-                    <div class="field"><label class="form-label">Identificacion fiscal (NIT/RUT/Tax ID)</label><input class="form-control" @bind="_f.TaxId" maxlength="40" /></div>
-                    <div class="field"><label class="form-label">Digito verificador</label><input class="form-control" @bind="_f.TaxIdDv" maxlength="5" /></div>
-                    <div class="field"><label class="form-label">Representante legal</label><input class="form-control" @bind="_f.RepresentanteLegal" maxlength="200" /></div>
-                    <div class="field"><label class="form-label">Naturaleza juridica</label><input class="form-control" @bind="_f.NaturalezaJuridica" maxlength="120" /></div>
-                </div>
-
-                @* Ubicacion *@
-                <div class="ent-section-title">Ubicacion y contacto</div>
-                <div class="ent-grid-form">
-                    <div class="field"><label class="form-label">Pais</label><input class="form-control" @bind="_f.Pais" maxlength="80" /></div>
-                    <div class="field"><label class="form-label">Departamento / Estado</label><input class="form-control" @bind="_f.Departamento" maxlength="120" /></div>
-                    <div class="field"><label class="form-label">Ciudad / Municipio</label><input class="form-control" @bind="_f.Ciudad" maxlength="120" /></div>
-                    <div class="field" style="grid-column:span 2;"><label class="form-label">Direccion principal</label><input class="form-control" @bind="_f.Direccion" maxlength="300" /></div>
-                    <div class="field"><label class="form-label">Telefono</label><input class="form-control" @bind="_f.Telefono" maxlength="60" /></div>
-                    <div class="field"><label class="form-label">Correo institucional</label><input class="form-control" @bind="_f.Email" maxlength="150" /></div>
-                    <div class="field"><label class="form-label">Pagina web</label><input class="form-control" @bind="_f.Web" maxlength="200" /></div>
-                </div>
-
-                @* Config sistema + logo *@
-                <div class="ent-section-title">Configuracion del sistema</div>
-                <div class="ent-grid-form">
-                    <div class="field"><label class="form-label">Zona horaria</label><input class="form-control" @bind="_f.ZonaHoraria" maxlength="60" placeholder="America/Bogota" /></div>
-                    <div class="field"><label class="form-label">Idioma por defecto</label><input class="form-control" @bind="_f.Idioma" maxlength="40" placeholder="es" /></div>
-                    <div class="field" style="display:flex;align-items:flex-end;gap:16px;">
-                        <label class="dc-req"><input type="checkbox" @bind="_f.IsActive" /> Activa</label>
-                        <label class="dc-req"><input type="checkbox" @bind="_f.IsPrincipal" /> Principal</label>
+                @if (_pickingKind)
+                {
+                    @* Paso 1: que vas a crear -> define los campos del formulario *@
+                    <p class="text-muted" style="font-size:12.5px;margin-bottom:14px;">Que vas a crear? Esto define los campos que veras a continuacion.</p>
+                    <div class="ent-kind-pick">
+                        <button type="button" class="ent-kind-card" @onclick="() => PickKind(EntidadKind.Sede)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg>
+                            <strong>Sucursal / Agencia / Sede</strong>
+                            <span>Ubicacion fisica con identidad legal: NIT, direccion, contacto y logo.</span>
+                        </button>
+                        <button type="button" class="ent-kind-card" @onclick="() => PickKind(EntidadKind.Area)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+                            <strong>Area</strong>
+                            <span>Unidad organizativa interna de la cuenta. Sin datos legales.</span>
+                        </button>
                     </div>
-                    <div class="field" style="grid-column:span 3;"><label class="form-label">Observaciones</label><textarea class="form-control" rows="2" @bind="_f.Observaciones" maxlength="2000"></textarea></div>
-                    <div class="field" style="grid-column:span 3;">
-                        <label class="form-label">Logo de la entidad</label>
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <div class="ent-logo ent-logo-lg">
-                                @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <img src="@_f.LogoBase64" alt="logo" /> }
-                                else { <span>@Initials(_f.Nombre)</span> }
-                            </div>
-                            <label class="btn btn-sm btn-outline-secondary dc-file-btn"><InputFile OnChange="OnLogoAsync" accept="image/*" /> Subir logo</label>
-                            @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <button class="btn btn-sm btn-outline-danger" @onclick="() => _f.LogoBase64 = null">Quitar</button> }
+                }
+                else
+                {
+                    @* Chip del tipo elegido + cambiar *@
+                    <div class="ent-kind-bar">
+                        <span class="ent-kind-chip @(IsArea ? "ent-kind-chip-area" : "")">@KindLabel(_f.Kind)</span>
+                        <button type="button" class="ent-kind-change" @onclick="BackToKindPick">Cambiar tipo</button>
+                    </div>
+
+                    @if (IsArea)
+                    {
+                        @* ===== Formulario AREA (unidad organizativa, sin datos legales) ===== *@
+                        <div class="ent-section-title">Datos del area</div>
+                        <div class="ent-grid-form">
+                            <div class="field" style="grid-column:span 2;"><label class="form-label">Nombre del area *</label><input class="form-control" @bind="_f.Nombre" maxlength="240" /></div>
+                            <div class="field"><label class="form-label">Sigla</label><input class="form-control" @bind="_f.Sigla" maxlength="60" /></div>
+                            <div class="field"><label class="form-label">Responsable</label><input class="form-control" @bind="_f.RepresentanteLegal" maxlength="200" /></div>
+                            <div class="field"><label class="form-label">Telefono</label><input class="form-control" @bind="_f.Telefono" maxlength="60" /></div>
+                            <div class="field"><label class="form-label">Correo</label><input class="form-control" @bind="_f.Email" maxlength="150" /></div>
                         </div>
-                    </div>
-                </div>
+
+                        <div class="ent-section-title">Configuracion</div>
+                        <div class="ent-grid-form">
+                            <div class="field"><label class="form-label">Zona horaria</label><input class="form-control" @bind="_f.ZonaHoraria" maxlength="60" placeholder="America/Bogota" /></div>
+                            <div class="field"><label class="form-label">Idioma por defecto</label><input class="form-control" @bind="_f.Idioma" maxlength="40" placeholder="es" /></div>
+                            <div class="field" style="display:flex;align-items:flex-end;gap:16px;">
+                                <label class="dc-req"><input type="checkbox" @bind="_f.IsActive" /> Activa</label>
+                                <label class="dc-req"><input type="checkbox" @bind="_f.IsPrincipal" /> Principal</label>
+                            </div>
+                            <div class="field" style="grid-column:span 3;"><label class="form-label">Observaciones</label><textarea class="form-control" rows="2" @bind="_f.Observaciones" maxlength="2000"></textarea></div>
+                        </div>
+                    }
+                    else
+                    {
+                        @* ===== Formulario SEDE / AGENCIA / SUCURSAL (identidad legal completa) ===== *@
+                        <div class="ent-section-title">Informacion legal y corporativa</div>
+                        <div class="ent-grid-form">
+                            <div class="field" style="grid-column:span 2;"><label class="form-label">Razon social / nombre *</label><input class="form-control" @bind="_f.Nombre" maxlength="240" /></div>
+                            <div class="field"><label class="form-label">Nombre comercial</label><input class="form-control" @bind="_f.NombreComercial" maxlength="240" /></div>
+                            <div class="field"><label class="form-label">Sigla</label><input class="form-control" @bind="_f.Sigla" maxlength="60" /></div>
+                            <div class="field"><label class="form-label">Tipo</label><input class="form-control" list="ent-tipos" @bind="_f.TipoEntidad" maxlength="80" placeholder="Agencia / Sucursal / Sede" /><datalist id="ent-tipos"><option value="Empresa" /><option value="Agencia" /><option value="Sucursal" /><option value="Sede" /></datalist></div>
+                            <div class="field"><label class="form-label">Identificacion fiscal (NIT/RUT/Tax ID)</label><input class="form-control" @bind="_f.TaxId" maxlength="40" /></div>
+                            <div class="field"><label class="form-label">Digito verificador</label><input class="form-control" @bind="_f.TaxIdDv" maxlength="5" /></div>
+                            <div class="field"><label class="form-label">Representante legal</label><input class="form-control" @bind="_f.RepresentanteLegal" maxlength="200" /></div>
+                            <div class="field"><label class="form-label">Naturaleza juridica</label><input class="form-control" @bind="_f.NaturalezaJuridica" maxlength="120" /></div>
+                        </div>
+
+                        <div class="ent-section-title">Ubicacion y contacto</div>
+                        <div class="ent-grid-form">
+                            <div class="field"><label class="form-label">Pais</label><input class="form-control" @bind="_f.Pais" maxlength="80" /></div>
+                            <div class="field"><label class="form-label">Departamento / Estado</label><input class="form-control" @bind="_f.Departamento" maxlength="120" /></div>
+                            <div class="field"><label class="form-label">Ciudad / Municipio</label><input class="form-control" @bind="_f.Ciudad" maxlength="120" /></div>
+                            <div class="field" style="grid-column:span 2;"><label class="form-label">Direccion principal</label><input class="form-control" @bind="_f.Direccion" maxlength="300" /></div>
+                            <div class="field"><label class="form-label">Telefono</label><input class="form-control" @bind="_f.Telefono" maxlength="60" /></div>
+                            <div class="field"><label class="form-label">Correo institucional</label><input class="form-control" @bind="_f.Email" maxlength="150" /></div>
+                            <div class="field"><label class="form-label">Pagina web</label><input class="form-control" @bind="_f.Web" maxlength="200" /></div>
+                        </div>
+
+                        <div class="ent-section-title">Configuracion del sistema</div>
+                        <div class="ent-grid-form">
+                            <div class="field"><label class="form-label">Zona horaria</label><input class="form-control" @bind="_f.ZonaHoraria" maxlength="60" placeholder="America/Bogota" /></div>
+                            <div class="field"><label class="form-label">Idioma por defecto</label><input class="form-control" @bind="_f.Idioma" maxlength="40" placeholder="es" /></div>
+                            <div class="field" style="display:flex;align-items:flex-end;gap:16px;">
+                                <label class="dc-req"><input type="checkbox" @bind="_f.IsActive" /> Activa</label>
+                                <label class="dc-req"><input type="checkbox" @bind="_f.IsPrincipal" /> Principal</label>
+                            </div>
+                            <div class="field" style="grid-column:span 3;"><label class="form-label">Observaciones</label><textarea class="form-control" rows="2" @bind="_f.Observaciones" maxlength="2000"></textarea></div>
+                            <div class="field" style="grid-column:span 3;">
+                                <label class="form-label">Logo de la entidad</label>
+                                <div style="display:flex;align-items:center;gap:12px;">
+                                    <div class="ent-logo ent-logo-lg">
+                                        @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <img src="@_f.LogoBase64" alt="logo" /> }
+                                        else { <span>@Initials(_f.Nombre)</span> }
+                                    </div>
+                                    <label class="btn btn-sm btn-outline-secondary dc-file-btn"><InputFile OnChange="OnLogoAsync" accept="image/*" /> Subir logo</label>
+                                    @if (!string.IsNullOrEmpty(_f.LogoBase64)) { <button class="btn btn-sm btn-outline-danger" @onclick="() => _f.LogoBase64 = null">Quitar</button> }
+                                </div>
+                            </div>
+                        </div>
+                    }
 
                 @* Campos dinamicos *@
                 @if (_fieldDefs.Count > 0)
@@ -198,10 +247,18 @@ else
                 }
 
                 @if (_modalError is not null) { <div class="tk-field-error">@_modalError</div> }
+                }
             </div>
             <div class="modal-foot">
-                <button class="btn btn-outline-secondary" @onclick="() => _modalOpen = false" disabled="@_busy">Cerrar</button>
-                <button class="btn btn-primary" @onclick="SaveEntidadAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_f.Nombre))">@(_busy ? "Guardando..." : "Guardar entidad")</button>
+                @if (_pickingKind)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="() => _modalOpen = false">Cancelar</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-secondary" @onclick="() => _modalOpen = false" disabled="@_busy">Cerrar</button>
+                    <button class="btn btn-primary" @onclick="SaveEntidadAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_f.Nombre))">@(_busy ? "Guardando..." : "Guardar entidad")</button>
+                }
             </div>
         </div>
     </div>
@@ -272,6 +329,20 @@ else
     .ent-meta { font-size: 0.78rem; color: var(--ink-3, var(--muted-foreground)); }
     .ent-badge { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
     .ent-badge-pri { background: rgba(124,92,255,.14); color: #6b4bd8; }
+    .ent-badge-area { background: rgba(20,160,120,.14); color: #0f7a58; }
+    /* Selector de tipo (paso 1 del alta) */
+    .ent-kind-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .ent-kind-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 20px; border: 1.5px solid var(--line, var(--border)); border-radius: 14px; background: var(--surface, var(--card)); cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
+    .ent-kind-card:hover { border-color: #7c5cff; background: rgba(124,92,255,.04); box-shadow: 0 4px 14px rgba(0,0,0,.06); }
+    .ent-kind-card svg { width: 30px; height: 30px; color: #7c5cff; }
+    .ent-kind-card strong { font-size: 0.98rem; }
+    .ent-kind-card span { font-size: 0.8rem; color: var(--ink-3, var(--muted-foreground)); line-height: 1.35; }
+    .ent-kind-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .ent-kind-chip { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 4px 12px; border-radius: 999px; background: rgba(124,92,255,.14); color: #6b4bd8; }
+    .ent-kind-chip-area { background: rgba(20,160,120,.14); color: #0f7a58; }
+    .ent-kind-change { border: none; background: none; padding: 0; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); text-decoration: underline; cursor: pointer; }
+    .ent-kind-change:hover { color: #7c5cff; }
+    @@media (max-width: 640px) { .ent-kind-pick { grid-template-columns: 1fr; } }
     .ent-card-actions { display: flex; gap: 6px; margin-top: auto; }
     .ent-dialog { max-width: 980px; width: 94vw; max-height: 92vh; display: flex; flex-direction: column; }
     .ent-dialog .modal-body { flex: 1; overflow: auto; }
@@ -300,6 +371,7 @@ else
 
     // Modal entidad.
     private bool _modalOpen;
+    private bool _pickingKind;   // primer paso del alta: elegir Sede vs Area
     private Guid? _id;
     private EntidadForm _f = new();
     private string? _modalError;
@@ -318,6 +390,7 @@ else
 
     private sealed class EntidadForm
     {
+        public EntidadKind Kind { get; set; } = EntidadKind.Sede;
         public string Nombre { get; set; } = "";
         public string? NombreComercial { get; set; }
         public string? Sigla { get; set; }
@@ -385,14 +458,17 @@ else
         {
             _id = null;
             _f = new EntidadForm { IsActive = true, IsPrincipal = _list.Count == 0 };
+            _pickingKind = true;   // el alta empieza preguntando que es (Sede o Area)
         }
         else
         {
             var d = await EntidadSvc.GetAsync(id.Value);
             if (d is null) { _pageError = "No se encontro la entidad."; return; }
             _id = d.Id;
+            _pickingKind = false;  // al editar ya sabemos el tipo
             _f = new EntidadForm
             {
+                Kind = d.Kind,
                 Nombre = d.Nombre, NombreComercial = d.NombreComercial, Sigla = d.Sigla, TipoEntidad = d.TipoEntidad,
                 TaxId = d.TaxId, TaxIdDv = d.TaxIdDv, RepresentanteLegal = d.RepresentanteLegal, NaturalezaJuridica = d.NaturalezaJuridica,
                 Pais = d.Pais, Departamento = d.Departamento, Ciudad = d.Ciudad, Direccion = d.Direccion,
@@ -403,6 +479,26 @@ else
         }
         _modalOpen = true;
     });
+
+    private bool IsArea => _f.Kind == EntidadKind.Area;
+
+    private void PickKind(EntidadKind kind)
+    {
+        _f.Kind = kind;
+        if (kind == EntidadKind.Area && string.IsNullOrWhiteSpace(_f.TipoEntidad)) { _f.TipoEntidad = "Area"; }
+        _pickingKind = false;
+    }
+
+    private void BackToKindPick() => _pickingKind = true;
+
+    private string ModalTitle()
+    {
+        if (_pickingKind) { return "Nueva entidad"; }
+        if (_id is not null) { return _f.Nombre; }
+        return IsArea ? "Nueva area" : "Nueva sede / agencia";
+    }
+
+    private static string KindLabel(EntidadKind k) => k == EntidadKind.Area ? "Area" : "Sucursal / Agencia / Sede";
 
     private Task SaveEntidadAsync() => GuardAsync(async () =>
     {
@@ -417,7 +513,7 @@ else
         try
         {
             var req = new SaveEntidadRequest(
-                _id, _f.Nombre.Trim(), _f.NombreComercial, _f.Sigla, _f.TipoEntidad,
+                _id, _f.Kind, _f.Nombre.Trim(), _f.NombreComercial, _f.Sigla, _f.TipoEntidad,
                 _f.TaxId, _f.TaxIdDv, _f.RepresentanteLegal, _f.NaturalezaJuridica,
                 _f.Pais, _f.Departamento, _f.Ciudad, _f.Direccion, _f.Telefono, _f.Email, _f.Web,
                 _f.ZonaHoraria, _f.Idioma, _f.Observaciones, _f.LogoBase64, _f.IsPrincipal, _f.IsActive,

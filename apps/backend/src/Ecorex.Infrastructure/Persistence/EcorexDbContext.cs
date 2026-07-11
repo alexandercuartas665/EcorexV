@@ -289,6 +289,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<TerceroIdTipo>().HaveConversion<string>().HaveMaxLength(40);
         // Campos configurables por ficha (000232): el tipo del campo se guarda como texto legible.
         configurationBuilder.Properties<TerceroFieldType>().HaveConversion<string>().HaveMaxLength(40);
+        // Configuracion de la entidad (000615): naturaleza de la entidad (Sede/Area) como texto.
+        configurationBuilder.Properties<EntidadKind>().HaveConversion<string>().HaveMaxLength(20);
         // Contenedor de datos: enums como texto.
         configurationBuilder.Properties<DataContainerColumnType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DataSourceKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -1645,6 +1647,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<Entidad>(b =>
         {
             b.Property(x => x.Codigo).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Kind).HasMaxLength(20);
             b.Property(x => x.Nombre).HasMaxLength(250).IsRequired();
             b.Property(x => x.NombreComercial).HasMaxLength(250);
             b.Property(x => x.Sigla).HasMaxLength(60);

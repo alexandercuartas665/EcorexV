@@ -52,6 +52,14 @@ public interface IActividadCatalogoService
 
     Task<ActividadComboOptionsDto> GetComboOptionsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Ids de usuarios candidatos a "Encargado" de una tarea del concepto: derivados de los cargos
+    /// del concepto (funcionarios que ocupan el cargo + miembros + responsable de la unidad).
+    /// Devuelve vacio si el concepto no tiene cargos (el llamador cae a todos los usuarios).
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListEncargadoUserIdsAsync(
+        IReadOnlyList<Guid> cargoIds, CancellationToken cancellationToken = default);
+
     Task<ActividadKpisDto> GetKpisAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -1,261 +1,327 @@
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Actividades
+@using Ecorex.Application.Entidades
 @using Ecorex.Domain.Enums
 @inject ITaskItemService TasksSvc
-@inject IActivityTypeService TypesSvc
+@inject IEntidadService EntidadSvc
+@inject IActividadCatalogoService CatalogoSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IProjectService ProjectsSvc
 @inject ITaskBroadcaster Broadcaster
 
+@* ===== Wizard "Nueva actividad" (Ola 3): 4 pasos, milimetrico al prototipo ECOREX.dc.html =====
+   Clasifica por CONCEPTO (Empresa/Area -> Tipo/categoria -> Actividad/subcategoria -> Encargado). *@
 @if (_visible)
 {
-    <div class="modal-overlay" @onclick="Close">
-        <div class="modal-dialog tk-wizard" @onclick:stopPropagation="true">
-            <div class="modal-head">
-                <h3>Nueva actividad</h3>
-                <button class="modal-close" @onclick="Close">&times;</button>
+    <div class="tk-wizard" style="position:fixed;inset:0;z-index:1060;background:rgba(15,15,18,.5);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:3vh 2vw" @onclick="Close">
+        <div style="width:min(1100px,97vw);height:90vh;background:var(--surface);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--sh-lg);overflow:hidden;display:flex;flex-direction:column" @onclick:stopPropagation="true">
+            @* header *@
+            <div style="display:flex;align-items:center;gap:14px;padding:18px 26px;border-bottom:1px solid var(--line);flex:none">
+                <div style="width:38px;height:38px;flex:none;border-radius:11px;background:var(--brand);display:grid;place-items:center;color:var(--on-brand)">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </div>
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:11px;color:var(--ink-3);font-weight:600;letter-spacing:.03em">ECOREX &#183; Actividades</div>
+                    <div style="font-weight:800;font-size:16px;letter-spacing:-.01em">Nueva actividad</div>
+                </div>
+                <button @onclick="Close" style="width:34px;height:34px;flex:none;border-radius:9px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;cursor:pointer;color:var(--ink-2)">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                </button>
             </div>
 
-            @* Barra de pasos *@
-            <div class="tk-steps">
-                @foreach (var (index, label) in new[] { (1, "Informacion"), (2, "Contacto y proyecto"), (3, "Confirmar") })
-                {
-                    <div class="tk-step @(_step == index ? "on" : "") @(_step > index ? "done" : "")">
-                        <span class="tk-step-num">
-                            @if (_step > index)
+            @* body: left column + summary aside *@
+            <div style="flex:1;display:flex;min-height:0">
+                <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)">
+                    @* steps nav *@
+                    <div style="display:flex;align-items:center;gap:8px;padding:16px 26px;border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap">
+                        @for (var i = 0; i < Steps.Length; i++)
+                        {
+                            var n = i + 1;
+                            var isOn = _step == n;
+                            var isDone = _step > n;
+                            <div style="display:flex;align-items:center;gap:9px;cursor:pointer" @onclick="@(() => GoStep(n))">
+                                <span style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;@(isOn ? "background:var(--brand);color:var(--on-brand)" : isDone ? "background:var(--brand-soft);color:var(--brand)" : "background:var(--surface-3);color:var(--ink-3)")">
+                                    @(isDone ? (MarkupString)"&#10003;" : (MarkupString)n.ToString())
+                                </span>
+                                <span style="font-size:13px;@(isOn ? "color:var(--ink);font-weight:700" : "color:var(--ink-3);font-weight:600")">@Steps[i]</span>
+                            </div>
+                            @if (i < Steps.Length - 1)
                             {
-                                @((MarkupString)"&#10003;")
+                                <span style="width:22px;height:1px;background:var(--line-2)"></span>
                             }
-                            else
-                            {
-                                @index
-                            }
-                        </span>
-                        <span class="tk-step-lbl">@label</span>
+                        }
                     </div>
-                }
-            </div>
 
-            <div class="modal-body">
-                @if (_step == 1)
-                {
-                    <div class="field-row">
-                        <div class="field">
-                            <label class="form-label">Categoria *</label>
-                            <select class="form-control" value="@_category" @onchange="OnCategoryChanged">
-                                <option value="">-- Selecciona --</option>
-                                @foreach (var cat in Categories)
-                                {
-                                    <option value="@cat">@cat</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label class="form-label">Tipo de actividad *</label>
-                            <select class="form-control" value="@(_activityTypeId?.ToString() ?? "")" @onchange="@(e => _activityTypeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(string.IsNullOrEmpty(_category))">
-                                <option value="">-- Selecciona --</option>
-                                @foreach (var t in _types.Where(t => t.Category == _category))
-                                {
-                                    <option value="@t.Id">@t.Name</option>
-                                }
-                            </select>
-                            @if (_errors.TryGetValue("type", out var typeErr))
-                            {
-                                <div class="tk-field-error">@typeErr</div>
-                            }
-                        </div>
-                    </div>
-                    <div class="field-row">
-                        <div class="field">
-                            <label class="form-label">Encargado</label>
-                            <select class="form-control" value="@(_assigneeId?.ToString() ?? "")" @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
-                                <option value="">Sin asignar</option>
-                                @foreach (var u in _users)
-                                {
-                                    <option value="@u.Id">@TaskUi.UserLabel(u)</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label class="form-label">Fecha de entrega</label>
-                            <input type="date" class="form-control" @bind="_dueDate" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
-                            @if (_errors.TryGetValue("due", out var dueErr))
-                            {
-                                <div class="tk-field-error">@dueErr</div>
-                            }
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Titulo *</label>
-                        <input class="form-control" @bind="_title" @bind:event="oninput" maxlength="200" placeholder="Que hay que hacer?" autocomplete="off" />
-                        @if (_errors.TryGetValue("title", out var titleErr))
+                    @* body *@
+                    <div style="flex:1;overflow-y:auto;padding:16px;background:var(--surface-2)">
+                        @if (_step == 1)
                         {
-                            <div class="tk-field-error">@titleErr</div>
-                        }
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Descripcion</label>
-                        <textarea class="form-control" rows="3" @bind="_description" placeholder="Detalles, contexto..."></textarea>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Prioridad</label>
-                        <div class="tk-priority-pick">
-                            @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
-                            {
-                                <button type="button" class="tk-priority-opt @TaskUi.PriorityClass(p) @(_priority == p ? "on" : "")" @onclick="@(() => _priority = p)">
-                                    @TaskUi.PriorityLabel(p)
-                                </button>
-                            }
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Etiquetas (max 10)</label>
-                        <TagPicker @bind-Selected="_tags" />
-                    </div>
-                }
-                else if (_step == 2)
-                {
-                    <div class="field">
-                        <label class="form-label">Numero de actividad</label>
-                        <input class="form-control" value="Se asigna al crear (consecutivo T#####)" disabled />
-                    </div>
-                    <div class="field-row">
-                        <div class="field">
-                            <label class="form-label">Nombre del solicitante</label>
-                            <input class="form-control" @bind="_requesterName" placeholder="Ej. Cliente Alfa SAS" />
-                        </div>
-                        <div class="field">
-                            <label class="form-label">Telefono</label>
-                            <input class="form-control" @bind="_requesterPhone" placeholder="+57 ..." />
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Email del solicitante</label>
-                        <input class="form-control" @bind="_requesterEmail" @bind:event="oninput" placeholder="correo@dominio.com" />
-                        @if (_errors.TryGetValue("email", out var emailErr))
-                        {
-                            <div class="tk-field-error">@emailErr</div>
-                        }
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Correos CC</label>
-                        <div class="tk-tagpicker-chips tk-cc-box">
-                            @foreach (var cc in _ccEmails)
-                            {
-                                <span class="tk-tag tk-cc">
-                                    @cc
-                                    <button type="button" class="tk-tag-x" title="Quitar" @onclick="@(() => _ccEmails.Remove(cc))">&times;</button>
-                                </span>
-                            }
-                            <input class="tk-tagpicker-input" @bind="_ccInput" @bind:event="oninput" @onkeydown="OnCcKeyDown" placeholder="Escribe un correo y Enter..." />
-                        </div>
-                        @if (_errors.TryGetValue("cc", out var ccErr))
-                        {
-                            <div class="tk-field-error">@ccErr</div>
-                        }
-                    </div>
-                    <div class="field">
-                        <label class="form-label">Proyecto (opcional)</label>
-                        <select class="form-control" value="@(_projectId?.ToString() ?? "")" @onchange="@(e => _projectId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(_presetProjectId is not null)">
-                            <option value="">Sin proyecto</option>
-                            @foreach (var p in _projects)
-                            {
-                                <option value="@p.Id">@p.Code - @p.Name</option>
-                            }
-                        </select>
-                    </div>
-                }
-                else
-                {
-                    var type = _types.FirstOrDefault(t => t.Id == _activityTypeId);
-                    var assignee = _users.FirstOrDefault(u => u.Id == _assigneeId);
-                    var project = _projects.FirstOrDefault(p => p.Id == _projectId);
-                    <div class="tk-summary">
-                        <div class="tk-summary-row"><span>Tipo</span><strong>@(type is null ? "-" : $"{type.Category} / {type.Name}")</strong></div>
-                        <div class="tk-summary-row"><span>Titulo</span><strong>@_title</strong></div>
-                        @if (!string.IsNullOrWhiteSpace(_description))
-                        {
-                            <div class="tk-summary-row"><span>Descripcion</span><strong class="tk-summary-desc">@_description</strong></div>
-                        }
-                        <div class="tk-summary-row"><span>Prioridad</span><PriorityChip Priority="_priority" /></div>
-                        <div class="tk-summary-row"><span>Encargado</span><strong>@(assignee is TenantUserDto au ? TaskUi.UserLabel(au) : "Sin asignar")</strong></div>
-                        <div class="tk-summary-row"><span>Entrega</span><strong>@(_dueDate?.ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
-                        @if (_tags.Count > 0)
-                        {
-                            <div class="tk-summary-row">
-                                <span>Etiquetas</span>
-                                <span>
-                                    @foreach (var tag in _tags)
-                                    {
-                                        <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
-                                    }
-                                </span>
+                            <div style="display:flex;flex-direction:column;gap:16px;width:100%">
+                                @* Clasificacion y asignacion *@
+                                <div style="@CardStyle">
+                                    <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px">
+                                        <span style="width:30px;height:30px;border-radius:9px;background:var(--t-blue-bg, rgba(59,130,246,.14));color:var(--t-blue);display:grid;place-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"></rect><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></span>
+                                        <div style="font-weight:700;font-size:15px">Clasificacion y asignacion</div>
+                                    </div>
+                                    <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 16px 41px">Define a que proceso pertenece la actividad, quien la atiende y para cuando.</p>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+                                        <div>
+                                            <label style="@LblStyle">Empresa / Area</label>
+                                            <select style="@SelStyle" value="@(_entidadId?.ToString() ?? "")" @onchange="OnEntidadChanged">
+                                                <option value="">Selecciona la Empresa/Area</option>
+                                                @foreach (var e in _entidades) { <option value="@e.Id">@e.Label</option> }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="@LblStyle">Proceso / Tipo</label>
+                                            <select style="@SelStyle" value="@(_categoriaId?.ToString() ?? "")" @onchange="OnCategoriaChanged">
+                                                <option value="">Selecciona Tipo</option>
+                                                @foreach (var c in _categorias) { <option value="@c.Id">@c.Nombre</option> }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="@LblStyle">Actividad</label>
+                                            <select style="@SelStyle" value="@(_subcategoriaId?.ToString() ?? "")" @onchange="OnSubcategoriaChanged" disabled="@(_categoriaId is null)">
+                                                <option value="">Selecciona Actividad</option>
+                                                @foreach (var s in _subcategorias) { <option value="@s.Id">@s.Nombre</option> }
+                                            </select>
+                                            @if (_errors.TryGetValue("sub", out var subErr)) { <div style="@ErrStyle">@subErr</div> }
+                                        </div>
+                                    </div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                                        <div>
+                                            <label style="@LblStyle">Encargado</label>
+                                            <select style="@SelStyle" value="@(_assigneeId?.ToString() ?? "")" @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                                                <option value="">Selecciona Encargado</option>
+                                                @foreach (var u in EncargadoOptions) { <option value="@u.Id">@TaskUi.UserLabel(u)</option> }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="@LblStyle">Fecha de entrega</label>
+                                            <input type="date" style="@InStyle" @bind="_dueDate" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                                            @if (_errors.TryGetValue("due", out var dueErr)) { <div style="@ErrStyle">@dueErr</div> }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @* Descripcion *@
+                                <div style="@CardStyle">
+                                    <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px">
+                                        <span style="width:30px;height:30px;border-radius:9px;background:var(--t-violet-bg, rgba(124,92,255,.14));color:var(--t-violet);display:grid;place-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></span>
+                                        <div style="font-weight:700;font-size:15px">Descripcion de la actividad</div>
+                                    </div>
+                                    <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 16px 41px">Detalla que se va a hacer y el contexto necesario para ejecutarla.</p>
+                                    <input placeholder="@TitlePlaceholder" style="@InStyle;margin-bottom:12px" @bind="_title" @bind:event="oninput" maxlength="200" autocomplete="off" />
+                                    @if (_errors.TryGetValue("title", out var titleErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@titleErr</div> }
+                                    <textarea placeholder="Descripcion / detalle" style="width:100%;min-height:96px;padding:12px 13px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);font:inherit;font-size:13.5px;color:var(--ink);resize:vertical;outline:none" @bind="_description"></textarea>
+                                </div>
+
+                                @* Prioridad + Etiquetas *@
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                                    <div style="@CardStyle">
+                                        <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px">
+                                            <span style="width:30px;height:30px;border-radius:9px;background:var(--t-amber-bg, rgba(245,158,11,.14));color:var(--t-amber);display:grid;place-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1Z"></path><path d="M4 22v-7"></path></svg></span>
+                                            <div style="font-weight:700;font-size:15px">Prioridad</div>
+                                        </div>
+                                        <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 16px 41px">Que tan urgente es?</p>
+                                        <div style="display:flex;gap:10px;flex-wrap:wrap">
+                                            @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                                            {
+                                                var on = _priority == p;
+                                                <button type="button" @onclick="@(() => _priority = p)" style="height:34px;padding:0 15px;border-radius:9px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;@(on ? $"border:1px solid {PrioColor(p)};background:{PrioSoft(p)};color:{PrioColor(p)}" : "border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2)")">@TaskUi.PriorityLabel(p)</button>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div style="@CardStyle">
+                                        <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px">
+                                            <span style="width:30px;height:30px;border-radius:9px;background:var(--t-green-bg, rgba(20,160,120,.14));color:var(--t-green);display:grid;place-items:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5l9 9 7-7-9-9H3Z"></path><circle cx="7.5" cy="7.5" r="1.3"></circle></svg></span>
+                                            <div style="font-weight:700;font-size:15px">Etiquetas</div>
+                                        </div>
+                                        <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 14px 41px">Enter para agregar.</p>
+                                        <div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+                                            @foreach (var t in _tags)
+                                            {
+                                                <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 8px 4px 11px;border-radius:8px;background:var(--brand-soft);color:var(--brand)">#@t.Name<span style="cursor:pointer;font-weight:700" @onclick="@(() => _tags.Remove(t))">&times;</span></span>
+                                            }
+                                            <input @bind="_tagInput" @bind:event="oninput" @onkeydown="OnAddTag" placeholder="etiqueta..." style="flex:1;min-width:100px;height:34px;padding:0 11px;border:1px solid var(--line-2);border-radius:9px;background:var(--surface-2);font:inherit;font-size:13px;color:var(--ink);outline:none" />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         }
-                        <div class="tk-summary-row"><span>Solicitante</span><strong>@(string.IsNullOrWhiteSpace(_requesterName) ? "-" : _requesterName)</strong></div>
-                        @if (!string.IsNullOrWhiteSpace(_requesterEmail))
+                        else if (_step == 2)
                         {
-                            <div class="tk-summary-row"><span>Email</span><strong>@_requesterEmail</strong></div>
+                            <div style="display:flex;flex-direction:column;gap:16px;width:100%">
+                                <div style="@CardStyle">
+                                    <div style="font-weight:700;font-size:15px;margin-bottom:16px">Informacion del contacto</div>
+                                    <input placeholder="Nombre completo del solicitante" style="@InStyle;margin-bottom:12px" @bind="_requesterName" />
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                                        <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" />
+                                        <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" @bind:event="oninput" />
+                                    </div>
+                                    @if (_errors.TryGetValue("email", out var emailErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@emailErr</div> }
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                                        <input placeholder="Telefono" style="@InStyle" @bind="_requesterPhone" />
+                                        <input placeholder="Numero de actividad (se asigna al crear)" style="@InStyle;opacity:.7" disabled />
+                                    </div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                                        <select style="@SelStyle" value="@(_projectId?.ToString() ?? "")" @onchange="@(e => _projectId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(_presetProjectId is not null)">
+                                            <option value="">Proyecto...</option>
+                                            @foreach (var p in _projects) { <option value="@p.Id">@p.Code - @p.Name</option> }
+                                        </select>
+                                        <select style="@SelStyle;opacity:.7" disabled><option>Hito del proyecto...</option></select>
+                                    </div>
+                                </div>
+                                <div style="@CardStyle">
+                                    <div style="font-weight:700;font-size:15px;margin-bottom:14px">Copiar a correos</div>
+                                    <div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+                                        @foreach (var cc in _ccEmails)
+                                        {
+                                            <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 8px 4px 11px;border-radius:8px;background:var(--surface-3);color:var(--ink-2)">@cc<span style="cursor:pointer;font-weight:700" @onclick="@(() => _ccEmails.Remove(cc))">&times;</span></span>
+                                        }
+                                        <input @bind="_ccInput" @bind:event="oninput" @onkeydown="OnAddCc" placeholder="correo@@ejemplo.com y Enter" style="flex:1;min-width:160px;height:34px;padding:0 11px;border:1px solid var(--line-2);border-radius:9px;background:var(--surface-2);font:inherit;font-size:13px;color:var(--ink);outline:none" />
+                                    </div>
+                                    @if (_errors.TryGetValue("cc", out var ccErr)) { <div style="@ErrStyle">@ccErr</div> }
+                                </div>
+                            </div>
                         }
-                        @if (_ccEmails.Count > 0)
+                        else if (_step == 3)
                         {
-                            <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _ccEmails)</strong></div>
+                            <div style="width:100%">
+                                @if (HasForm)
+                                {
+                                    <div style="@CardStyle">
+                                        <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
+                                        <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Esta actividad tiene un formulario asociado. Se diligenciara al crear la tarea (arranque form-first, Ola 5).</p>
+                                        <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-2);font-size:13px">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
+                                            Formulario del proceso listo para diligenciar.
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="text-align:center;padding:60px 24px;color:var(--ink-3)">
+                                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 14px;display:block;opacity:.5"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
+                                        <div style="font-size:14px">Esta actividad no tiene formulario asociado.</div>
+                                    </div>
+                                }
+                            </div>
                         }
-                        <div class="tk-summary-row"><span>Proyecto</span><strong>@(project is null ? "Sin proyecto" : $"{project.Code} - {project.Name}")</strong></div>
+                        else
+                        {
+                            <div style="width:100%">
+                                <div style="@CardStyle">
+                                    <div style="font-weight:700;font-size:15px;margin-bottom:14px">Archivos adjuntos</div>
+                                    <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">Podras adjuntar archivos desde el detalle una vez creada la actividad.</p>
+                                    <div style="border:2px dashed var(--line-2);border-radius:14px;padding:40px 24px;text-align:center;color:var(--ink-3)">
+                                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 12px;display:block"><path d="M12 16V4M5 11l7-7 7 7M5 20h14"></path></svg>
+                                        <div style="font-size:14px;font-weight:600">Arrastra tus archivos aqui o haz clic para elegir</div>
+                                        <div style="font-size:12px;margin-top:4px">PDF, imagenes, hojas de calculo</div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        @if (_errors.TryGetValue("create", out var createErr)) { <div style="@ErrStyle;margin-top:12px">@createErr</div> }
                     </div>
-                    @if (_errors.TryGetValue("create", out var createErr))
-                    {
-                        <div class="tk-field-error" style="margin-top:10px;">@createErr</div>
-                    }
-                }
-            </div>
 
-            <div class="modal-foot">
-                @if (_step > 1)
-                {
-                    <button class="btn btn-outline-secondary" @onclick="@(() => _step--)" disabled="@_busy">&larr; Atras</button>
-                }
-                <span style="flex:1;"></span>
-                <button class="btn btn-outline-secondary" @onclick="Close" disabled="@_busy">Cancelar</button>
-                @if (_step < 3)
-                {
-                    <button class="btn btn-primary" @onclick="NextStep">Siguiente &rarr;</button>
-                }
-                else
-                {
-                    <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">@(_busy ? "Creando..." : "Crear actividad")</button>
-                }
+                    @* footer *@
+                    <div style="display:flex;align-items:center;gap:10px;padding:16px 26px;border-top:1px solid var(--line);flex:none">
+                        @if (_step > 1)
+                        {
+                            <button @onclick="@(() => _step--)" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">&larr; Atras</button>
+                        }
+                        <button @onclick="ClearDraft" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:none;background:none;font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-3);cursor:pointer">Limpiar</button>
+                        <div style="flex:1"></div>
+                        <button @onclick="@(() => SaveAsync(keepOpen: true))" disabled="@_busy" style="height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">Guardar y crear otra</button>
+                        @if (_step >= Steps.Length)
+                        {
+                            <button @onclick="@(() => SaveAsync(keepOpen: false))" disabled="@_busy" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">@(_busy ? "Guardando..." : "Guardar actividad")</button>
+                        }
+                        else
+                        {
+                            <button @onclick="NextStep" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">Siguiente &rarr;</button>
+                        }
+                    </div>
+                </div>
+
+                @* summary aside *@
+                <aside style="width:280px;flex:none;background:var(--surface-2);overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:18px">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                        <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;padding:4px 11px;border-radius:8px;background:var(--t-amber-bg, rgba(245,158,11,.14));color:var(--t-amber)"><span style="width:7px;height:7px;border-radius:50%;background:var(--t-amber)"></span>Borrador</span>
+                        <span style="font-size:11.5px;color:var(--ink-3)">Sin guardar</span>
+                    </div>
+                    <div>
+                        <div style="font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--ink-3);margin-bottom:10px">RESUMEN</div>
+                        <div style="text-align:center;padding:12px 0 4px">
+                            <div style="font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--ink-3);margin-bottom:4px">NUM. DE ACTIVIDAD</div>
+                            <div style="font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--ink-3)">Sin asignar</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:14px">
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:2px">Empresa / Area</div><div style="font-size:13.5px;font-weight:700;@(SumEmpresa is null ? "color:var(--ink-3)" : "")">@(SumEmpresa ?? "Sin definir")</div></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:2px">Proceso</div><div style="font-size:13.5px;font-weight:600;@(SumProceso is null ? "color:var(--ink-3)" : "")">@(SumProceso ?? "Sin definir")</div></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:2px">Actividad</div><div style="font-size:13.5px;font-weight:600;@(SumActividad is null ? "color:var(--ink-3)" : "")">@(SumActividad ?? "Sin definir")</div></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:4px">Encargado</div><div style="font-size:13px;@(SumEncargado is null ? "color:var(--ink-3)" : "font-weight:600")">@(SumEncargado ?? "Sin asignar")</div></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:2px">Fecha de entrega</div><div style="font-size:13.5px;@(_dueDate is null ? "color:var(--ink-3)" : "")">@(_dueDate?.ToString("dd MMM yyyy") ?? "Sin fecha")</div></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:4px">Prioridad</div><span style="font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:8px;background:@PrioSoft(_priority);color:@PrioColor(_priority)">@TaskUi.PriorityLabel(_priority)</span></div>
+                        <div><div style="font-size:11.5px;color:var(--ink-3);margin-bottom:2px">Etiquetas</div><div style="font-size:13px;font-weight:600;@(_tags.Count == 0 ? "color:var(--ink-3)" : "")">@(_tags.Count == 0 ? "Ninguna" : string.Join(", ", _tags.Select(t => t.Name)))</div></div>
+                    </div>
+                    <div style="border-top:1px solid var(--line);padding-top:16px">
+                        <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--ink-3);margin-bottom:12px">ADJUNTOS Y SEGUIMIENTO</div>
+                        <div style="display:flex;gap:10px">
+                            <div style="flex:1;display:flex;align-items:center;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9.5 12 18a4 4 0 0 1-6-6l8-8a2.5 2.5 0 0 1 4 4l-8 8a1 1 0 0 1-1.5-1.5L16 7"></path></svg><div><div style="font-size:15px;font-weight:800;line-height:1">0</div><div style="font-size:10px;color:var(--ink-3)">Archivos</div></div></div>
+                            <div style="flex:1;display:flex;align-items:center;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path></svg><div><div style="font-size:15px;font-weight:800;line-height:1">@_ccEmails.Count</div><div style="font-size:10px;color:var(--ink-3)">Copia a</div></div></div>
+                        </div>
+                    </div>
+                </aside>
             </div>
         </div>
     </div>
 }
 
 @code {
-    // Wizard "Nueva actividad" (FASE 3): version core del ctrTareasII legacy.
-    // Los pasos Formulario/Formacion (BPMN) llegan en FASE 4.
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [Parameter] public EventCallback<TaskItemDetailDto> OnCreated { get; set; }
+
+    private static readonly string[] Steps = { "Informacion", "Contacto", "Formulario", "Documentos" };
+
+    // ---- Estilos inline (tokens del prototipo) ----
+    private const string CardStyle = "background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px 22px;box-shadow:var(--sh-sm)";
+    private const string SelStyle = "width:100%;height:40px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);font:inherit;font-size:13.5px;color:var(--ink);outline:none;cursor:pointer";
+    private const string InStyle = "width:100%;height:40px;padding:0 12px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);font:inherit;font-size:13.5px;color:var(--ink);outline:none";
+    private const string LblStyle = "display:block;font-size:11.5px;font-weight:600;color:var(--ink-2);margin-bottom:6px";
+    private const string ErrStyle = "color:var(--t-red, #dc2626);font-size:12px;margin-top:5px";
 
     private bool _visible;
     private bool _busy;
     private int _step = 1;
     private readonly Dictionary<string, string> _errors = new();
 
-    private List<ActivityTypeDto> _types = new();
+    // Datos
+    private List<EntidadOptionDto> _entidades = new();
+    private List<ActividadCategoriaDto> _categorias = new();
+    private List<ActividadSubcategoriaDto> _subcategorias = new();
     private List<TenantUserDto> _users = new();
     private List<ProjectDto> _projects = new();
+    private List<TaskItemTagDto> _allTags = new();
+    private IReadOnlyList<Guid> _encargadoIds = Array.Empty<Guid>();
 
     // Paso 1
-    private string _category = "";
-    private Guid? _activityTypeId;
+    private Guid? _entidadId;
+    private Guid? _categoriaId;
+    private Guid? _subcategoriaId;
     private Guid? _assigneeId;
     private DateTime? _dueDate;
     private string _title = "";
     private string _description = "";
     private TaskPriority _priority = TaskPriority.Medium;
-    private List<TaskItemTagDto> _tags = new();
+    private readonly List<TaskItemTagDto> _tags = new();
+    private string _tagInput = "";
 
     // Paso 2
     private string _requesterName = "";
+    private string _requesterDoc = "";
     private string _requesterEmail = "";
     private string _requesterPhone = "";
     private readonly List<string> _ccEmails = new();
@@ -263,35 +329,77 @@
     private Guid? _projectId;
     private Guid? _presetProjectId;
 
-    private IEnumerable<string> Categories => _types.Select(t => t.Category).Distinct().OrderBy(c => c);
+    private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
+    private bool HasForm => SelectedSub?.FormDefinitionId is not null;
+    private IEnumerable<TenantUserDto> EncargadoOptions =>
+        _encargadoIds.Count == 0 ? _users : _users.Where(u => _encargadoIds.Contains(u.Id));
 
-    /// <summary>Abre el wizard limpio; con proyecto preseleccionado (detalle de proyecto) queda fijo.</summary>
-    public async Task OpenAsync(Guid? presetProjectId = null)
+    private string? SumEmpresa => _entidades.FirstOrDefault(e => e.Id == _entidadId)?.Label;
+    private string? SumProceso => _categorias.FirstOrDefault(c => c.Id == _categoriaId)?.Nombre;
+    private string? SumActividad => SelectedSub?.Nombre;
+    private string? SumEncargado => _users.FirstOrDefault(u => u.Id == _assigneeId) is TenantUserDto u ? TaskUi.UserLabel(u) : null;
+    private string TitlePlaceholder => SelectedSub?.TituloAuto is { Length: > 0 } ? "Titulo (automatico del concepto si lo dejas vacio)" : "Titulo de la actividad";
+
+    /// <summary>
+    /// Abre el wizard limpio. Opcionalmente preselecciona proyecto (detalle de proyecto),
+    /// concepto (menu Mis Procesos -&gt; categoria/subcategoria) y/o entidad.
+    /// </summary>
+    public async Task OpenAsync(Guid? presetProjectId = null, Guid? presetSubcategoriaId = null,
+        Guid? presetCategoriaId = null, Guid? presetEntidadId = null)
     {
-        _step = 1;
-        _busy = false;
-        _errors.Clear();
-        _category = "";
-        _activityTypeId = null;
-        _assigneeId = null;
-        _dueDate = null;
-        _title = "";
-        _description = "";
-        _priority = TaskPriority.Medium;
-        _tags = new List<TaskItemTagDto>();
-        _requesterName = "";
-        _requesterEmail = "";
-        _requesterPhone = "";
-        _ccEmails.Clear();
-        _ccInput = "";
+        ResetAll();
         _presetProjectId = presetProjectId;
         _projectId = presetProjectId;
+        _entidadId = presetEntidadId;
 
-        _types = (await TypesSvc.ListAsync()).Where(t => !t.IsArchived).ToList();
+        _entidades = (await EntidadSvc.ListOptionsAsync()).ToList();
+        _categorias = (await CatalogoSvc.ListCategoriasAsync(includeArchived: false)).ToList();
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _projects = (await ProjectsSvc.ListAsync()).ToList();
+        _allTags = (await TasksSvc.ListTagsAsync()).ToList();
+
+        // Preseleccion de concepto (camino Mis Procesos).
+        _categoriaId = presetCategoriaId;
+        if (presetSubcategoriaId is Guid presetSub)
+        {
+            var sub = await CatalogoSvc.GetSubcategoriaAsync(presetSub);
+            if (sub is not null)
+            {
+                _categoriaId = sub.CategoriaId;
+            }
+        }
+        if (_categoriaId is Guid catId)
+        {
+            _subcategorias = (await CatalogoSvc.ListSubcategoriasAsync(catId, includeArchived: false)).ToList();
+            _subcategoriaId = presetSubcategoriaId;
+            await ResolveEncargadoAsync();
+        }
+
         _visible = true;
         StateHasChanged();
+    }
+
+    private void ResetAll()
+    {
+        _step = 1; _busy = false; _errors.Clear();
+        _entidadId = null; _categoriaId = null; _subcategoriaId = null; _assigneeId = null;
+        _dueDate = null; _title = ""; _description = ""; _priority = TaskPriority.Medium;
+        _tags.Clear(); _tagInput = "";
+        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
+        _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
+        _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
+    }
+
+    /// <summary>Limpia el borrador conservando la clasificacion (Empresa/Tipo/Actividad/Encargado).</summary>
+    private void ClearDraft()
+    {
+        _title = ""; _description = ""; _priority = TaskPriority.Medium;
+        _tags.Clear(); _tagInput = ""; _dueDate = null;
+        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
+        _ccEmails.Clear(); _ccInput = "";
+        if (_presetProjectId is null) { _projectId = null; }
+        _errors.Clear();
+        _step = 1;
     }
 
     private void Close()
@@ -300,10 +408,68 @@
         _visible = false;
     }
 
-    private void OnCategoryChanged(ChangeEventArgs e)
+    private void GoStep(int n)
     {
-        _category = e.Value?.ToString() ?? "";
-        _activityTypeId = null;
+        if (n < _step) { _step = n; return; }
+        // Avanzar validando los pasos intermedios.
+        for (var s = _step; s < n; s++) { if (!ValidateStep(s)) { _step = s; return; } }
+        _step = n;
+    }
+
+    private void OnEntidadChanged(ChangeEventArgs e)
+        => _entidadId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+
+    private async Task OnCategoriaChanged(ChangeEventArgs e)
+    {
+        _categoriaId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        _subcategoriaId = null;
+        _assigneeId = null;
+        _encargadoIds = Array.Empty<Guid>();
+        _subcategorias = _categoriaId is Guid catId
+            ? (await CatalogoSvc.ListSubcategoriasAsync(catId, includeArchived: false)).ToList()
+            : new();
+    }
+
+    private async Task OnSubcategoriaChanged(ChangeEventArgs e)
+    {
+        _subcategoriaId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        await ResolveEncargadoAsync();
+    }
+
+    private async Task ResolveEncargadoAsync()
+    {
+        var cargoIds = SelectedSub?.CargoIds ?? (IReadOnlyList<Guid>)Array.Empty<Guid>();
+        _encargadoIds = await CatalogoSvc.ListEncargadoUserIdsAsync(cargoIds);
+        // Si el encargado elegido ya no esta entre las opciones, se limpia.
+        if (_assigneeId is Guid a && _encargadoIds.Count > 0 && !_encargadoIds.Contains(a))
+        {
+            _assigneeId = null;
+        }
+    }
+
+    private void OnAddTag(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") { return; }
+        var name = _tagInput.Trim();
+        if (name.Length == 0) { return; }
+        var existing = _allTags.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+        var tag = existing ?? new TaskItemTagDto(Guid.Empty, name, null);
+        if (!_tags.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _tags.Add(tag);
+        }
+        _tagInput = "";
+    }
+
+    private void OnAddCc(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") { return; }
+        var value = _ccInput.Trim();
+        if (value.Length == 0) { return; }
+        if (!TaskUi.IsValidEmail(value)) { _errors["cc"] = $"'{value}' no es un correo valido."; return; }
+        _errors.Remove("cc");
+        if (!_ccEmails.Contains(value, StringComparer.OrdinalIgnoreCase)) { _ccEmails.Add(value); }
+        _ccInput = "";
     }
 
     private void NextStep()
@@ -317,58 +483,22 @@
         _errors.Clear();
         if (step == 1)
         {
-            if (_activityTypeId is null)
-            {
-                _errors["type"] = "Selecciona el tipo de actividad.";
-            }
-            if (string.IsNullOrWhiteSpace(_title))
-            {
-                _errors["title"] = "El titulo es obligatorio.";
-            }
-            else if (_title.Trim().Length > 200)
-            {
-                _errors["title"] = "El titulo no puede superar 200 caracteres.";
-            }
-            if (_dueDate is not null && _dueDate.Value.Date < DateTime.Now.Date)
-            {
-                _errors["due"] = "La fecha de entrega no puede estar en el pasado.";
-            }
+            if (_subcategoriaId is null) { _errors["sub"] = "Selecciona la actividad (concepto)."; }
+            var hasAutoTitle = SelectedSub?.TituloAuto is { Length: > 0 };
+            if (string.IsNullOrWhiteSpace(_title) && !hasAutoTitle) { _errors["title"] = "El titulo es obligatorio (o elige un concepto con titulo automatico)."; }
+            else if (_title.Trim().Length > 200) { _errors["title"] = "El titulo no puede superar 200 caracteres."; }
+            if (_dueDate is not null && _dueDate.Value.Date < DateTime.Now.Date) { _errors["due"] = "La fecha de entrega no puede estar en el pasado."; }
         }
         else if (step == 2)
         {
-            if (!string.IsNullOrWhiteSpace(_requesterEmail) && !TaskUi.IsValidEmail(_requesterEmail))
-            {
-                _errors["email"] = "El email no tiene un formato valido.";
-            }
-            if (!string.IsNullOrWhiteSpace(_ccInput))
-            {
-                _errors["cc"] = "Presiona Enter para agregar el correo CC (o borra el texto).";
-            }
+            if (!string.IsNullOrWhiteSpace(_requesterEmail) && !TaskUi.IsValidEmail(_requesterEmail)) { _errors["email"] = "El email no tiene un formato valido."; }
+            if (!string.IsNullOrWhiteSpace(_ccInput)) { _errors["cc"] = "Presiona Enter para agregar el correo CC (o borra el texto)."; }
         }
         return _errors.Count == 0;
     }
 
-    private void OnCcKeyDown(KeyboardEventArgs e)
+    private async Task SaveAsync(bool keepOpen)
     {
-        if (e.Key != "Enter") { return; }
-        var value = _ccInput.Trim();
-        if (value.Length == 0) { return; }
-        if (!TaskUi.IsValidEmail(value))
-        {
-            _errors["cc"] = $"'{value}' no es un correo valido.";
-            return;
-        }
-        _errors.Remove("cc");
-        if (!_ccEmails.Contains(value, StringComparer.OrdinalIgnoreCase))
-        {
-            _ccEmails.Add(value);
-        }
-        _ccInput = "";
-    }
-
-    private async Task CreateAsync()
-    {
-        // Revalida los pasos previos por si el usuario retrocedio y borro datos.
         if (!ValidateStep(1)) { _step = 1; return; }
         if (!ValidateStep(2)) { _step = 2; return; }
         _busy = true;
@@ -376,14 +506,15 @@
         {
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
-            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
             DateTimeOffset? due = _dueDate is null
                 ? null
                 : new DateTimeOffset(_dueDate.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
 
+            var tagIds = await ResolveTagIdsAsync();
+
             var request = new CreateTaskItemRequest(
                 Title: _title.Trim(),
-                ActivityTypeId: _activityTypeId!.Value,
+                ActivityTypeId: null,
                 Description: string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
                 Priority: _priority,
                 AssigneeTenantUserId: _assigneeId,
@@ -394,7 +525,9 @@
                 CcEmails: _ccEmails.Count == 0 ? null : _ccEmails.ToList(),
                 ProjectId: _projectId,
                 Color: null,
-                TagIds: _tags.Count == 0 ? null : _tags.Select(t => t.Id).ToList());
+                TagIds: tagIds.Count == 0 ? null : tagIds,
+                SubcategoriaId: _subcategoriaId,
+                EntidadId: _entidadId);
 
             var result = await TasksSvc.CreateAsync(request, actor, actorName);
             if (!result.IsOk)
@@ -408,13 +541,38 @@
             {
                 await Broadcaster.TaskChangedAsync(tenantId, detail.Item.Id, detail.Item.Status);
             }
-            _visible = false;
             await OnCreated.InvokeAsync(detail);
+
+            if (keepOpen)
+            {
+                // "Guardar y crear otra": conserva la clasificacion, limpia el resto.
+                ClearDraft();
+                _allTags = (await TasksSvc.ListTagsAsync()).ToList();
+            }
+            else
+            {
+                _visible = false;
+            }
         }
         finally
         {
             _busy = false;
         }
+    }
+
+    /// <summary>Resuelve/crea las etiquetas por nombre y devuelve sus ids.</summary>
+    private async Task<List<Guid>> ResolveTagIdsAsync()
+    {
+        var ids = new List<Guid>();
+        foreach (var tag in _tags)
+        {
+            if (tag.Id != Guid.Empty) { ids.Add(tag.Id); continue; }
+            var existing = _allTags.FirstOrDefault(t => string.Equals(t.Name, tag.Name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null) { ids.Add(existing.Id); continue; }
+            var created = await TasksSvc.CreateTagAsync(tag.Name, null);
+            if (created.IsOk) { ids.Add(created.Value!.Id); _allTags.Add(created.Value); }
+        }
+        return ids;
     }
 
     private async Task<Guid> ActorAsync()
@@ -437,4 +595,17 @@
         var st = await AuthState;
         return Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var id) ? id : null;
     }
+
+    private static string PrioColor(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "var(--t-red, #dc2626)",
+        TaskPriority.Low => "var(--t-green, #0f7a58)",
+        _ => "var(--t-amber, #b45309)"
+    };
+    private static string PrioSoft(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "var(--t-red-bg, rgba(220,38,38,.12))",
+        TaskPriority.Low => "var(--t-green-bg, rgba(20,160,120,.14))",
+        _ => "var(--t-amber-bg, rgba(245,158,11,.14))"
+    };
 }

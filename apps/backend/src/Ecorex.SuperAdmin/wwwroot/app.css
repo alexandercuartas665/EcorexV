@@ -1445,8 +1445,8 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 /* Errores de campo (wizard / formularios) */
 .tk-field-error { color: var(--destructive); font-size: 12px; margin-top: 5px; font-weight: 500; }
 
-/* Barra de pasos del wizard */
-.tk-wizard { max-width: 620px; }
+/* Barra de pasos del wizard. NOTA: .tk-wizard ahora es el overlay full-screen del nuevo
+   wizard (Ola 3); NO debe llevar max-width (antes limitaba el modal viejo a 620px). */
 .tk-steps { display: flex; gap: 4px; padding: 14px 22px 0; }
 .tk-step { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 2.5px solid var(--border); color: var(--muted-foreground); font-size: 12.5px; font-weight: 600; }
 .tk-step.on { border-bottom-color: var(--primary); color: var(--primary); }

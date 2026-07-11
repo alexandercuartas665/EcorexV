@@ -354,6 +354,41 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros, usuarios);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListEncargadoUserIdsAsync(
+        IReadOnlyList<Guid> cargoIds, CancellationToken cancellationToken = default)
+    {
+        if (cargoIds is null || cargoIds.Count == 0)
+        {
+            return Array.Empty<Guid>();
+        }
+        var ids = cargoIds.Distinct().ToList();
+        var users = new HashSet<Guid>();
+
+        // Funcionarios que ocupan esos cargos (cuelgan del cargo con un TenantUserId).
+        var occupants = await _db.OrgUnits.AsNoTracking()
+            .Where(o => o.ParentId != null && ids.Contains(o.ParentId.Value)
+                && o.Classifier == OrgUnitClassifier.Funcionario && o.TenantUserId != null && !o.IsArchived)
+            .Select(o => o.TenantUserId!.Value)
+            .ToListAsync(cancellationToken);
+        foreach (var u in occupants) { users.Add(u); }
+
+        // Miembros directos de esos cargos.
+        var members = await _db.OrgUnitMembers.AsNoTracking()
+            .Where(m => ids.Contains(m.OrgUnitId))
+            .Select(m => m.TenantUserId)
+            .ToListAsync(cancellationToken);
+        foreach (var u in members) { users.Add(u); }
+
+        // Responsable/jefe de la unidad del cargo (PRE-4).
+        var responsibles = await _db.OrgUnits.AsNoTracking()
+            .Where(o => ids.Contains(o.Id) && o.ResponsibleTenantUserId != null)
+            .Select(o => o.ResponsibleTenantUserId!.Value)
+            .ToListAsync(cancellationToken);
+        foreach (var u in responsibles) { users.Add(u); }
+
+        return users.ToList();
+    }
+
     public async Task<ActividadKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
     {
         var categorias = await _db.ActividadCategorias.CountAsync(c => !c.IsArchived, cancellationToken);

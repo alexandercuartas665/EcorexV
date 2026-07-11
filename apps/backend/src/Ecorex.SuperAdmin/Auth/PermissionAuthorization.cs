@@ -10,43 +10,90 @@ namespace Ecorex.SuperAdmin.Auth;
 /// <c>Perm:{moduleKey}:{action}</c> con action in View/Create/Edit/Delete. Ej.:
 /// <c>Perm:inventario-items:View</c>. El <see cref="PermissionPolicyProvider"/> las materializa al
 /// vuelo; el resto de policies (Inventario.Ver, AdmUsuarios.Editar, ...) siguen intactas.
+///
+/// <para>Ola 7 (endurecimiento) - POLICIES COMPUESTAS POR VISTA: una vista puede exigir VARIOS
+/// permisos combinados con AND, uniendo segmentos con '+':
+/// <c>Perm:{m1}:{a1}+{m2}:{a2}</c> (ej. la vista de alta de actividad exige VER y CREAR:
+/// <c>Perm:actividades:View+actividades:Create</c>). Cada segmento se materializa como un
+/// <see cref="PermissionRequirement"/> independiente; ASP.NET Core exige que TODOS los requisitos
+/// de la policy se cumplan, de modo que varios requisitos == AND. Esto replica el "multi-permiso"
+/// del legacy (una opcion de menu que dependia de la conjuncion de varios permisos).</para>
 /// </summary>
 public static class PermissionPolicy
 {
     public const string Prefix = "Perm:";
 
+    /// <summary>Separador de segmentos en una policy compuesta (AND). Ej. <c>a:View+b:Edit</c>.</summary>
+    public const char AndSeparator = '+';
+
     /// <summary>Construye el nombre de policy para un modulo y accion.</summary>
     public static string For(string moduleKey, PermissionAction action)
         => $"{Prefix}{moduleKey}:{action}";
 
-    /// <summary>Intenta parsear un nombre <c>Perm:{module}:{action}</c>. false si no aplica el prefijo.</summary>
+    /// <summary>
+    /// Construye el nombre de una policy COMPUESTA (AND) a partir de varios (modulo, accion).
+    /// Ej. <c>ForAll(("actividades",View),("actividades",Create))</c> = <c>Perm:actividades:View+actividades:Create</c>.
+    /// </summary>
+    public static string ForAll(params (string moduleKey, PermissionAction action)[] parts)
+        => Prefix + string.Join(AndSeparator, parts.Select(p => $"{p.moduleKey}:{p.action}"));
+
+    /// <summary>Intenta parsear un nombre <c>Perm:{module}:{action}</c> simple. false si no aplica el prefijo o si es compuesto.</summary>
     public static bool TryParse(string policyName, out string moduleKey, out PermissionAction action)
     {
         moduleKey = string.Empty;
         action = default;
+        if (!TryParseMany(policyName, out var parts) || parts.Count != 1)
+        {
+            return false;
+        }
+
+        moduleKey = parts[0].moduleKey;
+        action = parts[0].action;
+        return true;
+    }
+
+    /// <summary>
+    /// Parsea un nombre <c>Perm:{m1}:{a1}[+{m2}:{a2}...]</c> en uno o mas segmentos (modulo, accion).
+    /// Devuelve false si falta el prefijo o si algun segmento es invalido (todos deben parsear).
+    /// </summary>
+    public static bool TryParseMany(
+        string policyName, out IReadOnlyList<(string moduleKey, PermissionAction action)> parts)
+    {
+        parts = Array.Empty<(string, PermissionAction)>();
         if (string.IsNullOrEmpty(policyName) || !policyName.StartsWith(Prefix, StringComparison.Ordinal))
         {
             return false;
         }
 
         var body = policyName[Prefix.Length..];
-        // La accion es el ultimo segmento tras el ultimo ':'; el modulo es todo lo anterior (un
-        // Route podria, en teoria, contener ':', por eso partimos por la ULTIMA aparicion).
-        var sep = body.LastIndexOf(':');
-        if (sep <= 0 || sep == body.Length - 1)
+        var segments = body.Split(AndSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0)
         {
             return false;
         }
 
-        var modulePart = body[..sep];
-        var actionPart = body[(sep + 1)..];
-        if (!Enum.TryParse(actionPart, ignoreCase: false, out PermissionAction parsed))
+        var acc = new List<(string moduleKey, PermissionAction action)>(segments.Length);
+        foreach (var segment in segments)
         {
-            return false;
+            // La accion es el ultimo segmento tras el ultimo ':'; el modulo es todo lo anterior (un
+            // Route podria, en teoria, contener ':', por eso partimos por la ULTIMA aparicion).
+            var sep = segment.LastIndexOf(':');
+            if (sep <= 0 || sep == segment.Length - 1)
+            {
+                return false;
+            }
+
+            var modulePart = segment[..sep];
+            var actionPart = segment[(sep + 1)..];
+            if (!Enum.TryParse(actionPart, ignoreCase: false, out PermissionAction parsed))
+            {
+                return false;
+            }
+
+            acc.Add((modulePart, parsed));
         }
 
-        moduleKey = modulePart;
-        action = parsed;
+        parts = acc;
         return true;
     }
 }
@@ -113,14 +160,19 @@ public sealed class PermissionPolicyProvider : IAuthorizationPolicyProvider
 
     public Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
     {
-        if (PermissionPolicy.TryParse(policyName, out var moduleKey, out var action))
+        // Ola 7: soporta policies simples y COMPUESTAS (AND). TryParseMany devuelve 1+ segmentos;
+        // se añade un PermissionRequirement por segmento y ASP.NET exige que TODOS se cumplan (AND).
+        if (PermissionPolicy.TryParseMany(policyName, out var parts))
         {
-            var policy = new AuthorizationPolicyBuilder()
+            var builder = new AuthorizationPolicyBuilder()
                 // Mantiene el gate de tenant: exige usuario de un tenant (igual que TenantMember).
-                .RequireClaim("tenant_id")
-                .AddRequirements(new PermissionRequirement(moduleKey, action))
-                .Build();
-            return Task.FromResult<AuthorizationPolicy?>(policy);
+                .RequireClaim("tenant_id");
+            foreach (var (moduleKey, action) in parts)
+            {
+                builder.AddRequirements(new PermissionRequirement(moduleKey, action));
+            }
+
+            return Task.FromResult<AuthorizationPolicy?>(builder.Build());
         }
 
         return _fallback.GetPolicyAsync(policyName);

@@ -48,6 +48,108 @@ public class PermissionAuthorizationTests
         Assert.Equal(PermissionAction.Create, action);
     }
 
+    // ---- Ola 7: policies COMPUESTAS (AND) -> PermissionPolicy.TryParseMany / ForAll ----
+
+    [Fact]
+    public void TryParseMany_SingleSegment_ReturnsOne()
+    {
+        Assert.True(PermissionPolicy.TryParseMany("Perm:actividades:View", out var parts));
+        Assert.Single(parts);
+        Assert.Equal(("actividades", PermissionAction.View), parts[0]);
+    }
+
+    [Fact]
+    public void TryParseMany_CompositeAnd_ReturnsAllSegmentsInOrder()
+    {
+        Assert.True(PermissionPolicy.TryParseMany("Perm:formularios:View+formularios:Edit", out var parts));
+        Assert.Equal(2, parts.Count);
+        Assert.Equal(("formularios", PermissionAction.View), parts[0]);
+        Assert.Equal(("formularios", PermissionAction.Edit), parts[1]);
+    }
+
+    [Theory]
+    [InlineData("Perm:actividades:View+")]        // segmento vacio al final -> se ignora, queda 1 valido
+    [InlineData("Perm:actividades:View+ +")]      // espacios/vacios -> se ignoran
+    public void TryParseMany_TrailingSeparators_AreIgnored(string name)
+    {
+        Assert.True(PermissionPolicy.TryParseMany(name, out var parts));
+        Assert.Single(parts);
+        Assert.Equal(("actividades", PermissionAction.View), parts[0]);
+    }
+
+    [Theory]
+    [InlineData("Perm:a:View+b:Desconocida")]     // un segmento con accion invalida -> todo falla
+    [InlineData("Perm:a:View+:Edit")]             // un segmento con modulo vacio -> todo falla
+    [InlineData("TenantMember")]                  // sin prefijo
+    public void TryParseMany_AnyInvalidSegment_ReturnsFalse(string name)
+    {
+        Assert.False(PermissionPolicy.TryParseMany(name, out _));
+    }
+
+    [Fact]
+    public void TryParse_Single_RejectsComposite()
+    {
+        // El parse simple (1 solo permiso) NO debe aceptar un nombre compuesto.
+        Assert.False(PermissionPolicy.TryParse("Perm:a:View+b:Edit", out _, out _));
+    }
+
+    [Fact]
+    public void ForAll_BuildsRoundTrippableCompositeName()
+    {
+        var name = PermissionPolicy.ForAll(("formularios", PermissionAction.View), ("formularios", PermissionAction.Edit));
+        Assert.Equal("Perm:formularios:View+formularios:Edit", name);
+        Assert.True(PermissionPolicy.TryParseMany(name, out var parts));
+        Assert.Equal(2, parts.Count);
+    }
+
+    [Fact]
+    public async Task Composite_AllRequirementsMet_Succeeds()
+    {
+        // Rol con formularios View + Edit -> la policy compuesta (dos requisitos) concede.
+        var eff = EffectivePermissions.FromPermissions(Guid.NewGuid(), new[]
+        {
+            new ModulePermissionDto("formularios", CanView: true, CanCreate: false, CanEdit: true, CanDelete: false)
+        });
+        var handler = new PermissionAuthorizationHandler(new FakeCurrentPermissions(eff));
+        var reqs = new[]
+        {
+            new PermissionRequirement("formularios", PermissionAction.View),
+            new PermissionRequirement("formularios", PermissionAction.Edit)
+        };
+        var user = UserWithTenant();
+        var ctx = new AuthorizationHandlerContext(reqs, user, resource: null);
+
+        await handler.HandleAsync(ctx);
+
+        Assert.True(ctx.HasSucceeded);
+    }
+
+    [Fact]
+    public async Task Composite_OneRequirementMissing_Denies()
+    {
+        // Rol con formularios View pero SIN Edit -> la policy compuesta (View AND Edit) NO concede,
+        // porque ASP.NET exige que TODOS los requisitos se cumplan.
+        var eff = EffectivePermissions.FromPermissions(Guid.NewGuid(), new[]
+        {
+            new ModulePermissionDto("formularios", CanView: true, CanCreate: false, CanEdit: false, CanDelete: false)
+        });
+        var handler = new PermissionAuthorizationHandler(new FakeCurrentPermissions(eff));
+        var reqs = new[]
+        {
+            new PermissionRequirement("formularios", PermissionAction.View),
+            new PermissionRequirement("formularios", PermissionAction.Edit)
+        };
+        var user = UserWithTenant();
+        var ctx = new AuthorizationHandlerContext(reqs, user, resource: null);
+
+        await handler.HandleAsync(ctx);
+
+        Assert.False(ctx.HasSucceeded);
+    }
+
+    private static ClaimsPrincipal UserWithTenant()
+        => new(new ClaimsIdentity(new[] { new Claim("tenant_id", Guid.NewGuid().ToString()) }, "test"));
+
     // ---- PermissionAuthorizationHandler ----
 
     private static AuthorizationHandlerContext ContextFor(PermissionRequirement requirement)

@@ -51,19 +51,27 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("SuperAdminOnly", p => p.RequireClaim("platform_role", "SuperAdmin"))
     // Miembro de una agencia: tiene claim tenant_id.
     .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"))
-    // ---- Policies por modulo (paso 1 del plan: nombres estables) ----
-    // HOY exigen exactamente lo mismo que TenantMember (claim tenant_id) para que el
-    // acceso no cambie; su valor esta en fijar el NOMBRE con el que cada pagina se
-    // protege desde ya. TODO (paso 2): derivar el requisito real de cada policy desde
-    // el Module Registry (GetEnabledModulesAsync + rol del TenantUser), sin tocar las
-    // paginas: solo cambia la definicion aqui.
-    .AddPolicy("Tareas.Ver", p => p.RequireClaim("tenant_id"))
-    .AddPolicy("Proyectos.Ver", p => p.RequireClaim("tenant_id"))
-    .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id"))
+    // ---- Policies por modulo ----
+    // Ola 7 (endurecimiento) PASO 2 REALIZADO para la familia Tareas: estas policies ya no son
+    // placeholder de tenant_id: derivan el requisito REAL del Module Registry (PermissionRequirement
+    // Modulo x Accion), sin tocar las paginas -solo cambia la definicion aqui-. El handler concede a
+    // Owner/Admin y sin-rol (Unrestricted, fail-open); solo un rol limitado sin el permiso queda fuera.
+    // "Formularios.Disenar" es una POLICY COMPUESTA (multi-permiso del legacy): exige VER *y* EDITAR
+    // formularios (dos PermissionRequirement = AND). Route-keys del catalogo: actividades/proyectos/
+    // flujos/formularios (ModuleCatalogFallback / menu Item Route).
+    .AddPolicy("Tareas.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("actividades", Ecorex.Application.Roles.PermissionAction.View)))
+    .AddPolicy("Proyectos.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("proyectos", Ecorex.Application.Roles.PermissionAction.View)))
+    .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("flujos", Ecorex.Application.Roles.PermissionAction.View)))
     // Bandeja operativa de flujos "mis pasos" (runtime, ola F2, ADR-0036): es la bandeja del
     // usuario, cualquier miembro del tenant la ve. Mismo requisito que TenantMember, nombre estable.
     .AddPolicy("MisPasos.Ver", p => p.RequireClaim("tenant_id"))
-    .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id"))
+    // COMPUESTA (AND): disenar formularios exige ver Y editar el modulo formularios.
+    .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("formularios", Ecorex.Application.Roles.PermissionAction.View))
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("formularios", Ecorex.Application.Roles.PermissionAction.Edit)))
     .AddPolicy("Reglas.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Conceptos.Editar", p => p.RequireClaim("tenant_id"))
     .AddPolicy("Dependencias.Ver", p => p.RequireClaim("tenant_id"))

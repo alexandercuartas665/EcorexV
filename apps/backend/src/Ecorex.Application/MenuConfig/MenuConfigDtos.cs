@@ -16,6 +16,7 @@ public sealed record MenuNodeDto(
     string? Route,
     MenuNodeState State,
     int SortOrder,
+    bool IsProcessGroup,
     IReadOnlyList<MenuNodeDto> Children)
 {
     /// <summary>Numero de hijos visibles directos (contador del acordeon).</summary>
@@ -55,6 +56,7 @@ public sealed record MenuEditorNodeDto(
     MenuNodeState State,
     bool IsVisible,
     int SortOrder,
+    bool IsProcessGroup,
     IReadOnlyList<MenuEditorNodeDto> Children);
 
 /// <summary>
@@ -75,7 +77,8 @@ public sealed record MenuNodeEditDto(
     string? Route = null,
     string? Description = null,
     string? HelpText = null,
-    MenuNodeState? State = null);
+    MenuNodeState? State = null,
+    bool? IsProcessGroup = null);
 
 /// <summary>Usuario del tenant con su vista asignada (para la pantalla de asignacion, Ola 2).</summary>
 public sealed record TenantUserViewDto(
@@ -99,7 +102,8 @@ public sealed record MenuExportNode(
     string State,
     bool IsVisible,
     int SortOrder,
-    List<MenuExportNode> Children);
+    List<MenuExportNode> Children,
+    bool IsProcessGroup = false);
 
 /// <summary>Documento portable de una vista completa (export/import). No incluye IsDefault.</summary>
 public sealed record MenuExportDocument(

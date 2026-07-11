@@ -173,11 +173,20 @@ else
                                 <span class="org-avatar">@Initials(m.DisplayName ?? m.Email)</span>
                                 <span class="org-member-name">
                                     @(m.DisplayName ?? m.Email)
+                                    @if (m.IsResponsible)
+                                    {
+                                        <span class="tk-status st-done" style="margin-left:6px;font-size:10.5px;">Jefe</span>
+                                    }
                                     @if (!string.IsNullOrWhiteSpace(m.Role))
                                     {
                                         <small>@m.Role</small>
                                     }
                                 </span>
+                                <button class="btn btn-sm @(m.IsResponsible ? "btn-primary" : "btn-outline-secondary")"
+                                        title="@(m.IsResponsible ? "Quitar como jefe/responsable" : "Marcar como jefe/responsable de la unidad")"
+                                        @onclick="@(() => ToggleResponsibleAsync(m))" disabled="@_busy">
+                                    @(m.IsResponsible ? "Jefe" : "Hacer jefe")
+                                </button>
                                 <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveMemberAsync(m))" disabled="@_busy">Quitar</button>
                             </div>
                         }
@@ -470,6 +479,22 @@ else
         _busy = true;
         _detailError = null;
         var result = await OrgSvc.RemoveMemberAsync(member.Id);
+        if (!result.IsOk)
+        {
+            _detailError = result.Error;
+        }
+        else
+        {
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task ToggleResponsibleAsync(OrgUnitMemberDto member)
+    {
+        _busy = true;
+        _detailError = null;
+        var result = await OrgSvc.SetMemberResponsibleAsync(member.Id, !member.IsResponsible);
         if (!result.IsOk)
         {
             _detailError = result.Error;

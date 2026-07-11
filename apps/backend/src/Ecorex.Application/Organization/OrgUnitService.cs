@@ -222,10 +222,11 @@ public sealed class OrgUnitService : IOrgUnitService
                 x.m.TenantUserId,
                 x.tu.Email,
                 DisplayName = pu != null ? pu.DisplayName : null,
-                x.m.Role
+                x.m.Role,
+                x.m.IsResponsible
             })
-            .OrderBy(x => x.Email)
-            .Select(x => new OrgUnitMemberDto(x.Id, x.OrgUnitId, x.TenantUserId, x.Email, x.DisplayName, x.Role))
+            .OrderByDescending(x => x.IsResponsible).ThenBy(x => x.Email)
+            .Select(x => new OrgUnitMemberDto(x.Id, x.OrgUnitId, x.TenantUserId, x.Email, x.DisplayName, x.Role, x.IsResponsible))
             .ToListAsync(cancellationToken);
     }
 
@@ -274,7 +275,7 @@ public sealed class OrgUnitService : IOrgUnitService
             .Select(pu => pu.DisplayName)
             .FirstOrDefaultAsync(cancellationToken);
         return OrgResult<OrgUnitMemberDto>.Ok(new OrgUnitMemberDto(
-            member.Id, unitId, tenantUserId, tenantUser.Email, displayName, member.Role));
+            member.Id, unitId, tenantUserId, tenantUser.Email, displayName, member.Role, member.IsResponsible));
     }
 
     public async Task<OrgResult<bool>> RemoveMemberAsync(Guid memberId, CancellationToken cancellationToken = default)
@@ -284,7 +285,57 @@ public sealed class OrgUnitService : IOrgUnitService
         {
             return OrgResult<bool>.NotFound("El miembro no existe.");
         }
+        // Si el miembro era el jefe/responsable, tambien limpiar el responsable de la unidad.
+        if (member.IsResponsible)
+        {
+            var unit = await _db.OrgUnits.FirstOrDefaultAsync(u => u.Id == member.OrgUnitId, cancellationToken);
+            if (unit is not null && unit.ResponsibleTenantUserId == member.TenantUserId)
+            {
+                unit.ResponsibleTenantUserId = null;
+            }
+        }
         _db.OrgUnitMembers.Remove(member);
+        await _db.SaveChangesAsync(cancellationToken);
+        return OrgResult<bool>.Ok(true);
+    }
+
+    public async Task<OrgResult<bool>> SetMemberResponsibleAsync(
+        Guid memberId, bool isResponsible, CancellationToken cancellationToken = default)
+    {
+        var member = await _db.OrgUnitMembers.FirstOrDefaultAsync(m => m.Id == memberId, cancellationToken);
+        if (member is null)
+        {
+            return OrgResult<bool>.NotFound("El miembro no existe.");
+        }
+        var unit = await _db.OrgUnits.FirstOrDefaultAsync(u => u.Id == member.OrgUnitId, cancellationToken);
+        if (unit is null)
+        {
+            return OrgResult<bool>.NotFound("La dependencia no existe.");
+        }
+
+        if (isResponsible)
+        {
+            // A lo sumo un jefe/responsable por unidad: desmarcar a los demas.
+            var others = await _db.OrgUnitMembers
+                .Where(m => m.OrgUnitId == member.OrgUnitId && m.Id != member.Id && m.IsResponsible)
+                .ToListAsync(cancellationToken);
+            foreach (var o in others)
+            {
+                o.IsResponsible = false;
+            }
+            member.IsResponsible = true;
+            // Reconciliar con el responsable de la unidad (fuente del Encargado por defecto).
+            unit.ResponsibleTenantUserId = member.TenantUserId;
+        }
+        else
+        {
+            member.IsResponsible = false;
+            if (unit.ResponsibleTenantUserId == member.TenantUserId)
+            {
+                unit.ResponsibleTenantUserId = null;
+            }
+        }
+        // Una sola SaveChanges = una transaccion (miembros + unidad atomicos).
         await _db.SaveChangesAsync(cancellationToken);
         return OrgResult<bool>.Ok(true);
     }

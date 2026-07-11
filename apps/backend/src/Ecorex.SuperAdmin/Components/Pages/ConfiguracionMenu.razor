@@ -230,6 +230,18 @@ else
                                 <label class="form-label">Texto de ayuda</label>
                                 <textarea class="form-control" rows="2" maxlength="400" @bind="_pHelpText"></textarea>
                             </div>
+                            @if (_selected.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                            {
+                                <div class="field">
+                                    <label class="dc-req" style="display:flex;align-items:flex-start;gap:8px;">
+                                        <input type="checkbox" @bind="_pIsProcessGroup" style="margin-top:3px;" />
+                                        <span>
+                                            <strong>Este grupo despliega los procesos</strong>
+                                            <small style="display:block;color:var(--muted-foreground);">En vez de items fijos, mostrara las actividades tipo proceso (categoria / subcategoria con flujo) del catalogo de Conceptos.</small>
+                                        </span>
+                                    </label>
+                                </div>
+                            }
                             @if (_propError is not null)
                             {
                                 <div class="tk-field-error">@_propError</div>
@@ -397,6 +409,7 @@ else
     private string? _pDescription;
     private string? _pHelpText;
     private MenuNodeState _pState;
+    private bool _pIsProcessGroup;
     private string? _propError;
 
     // ---- Asignacion ----
@@ -551,6 +564,7 @@ else
         _pDescription = _selected.Description;
         _pHelpText = _selected.HelpText;
         _pState = _selected.State;
+        _pIsProcessGroup = _selected.IsProcessGroup;
     }
 
     private async Task SaveNodeAsync()
@@ -566,7 +580,8 @@ else
                 Route: _pRoute ?? "",
                 Description: _pDescription ?? "",
                 HelpText: _pHelpText ?? "",
-                State: _pState);
+                State: _pState,
+                IsProcessGroup: _pIsProcessGroup);
             var res = await MenuSvc.UpdateNodeAsync(_selected.Id, edit);
             if (!res.IsOk) { _propError = res.Error; return; }
             await ReloadTreeAsync();

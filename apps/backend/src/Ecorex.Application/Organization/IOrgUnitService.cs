@@ -36,4 +36,11 @@ public interface IOrgUnitService
     Task<IReadOnlyList<OrgUnitMemberDto>> ListMembersAsync(Guid unitId, CancellationToken cancellationToken = default);
     Task<OrgResult<OrgUnitMemberDto>> AddMemberAsync(Guid unitId, Guid tenantUserId, string? role = null, CancellationToken cancellationToken = default);
     Task<OrgResult<bool>> RemoveMemberAsync(Guid memberId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marca/desmarca a un miembro como jefe/responsable de su unidad (a lo sumo uno por unidad).
+    /// Al marcar, sincroniza <c>OrgUnit.ResponsibleTenantUserId</c> con el usuario del miembro; al
+    /// desmarcar, lo limpia si apuntaba a ese usuario. Operacion multi-tabla en una transaccion.
+    /// </summary>
+    Task<OrgResult<bool>> SetMemberResponsibleAsync(Guid memberId, bool isResponsible, CancellationToken cancellationToken = default);
 }

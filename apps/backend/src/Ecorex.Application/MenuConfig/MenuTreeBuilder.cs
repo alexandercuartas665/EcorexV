@@ -21,7 +21,8 @@ public static class MenuTreeBuilder
         string? Route,
         MenuNodeState State,
         bool IsVisible,
-        int SortOrder);
+        int SortOrder,
+        bool IsProcessGroup = false);
 
     /// <summary>
     /// Devuelve los nodos raiz (ParentId null) visibles con sus Children recursivos. Los nodos
@@ -64,6 +65,6 @@ public static class MenuTreeBuilder
 
         return new MenuNodeDto(
             node.Id, node.Kind, node.Name, node.IconKey, node.LegacyCode,
-            node.Route, node.State, node.SortOrder, children);
+            node.Route, node.State, node.SortOrder, node.IsProcessGroup, children);
     }
 }

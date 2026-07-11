@@ -41,4 +41,12 @@ public class MenuNode : TenantEntity
     public bool IsVisible { get; set; } = true;
 
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Marca este grupo (Section/Subgroup) como "despliega los procesos": en vez de items fijos,
+    /// se expandira dinamicamente con las actividades tipo proceso (categoria/subcategoria con flujo)
+    /// del catalogo de Conceptos. HOY solo persiste la marca (fundamento, PRE-5); el render dinamico
+    /// es la Ola 4 del Modulo de Tareas.
+    /// </summary>
+    public bool IsProcessGroup { get; set; }
 }

@@ -12,13 +12,13 @@ namespace Ecorex.Application.Tests;
 public class MenuPermissionFilterTests
 {
     private static MenuNodeDto Item(string name, string? route) =>
-        new(Guid.NewGuid(), MenuNodeKind.Item, name, null, null, route, MenuNodeState.Ready, 0, Array.Empty<MenuNodeDto>());
+        new(Guid.NewGuid(), MenuNodeKind.Item, name, null, null, route, MenuNodeState.Ready, 0, false, Array.Empty<MenuNodeDto>());
 
     private static MenuNodeDto Section(string name, string route, params MenuNodeDto[] children) =>
-        new(Guid.NewGuid(), MenuNodeKind.Section, name, null, null, route, MenuNodeState.Ready, 0, children);
+        new(Guid.NewGuid(), MenuNodeKind.Section, name, null, null, route, MenuNodeState.Ready, 0, false, children);
 
     private static MenuNodeDto Quick(string name, string route) =>
-        new(Guid.NewGuid(), MenuNodeKind.QuickLink, name, null, null, route, MenuNodeState.Ready, 0, Array.Empty<MenuNodeDto>());
+        new(Guid.NewGuid(), MenuNodeKind.QuickLink, name, null, null, route, MenuNodeState.Ready, 0, false, Array.Empty<MenuNodeDto>());
 
     private static EffectivePermissions RoleWith(params (string route, bool view)[] mods) =>
         EffectivePermissions.FromPermissions(
@@ -101,7 +101,7 @@ public class MenuPermissionFilterTests
     public void WithRole_FiltersNestedSubgroups()
     {
         var subgroup = new MenuNodeDto(
-            Guid.NewGuid(), MenuNodeKind.Subgroup, "Comercial", null, null, "sg", MenuNodeState.Ready, 0,
+            Guid.NewGuid(), MenuNodeKind.Subgroup, "Comercial", null, null, "sg", MenuNodeState.Ready, 0, false,
             new[] { Item("Visible", "vis"), Item("Oculto", "oc") });
         var roots = new[] { Section("Procesos", "proc", subgroup) };
         var perms = RoleWith(("vis", true), ("oc", false));

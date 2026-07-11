@@ -62,7 +62,7 @@ public sealed class MenuConfigService : IMenuConfigService
             .Where(n => n.MenuViewId == view.Id)
             .Select(n => new MenuTreeBuilder.FlatNode(
                 n.Id, n.ParentId, n.Kind, n.Name, n.IconKey, n.LegacyCode,
-                n.Route, n.State, n.IsVisible, n.SortOrder))
+                n.Route, n.State, n.IsVisible, n.SortOrder, n.IsProcessGroup))
             .ToListAsync(cancellationToken);
 
         var roots = MenuTreeBuilder.Build(flat);
@@ -177,7 +177,8 @@ public sealed class MenuConfigService : IMenuConfigService
             HelpText = n.HelpText,
             State = n.State,
             IsVisible = n.IsVisible,
-            SortOrder = n.SortOrder
+            SortOrder = n.SortOrder,
+            IsProcessGroup = n.IsProcessGroup
         }).ToList();
 
         var joinTx = _db.HasActiveTransaction;
@@ -334,7 +335,7 @@ public sealed class MenuConfigService : IMenuConfigService
                 .OrderBy(n => n.SortOrder).ThenBy(n => n.Name, StringComparer.Ordinal)
                 .Select(n => new MenuEditorNodeDto(
                     n.Id, n.ParentId, n.Kind, n.Name, n.IconKey, n.LegacyCode, n.Route,
-                    n.Description, n.HelpText, n.State, n.IsVisible, n.SortOrder, BuildLevel(n.Id)))
+                    n.Description, n.HelpText, n.State, n.IsVisible, n.SortOrder, n.IsProcessGroup, BuildLevel(n.Id)))
                 .ToList();
         }
 
@@ -435,6 +436,7 @@ public sealed class MenuConfigService : IMenuConfigService
         if (edit.Description is not null) { node.Description = string.IsNullOrWhiteSpace(edit.Description) ? null : edit.Description.Trim(); }
         if (edit.HelpText is not null) { node.HelpText = string.IsNullOrWhiteSpace(edit.HelpText) ? null : edit.HelpText.Trim(); }
         if (edit.State is MenuNodeState s) { node.State = s; }
+        if (edit.IsProcessGroup is bool ipg) { node.IsProcessGroup = ipg; }
 
         await _db.SaveChangesAsync(cancellationToken);
         return MenuConfigResult<MenuEditorNodeDto>.Ok(ToEditorDto(node));
@@ -649,7 +651,7 @@ public sealed class MenuConfigService : IMenuConfigService
                 .Select(n => new MenuExportNode(
                     n.Kind.ToString(), n.Name, n.IconKey, n.LegacyCode, n.Route,
                     n.Description, n.HelpText, n.State.ToString(), n.IsVisible, n.SortOrder,
-                    BuildLevel(n.Id)))
+                    BuildLevel(n.Id), n.IsProcessGroup))
                 .ToList();
         }
 
@@ -724,7 +726,8 @@ public sealed class MenuConfigService : IMenuConfigService
                     HelpText = n.HelpText,
                     State = state,
                     IsVisible = n.IsVisible,
-                    SortOrder = order++
+                    SortOrder = order++,
+                    IsProcessGroup = n.IsProcessGroup
                 };
                 newNodes.Add(node);
                 if (n.Children is { Count: > 0 })
@@ -762,7 +765,7 @@ public sealed class MenuConfigService : IMenuConfigService
 
     private static MenuEditorNodeDto ToEditorDto(MenuNode n) => new(
         n.Id, n.ParentId, n.Kind, n.Name, n.IconKey, n.LegacyCode, n.Route,
-        n.Description, n.HelpText, n.State, n.IsVisible, n.SortOrder,
+        n.Description, n.HelpText, n.State, n.IsVisible, n.SortOrder, n.IsProcessGroup,
         Array.Empty<MenuEditorNodeDto>());
 
     /// <summary>true si candidateId esta dentro del subarbol de ancestorId (para detectar ciclos).</summary>

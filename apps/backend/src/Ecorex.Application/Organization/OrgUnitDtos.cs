@@ -45,7 +45,8 @@ public sealed record OrgUnitMemberDto(
     Guid TenantUserId,
     string Email,
     string? DisplayName,
-    string? Role);
+    string? Role,
+    bool IsResponsible = false);
 
 /// <summary>Alta/edicion de una unidad del organigrama.</summary>
 public sealed record SaveOrgUnitRequest(

@@ -41,11 +41,9 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemDetailDto>.Invalid("No hay tenant activo.");
         }
+        // El titulo puede venir vacio si el concepto define TituloAuto (se resuelve mas abajo,
+        // cuando ya se cargo la subcategoria).
         var title = (request.Title ?? "").Trim();
-        if (title.Length == 0)
-        {
-            return TaskCoreResult<TaskItemDetailDto>.Invalid("El titulo es obligatorio.");
-        }
 
         // Clasificacion (D1): la tarea se clasifica por concepto (subcategoria) y/o por el
         // ActivityType legacy. Debe venir al menos uno.
@@ -71,8 +69,8 @@ public sealed class TaskItemService : ITaskItemService
             }
         }
 
-        // Concepto (subcategoria): valida y, mas abajo, deriva tablero/columna si el request no
-        // los fijo. Los flags/flujo del concepto los consumira la Ola 2.
+        // Concepto (subcategoria): valida; de el se derivan tablero/columna (Ola 1) y, mas abajo,
+        // el arranque de flujo + titulo/detalle automaticos + notificaciones (Ola 2).
         ActividadSubcategoria? subcategoria = null;
         if (request.SubcategoriaId is Guid subcategoriaId)
         {
@@ -87,6 +85,21 @@ public sealed class TaskItemService : ITaskItemService
                 return TaskCoreResult<TaskItemDetailDto>.Invalid("El concepto (subcategoria) esta archivado.");
             }
         }
+
+        // Ola 2 (RQ07): titulo y detalle automaticos del concepto cuando el alta no los trae.
+        // Soporta tokens basicos (@cliente). Los flags de inicio (IniciaModulo) habilitan esto.
+        if (title.Length == 0 && subcategoria?.TituloAuto is { Length: > 0 } tituloAuto)
+        {
+            title = RenderConceptTemplate(tituloAuto, request).Trim();
+        }
+        if (title.Length == 0)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("El titulo es obligatorio.");
+        }
+        var description = Normalize(request.Description)
+            ?? (subcategoria?.DetalleAuto is { Length: > 0 } detalleAuto
+                ? Normalize(RenderConceptTemplate(detalleAuto, request))
+                : null);
 
         if (request.EntidadId is Guid entidadId
             && !await _db.Entidades.AnyAsync(e => e.Id == entidadId, cancellationToken))
@@ -180,7 +193,7 @@ public sealed class TaskItemService : ITaskItemService
             TenantId = tenantId,
             Number = number,
             Title = title,
-            Description = Normalize(request.Description),
+            Description = description,
             ActivityTypeId = request.ActivityTypeId,
             SubcategoriaId = request.SubcategoriaId,
             EntidadId = request.EntidadId,
@@ -217,21 +230,41 @@ public sealed class TaskItemService : ITaskItemService
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // FASE 4 (ADR-0014): si el tipo de actividad legacy tiene flujo PUBLICADO, arrancar la
-        // instancia dentro de la MISMA transaccion (el motor detecta la transaccion abierta y se
-        // une; un fallo del flujo revierte tambien la tarea). El arranque desde el CONCEPTO
-        // (subcategoria.WorkflowDefinitionId) es la Ola 2.
-        if (activityType?.WorkflowDefinitionId is Guid workflowDefinitionId
+        // Ola 2 (RQ07): notificaciones del concepto. La ENTREGA (email/in-app con plantilla) es la
+        // Ola 7; por ahora se deja traza en el historial de la tarea con los destinatarios que la
+        // subcategoria tiene configurados, dentro de la misma transaccion.
+        if (subcategoria is not null)
+        {
+            var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
+                .Where(n => n.SubcategoriaId == subcategoria.Id)
+                .Join(_db.TenantUsers.AsNoTracking(), n => n.TenantUserId, u => u.Id, (n, u) => u.Email)
+                .OrderBy(e => e)
+                .ToListAsync(cancellationToken);
+            if (recipients.Count > 0)
+            {
+                _db.TaskItemActivities.Add(BuildActivity(tenantId, task.Id, actorUserId, actorName,
+                    TaskActivityType.Action,
+                    $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients)}"));
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        // FASE 4 / Ola 2 (ADR-0014): arranca el flujo PUBLICADO del CONCEPTO (preferente) o, si no,
+        // del ActivityType legacy, dentro de la MISMA transaccion (el motor detecta la transaccion
+        // abierta y se une; un fallo revierte tambien la tarea). El primer paso queda asignado por
+        // cargo y visible en /mis-pasos.
+        var workflowDefinitionId = subcategoria?.WorkflowDefinitionId ?? activityType?.WorkflowDefinitionId;
+        if (workflowDefinitionId is Guid wfDefId
             && await _db.WorkflowDefinitions.AnyAsync(
-                d => d.Id == workflowDefinitionId && d.IsPublished && !d.IsArchived, cancellationToken))
+                d => d.Id == wfDefId && d.IsPublished && !d.IsArchived, cancellationToken))
         {
             var started = await _workflowEngine.StartInstanceAsync(
-                workflowDefinitionId, task.Id, actorUserId, actorName, cancellationToken);
+                wfDefId, task.Id, actorUserId, actorName, cancellationToken);
             if (started.Status is not (WorkflowEngineStatus.Ok or WorkflowEngineStatus.StuckDetected))
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return TaskCoreResult<TaskItemDetailDto>.Invalid(
-                    $"No se pudo iniciar el flujo del tipo de actividad: {started.Error}");
+                    $"No se pudo iniciar el flujo del concepto/tipo de actividad: {started.Error}");
             }
         }
 
@@ -1021,4 +1054,15 @@ public sealed class TaskItemService : ITaskItemService
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// Renderiza una plantilla de concepto (TituloAuto/DetalleAuto, RQ07) con tokens basicos.
+    /// Hoy solo resuelve <c>@cliente</c> (por el solicitante del request); los tokens no resueltos
+    /// quedan literales. El set completo de tokens (fecha, entidad, etc.) llega con el modal (Ola 3).
+    /// </summary>
+    private static string RenderConceptTemplate(string template, CreateTaskItemRequest request)
+    {
+        var cliente = (request.RequesterName ?? "").Trim();
+        return template.Replace("@cliente", cliente, StringComparison.OrdinalIgnoreCase);
+    }
 }

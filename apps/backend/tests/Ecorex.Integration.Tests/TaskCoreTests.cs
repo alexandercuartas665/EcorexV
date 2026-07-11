@@ -287,6 +287,45 @@ public abstract class TaskCoreTestsBase
         Assert.Equal(TaskCoreStatus.Invalid, result.Status);
     }
 
+    [Fact]
+    public async Task CreateWithSubcategoria_RecordsNotificationTrace_ForConceptRecipients()
+    {
+        // Ola 2: al crear una tarea de un concepto con destinatarios configurados, queda traza en
+        // el historial (la entrega real -- email/in-app -- es la Ola 7).
+        var seed = await SeedTenantAsync("Nucleo Notificaciones");
+
+        Guid subcategoriaId;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var categoria = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-N", Nombre = "Operaciones" };
+            ctx.ActividadCategorias.Add(categoria);
+            var subcategoria = new ActividadSubcategoria
+            {
+                TenantId = seed.TenantId, CategoriaId = categoria.Id, Codigo = "CAT-N-1", Nombre = "Con notificacion"
+            };
+            ctx.ActividadSubcategorias.Add(subcategoria);
+            ctx.ActividadSubcategoriaNotificaciones.Add(new ActividadSubcategoriaNotificacion
+            {
+                TenantId = seed.TenantId, SubcategoriaId = subcategoria.Id, TenantUserId = seed.TenantUserId
+            });
+            await ctx.SaveChangesAsync();
+            subcategoriaId = subcategoria.Id;
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx2, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea con notificacion", ActivityTypeId: null, SubcategoriaId: subcategoriaId),
+            seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+
+        var activities = await ctx2.TaskItemActivities.AsNoTracking()
+            .Where(a => a.TaskItemId == created.Value!.Item.Id)
+            .Select(a => a.Text)
+            .ToListAsync();
+        Assert.Contains(activities, t => t.StartsWith("notifico a"));
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

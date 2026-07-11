@@ -136,6 +136,71 @@ public abstract class WorkflowEngineTestsBase
         Assert.All(history, s => Assert.False(s.IsCurrent));
     }
 
+    // ---- (2b) Ola 2: el alta CONSUME el concepto (flujo + titulo/detalle auto) ----
+
+    [Fact]
+    public async Task ConceptFlow_TaskFromSubcategoria_AutoStartsFlow_AppliesAutoTitleAndDetail()
+    {
+        // Ola 2: una actividad-proceso (subcategoria con WorkflowDefinitionId publicada) arranca su
+        // WorkflowInstance en la misma transaccion, aplica TituloAuto/DetalleAuto, y una subcategoria
+        // SIN flujo no crea instancia.
+        var seed = await SeedTenantAsync("Workflow Concepto");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+
+        var definition = (await engine.ImportBpmnAsync(new ImportBpmnRequest("CON-01", "Flujo del concepto", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(definition.Id)).IsOk);
+
+        var categoria = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-1", Nombre = "Comercial" };
+        ctx.ActividadCategorias.Add(categoria);
+        var proceso = new ActividadSubcategoria
+        {
+            TenantId = seed.TenantId,
+            CategoriaId = categoria.Id,
+            Codigo = "CAT-1-1",
+            Nombre = "Cotizacion",
+            WorkflowDefinitionId = definition.Id,
+            TituloAuto = "Cotizacion para @cliente",
+            DetalleAuto = "Detalle automatico del concepto"
+        };
+        var simple = new ActividadSubcategoria
+        {
+            TenantId = seed.TenantId,
+            CategoriaId = categoria.Id,
+            Codigo = "CAT-1-2",
+            Nombre = "Nota simple"
+        };
+        ctx.ActividadSubcategorias.AddRange(proceso, simple);
+        await ctx.SaveChangesAsync();
+
+        var service = BuildTaskService(ctx, seed, engine);
+
+        // (a) Actividad-proceso, sin titulo -> se usa TituloAuto con token @cliente; arranca el flujo.
+        var procResult = await service.CreateAsync(
+            new CreateTaskItemRequest("", ActivityTypeId: null, RequesterName: "ACME", SubcategoriaId: proceso.Id),
+            seed.PlatformUserId, "Tester");
+        Assert.True(procResult.IsOk, procResult.Error);
+        var procTaskId = procResult.Value!.Item.Id;
+        Assert.Equal("Cotizacion para ACME", procResult.Value.Item.Title);
+
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == procTaskId);
+        Assert.Equal(WorkflowInstanceStatus.Running, instance.Status);
+        var procTask = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == procTaskId);
+        Assert.Equal(instance.Id, procTask.WorkflowInstanceId);
+        Assert.Equal("Detalle automatico del concepto", procTask.Description);
+        // Primer paso pendiente (lo que se ve en /mis-pasos).
+        var step = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal(WorkflowStepStatus.Pending, step.Status);
+
+        // (b) Actividad simple (subcategoria sin flujo): no crea instancia.
+        var simpleResult = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea simple", ActivityTypeId: null, SubcategoriaId: simple.Id),
+            seed.PlatformUserId, "Tester");
+        Assert.True(simpleResult.IsOk, simpleResult.Error);
+        var simpleTask = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == simpleResult.Value!.Item.Id);
+        Assert.Null(simpleTask.WorkflowInstanceId);
+    }
+
     // ---- (3) Compuerta: Approved por una rama; Rejected reinicia via RestartNodeId ----
 
     [Fact]

@@ -3374,3 +3374,26 @@ hito muestra "1 act.".
 
 **Pendiente operativo**: desplegar `AddProjectMilestones` a prod (se suma a las acumuladas). Backlog:
 presupuesto/costos/DOFA del proyecto; timeline/calendario del proyecto; SqlServer DAL-dual.
+
+---
+
+## Sesion 2026-07-11 (cont.) - DESPLIEGUE A PRODUCCION (Actividades Olas 1-7 + Proyectos P1/P3)
+
+**Agentes**: Claude (Opus 4.8). **Accion**: despliegue a prod (`root@10.0.0.3`, `/opt/ecorex`,
+build-from-git de `fase-0/clon-backbone` @ `877baa4`).
+
+- **Backup previo**: `./backup.sh` -> `backups/ecorex-2026-07-11-1631.sql.gz`.
+- **Rebuild**: `docker compose -f docker-compose.from-git.yml -p ecorex-prod build --no-cache` (trae el
+  ultimo `fase-0/clon-backbone`) + `up -d`.
+- **Migraciones aplicadas al arranque** (prod estaba en `AddDataModelContainers`): `AddEntidadConfig`,
+  `AddEntidadKind`, `AddJefeMemberAndProcessGroupMenu`, `TaskItemConceptoBridge`, `AddNotifications`,
+  `AddProjectMilestones` (6). Verificado: tablas `notifications`, `project_milestones`, `entidades`
+  creadas; `__EFMigrationsHistory` al dia. App sana: HTTP 200 en `/login`, sin errores en log.
+
+**Con esto, Actividades (Olas 1-7) + Proyectos (P1 hitos + P3 enlace) quedan EN PRODUCCION.**
+
+**Pendientes tras el deploy (inventario en el vault doc 03):** (1) cablear la config de Conceptos en
+prod via el editor (flujo/form/tablero por subcategoria; el seed demo NO corre en prod); (2) vistas de
+menu de los demas usuarios reales (BITCODE); (3) DAL-dual SQL Server; (4) backlog endurecimiento (email+
+plantilla, badge en vivo por SignalR, policies de gobierno) y de Proyectos (presupuesto/costos/DOFA,
+timeline/calendario).

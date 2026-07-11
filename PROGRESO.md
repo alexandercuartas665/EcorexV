@@ -3344,3 +3344,33 @@ sin vista (falta un seed/reconcile de vista Completo IsDefault por tenant real).
 refresco en vivo del badge por SignalR, policies de gobierno (AdmUsuarios/RolesPermisos/ConfiguracionMenu
 a Owner/Admin) y Conceptos.Editar/Dependencias.Ver.
 **Pendiente operativo**: desplegar a prod la migracion `AddNotifications` (se suma a las 4 acumuladas).
+
+---
+
+## Sesion 2026-07-11 (cont.) - Proyectos P1 (hitos) + P3 (enlace actividad-hito)
+
+**Agentes**: Claude (Opus 4.8). Descubrimiento clave (auditoria): el modulo Proyectos YA estaba casi
+completo (entidad `Project` + `ProjectMember` ACL + `ProjectService` + UI lista/detalle con kanban +
+seed PRJ-001, todo en la migracion AddTaskCore). Solo faltaban los HITOS (P1) y su consumo (P3) -- por
+eso el usuario pidio "P1 y P3", no P2.
+
+**P1 (commit `1dd1b90`)**: entidad `ProjectMilestone` (tenant-scoped: ProjectId/Name/DueDate?/SortOrder/
+IsCompleted) + migracion `AddProjectMilestones` (PG local); `ProjectService` List/Add/Update/
+SetCompleted/RemoveMilestone (+ `ProjectMilestoneDto` con TaskCount; Remove bloquea si hay actividades
+enlazadas); panel "Hitos del proyecto" en `ProyectoDetalle` (agregar con fecha / completar / quitar /
+conteo por hito); seed idempotente de 2 hitos para PRJ-001 (verificado que corre en BD nueva).
+Presupuesto/costos/DOFA quedan en backlog.
+
+**P3 (commit `1dd1b90`)**: `TaskItem.MilestoneId` (FK nullable Restrict) + DTOs; `TaskItemService`
+valida hito<->proyecto y persiste; filtro por hito; summary con `MilestoneName`. El selector de Hito del
+wizard (antes placeholder) carga los hitos del proyecto elegido (`OnProjectChanged`) y pasa `MilestoneId`
+al crear. La actividad aparece en el tablero del proyecto (kanban por ProjectId, ya existente; SignalR
+vivo) y suma al conteo del hito.
+
+**Pruebas**: test integracion `CreateActivity_LinkedToProjectMilestone_IsPersisted_AndCrossProjectRejected`
+(verde, PG). Validado en Chrome (owner@sky-system.local): panel de hitos OK; el wizard carga los hitos al
+elegir PRJ-001; T00212 creada con PRJ-001 + "Kickoff y alcance" aparece en el tablero del proyecto y el
+hito muestra "1 act.".
+
+**Pendiente operativo**: desplegar `AddProjectMilestones` a prod (se suma a las acumuladas). Backlog:
+presupuesto/costos/DOFA del proyecto; timeline/calendario del proyecto; SqlServer DAL-dual.

@@ -326,6 +326,28 @@ public abstract class TaskCoreTestsBase
         Assert.Contains(activities, t => t.StartsWith("notifico a"));
     }
 
+    [Fact]
+    public async Task Assign_RecordsNotificationTrace_ForAssignee()
+    {
+        // Ola 7 (endurecimiento): al asignar una tarea queda traza de notificacion dirigida al
+        // encargado (la entrega real -- email/in-app con plantilla -- es backlog).
+        var seed = await SeedTenantAsync("Nucleo Notif Asignar");
+        var created = await CreateTaskAsync(seed, "Tarea para asignar");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var service = BuildService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+        var assigned = await service.AssignAsync(taskId, seed.TenantUserId, seed.PlatformUserId, "Tester");
+        Assert.True(assigned.IsOk, assigned.Error);
+
+        var activities = await ctx.TaskItemActivities.AsNoTracking()
+            .Where(a => a.TaskItemId == taskId)
+            .Select(a => a.Text)
+            .ToListAsync();
+        Assert.Contains(activities, t => t.StartsWith("notifico a") && t.Contains("le asignaron la tarea"));
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

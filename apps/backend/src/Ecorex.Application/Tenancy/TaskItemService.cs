@@ -407,6 +407,16 @@ public sealed class TaskItemService : ITaskItemService
         task.AssigneeTenantUserId = tenantUserId;
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, $"asigno la tarea a {assignee.Email}"));
+        // Ola 7 (endurecimiento): notificacion al asignar. Se deja traza dirigida al encargado
+        // (la entrega email/in-app con plantilla es backlog); si la tarea tiene concepto, tambien
+        // se notifica a los destinatarios configurados del concepto.
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+            TaskActivityType.Action, $"notifico a {assignee.Email}: le asignaron la tarea {task.Number}"));
+        if (task.SubcategoriaId is Guid subcategoriaId)
+        {
+            await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
+                excludeEmail: assignee.Email, cancellationToken: cancellationToken);
+        }
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
@@ -416,6 +426,28 @@ public sealed class TaskItemService : ITaskItemService
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
         return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+    }
+
+    /// <summary>
+    /// Ola 7: agrega la traza de notificacion a los destinatarios configurados en el concepto
+    /// (ActividadSubcategoriaNotificacion), opcionalmente excluyendo un correo (el encargado ya
+    /// tiene su propia traza). No guarda: el llamador hace SaveChanges dentro de su flujo.
+    /// </summary>
+    private async Task AddConceptNotificationAsync(Guid tenantId, Guid taskId, Guid subcategoriaId,
+        Guid actorUserId, string actorName, string? excludeEmail = null, CancellationToken cancellationToken = default)
+    {
+        var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
+            .Where(n => n.SubcategoriaId == subcategoriaId)
+            .Join(_db.TenantUsers.AsNoTracking(), n => n.TenantUserId, u => u.Id, (n, u) => u.Email)
+            .Where(e => excludeEmail == null || e != excludeEmail)
+            .OrderBy(e => e)
+            .ToListAsync(cancellationToken);
+        if (recipients.Count > 0)
+        {
+            _db.TaskItemActivities.Add(BuildActivity(tenantId, taskId, actorUserId, actorName,
+                TaskActivityType.Action,
+                $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients)}"));
+        }
     }
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)

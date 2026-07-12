@@ -3422,11 +3422,11 @@ y entrega REAL a los destinatarios del concepto (antes solo dejaba traza). Test 
 `Create_BornAssigned_NotifiesAndEmailsAssignee` (6/6 verde PG+SqlServer). Verificado en la app: T00214
 (post-fix) genera la notificacion al operator; T00213 (pre-fix) tenia 0.
 
-**Deploy a prod**: prod estaba en `877baa4` (07-11); este redeploy sube la cola acumulada y validada:
-wizard responsive movil (`e6636d8`), DAL-dual SqlServer catch-up (`2a228b1`), email al asignar (`9c86ec9`),
-menu fallback a la vista mas rica (`b5964b4`), editor de menu solo Owner/Admin (`fe2626e`), badge SignalR
-en vivo (`ce78c42`), Proyectos P2 presupuesto/DOFA/timeline (`8f978e8`, migracion `AddProjectBudgetAndDofa`)
-y este fix. Build-from-git de `fase-0/clon-backbone`, backup previo, migraciones al arranque.
+**Deploy a prod** (`root@10.0.0.3`, `/opt/ecorex`, build-from-git de `fase-0/clon-backbone` @ `948a31e`):
+el esquema de prod YA estaba en `AddProjectBudgetAndDofa` (deploy previo de la cola P2/endurecimiento),
+asi que este redeploy shippeo SOLO el codigo de este fix (capa de servicio, SIN migracion nueva). Backup
+previo (`backups/ecorex-2026-07-12-0841.sql.gz`), `build --no-cache` + `up -d`, arranque limpio
+("Now listening"/"Application started", sin errores), `/login` y `/` -> HTTP 200. Puerto host `5480`.
 
 **Pendiente**: refrescar en el vault (doc 03) el inventario; backlog post-v1 (form multimedia, vista
 cliente-final, satelites legacy) sigue diferido a la fase de formularios avanzada.

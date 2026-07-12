@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Domain.Rules;
@@ -26,19 +27,22 @@ public sealed class ActivityBoardService : IActivityBoardService
     private readonly ISequenceService _sequences;
     private readonly ITaskItemService _taskItems;
     private readonly IAuditWriter _audit;
+    private readonly INodeAssigneeResolver _nodeAssignees;
 
     public ActivityBoardService(
         IApplicationDbContext db,
         ITenantContext tenantContext,
         ISequenceService sequences,
         ITaskItemService taskItems,
-        IAuditWriter audit)
+        IAuditWriter audit,
+        INodeAssigneeResolver nodeAssignees)
     {
         _db = db;
         _tenantContext = tenantContext;
         _sequences = sequences;
         _taskItems = taskItems;
         _audit = audit;
+        _nodeAssignees = nodeAssignees;
     }
 
     // ---- Indice ----
@@ -356,13 +360,20 @@ public sealed class ActivityBoardService : IActivityBoardService
         }
 
         // Contadores por alcance (con los demas filtros aplicados, ignorando el alcance).
+        // ADR-0038: el alcance Mine incluye ademas las tareas con paso de flujo ruteado al usuario;
+        // el set se precomputa (la candidatura por cargo no es SQL) y se reusa en conteo y listado.
+        var routedTaskIds = filter.CurrentTenantUserId is Guid meRouted
+            ? await GetRoutedTaskIdsAsync(meRouted, cancellationToken)
+            : Array.Empty<Guid>();
+        var noRoute = Array.Empty<Guid>();
+
         var teamCount = await query.CountAsync(cancellationToken);
         var mineCount = filter.CurrentTenantUserId is Guid me
-            ? await ApplyScope(query, ActivityBoardScope.Mine, me).CountAsync(cancellationToken)
+            ? await ApplyScope(query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
             : 0;
-        var unassignedCount = await ApplyScope(query, ActivityBoardScope.Unassigned, null).CountAsync(cancellationToken);
+        var unassignedCount = await ApplyScope(query, ActivityBoardScope.Unassigned, null, noRoute).CountAsync(cancellationToken);
 
-        var tasks = await ApplyScope(query, filter.Scope, filter.CurrentTenantUserId)
+        var tasks = await ApplyScope(query, filter.Scope, filter.CurrentTenantUserId, routedTaskIds)
             .OrderBy(t => t.BoardSortOrder).ThenBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
         var taskIds = tasks.Select(t => t.Id).ToList();
@@ -691,20 +702,69 @@ public sealed class ActivityBoardService : IActivityBoardService
     // ---- Helpers ----
 
     /// <summary>
-    /// Alcances del prototipo, en SQL: Mine = encargado O asignado M:N el usuario actual;
-    /// Unassigned = sin encargado Y sin asignados; Team = todas.
+    /// Alcances del prototipo, en SQL: Mine = encargado O asignado M:N el usuario actual O tarea con
+    /// PASO ACTUAL del flujo ruteado a mi (ADR-0038: el tablero es la bandeja; `routedTaskIds` se
+    /// precomputa fuera del query porque la candidatura por cargo no es SQL puro); Unassigned = sin
+    /// encargado Y sin asignados; Team = todas.
     /// </summary>
-    private IQueryable<TaskItem> ApplyScope(IQueryable<TaskItem> query, ActivityBoardScope scope, Guid? currentTenantUserId)
+    private IQueryable<TaskItem> ApplyScope(IQueryable<TaskItem> query, ActivityBoardScope scope,
+        Guid? currentTenantUserId, IReadOnlyList<Guid> routedTaskIds)
         => scope switch
         {
             ActivityBoardScope.Mine when currentTenantUserId is Guid me
                 => query.Where(t => t.AssigneeTenantUserId == me
-                    || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == me)),
+                    || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == me)
+                    || routedTaskIds.Contains(t.Id)),
             ActivityBoardScope.Unassigned
                 => query.Where(t => t.AssigneeTenantUserId == null
                     && !_db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id)),
             _ => query
         };
+
+    /// <summary>
+    /// ADR-0038: task-ids cuyo PASO ACTUAL del flujo (current+Pending de una instancia Running ligada
+    /// a la tarea) esta ruteado al usuario: asignado directo, o (sin reclamar y nodo Task) el usuario
+    /// es candidato de la policy del nodo. La candidatura por cargo se resuelve en memoria via
+    /// INodeAssigneeResolver (traversal del organigrama, no SQL); se cachea por nodo.
+    /// </summary>
+    private async Task<IReadOnlyList<Guid>> GetRoutedTaskIdsAsync(Guid me, CancellationToken cancellationToken)
+    {
+        var rows = await (
+            from step in _db.WorkflowStepHistories.AsNoTracking()
+            where step.IsCurrent && step.Status == WorkflowStepStatus.Pending
+            join instance in _db.WorkflowInstances.AsNoTracking()
+                on step.InstanceId equals instance.Id
+            where instance.Status == WorkflowInstanceStatus.Running && instance.TaskItemId != null
+            join node in _db.WorkflowNodes.AsNoTracking()
+                on step.NodeId equals node.Id
+            select new
+            {
+                TaskItemId = instance.TaskItemId!.Value,
+                step.AssignedToTenantUserId,
+                NodeId = node.Id,
+                node.NodeType
+            }).ToListAsync(cancellationToken);
+
+        if (rows.Count == 0) { return []; }
+
+        var result = new HashSet<Guid>();
+        var candidateByNode = new Dictionary<Guid, bool>();
+        foreach (var r in rows)
+        {
+            if (r.AssignedToTenantUserId == me) { result.Add(r.TaskItemId); continue; }
+            if (r.AssignedToTenantUserId is null && r.NodeType == WorkflowNodeType.Task)
+            {
+                if (!candidateByNode.TryGetValue(r.NodeId, out var isCandidate))
+                {
+                    var candidates = await _nodeAssignees.ResolveCandidatesAsync(r.NodeId, cancellationToken);
+                    isCandidate = candidates.Contains(me);
+                    candidateByNode[r.NodeId] = isCandidate;
+                }
+                if (isCandidate) { result.Add(r.TaskItemId); }
+            }
+        }
+        return result.ToList();
+    }
 
     /// <summary>Carga TenantUser + DisplayName del PlatformUser para los avatares.</summary>
     private async Task<Dictionary<Guid, ActivityBoardMemberDto>> LoadMemberInfosAsync(

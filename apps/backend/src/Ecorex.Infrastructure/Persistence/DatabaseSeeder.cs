@@ -2570,8 +2570,8 @@ public sealed class DatabaseSeeder
 
         // ---- Seccion: Mis Procesos (slug misproc) ----
         var misproc = Add(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
-        // Bandeja operativa de flujos "mis pasos pendientes" (runtime, ola F2, ADR-0036).
-        Item(misproc.Id, "Mis pasos", "mis-pasos", "000637");
+        // ADR-0038: se retiro el item "Mis pasos" (000637). El runtime de flujos vive DENTRO de la
+        // tarea (seccion Flujo del detalle) y los pasos pendientes se descubren en el TABLERO.
         Item(misproc.Id, "Crear una actividad", "crear-actividad", "000038");
         Item(misproc.Id, "Proyectos", "proyectos", "000042");
         Item(misproc.Id, "Administrar actividades", "actividades", "000636");
@@ -2710,7 +2710,7 @@ public sealed class DatabaseSeeder
         AddS(MenuNodeKind.QuickLink, "Anuncios", null, "anuncios", iconKey: "megaphone");
 
         var sMisproc = AddS(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
-        AddS(MenuNodeKind.Item, "Mis pasos", sMisproc.Id, "mis-pasos", legacyCode: "000637");
+        // ADR-0038: item "Mis pasos" (000637) retirado; el runtime va en la tarea, descubrimiento en el tablero.
         AddS(MenuNodeKind.Item, "Crear una actividad", sMisproc.Id, "crear-actividad", legacyCode: "000038");
         AddS(MenuNodeKind.Item, "Administrar actividades", sMisproc.Id, "actividades", legacyCode: "000636");
         AddS(MenuNodeKind.Item, "Proyectos", sMisproc.Id, "proyectos", legacyCode: "000042");
@@ -2788,11 +2788,10 @@ public sealed class DatabaseSeeder
             tenantId, sectionSlug: "gen", route: "roles-permisos",
             name: "Roles y permisos", legacyCode: "000198", cancellationToken);
 
-        // Alta idempotente del item "Mis pasos" (bandeja operativa de flujos, ola F2, ADR-0036)
-        // en la seccion "Mis Procesos" (slug misproc) de cada vista ya sembrada que aun no lo tenga.
-        await EnsureMenuItemInSectionAsync(
-            tenantId, sectionSlug: "misproc", route: "mis-pasos",
-            name: "Mis pasos", legacyCode: "000637", cancellationToken);
+        // ADR-0038: RETIRO idempotente del item "Mis pasos" (000637) de los tenants ya sembrados.
+        // El runtime de flujos vive DENTRO de la tarea (seccion Flujo) y los pasos pendientes se
+        // descubren en el TABLERO ("mis pendientes"); no hay bandeja/pagina aparte.
+        await RemoveMenuItemByRouteAsync(tenantId, route: "mis-pasos", cancellationToken);
 
         // Alta idempotente del item "Contenedor de datos" (modelos dinamicos + importacion) en la
         // seccion "Sistema . General" (slug gen) de cada vista ya sembrada que aun no lo tenga.
@@ -2855,6 +2854,26 @@ public sealed class DatabaseSeeder
                 "Reconciliacion del menu para el tenant {Tenant}: item '{Name}' ({Route}) agregado a {Count} vista(s).",
                 tenantId, name, route, added);
         }
+    }
+
+    /// <summary>
+    /// Retiro idempotente de un item de menu por su ruta en TODAS las vistas del tenant (ADR-0038,
+    /// caso "Mis pasos"). Los MenuNode son configuracion regenerable, no un agregado de negocio: el
+    /// borrado es simetrico al alta de EnsureMenuItemInSectionAsync.
+    /// </summary>
+    private async Task RemoveMenuItemByRouteAsync(
+        Guid tenantId, string route, CancellationToken cancellationToken)
+    {
+        var stale = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.Route == route && n.Kind == MenuNodeKind.Item)
+            .ToListAsync(cancellationToken);
+        if (stale.Count == 0) { return; }
+
+        _db.MenuNodes.RemoveRange(stale);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Reconciliacion del menu para el tenant {Tenant}: item '{Route}' RETIRADO de {Count} vista(s) (ADR-0038).",
+            tenantId, route, stale.Count);
     }
 
     private async Task EnsureMenuDemoUserAsync(

@@ -3457,3 +3457,31 @@ docs 00/01/03 + backlog `Pendientes y deudas tecnicas.md`.
 **Pendiente de CODIGO (documentado, NO hecho en esta sesion)**: extender `ActivityBoardService.ApplyScope`
 (alcance "Mine" incluye tareas con paso actual ruteado al usuario por asignado/cargo) + retirar la
 pagina/ruta/menu 000637/policy `MisPasos.Ver`, conservando `IWorkflowInboxService`.
+
+---
+
+## Sesion 2026-07-12 (cont.) - IMPLEMENTACION ADR-0038: retiro de la bandeja "Mis pasos" + tablero como bandeja
+
+**Agentes**: Claude (Opus 4.8). **Accion**: ejecutar la ola de codigo de ADR-0038 (el usuario aprobo "si dale")
+y validar en Chrome que no queda nada de "Mis pasos".
+
+**R1 - Retiro de la bandeja**:
+- Borradas `MisPasos.razor` + `.css`. Quitada la policy `MisPasos.Ver` (`Program.cs`).
+- Quitadas las 3 siembras de menu del item "Mis pasos"/000637 (`DatabaseSeeder`: 2 vistas por defecto +
+  la reconciliacion). La reconciliacion idempotente de alta se cambio por `RemoveMenuItemByRouteAsync`,
+  que RETIRA el nodo de los tenants ya sembrados al arrancar (log: "item 'mis-pasos' RETIRADO de 2 vista(s)").
+- Borrado el E2E obsoleto `WorkflowInboxTests.cs` (navegaba a `/mis-pasos`). Se conserva
+  `IWorkflowInboxService` (lo consumen el detalle de la tarea y el filtro del tablero).
+
+**R2 - El tablero es la bandeja**: `ActivityBoardService.ApplyScope` (alcance Mine) ahora incluye ademas
+las tareas cuyo PASO ACTUAL del flujo (current+Pending, instancia Running) esta ruteado al usuario: asignado
+directo, o candidato por CARGO (via `INodeAssigneeResolver`, resuelto en memoria y cacheado por nodo, porque
+no es SQL puro). El set se precomputa (`GetRoutedTaskIdsAsync`) y se inyecta al query. Se inyecto
+`INodeAssigneeResolver` en el servicio.
+
+**Validacion (Chrome + BD + tests)**: menu SIN "Mis pasos" (BD: 0 nodos route=mis-pasos); `/mis-pasos` ya no
+renderiza (NotFound). En el tablero "Comercial - Requerimiento Infraestructura", operator@ ve **"Pendientes
+mios = 26"** = 5 por asignacion + 21 ruteadas por cargo (Requerimiento -> Asesor Comercial, sin reclamar),
+26 filas en Lista. Build de la solucion verde; `ActivityBoardTests` 12/12 (dual PG+SqlServer).
+
+**Nota**: no desplegado a prod en esta sesion (el seeder retirara el item 000637 en el proximo deploy).

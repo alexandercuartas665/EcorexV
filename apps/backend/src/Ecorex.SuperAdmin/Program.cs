@@ -65,9 +65,8 @@ builder.Services.AddAuthorizationBuilder()
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("proyectos", Ecorex.Application.Roles.PermissionAction.View)))
     .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id")
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("flujos", Ecorex.Application.Roles.PermissionAction.View)))
-    // Bandeja operativa de flujos "mis pasos" (runtime, ola F2, ADR-0036): es la bandeja del
-    // usuario, cualquier miembro del tenant la ve. Mismo requisito que TenantMember, nombre estable.
-    .AddPolicy("MisPasos.Ver", p => p.RequireClaim("tenant_id"))
+    // ADR-0038: la policy "MisPasos.Ver" y la pagina /mis-pasos fueron RETIRADAS. El runtime de
+    // flujos vive en el detalle de la tarea; los pasos pendientes se descubren en el tablero.
     // COMPUESTA (AND): disenar formularios exige ver Y editar el modulo formularios.
     .AddPolicy("Formularios.Disenar", p => p.RequireClaim("tenant_id")
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("formularios", Ecorex.Application.Roles.PermissionAction.View))

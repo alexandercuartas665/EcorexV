@@ -188,7 +188,7 @@ public abstract class WorkflowEngineTestsBase
         var procTask = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == procTaskId);
         Assert.Equal(instance.Id, procTask.WorkflowInstanceId);
         Assert.Equal("Detalle automatico del concepto", procTask.Description);
-        // Primer paso pendiente (lo que se ve en /mis-pasos).
+        // Primer paso pendiente (visible en el tablero "mis pendientes" + detalle de la tarea, ADR-0038).
         var step = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
         Assert.Equal(WorkflowStepStatus.Pending, step.Status);
 

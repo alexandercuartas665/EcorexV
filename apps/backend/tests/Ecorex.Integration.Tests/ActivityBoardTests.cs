@@ -348,7 +348,8 @@ public abstract class ActivityBoardTestsBase
 
     private static ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
-            BuildTaskService(ctx, tenantContext), new AuditWriter(ctx));
+            BuildTaskService(ctx, tenantContext), new AuditWriter(ctx),
+            new Ecorex.Application.Organization.NodeAssigneeResolver(ctx));
 
     /// <summary>Servicio de tareas con motor de flujos real y broadcaster no-op (sin SignalR).</summary>
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, ITenantContext tenantContext)

@@ -280,8 +280,8 @@ public sealed class TaskItemService : ITaskItemService
 
         // FASE 4 / Ola 2 (ADR-0014): arranca el flujo PUBLICADO del CONCEPTO (preferente) o, si no,
         // del ActivityType legacy, dentro de la MISMA transaccion (el motor detecta la transaccion
-        // abierta y se une; un fallo revierte tambien la tarea). El primer paso queda asignado por
-        // cargo y visible en /mis-pasos.
+        // abierta y se une; un fallo revierte tambien la tarea). El primer paso queda ruteado por
+        // cargo y visible en el TABLERO ("mis pendientes") + en el detalle de la tarea (ADR-0038).
         var workflowDefinitionId = subcategoria?.WorkflowDefinitionId ?? activityType?.WorkflowDefinitionId;
         if (workflowDefinitionId is Guid wfDefId
             && await _db.WorkflowDefinitions.AnyAsync(

@@ -14,6 +14,10 @@ public interface INotificationService
     /// <summary>Conteo de no leidas del usuario (para el badge de la campana).</summary>
     Task<int> UnreadCountForPlatformUserAsync(Guid platformUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>TenantUserId del usuario (por su PlatformUserId) en el tenant actual, o null. Lo usa la
+    /// campana para unirse a su grupo SignalR y recibir el refresco en vivo.</summary>
+    Task<Guid?> ResolveTenantUserIdAsync(Guid platformUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Ultimas notificaciones del usuario (mas recientes primero).</summary>
     Task<IReadOnlyList<NotificationDto>> ListForPlatformUserAsync(
         Guid platformUserId, int take = 30, CancellationToken cancellationToken = default);

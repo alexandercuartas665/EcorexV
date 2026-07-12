@@ -131,6 +131,8 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRChatBroadcaster>();
 // Nucleo de tareas en tiempo real (FASE 3): reemplaza el broadcaster no-op por el real.
 builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
+// #4b: badge de notificaciones en vivo.
+builder.Services.AddScoped<Ecorex.Application.Notifications.INotificationBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRNotificationBroadcaster>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).
@@ -409,6 +411,7 @@ app.MapRazorComponents<App>()
 
 app.MapHub<Ecorex.SuperAdmin.RealTime.ChatHub>("/hubs/chat");
 app.MapHub<Ecorex.SuperAdmin.RealTime.TaskHub>("/hubs/tasks");
+app.MapHub<Ecorex.SuperAdmin.RealTime.NotificationHub>("/hubs/notifications");
 
 app.MapPost("/auth/login", async (
     HttpContext http,

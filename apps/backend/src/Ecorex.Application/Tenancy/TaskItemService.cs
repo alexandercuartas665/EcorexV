@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Notifications;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -27,15 +28,17 @@ public sealed class TaskItemService : ITaskItemService
     private readonly ISequenceService _sequences;
     private readonly IWorkflowEngine _workflowEngine;
     private readonly IEmailSender _emailSender;
+    private readonly INotificationBroadcaster? _notificationBroadcaster;
 
     public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences,
-        IWorkflowEngine workflowEngine, IEmailSender emailSender)
+        IWorkflowEngine workflowEngine, IEmailSender emailSender, INotificationBroadcaster? notificationBroadcaster = null)
     {
         _db = db;
         _tenantContext = tenantContext;
         _sequences = sequences;
         _workflowEngine = workflowEngine;
         _emailSender = emailSender;
+        _notificationBroadcaster = notificationBroadcaster;
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -446,10 +449,10 @@ public sealed class TaskItemService : ITaskItemService
             title: $"Te asignaron la tarea {task.Number}",
             body: string.IsNullOrWhiteSpace(task.Title) ? $"Tarea {task.Number}" : task.Title!,
             actorName: actorName, relatedTaskItemId: task.Id));
-        IReadOnlyList<string> conceptEmails = Array.Empty<string>();
+        IReadOnlyList<(Guid Id, string Email)> conceptRecipients = Array.Empty<(Guid, string)>();
         if (task.SubcategoriaId is Guid subcategoriaId)
         {
-            conceptEmails = await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
+            conceptRecipients = await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
                 excludeEmail: assignee.Email, cancellationToken: cancellationToken);
         }
         try
@@ -469,12 +472,20 @@ public sealed class TaskItemService : ITaskItemService
             $"Te asignaron la tarea {task.Number}",
             $"Te asignaron la tarea <strong>{task.Number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.",
             cancellationToken);
-        foreach (var email in conceptEmails)
+        foreach (var (_, email) in conceptRecipients)
         {
             await SendNotificationEmailAsync(email,
                 $"Nueva actividad del proceso ({task.Number})",
                 $"Se registro la actividad <strong>{task.Number}</strong> de un proceso en el que estas configurado como destinatario.",
                 cancellationToken);
+        }
+
+        // #4b: refresco EN VIVO del badge de la campana (SignalR) para el encargado y los destinatarios
+        // del concepto. Best-effort: un fallo de difusion no afecta la asignacion ya persistida.
+        await BroadcastNotificationAsync(tenantUserId, cancellationToken);
+        foreach (var (id, _) in conceptRecipients)
+        {
+            await BroadcastNotificationAsync(id, cancellationToken);
         }
 
         return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
@@ -500,13 +511,27 @@ public sealed class TaskItemService : ITaskItemService
         }
     }
 
+    /// <summary>#4b: difunde por SignalR que un usuario recibio una notificacion (best-effort, no lanza).</summary>
+    private async Task BroadcastNotificationAsync(Guid recipientTenantUserId, CancellationToken cancellationToken)
+    {
+        if (_notificationBroadcaster is null) { return; }
+        try
+        {
+            await _notificationBroadcaster.NotificationAddedAsync(recipientTenantUserId, cancellationToken);
+        }
+        catch
+        {
+            // best-effort: si SignalR falla, la campana igual se actualiza al recargar/navegar.
+        }
+    }
+
     /// <summary>
     /// Ola 7: agrega la traza + notificacion in-app a los destinatarios configurados en el concepto
     /// (ActividadSubcategoriaNotificacion), opcionalmente excluyendo un correo (el encargado ya tiene
     /// su propia). No guarda: el llamador hace SaveChanges. Devuelve los correos de los destinatarios
     /// (para la entrega por email best-effort tras el commit, #4a).
     /// </summary>
-    private async Task<IReadOnlyList<string>> AddConceptNotificationAsync(Guid tenantId, Guid taskId, Guid subcategoriaId,
+    private async Task<IReadOnlyList<(Guid Id, string Email)>> AddConceptNotificationAsync(Guid tenantId, Guid taskId, Guid subcategoriaId,
         Guid actorUserId, string actorName, string? excludeEmail = null, CancellationToken cancellationToken = default)
     {
         var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
@@ -518,7 +543,7 @@ public sealed class TaskItemService : ITaskItemService
             .ToListAsync(cancellationToken);
         if (recipients.Count == 0)
         {
-            return Array.Empty<string>();
+            return Array.Empty<(Guid, string)>();
         }
         _db.TaskItemActivities.Add(BuildActivity(tenantId, taskId, actorUserId, actorName,
             TaskActivityType.Action,
@@ -531,7 +556,7 @@ public sealed class TaskItemService : ITaskItemService
                 body: "Se registro una actividad de un proceso en el que estas configurado como destinatario.",
                 actorName: actorName, relatedTaskItemId: taskId));
         }
-        return recipients.Select(r => r.Email).ToList();
+        return recipients.Select(r => (r.Id, r.Email)).ToList();
     }
 
     /// <summary>Construye una notificacion in-app (Ola 7) con TenantId explicito (no hay stamping automatico).</summary>

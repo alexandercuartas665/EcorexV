@@ -115,7 +115,7 @@ public sealed class NotificationService : INotificationService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<Guid?> ResolveTenantUserIdAsync(Guid platformUserId, CancellationToken cancellationToken)
+    public async Task<Guid?> ResolveTenantUserIdAsync(Guid platformUserId, CancellationToken cancellationToken = default)
     {
         // Tenant-scoped: dentro del tenant actual, el TenantUser cuyo PlatformUserId coincide.
         var id = await _db.TenantUsers.AsNoTracking()

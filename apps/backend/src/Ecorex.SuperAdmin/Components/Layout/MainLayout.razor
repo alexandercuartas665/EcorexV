@@ -3,6 +3,7 @@
 @inject NavigationManager Navigation
 @inject IServiceScopeFactory ScopeFactory
 @using Microsoft.Extensions.DependencyInjection
+@using Microsoft.AspNetCore.SignalR.Client
 
 <div class="ecorex-shell @(_isTenantWorkspace ? "ws-tenant" : "")">
     <!-- Toggle solo-CSS del menu (off-canvas en movil). Funciona en cualquier render mode. -->
@@ -190,6 +191,10 @@
     private string? _userName;
     private string _avatar = "U";
     private int _unread;   // notificaciones no leidas del usuario (badge de la campana)
+    // #4b: refresco en vivo del badge por SignalR.
+    private HubConnection? _notifHub;
+    private Guid _platformUserId;
+    private Guid? _tenantUserId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -217,12 +222,49 @@
                 // Ola 7: conteo de notificaciones no leidas para el badge de la campana.
                 if (Guid.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var platformUserId))
                 {
+                    _platformUserId = platformUserId;
                     var notifs = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Notifications.INotificationService>();
                     _unread = await notifs.UnreadCountForPlatformUserAsync(platformUserId);
+                    _tenantUserId = await notifs.ResolveTenantUserIdAsync(platformUserId);
                 }
             }
             catch { /* sin nombre/conteo: se muestra el generico */ }
+
+            // #4b: suscripcion en vivo del badge (fuera del scope aislado; el hub vive con el circuito).
+            await SetupNotificationHubAsync();
         }
+    }
+
+    /// <summary>#4b: conecta al hub de notificaciones y refresca el badge al recibir "NotificationAdded".</summary>
+    private async Task SetupNotificationHubAsync()
+    {
+        if (_tenantUserId is not Guid tenantUserId) { return; }
+        try
+        {
+            _notifHub = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/notifications"))
+                .WithAutomaticReconnect()
+                .Build();
+            _notifHub.On("NotificationAdded", async () => await InvokeAsync(RefreshUnreadAsync));
+            await _notifHub.StartAsync();
+            await _notifHub.SendAsync("JoinUser", tenantUserId.ToString());
+        }
+        catch
+        {
+            _notifHub = null; // sin tiempo real el badge se actualiza al navegar/recargar
+        }
+    }
+
+    private async Task RefreshUnreadAsync()
+    {
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var notifs = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Notifications.INotificationService>();
+            _unread = await notifs.UnreadCountForPlatformUserAsync(_platformUserId);
+            StateHasChanged();
+        }
+        catch { /* si falla el refresco, el badge queda en su valor anterior */ }
     }
 
     /// <summary>Etiqueta de la seccion actual para el breadcrumb (Equipos / tenant / seccion).</summary>
@@ -291,5 +333,9 @@
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
-    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        if (_notifHub is not null) { _ = _notifHub.DisposeAsync(); } // #4b: cierra el hub al destruir el layout
+    }
 }

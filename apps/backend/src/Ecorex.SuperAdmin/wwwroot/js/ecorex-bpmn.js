@@ -400,10 +400,80 @@ export function e2eSelectElement(containerId, idOrName) {
     return element.id;
 }
 
+// Resuelve un elemento por BpmnElementId o por nombre (helper compartido de los builders E2E).
+function e2eResolve(state, idOrName) {
+    const registry = state.modeler.get('elementRegistry');
+    let el = registry.get(idOrName);
+    if (!el) {
+        el = registry.filter(function (x) { return (x.businessObject || {}).name === idOrName; })[0];
+    }
+    return el || null;
+}
+
+// Crea un nodo (type: 'task'|'gateway'|'end') a la derecha de `prev`, lo conecta prev->nuevo por el
+// modeler real (elementFactory + modeling, igual que un dibujo del usuario) y le pone nombre. Devuelve
+// el id del nuevo nodo. Permite construir un flujo lineal + gateway nodo a nodo, de forma determinista.
+export function e2eAddAfter(containerId, prevIdOrName, type, name) {
+    const state = instances.get(containerId);
+    if (!state) { return null; }
+    const modeler = state.modeler;
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const canvas = modeler.get('canvas');
+    const root = canvas.getRootElement();
+    const bpmnType = type === 'gateway' ? 'bpmn:ExclusiveGateway'
+        : type === 'end' ? 'bpmn:EndEvent'
+            : 'bpmn:Task';
+    const prev = e2eResolve(state, prevIdOrName);
+    const baseX = prev ? prev.x + (prev.width || 100) + 90 : 320;
+    const baseY = prev ? prev.y + ((prev.height || 80) / 2) - 30 : 160;
+    const shape = elementFactory.createShape({ type: bpmnType });
+    const created = modeling.createShape(shape, { x: baseX, y: baseY }, root);
+    if (name) { modeling.updateProperties(created, { name: name }); }
+    if (prev) { modeling.connect(prev, created); }
+    return created.id;
+}
+
+// Conecta dos nodos existentes (para la 2a rama del gateway o un bucle de rechazo). Devuelve id de flujo.
+export function e2eConnect(containerId, srcIdOrName, tgtIdOrName) {
+    const state = instances.get(containerId);
+    if (!state) { return null; }
+    const src = e2eResolve(state, srcIdOrName), tgt = e2eResolve(state, tgtIdOrName);
+    if (!src || !tgt) { return null; }
+    const conn = state.modeler.get('modeling').connect(src, tgt);
+    return conn ? conn.id : null;
+}
+
+// Elimina un nodo o flujo por id/nombre (usa modeling.removeElements, igual que el context pad).
+export function e2eRemove(containerId, idOrName) {
+    const state = instances.get(containerId);
+    if (!state) { return false; }
+    const el = e2eResolve(state, idOrName);
+    if (!el) { return false; }
+    state.modeler.get('modeling').removeElements([el]);
+    return true;
+}
+
+// Lista nodos/flujos del diagrama (id, type, name) para verificar la construccion desde la prueba.
+export function e2eList(containerId) {
+    const state = instances.get(containerId);
+    if (!state) { return []; }
+    return state.modeler.get('elementRegistry').getAll()
+        .filter(function (el) {
+            return el.type && el.type.indexOf('bpmn:') === 0
+                && el.type !== 'bpmn:Process' && el.type !== 'bpmn:Collaboration';
+        })
+        .map(function (el) { return { id: el.id, type: el.type, name: (el.businessObject || {}).name || '' }; });
+}
+
 // Puente global SOLO para pruebas E2E (Playwright via page.evaluate no puede alcanzar el
 // modulo ES importado dentro del circuito Blazor). No lo usa la app en runtime normal.
 window.ecorexBpmnE2E = {
     addTaskAndConnect: function (containerId, name) { return e2eAddTaskAndConnect(containerId, name); },
+    addAfter: function (containerId, prev, type, name) { return e2eAddAfter(containerId, prev, type, name); },
+    connect: function (containerId, src, tgt) { return e2eConnect(containerId, src, tgt); },
+    remove: function (containerId, idOrName) { return e2eRemove(containerId, idOrName); },
+    list: function (containerId) { return e2eList(containerId); },
     count: function (containerId, type) { return e2eElementCount(containerId, type); },
     select: function (containerId, idOrName) { return e2eSelectElement(containerId, idOrName); },
     ready: function (containerId) { return instances.has(containerId); }

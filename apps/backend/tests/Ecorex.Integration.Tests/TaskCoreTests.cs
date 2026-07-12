@@ -434,6 +434,36 @@ public abstract class TaskCoreTestsBase
         Assert.Contains(sent, m => m.To == assigneeEmail && m.Subject.Contains("Te asignaron la tarea"));
     }
 
+    [Fact]
+    public async Task Create_BornAssigned_NotifiesAndEmailsAssignee()
+    {
+        // QA/fix: una tarea que NACE asignada (quick-create del tablero o wizard con encargado) debe
+        // notificar al encargado igual que un re-assign: notificacion in-app (TaskAssigned) + email.
+        // Antes del fix, CreateAsync solo fijaba el encargado sin entregar ninguna notificacion.
+        var seed = await SeedTenantAsync("Nucleo Crear Asignada");
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var email = new RecordingEmailSender();
+        var service = BuildService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId), email);
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Tarea nacida asignada", seed.ActivityTypeId,
+                AssigneeTenantUserId: seed.TenantUserId),
+            seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        var notif = Assert.Single(await ctx.Notifications.AsNoTracking()
+            .Where(n => n.RecipientTenantUserId == seed.TenantUserId).ToListAsync());
+        Assert.Equal(Ecorex.Domain.Enums.NotificationKind.TaskAssigned, notif.Kind);
+        Assert.False(notif.IsRead);
+        Assert.Equal(taskId, notif.RelatedTaskItemId);
+
+        var assigneeEmail = await ctx.TenantUsers.AsNoTracking()
+            .Where(u => u.Id == seed.TenantUserId).Select(u => u.Email).FirstAsync();
+        Assert.Contains(email.Sent.ToList(),
+            m => m.To == assigneeEmail && m.Subject.Contains("Te asignaron la tarea"));
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>

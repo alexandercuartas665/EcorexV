@@ -3397,3 +3397,36 @@ prod via el editor (flujo/form/tablero por subcategoria; el seed demo NO corre e
 menu de los demas usuarios reales (BITCODE); (3) DAL-dual SQL Server; (4) backlog endurecimiento (email+
 plantilla, badge en vivo por SignalR, policies de gobierno) y de Proyectos (presupuesto/costos/DOFA,
 timeline/calendario).
+
+---
+
+## Sesion 2026-07-12 - QA tipo usuario del tablero + fix "crear-asignada no notificaba" + deploy
+
+**Agentes**: Claude (Opus 4.8). **Accion**: inspeccion QA end-to-end del tablero de actividades (via MCP
+Chrome), bugfix hallado + desplegar a prod la cola acumulada.
+
+**QA del tablero** (tenant demo, `owner@sky-system.local`): se creo una tarea NORMAL sin proceso
+(Actividad = "Automatico") asignada a OTRO usuario (Operator SKY), y se recorrio todo el ciclo:
+- **Lista (tabla)**: fila con TAREA/ESTADO/ASIGNADO/PRIORIDAD/PROGRESO/FECHA -> OK.
+- **Tablero (tarjeta)**: tarjeta con titulo/avatar/barra -> OK.
+- **Mover entre columnas**: menu tarjeta -> "Mover a" -> *Por hacer -> En progreso*, reflejado en Lista -> OK.
+- **Comentarios**: anotacion agregada y visible en el feed -> OK.
+- **Subtareas (checklist, ADR-0020)**: 2 items, marcar uno -> progreso 1/2 -> OK.
+- **Gantt**: la tarea aparece con su progreso -> OK. Cada paso verificado ademas contra la BD.
+
+**Bug encontrado y corregido**: `TaskItemService.CreateAsync` fijaba el encargado pero NO entregaba
+notificacion (a diferencia de `AssignAsync`). Una tarea que NACE asignada (quick-create del tablero o
+wizard con encargado) dejaba al asignado SIN notificacion in-app, SIN email y SIN badge SignalR. Se
+replico la entrega de `AssignAsync`: notificacion `TaskAssigned` + traza + email best-effort + broadcast,
+y entrega REAL a los destinatarios del concepto (antes solo dejaba traza). Test dual nuevo
+`Create_BornAssigned_NotifiesAndEmailsAssignee` (6/6 verde PG+SqlServer). Verificado en la app: T00214
+(post-fix) genera la notificacion al operator; T00213 (pre-fix) tenia 0.
+
+**Deploy a prod**: prod estaba en `877baa4` (07-11); este redeploy sube la cola acumulada y validada:
+wizard responsive movil (`e6636d8`), DAL-dual SqlServer catch-up (`2a228b1`), email al asignar (`9c86ec9`),
+menu fallback a la vista mas rica (`b5964b4`), editor de menu solo Owner/Admin (`fe2626e`), badge SignalR
+en vivo (`ce78c42`), Proyectos P2 presupuesto/DOFA/timeline (`8f978e8`, migracion `AddProjectBudgetAndDofa`)
+y este fix. Build-from-git de `fase-0/clon-backbone`, backup previo, migraciones al arranque.
+
+**Pendiente**: refrescar en el vault (doc 03) el inventario; backlog post-v1 (form multimedia, vista
+cliente-final, satelites legacy) sigue diferido a la fase de formularios avanzada.

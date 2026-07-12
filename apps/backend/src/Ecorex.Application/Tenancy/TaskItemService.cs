@@ -129,10 +129,15 @@ public sealed class TaskItemService : ITaskItemService
                 return TaskCoreResult<TaskItemDetailDto>.Invalid("El hito no pertenece al proyecto indicado.");
             }
         }
-        if (request.AssigneeTenantUserId is Guid assigneeId
-            && !await _db.TenantUsers.AnyAsync(u => u.Id == assigneeId, cancellationToken))
+        TenantUser? assignee = null;
+        if (request.AssigneeTenantUserId is Guid assigneeId)
         {
-            return TaskCoreResult<TaskItemDetailDto>.Invalid("El asignado no pertenece al tenant.");
+            assignee = await _db.TenantUsers.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == assigneeId, cancellationToken);
+            if (assignee is null)
+            {
+                return TaskCoreResult<TaskItemDetailDto>.Invalid("El asignado no pertenece al tenant.");
+            }
         }
         var tagIds = (request.TagIds ?? Array.Empty<Guid>()).Distinct().ToList();
         if (tagIds.Count > 0)
@@ -249,23 +254,28 @@ public sealed class TaskItemService : ITaskItemService
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Ola 2 (RQ07): notificaciones del concepto. La ENTREGA (email/in-app con plantilla) es la
-        // Ola 7; por ahora se deja traza en el historial de la tarea con los destinatarios que la
-        // subcategoria tiene configurados, dentro de la misma transaccion.
+        // Entrega de notificaciones al CREAR (mismo criterio que AssignAsync, Ola 7): si la tarea NACE
+        // asignada se notifica al encargado (in-app + email + badge); y a los destinatarios que el
+        // concepto tenga configurados. Las filas in-app quedan dentro de la MISMA transaccion; el email
+        // y la difusion SignalR son best-effort tras el commit.
+        IReadOnlyList<(Guid Id, string Email)> conceptRecipients = Array.Empty<(Guid, string)>();
+        if (assignee is not null)
+        {
+            _db.TaskItemActivities.Add(BuildActivity(tenantId, task.Id, actorUserId, actorName,
+                TaskActivityType.Action, $"notifico a {assignee.Email}: le asignaron la tarea {number}"));
+            _db.Notifications.Add(BuildNotification(tenantId, assignee.Id, NotificationKind.TaskAssigned,
+                title: $"Te asignaron la tarea {number}",
+                body: string.IsNullOrWhiteSpace(title) ? $"Tarea {number}" : title,
+                actorName: actorName, relatedTaskItemId: task.Id));
+        }
         if (subcategoria is not null)
         {
-            var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
-                .Where(n => n.SubcategoriaId == subcategoria.Id)
-                .Join(_db.TenantUsers.AsNoTracking(), n => n.TenantUserId, u => u.Id, (n, u) => u.Email)
-                .OrderBy(e => e)
-                .ToListAsync(cancellationToken);
-            if (recipients.Count > 0)
-            {
-                _db.TaskItemActivities.Add(BuildActivity(tenantId, task.Id, actorUserId, actorName,
-                    TaskActivityType.Action,
-                    $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients)}"));
-                await _db.SaveChangesAsync(cancellationToken);
-            }
+            conceptRecipients = await AddConceptNotificationAsync(tenantId, task.Id, subcategoria.Id,
+                actorUserId, actorName, excludeEmail: assignee?.Email, cancellationToken: cancellationToken);
+        }
+        if (assignee is not null || conceptRecipients.Count > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
         }
 
         // FASE 4 / Ola 2 (ADR-0014): arranca el flujo PUBLICADO del CONCEPTO (preferente) o, si no,
@@ -288,6 +298,26 @@ public sealed class TaskItemService : ITaskItemService
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // Entrega best-effort FUERA de la transaccion (email + badge en vivo), igual que AssignAsync:
+        // un fallo de SMTP/SignalR no revierte la tarea ya creada (la notificacion in-app ya quedo).
+        if (assignee is not null)
+        {
+            var taskTitle = string.IsNullOrWhiteSpace(title) ? number : title;
+            await SendNotificationEmailAsync(assignee.Email,
+                $"Te asignaron la tarea {number}",
+                $"Te asignaron la tarea <strong>{number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.",
+                cancellationToken);
+            await BroadcastNotificationAsync(assignee.Id, cancellationToken);
+        }
+        foreach (var (recipientId, recipientEmail) in conceptRecipients)
+        {
+            await SendNotificationEmailAsync(recipientEmail,
+                $"Nueva actividad del proceso ({number})",
+                $"Se registro la actividad <strong>{number}</strong> de un proceso en el que estas configurado como destinatario.",
+                cancellationToken);
+            await BroadcastNotificationAsync(recipientId, cancellationToken);
+        }
 
         return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(task.Id, cancellationToken))!);
     }

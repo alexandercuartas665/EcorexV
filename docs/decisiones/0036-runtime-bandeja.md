@@ -1,6 +1,9 @@
 # ADR-0036: Runtime operativo de flujos - bandeja "mis pasos" y atender (ola F2)
 
-- Estado: aceptada
+- Estado: aceptada, PARCIALMENTE SUPERSEDIDA por ADR-0038 (2026-07-12). Se conserva el
+  motor y `IWorkflowInboxService` y la seccion "Flujo" del detalle de la tarea; se RETIRA
+  la pagina/ruta `/mis-pasos`, el item de menu 000637 y la policy `MisPasos.Ver`. El
+  descubrimiento de pasos pendientes pasa al TABLERO ("mis pendientes"), no a una bandeja.
 - Fecha: 2026-07-08
 - Relacionada con: ADR-0035 (asignacion por nodo, ola F1), ADR-0014 (workflow
   engine BPMN), ADR-0015 (formularios dinamicos + FormFlowLink), ADR-0022/0034

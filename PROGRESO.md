@@ -3430,3 +3430,30 @@ previo (`backups/ecorex-2026-07-12-0841.sql.gz`), `build --no-cache` + `up -d`, 
 
 **Pendiente**: refrescar en el vault (doc 03) el inventario; backlog post-v1 (form multimedia, vista
 cliente-final, satelites legacy) sigue diferido a la fase de formularios avanzada.
+
+---
+
+## Sesion 2026-07-12 (cont.) - QA de flujos end-to-end + DECISION: retirar la bandeja "Mis pasos" (ADR-0038)
+
+**Agentes**: Claude (Opus 4.8). **Accion**: QA por MCP Chrome de un proceso de compras completo +
+formalizacion de una decision de arquitectura (solo documentacion, sin codigo de retiro aun).
+
+**QA del runtime (contra BD local)**: se caligro por el editor bpmn-js (via puente E2E extendido) el flujo
+**"Proceso de Compras"** (Inicio -> Aprobacion jefe de compras -> compuerta Aprobada? -> Generar orden de
+compra -> Fin; rama Rechazada), se asignaron cargos por nodo (Aprobador, Asesor Comercial) en Dependencias,
+se publico y se ligo al concepto **"Solicitud de compra"** (categoria Compras). Se creo la actividad
+**T00215** y el flujo corrio de punta a punta **owner -> admin (Aprobador) -> operator (Asesor Comercial)**:
+routing por cargo OK, reclamar/atender/completar OK, compuerta auto-resuelta (ADR-0037), caso CERRADO sin
+estancarse (tarea Done / instancia Completed). Hallazgos: (a) el nodo "Decision" no ofrece Aprobar/Rechazar
+explicito (solo Completar + comentario; la compuerta resuelve sola); (b) el `approval_comment` no persistio;
+(c) el panel de atencion no permite adjuntar archivos (los adjuntos viven solo en el detalle, y son nombre+URL).
+
+**DECISION formalizada (ADR-0038)**: se **RETIRA la bandeja standalone "Mis pasos"** (`/mis-pasos`,
+`MisPasos.razor`, item de menu 000637, policy `MisPasos.Ver`). Los flujos se ejecutan **DENTRO de la tarea**
+(seccion "Flujo" de `TaskDetailModal`); el paso pendiente se **descubre en el TABLERO ("mis pendientes")**.
+ADR-0036 quedo anotada como parcialmente supersedida. Docs actualizados: **ADR-0038** (repo) + vault Capa 2
+docs 00/01/03 + backlog `Pendientes y deudas tecnicas.md`.
+
+**Pendiente de CODIGO (documentado, NO hecho en esta sesion)**: extender `ActivityBoardService.ApplyScope`
+(alcance "Mine" incluye tareas con paso actual ruteado al usuario por asignado/cargo) + retirar la
+pagina/ruta/menu 000637/policy `MisPasos.Ver`, conservando `IWorkflowInboxService`.

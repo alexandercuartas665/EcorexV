@@ -424,6 +424,15 @@ public sealed class DatabaseSeeder
             _db.ProjectMilestones.AddRange(
                 new ProjectMilestone { TenantId = tenant.Id, ProjectId = project.Id, Name = "Kickoff y alcance", DueDate = today.AddDays(7), SortOrder = 0 },
                 new ProjectMilestone { TenantId = tenant.Id, ProjectId = project.Id, Name = "Puesta en produccion", DueDate = today.AddDays(30), SortOrder = 1 });
+            // Proyectos P2: presupuesto/costos + DOFA demo.
+            _db.ProjectBudgetItems.AddRange(
+                new ProjectBudgetItem { TenantId = tenant.Id, ProjectId = project.Id, Name = "Licencias y software", Category = "Software", PlannedAmount = 5000, ActualAmount = 4800, SortOrder = 0 },
+                new ProjectBudgetItem { TenantId = tenant.Id, ProjectId = project.Id, Name = "Consultoria de implantacion", Category = "Servicios", PlannedAmount = 8000, ActualAmount = 9200, SortOrder = 1 });
+            _db.ProjectDofas.AddRange(
+                new ProjectDofa { TenantId = tenant.Id, ProjectId = project.Id, Quadrant = DofaQuadrant.Fortaleza, Text = "Equipo con experiencia en el dominio", SortOrder = 0 },
+                new ProjectDofa { TenantId = tenant.Id, ProjectId = project.Id, Quadrant = DofaQuadrant.Oportunidad, Text = "Demanda creciente del mercado", SortOrder = 0 },
+                new ProjectDofa { TenantId = tenant.Id, ProjectId = project.Id, Quadrant = DofaQuadrant.Debilidad, Text = "Dependencia de un proveedor clave", SortOrder = 0 },
+                new ProjectDofa { TenantId = tenant.Id, ProjectId = project.Id, Quadrant = DofaQuadrant.Amenaza, Text = "Cambios regulatorios", SortOrder = 0 });
             await _db.SaveChangesAsync(cancellationToken);
         }
 

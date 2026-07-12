@@ -101,6 +101,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<ProjectMilestone> ProjectMilestones => Set<ProjectMilestone>();
+    public DbSet<ProjectBudgetItem> ProjectBudgetItems => Set<ProjectBudgetItem>();
+    public DbSet<ProjectDofa> ProjectDofas => Set<ProjectDofa>();
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
     public DbSet<TaskItemTag> TaskItemTags => Set<TaskItemTag>();
     public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => Set<TaskItemTagAssignment>();
@@ -253,6 +255,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<BusinessUnitModalKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TaskActivityType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<NotificationKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DofaQuadrant>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -912,6 +915,27 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Description).HasColumnType(longTextColumnType);
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.ProjectId, x.SortOrder });
+        });
+
+        // Proyectos P2: presupuesto/costos (legacy PROYECTOS_PRESUPUESTO + PROYECTOS_COS). Una sola ruta
+        // de cascada (Project->BudgetItem), valida en ambos motores.
+        modelBuilder.Entity<ProjectBudgetItem>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Category).HasMaxLength(120);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.Property(x => x.PlannedAmount).HasColumnType(isNpgsql ? "numeric(18,2)" : "decimal(18,2)");
+            b.Property(x => x.ActualAmount).HasColumnType(isNpgsql ? "numeric(18,2)" : "decimal(18,2)");
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ProjectId, x.SortOrder });
+        });
+
+        // Proyectos P2: analisis DOFA/SWOT (legacy PROYECTOS_DOFA).
+        modelBuilder.Entity<ProjectDofa>(b =>
+        {
+            b.Property(x => x.Text).HasMaxLength(1000).IsRequired();
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ProjectId, x.Quadrant, x.SortOrder });
         });
 
         modelBuilder.Entity<TaskItem>(b =>

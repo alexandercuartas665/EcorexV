@@ -175,6 +175,100 @@ else
         }
     </div>
 
+    @* ===== Timeline de hitos (P2): reusa los hitos ordenados por fecha ===== *@
+    @if (_milestones.Count > 0)
+    {
+        <div class="card" style="padding:18px;margin-bottom:16px;">
+            <h2 style="font-size:15px;font-weight:700;margin:0 0 14px;">Linea de tiempo</h2>
+            <div style="display:flex;gap:0;overflow-x:auto;padding:4px 0 8px;">
+                @foreach (var m in _milestones.OrderBy(x => x.DueDate ?? DateOnly.MaxValue).ThenBy(x => x.SortOrder))
+                {
+                    <div style="flex:1 0 130px;min-width:130px;text-align:center;position:relative;padding:0 6px;">
+                        <div style="height:2px;background:var(--line);position:absolute;top:9px;left:0;right:0;"></div>
+                        <div style="width:14px;height:14px;border-radius:50%;margin:2px auto;position:relative;z-index:1;
+                                    background:@(m.IsCompleted ? "var(--brand, #6d3bff)" : "var(--surface)");border:2px solid var(--brand, #6d3bff);"></div>
+                        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-top:6px;">@m.Name</div>
+                        <div style="font-size:11px;color:var(--ink-3);">@(m.DueDate?.ToString("dd MMM yyyy") ?? "sin fecha")</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* ===== Presupuesto y costos (P2) ===== *@
+    <div class="card" style="padding:18px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <h2 style="font-size:15px;font-weight:700;margin:0;flex:1;">Presupuesto y costos</h2>
+            <span class="wlbl">Presupuestado @BudgetTotalPlanned.ToString("N0") &middot; Real @BudgetTotalActual.ToString("N0")</span>
+        </div>
+        @if (_budget.Count > 0)
+        {
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="text-align:left;color:var(--ink-3);border-bottom:1px solid var(--line);">
+                            <th style="padding:6px 8px;">Rubro</th><th style="padding:6px 8px;">Categoria</th>
+                            <th style="padding:6px 8px;text-align:right;">Presupuestado</th><th style="padding:6px 8px;text-align:right;">Real</th>
+                            <th style="padding:6px 8px;text-align:right;">Diferencia</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var b in _budget)
+                        {
+                            <tr style="border-bottom:1px solid var(--line);">
+                                <td style="padding:6px 8px;">@b.Name</td>
+                                <td style="padding:6px 8px;color:var(--ink-2);">@(b.Category ?? "-")</td>
+                                <td style="padding:6px 8px;text-align:right;">@b.PlannedAmount.ToString("N0")</td>
+                                <td style="padding:6px 8px;text-align:right;">@b.ActualAmount.ToString("N0")</td>
+                                <td style="padding:6px 8px;text-align:right;color:@((b.ActualAmount - b.PlannedAmount) > 0 ? "var(--danger)" : "var(--ink-2)");">@((b.ActualAmount - b.PlannedAmount).ToString("N0"))</td>
+                                <td style="padding:6px 8px;text-align:right;"><button class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveBudgetAsync(b.Id))" disabled="@_busy">Quitar</button></td>
+                            </tr>
+                        }
+                        <tr style="font-weight:700;">
+                            <td style="padding:6px 8px;" colspan="2">Total</td>
+                            <td style="padding:6px 8px;text-align:right;">@BudgetTotalPlanned.ToString("N0")</td>
+                            <td style="padding:6px 8px;text-align:right;">@BudgetTotalActual.ToString("N0")</td>
+                            <td style="padding:6px 8px;text-align:right;">@((BudgetTotalActual - BudgetTotalPlanned).ToString("N0"))</td><td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        }
+        else { <p class="page-sub" style="margin:0 0 12px;">Aun no hay rubros. Agrega el primero abajo.</p> }
+        <div class="tk-member-add" style="flex-wrap:wrap;">
+            <input class="form-control form-control-sm" style="flex:2;min-width:160px;" placeholder="Rubro" @bind="_newBudgetName" />
+            <input class="form-control form-control-sm" style="flex:1;min-width:110px;" placeholder="Categoria" @bind="_newBudgetCategory" />
+            <input class="form-control form-control-sm" style="max-width:130px;" type="number" placeholder="Presupuestado" @bind="_newBudgetPlanned" />
+            <input class="form-control form-control-sm" style="max-width:110px;" type="number" placeholder="Real" @bind="_newBudgetActual" />
+            <button class="btn btn-sm btn-primary" @onclick="AddBudgetAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newBudgetName))">Agregar</button>
+        </div>
+        @if (_budgetError is not null) { <div class="tk-field-error">@_budgetError</div> }
+    </div>
+
+    @* ===== Analisis DOFA (P2) ===== *@
+    <div class="card" style="padding:18px;margin-bottom:16px;">
+        <h2 style="font-size:15px;font-weight:700;margin:0 0 12px;">Analisis DOFA</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            @foreach (var q in new[] { DofaQuadrant.Fortaleza, DofaQuadrant.Oportunidad, DofaQuadrant.Debilidad, DofaQuadrant.Amenaza })
+            {
+                <div style="border:1px solid var(--line);border-radius:12px;padding:12px;">
+                    <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:@DofaColor(q);">@DofaLabel(q)</div>
+                    @foreach (var d in _dofa.Where(x => x.Quadrant == q))
+                    {
+                        <div class="tk-member-row" style="gap:8px;padding:5px 0;">
+                            <span style="flex:1;font-size:13px;">@d.Text</span>
+                            <button class="btn btn-sm btn-link p-0 text-danger" @onclick="@(() => RemoveDofaAsync(d.Id))" disabled="@_busy">&times;</button>
+                        </div>
+                    }
+                    <div style="display:flex;gap:6px;margin-top:6px;">
+                        <input class="form-control form-control-sm" placeholder="Agregar..." value="@_dofaInputs[q]" @onchange="@(e => _dofaInputs[q] = e.Value?.ToString() ?? "")" @onkeydown="@(e => OnDofaKey(e, q))" />
+                    </div>
+                </div>
+            }
+        </div>
+        @if (_dofaError is not null) { <div class="tk-field-error">@_dofaError</div> }
+    </div>
+
     @* ===== Kanban del proyecto (componente reutilizado con filtro fijo) ===== *@
     <TaskKanban @ref="_kanban" ProjectId="@ProjectId" />
 }
@@ -201,6 +295,36 @@ else
     private DateOnly? _newMilestoneDue;
     private string? _milestoneError;
 
+    // Proyectos P2: presupuesto/costos
+    private List<ProjectBudgetItemDto> _budget = new();
+    private string _newBudgetName = "";
+    private string? _newBudgetCategory;
+    private decimal _newBudgetPlanned;
+    private decimal _newBudgetActual;
+    private string? _budgetError;
+    private decimal BudgetTotalPlanned => _budget.Sum(b => b.PlannedAmount);
+    private decimal BudgetTotalActual => _budget.Sum(b => b.ActualAmount);
+
+    // Proyectos P2: DOFA
+    private List<ProjectDofaDto> _dofa = new();
+    private readonly Dictionary<DofaQuadrant, string> _dofaInputs = new()
+    {
+        [DofaQuadrant.Fortaleza] = "", [DofaQuadrant.Oportunidad] = "",
+        [DofaQuadrant.Debilidad] = "", [DofaQuadrant.Amenaza] = ""
+    };
+    private string? _dofaError;
+
+    private static string DofaLabel(DofaQuadrant q) => q switch
+    {
+        DofaQuadrant.Fortaleza => "Fortalezas", DofaQuadrant.Oportunidad => "Oportunidades",
+        DofaQuadrant.Debilidad => "Debilidades", _ => "Amenazas"
+    };
+    private static string DofaColor(DofaQuadrant q) => q switch
+    {
+        DofaQuadrant.Fortaleza => "var(--t-green, #14a078)", DofaQuadrant.Oportunidad => "var(--t-blue, #3b82f6)",
+        DofaQuadrant.Debilidad => "var(--t-amber, #f59e0b)", _ => "var(--danger, #e11d48)"
+    };
+
     protected override async Task OnInitializedAsync()
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
@@ -213,6 +337,55 @@ else
         _project = await ProjectsSvc.GetAsync(ProjectId);
         _members = _project is null ? new List<ProjectMemberDto>() : (await ProjectsSvc.ListMembersAsync(ProjectId)).ToList();
         _milestones = _project is null ? new List<ProjectMilestoneDto>() : (await ProjectsSvc.ListMilestonesAsync(ProjectId)).ToList();
+        _budget = _project is null ? new List<ProjectBudgetItemDto>() : (await ProjectsSvc.ListBudgetItemsAsync(ProjectId)).ToList();
+        _dofa = _project is null ? new List<ProjectDofaDto>() : (await ProjectsSvc.ListDofaAsync(ProjectId)).ToList();
+    }
+
+    // ---- P2: presupuesto ----
+    private async Task AddBudgetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newBudgetName)) { return; }
+        _busy = true; _budgetError = null;
+        try
+        {
+            var r = await ProjectsSvc.AddBudgetItemAsync(ProjectId,
+                new CreateBudgetItemRequest(_newBudgetName.Trim(), _newBudgetPlanned, _newBudgetActual, _newBudgetCategory));
+            if (!r.IsOk) { _budgetError = r.Error; return; }
+            _newBudgetName = ""; _newBudgetCategory = null; _newBudgetPlanned = 0; _newBudgetActual = 0;
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveBudgetAsync(Guid itemId)
+    {
+        _busy = true; _budgetError = null;
+        try { var r = await ProjectsSvc.RemoveBudgetItemAsync(itemId); if (!r.IsOk) { _budgetError = r.Error; } await LoadAsync(); }
+        finally { _busy = false; }
+    }
+
+    // ---- P2: DOFA ----
+    private async Task OnDofaKey(KeyboardEventArgs e, DofaQuadrant q)
+    {
+        if (e.Key != "Enter") { return; }
+        var text = (_dofaInputs[q] ?? "").Trim();
+        if (text.Length == 0) { return; }
+        _busy = true; _dofaError = null;
+        try
+        {
+            var r = await ProjectsSvc.AddDofaAsync(ProjectId, new CreateDofaRequest(q, text));
+            if (!r.IsOk) { _dofaError = r.Error; return; }
+            _dofaInputs[q] = "";
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveDofaAsync(Guid dofaId)
+    {
+        _busy = true; _dofaError = null;
+        try { var r = await ProjectsSvc.RemoveDofaAsync(dofaId); if (!r.IsOk) { _dofaError = r.Error; } await LoadAsync(); }
+        finally { _busy = false; }
     }
 
     private async Task AddMilestoneAsync()

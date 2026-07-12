@@ -366,6 +366,119 @@ public sealed class ProjectService : IProjectService
     private static ProjectMilestoneDto ToMilestoneDto(ProjectMilestone m, int taskCount) => new(
         m.Id, m.ProjectId, m.Name, m.Description, m.DueDate, m.SortOrder, m.IsCompleted, taskCount);
 
+    // ---- Proyectos P2: presupuesto/costos ----
+
+    public async Task<IReadOnlyList<ProjectBudgetItemDto>> ListBudgetItemsAsync(Guid projectId, CancellationToken cancellationToken = default)
+        => await _db.ProjectBudgetItems.AsNoTracking()
+            .Where(x => x.ProjectId == projectId)
+            .OrderBy(x => x.SortOrder).ThenBy(x => x.Name)
+            .Select(x => new ProjectBudgetItemDto(x.Id, x.ProjectId, x.Name, x.Category, x.PlannedAmount, x.ActualAmount, x.Notes, x.SortOrder))
+            .ToListAsync(cancellationToken);
+
+    public async Task<TaskCoreResult<ProjectBudgetItemDto>> AddBudgetItemAsync(Guid projectId, CreateBudgetItemRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return TaskCoreResult<ProjectBudgetItemDto>.Invalid("No hay tenant activo.");
+        }
+        var name = (request.Name ?? "").Trim();
+        if (name.Length == 0)
+        {
+            return TaskCoreResult<ProjectBudgetItemDto>.Invalid("El nombre del rubro es obligatorio.");
+        }
+        if (!await _db.Projects.AnyAsync(p => p.Id == projectId, cancellationToken))
+        {
+            return TaskCoreResult<ProjectBudgetItemDto>.NotFound("Proyecto no encontrado.");
+        }
+        var nextOrder = (await _db.ProjectBudgetItems.Where(x => x.ProjectId == projectId)
+            .Select(x => (int?)x.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+        var item = new ProjectBudgetItem
+        {
+            TenantId = tenantId, ProjectId = projectId, Name = name,
+            Category = Normalize(request.Category), Notes = Normalize(request.Notes),
+            PlannedAmount = request.PlannedAmount, ActualAmount = request.ActualAmount, SortOrder = nextOrder
+        };
+        _db.ProjectBudgetItems.Add(item);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<ProjectBudgetItemDto>.Ok(ToBudgetDto(item));
+    }
+
+    public async Task<TaskCoreResult<ProjectBudgetItemDto>> UpdateBudgetItemAsync(Guid itemId, UpdateBudgetItemRequest request, CancellationToken cancellationToken = default)
+    {
+        var item = await _db.ProjectBudgetItems.FirstOrDefaultAsync(x => x.Id == itemId, cancellationToken);
+        if (item is null) { return TaskCoreResult<ProjectBudgetItemDto>.NotFound("Rubro no encontrado."); }
+        var name = (request.Name ?? item.Name).Trim();
+        if (name.Length == 0) { return TaskCoreResult<ProjectBudgetItemDto>.Invalid("El nombre del rubro es obligatorio."); }
+        item.Name = name;
+        item.Category = Normalize(request.Category);
+        item.Notes = Normalize(request.Notes);
+        item.PlannedAmount = request.PlannedAmount;
+        item.ActualAmount = request.ActualAmount;
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<ProjectBudgetItemDto>.Ok(ToBudgetDto(item));
+    }
+
+    public async Task<TaskCoreResult<bool>> RemoveBudgetItemAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        var item = await _db.ProjectBudgetItems.FirstOrDefaultAsync(x => x.Id == itemId, cancellationToken);
+        if (item is null) { return TaskCoreResult<bool>.NotFound("Rubro no encontrado."); }
+        _db.ProjectBudgetItems.Remove(item);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    private static ProjectBudgetItemDto ToBudgetDto(ProjectBudgetItem x) => new(
+        x.Id, x.ProjectId, x.Name, x.Category, x.PlannedAmount, x.ActualAmount, x.Notes, x.SortOrder);
+
+    // ---- Proyectos P2: analisis DOFA/SWOT ----
+
+    public async Task<IReadOnlyList<ProjectDofaDto>> ListDofaAsync(Guid projectId, CancellationToken cancellationToken = default)
+        => await _db.ProjectDofas.AsNoTracking()
+            .Where(x => x.ProjectId == projectId)
+            .OrderBy(x => x.Quadrant).ThenBy(x => x.SortOrder)
+            .Select(x => new ProjectDofaDto(x.Id, x.ProjectId, x.Quadrant, x.Text, x.SortOrder))
+            .ToListAsync(cancellationToken);
+
+    public async Task<TaskCoreResult<ProjectDofaDto>> AddDofaAsync(Guid projectId, CreateDofaRequest request, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return TaskCoreResult<ProjectDofaDto>.Invalid("No hay tenant activo.");
+        }
+        var text = (request.Text ?? "").Trim();
+        if (text.Length == 0) { return TaskCoreResult<ProjectDofaDto>.Invalid("El texto es obligatorio."); }
+        if (!await _db.Projects.AnyAsync(p => p.Id == projectId, cancellationToken))
+        {
+            return TaskCoreResult<ProjectDofaDto>.NotFound("Proyecto no encontrado.");
+        }
+        var nextOrder = (await _db.ProjectDofas.Where(x => x.ProjectId == projectId && x.Quadrant == request.Quadrant)
+            .Select(x => (int?)x.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+        var entry = new ProjectDofa { TenantId = tenantId, ProjectId = projectId, Quadrant = request.Quadrant, Text = text, SortOrder = nextOrder };
+        _db.ProjectDofas.Add(entry);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<ProjectDofaDto>.Ok(new ProjectDofaDto(entry.Id, entry.ProjectId, entry.Quadrant, entry.Text, entry.SortOrder));
+    }
+
+    public async Task<TaskCoreResult<ProjectDofaDto>> UpdateDofaAsync(Guid dofaId, UpdateDofaRequest request, CancellationToken cancellationToken = default)
+    {
+        var entry = await _db.ProjectDofas.FirstOrDefaultAsync(x => x.Id == dofaId, cancellationToken);
+        if (entry is null) { return TaskCoreResult<ProjectDofaDto>.NotFound("Entrada DOFA no encontrada."); }
+        var text = (request.Text ?? entry.Text).Trim();
+        if (text.Length == 0) { return TaskCoreResult<ProjectDofaDto>.Invalid("El texto es obligatorio."); }
+        entry.Text = text;
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<ProjectDofaDto>.Ok(new ProjectDofaDto(entry.Id, entry.ProjectId, entry.Quadrant, entry.Text, entry.SortOrder));
+    }
+
+    public async Task<TaskCoreResult<bool>> RemoveDofaAsync(Guid dofaId, CancellationToken cancellationToken = default)
+    {
+        var entry = await _db.ProjectDofas.FirstOrDefaultAsync(x => x.Id == dofaId, cancellationToken);
+        if (entry is null) { return TaskCoreResult<bool>.NotFound("Entrada DOFA no encontrada."); }
+        _db.ProjectDofas.Remove(entry);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
     private static ProjectDto ToDto(Project p, int taskCount, int memberCount) => new(
         p.Id, p.Code, p.Name, p.Description, p.Status, p.StartDate, p.EndDate,
         p.OwnerTenantUserId, p.IsArchived, p.Version, taskCount, memberCount);

@@ -96,6 +96,8 @@ public class TenantUserServiceTests
         public DbSet<Project> Projects => throw new NotSupportedException();
         public DbSet<ProjectMember> ProjectMembers => throw new NotSupportedException();
         public DbSet<ProjectMilestone> ProjectMilestones => throw new NotSupportedException();
+        public DbSet<ProjectBudgetItem> ProjectBudgetItems => throw new NotSupportedException();
+        public DbSet<ProjectDofa> ProjectDofas => throw new NotSupportedException();
         public DbSet<TaskItem> TaskItems => throw new NotSupportedException();
         public DbSet<TaskItemTag> TaskItemTags => throw new NotSupportedException();
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();

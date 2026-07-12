@@ -53,6 +53,8 @@ public interface IApplicationDbContext
     DbSet<Project> Projects { get; }
     DbSet<ProjectMember> ProjectMembers { get; }
     DbSet<ProjectMilestone> ProjectMilestones { get; }
+    DbSet<ProjectBudgetItem> ProjectBudgetItems { get; }
+    DbSet<ProjectDofa> ProjectDofas { get; }
     DbSet<TaskItem> TaskItems { get; }
     DbSet<TaskItemTag> TaskItemTags { get; }
     DbSet<TaskItemTagAssignment> TaskItemTagAssignments { get; }

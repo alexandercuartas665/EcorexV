@@ -30,4 +30,16 @@ public interface IProjectService
     Task<TaskCoreResult<ProjectMilestoneDto>> SetMilestoneCompletedAsync(Guid milestoneId, bool completed, CancellationToken cancellationToken = default);
     /// <summary>Borra un hito. Falla (Invalid) si tiene actividades enlazadas (desenlazar primero).</summary>
     Task<TaskCoreResult<bool>> RemoveMilestoneAsync(Guid milestoneId, CancellationToken cancellationToken = default);
+
+    // ---- Proyectos P2: presupuesto/costos ----
+    Task<IReadOnlyList<ProjectBudgetItemDto>> ListBudgetItemsAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<ProjectBudgetItemDto>> AddBudgetItemAsync(Guid projectId, CreateBudgetItemRequest request, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<ProjectBudgetItemDto>> UpdateBudgetItemAsync(Guid itemId, UpdateBudgetItemRequest request, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<bool>> RemoveBudgetItemAsync(Guid itemId, CancellationToken cancellationToken = default);
+
+    // ---- Proyectos P2: analisis DOFA/SWOT ----
+    Task<IReadOnlyList<ProjectDofaDto>> ListDofaAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<ProjectDofaDto>> AddDofaAsync(Guid projectId, CreateDofaRequest request, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<ProjectDofaDto>> UpdateDofaAsync(Guid dofaId, UpdateDofaRequest request, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<bool>> RemoveDofaAsync(Guid dofaId, CancellationToken cancellationToken = default);
 }

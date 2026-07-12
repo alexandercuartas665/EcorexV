@@ -1,4 +1,5 @@
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Calc
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
@@ -231,6 +232,8 @@ else
                 // Lookup (ola F1): resuelve las etiquetas de los ids ya guardados para mostrar
                 // el nombre en vez del Guid (dentro del ambient de la carga).
                 await ResolveLookupDisplaysAsync();
+                // Calculo (ola F2): valor inicial de los campos calculados.
+                RecomputeCalculatedFields();
             }
         }
         finally
@@ -450,6 +453,12 @@ else
     private RenderFragment RenderInput(FormQuestionDto q) => __builder =>
     {
         var value = _values.GetValueOrDefault(q.FieldCode);
+        // Campo calculado (ola F2, doc 01 D5): solo lectura, valor recomputado por el evaluador.
+        if (!string.IsNullOrWhiteSpace(q.CalcExpression))
+        {
+            <input class="form-control dfr-calc" value="@value" tabindex="-1" readonly disabled />
+            return;
+        }
         // Origen de datos / lookup (ola F1, doc 01 D4): si el campo tiene una fuente de datos,
         // se pinta el control de autocompletar/lista/buscador en vez del control base.
         if (q.SourceKind != FormSourceKind.Options)
@@ -721,6 +730,7 @@ else
             var targetQ = _definition!.Questions.FirstOrDefault(x => x.FieldCode == target);
             if (targetQ is not null) { ValidateField(targetQ); }
         }
+        RecomputeCalculatedFields();
         _dirty = true;
     }
 
@@ -869,8 +879,24 @@ else
     {
         _values[q.FieldCode] = value;
         _dirty = true;
+        RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);
+    }
+
+    /// <summary>
+    /// Recalcula en cliente todos los campos con CalcExpression (ola F2, doc 01 D5) con el MISMO
+    /// evaluador tipado del servidor. Se invoca ante cualquier cambio de valor; el servidor
+    /// revalida al guardar (fuente de verdad, el cliente no es confiable para montos).
+    /// </summary>
+    private void RecomputeCalculatedFields()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => !string.IsNullOrWhiteSpace(x.CalcExpression)))
+        {
+            var result = FormExpressionEvaluator.Evaluate(q.CalcExpression, _values);
+            _values[q.FieldCode] = result?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>
@@ -930,6 +956,7 @@ else
             ? null
             : System.Text.Json.JsonSerializer.Serialize(selected);
         _dirty = true;
+        RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);
     }

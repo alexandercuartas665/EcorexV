@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F2 (parcial) - Campo calculado
+
+- **Agentes**: Claude (worktree `funny-bell-3f8562`). Mismo protocolo de esquema que F1 (ver doc 03 s.D / doc 04 del vault).
+- **Hecho (F2, primer incremento: campos calculados escalares)**:
+  - DOMINIO: `FormQuestion` += `CalcExpression (string?)`, `Aggregate (FormAggregate)`; enum `FormAggregate`
+    (None|Sum|Count|Avg|Min|Max) registrado en `ConfigureConventions`.
+  - MIGRACION DUAL `AddFormCalcFields` (PG `20260712202108` + SQL Server), aditiva. Aplicada en local
+    `ecorex_forms`; **PENDIENTE en prod** (la aplica la sesion principal, registro en doc 04).
+  - EVALUADOR: `FormExpressionEvaluator` (Application/Forms/Calc) - sandbox TIPADO con allow-list:
+    aritmetica + parentesis + menos unario + refs `{codigo}`; sin codigo arbitrario ni reflexion
+    (evita el RCE del legacy). Campo vacio = 0; expresion invalida = null. 16 unit tests verdes.
+  - RENDERER: campo calculado = solo lectura, recomputado en cliente ante cualquier cambio
+    (`RecomputeCalculatedFields`) con el MISMO evaluador; incluido en carga, SetValue, ToggleMulti y
+    autollenado de lookup (encadena F1->F2).
+  - SERVIDOR: `FormResponseService.SaveAsync` recomputa los calc en servidor y DESCARTA el valor del
+    cliente (no confiable para montos; fuente de verdad = servidor).
+  - DESIGNER: input "Formula (campo calculado)" en el tab Datos.
+- **Verificado (navegador, `ecorex_forms`)**: campo Subtotal = `{cantidad} * {precio_item}` -> Cantidad=3,
+  Precio=540000 -> Subtotal=1620000 en vivo, solo lectura. Solution build verde; 351/351 tests Application.
+- **Siguiente (resto de F2)**: totales de columna en GridDetail (`Aggregate` -> fila de totales) + columna
+  calculada por fila + roll-up al encabezado (doc 01 D5, doc 02 s4). Luego F3 (transaccionalidad).
+- **Decisiones**: formulas modestas (aritmetica), "sin artilleria pesada" (doc 03 B). Evaluador compartido
+  cliente/servidor. Valor del cliente para calc se ignora en el guardado.
+
 ## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F1 - Lookups / autollenado
 
 - **Agentes**: Claude (worktree `funny-bell-3f8562`, rama `claude/briefing-worktree-formularios-f50017`).

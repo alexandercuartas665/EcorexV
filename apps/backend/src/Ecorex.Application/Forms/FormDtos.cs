@@ -35,7 +35,9 @@ public sealed record FormQuestionDto(
     // Origen de datos / lookup (ola F1, doc 01 D4).
     FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
     string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
-    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete);
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
+    // Calculo / agregacion (ola F2, doc 01 D5).
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -69,7 +71,9 @@ public sealed record SaveFormQuestionRequest(
     // Origen de datos / lookup (ola F1, doc 01 D4).
     FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
     string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
-    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete);
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
+    // Calculo / agregacion (ola F2, doc 01 D5).
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

@@ -110,6 +110,18 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Calculo en SERVIDOR (ola F2, doc 01 D5): recomputa los campos con CalcExpression con el
+        // MISMO evaluador tipado del cliente. El cliente NO es fuente de verdad para montos: su
+        // valor se descarta y se persiste el del servidor.
+        var calcValues = document.ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+        foreach (var question in questions.Where(q => !string.IsNullOrWhiteSpace(q.CalcExpression)))
+        {
+            var computed = Calc.FormExpressionEvaluator.Evaluate(question.CalcExpression, calcValues)
+                ?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            document[question.FieldCode] = new FormFieldValue(computed, question.ControlType.ToString());
+            calcValues[question.FieldCode] = computed;
+        }
+
         if (submit)
         {
             // VALIDACION SERVIDOR completa por tipo, con errores por fieldCode.

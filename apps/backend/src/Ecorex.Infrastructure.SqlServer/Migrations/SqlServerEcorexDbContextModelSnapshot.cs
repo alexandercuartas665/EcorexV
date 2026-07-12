@@ -2990,9 +2990,22 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("Aggregate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("aggregate");
+
                     b.Property<string>("AutofillMapJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("autofill_map_json");
+
+                    b.Property<string>("CalcExpression")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("calc_expression");
 
                     b.Property<string>("Caption")
                         .HasMaxLength(300)

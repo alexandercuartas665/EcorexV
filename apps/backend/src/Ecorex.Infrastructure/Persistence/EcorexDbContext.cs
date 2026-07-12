@@ -275,6 +275,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         // Origen de datos / lookup (ola F1): enums persistidos como string para DAL dual.
         configurationBuilder.Properties<FormSourceKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormFieldPresentation>().HaveConversion<string>().HaveMaxLength(40);
+        // Calculo / agregacion (ola F2).
+        configurationBuilder.Properties<FormAggregate>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1213,6 +1215,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.FilterJson).HasColumnType(jsonColumnType);
             b.Property(x => x.AutofillMapJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Presentation).HasDefaultValue(FormFieldPresentation.Autocomplete);
+            // Calculo / agregacion (ola F2). Aditivas: CalcExpression nullable, Aggregate con default.
+            b.Property(x => x.CalcExpression).HasMaxLength(1000);
+            b.Property(x => x.Aggregate).HasDefaultValue(FormAggregate.None);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

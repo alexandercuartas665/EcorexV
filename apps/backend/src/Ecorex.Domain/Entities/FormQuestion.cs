@@ -107,4 +107,19 @@ public class FormQuestion : TenantEntity
 
     /// <summary>Como se ofrece el catalogo al llenar: autocompletar (default), lista o buscador modal.</summary>
     public FormFieldPresentation Presentation { get; set; } = FormFieldPresentation.Autocomplete;
+
+    // ---- Calculo y agregacion (Formularios avanzados, ola F2; doc 01 seccion D5) ----
+
+    /// <summary>
+    /// Expresion de campo calculado sobre otros campos (aritmetica/condicional), ej.
+    /// "{cantidad} * {precio} * (1 - {descuento})". Evaluada en un sandbox tipado (allow-list,
+    /// sin codigo arbitrario); en el render el campo es de solo lectura. Null = campo normal.
+    /// </summary>
+    public string? CalcExpression { get; set; }
+
+    /// <summary>
+    /// Agregado de la columna cuando la pregunta es una columna de un GridDetail (doc 01 D5):
+    /// pinta la fila de totales y alimenta el roll-up al encabezado. None = sin total.
+    /// </summary>
+    public FormAggregate Aggregate { get; set; } = FormAggregate.None;
 }

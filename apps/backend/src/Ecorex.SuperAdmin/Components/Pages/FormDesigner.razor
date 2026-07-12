@@ -760,7 +760,7 @@ else
         q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
-        q.AutofillMapJson, q.Presentation);
+        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -1424,6 +1424,12 @@ else
             </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))
+            <div class="fb-field">
+                <label>Formula (campo calculado)</label>
+                <input class="fb-input" value="@node.Q!.CalcExpression" placeholder="{cantidad} * {precio}"
+                       @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { CalcExpression = e.Value?.ToString() }))" />
+                <div class="fb-hint">Usa @("{codigo}") para referenciar otros campos. Solo lectura al llenar.</div>
+            </div>
             @RenderOrigenDatos(node.Q!)
         }
     };

@@ -619,7 +619,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson,
             q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
             q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
-            q.AutofillMapJson, q.Presentation);
+            q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -668,6 +668,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             question.FilterJson = Normalize(request.FilterJson);
             question.AutofillMapJson = Normalize(request.AutofillMapJson);
         }
+        // Calculo / agregacion (ola F2, doc 01 D5).
+        question.CalcExpression = Normalize(request.CalcExpression);
+        question.Aggregate = request.Aggregate;
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

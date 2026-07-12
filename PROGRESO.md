@@ -5,6 +5,47 @@
 
 ---
 
+## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F1 - Lookups / autollenado
+
+- **Agentes**: Claude (worktree `funny-bell-3f8562`, rama `claude/briefing-worktree-formularios-f50017`).
+- **Contexto de trabajo (acordado con el usuario)**: se trabaja SOLO en formularios avanzados, en un
+  worktree aparte, en paralelo con la sesion principal. El agente CODEA todo (incluida la migracion),
+  la aplica en una BD LOCAL de trabajo (`ecorex_forms`, copia de dev) y deja el registro de cada cambio
+  de esquema en el vault (doc 04) para que la sesion principal lo replique en PROD cuando pueda. La
+  remota NO se toca desde aqui. Protocolo: vault doc 03 seccion D; registro de tablas: vault doc 04.
+- **Hecho (F1 completa, spec vault Capa 4, doc 01 D4 + doc 02 s2)**:
+  - DOMINIO: `FormQuestion` += 7 columnas (`SourceKind/SourceRef/DisplayField/ValueField/FilterJson/
+    AutofillMapJson/Presentation`); enums nuevos `FormSourceKind` (Options|DataContainer|Tercero|Item)
+    y `FormFieldPresentation` (Autocomplete|Dropdown|Modal), registrados en `ConfigureConventions`.
+  - MIGRACION DUAL: `AddFormLookupFields` en PG (`Ecorex.Infrastructure`) y SQL Server
+    (`Ecorex.Infrastructure.SqlServer`); ADITIVA (bajo riesgo). Validada en Postgres local efimero.
+    **Reporte de campos entregado (doc 04). Estado: aplicada en local, PENDIENTE en prod (la aplica la
+    sesion principal).**
+  - SERVICIO: `IFormLookupService` + `IFormLookupSource` con 3 adaptadores (`TerceroLookupSource`,
+    `ItemLookupSource`, `DataContainerLookupSource`) en `Application/Forms/Lookups`. Server-side,
+    paginado, parametrizado; tenant por el filtro global; interfaz extensible (sumar fuente = registrar
+    otro adaptador). `ResolveAsync` revalida el id elegido (existe + del tenant). Reusa
+    `TerceroFieldService`/`ItemFieldService` (fichas dinamicas) y `IDataContainerService`.
+  - UI: `DynamicFormRenderer` -> control lookup (autocompletar/lista/buscador); al elegir guarda el id y
+    COPIA los campos de `AutofillMapJson` a los destinos; boton "Crear" deep-link al modulo si falta el
+    dato. `FormDesigner` (tab Datos) -> bloque "Origen de datos" (Origen/Fuente/Presentacion/Mostrar/
+    Filtro/mapa de autollenado), con metadata de campos (estandar + fichas) cargada por el servicio.
+  - DTOs (`SaveFormQuestionRequest`/`FormQuestionDto`) y mapeo en `FormDefinitionService` extendidos;
+    `ToRequest` del designer arrastra los campos de lookup (no se pierden al hacer patch).
+- **Verificado (navegador, BD local `ecorex_forms`)**: campo Cliente (Directorio, Autocompletar) ->
+  escribir "a" trae 5 terceros reales -> elegir "ANDINA S.A.S" autollena NIT=901.111.222 y Ciudad=Bogota.
+  Designer muestra todo el bloque configurable (incluye fichas dinamicas del tenant). `dotnet build`
+  solution verde; unit del dispatcher `FormLookupServiceTests` 4/4.
+- **Siguiente**: (1) la sesion principal aplica `AddFormLookupFields` a prod (doc 04); (2) test de
+  aislamiento cross-tenant del lookup en `Integration.Tests` (Testcontainers, dual) + round-trip
+  guardar/leer; (3) probar en navegador los adaptadores Item y DataContainer; (4) revalidacion de
+  servidor del id lookup en `FormResponseService.SaveAsync` (hoy la garantia es el filtro global +
+  `ResolveAsync`). Luego OLA F2 (calculo/formulas).
+- **Bloqueos**: el navegador integrado hace timeout en screenshots y su snapshot va con retraso con
+  Blazor Server; se verifico manejando el DOM vivo con javascript_tool (los clicks/handlers SI corren).
+- **Decisiones**: valor guardado = id de la entidad/fila; autollenado por COPIA (snapshot), no
+  referencia (decision del usuario). `ValueField` fijo a "id" al elegir una fuente de datos.
+
 ## 2026-07-08 - Sesion: Editor bpmn-js (iconos) + deploy a prod + dev conectado a la BD de prod
 
 **Agentes**: sesion principal + agente de fix de gateways (ADR-0037, ver entrada siguiente).

@@ -2990,6 +2990,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("AutofillMapJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("autofill_map_json");
+
                     b.Property<string>("Caption")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)")
@@ -3022,11 +3026,20 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("DisplayField")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("display_field");
+
                     b.Property<string>("FieldCode")
                         .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)")
                         .HasColumnName("field_code");
+
+                    b.Property<string>("FilterJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("filter_json");
 
                     b.Property<string>("GridCol")
                         .IsRequired()
@@ -3067,6 +3080,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("placeholder_text");
 
+                    b.Property<string>("Presentation")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Autocomplete")
+                        .HasColumnName("presentation");
+
                     b.Property<bool>("Required")
                         .HasColumnType("bit")
                         .HasColumnName("required");
@@ -3074,6 +3095,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Options")
+                        .HasColumnName("source_kind");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("source_ref");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -3090,6 +3124,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("ValidationJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("validation_json");
+
+                    b.Property<string>("ValueField")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("value_field");
 
                     b.Property<int>("Width")
                         .ValueGeneratedOnAdd()

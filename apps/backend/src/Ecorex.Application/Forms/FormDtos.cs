@@ -31,7 +31,11 @@ public sealed record FormQuestionDto(
     string? HelpText, FormControlType ControlType, string? OptionsJson, bool Required,
     int SortOrder, string GridCol, string? Numeral, string? ValidationJson,
     int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
-    bool IsLocked = false, bool IsHidden = false);
+    bool IsLocked = false, bool IsHidden = false,
+    // Origen de datos / lookup (ola F1, doc 01 D4).
+    FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
+    string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -61,7 +65,11 @@ public sealed record SaveFormQuestionRequest(
     bool Required = false, string GridCol = "col-12", string? Numeral = null,
     string? ValidationJson = null,
     int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
-    bool IsLocked = false, bool IsHidden = false);
+    bool IsLocked = false, bool IsHidden = false,
+    // Origen de datos / lookup (ola F1, doc 01 D4).
+    FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
+    string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

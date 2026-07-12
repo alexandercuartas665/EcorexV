@@ -450,3 +450,25 @@
 }
 .fd-token-state.ok { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); }
 .fd-token-state.off { color: var(--t-slate, #64748B); background: var(--t-slate-bg, #EEF1F5); }
+
+/* ---- Origen de datos / lookup (ola F1) ---- */
+.fb-origen {
+    margin-top: 14px; padding-top: 14px;
+    border-top: 1px dashed var(--line-2, rgba(20,20,25,.12));
+}
+.fb-autofill { display: flex; flex-direction: column; gap: 8px; }
+.fb-autofill-row { display: flex; align-items: center; gap: 6px; }
+.fb-autofill-row .fb-select { flex: 1 1 0; min-width: 0; }
+.fb-autofill-arrow { flex: 0 0 auto; color: var(--ink-3, #A2A2AC); font-size: 13px; }
+.fb-autofill-x {
+    flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 8px;
+    background: var(--surface-3, #F2F2F3); color: var(--ink-3, #A2A2AC);
+    font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.fb-autofill-x:hover { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
+.fb-autofill-add {
+    align-self: flex-start; font-size: 12px; font-weight: 600; padding: 7px 11px;
+    border-radius: 9px; border: 1.5px dashed var(--line-2, rgba(20,20,25,.12));
+    background: none; color: var(--ink-3, #A2A2AC); cursor: pointer; font: inherit;
+}
+.fb-autofill-add:hover { color: var(--brand, #1B1B1E); border-color: var(--brand, #1B1B1E); }

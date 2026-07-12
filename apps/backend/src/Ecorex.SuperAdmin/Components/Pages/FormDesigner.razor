@@ -4,12 +4,14 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
+@inject IFormLookupService LookupSvc
 @inject NavigationManager Nav
 
 @* ============================================================
@@ -755,7 +757,10 @@ else
     private SaveFormQuestionRequest ToRequest(FormQuestionDto q) => new(
         q.ContainerId, q.FieldCode, q.Label, q.ControlType, q.Caption, q.HelpText,
         q.OptionsJson, q.Required, q.GridCol, q.Numeral, q.ValidationJson,
-        q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
+        q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
+        // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
+        q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
+        q.AutofillMapJson, q.Presentation);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -1419,8 +1424,218 @@ else
             </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))
+            @RenderOrigenDatos(node.Q!)
         }
     };
+
+    // ---- Origen de datos / lookup (ola F1, doc 01 D4 + doc 02 seccion 2) ----
+
+    private RenderFragment RenderOrigenDatos(FormQuestionDto q) => __builder =>
+    {
+        <div class="fb-origen">
+            <div class="fb-field">
+                <label>Origen de datos</label>
+                <select class="fb-select" value="@q.SourceKind"
+                        @onchange="@(e => ChangeSourceKindAsync(q, e.Value?.ToString()))">
+                    <option value="@nameof(FormSourceKind.Options)">Opciones fijas</option>
+                    <option value="@nameof(FormSourceKind.DataContainer)">Contenedor de datos</option>
+                    <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
+                    <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
+                </select>
+            </div>
+            @if (q.SourceKind != FormSourceKind.Options)
+            {
+                _ = EnsureLookupMetaAsync(q);
+                var fields = LookupFieldsFor(q);
+                var sources = _lookupSources.GetValueOrDefault(q.SourceKind) ?? Array.Empty<FormLookupSourceOption>();
+
+                @if (q.SourceKind == FormSourceKind.DataContainer)
+                {
+                    <div class="fb-field">
+                        <label>Fuente (contenedor)</label>
+                        <select class="fb-select" value="@(q.SourceRef ?? "")"
+                                @onchange="@(e => PatchQuestionAsync(q, r => r with { SourceRef = e.Value?.ToString(), DisplayField = null }))">
+                            <option value="">Selecciona...</option>
+                            @foreach (var s in sources)
+                            {
+                                <option value="@s.Ref" selected="@(s.Ref == q.SourceRef)">@s.Label</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="fb-field">
+                    <label>Presentacion</label>
+                    <select class="fb-select" value="@q.Presentation"
+                            @onchange="@(e => PatchQuestionAsync(q, r => r with { Presentation = ParsePresentation(e.Value?.ToString()) }))">
+                        <option value="@nameof(FormFieldPresentation.Autocomplete)">Autocompletar</option>
+                        <option value="@nameof(FormFieldPresentation.Dropdown)">Lista</option>
+                        <option value="@nameof(FormFieldPresentation.Modal)">Buscador</option>
+                    </select>
+                </div>
+
+                <div class="fb-field">
+                    <label>Mostrar (etiqueta)</label>
+                    <select class="fb-select" value="@(q.DisplayField ?? "")"
+                            @onchange="@(e => PatchQuestionAsync(q, r => r with { DisplayField = e.Value?.ToString() }))">
+                        <option value="">Automatico</option>
+                        @foreach (var f in fields)
+                        {
+                            <option value="@f.Key" selected="@(f.Key == q.DisplayField)">@f.Label@(f.IsDynamic ? " (ficha)" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="fb-field">
+                    <label>Filtro (JSON opcional)</label>
+                    <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
+                           @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
+                </div>
+
+                <div class="fb-field">
+                    <label>Autollenar campos (al elegir, copia)</label>
+                    @RenderAutofillMap(q, fields)
+                </div>
+            }
+        </div>
+    };
+
+    /// <summary>Editor del mapa de autollenado: filas campoFuente -> campoFormulario (se copia al elegir).</summary>
+    private RenderFragment RenderAutofillMap(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
+    {
+        var map = ParseAutofillMap(q.AutofillMapJson).ToList();
+        var targets = _def!.Questions
+            .Where(x => x.Id != q.Id && x.SourceKind == FormSourceKind.Options)
+            .Select(x => x.FieldCode).ToList();
+
+        <div class="fb-autofill">
+            @foreach (var pair in map)
+            {
+                var src = pair.Key;
+                <div class="fb-autofill-row">
+                    <select class="fb-select" value="@src"
+                            @onchange="@(e => SetAutofillAsync(q, src, e.Value?.ToString(), pair.Value))">
+                        @foreach (var f in fields)
+                        {
+                            <option value="@f.Key" selected="@(f.Key == src)">@f.Label</option>
+                        }
+                    </select>
+                    <span class="fb-autofill-arrow">&rarr;</span>
+                    <select class="fb-select" value="@pair.Value"
+                            @onchange="@(e => SetAutofillAsync(q, src, src, e.Value?.ToString()))">
+                        <option value="">Campo destino...</option>
+                        @foreach (var t in targets)
+                        {
+                            <option value="@t" selected="@(t == pair.Value)">@t</option>
+                        }
+                    </select>
+                    <button type="button" class="fb-autofill-x" title="Quitar" @onclick="@(() => RemoveAutofillAsync(q, src))">&times;</button>
+                </div>
+            }
+            @if (fields.Count > 0)
+            {
+                <button type="button" class="fb-autofill-add" @onclick="@(() => AddAutofillAsync(q, fields))">+ Agregar mapeo</button>
+            }
+        </div>
+    };
+
+    // Metadata de lookup cacheada para los selectores del designer (por origen|fuente).
+    private readonly Dictionary<string, IReadOnlyList<FormLookupFieldMeta>> _lookupFields = new(StringComparer.Ordinal);
+    private readonly Dictionary<FormSourceKind, IReadOnlyList<FormLookupSourceOption>> _lookupSources = new();
+    private readonly HashSet<string> _lookupMetaLoading = new(StringComparer.Ordinal);
+
+    private static string MetaKey(FormQuestionDto q) => $"{q.SourceKind}|{q.SourceRef}";
+
+    private IReadOnlyList<FormLookupFieldMeta> LookupFieldsFor(FormQuestionDto q)
+        => _lookupFields.GetValueOrDefault(MetaKey(q)) ?? Array.Empty<FormLookupFieldMeta>();
+
+    /// <summary>Carga (una vez) las fuentes y campos de la fuente del campo, para los selectores.</summary>
+    private async Task EnsureLookupMetaAsync(FormQuestionDto q)
+    {
+        if (q.SourceKind == FormSourceKind.Options) { return; }
+        var key = MetaKey(q);
+        if (_lookupFields.ContainsKey(key) || !_lookupMetaLoading.Add(key)) { return; }
+        try
+        {
+            if (!_lookupSources.ContainsKey(q.SourceKind))
+            {
+                _lookupSources[q.SourceKind] = await LookupSvc.ListSourcesAsync(q.SourceKind);
+            }
+            _lookupFields[key] = await LookupSvc.DescribeFieldsAsync(q.SourceKind, q.SourceRef);
+        }
+        catch (Exception)
+        {
+            _lookupFields[key] = Array.Empty<FormLookupFieldMeta>();
+        }
+        finally
+        {
+            _lookupMetaLoading.Remove(key);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ChangeSourceKindAsync(FormQuestionDto q, string? kindStr)
+    {
+        var kind = Enum.TryParse<FormSourceKind>(kindStr, out var k) ? k : FormSourceKind.Options;
+        await PatchQuestionAsync(q, r => r with
+        {
+            SourceKind = kind,
+            // El valor guardado es siempre el id de la fila/entidad; SourceRef solo aplica al contenedor.
+            ValueField = kind == FormSourceKind.Options ? null : "id",
+            SourceRef = kind == FormSourceKind.DataContainer ? r.SourceRef : null,
+        });
+    }
+
+    private static FormFieldPresentation ParsePresentation(string? s)
+        => Enum.TryParse<FormFieldPresentation>(s, out var p) ? p : FormFieldPresentation.Autocomplete;
+
+    private static IReadOnlyDictionary<string, string> ParseAutofillMap(string? json)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return map; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var target = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                map[p.Name] = target ?? "";
+            }
+        }
+        catch (JsonException) { /* mapa invalido: se ignora */ }
+        return map;
+    }
+
+    private async Task AddAutofillAsync(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        var candidate = fields.Select(f => f.Key).FirstOrDefault(k => !map.ContainsKey(k));
+        if (candidate is null) { return; }
+        map[candidate] = "";
+        await PatchAutofillAsync(q, map);
+    }
+
+    private async Task SetAutofillAsync(FormQuestionDto q, string oldSource, string? newSource, string? target)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        map.Remove(oldSource);
+        if (!string.IsNullOrWhiteSpace(newSource)) { map[newSource] = target ?? ""; }
+        await PatchAutofillAsync(q, map);
+    }
+
+    private async Task RemoveAutofillAsync(FormQuestionDto q, string source)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        map.Remove(source);
+        await PatchAutofillAsync(q, map);
+    }
+
+    private Task PatchAutofillAsync(FormQuestionDto q, Dictionary<string, string> map)
+    {
+        var json = map.Count == 0 ? null : JsonSerializer.Serialize(map);
+        return PatchQuestionAsync(q, r => r with { AutofillMapJson = json });
+    }
 
     private RenderFragment RenderReglasTab(Node node) => __builder =>
     {

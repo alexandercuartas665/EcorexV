@@ -1,4 +1,5 @@
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
@@ -6,6 +7,7 @@
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
 @inject IFormRuleDispatcher RulesDispatcher
+@inject IFormLookupService LookupSvc
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -226,6 +228,9 @@ else
                         }
                     }
                 }
+                // Lookup (ola F1): resuelve las etiquetas de los ids ya guardados para mostrar
+                // el nombre en vez del Guid (dentro del ambient de la carga).
+                await ResolveLookupDisplaysAsync();
             }
         }
         finally
@@ -445,6 +450,13 @@ else
     private RenderFragment RenderInput(FormQuestionDto q) => __builder =>
     {
         var value = _values.GetValueOrDefault(q.FieldCode);
+        // Origen de datos / lookup (ola F1, doc 01 D4): si el campo tiene una fuente de datos,
+        // se pinta el control de autocompletar/lista/buscador en vez del control base.
+        if (q.SourceKind != FormSourceKind.Options)
+        {
+            @RenderLookup(q, value)
+            return;
+        }
         switch (q.ControlType)
         {
             case FormControlType.Text:
@@ -547,6 +559,204 @@ else
             <span class="dfr-capture-soon">captura disponible proximamente</span>
         </div>
     };
+
+    // ---- Lookup / autocompletado (ola F1, doc 01 D4) ----
+
+    // Estado de UI del lookup por campo (fieldCode).
+    private readonly Dictionary<string, string?> _lookupDisplay = new(StringComparer.Ordinal); // etiqueta del id elegido
+    private readonly Dictionary<string, string?> _lookupQuery = new(StringComparer.Ordinal);   // texto tecleado
+    private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _lookupResults = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _lookupOpen = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _lookupBusy = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderLookup(FormQuestionDto q, string? value) => __builder =>
+    {
+        var display = _lookupDisplay.GetValueOrDefault(q.FieldCode) ?? value;
+        var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+
+        if (q.Presentation == FormFieldPresentation.Dropdown)
+        {
+            <select class="form-control" disabled="@IsDisabled"
+                    @onclick="@(() => LookupSearchAsync(q, null))"
+                    @onchange="@(e => LookupChooseByValueAsync(q, e.Value?.ToString()))">
+                <option value="" selected="@string.IsNullOrEmpty(value)">-- Selecciona --</option>
+                @if (results is not null)
+                {
+                    @foreach (var it in results)
+                    {
+                        <option value="@it.Value" selected="@(it.Value == value)">@it.Display</option>
+                    }
+                }
+                else if (!string.IsNullOrEmpty(value))
+                {
+                    <option value="@value" selected="true">@display</option>
+                }
+            </select>
+            return;
+        }
+
+        @* Autocomplete y Modal: input de busqueda + panel de resultados. *@
+        <div class="dfr-lookup @(q.Presentation == FormFieldPresentation.Modal ? "is-modal" : "")">
+            <div class="dfr-lookup-box">
+                <input class="form-control" disabled="@IsDisabled"
+                       placeholder="@(string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Buscar..." : q.PlaceholderText)"
+                       value="@(_lookupQuery.TryGetValue(q.FieldCode, out var typed) ? typed : display)"
+                       @oninput="@(e => LookupTypeAsync(q, e.Value?.ToString()))"
+                       @onfocus="@(() => LookupSearchAsync(q, _lookupQuery.GetValueOrDefault(q.FieldCode)))" />
+                @if (!string.IsNullOrEmpty(value) && !IsDisabled)
+                {
+                    <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => LookupClearAsync(q))">&times;</button>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display))
+            {
+                <div class="dfr-lookup-chosen">Seleccionado: <strong>@display</strong></div>
+            }
+            @if (_lookupOpen.Contains(q.FieldCode))
+            {
+                <div class="dfr-lookup-panel">
+                    @if (_lookupBusy.Contains(q.FieldCode))
+                    {
+                        <div class="dfr-lookup-empty"><em>Buscando...</em></div>
+                    }
+                    else if (results is null || results.Count == 0)
+                    {
+                        <div class="dfr-lookup-empty">
+                            <span>Sin resultados.</span>
+                            <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var it in results)
+                        {
+                            var item = it;
+                            <button type="button" class="dfr-lookup-opt" @onclick="@(() => LookupChooseAsync(q, item))">@item.Display</button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    /// <summary>Campos de la fuente que hay que traer: el de mostrar + los origenes del mapa de autollenado.</summary>
+    private static IReadOnlyList<string> LookupFields(FormQuestionDto q)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(q.DisplayField)) { set.Add(q.DisplayField!); }
+        foreach (var src in ParseAutofillMap(q.AutofillMapJson).Keys) { set.Add(src); }
+        return set.ToList();
+    }
+
+    /// <summary>AutofillMapJson: { "campoFuente": "campoFormulario" }. Defensivo ante JSON invalido.</summary>
+    private static IReadOnlyDictionary<string, string> ParseAutofillMap(string? json)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) { return map; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var target = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(target)) { map[p.Name] = target!; }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* mapa invalido: se ignora */ }
+        return map;
+    }
+
+    private static string CreateLink(FormSourceKind kind) => kind switch
+    {
+        FormSourceKind.Tercero => "/directorio-general",
+        FormSourceKind.Item => "/inventario-items",
+        FormSourceKind.DataContainer => "/contenedor-datos",
+        _ => "#",
+    };
+
+    private async Task LookupTypeAsync(FormQuestionDto q, string? text)
+    {
+        _lookupQuery[q.FieldCode] = text;
+        await LookupSearchAsync(q, text);
+    }
+
+    private async Task LookupSearchAsync(FormQuestionDto q, string? text)
+    {
+        if (IsDisabled) { return; }
+        _lookupOpen.Add(q.FieldCode);
+        _lookupBusy.Add(q.FieldCode);
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q), Skip: 0, Take: 20));
+            _lookupResults[q.FieldCode] = page.Items;
+        }
+        catch (Exception ex)
+        {
+            _lookupResults[q.FieldCode] = Array.Empty<FormLookupItem>();
+            _globalError = $"No se pudo buscar en la fuente: {ex.Message}";
+        }
+        finally
+        {
+            _dbGate.Release();
+            _lookupBusy.Remove(q.FieldCode);
+        }
+    }
+
+    private async Task LookupChooseAsync(FormQuestionDto q, FormLookupItem item)
+    {
+        // Guarda el ID (ValueField) en data y COPIA (snapshot) los campos mapeados a sus destinos.
+        _lookupDisplay[q.FieldCode] = item.Display;
+        _lookupQuery[q.FieldCode] = item.Display;
+        _lookupOpen.Remove(q.FieldCode);
+        await SetValue(q, item.Value);
+
+        var map = ParseAutofillMap(q.AutofillMapJson);
+        foreach (var (source, target) in map)
+        {
+            _values[target] = item.Fields.TryGetValue(source, out var v) ? v : null;
+            var targetQ = _definition!.Questions.FirstOrDefault(x => x.FieldCode == target);
+            if (targetQ is not null) { ValidateField(targetQ); }
+        }
+        _dirty = true;
+    }
+
+    private async Task LookupChooseByValueAsync(FormQuestionDto q, string? val)
+    {
+        if (string.IsNullOrEmpty(val)) { await LookupClearAsync(q); return; }
+        var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+        var item = results?.FirstOrDefault(i => i.Value == val);
+        if (item is not null) { await LookupChooseAsync(q, item); }
+        else { await SetValue(q, val); }
+    }
+
+    private async Task LookupClearAsync(FormQuestionDto q)
+    {
+        _lookupDisplay.Remove(q.FieldCode);
+        _lookupQuery[q.FieldCode] = null;
+        _lookupOpen.Remove(q.FieldCode);
+        await SetValue(q, null);
+    }
+
+    /// <summary>Al cargar, resuelve la etiqueta de cada id ya guardado (para mostrar nombre, no el Guid).</summary>
+    private async Task ResolveLookupDisplaysAsync()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.SourceKind != FormSourceKind.Options))
+        {
+            var value = _values.GetValueOrDefault(q.FieldCode);
+            if (string.IsNullOrEmpty(value)) { continue; }
+            try
+            {
+                var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
+                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+            }
+            catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
+        }
+    }
 
     // ---- Tabla (GridDetail) funcional ----
 

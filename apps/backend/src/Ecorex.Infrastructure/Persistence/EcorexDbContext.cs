@@ -272,6 +272,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<FormControlType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormResponseStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormFlowLinkStatus>().HaveConversion<string>().HaveMaxLength(40);
+        // Origen de datos / lookup (ola F1): enums persistidos como string para DAL dual.
+        configurationBuilder.Properties<FormSourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormFieldPresentation>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1201,6 +1204,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Width).HasDefaultValue(12);
             b.Property(x => x.PlaceholderText).HasMaxLength(200);
             b.Property(x => x.DefaultValue).HasMaxLength(2000);
+            // Origen de datos / lookup (ola F1, doc 01 D4). Columnas ADITIVAS: los enums llevan
+            // default de string para no romper las filas existentes; los JSON usan el tipo dual.
+            b.Property(x => x.SourceKind).HasDefaultValue(FormSourceKind.Options);
+            b.Property(x => x.SourceRef).HasMaxLength(200);
+            b.Property(x => x.DisplayField).HasMaxLength(120);
+            b.Property(x => x.ValueField).HasMaxLength(120);
+            b.Property(x => x.FilterJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AutofillMapJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Presentation).HasDefaultValue(FormFieldPresentation.Autocomplete);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

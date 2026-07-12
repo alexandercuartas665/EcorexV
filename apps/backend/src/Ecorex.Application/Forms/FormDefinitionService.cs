@@ -617,7 +617,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,
             q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson,
-            q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
+            q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
+            q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
+            q.AutofillMapJson, q.Presentation);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -646,6 +648,26 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.IsHidden = request.IsHidden;
         question.Numeral = Normalize(request.Numeral);
         question.ValidationJson = Normalize(request.ValidationJson);
+        // Origen de datos / lookup (ola F1, doc 01 D4). Con Options (default) el resto queda en
+        // null; con una fuente de datos se guardan la fuente, los campos y el mapa de autollenado.
+        question.SourceKind = request.SourceKind;
+        question.Presentation = request.Presentation;
+        if (request.SourceKind == FormSourceKind.Options)
+        {
+            question.SourceRef = null;
+            question.DisplayField = null;
+            question.ValueField = null;
+            question.FilterJson = null;
+            question.AutofillMapJson = null;
+        }
+        else
+        {
+            question.SourceRef = Normalize(request.SourceRef);
+            question.DisplayField = Normalize(request.DisplayField);
+            question.ValueField = Normalize(request.ValueField);
+            question.FilterJson = Normalize(request.FilterJson);
+            question.AutofillMapJson = Normalize(request.AutofillMapJson);
+        }
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

@@ -71,4 +71,40 @@ public class FormQuestion : TenantEntity
 
     /// <summary>Oculto: no se pinta en el renderer y no valida requerido (prototipo eye).</summary>
     public bool IsHidden { get; set; }
+
+    // ---- Origen de datos / lookup (Formularios avanzados, ola F1; doc 01 seccion D4) ----
+
+    /// <summary>
+    /// De donde salen las opciones/valores del campo: fijas (OptionsJson, default) o desde una
+    /// tabla de datos con dominio del tenant (contenedor, terceros, items). Persistido como string.
+    /// </summary>
+    public FormSourceKind SourceKind { get; set; } = FormSourceKind.Options;
+
+    /// <summary>
+    /// Referencia de la fuente cuando SourceKind != Options: id del contenedor de datos (Guid) o
+    /// clave de la entidad objetivo. String para admitir ambos sin romper el DAL dual.
+    /// </summary>
+    public string? SourceRef { get; set; }
+
+    /// <summary>Campo de la fuente que se MUESTRA al usuario (ej. "Nombre", "Descripcion").</summary>
+    public string? DisplayField { get; set; }
+
+    /// <summary>Campo de la fuente que se GUARDA como valor del campo (el id). Es la dimension del hecho.</summary>
+    public string? ValueField { get; set; }
+
+    /// <summary>
+    /// Scope del catalogo como JSON (ej. {"EsCliente": true}). Siempre acotado al tenant por el
+    /// filtro global; se traduce a consulta parametrizada (nunca SQL concatenado). jsonb / nvarchar(max).
+    /// </summary>
+    public string? FilterJson { get; set; }
+
+    /// <summary>
+    /// Mapa de autollenado como JSON: campo de la fuente -> campo del formulario
+    /// (ej. {"NIT":"nit","Ciudad":"ciudad"}). Al elegir una opcion se COPIAN (snapshot) esos
+    /// valores a los campos destino. Incluye campos dinamicos de Tercero/Item. jsonb / nvarchar(max).
+    /// </summary>
+    public string? AutofillMapJson { get; set; }
+
+    /// <summary>Como se ofrece el catalogo al llenar: autocompletar (default), lista o buscador modal.</summary>
+    public FormFieldPresentation Presentation { get; set; } = FormFieldPresentation.Autocomplete;
 }

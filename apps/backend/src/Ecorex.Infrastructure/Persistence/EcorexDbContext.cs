@@ -1525,8 +1525,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Fuente).HasMaxLength(80);
             b.Property(x => x.Descripcion).HasMaxLength(2000);
             b.Property(x => x.Valor).HasColumnType(isNpgsql ? "numeric(18,2)" : "decimal(18,2)");
+            // DAL-dual: Tercero llega a citas por 2 rutas (directa + via oportunidad); en SQL Server
+            // esta cascada forma la 2a ruta (error 1785) -> Restrict. En PG se conserva la cascada.
             b.HasOne(x => x.Tercero).WithMany()
-                .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.TerceroId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
             b.HasIndex(x => new { x.TenantId, x.Etapa, x.SortOrder });
         });
@@ -1768,8 +1771,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Model).WithMany(x => x.Tables)
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
             // Arbol de sub-tablas (matrices anidadas): al borrar el padre se borran las hijas.
+            // DAL-dual: la auto-referencia con cascada es un ciclo prohibido en SQL Server (error 1785);
+            // ahi se usa Restrict y el borrado del arbol lo hace la aplicacion (regla #5, cascada diferida).
             b.HasOne(x => x.ParentContainer).WithMany()
-                .HasForeignKey(x => x.ParentContainerId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.ParentContainerId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             // Nombre de tabla unico DENTRO del contenedor (modelo).
             b.HasIndex(x => new { x.ModelId, x.Name }).IsUnique()
                 .HasFilter(isNpgsql ? "model_id IS NOT NULL AND parent_container_id IS NULL" : "[model_id] IS NOT NULL AND [parent_container_id] IS NULL");
@@ -1784,8 +1790,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Container).WithMany(x => x.Columns)
                 .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.Cascade);
             // Campo Submodel -> contenedor hijo: borrar el campo borra la sub-tabla anidada.
+            // DAL-dual: en SQL Server esta ruta hacia data_containers se suma a la del padre y forma
+            // una ruta de cascada multiple (error 1785) -> Restrict; el borrado lo hace la aplicacion.
             b.HasOne(x => x.ChildContainer).WithMany()
-                .HasForeignKey(x => x.ChildContainerId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.ChildContainerId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             // Campo Reference/RelationMany -> tabla destino independiente: NO ACTION (Restrict). No se
             // borra la tabla destino al borrar el campo; y no se puede borrar una tabla referenciada
             // mientras exista el campo (el servicio da un error claro).
@@ -1800,8 +1809,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Container).WithMany(x => x.Rows)
                 .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.Cascade);
             // Arbol de filas: borrar la fila padre borra las filas hijas de sus sub-tablas.
+            // DAL-dual: auto-referencia con cascada = ciclo prohibido en SQL Server -> Restrict.
             b.HasOne(x => x.ParentRow).WithMany()
-                .HasForeignKey(x => x.ParentRowId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.ParentRowId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ContainerId, x.CreatedAt });
             b.HasIndex(x => new { x.ParentRowId, x.ParentFieldId });
         });
@@ -1811,8 +1822,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Value).HasColumnType(longTextColumnType);
             b.HasOne(x => x.Row).WithMany(x => x.Cells)
                 .HasForeignKey(x => x.RowId).OnDelete(DeleteBehavior.Cascade);
+            // DAL-dual: la celda ya cae por su fila (arriba); la 2a ruta por columna es multi-cascada
+            // en SQL Server (error 1785) -> Restrict alli. En PG se conserva la cascada por columna.
             b.HasOne(x => x.Column).WithMany()
-                .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.ColumnId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             // Una celda por (fila, columna).
             b.HasIndex(x => new { x.RowId, x.ColumnId }).IsUnique();
         });
@@ -1822,8 +1836,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Vinculo N:N. Muere con la columna de relacion o con cualquiera de los dos registros
             // (cascadas multi-ruta validas en PG). El registro destino (TargetRow) es NO ACTION para
             // evitar tercera ruta de cascada ambigua; el servicio limpia los vinculos al borrar filas.
+            // DAL-dual: el vinculo cae por su fila (Row, abajo). La ruta por columna es una 2a ruta de
+            // cascada en SQL Server (error 1785) -> Restrict alli; en PG se conserva la cascada.
             b.HasOne(x => x.Column).WithMany()
-                .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Cascade);
+                .HasForeignKey(x => x.ColumnId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             b.HasOne(x => x.Row).WithMany()
                 .HasForeignKey(x => x.RowId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.TargetRow).WithMany()
@@ -1846,9 +1863,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Conector cuelga del contenedor (modelo): borrar el modelo borra sus conectores.
             b.HasOne(x => x.Model).WithMany()
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
-            // ContainerId deprecado (diseno anterior): SetNull para no bloquear.
+            // ContainerId deprecado (diseno anterior): SetNull para no bloquear. DAL-dual: en SQL Server
+            // el SetNull sumado a la cascada Model->Connector forma una 2a ruta (error 1785) -> Restrict.
             b.HasOne(x => x.Container).WithMany()
-                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
+                .HasForeignKey(x => x.ContainerId)
+                .OnDelete(isNpgsql ? DeleteBehavior.SetNull : DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ModelId });
         });
 
@@ -1870,12 +1889,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Proceso cuelga del contenedor (modelo): borrar el modelo borra sus procesos.
             b.HasOne(x => x.Model).WithMany()
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
-            // ContainerId deprecado (diseno anterior): SetNull.
+            // ContainerId deprecado (diseno anterior): SetNull. DAL-dual: Container y Connector son
+            // alcanzables por cascada desde el mismo Model, asi que su SetNull forma rutas multiples en
+            // SQL Server (error 1785) -> Restrict alli. En PG se conserva el SetNull.
             b.HasOne(x => x.Container).WithMany()
-                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
-            // Refs opcionales a conector/cliente: si se borran, el proceso queda sin ref (SetNull).
+                .HasForeignKey(x => x.ContainerId)
+                .OnDelete(isNpgsql ? DeleteBehavior.SetNull : DeleteBehavior.Restrict);
             b.HasOne(x => x.Connector).WithMany()
-                .HasForeignKey(x => x.ConnectorId).OnDelete(DeleteBehavior.SetNull);
+                .HasForeignKey(x => x.ConnectorId)
+                .OnDelete(isNpgsql ? DeleteBehavior.SetNull : DeleteBehavior.Restrict);
+            // Client no es alcanzado por cascada desde Model: su SetNull es ruta unica (valido en ambos).
             b.HasOne(x => x.Client).WithMany()
                 .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
             b.HasIndex(x => new { x.TenantId, x.ModelId });

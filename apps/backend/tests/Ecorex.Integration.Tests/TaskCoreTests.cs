@@ -412,12 +412,38 @@ public abstract class TaskCoreTestsBase
         Assert.Equal(TaskCoreStatus.Invalid, bad.Status);
     }
 
+    [Fact]
+    public async Task Assign_SendsEmail_ToAssignee()
+    {
+        // #4a: al asignar se ENTREGA por email al encargado (best-effort via IEmailSender), ademas de
+        // la notificacion in-app. Aqui se usa un IEmailSender grabador para verificar el envio.
+        var seed = await SeedTenantAsync("Nucleo Email Asignar");
+        var created = await CreateTaskAsync(seed, "Tarea con email");
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var email = new RecordingEmailSender();
+        var service = BuildService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId), email);
+        var assigned = await service.AssignAsync(taskId, seed.TenantUserId, seed.PlatformUserId, "Tester");
+        Assert.True(assigned.IsOk, assigned.Error);
+
+        var assigneeEmail = await ctx.TenantUsers.AsNoTracking()
+            .Where(u => u.Id == seed.TenantUserId).Select(u => u.Email).FirstAsync();
+        var sent = email.Sent.ToList();
+        Assert.Contains(sent, m => m.To == assigneeEmail && m.Subject.Contains("Te asignaron la tarea"));
+    }
+
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>
     private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext)
+        => BuildService(ctx, tenantContext, new NoOpEmailSender());
+
+    private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext, IEmailSender emailSender)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
-            new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()));
+            new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
+            emailSender);
 
     private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskAsync(SeedData seed, string title)
     {

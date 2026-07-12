@@ -273,7 +273,7 @@ public abstract class WorkflowInboxTestsBase
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine engine)
     {
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine);
+        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender());
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

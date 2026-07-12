@@ -488,7 +488,7 @@ public abstract class RulesEngineTestsBase
         services.AddSingleton<IRuleVerb>(_ => new AsignarConsecutivoVerb(new SequenceService(ctx, tenantContext), ctx));
         services.AddSingleton<IRuleVerb>(_ => new GenerarTareasDesdeTablaVerb(
             new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext),
-                new WorkflowEngine(ctx, tenantContext, new WorkflowRuleHook(engine), new NoOpTaskBroadcaster()))));
+                new WorkflowEngine(ctx, tenantContext, new WorkflowRuleHook(engine), new NoOpTaskBroadcaster()), new NoOpEmailSender())));
         services.AddSingleton<IRuleVerb>(_ => new NotificarVerb(ctx));
         var provider = services.BuildServiceProvider();
         engine = new RulesEngine(ctx, tenantContext, provider);

@@ -26,13 +26,16 @@ public sealed class TaskItemService : ITaskItemService
     private readonly ITenantContext _tenantContext;
     private readonly ISequenceService _sequences;
     private readonly IWorkflowEngine _workflowEngine;
+    private readonly IEmailSender _emailSender;
 
-    public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences, IWorkflowEngine workflowEngine)
+    public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences,
+        IWorkflowEngine workflowEngine, IEmailSender emailSender)
     {
         _db = db;
         _tenantContext = tenantContext;
         _sequences = sequences;
         _workflowEngine = workflowEngine;
+        _emailSender = emailSender;
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -443,9 +446,10 @@ public sealed class TaskItemService : ITaskItemService
             title: $"Te asignaron la tarea {task.Number}",
             body: string.IsNullOrWhiteSpace(task.Title) ? $"Tarea {task.Number}" : task.Title!,
             actorName: actorName, relatedTaskItemId: task.Id));
+        IReadOnlyList<string> conceptEmails = Array.Empty<string>();
         if (task.SubcategoriaId is Guid subcategoriaId)
         {
-            await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
+            conceptEmails = await AddConceptNotificationAsync(task.TenantId, task.Id, subcategoriaId, actorUserId, actorName,
                 excludeEmail: assignee.Email, cancellationToken: cancellationToken);
         }
         try
@@ -456,15 +460,53 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
+
+        // #4a: entrega REAL por email (best-effort, FUERA de la transaccion). Si el correo del tenant
+        // no esta configurado, IEmailSender devuelve Ok=false sin lanzar; cualquier fallo se ignora
+        // para no romper la asignacion (la notificacion in-app ya quedo persistida).
+        var taskTitle = string.IsNullOrWhiteSpace(task.Title) ? task.Number : task.Title!;
+        await SendNotificationEmailAsync(assignee.Email,
+            $"Te asignaron la tarea {task.Number}",
+            $"Te asignaron la tarea <strong>{task.Number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.",
+            cancellationToken);
+        foreach (var email in conceptEmails)
+        {
+            await SendNotificationEmailAsync(email,
+                $"Nueva actividad del proceso ({task.Number})",
+                $"Se registro la actividad <strong>{task.Number}</strong> de un proceso en el que estas configurado como destinatario.",
+                cancellationToken);
+        }
+
         return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
     }
 
     /// <summary>
-    /// Ola 7: agrega la traza de notificacion a los destinatarios configurados en el concepto
-    /// (ActividadSubcategoriaNotificacion), opcionalmente excluyendo un correo (el encargado ya
-    /// tiene su propia traza). No guarda: el llamador hace SaveChanges dentro de su flujo.
+    /// #4a: envia una notificacion por email best-effort. No lanza (los errores de SMTP no deben
+    /// tumbar la operacion de negocio); si el correo del tenant no esta habilitado no hace nada.
     /// </summary>
-    private async Task AddConceptNotificationAsync(Guid tenantId, Guid taskId, Guid subcategoriaId,
+    private async Task SendNotificationEmailAsync(string? toEmail, string subject, string htmlBody, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(toEmail)) { return; }
+        try
+        {
+            var html = $"<div style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#222\">"
+                + $"<p>{htmlBody}</p>"
+                + "<p style=\"color:#888;font-size:12px\">ECOREX.tareas - notificacion automatica.</p></div>";
+            await _emailSender.SendAsync(toEmail.Trim(), subject, html, cancellationToken);
+        }
+        catch
+        {
+            // best-effort: la notificacion in-app ya quedo; un fallo de SMTP no rompe la asignacion.
+        }
+    }
+
+    /// <summary>
+    /// Ola 7: agrega la traza + notificacion in-app a los destinatarios configurados en el concepto
+    /// (ActividadSubcategoriaNotificacion), opcionalmente excluyendo un correo (el encargado ya tiene
+    /// su propia). No guarda: el llamador hace SaveChanges. Devuelve los correos de los destinatarios
+    /// (para la entrega por email best-effort tras el commit, #4a).
+    /// </summary>
+    private async Task<IReadOnlyList<string>> AddConceptNotificationAsync(Guid tenantId, Guid taskId, Guid subcategoriaId,
         Guid actorUserId, string actorName, string? excludeEmail = null, CancellationToken cancellationToken = default)
     {
         var recipients = await _db.ActividadSubcategoriaNotificaciones.AsNoTracking()
@@ -474,20 +516,22 @@ public sealed class TaskItemService : ITaskItemService
             .Where(x => excludeEmail == null || x.Email != excludeEmail)
             .OrderBy(x => x.Email)
             .ToListAsync(cancellationToken);
-        if (recipients.Count > 0)
+        if (recipients.Count == 0)
         {
-            _db.TaskItemActivities.Add(BuildActivity(tenantId, taskId, actorUserId, actorName,
-                TaskActivityType.Action,
-                $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients.Select(r => r.Email))}"));
-            // Entrega real in-app: una notificacion por destinatario configurado en el concepto.
-            foreach (var r in recipients)
-            {
-                _db.Notifications.Add(BuildNotification(tenantId, r.Id, NotificationKind.ConceptNotice,
-                    title: "Nueva actividad del proceso",
-                    body: "Se registro una actividad de un proceso en el que estas configurado como destinatario.",
-                    actorName: actorName, relatedTaskItemId: taskId));
-            }
+            return Array.Empty<string>();
         }
+        _db.TaskItemActivities.Add(BuildActivity(tenantId, taskId, actorUserId, actorName,
+            TaskActivityType.Action,
+            $"notifico a {recipients.Count} usuario(s) del concepto: {string.Join(", ", recipients.Select(r => r.Email))}"));
+        // Entrega real in-app: una notificacion por destinatario configurado en el concepto.
+        foreach (var r in recipients)
+        {
+            _db.Notifications.Add(BuildNotification(tenantId, r.Id, NotificationKind.ConceptNotice,
+                title: "Nueva actividad del proceso",
+                body: "Se registro una actividad de un proceso en el que estas configurado como destinatario.",
+                actorName: actorName, relatedTaskItemId: taskId));
+        }
+        return recipients.Select(r => r.Email).ToList();
     }
 
     /// <summary>Construye una notificacion in-app (Ola 7) con TenantId explicito (no hay stamping automatico).</summary>

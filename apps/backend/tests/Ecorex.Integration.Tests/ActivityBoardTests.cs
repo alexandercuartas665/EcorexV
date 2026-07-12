@@ -353,7 +353,7 @@ public abstract class ActivityBoardTestsBase
     /// <summary>Servicio de tareas con motor de flujos real y broadcaster no-op (sin SignalR).</summary>
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
-            new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()));
+            new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()), new NoOpEmailSender());
 
     /// <summary>
     /// Siembra un tenant fresco con DOS TenantUsers (owner y segundo miembro) y un

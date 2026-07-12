@@ -87,7 +87,9 @@ builder.Services.AddAuthorizationBuilder()
     // y nodos del menu del workspace. Paso 1: mismo requisito que TenantMember (claim tenant_id)
     // para no cambiar el acceso. TODO (paso 2): restringir a Owner/Admin del tenant (tenant_role)
     // -es una pantalla de gobierno del tenant- derivandolo del rol del TenantUser.
-    .AddPolicy("ConfiguracionMenu.Administrar", p => p.RequireClaim("tenant_id"))
+    // Ola 7 (endurecimiento) - policy de GOBIERNO: el editor del menu del tenant es una pantalla de
+    // gobierno, se restringe a Owner/Admin del tenant (claim tenant_role), no a cualquier miembro.
+    .AddPolicy("ConfiguracionMenu.Administrar", p => p.RequireClaim("tenant_role", "Owner", "Admin"))
     // Administracion de usuarios del tenant (modulo 000073, ADR-0031): CRUD de usuarios del
     // tenant (invitar, rol, estado, clave, vista de menu). Paso 1: mismo requisito que
     // TenantMember (claim tenant_id) para no cambiar el acceso. TODO (paso 2): restringir a

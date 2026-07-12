@@ -105,6 +105,31 @@ public abstract class MenuConfigTestsBase
     }
 
     [Fact]
+    public async Task NullMenuView_NoDefault_FallsBackToRichestView()
+    {
+        // #2: tenant real sin NINGUNA vista IsDefault (ej. BITCODE creado sin seed de menu). El usuario
+        // sin vista asignada cae a la vista con MAS nodos visibles (la mas completa), no a una minima/E2E
+        // aunque esa tenga menor SortOrder.
+        var tenantId = await NewTenantAsync("Menu Sin Default");
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var minimal = new MenuView { TenantId = tenantId, Name = "E2E mini", IsDefault = false, SortOrder = 0 };
+            var rich = new MenuView { TenantId = tenantId, Name = "Completo", IsDefault = false, SortOrder = 1 };
+            ctx.MenuViews.AddRange(minimal, rich);
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = minimal.Id, Kind = MenuNodeKind.QuickLink, Name = "Inicio", Route = "inicio", IsVisible = true, SortOrder = 0 });
+            for (var i = 0; i < 3; i++)
+            {
+                ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = rich.Id, Kind = MenuNodeKind.QuickLink, Name = $"N{i}", Route = $"r{i}", IsVisible = true, SortOrder = i });
+            }
+            await ctx.SaveChangesAsync();
+        }
+
+        var resolved = await RunAsync(tenantId, s => s.GetMenuForTenantUserAsync(tenantId, null));
+        Assert.NotNull(resolved);
+        Assert.Equal("Completo", resolved!.MenuViewName); // la mas rica, no la minima (SortOrder 0)
+    }
+
+    [Fact]
     public async Task User_AssignedToView_IsPersisted()
     {
         var tenantId = await NewTenantAsync("Menu Asignacion");

@@ -39,13 +39,17 @@ public sealed class MenuConfigService : IMenuConfigService
 
         if (resolved is null)
         {
-            // Fallback a la vista por defecto del tenant.
+            // Fallback a la vista por defecto del tenant. Si NINGUNA esta marcada IsDefault (caso de
+            // tenants reales creados sin seed de menu, ej. BITCODE), se cae a la vista mas RICA
+            // (mayor numero de nodos visibles) para que el usuario sin vista asignada vea el menu
+            // completo disponible en vez de una vista minima/E2E. (#2)
             var defaultView = await _db.MenuViews.AsNoTracking()
                 .Where(v => v.IsDefault)
                 .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? await _db.MenuViews.AsNoTracking()
-                    .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
+                    .OrderByDescending(v => _db.MenuNodes.Count(n => n.MenuViewId == v.Id && n.IsVisible))
+                    .ThenBy(v => v.SortOrder).ThenBy(v => v.Name)
                     .FirstOrDefaultAsync(cancellationToken);
             if (defaultView is not null)
             {

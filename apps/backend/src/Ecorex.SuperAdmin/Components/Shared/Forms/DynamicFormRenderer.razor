@@ -232,7 +232,8 @@ else
                 // Lookup (ola F1): resuelve las etiquetas de los ids ya guardados para mostrar
                 // el nombre en vez del Guid (dentro del ambient de la carga).
                 await ResolveLookupDisplaysAsync();
-                // Calculo (ola F2): valor inicial de los campos calculados.
+                // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
+                RecomputeGrids();
                 RecomputeCalculatedFields();
             }
         }
@@ -768,17 +769,40 @@ else
         }
     }
 
-    // ---- Tabla (GridDetail) funcional ----
+    // ---- Tabla (GridDetail) funcional + totales (ola F2, doc 01 D5 / doc 02 s4) ----
+
+    // Parseo/agregado/recompute de tablas: helper COMPARTIDO con el servidor (FormGridCalculator),
+    // para que cliente y servidor calculen igual (fuente de verdad = servidor).
+    private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
+        => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    /// <summary>
+    /// Recalcula todas las tablas (ola F2): formula por fila + roll-up de columnas al encabezado,
+    /// via el helper compartido. Persiste las filas computadas en _values.
+    /// </summary>
+    private void RecomputeGrids()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+        {
+            var cols = GridColumnsOf(q);
+            if (cols.Count == 0) { continue; }
+            var (rows, rollups) = FormGridCalculator.Recompute(GridRowsOf(q), cols);
+            _values[q.FieldCode] = rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows);
+            foreach (var (field, total) in rollups) { _values[field] = total; }
+        }
+    }
 
     private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>
     {
-        var columns = FormFieldValidator.ParseOptions(q.OptionsJson);
+        var columns = GridColumnsOf(q);
         var rows = FormFieldValidator.ParseGridRows(value).Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
         @if (columns.Count == 0)
         {
             <div class="dfr-unsupported">La tabla no tiene columnas definidas.</div>
             return;
         }
+        var hasTotals = columns.Any(c => c.Agg != FormAggregate.None);
         <div class="dfr-grid">
             <table class="dfr-grid-table">
                 <thead>
@@ -808,9 +832,18 @@ else
                             {
                                 var colId = col.Id;
                                 <td>
-                                    <input class="form-control form-control-sm" disabled="@IsDisabled"
-                                           value="@rows[rowIndex].GetValueOrDefault(colId)"
-                                           @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                    @if (col.Calc is not null)
+                                    {
+                                        @* Columna calculada por fila (ola F2): solo lectura. *@
+                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
+                                               value="@rows[rowIndex].GetValueOrDefault(colId)" />
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm" disabled="@IsDisabled"
+                                               value="@rows[rowIndex].GetValueOrDefault(colId)"
+                                               @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                    }
                                 </td>
                             }
                             @if (!IsDisabled)
@@ -823,6 +856,23 @@ else
                         </tr>
                     }
                 </tbody>
+                @if (hasTotals && rows.Count > 0)
+                {
+                    <tfoot>
+                        <tr class="dfr-grid-total">
+                            @foreach (var col in columns)
+                            {
+                                var total = col.Agg == FormAggregate.None ? null
+                                    : FormGridCalculator.Aggregate(col.Agg, rows.Select(r => r.GetValueOrDefault(col.Id)));
+                                <td>@(total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")</td>
+                            }
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-x"></td>
+                            }
+                        </tr>
+                    </tfoot>
+                }
             </table>
             @if (!IsDisabled)
             {
@@ -879,6 +929,7 @@ else
     {
         _values[q.FieldCode] = value;
         _dirty = true;
+        RecomputeGrids();
         RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);

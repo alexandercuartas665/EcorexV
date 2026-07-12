@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-12 - Sesion (worktree formularios): F2 GridDetail - totales de columna + roll-up
+
+- **Hecho (cierra F2)**: totales/calculo en tablas GridDetail.
+  - `FormGridCalculator` (Application/Forms/Calc) COMPARTIDO renderer+servidor: parsea columnas con
+    claves opcionales `calc`/`agg`/`rollup` (columnas viejas [{id,label}] siguen valiendo), evalua la
+    formula por fila (reusa `FormExpressionEvaluator`), agrega la columna (Sum/Count/Avg/Min/Max) y
+    devuelve el roll-up al campo del encabezado. 9 unit tests.
+  - RENDERER: columna calculada por fila (solo lectura), fila de totales (`<tfoot>`) y roll-up a un
+    campo del encabezado; recomputo ante cualquier cambio de celda (`RecomputeGrids`).
+  - SERVIDOR: `FormResponseService.SaveAsync` recomputa las tablas antes del calculo escalar (el
+    roll-up alimenta calcs del encabezado); el cliente no es fuente de verdad.
+- **Verificado (navegador, `ecorex_forms`)**: tabla Lineas con Subtotal=`{cant}*{precio}` agg Sum rollup
+  "Total general" -> filas 2x1500 y 3x1000 -> subtotales 3000/3000, fila de totales 6000, Total general=6000.
+  Solution verde; 360/360 tests Application.
+- **Siguiente**: designer para configurar columnas de GridDetail con formula/agg/rollup sin SQL (hoy la
+  config de columna avanzada se hace por OptionsJson; el editor de columnas del designer es basico label).
+  Luego F3 (transaccionalidad: consecutivo/estado/cierre).
+
 ## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F2 (parcial) - Campo calculado
 
 - **Agentes**: Claude (worktree `funny-bell-3f8562`). Mismo protocolo de esquema que F1 (ver doc 03 s.D / doc 04 del vault).

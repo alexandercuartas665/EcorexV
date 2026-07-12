@@ -110,6 +110,26 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Tablas en SERVIDOR (ola F2, doc 01 D5): formula por fila + roll-up de columnas al
+        // encabezado, con el helper compartido con el renderer. Persiste las filas computadas.
+        foreach (var question in questions.Where(q => q.ControlType == FormControlType.GridDetail))
+        {
+            var cols = Calc.FormGridCalculator.ParseColumns(question.OptionsJson);
+            if (cols.Count == 0) { continue; }
+            document.TryGetValue(question.FieldCode, out var gridField);
+            var gridRows = FormFieldValidator.ParseGridRows(gridField?.Value)
+                .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
+            var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols);
+            document[question.FieldCode] = new FormFieldValue(
+                computed.Count == 0 ? null : JsonSerializer.Serialize(computed, JsonOptions),
+                question.ControlType.ToString());
+            foreach (var (field, total) in rollups)
+            {
+                var type = questionsByCode.TryGetValue(field, out var tq) ? tq.ControlType.ToString() : FormControlType.Text.ToString();
+                document[field] = new FormFieldValue(total, type);
+            }
+        }
+
         // Calculo en SERVIDOR (ola F2, doc 01 D5): recomputa los campos con CalcExpression con el
         // MISMO evaluador tipado del cliente. El cliente NO es fuente de verdad para montos: su
         // valor se descarta y se persiste el del servidor.

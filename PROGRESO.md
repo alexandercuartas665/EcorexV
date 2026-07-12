@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-12 - Sesion (worktree formularios): F3 ARRANQUE - esquema transaccional
+
+- **Contexto**: se confirmo que los agregados de GridDetail (Sum/Count/Avg/Min/Max) YA funcionan todos
+  (demo en navegador: Count->2, Avg->1250, Sum->6000); falta solo el selector en el designer.
+- **Hecho (F3, esquema / checkpoint)**: la respuesta confirmada se vuelve un REGISTRO (doc 01 D2/D3).
+  - ENUMS: `FormIdentityMode` (None|NaturalKey|Sequence), `FormRecordStatus` (Draft|Confirmed|Voided),
+    en `ConfigureConventions`.
+  - `FormDefinition` += `IsTransactional`, `IdentityMode`, `IdentitySourceFieldCode`,
+    `UniqueKeyFieldsJson`, `SequenceId` (ref logica a `TenantSequence`).
+  - `FormResponse` += `RecordNumber`, `RecordStatus`, `TransactionDate`, `VoidedAt`,
+    `VoidedByTenantUserId`, `VoidReason`. Indice unico filtrado (tenant, definition, record_number).
+  - MIGRACION DUAL `AddFormTransactional` (PG `20260712213148` + SQL Server), aditiva. Aplicada en
+    local `ecorex_forms`; **PENDIENTE en prod** (registro en doc 04).
+  - Build verde; 360/360 tests Application.
+- **DECISION a validar**: se agrego `record_status` (ciclo transaccional) APARTE del `status` existente
+  (Draft/Submitted, ciclo de envio), para no tocar el flujo actual. Confirmar con el usuario.
+- **Siguiente (grueso de F3)**: logica de confirmar (consumir `ISequenceService` en modo Sequence /
+  validar unicidad en NaturalKey, en transaccion; anular no libera el numero; idempotente por
+  FormResponse.Id) en `FormResponseService`; DTOs; panel "Propiedades del formulario" (IsTransactional +
+  identidad) en el designer; boton confirmar/anular en el renderer. Cierre por evento (ej. firma) segun
+  doc 03 B.
+
 ## 2026-07-12 - Sesion (worktree formularios): F2 GridDetail - totales de columna + roll-up
 
 - **Hecho (cierra F2)**: totales/calculo en tablas GridDetail.

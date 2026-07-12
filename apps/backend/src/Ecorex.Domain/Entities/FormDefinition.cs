@@ -34,4 +34,21 @@ public class FormDefinition : TenantEntity, IVersioned
 
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
+
+    // ---- Transaccionalidad (Formularios avanzados, ola F3; doc 01 D2/D3) ----
+
+    /// <summary>Si es true, cada envio confirmado es un REGISTRO (hecho) con identidad, estado y fecha.</summary>
+    public bool IsTransactional { get; set; }
+
+    /// <summary>Como produce la identidad el registro (ninguna / clave natural / consecutivo).</summary>
+    public FormIdentityMode IdentityMode { get; set; } = FormIdentityMode.None;
+
+    /// <summary>NaturalKey: campo del formulario cuyo valor es el numero/clave del registro.</summary>
+    public string? IdentitySourceFieldCode { get; set; }
+
+    /// <summary>NaturalKey: codigos de campo que forman la clave unica por tenant (arreglo JSON).</summary>
+    public string? UniqueKeyFieldsJson { get; set; }
+
+    /// <summary>Sequence: referencia logica a la TenantSequence que se consume al confirmar (null si otro modo).</summary>
+    public Guid? SequenceId { get; set; }
 }

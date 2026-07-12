@@ -277,6 +277,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<FormFieldPresentation>().HaveConversion<string>().HaveMaxLength(40);
         // Calculo / agregacion (ola F2).
         configurationBuilder.Properties<FormAggregate>().HaveConversion<string>().HaveMaxLength(40);
+        // Transaccionalidad (ola F3).
+        configurationBuilder.Properties<FormIdentityMode>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormRecordStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1171,6 +1174,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Revision).HasDefaultValue(1);
             // Concurrencia optimista portable (ADR-0013), igual que TaskItem.
             b.Property(x => x.Version).IsConcurrencyToken();
+            // Transaccionalidad (ola F3, doc 01 D2/D3). Aditivas: enum con default, resto nullable.
+            b.Property(x => x.IdentityMode).HasDefaultValue(FormIdentityMode.None);
+            b.Property(x => x.IdentitySourceFieldCode).HasMaxLength(60);
+            b.Property(x => x.UniqueKeyFieldsJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });
@@ -1241,7 +1248,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Sin cascada: las respuestas sobreviven (la definicion se archiva, no se borra).
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+            // Registro transaccional (ola F3, doc 01 D2). Aditivas: enum con default, resto nullable.
+            b.Property(x => x.RecordNumber).HasMaxLength(100);
+            b.Property(x => x.RecordStatus).HasDefaultValue(FormRecordStatus.Draft);
+            b.Property(x => x.VoidReason).HasMaxLength(500);
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.Reference });
+            // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
+            b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()
+                .HasFilter(isNpgsql ? "record_number IS NOT NULL" : "[record_number] IS NOT NULL");
         });
 
         modelBuilder.Entity<FormFlowLink>(b =>

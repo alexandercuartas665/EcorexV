@@ -2818,15 +2818,36 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(600)")
                         .HasColumnName("description");
 
+                    b.Property<string>("IdentityMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("identity_mode");
+
+                    b.Property<string>("IdentitySourceFieldCode")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("identity_source_field_code");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit")
                         .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsTransactional")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_transactional");
 
                     b.Property<int>("Revision")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1)
                         .HasColumnName("revision");
+
+                    b.Property<Guid?>("SequenceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("sequence_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2843,6 +2864,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("title");
+
+                    b.Property<string>("UniqueKeyFieldsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("unique_key_fields_json");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -3189,6 +3214,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("RecordNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("record_number");
+
+                    b.Property<string>("RecordStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Draft")
+                        .HasColumnName("record_status");
+
                     b.Property<string>("Reference")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
@@ -3212,6 +3250,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
 
+                    b.Property<DateTimeOffset?>("TransactionDate")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("transaction_date");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
@@ -3225,11 +3267,29 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("version");
 
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("void_reason");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("voided_at");
+
+                    b.Property<Guid?>("VoidedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voided_by_tenant_user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_form_responses");
 
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("ix_form_responses_definition_id");
+
+                    b.HasIndex("TenantId", "DefinitionId", "RecordNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_responses_tenant_id_definition_id_record_number")
+                        .HasFilter("[record_number] IS NOT NULL");
 
                     b.HasIndex("TenantId", "DefinitionId", "Reference")
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");

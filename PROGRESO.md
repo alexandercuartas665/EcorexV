@@ -3787,3 +3787,32 @@ telefono `(300) 123-4567`, NIT `900,123,456`, fecha `13/07/2026`, firma e imagen
 GPS y notas OK. El boton "Imprimir" aparece en la vista previa apuntando a `/formularios/imprimir/{id}`.
 
 **Diferido**: PDF con plantilla de servidor (logo/layout) + object storage para guardar/adjuntar el PDF.
+
+---
+
+## Sesion 2026-07-13 (cont.) - Integracion Formularios avanzados a fase-0/clon-backbone + DEPLOY a prod
+
+**Agentes**: Claude (Opus 4.8, fork de la rama principal). **Accion**: integrar el trabajo del worktree
+`claude/briefing-worktree-formularios-f50017` (Formularios avanzados F1-F6 + impresion, 16 commits) a
+`fase-0/clon-backbone` y desplegar a prod.
+
+- **Merge** (`3e33029`, base `1b97bca`): unico conflicto PROGRESO.md (se conservaron ambas entradas);
+  ModelSnapshot PG+SqlServer auto-mergeados (quedaron `AddProjectBudgetAndDofa` + las 7 migraciones de
+  formularios en orden). No se regenero ninguna migracion. Mi trabajo de la sesion (ADR-0038/Mis
+  Procesos/wizard) preservado.
+- **Build Release** de la solucion verde; **395 unit + 88 integracion** (16 de formularios + 72
+  mios/reglas) verdes; Testcontainers aplico las 7 migraciones sobre contenedor fresco.
+- **E2E en Chrome (del usuario)**, BD `ecorex_dev` con las 7 migraciones aplicadas al arrancar: crear
+  formulario FRM-021, marcarlo transaccional con **Consecutivo del sistema**, llenar+enviar ->
+  registro **FRM-021-000001** (Confirmed); marcarlo **modulo** -> nodo de menu "Formulario nuevo"
+  (/m/FRM-021) + **bandeja** (KPIs, filtros, export Excel/CSV, columnas configuradas, el registro);
+  impresion F6 OK. El diseñador expone los 13 tipos de objeto + los 3 modos de identidad + permisos por
+  campo.
+- **DEPLOY a prod** (`root@10.0.0.3`, `/opt/ecorex`, build-from-git de `fase-0/clon-backbone` @ `3e33029`):
+  backup previo (`backups/ecorex-2026-07-13-1536.sql.gz`), `build --no-cache` + `up -d`. Al arrancar
+  aplico las **7 migraciones de formularios** (prod estaba en `AddProjectBudgetAndDofa`). Verificado:
+  `form_record_link` creada, `/login` HTTP 200. **Formularios avanzados EN PRODUCCION.**
+
+**Diferido (decision del usuario, no construido)**: botones con reglas de accion + integraciones
+(Siigo/WhatsApp/correo), PDF con plantilla de servidor + object storage, captura real de codigo de
+barras/audio, y refinamientos menores (KPIs configurables, policies tipadas Form.{code}.*, etc.).

@@ -473,3 +473,5 @@
 }
 .fb-autofill-add:hover { color: var(--brand, #1B1B1E); border-color: var(--brand, #1B1B1E); }
 .fb-hint { font-size: 10.5px; color: var(--ink-3, #A2A2AC); margin-top: 5px; }
+.fb-chkgrid { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.fb-chkgrid .pl-toggle { font-size: 12px; }

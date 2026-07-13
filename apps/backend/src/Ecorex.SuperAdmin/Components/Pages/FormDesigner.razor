@@ -449,6 +449,26 @@ else
                         <label class="form-label">Icono (clave, opcional)</label>
                         <input class="form-control" @bind="_moduleIcon" maxlength="60" placeholder="clipboard, chart, box..." />
                     </div>
+                    <div class="field">
+                        <label class="form-label">Columnas de la bandeja</label>
+                        <div class="fb-chkgrid">
+                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
+                            {
+                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleColumns.Contains(q.FieldCode)"
+                                    @onchange="@(e => ToggleSet(_moduleColumns, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
+                            }
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Campos de filtro</label>
+                        <div class="fb-chkgrid">
+                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
+                            {
+                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleFilters.Contains(q.FieldCode)"
+                                    @onchange="@(e => ToggleSet(_moduleFilters, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
+                            }
+                        </div>
+                    </div>
                     @if (_def.IsModule)
                     {
                         <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
@@ -506,6 +526,8 @@ else
     private string? _moduleIcon;
     private IReadOnlyList<MenuViewDto> _menuViews = [];
     private readonly List<(Guid Id, string Label)> _menuGroups = new();
+    private readonly HashSet<string> _moduleColumns = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _moduleFilters = new(StringComparer.Ordinal);
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -1045,6 +1067,18 @@ else
 
     private void OpenPreview() => _showPreview = true;
 
+    private static void ToggleSet(HashSet<string> set, string code, bool on)
+    {
+        if (on) { set.Add(code); } else { set.Remove(code); }
+    }
+
+    private static IReadOnlyList<string> ParseCodeList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
+    }
+
     private async void OpenFormProps()
     {
         _modalError = null;
@@ -1054,6 +1088,9 @@ else
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleParentId = null;
+        _moduleColumns.Clear(); _moduleFilters.Clear();
+        foreach (var c in ParseCodeList(_def.ListColumnsJson)) { _moduleColumns.Add(c); }
+        foreach (var f in ParseCodeList(_def.FilterFieldsJson)) { _moduleFilters.Add(f); }
         _showFormProps = true;
         // Vistas de menu para elegir DONDE colgar el modulo (ola F4).
         _menuViews = await MenuSvc.ListViewsAsync();
@@ -1122,7 +1159,8 @@ else
             // Modulo: promover/retirar con el grupo elegido (ola F4).
             Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
             var mod = await FormsSvc.SetModuleAsync(_def!.Id,
-                new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon));
+                new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon,
+                    _moduleColumns.ToList(), _moduleFilters.ToList()));
             if (!mod.IsOk) { _modalError = mod.Error; return; }
             _def = mod.Value;
 

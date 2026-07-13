@@ -48,21 +48,26 @@ public sealed record FormDefinitionDetailDto(
     bool IsTransactional = false, FormIdentityMode IdentityMode = FormIdentityMode.None,
     string? IdentitySourceFieldCode = null,
     // Formulario como modulo (ola F4, doc 01 D1).
-    bool IsModule = false, string? ModuleIcon = null);
+    bool IsModule = false, string? ModuleIcon = null,
+    string? ListColumnsJson = null, string? FilterFieldsJson = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del formulario".</summary>
 public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode);
 
-/// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado.</summary>
+/// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado. <see cref="Fields"/>
+/// son los valores de campo (fieldCode -> valor) para las columnas configurables de la bandeja / BI.</summary>
 public sealed record FormRecordListItemDto(
     Guid Id, string? RecordNumber, FormRecordStatus RecordStatus,
-    DateTimeOffset? TransactionDate, DateTimeOffset? SubmittedAt, string? Reference);
+    DateTimeOffset? TransactionDate, DateTimeOffset? SubmittedAt, string? Reference,
+    IReadOnlyDictionary<string, string?> Fields);
 
 /// <summary>Config de formulario-modulo (ola F4). Al promover, el usuario elige la vista de menu y el
-/// grupo padre DONDE colgar el modulo; el icono es opcional.</summary>
+/// grupo padre DONDE colgar el modulo; el icono es opcional. <see cref="ListColumns"/> y
+/// <see cref="FilterFields"/> son field codes para las columnas/filtros de la bandeja.</summary>
 public sealed record SetFormModuleRequest(
-    bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon);
+    bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon,
+    IReadOnlyList<string>? ListColumns = null, IReadOnlyList<string>? FilterFields = null);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 

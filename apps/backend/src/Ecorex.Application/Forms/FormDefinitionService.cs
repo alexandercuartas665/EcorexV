@@ -611,7 +611,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             containers.Select(ToDto).ToList(),
             questions.Select(ToDto).ToList(),
             definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
-            definition.IsModule, definition.ModuleIcon);
+            definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -650,6 +650,11 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         if (request.IsModule)
         {
             definition.ModuleIcon = Normalize(request.Icon);
+            // Columnas y filtros de la bandeja (doc 01 D6): field codes elegidos por el usuario.
+            definition.ListColumnsJson = request.ListColumns is { Count: > 0 }
+                ? System.Text.Json.JsonSerializer.Serialize(request.ListColumns) : null;
+            definition.FilterFieldsJson = request.FilterFields is { Count: > 0 }
+                ? System.Text.Json.JsonSerializer.Serialize(request.FilterFields) : null;
             // Si aun no tiene nodo, se crea en la vista+grupo elegidos por el usuario.
             if (definition.ModuleMenuNodeId is null)
             {

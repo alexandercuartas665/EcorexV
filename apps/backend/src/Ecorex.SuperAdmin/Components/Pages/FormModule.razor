@@ -7,9 +7,12 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
+@using Ecorex.Application.MenuConfig
 @inject IFormDefinitionService FormsSvc
 @inject IFormResponseService ResponsesSvc
+@inject IMenuConfigService MenuSvc
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 @* ============================================================
    Bandeja del formulario-MODULO (Formularios avanzados, ola F4,
@@ -23,6 +26,13 @@
 @if (_loading)
 {
     <p style="padding:24px;"><em>Cargando modulo...</em></p>
+}
+else if (_denied)
+{
+    <div style="padding:32px;">
+        <h3>Sin acceso</h3>
+        <p>No tienes permiso para ver el modulo <strong>@Code</strong> (no esta en tu menu).</p>
+    </div>
 }
 else if (_def is null)
 {
@@ -39,7 +49,10 @@ else
                 <h2 class="fm-title">@_def.Title</h2>
                 <p class="fm-sub">Modulo @_def.Code</p>
             </div>
-            <a class="fm-export" href="@CsvDataUri()" download="@($"{_def.Code}-registros.csv")">Exportar CSV</a>
+            <div style="display:flex;gap:8px;">
+                <button class="fm-export" @onclick="ExportExcelAsync" disabled="@_exporting">@(_exporting ? "Generando..." : "Exportar Excel")</button>
+                <a class="fm-export" href="@CsvDataUri()" download="@($"{_def.Code}-registros.csv")">CSV</a>
+            </div>
         </div>
 
         @* KPIs (doc 01 D6): cantidad, confirmados, anulados y % de crecimiento vs mes anterior. *@
@@ -61,16 +74,28 @@ else
             </select>
             <input class="fm-filter fm-search" placeholder="Buscar numero / referencia..."
                    value="@_search" @oninput="@(e => { _search = e.Value?.ToString(); })" />
+            @* Filtros dinamicos por campo configurado (doc 01 D6). *@
+            @foreach (var f in _filterFields)
+            {
+                var code = f.Code;
+                <input class="fm-filter" placeholder="@f.Label"
+                       value="@(_fieldFilters.GetValueOrDefault(code))"
+                       @oninput="@(e => { _fieldFilters[code] = e.Value?.ToString(); })" />
+            }
         </div>
 
         <table class="fm-table">
             <thead>
-                <tr><th>Numero</th><th>Fecha</th><th>Estado</th><th>Referencia</th></tr>
+                <tr>
+                    <th>Numero</th><th>Fecha</th><th>Estado</th>
+                    @foreach (var c in _columns) { <th>@c.Label</th> }
+                    @if (_columns.Count == 0) { <th>Referencia</th> }
+                </tr>
             </thead>
             <tbody>
                 @if (Filtered.Count == 0)
                 {
-                    <tr><td colspan="4" class="fm-empty">Sin registros@(HasFilters ? " que coincidan con el filtro" : " todavia").</td></tr>
+                    <tr><td colspan="@(3 + (_columns.Count == 0 ? 1 : _columns.Count))" class="fm-empty">Sin registros@(HasFilters ? " que coincidan con el filtro" : " todavia").</td></tr>
                 }
                 @foreach (var r in Filtered)
                 {
@@ -78,7 +103,8 @@ else
                         <td>@(r.RecordNumber ?? "-")</td>
                         <td>@((r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</td>
                         <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
-                        <td>@(r.Reference ?? "-")</td>
+                        @foreach (var c in _columns) { <td>@(r.Fields.GetValueOrDefault(c.Code) ?? "-")</td> }
+                        @if (_columns.Count == 0) { <td>@(r.Reference ?? "-")</td> }
                     </tr>
                 }
             </tbody>
@@ -93,10 +119,16 @@ else
     private FormDefinitionDetailDto? _def;
     private IReadOnlyList<FormRecordListItemDto> _records = [];
     private bool _loading = true;
+    private bool _denied;
     private string? _statusFilter;
     private string? _search;
+    private bool _exporting;
     private HubConnection? _hub;
     private string? _tenantId;
+    // Columnas y filtros configurados (ola F4): (fieldCode, etiqueta).
+    private List<(string Code, string Label)> _columns = new();
+    private List<(string Code, string Label)> _filterFields = new();
+    private readonly Dictionary<string, string?> _fieldFilters = new(StringComparer.Ordinal);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -106,8 +138,18 @@ else
         if (item is not null)
         {
             _def = await FormsSvc.GetAsync(item.Id);
+            if (_def is { IsModule: true } && !await HasMenuAccessAsync())
+            {
+                _denied = true;
+                _def = null;
+                _loading = false;
+                return;
+            }
             if (_def is { IsModule: true })
             {
+                var labels = _def.Questions.ToDictionary(q => q.FieldCode, q => q.Label, StringComparer.Ordinal);
+                _columns = ParseCodes(_def.ListColumnsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
+                _filterFields = ParseCodes(_def.FilterFieldsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
                 _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
             }
             else
@@ -149,7 +191,8 @@ else
         }
     }
 
-    private bool HasFilters => !string.IsNullOrWhiteSpace(_statusFilter) || !string.IsNullOrWhiteSpace(_search);
+    private bool HasFilters => !string.IsNullOrWhiteSpace(_statusFilter) || !string.IsNullOrWhiteSpace(_search)
+        || _fieldFilters.Values.Any(v => !string.IsNullOrWhiteSpace(v));
 
     private IReadOnlyList<FormRecordListItemDto> Filtered
     {
@@ -166,7 +209,60 @@ else
                 q = q.Where(r => (r.RecordNumber?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
                     || (r.Reference?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
             }
+            // Filtros dinamicos por campo configurado (ola F4).
+            foreach (var (code, val) in _fieldFilters)
+            {
+                if (string.IsNullOrWhiteSpace(val)) { continue; }
+                var v = val.Trim();
+                q = q.Where(r => r.Fields.GetValueOrDefault(code)?.Contains(v, StringComparison.OrdinalIgnoreCase) ?? false);
+            }
             return q.ToList();
+        }
+    }
+
+    private static IReadOnlyList<string> ParseCodes(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
+    }
+
+    /// <summary>
+    /// Policy ligera (ola F4): el modulo solo es accesible si su nodo /m/{code} esta VISIBLE en el
+    /// menu resuelto del usuario (reusa el sistema de permisos de menu). Fail-open si no se puede
+    /// resolver el tenant (no rompe accesos legitimos); deniega solo si el menu resuelve sin el nodo.
+    /// </summary>
+    private async Task<bool> HasMenuAccessAsync()
+    {
+        if (AuthState is null) { return true; }
+        var st = await AuthState;
+        if (!Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var tenantId)) { return true; }
+        var menu = await MenuSvc.GetMenuForTenantUserAsync(tenantId, null);
+        if (menu is null) { return true; }
+        var route = $"/m/{Code}";
+        bool Contains(IReadOnlyList<MenuNodeDto> nodes)
+            => nodes.Any(n => string.Equals(n.Route?.TrimStart('/'), route.TrimStart('/'), StringComparison.OrdinalIgnoreCase)
+                || Contains(n.Children));
+        return Contains(menu.Roots);
+    }
+
+    private async Task ExportExcelAsync()
+    {
+        if (_def is null) { return; }
+        _exporting = true;
+        try
+        {
+            var bytes = await ResponsesSvc.ExportRecordsXlsxAsync(_def.Id);
+            if (bytes is not null)
+            {
+                await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", $"{_def.Code}-registros.xlsx",
+                    Convert.ToBase64String(bytes),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            }
+        }
+        finally
+        {
+            _exporting = false;
         }
     }
 
@@ -184,11 +280,15 @@ else
     private string CsvDataUri()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Numero,Fecha,Estado,Referencia");
+        var head = new List<string> { "Numero", "Fecha", "Estado" };
+        head.AddRange(_columns.Count > 0 ? _columns.Select(c => c.Label) : new[] { "Referencia" });
+        sb.AppendLine(string.Join(",", head.Select(Csv)));
         foreach (var r in Filtered)
         {
             var fecha = (r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
-            sb.AppendLine($"{Csv(r.RecordNumber)},{fecha},{RecordStatusLabel(r.RecordStatus)},{Csv(r.Reference)}");
+            var cells = new List<string?> { r.RecordNumber, fecha, RecordStatusLabel(r.RecordStatus) };
+            cells.AddRange(_columns.Count > 0 ? _columns.Select(c => r.Fields.GetValueOrDefault(c.Code)) : new[] { r.Reference });
+            sb.AppendLine(string.Join(",", cells.Select(Csv)));
         }
         return "data:text/csv;charset=utf-8;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString()));
     }

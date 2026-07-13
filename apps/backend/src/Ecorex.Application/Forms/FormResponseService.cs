@@ -329,12 +329,69 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default)
     {
         // Bandeja del formulario-modulo (ola F4): los registros enviados (no borradores), recientes primero.
-        return await _db.FormResponses.AsNoTracking()
+        var rows = await _db.FormResponses.AsNoTracking()
             .Where(r => r.DefinitionId == definitionId && r.Status == FormResponseStatus.Submitted)
             .OrderByDescending(r => r.TransactionDate ?? r.SubmittedAt)
-            .Select(r => new FormRecordListItemDto(
-                r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference))
+            .Select(r => new { r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, r.Data })
             .ToListAsync(cancellationToken);
+
+        return rows.Select(r =>
+        {
+            var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            return new FormRecordListItemDto(
+                r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference,
+                fields);
+        }).ToList();
+    }
+
+    public async Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId && d.IsModule, cancellationToken);
+        if (definition is null) { return null; }
+
+        // Columnas de datos configuradas (field codes) + su etiqueta desde las preguntas.
+        var columns = ParseCodeList(definition.ListColumnsJson);
+        var labels = await _db.FormQuestions.AsNoTracking()
+            .Where(q => q.DefinitionId == definitionId)
+            .ToDictionaryAsync(q => q.FieldCode, q => q.Label, StringComparer.Ordinal, cancellationToken);
+
+        var records = await ListRecordsAsync(definitionId, cancellationToken);
+
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add(definition.Code);
+        // Encabezado: metadatos fijos + columnas de datos (vista aplanada para BI).
+        var headers = new List<string> { "Numero", "Fecha", "Estado", "Referencia" };
+        headers.AddRange(columns.Select(c => labels.TryGetValue(c, out var l) ? l : c));
+        for (var i = 0; i < headers.Count; i++) { ws.Cell(1, i + 1).Value = headers[i]; }
+        ws.Row(1).Style.Font.Bold = true;
+
+        var row = 2;
+        foreach (var r in records)
+        {
+            ws.Cell(row, 1).Value = r.RecordNumber ?? "";
+            ws.Cell(row, 2).Value = (r.TransactionDate ?? r.SubmittedAt)?.ToString("yyyy-MM-dd HH:mm") ?? "";
+            ws.Cell(row, 3).Value = r.RecordStatus.ToString();
+            ws.Cell(row, 4).Value = r.Reference ?? "";
+            for (var c = 0; c < columns.Count; c++)
+            {
+                ws.Cell(row, 5 + c).Value = r.Fields.TryGetValue(columns[c], out var v) ? v ?? "" : "";
+            }
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>Deserializa un arreglo JSON de field codes (columnas/filtros de la bandeja). Vacio si invalido.</summary>
+    private static IReadOnlyList<string> ParseCodeList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (JsonException) { return Array.Empty<string>(); }
     }
 
     /// <summary>

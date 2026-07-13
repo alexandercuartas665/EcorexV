@@ -44,4 +44,7 @@ public interface IFormResponseService
 
     /// <summary>Registros (respuestas enviadas) de una definicion, para la bandeja del formulario-modulo (ola F4).</summary>
     Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Exporta los registros de la bandeja a Excel (.xlsx) con las columnas configuradas (ola F4). Null si no es modulo.</summary>
+    Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default);
 }

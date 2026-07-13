@@ -3685,3 +3685,25 @@ almacenamiento de objetos para adjuntos grandes.
 
 **Siguiente**: marcar F6 completado en el vault (docs 00/03); a la espera de "ok deploy" del usuario para
 que la sesion principal aplique a prod (no hay migracion nueva de F6, solo codigo).
+
+---
+
+## Sesion 2026-07-13 (cont.) - Impresion basica del registro (print / PDF nativo)
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562`. **Sin migracion, sin dependencias nuevas.**
+
+Version BASICA de la "impresion/PDF" de F6 (la avanzada con plantilla + object storage sigue diferida):
+- **Pagina `/formularios/imprimir/{responseId}`** (`FormPrint.razor`, `EmptyLayout`, sin chrome): carga el
+  registro + su definicion y arma un **documento limpio de solo lectura** (cabecera con titulo/codigo/
+  numero/estado/fecha + filas etiqueta->valor). Respeta formato y mascara (phone/document/moneda/%),
+  fecha `dd/MM/yyyy`, opciones->etiqueta, multi-check, toggle Si/No, **firma e imagen adjunta inline**
+  (`<img>` del data-URI), **grid como tabla**, y **lookup resuelto a su etiqueta** (no el id). Al cargar
+  lanza el **dialogo NATIVO** del navegador (`window.print()`) -> Imprimir o **Guardar como PDF**.
+- **Boton "Imprimir"** en el footer del `DynamicFormRenderer` (solo sesion logueada; el visor publico no
+  tiene tenant) que abre esa pagina en pestana nueva.
+
+**Verificado E2E via Chrome** (FRM-022, `/formularios/imprimir/019f5c5d...`): documento con 8 filas ->
+telefono `(300) 123-4567`, NIT `900,123,456`, fecha `13/07/2026`, firma e imagen adjunta como `<img>`,
+GPS y notas OK. El boton "Imprimir" aparece en la vista previa apuntando a `/formularios/imprimir/{id}`.
+
+**Diferido**: PDF con plantilla de servidor (logo/layout) + object storage para guardar/adjuntar el PDF.

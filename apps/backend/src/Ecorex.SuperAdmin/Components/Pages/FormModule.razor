@@ -1,6 +1,7 @@
 @page "/m/{Code}"
 @attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text
 @using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
 @inject IFormDefinitionService FormsSvc
@@ -9,9 +10,9 @@
 
 @* ============================================================
    Bandeja del formulario-MODULO (Formularios avanzados, ola F4,
-   doc 01 D6 / doc 02 s5). Ruta /m/{code}: lista los registros
-   enviados de la definicion. Version base (listado); filtros
-   dinamicos, KPIs y export son el siguiente incremento.
+   doc 01 D6 / doc 02 s5). Ruta /m/{code}: KPIs + filtros + grid
+   de registros + export CSV. "En vivo" por SignalR y policies
+   Form.{code}.* quedan para el siguiente incremento.
    ============================================================ *@
 
 <PageTitle>@(_def?.Title ?? "Modulo") - ECOREX.tareas</PageTitle>
@@ -33,25 +34,42 @@ else
         <div class="fm-head">
             <div>
                 <h2 class="fm-title">@_def.Title</h2>
-                <p class="fm-sub">Modulo @_def.Code - @_records.Count registro(s)</p>
+                <p class="fm-sub">Modulo @_def.Code</p>
             </div>
+            <a class="fm-export" href="@CsvDataUri()" download="@($"{_def.Code}-registros.csv")">Exportar CSV</a>
+        </div>
+
+        @* KPIs (doc 01 D6): cantidad, confirmados, anulados y % de crecimiento vs mes anterior. *@
+        <div class="fm-kpis">
+            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count</span><span class="fm-kpi-l">Registros</span></div>
+            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Confirmed)</span><span class="fm-kpi-l">Confirmados</span></div>
+            <div class="fm-kpi"><span class="fm-kpi-n">@_records.Count(r => r.RecordStatus == FormRecordStatus.Voided)</span><span class="fm-kpi-l">Anulados</span></div>
+            <div class="fm-kpi">
+                <span class="fm-kpi-n">@ThisMonthCount <span class="fm-kpi-growth @(GrowthPct >= 0 ? "up" : "down")">@(GrowthPct >= 0 ? "+" : "")@GrowthPct%</span></span>
+                <span class="fm-kpi-l">Este mes</span>
+            </div>
+        </div>
+
+        <div class="fm-filters">
+            <select class="fm-filter" @bind="_statusFilter" @bind:after="StateHasChanged">
+                <option value="">Todos los estados</option>
+                <option value="Confirmed">Confirmados</option>
+                <option value="Voided">Anulados</option>
+            </select>
+            <input class="fm-filter fm-search" placeholder="Buscar numero / referencia..."
+                   value="@_search" @oninput="@(e => { _search = e.Value?.ToString(); })" />
         </div>
 
         <table class="fm-table">
             <thead>
-                <tr>
-                    <th>Numero</th>
-                    <th>Fecha</th>
-                    <th>Estado</th>
-                    <th>Referencia</th>
-                </tr>
+                <tr><th>Numero</th><th>Fecha</th><th>Estado</th><th>Referencia</th></tr>
             </thead>
             <tbody>
-                @if (_records.Count == 0)
+                @if (Filtered.Count == 0)
                 {
-                    <tr><td colspan="4" class="fm-empty">Sin registros todavia.</td></tr>
+                    <tr><td colspan="4" class="fm-empty">Sin registros@(HasFilters ? " que coincidan con el filtro" : " todavia").</td></tr>
                 }
-                @foreach (var r in _records)
+                @foreach (var r in Filtered)
                 {
                     <tr>
                         <td>@(r.RecordNumber ?? "-")</td>
@@ -71,6 +89,8 @@ else
     private FormDefinitionDetailDto? _def;
     private IReadOnlyList<FormRecordListItemDto> _records = [];
     private bool _loading = true;
+    private string? _statusFilter;
+    private string? _search;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -91,6 +111,52 @@ else
         }
         _loading = false;
     }
+
+    private bool HasFilters => !string.IsNullOrWhiteSpace(_statusFilter) || !string.IsNullOrWhiteSpace(_search);
+
+    private IReadOnlyList<FormRecordListItemDto> Filtered
+    {
+        get
+        {
+            IEnumerable<FormRecordListItemDto> q = _records;
+            if (Enum.TryParse<FormRecordStatus>(_statusFilter, out var st))
+            {
+                q = q.Where(r => r.RecordStatus == st);
+            }
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var s = _search.Trim();
+                q = q.Where(r => (r.RecordNumber?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Reference?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
+            }
+            return q.ToList();
+        }
+    }
+
+    private DateTimeOffset MonthStart => new(DateTimeOffset.Now.Year, DateTimeOffset.Now.Month, 1, 0, 0, 0, DateTimeOffset.Now.Offset);
+    private int ThisMonthCount => _records.Count(r => (r.TransactionDate ?? r.SubmittedAt) >= MonthStart);
+    private int PrevMonthCount => _records.Count(r =>
+    {
+        var d = r.TransactionDate ?? r.SubmittedAt;
+        return d >= MonthStart.AddMonths(-1) && d < MonthStart;
+    });
+    private int GrowthPct => PrevMonthCount == 0
+        ? (ThisMonthCount > 0 ? 100 : 0)
+        : (int)Math.Round((ThisMonthCount - PrevMonthCount) * 100.0 / PrevMonthCount);
+
+    private string CsvDataUri()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Numero,Fecha,Estado,Referencia");
+        foreach (var r in Filtered)
+        {
+            var fecha = (r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
+            sb.AppendLine($"{Csv(r.RecordNumber)},{fecha},{RecordStatusLabel(r.RecordStatus)},{Csv(r.Reference)}");
+        }
+        return "data:text/csv;charset=utf-8;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString()));
+    }
+
+    private static string Csv(string? v) => string.IsNullOrEmpty(v) ? "" : (v.Contains(',') ? $"\"{v}\"" : v);
 
     private static string RecordStatusLabel(FormRecordStatus s) => s switch
     {

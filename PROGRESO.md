@@ -21,10 +21,13 @@
   nodo de menu creado (Item, /m/FRM-021) bajo ese grupo, is_module=true; el modulo aparece en el menu y
   `/m/FRM-021` muestra la bandeja con el registro FRM-021-000001 (Confirmado). Encadena F3->F4.
   Solution verde; 360/360 tests.
-- **Siguiente (resto de F4)**: filtros dinamicos + KPIs (cantidad, suma, % crecimiento) + export Excel +
-  bandeja en vivo (SignalR record.created) + vista aplanada para BI; policies `Form.{code}.*`
-  (hoy la bandeja usa [Authorize] simple + visibilidad del nodo de menu). Config de columnas/filtros
-  en el designer. Luego F5/F6.
+- **Bandeja consultable (mismo dia)**: `FormModule.razor` += KPIs (registros / confirmados / anulados /
+  este mes con % crecimiento vs mes anterior) + filtros (estado + busqueda por numero/referencia) +
+  export CSV (data-URI). VERIFICADO en navegador: 3 reg (2 conf, 1 anul, este mes +100%); filtro
+  Anulados -> 1 fila; busqueda "002" -> FRM-021-000002.
+- **Siguiente (resto de F4)**: bandeja EN VIVO (SignalR record.created), vista aplanada para BI, policies
+  `Form.{code}.*` (hoy [Authorize] + visibilidad del nodo), config de columnas/filtros de la bandeja en
+  el designer, export a Excel (hoy CSV). Luego F5/F6.
 - **Decision (doc 03 B)**: "convertir en modulo" es opcional del formulario; el usuario elige la
   ubicacion en el menu (vista + grupo), no es fija.
 

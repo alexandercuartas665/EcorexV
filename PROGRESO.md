@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F5 designer + F6 transversales (defaults dinamicos + formato)
+
+- **F5 (cierre)**: el campo Subform ahora se crea/configura EN EL DESIGNER (tipo "Subformulario" en la
+  paleta + selector "Formulario hijo (detalle)" en el tab Datos que lista las definiciones). VERIFICADO
+  en navegador (FRM-002 seleccionado como hijo de FRM-021).
+- **F6 ARRANQUE (transversales de campo, doc 01 D8)**:
+  - ESQUEMA: `FormQuestion` += `DefaultDynamic` (enum None|Today|CurrentUser|CurrentEntidad) + `Format`
+    (string: currency|percent|integer|decimal). Migracion dual `AddFormFieldTransversals`. Aplicada
+    local; PENDIENTE prod (doc 04).
+  - RENDERER: al abrir a llenar, el default DINAMICO gana sobre el literal (Hoy -> fecha de hoy, Usuario
+    -> id); `FormatValue` muestra moneda/%/entero (aplicado a los campos calculados de solo lectura).
+  - DESIGNER: dropdowns "Valor por defecto dinamico" y "Formato" en el tab Datos.
+- **Verificado en navegador**: campo Fecha con default Today -> pre-llenado 2026-07-13; subtotal con
+  format currency -> "$ 1,620,000". Solution verde; 360 tests.
+- **Siguiente (resto de F6)**: permisos por campo (FieldVisibilityJson ver/editar por rol), impresion/PDF
+  con plantilla + object storage, webhooks tipados al confirmar, captura Tier 2 real (foto/firma/GPS/
+  archivo/barcode) con object storage, mascaras de entrada. Son piezas de integracion grandes (object
+  storage, PDF, cola de webhooks) -> incrementos siguientes.
+
 ## 2026-07-13 - Sesion (worktree formularios): F5 - maestro-detalle entre formularios
 
 - **Hecho (F5, doc 01 D7)**: el detalle son registros de OTRA definicion (no solo GridDetail embebido).

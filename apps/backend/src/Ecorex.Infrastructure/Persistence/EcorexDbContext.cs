@@ -281,6 +281,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         // Transaccionalidad (ola F3).
         configurationBuilder.Properties<FormIdentityMode>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormRecordStatus>().HaveConversion<string>().HaveMaxLength(40);
+        // Transversales (ola F6).
+        configurationBuilder.Properties<FormDefaultDynamic>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1230,6 +1232,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Calculo / agregacion (ola F2). Aditivas: CalcExpression nullable, Aggregate con default.
             b.Property(x => x.CalcExpression).HasMaxLength(1000);
             b.Property(x => x.Aggregate).HasDefaultValue(FormAggregate.None);
+            // Transversales (ola F6). Aditivas.
+            b.Property(x => x.DefaultDynamic).HasDefaultValue(FormDefaultDynamic.None);
+            b.Property(x => x.Format).HasMaxLength(40);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

@@ -114,6 +114,14 @@ public class FormQuestion : TenantEntity
     /// </summary>
     public Guid? SubformDefinitionId { get; set; }
 
+    // ---- Transversales (Formularios avanzados, ola F6; doc 01 D8) ----
+
+    /// <summary>Valor por defecto DINAMICO (Hoy / Usuario actual / ...), resuelto al abrir a llenar.</summary>
+    public FormDefaultDynamic DefaultDynamic { get; set; } = FormDefaultDynamic.None;
+
+    /// <summary>Formato/mascara de presentacion del valor: currency | percent | integer | phone | ... (null = sin formato).</summary>
+    public string? Format { get; set; }
+
     // ---- Calculo y agregacion (Formularios avanzados, ola F2; doc 01 seccion D5) ----
 
     /// <summary>

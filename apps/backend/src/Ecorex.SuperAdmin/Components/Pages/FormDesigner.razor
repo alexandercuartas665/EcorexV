@@ -560,6 +560,7 @@ else
         [FormControlType.Number] = new("Numerico", "Numero", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
+        [FormControlType.Subform] = new("Subformulario", "Detalle", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"7\" rx=\"1.5\"/><rect x=\"6\" y=\"13\" width=\"15\" height=\"3\" rx=\"1\"/><rect x=\"6\" y=\"18\" width=\"15\" height=\"3\" rx=\"1\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
         [FormControlType.Signature] = new("Firma", "Firma", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Photo] = new("Foto", "Foto", "<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Gps] = new("GPS", "GPS", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
@@ -687,9 +688,13 @@ else
 
     // ---- Ciclo de vida ----
 
+    private IReadOnlyList<FormDefinitionListItemDto> _allDefs = [];
+
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        // Definiciones para el selector de formulario hijo (Subform, ola F5).
+        _allDefs = await FormsSvc.ListAsync();
         _loading = false;
     }
 
@@ -888,7 +893,8 @@ else
         q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
-        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId);
+        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
+        q.DefaultDynamic, q.Format);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -1537,8 +1543,8 @@ else
                     {
                         FormControlType.Text, FormControlType.TextArea, FormControlType.Select,
                         FormControlType.Date, FormControlType.Number, FormControlType.Toggle,
-                        FormControlType.GridDetail, FormControlType.Signature, FormControlType.Photo,
-                        FormControlType.Gps, FormControlType.File, FormControlType.Barcode
+                        FormControlType.GridDetail, FormControlType.Subform, FormControlType.Signature,
+                        FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -1643,6 +1649,21 @@ else
                     () => PatchOptionAsync(node.Q!, -1, $"Columna {OptionLabels(node.Q!).Count + 1}"))
             </div>
         }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Subform })
+        {
+            <div class="fb-field">
+                <label>Formulario hijo (detalle)</label>
+                <select class="fb-select" value="@(node.Q!.SubformDefinitionId?.ToString() ?? "")"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { SubformDefinitionId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : (Guid?)null }))">
+                    <option value="">Selecciona una definicion...</option>
+                    @foreach (var d in _allDefs.Where(d => d.Id != _def!.Id))
+                    {
+                        <option value="@d.Id" selected="@(d.Id == node.Q!.SubformDefinitionId)">@d.Title (@d.Code)</option>
+                    }
+                </select>
+                <div class="fb-hint">Cada registro hijo es una respuesta de esa definicion, enlazada a este registro.</div>
+            </div>
+        }
         @if (node.IsQuestion && !node.IsDoc)
         {
             <div class="fb-field">
@@ -1654,6 +1675,26 @@ else
                 <label>Valor por defecto</label>
                 <input class="fb-input" value="@node.Q!.DefaultValue"
                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = e.Value?.ToString() }))" />
+            </div>
+            <div class="fb-field">
+                <label>Valor por defecto dinamico (al abrir)</label>
+                <select class="fb-select" value="@node.Q!.DefaultDynamic"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultDynamic = Enum.TryParse<FormDefaultDynamic>(e.Value?.ToString(), out var d) ? d : FormDefaultDynamic.None }))">
+                    <option value="@nameof(FormDefaultDynamic.None)">Ninguno</option>
+                    <option value="@nameof(FormDefaultDynamic.Today)">Hoy (fecha)</option>
+                    <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Formato (presentacion)</label>
+                <select class="fb-select" value="@(node.Q!.Format ?? "")"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { Format = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
+                    <option value="">Sin formato</option>
+                    <option value="currency">Moneda ($)</option>
+                    <option value="percent">Porcentaje (%)</option>
+                    <option value="integer">Entero (miles)</option>
+                    <option value="decimal">Decimal</option>
+                </select>
             </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))

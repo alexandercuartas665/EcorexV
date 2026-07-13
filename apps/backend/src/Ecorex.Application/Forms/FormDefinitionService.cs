@@ -700,7 +700,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson,
             q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
             q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
-            q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId);
+            q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
+            q.DefaultDynamic, q.Format);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -754,6 +755,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.Aggregate = request.Aggregate;
         // Maestro-detalle (ola F5, doc 01 D7): definicion hija del subformulario.
         question.SubformDefinitionId = request.SubformDefinitionId;
+        // Transversales (ola F6, doc 01 D8).
+        question.DefaultDynamic = request.DefaultDynamic;
+        question.Format = Normalize(request.Format);
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

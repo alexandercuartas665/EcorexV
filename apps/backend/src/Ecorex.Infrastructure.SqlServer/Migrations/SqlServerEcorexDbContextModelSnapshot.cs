@@ -3076,6 +3076,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DefaultDynamic")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("default_dynamic");
+
                     b.Property<string>("DefaultValue")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")
@@ -3099,6 +3107,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("FilterJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("filter_json");
+
+                    b.Property<string>("Format")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("format");
 
                     b.Property<string>("GridCol")
                         .IsRequired()

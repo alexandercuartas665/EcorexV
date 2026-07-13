@@ -245,14 +245,19 @@ else
                 {
                     foreach (var q in _definition.Questions)
                     {
-                        if (!string.IsNullOrWhiteSpace(q.DefaultValue)
-                            && !FormFieldValidator.IsNonInput(q.ControlType)
+                        if (!FormFieldValidator.IsNonInput(q.ControlType)
                             && !FormFieldValidator.IsPlaceholderCapture(q.ControlType)
                             && q.ControlType != FormControlType.GridDetail
                             && string.IsNullOrEmpty(_values.GetValueOrDefault(q.FieldCode)))
                         {
-                            _values[q.FieldCode] = q.DefaultValue;
-                            _dirty = true;
+                            // Default DINAMICO (ola F6, doc 01 D8) gana sobre el literal DefaultValue.
+                            var dyn = ResolveDynamicDefault(q.DefaultDynamic);
+                            var def = dyn ?? (string.IsNullOrWhiteSpace(q.DefaultValue) ? null : q.DefaultValue);
+                            if (def is not null)
+                            {
+                                _values[q.FieldCode] = def;
+                                _dirty = true;
+                            }
                         }
                     }
                 }
@@ -484,9 +489,10 @@ else
     {
         var value = _values.GetValueOrDefault(q.FieldCode);
         // Campo calculado (ola F2, doc 01 D5): solo lectura, valor recomputado por el evaluador.
+        // Con formato (ola F6) se muestra formateado (moneda/%/...).
         if (!string.IsNullOrWhiteSpace(q.CalcExpression))
         {
-            <input class="form-control dfr-calc" value="@value" tabindex="-1" readonly disabled />
+            <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
             return;
         }
         // Origen de datos / lookup (ola F1, doc 01 D4): si el campo tiene una fuente de datos,
@@ -1076,6 +1082,35 @@ else
         RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);
+    }
+
+    // ---- Transversales (ola F6, doc 01 D8) ----
+
+    /// <summary>Resuelve un valor por defecto dinamico al abrir el formulario (Hoy / Usuario actual).</summary>
+    private string? ResolveDynamicDefault(FormDefaultDynamic d) => d switch
+    {
+        FormDefaultDynamic.Today => DateTimeOffset.Now.ToString("yyyy-MM-dd"),
+        FormDefaultDynamic.CurrentUser => SubmittedByTenantUserId?.ToString(),
+        _ => null,
+    };
+
+    /// <summary>Aplica el formato de presentacion (moneda/%/entero) para MOSTRAR (no altera el valor guardado).</summary>
+    private static string FormatValue(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? ""; }
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!decimal.TryParse(value.Replace(" ", "").Replace(",", ""), System.Globalization.NumberStyles.Any, ci, out var num))
+        {
+            return value;
+        }
+        return format.Trim().ToLowerInvariant() switch
+        {
+            "currency" => "$ " + num.ToString("#,##0", ci),
+            "percent" => num.ToString("0.##", ci) + " %",
+            "integer" => Math.Round(num).ToString("#,##0", ci),
+            "decimal" => num.ToString("#,##0.00", ci),
+            _ => value,
+        };
     }
 
     /// <summary>

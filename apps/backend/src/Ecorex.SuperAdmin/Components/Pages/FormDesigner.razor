@@ -4,12 +4,16 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Lookups
+@using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject IFormDefinitionService FormsSvc
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
+@inject IFormLookupService LookupSvc
+@inject IMenuConfigService MenuSvc
 @inject NavigationManager Nav
 
 @* ============================================================
@@ -55,6 +59,7 @@ else
                 }
                 <span class="fb-status" style="background:@StatusSoft();color:@StatusColor()">@StatusLabel()</span>
                 <div class="fb-header-actions">
+                    <button class="fb-btn-ghost" @onclick="OpenFormProps">Propiedades</button>
                     <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
                     @if (_def.Status == FormStatus.Active)
                     {
@@ -371,6 +376,117 @@ else
     </div>
 }
 
+@* ===== Propiedades del formulario (ola F3): transaccionalidad + identidad ===== *@
+@if (_showFormProps && _def is not null)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showFormProps = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Propiedades del formulario</h3>
+                <button class="modal-close" @onclick="@(() => _showFormProps = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="pl-toggle"><input type="checkbox" @bind="_txIsTransactional" /> Es transaccional (cada envio confirmado es un registro)</label>
+                @if (_txIsTransactional)
+                {
+                    <div class="field" style="margin-top:14px;">
+                        <label class="form-label">Identidad del registro</label>
+                        <select class="form-control" @bind="_txMode">
+                            <option value="@nameof(FormIdentityMode.None)">Ninguna</option>
+                            <option value="@nameof(FormIdentityMode.Sequence)">Consecutivo del sistema</option>
+                            <option value="@nameof(FormIdentityMode.NaturalKey)">Por dato (clave natural)</option>
+                        </select>
+                    </div>
+                    @if (_txMode == nameof(FormIdentityMode.NaturalKey))
+                    {
+                        <div class="field">
+                            <label class="form-label">Campo clave (unico por tenant)</label>
+                            <select class="form-control" @bind="_txField">
+                                <option value="">Selecciona...</option>
+                                @foreach (var q in _def.Questions.Where(x => x.SourceKind == FormSourceKind.Options && string.IsNullOrWhiteSpace(x.CalcExpression)))
+                                {
+                                    <option value="@q.FieldCode">@q.Label (@q.FieldCode)</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    @if (_txMode == nameof(FormIdentityMode.Sequence))
+                    {
+                        <p style="font-size:12px;color:var(--ink-3);margin-top:8px;">
+                            El numero se genera con el prefijo del codigo del formulario (ej. @_def.Code-000001).
+                        </p>
+                    }
+                }
+
+                <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+                <label class="pl-toggle"><input type="checkbox" @bind="_isModule" @bind:after="OnModuleToggledAsync" /> Es un modulo del sistema (menu propio + bandeja en /m/@_def.Code)</label>
+                @if (_isModule)
+                {
+                    <div class="field-row" style="margin-top:12px;">
+                        <div class="field">
+                            <label class="form-label">Menu (vista)</label>
+                            <select class="form-control" value="@(_moduleViewId?.ToString() ?? "")"
+                                    @onchange="@(e => OnModuleViewChangedAsync(Guid.TryParse(e.Value?.ToString(), out var v) ? v : (Guid?)null))">
+                                <option value="">Selecciona...</option>
+                                @foreach (var view in _menuViews)
+                                {
+                                    <option value="@view.Id" selected="@(view.Id == _moduleViewId)">@view.Name@(view.IsDefault ? " (por defecto)" : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Grupo del menu (donde aparece)</label>
+                            <select class="form-control" @bind="_moduleParentId">
+                                <option value="">Raiz del menu</option>
+                                @foreach (var g in _menuGroups)
+                                {
+                                    <option value="@g.Id">@g.Label</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Icono (clave, opcional)</label>
+                        <input class="form-control" @bind="_moduleIcon" maxlength="60" placeholder="clipboard, chart, box..." />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Columnas de la bandeja</label>
+                        <div class="fb-chkgrid">
+                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
+                            {
+                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleColumns.Contains(q.FieldCode)"
+                                    @onchange="@(e => ToggleSet(_moduleColumns, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
+                            }
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Campos de filtro</label>
+                        <div class="fb-chkgrid">
+                            @foreach (var q in _def.Questions.Where(x => !FormFieldValidator.IsNonInput(x.ControlType)))
+                            {
+                                <label class="pl-toggle"><input type="checkbox" checked="@_moduleFilters.Contains(q.FieldCode)"
+                                    @onchange="@(e => ToggleSet(_moduleFilters, q.FieldCode, (bool)e.Value!))" /> @q.Label</label>
+                            }
+                        </div>
+                    </div>
+                    @if (_def.IsModule)
+                    {
+                        <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
+                    }
+                }
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showFormProps = false)" disabled="@_busy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SaveFormPropsAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public Guid Id { get; set; }
 
@@ -398,6 +514,20 @@ else
     // Vista previa y tokens.
     private bool _showPreview;
     private bool _showTokenModal;
+    // Propiedades del formulario / transaccionalidad (ola F3).
+    private bool _showFormProps;
+    private bool _txIsTransactional;
+    private string _txMode = nameof(FormIdentityMode.None);
+    private string? _txField;
+    // Formulario como modulo (ola F4).
+    private bool _isModule;
+    private Guid? _moduleViewId;
+    private string? _moduleParentId;
+    private string? _moduleIcon;
+    private IReadOnlyList<MenuViewDto> _menuViews = [];
+    private readonly List<(Guid Id, string Label)> _menuGroups = new();
+    private readonly HashSet<string> _moduleColumns = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _moduleFilters = new(StringComparer.Ordinal);
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -430,6 +560,7 @@ else
         [FormControlType.Number] = new("Numerico", "Numero", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
+        [FormControlType.Subform] = new("Subformulario", "Detalle", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"7\" rx=\"1.5\"/><rect x=\"6\" y=\"13\" width=\"15\" height=\"3\" rx=\"1\"/><rect x=\"6\" y=\"18\" width=\"15\" height=\"3\" rx=\"1\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
         [FormControlType.Signature] = new("Firma", "Firma", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Photo] = new("Foto", "Foto", "<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Gps] = new("GPS", "GPS", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
@@ -557,9 +688,13 @@ else
 
     // ---- Ciclo de vida ----
 
+    private IReadOnlyList<FormDefinitionListItemDto> _allDefs = [];
+
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        // Definiciones para el selector de formulario hijo (Subform, ola F5).
+        _allDefs = await FormsSvc.ListAsync();
         _loading = false;
     }
 
@@ -755,7 +890,11 @@ else
     private SaveFormQuestionRequest ToRequest(FormQuestionDto q) => new(
         q.ContainerId, q.FieldCode, q.Label, q.ControlType, q.Caption, q.HelpText,
         q.OptionsJson, q.Required, q.GridCol, q.Numeral, q.ValidationJson,
-        q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
+        q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
+        // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
+        q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
+        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
+        q.DefaultDynamic, q.Format, q.FieldVisibilityJson);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -933,6 +1072,146 @@ else
     }
 
     private void OpenPreview() => _showPreview = true;
+
+    private static void ToggleSet(HashSet<string> set, string code, bool on)
+    {
+        if (on) { set.Add(code); } else { set.Remove(code); }
+    }
+
+    // Permisos por campo (ola F6): roles del tenant + lectura/escritura de FieldVisibilityJson.
+    private static readonly string[] TenantRoles = { "Owner", "Admin", "Supervisor", "Advisor" };
+
+    private static Dictionary<string, List<string>> ParseFieldVis(string? json)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal) { ["hide"] = new(), ["readonly"] = new() };
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var key in new[] { "hide", "readonly" })
+            {
+                if (doc.RootElement.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    map[key] = arr.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).ToList();
+                }
+            }
+        }
+        catch (JsonException) { }
+        return map;
+    }
+
+    private static bool FieldVisHas(FormQuestionDto q, string key, string role)
+        => ParseFieldVis(q.FieldVisibilityJson)[key].Contains(role, StringComparer.OrdinalIgnoreCase);
+
+    private Task ToggleFieldVisAsync(FormQuestionDto q, string key, string role, bool on)
+    {
+        var map = ParseFieldVis(q.FieldVisibilityJson);
+        map[key].RemoveAll(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase));
+        if (on) { map[key].Add(role); }
+        var isEmpty = map["hide"].Count == 0 && map["readonly"].Count == 0;
+        var json = isEmpty ? null : JsonSerializer.Serialize(map);
+        return PatchQuestionAsync(q, r => r with { FieldVisibilityJson = json });
+    }
+
+    private static IReadOnlyList<string> ParseCodeList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
+    }
+
+    private async void OpenFormProps()
+    {
+        _modalError = null;
+        _txIsTransactional = _def!.IsTransactional;
+        _txMode = _def.IdentityMode.ToString();
+        _txField = _def.IdentitySourceFieldCode;
+        _isModule = _def.IsModule;
+        _moduleIcon = _def.ModuleIcon;
+        _moduleParentId = null;
+        _moduleColumns.Clear(); _moduleFilters.Clear();
+        foreach (var c in ParseCodeList(_def.ListColumnsJson)) { _moduleColumns.Add(c); }
+        foreach (var f in ParseCodeList(_def.FilterFieldsJson)) { _moduleFilters.Add(f); }
+        _showFormProps = true;
+        // Vistas de menu para elegir DONDE colgar el modulo (ola F4).
+        _menuViews = await MenuSvc.ListViewsAsync();
+        _moduleViewId = _menuViews.FirstOrDefault(v => v.IsDefault)?.Id ?? _menuViews.FirstOrDefault()?.Id;
+        if (_isModule && _moduleViewId is Guid vid) { await LoadMenuGroupsAsync(vid); }
+        StateHasChanged();
+    }
+
+    private async Task OnModuleToggledAsync()
+    {
+        if (_isModule && _menuGroups.Count == 0 && _moduleViewId is Guid vid)
+        {
+            await LoadMenuGroupsAsync(vid);
+        }
+    }
+
+    private async Task OnModuleViewChangedAsync(Guid? viewId)
+    {
+        _moduleViewId = viewId;
+        _moduleParentId = null;
+        if (viewId is Guid vid) { await LoadMenuGroupsAsync(vid); } else { _menuGroups.Clear(); }
+    }
+
+    /// <summary>Aplana el arbol de la vista a grupos (Section/Subgroup) para el selector de ubicacion.</summary>
+    private async Task LoadMenuGroupsAsync(Guid viewId)
+    {
+        _menuGroups.Clear();
+        var tree = await MenuSvc.GetViewTreeAsync(viewId);
+        if (!tree.IsOk || tree.Value is null) { return; }
+        void Walk(IReadOnlyList<MenuEditorNodeDto> nodes, int depth)
+        {
+            foreach (var n in nodes)
+            {
+                if (n.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                {
+                    _menuGroups.Add((n.Id, new string(' ', depth * 3) + n.Name));
+                }
+                if (n.Children.Count > 0) { Walk(n.Children, depth + 1); }
+            }
+        }
+        Walk(tree.Value.Roots, 0);
+    }
+
+    private async Task SaveFormPropsAsync()
+    {
+        _modalError = null;
+        var mode = Enum.TryParse<FormIdentityMode>(_txMode, out var m) ? m : FormIdentityMode.None;
+        if (_txIsTransactional && mode == FormIdentityMode.NaturalKey && string.IsNullOrWhiteSpace(_txField))
+        {
+            _modalError = "Elige el campo clave para la identidad por dato.";
+            return;
+        }
+        if (_isModule && !_def!.IsModule && _moduleViewId is null)
+        {
+            _modalError = "Elige la vista de menu donde publicar el modulo.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
+                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField));
+            if (!tx.IsOk) { _modalError = tx.Error; return; }
+            _def = tx.Value;
+
+            // Modulo: promover/retirar con el grupo elegido (ola F4).
+            Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
+            var mod = await FormsSvc.SetModuleAsync(_def!.Id,
+                new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon,
+                    _moduleColumns.ToList(), _moduleFilters.ToList()));
+            if (!mod.IsOk) { _modalError = mod.Error; return; }
+            _def = mod.Value;
+
+            _showFormProps = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private async void OpenTokenModal()
     {
@@ -1299,8 +1578,8 @@ else
                     {
                         FormControlType.Text, FormControlType.TextArea, FormControlType.Select,
                         FormControlType.Date, FormControlType.Number, FormControlType.Toggle,
-                        FormControlType.GridDetail, FormControlType.Signature, FormControlType.Photo,
-                        FormControlType.Gps, FormControlType.File, FormControlType.Barcode
+                        FormControlType.GridDetail, FormControlType.Subform, FormControlType.Signature,
+                        FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -1405,6 +1684,21 @@ else
                     () => PatchOptionAsync(node.Q!, -1, $"Columna {OptionLabels(node.Q!).Count + 1}"))
             </div>
         }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Subform })
+        {
+            <div class="fb-field">
+                <label>Formulario hijo (detalle)</label>
+                <select class="fb-select" value="@(node.Q!.SubformDefinitionId?.ToString() ?? "")"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { SubformDefinitionId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : (Guid?)null }))">
+                    <option value="">Selecciona una definicion...</option>
+                    @foreach (var d in _allDefs.Where(d => d.Id != _def!.Id))
+                    {
+                        <option value="@d.Id" selected="@(d.Id == node.Q!.SubformDefinitionId)">@d.Title (@d.Code)</option>
+                    }
+                </select>
+                <div class="fb-hint">Cada registro hijo es una respuesta de esa definicion, enlazada a este registro.</div>
+            </div>
+        }
         @if (node.IsQuestion && !node.IsDoc)
         {
             <div class="fb-field">
@@ -1417,10 +1711,269 @@ else
                 <input class="fb-input" value="@node.Q!.DefaultValue"
                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = e.Value?.ToString() }))" />
             </div>
+            <div class="fb-field">
+                <label>Valor por defecto dinamico (al abrir)</label>
+                <select class="fb-select" value="@node.Q!.DefaultDynamic"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultDynamic = Enum.TryParse<FormDefaultDynamic>(e.Value?.ToString(), out var d) ? d : FormDefaultDynamic.None }))">
+                    <option value="@nameof(FormDefaultDynamic.None)">Ninguno</option>
+                    <option value="@nameof(FormDefaultDynamic.Today)">Hoy (fecha)</option>
+                    <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
+                </select>
+            </div>
+            <div class="fb-field">
+                <label>Formato (presentacion)</label>
+                <select class="fb-select" value="@(node.Q!.Format ?? "")"
+                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { Format = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
+                    <option value="">Sin formato</option>
+                    <option value="currency">Moneda ($)</option>
+                    <option value="percent">Porcentaje (%)</option>
+                    <option value="integer">Entero (miles)</option>
+                    <option value="decimal">Decimal</option>
+                    <option value="phone">Telefono (mascara)</option>
+                    <option value="document">Documento (miles)</option>
+                </select>
+                <div class="fb-hint">En campos de texto, la mascara reformatea al perder el foco.</div>
+            </div>
+            <div class="fb-field">
+                <label>Ocultar para roles</label>
+                <div class="fb-chkgrid">
+                    @foreach (var role in TenantRoles)
+                    {
+                        <label class="pl-toggle"><input type="checkbox" checked="@FieldVisHas(node.Q!, "hide", role)"
+                            @onchange="@(e => ToggleFieldVisAsync(node.Q!, "hide", role, (bool)e.Value!))" /> @role</label>
+                    }
+                </div>
+            </div>
+            <div class="fb-field">
+                <label>Solo lectura para roles</label>
+                <div class="fb-chkgrid">
+                    @foreach (var role in TenantRoles)
+                    {
+                        <label class="pl-toggle"><input type="checkbox" checked="@FieldVisHas(node.Q!, "readonly", role)"
+                            @onchange="@(e => ToggleFieldVisAsync(node.Q!, "readonly", role, (bool)e.Value!))" /> @role</label>
+                    }
+                </div>
+            </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))
+            <div class="fb-field">
+                <label>Formula (campo calculado)</label>
+                <input class="fb-input" value="@node.Q!.CalcExpression" placeholder="{cantidad} * {precio}"
+                       @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { CalcExpression = e.Value?.ToString() }))" />
+                <div class="fb-hint">Usa @("{codigo}") para referenciar otros campos. Solo lectura al llenar.</div>
+            </div>
+            @RenderOrigenDatos(node.Q!)
         }
     };
+
+    // ---- Origen de datos / lookup (ola F1, doc 01 D4 + doc 02 seccion 2) ----
+
+    private RenderFragment RenderOrigenDatos(FormQuestionDto q) => __builder =>
+    {
+        <div class="fb-origen">
+            <div class="fb-field">
+                <label>Origen de datos</label>
+                <select class="fb-select" value="@q.SourceKind"
+                        @onchange="@(e => ChangeSourceKindAsync(q, e.Value?.ToString()))">
+                    <option value="@nameof(FormSourceKind.Options)">Opciones fijas</option>
+                    <option value="@nameof(FormSourceKind.DataContainer)">Contenedor de datos</option>
+                    <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
+                    <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
+                </select>
+            </div>
+            @if (q.SourceKind != FormSourceKind.Options)
+            {
+                _ = EnsureLookupMetaAsync(q);
+                var fields = LookupFieldsFor(q);
+                var sources = _lookupSources.GetValueOrDefault(q.SourceKind) ?? Array.Empty<FormLookupSourceOption>();
+
+                @if (q.SourceKind == FormSourceKind.DataContainer)
+                {
+                    <div class="fb-field">
+                        <label>Fuente (contenedor)</label>
+                        <select class="fb-select" value="@(q.SourceRef ?? "")"
+                                @onchange="@(e => PatchQuestionAsync(q, r => r with { SourceRef = e.Value?.ToString(), DisplayField = null }))">
+                            <option value="">Selecciona...</option>
+                            @foreach (var s in sources)
+                            {
+                                <option value="@s.Ref" selected="@(s.Ref == q.SourceRef)">@s.Label</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="fb-field">
+                    <label>Presentacion</label>
+                    <select class="fb-select" value="@q.Presentation"
+                            @onchange="@(e => PatchQuestionAsync(q, r => r with { Presentation = ParsePresentation(e.Value?.ToString()) }))">
+                        <option value="@nameof(FormFieldPresentation.Autocomplete)">Autocompletar</option>
+                        <option value="@nameof(FormFieldPresentation.Dropdown)">Lista</option>
+                        <option value="@nameof(FormFieldPresentation.Modal)">Buscador</option>
+                    </select>
+                </div>
+
+                <div class="fb-field">
+                    <label>Mostrar (etiqueta)</label>
+                    <select class="fb-select" value="@(q.DisplayField ?? "")"
+                            @onchange="@(e => PatchQuestionAsync(q, r => r with { DisplayField = e.Value?.ToString() }))">
+                        <option value="">Automatico</option>
+                        @foreach (var f in fields)
+                        {
+                            <option value="@f.Key" selected="@(f.Key == q.DisplayField)">@f.Label@(f.IsDynamic ? " (ficha)" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="fb-field">
+                    <label>Filtro (JSON opcional)</label>
+                    <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
+                           @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
+                </div>
+
+                <div class="fb-field">
+                    <label>Autollenar campos (al elegir, copia)</label>
+                    @RenderAutofillMap(q, fields)
+                </div>
+            }
+        </div>
+    };
+
+    /// <summary>Editor del mapa de autollenado: filas campoFuente -> campoFormulario (se copia al elegir).</summary>
+    private RenderFragment RenderAutofillMap(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
+    {
+        var map = ParseAutofillMap(q.AutofillMapJson).ToList();
+        var targets = _def!.Questions
+            .Where(x => x.Id != q.Id && x.SourceKind == FormSourceKind.Options)
+            .Select(x => x.FieldCode).ToList();
+
+        <div class="fb-autofill">
+            @foreach (var pair in map)
+            {
+                var src = pair.Key;
+                <div class="fb-autofill-row">
+                    <select class="fb-select" value="@src"
+                            @onchange="@(e => SetAutofillAsync(q, src, e.Value?.ToString(), pair.Value))">
+                        @foreach (var f in fields)
+                        {
+                            <option value="@f.Key" selected="@(f.Key == src)">@f.Label</option>
+                        }
+                    </select>
+                    <span class="fb-autofill-arrow">&rarr;</span>
+                    <select class="fb-select" value="@pair.Value"
+                            @onchange="@(e => SetAutofillAsync(q, src, src, e.Value?.ToString()))">
+                        <option value="">Campo destino...</option>
+                        @foreach (var t in targets)
+                        {
+                            <option value="@t" selected="@(t == pair.Value)">@t</option>
+                        }
+                    </select>
+                    <button type="button" class="fb-autofill-x" title="Quitar" @onclick="@(() => RemoveAutofillAsync(q, src))">&times;</button>
+                </div>
+            }
+            @if (fields.Count > 0)
+            {
+                <button type="button" class="fb-autofill-add" @onclick="@(() => AddAutofillAsync(q, fields))">+ Agregar mapeo</button>
+            }
+        </div>
+    };
+
+    // Metadata de lookup cacheada para los selectores del designer (por origen|fuente).
+    private readonly Dictionary<string, IReadOnlyList<FormLookupFieldMeta>> _lookupFields = new(StringComparer.Ordinal);
+    private readonly Dictionary<FormSourceKind, IReadOnlyList<FormLookupSourceOption>> _lookupSources = new();
+    private readonly HashSet<string> _lookupMetaLoading = new(StringComparer.Ordinal);
+
+    private static string MetaKey(FormQuestionDto q) => $"{q.SourceKind}|{q.SourceRef}";
+
+    private IReadOnlyList<FormLookupFieldMeta> LookupFieldsFor(FormQuestionDto q)
+        => _lookupFields.GetValueOrDefault(MetaKey(q)) ?? Array.Empty<FormLookupFieldMeta>();
+
+    /// <summary>Carga (una vez) las fuentes y campos de la fuente del campo, para los selectores.</summary>
+    private async Task EnsureLookupMetaAsync(FormQuestionDto q)
+    {
+        if (q.SourceKind == FormSourceKind.Options) { return; }
+        var key = MetaKey(q);
+        if (_lookupFields.ContainsKey(key) || !_lookupMetaLoading.Add(key)) { return; }
+        try
+        {
+            if (!_lookupSources.ContainsKey(q.SourceKind))
+            {
+                _lookupSources[q.SourceKind] = await LookupSvc.ListSourcesAsync(q.SourceKind);
+            }
+            _lookupFields[key] = await LookupSvc.DescribeFieldsAsync(q.SourceKind, q.SourceRef);
+        }
+        catch (Exception)
+        {
+            _lookupFields[key] = Array.Empty<FormLookupFieldMeta>();
+        }
+        finally
+        {
+            _lookupMetaLoading.Remove(key);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ChangeSourceKindAsync(FormQuestionDto q, string? kindStr)
+    {
+        var kind = Enum.TryParse<FormSourceKind>(kindStr, out var k) ? k : FormSourceKind.Options;
+        await PatchQuestionAsync(q, r => r with
+        {
+            SourceKind = kind,
+            // El valor guardado es siempre el id de la fila/entidad; SourceRef solo aplica al contenedor.
+            ValueField = kind == FormSourceKind.Options ? null : "id",
+            SourceRef = kind == FormSourceKind.DataContainer ? r.SourceRef : null,
+        });
+    }
+
+    private static FormFieldPresentation ParsePresentation(string? s)
+        => Enum.TryParse<FormFieldPresentation>(s, out var p) ? p : FormFieldPresentation.Autocomplete;
+
+    private static IReadOnlyDictionary<string, string> ParseAutofillMap(string? json)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return map; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var target = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                map[p.Name] = target ?? "";
+            }
+        }
+        catch (JsonException) { /* mapa invalido: se ignora */ }
+        return map;
+    }
+
+    private async Task AddAutofillAsync(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        var candidate = fields.Select(f => f.Key).FirstOrDefault(k => !map.ContainsKey(k));
+        if (candidate is null) { return; }
+        map[candidate] = "";
+        await PatchAutofillAsync(q, map);
+    }
+
+    private async Task SetAutofillAsync(FormQuestionDto q, string oldSource, string? newSource, string? target)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        map.Remove(oldSource);
+        if (!string.IsNullOrWhiteSpace(newSource)) { map[newSource] = target ?? ""; }
+        await PatchAutofillAsync(q, map);
+    }
+
+    private async Task RemoveAutofillAsync(FormQuestionDto q, string source)
+    {
+        var map = new Dictionary<string, string>(ParseAutofillMap(q.AutofillMapJson), StringComparer.OrdinalIgnoreCase);
+        map.Remove(source);
+        await PatchAutofillAsync(q, map);
+    }
+
+    private Task PatchAutofillAsync(FormQuestionDto q, Dictionary<string, string> map)
+    {
+        var json = map.Count == 0 ? null : JsonSerializer.Serialize(map);
+        return PatchQuestionAsync(q, r => r with { AutofillMapJson = json });
+    }
 
     private RenderFragment RenderReglasTab(Node node) => __builder =>
     {

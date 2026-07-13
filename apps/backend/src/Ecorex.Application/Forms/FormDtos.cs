@@ -31,13 +31,48 @@ public sealed record FormQuestionDto(
     string? HelpText, FormControlType ControlType, string? OptionsJson, bool Required,
     int SortOrder, string GridCol, string? Numeral, string? ValidationJson,
     int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
-    bool IsLocked = false, bool IsHidden = false);
+    bool IsLocked = false, bool IsHidden = false,
+    // Origen de datos / lookup (ola F1, doc 01 D4).
+    FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
+    string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
+    // Calculo / agregacion (ola F2, doc 01 D5).
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
+    // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
+    Guid? SubformDefinitionId = null,
+    // Transversales (ola F6, doc 01 D8): default dinamico + formato + permisos por campo.
+    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
+    string? FieldVisibilityJson = null);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
     int Revision, bool IsArchived, long Version,
     IReadOnlyList<FormContainerDto> Containers,
-    IReadOnlyList<FormQuestionDto> Questions);
+    IReadOnlyList<FormQuestionDto> Questions,
+    // Transaccionalidad (ola F3, doc 01 D2/D3).
+    bool IsTransactional = false, FormIdentityMode IdentityMode = FormIdentityMode.None,
+    string? IdentitySourceFieldCode = null,
+    // Formulario como modulo (ola F4, doc 01 D1).
+    bool IsModule = false, string? ModuleIcon = null,
+    string? ListColumnsJson = null, string? FilterFieldsJson = null);
+
+/// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del formulario".</summary>
+public sealed record SetFormTransactionalRequest(
+    bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode);
+
+/// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado. <see cref="Fields"/>
+/// son los valores de campo (fieldCode -> valor) para las columnas configurables de la bandeja / BI.</summary>
+public sealed record FormRecordListItemDto(
+    Guid Id, string? RecordNumber, FormRecordStatus RecordStatus,
+    DateTimeOffset? TransactionDate, DateTimeOffset? SubmittedAt, string? Reference,
+    IReadOnlyDictionary<string, string?> Fields);
+
+/// <summary>Config de formulario-modulo (ola F4). Al promover, el usuario elige la vista de menu y el
+/// grupo padre DONDE colgar el modulo; el icono es opcional. <see cref="ListColumns"/> y
+/// <see cref="FilterFields"/> son field codes para las columnas/filtros de la bandeja.</summary>
+public sealed record SetFormModuleRequest(
+    bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon,
+    IReadOnlyList<string>? ListColumns = null, IReadOnlyList<string>? FilterFields = null);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 
@@ -61,12 +96,26 @@ public sealed record SaveFormQuestionRequest(
     bool Required = false, string GridCol = "col-12", string? Numeral = null,
     string? ValidationJson = null,
     int Width = 12, string? PlaceholderText = null, string? DefaultValue = null,
-    bool IsLocked = false, bool IsHidden = false);
+    bool IsLocked = false, bool IsHidden = false,
+    // Origen de datos / lookup (ola F1, doc 01 D4).
+    FormSourceKind SourceKind = FormSourceKind.Options, string? SourceRef = null,
+    string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
+    string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
+    // Calculo / agregacion (ola F2, doc 01 D5).
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
+    // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
+    Guid? SubformDefinitionId = null,
+    // Transversales (ola F6, doc 01 D8): default dinamico + formato + permisos por campo.
+    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
+    string? FieldVisibilityJson = null);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,
     IReadOnlyDictionary<string, FormFieldValue> Data,
-    DateTimeOffset? SubmittedAt, Guid? SubmittedByTenantUserId, long Version);
+    DateTimeOffset? SubmittedAt, Guid? SubmittedByTenantUserId, long Version,
+    // Registro transaccional (ola F3, doc 01 D2).
+    string? RecordNumber = null, FormRecordStatus RecordStatus = FormRecordStatus.Draft,
+    DateTimeOffset? TransactionDate = null);
 
 /// <summary>Opciones de emision de un token de publicacion por URL.</summary>
 public sealed record EmitFormTokenRequest(

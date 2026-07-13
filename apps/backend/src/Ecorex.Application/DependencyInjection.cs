@@ -89,6 +89,13 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
         services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
+        // Formularios avanzados (ola F1, doc 01 D4): lookup/autocompletado desde tablas del
+        // tenant. Un adaptador por origen (Tercero, Item, DataContainer) + fachada que despacha.
+        // Sumar una fuente = registrar otro IFormLookupSource, sin tocar consumidores.
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.TerceroLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ItemLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.DataContainerLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupService, Forms.Lookups.FormLookupService>();
         // Motor de reglas (FASE 4 ola 3, ADR-0016): REGISTRO TIPADO de verbos en DI (el
         // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error
         // tipado, nunca Activator.CreateInstance sobre texto como el legacy).

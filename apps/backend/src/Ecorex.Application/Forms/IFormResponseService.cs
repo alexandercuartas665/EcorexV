@@ -38,4 +38,24 @@ public interface IFormResponseService
     /// con Reference = numero de la tarea y su FormFlowLink, y los devuelve para la UI.
     /// </summary>
     Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>Anula un registro transaccional confirmado (ola F3): Voided + motivo + auditoria; no libera el numero.</summary>
+    Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Registros (respuestas enviadas) de una definicion, para la bandeja del formulario-modulo (ola F4).</summary>
+    Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Exporta los registros de la bandeja a Excel (.xlsx) con las columnas configuradas (ola F4). Null si no es modulo.</summary>
+    Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    // ---- Maestro-detalle (ola F5, doc 01 D7) ----
+
+    /// <summary>Registros hijos enlazados a un campo Subform del padre.</summary>
+    Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Crea un registro hijo (borrador) de la definicion dada y lo enlaza al padre. Devuelve el id del hijo.</summary>
+    Task<FormResult<Guid>> AddChildAsync(Guid parentResponseId, string parentFieldCode, Guid childDefinitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Quita el enlace de un hijo (el registro hijo se conserva, se desengancha del padre).</summary>
+    Task<FormResult<bool>> UnlinkChildAsync(Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default);
 }

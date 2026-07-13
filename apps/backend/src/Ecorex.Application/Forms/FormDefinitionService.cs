@@ -17,14 +17,16 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly MenuConfig.IMenuConfigService _menu;
 
     [GeneratedRegex("^[A-Za-z][A-Za-z0-9_-]*$")]
     private static partial Regex FieldCodeRegex();
 
-    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext)
+    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext, MenuConfig.IMenuConfigService menu)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _menu = menu;
     }
 
     public async Task<IReadOnlyList<FormDefinitionListItemDto>> ListAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
@@ -607,7 +609,86 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.Id, definition.Code, definition.Title, definition.Description,
             definition.Status, definition.Revision, definition.IsArchived, definition.Version,
             containers.Select(ToDto).ToList(),
-            questions.Select(ToDto).ToList());
+            questions.Select(ToDto).ToList(),
+            definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
+            definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson);
+    }
+
+    public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
+        Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+        definition.IsTransactional = request.IsTransactional;
+        definition.IdentityMode = request.IsTransactional ? request.IdentityMode : FormIdentityMode.None;
+        definition.IdentitySourceFieldCode =
+            request.IsTransactional && request.IdentityMode == FormIdentityMode.NaturalKey
+                ? Normalize(request.IdentitySourceFieldCode) : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    /// <summary>
+    /// Promueve o retira el formulario como MODULO del sistema (ola F4, doc 01 D1). Al promover crea
+    /// un nodo de menu (Kind=Item, Route=/m/{code}) EN EL GRUPO que el usuario elige (vista + padre),
+    /// reusando el menu data-driven; al retirar borra ese nodo. El icono se guarda en la definicion.
+    /// </summary>
+    public async Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(
+        Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+
+        if (request.IsModule)
+        {
+            definition.ModuleIcon = Normalize(request.Icon);
+            // Columnas y filtros de la bandeja (doc 01 D6): field codes elegidos por el usuario.
+            definition.ListColumnsJson = request.ListColumns is { Count: > 0 }
+                ? System.Text.Json.JsonSerializer.Serialize(request.ListColumns) : null;
+            definition.FilterFieldsJson = request.FilterFields is { Count: > 0 }
+                ? System.Text.Json.JsonSerializer.Serialize(request.FilterFields) : null;
+            // Si aun no tiene nodo, se crea en la vista+grupo elegidos por el usuario.
+            if (definition.ModuleMenuNodeId is null)
+            {
+                if (request.MenuViewId is not Guid viewId)
+                {
+                    return FormResult<FormDefinitionDetailDto>.Invalid("Elige la vista de menu donde colgar el modulo.");
+                }
+                var node = await _menu.CreateNodeAsync(
+                    viewId, request.ParentNodeId, Domain.Enums.MenuNodeKind.Item, definition.Title,
+                    iconKey: definition.ModuleIcon, legacyCode: definition.Code,
+                    route: $"/m/{definition.Code}", cancellationToken: cancellationToken);
+                if (!node.IsOk || node.Value is null)
+                {
+                    return FormResult<FormDefinitionDetailDto>.Invalid(node.Error ?? "No se pudo crear el nodo de menu.");
+                }
+                definition.ModuleMenuNodeId = node.Value.Id;
+            }
+            definition.IsModule = true;
+        }
+        else
+        {
+            // Retirar: borra el nodo de menu (si existe) y limpia la marca.
+            if (definition.ModuleMenuNodeId is Guid nodeId)
+            {
+                await _menu.DeleteNodeAsync(nodeId, cancellationToken);
+                definition.ModuleMenuNodeId = null;
+            }
+            definition.IsModule = false;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
     }
 
     private static FormContainerDto ToDto(FormContainer c)
@@ -617,7 +698,10 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     private static FormQuestionDto ToDto(FormQuestion q)
         => new(q.Id, q.ContainerId, q.FieldCode, q.Label, q.Caption, q.HelpText, q.ControlType,
             q.OptionsJson, q.Required, q.SortOrder, q.GridCol, q.Numeral, q.ValidationJson,
-            q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden);
+            q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
+            q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
+            q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
+            q.DefaultDynamic, q.Format, q.FieldVisibilityJson);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -646,6 +730,35 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.IsHidden = request.IsHidden;
         question.Numeral = Normalize(request.Numeral);
         question.ValidationJson = Normalize(request.ValidationJson);
+        // Origen de datos / lookup (ola F1, doc 01 D4). Con Options (default) el resto queda en
+        // null; con una fuente de datos se guardan la fuente, los campos y el mapa de autollenado.
+        question.SourceKind = request.SourceKind;
+        question.Presentation = request.Presentation;
+        if (request.SourceKind == FormSourceKind.Options)
+        {
+            question.SourceRef = null;
+            question.DisplayField = null;
+            question.ValueField = null;
+            question.FilterJson = null;
+            question.AutofillMapJson = null;
+        }
+        else
+        {
+            question.SourceRef = Normalize(request.SourceRef);
+            question.DisplayField = Normalize(request.DisplayField);
+            question.ValueField = Normalize(request.ValueField);
+            question.FilterJson = Normalize(request.FilterJson);
+            question.AutofillMapJson = Normalize(request.AutofillMapJson);
+        }
+        // Calculo / agregacion (ola F2, doc 01 D5).
+        question.CalcExpression = Normalize(request.CalcExpression);
+        question.Aggregate = request.Aggregate;
+        // Maestro-detalle (ola F5, doc 01 D7): definicion hija del subformulario.
+        question.SubformDefinitionId = request.SubformDefinitionId;
+        // Transversales (ola F6, doc 01 D8).
+        question.DefaultDynamic = request.DefaultDynamic;
+        question.Format = Normalize(request.Format);
+        question.FieldVisibilityJson = Normalize(request.FieldVisibilityJson);
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

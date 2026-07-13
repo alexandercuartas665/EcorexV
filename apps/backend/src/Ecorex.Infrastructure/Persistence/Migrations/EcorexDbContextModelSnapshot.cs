@@ -2817,15 +2817,57 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(600)")
                         .HasColumnName("description");
 
+                    b.Property<string>("FilterFieldsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("filter_fields_json");
+
+                    b.Property<string>("IdentityMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("identity_mode");
+
+                    b.Property<string>("IdentitySourceFieldCode")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("identity_source_field_code");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean")
                         .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsModule")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_module");
+
+                    b.Property<bool>("IsTransactional")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_transactional");
+
+                    b.Property<string>("ListColumnsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("list_columns_json");
+
+                    b.Property<string>("ModuleIcon")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("module_icon");
+
+                    b.Property<Guid?>("ModuleMenuNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("module_menu_node_id");
 
                     b.Property<int>("Revision")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1)
                         .HasColumnName("revision");
+
+                    b.Property<Guid?>("SequenceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sequence_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2842,6 +2884,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("title");
+
+                    b.Property<string>("UniqueKeyFieldsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("unique_key_fields_json");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2989,6 +3035,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Aggregate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("aggregate");
+
+                    b.Property<string>("AutofillMapJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("autofill_map_json");
+
+                    b.Property<string>("CalcExpression")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("calc_expression");
+
                     b.Property<string>("Caption")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)")
@@ -3012,6 +3075,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DefaultDynamic")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("default_dynamic");
+
                     b.Property<string>("DefaultValue")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -3021,11 +3092,29 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("DisplayField")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("display_field");
+
                     b.Property<string>("FieldCode")
                         .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")
                         .HasColumnName("field_code");
+
+                    b.Property<string>("FieldVisibilityJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("field_visibility_json");
+
+                    b.Property<string>("FilterJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("filter_json");
+
+                    b.Property<string>("Format")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("format");
 
                     b.Property<string>("GridCol")
                         .IsRequired()
@@ -3066,6 +3155,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("placeholder_text");
 
+                    b.Property<string>("Presentation")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Autocomplete")
+                        .HasColumnName("presentation");
+
                     b.Property<bool>("Required")
                         .HasColumnType("boolean")
                         .HasColumnName("required");
@@ -3073,6 +3170,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Options")
+                        .HasColumnName("source_kind");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_ref");
+
+                    b.Property<Guid?>("SubformDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subform_definition_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -3089,6 +3203,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("ValidationJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("validation_json");
+
+                    b.Property<string>("ValueField")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("value_field");
 
                     b.Property<int>("Width")
                         .ValueGeneratedOnAdd()
@@ -3110,6 +3229,64 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_form_questions_definition_id_container_id_sort_order");
 
                     b.ToTable("form_questions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChildResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("child_response_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ParentFieldCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("parent_field_code");
+
+                    b.Property<Guid>("ParentResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_response_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_record_links");
+
+                    b.HasIndex("ChildResponseId")
+                        .HasDatabaseName("ix_form_record_links_child_response_id");
+
+                    b.HasIndex("ParentResponseId", "ParentFieldCode", "ChildResponseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_record_links_parent_response_id_parent_field_code_chil");
+
+                    b.ToTable("form_record_links", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>
@@ -3136,6 +3313,19 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("RecordNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_number");
+
+                    b.Property<string>("RecordStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("Draft")
+                        .HasColumnName("record_status");
+
                     b.Property<string>("Reference")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -3159,6 +3349,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<DateTimeOffset?>("TransactionDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("transaction_date");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -3172,11 +3366,29 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("version");
 
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("void_reason");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("voided_at");
+
+                    b.Property<Guid?>("VoidedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voided_by_tenant_user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_form_responses");
 
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("ix_form_responses_definition_id");
+
+                    b.HasIndex("TenantId", "DefinitionId", "RecordNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_responses_tenant_id_definition_id_record_number")
+                        .HasFilter("record_number IS NOT NULL");
 
                     b.HasIndex("TenantId", "DefinitionId", "Reference")
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
@@ -10321,6 +10533,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Container");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ChildResponse")
+                        .WithMany()
+                        .HasForeignKey("ChildResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_child_response_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ParentResponse")
+                        .WithMany()
+                        .HasForeignKey("ParentResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_parent_response_id");
+
+                    b.Navigation("ChildResponse");
+
+                    b.Navigation("ParentResponse");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>

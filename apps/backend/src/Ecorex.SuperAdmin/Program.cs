@@ -132,6 +132,8 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.S
 builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
 // #4b: badge de notificaciones en vivo.
 builder.Services.AddScoped<Ecorex.Application.Notifications.INotificationBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRNotificationBroadcaster>();
+// Formularios-modulo (ola F4): bandeja en vivo.
+builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRFormRecordBroadcaster>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).

@@ -2818,15 +2818,57 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(600)")
                         .HasColumnName("description");
 
+                    b.Property<string>("FilterFieldsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("filter_fields_json");
+
+                    b.Property<string>("IdentityMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("identity_mode");
+
+                    b.Property<string>("IdentitySourceFieldCode")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("identity_source_field_code");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit")
                         .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsModule")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_module");
+
+                    b.Property<bool>("IsTransactional")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_transactional");
+
+                    b.Property<string>("ListColumnsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("list_columns_json");
+
+                    b.Property<string>("ModuleIcon")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("module_icon");
+
+                    b.Property<Guid?>("ModuleMenuNodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("module_menu_node_id");
 
                     b.Property<int>("Revision")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1)
                         .HasColumnName("revision");
+
+                    b.Property<Guid?>("SequenceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("sequence_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -2843,6 +2885,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("title");
+
+                    b.Property<string>("UniqueKeyFieldsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("unique_key_fields_json");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
@@ -2990,6 +3036,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("Aggregate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("aggregate");
+
+                    b.Property<string>("AutofillMapJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("autofill_map_json");
+
+                    b.Property<string>("CalcExpression")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("calc_expression");
+
                     b.Property<string>("Caption")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)")
@@ -3013,6 +3076,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DefaultDynamic")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("default_dynamic");
+
                     b.Property<string>("DefaultValue")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")
@@ -3022,11 +3093,29 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("DisplayField")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("display_field");
+
                     b.Property<string>("FieldCode")
                         .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)")
                         .HasColumnName("field_code");
+
+                    b.Property<string>("FieldVisibilityJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("field_visibility_json");
+
+                    b.Property<string>("FilterJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("filter_json");
+
+                    b.Property<string>("Format")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("format");
 
                     b.Property<string>("GridCol")
                         .IsRequired()
@@ -3067,6 +3156,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("placeholder_text");
 
+                    b.Property<string>("Presentation")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Autocomplete")
+                        .HasColumnName("presentation");
+
                     b.Property<bool>("Required")
                         .HasColumnType("bit")
                         .HasColumnName("required");
@@ -3074,6 +3171,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Options")
+                        .HasColumnName("source_kind");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("source_ref");
+
+                    b.Property<Guid?>("SubformDefinitionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("subform_definition_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -3090,6 +3204,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("ValidationJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("validation_json");
+
+                    b.Property<string>("ValueField")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("value_field");
 
                     b.Property<int>("Width")
                         .ValueGeneratedOnAdd()
@@ -3111,6 +3230,64 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_form_questions_definition_id_container_id_sort_order");
 
                     b.ToTable("form_questions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChildResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("child_response_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ParentFieldCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("parent_field_code");
+
+                    b.Property<Guid>("ParentResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("parent_response_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_record_links");
+
+                    b.HasIndex("ChildResponseId")
+                        .HasDatabaseName("ix_form_record_links_child_response_id");
+
+                    b.HasIndex("ParentResponseId", "ParentFieldCode", "ChildResponseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_record_links_parent_response_id_parent_field_code_child_response_id");
+
+                    b.ToTable("form_record_links", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>
@@ -3137,6 +3314,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
+                    b.Property<string>("RecordNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("record_number");
+
+                    b.Property<string>("RecordStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("Draft")
+                        .HasColumnName("record_status");
+
                     b.Property<string>("Reference")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
@@ -3160,6 +3350,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
 
+                    b.Property<DateTimeOffset?>("TransactionDate")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("transaction_date");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
@@ -3173,11 +3367,29 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("version");
 
+                    b.Property<string>("VoidReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("void_reason");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("voided_at");
+
+                    b.Property<Guid?>("VoidedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voided_by_tenant_user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_form_responses");
 
                     b.HasIndex("DefinitionId")
                         .HasDatabaseName("ix_form_responses_definition_id");
+
+                    b.HasIndex("TenantId", "DefinitionId", "RecordNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_responses_tenant_id_definition_id_record_number")
+                        .HasFilter("[record_number] IS NOT NULL");
 
                     b.HasIndex("TenantId", "DefinitionId", "Reference")
                         .HasDatabaseName("ix_form_responses_tenant_id_definition_id_reference");
@@ -10322,6 +10534,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Container");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ChildResponse")
+                        .WithMany()
+                        .HasForeignKey("ChildResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_child_response_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ParentResponse")
+                        .WithMany()
+                        .HasForeignKey("ParentResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_parent_response_id");
+
+                    b.Navigation("ChildResponse");
+
+                    b.Navigation("ParentResponse");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>

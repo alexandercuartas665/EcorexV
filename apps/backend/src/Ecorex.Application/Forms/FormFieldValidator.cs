@@ -20,7 +20,9 @@ public static class FormFieldValidator
     public static bool IsNonInput(FormControlType type)
         => type is FormControlType.Heading or FormControlType.Literal
             or FormControlType.Button or FormControlType.Chart or FormControlType.Html
-            or FormControlType.Paragraph or FormControlType.Divider or FormControlType.Spacer;
+            or FormControlType.Paragraph or FormControlType.Divider or FormControlType.Spacer
+            // Subform (ola F5): los hijos son FormResponse propios (FormRecordLink), no un valor en el documento.
+            or FormControlType.Subform;
 
     /// <summary>Controles Tier 1 con componente en el DynamicFormRenderer.</summary>
     public static bool IsTier1(FormControlType type)

@@ -5,6 +5,227 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F6 - permisos por campo (visibilidad por rol)
+
+- **Hecho (F6, doc 01 D8)**: permisos a nivel de campo.
+  - ESQUEMA: `FormQuestion.FieldVisibilityJson` = { "hide":[roles], "readonly":[roles] } (nombres de
+    TenantRole: Owner/Admin/Supervisor/Advisor). Migracion dual `AddFormFieldVisibility`. Local; PENDIENTE prod.
+  - RENDERER: lee el rol del claim `tenant_role` (cascading AuthState; null en el visor publico -> sin
+    restriccion). Un rol en `hide` no ve el campo (RenderQuestion return); en `readonly` lo ve dentro de un
+    `<fieldset disabled>` (deshabilita el control sin tocar RenderInput). El valor se conserva al guardar.
+  - DESIGNER: checkboxes por rol "Ocultar para" y "Solo lectura para" en el tab Datos.
+- **Verificado en navegador (rol Owner)**: NIT con hide=[Owner] -> NO se pinta; Ciudad con readonly=[Owner]
+  -> input efectivamente deshabilitado (`:disabled` via `fieldset[disabled]`). Solution verde; 360 tests.
+- **WEBHOOKS/INTEGRACIONES: PENDIENTE (decision del usuario 2026-07-13)**: el usuario quiere botones en el
+  formulario con reglas de accion configurables (integraciones). El patron .NET correcto NO es reflexion
+  abierta (el proyecto la prohibe) sino un REGISTRO DE VERBOS TIPADOS resuelto por DI -> ES EL RulesEngine
+  YA EXISTENTE (`Ecorex.Application/Rules/Verbs/`, IRuleVerb). Mapeo: boton (FormControlType.Button) ->
+  FormFieldRule -> verbo tipado (allow-list) -> integracion. El usuario analizara la documentacion antes de
+  construirlo. NO construir webhooks hasta entonces.
+- **Siguiente (resto de F6)**: mascaras de ENTRADA; impresion/PDF con plantilla (object storage); captura
+  Tier 2 real (foto/firma/GPS/archivo/barcode) con object storage; botones con reglas de accion (ver nota).
+
+## 2026-07-13 - Sesion (worktree formularios): F5 designer + F6 transversales (defaults dinamicos + formato)
+
+- **F5 (cierre)**: el campo Subform ahora se crea/configura EN EL DESIGNER (tipo "Subformulario" en la
+  paleta + selector "Formulario hijo (detalle)" en el tab Datos que lista las definiciones). VERIFICADO
+  en navegador (FRM-002 seleccionado como hijo de FRM-021).
+- **F6 ARRANQUE (transversales de campo, doc 01 D8)**:
+  - ESQUEMA: `FormQuestion` += `DefaultDynamic` (enum None|Today|CurrentUser|CurrentEntidad) + `Format`
+    (string: currency|percent|integer|decimal). Migracion dual `AddFormFieldTransversals`. Aplicada
+    local; PENDIENTE prod (doc 04).
+  - RENDERER: al abrir a llenar, el default DINAMICO gana sobre el literal (Hoy -> fecha de hoy, Usuario
+    -> id); `FormatValue` muestra moneda/%/entero (aplicado a los campos calculados de solo lectura).
+  - DESIGNER: dropdowns "Valor por defecto dinamico" y "Formato" en el tab Datos.
+- **Verificado en navegador**: campo Fecha con default Today -> pre-llenado 2026-07-13; subtotal con
+  format currency -> "$ 1,620,000". Solution verde; 360 tests.
+- **Siguiente (resto de F6)**: permisos por campo (FieldVisibilityJson ver/editar por rol), impresion/PDF
+  con plantilla + object storage, webhooks tipados al confirmar, captura Tier 2 real (foto/firma/GPS/
+  archivo/barcode) con object storage, mascaras de entrada. Son piezas de integracion grandes (object
+  storage, PDF, cola de webhooks) -> incrementos siguientes.
+
+## 2026-07-13 - Sesion (worktree formularios): F5 - maestro-detalle entre formularios
+
+- **Hecho (F5, doc 01 D7)**: el detalle son registros de OTRA definicion (no solo GridDetail embebido).
+  - ESQUEMA: `FormControlType` += `Subform`; `FormQuestion.SubformDefinitionId`; **tabla nueva
+    `form_record_links`** (padre-hijo: parent_response_id, parent_field_code, child_response_id, unico).
+    Migracion dual `AddFormRecordLink` (1 tabla + 1 columna). Aplicada local; PENDIENTE prod (doc 04).
+  - SERVICIO: `FormResponseService.ListChildrenAsync/AddChildAsync/UnlinkChildAsync` (crea el hijo como
+    FormResponse propio de la definicion hija + enlace). `Subform` marcado IsNonInput (no va en el jsonb).
+  - RENDERER: el campo Subform lista los hijos + "Agregar registro" -> abre el formulario hijo ANIDADO
+    (DynamicFormRenderer recursivo, Fill) -> al enviar, el hijo (con su numero/estado) aparece enlazado.
+    Quitar desengancha (conserva el hijo).
+- **Verificado en navegador (`ecorex_forms`)**: FRM-021 con campo Subform -> hijo FRM-002; Agregar ->
+  formulario FRM-002 anidado (Bodega/Fecha) -> Enviar -> hijo **FRM-002-000001 (Confirmado)** enlazado en
+  la lista del padre; `form_record_links` con el enlace (detalle -> FRM-002-000001). Solution verde; 360 tests.
+- **Siguiente**: designer para crear/configurar el campo Subform (elegir definicion hija) sin SQL;
+  reportar el detalle aparte (ya es posible: cada hijo es un registro con numero). Luego F6.
+
+## 2026-07-13 - Sesion (worktree formularios): F4 ARRANQUE - formulario como modulo (menu dinamico)
+
+- **Hecho (F4, nucleo: promover a modulo con colocacion dinamica en el menu)**:
+  - ESQUEMA: `FormDefinition` += `IsModule`, `ModuleMenuNodeId`, `ModuleIcon`, `ListColumnsJson`,
+    `FilterFieldsJson`. Migracion dual `AddFormModule` (PG `20260713121447` + SQL Server), aditiva.
+    Aplicada en local; **PENDIENTE en prod** (doc 04).
+  - SERVICIO: `FormDefinitionService.SetModuleAsync` reusa `IMenuConfigService.CreateNodeAsync`
+    (Kind=Item, Route=/m/{code}) para crear el nodo de menu EN LA VISTA + GRUPO que elige el usuario;
+    al retirar borra el nodo. `FormResponseService.ListRecordsAsync` para la bandeja.
+  - UI: panel "Propiedades del formulario" += toggle "Es un modulo" + selector de **vista** + selector
+    de **grupo del menu (donde aparece)** (arbol aplanado a Section/Subgroup) + icono. Pagina bandeja
+    `FormModule.razor` en `/m/{code}` con el listado de registros enviados.
+- **Verificado en navegador (`ecorex_forms`)**: promover FRM-021 -> elegir grupo "Automatizacion" ->
+  nodo de menu creado (Item, /m/FRM-021) bajo ese grupo, is_module=true; el modulo aparece en el menu y
+  `/m/FRM-021` muestra la bandeja con el registro FRM-021-000001 (Confirmado). Encadena F3->F4.
+  Solution verde; 360/360 tests.
+- **Bandeja consultable (mismo dia)**: `FormModule.razor` += KPIs (registros / confirmados / anulados /
+  este mes con % crecimiento vs mes anterior) + filtros (estado + busqueda por numero/referencia) +
+  export CSV (data-URI). VERIFICADO en navegador: 3 reg (2 conf, 1 anul, este mes +100%); filtro
+  Anulados -> 1 fila; busqueda "002" -> FRM-021-000002.
+- **Bandeja EN VIVO (SignalR, mismo dia)**: `IFormRecordBroadcaster` (Application) + impl
+  `SignalRFormRecordBroadcaster` (reusa `TaskHub` y su grupo por tenant, evento "FormRecord");
+  `FormResponseService` emite tras confirmar un registro. `FormModule.razor` se suscribe (HubConnection
+  server-side, patron de ActivityBoardsIndex) y recarga. VERIFICADO en navegador con DOS pestanas: enviar
+  en el constructor -> la bandeja pasa de 4 a 5 SOLA (FRM-021-000011 arriba, sin recargar).
+  OJO fix: el connect NO puede ir gated en `_def` dentro de OnAfterRenderAsync(firstRender) porque
+  OnParametersSetAsync puede seguir cargando; el handler chequea `_def`.
+- **Siguiente (resto de F4)**: vista aplanada para BI, policies `Form.{code}.*` (hoy [Authorize] +
+  visibilidad del nodo), config de columnas/filtros de la bandeja en el designer, export a Excel (hoy
+  CSV). F4 ya cubre lo esencial (modulo + menu dinamico + bandeja KPIs/filtros/export/en vivo). Luego F5/F6.
+- **Decision (doc 03 B)**: "convertir en modulo" es opcional del formulario; el usuario elige la
+  ubicacion en el menu (vista + grupo), no es fija.
+
+## 2026-07-13 - Sesion (worktree formularios): F3 - logica confirmar/anular + identidad
+
+- **Hecho (F3, logica sobre el esquema)**:
+  - `FormResponseService.SaveAsync`: confirmar = enviar. Al enviar un form transaccional se asigna
+    identidad ANTES de la transaccion (patron `ISequenceService`: EnsureSequence+Next fuera de la tx),
+    RecordStatus=Confirmed, TransactionDate. Idempotente (no reasigna si ya Confirmed).
+    - Modo Sequence: consume `TenantSequence` (code corto "F"+8hex del id porque `code` es varchar(10);
+      OJO bug cazado: `FORM:{guid}` de 41 chars hacia fallar el INSERT y `EnsureSequenceAsync` se lo
+      tragaba -> "contencion excesiva"). Numero legible: prefijo = codigo del form (FRM-021-000001).
+    - Modo NaturalKey: numero = valor del campo `IdentitySourceFieldCode`; unicidad por indice unico
+      filtrado (DbUpdateException -> error de validacion "clave duplicada").
+  - `VoidAsync`: anula un registro Confirmed (Voided + motivo + auditoria; no libera el numero).
+  - DTO `FormResponseDto` += RecordNumber/RecordStatus/TransactionDate; renderer muestra chip verde con
+    el numero y chip "Anulado".
+- **Verificado (navegador, `ecorex_forms`)**: FRM-021 transaccional (Sequence) -> Enviar -> registro
+  FRM-021-000001, status=Submitted, rec_status=Confirmed, tx_date fijada, secuencia consumida (next=2).
+  Build verde; 360/360 tests Application.
+- **UI de F3 (mismo dia)**: panel "Propiedades del formulario" en el designer (boton Propiedades ->
+  modal con toggle Es transaccional + selector de identidad Ninguna/Consecutivo/Clave natural +
+  selector de campo clave) via `IFormDefinitionService.SetTransactionalAsync`; `FormDefinitionDetailDto`
+  += IsTransactional/IdentityMode/IdentitySourceFieldCode. Boton "Anular" (con motivo) en el renderer
+  cuando el registro esta Confirmed -> `IFormResponseService.VoidAsync`. VERIFICADO en navegador:
+  el panel lee (transaccional=on, Sequence) y escribe (cambio a NaturalKey campo=nit persistido).
+- **Con esto F3 queda funcional end-to-end** (esquema + logica + UI de config + anular). Pendiente fino:
+  cierre por evento (firma) doc 03 B; indices de dimension para BI; test unit/integracion de confirmar.
+  Luego F4 (formulario-modulo).
+
+## 2026-07-12 - Sesion (worktree formularios): F3 ARRANQUE - esquema transaccional
+
+- **Contexto**: se confirmo que los agregados de GridDetail (Sum/Count/Avg/Min/Max) YA funcionan todos
+  (demo en navegador: Count->2, Avg->1250, Sum->6000); falta solo el selector en el designer.
+- **Hecho (F3, esquema / checkpoint)**: la respuesta confirmada se vuelve un REGISTRO (doc 01 D2/D3).
+  - ENUMS: `FormIdentityMode` (None|NaturalKey|Sequence), `FormRecordStatus` (Draft|Confirmed|Voided),
+    en `ConfigureConventions`.
+  - `FormDefinition` += `IsTransactional`, `IdentityMode`, `IdentitySourceFieldCode`,
+    `UniqueKeyFieldsJson`, `SequenceId` (ref logica a `TenantSequence`).
+  - `FormResponse` += `RecordNumber`, `RecordStatus`, `TransactionDate`, `VoidedAt`,
+    `VoidedByTenantUserId`, `VoidReason`. Indice unico filtrado (tenant, definition, record_number).
+  - MIGRACION DUAL `AddFormTransactional` (PG `20260712213148` + SQL Server), aditiva. Aplicada en
+    local `ecorex_forms`; **PENDIENTE en prod** (registro en doc 04).
+  - Build verde; 360/360 tests Application.
+- **DECISION a validar**: se agrego `record_status` (ciclo transaccional) APARTE del `status` existente
+  (Draft/Submitted, ciclo de envio), para no tocar el flujo actual. Confirmar con el usuario.
+- **Siguiente (grueso de F3)**: logica de confirmar (consumir `ISequenceService` en modo Sequence /
+  validar unicidad en NaturalKey, en transaccion; anular no libera el numero; idempotente por
+  FormResponse.Id) en `FormResponseService`; DTOs; panel "Propiedades del formulario" (IsTransactional +
+  identidad) en el designer; boton confirmar/anular en el renderer. Cierre por evento (ej. firma) segun
+  doc 03 B.
+
+## 2026-07-12 - Sesion (worktree formularios): F2 GridDetail - totales de columna + roll-up
+
+- **Hecho (cierra F2)**: totales/calculo en tablas GridDetail.
+  - `FormGridCalculator` (Application/Forms/Calc) COMPARTIDO renderer+servidor: parsea columnas con
+    claves opcionales `calc`/`agg`/`rollup` (columnas viejas [{id,label}] siguen valiendo), evalua la
+    formula por fila (reusa `FormExpressionEvaluator`), agrega la columna (Sum/Count/Avg/Min/Max) y
+    devuelve el roll-up al campo del encabezado. 9 unit tests.
+  - RENDERER: columna calculada por fila (solo lectura), fila de totales (`<tfoot>`) y roll-up a un
+    campo del encabezado; recomputo ante cualquier cambio de celda (`RecomputeGrids`).
+  - SERVIDOR: `FormResponseService.SaveAsync` recomputa las tablas antes del calculo escalar (el
+    roll-up alimenta calcs del encabezado); el cliente no es fuente de verdad.
+- **Verificado (navegador, `ecorex_forms`)**: tabla Lineas con Subtotal=`{cant}*{precio}` agg Sum rollup
+  "Total general" -> filas 2x1500 y 3x1000 -> subtotales 3000/3000, fila de totales 6000, Total general=6000.
+  Solution verde; 360/360 tests Application.
+- **Siguiente**: designer para configurar columnas de GridDetail con formula/agg/rollup sin SQL (hoy la
+  config de columna avanzada se hace por OptionsJson; el editor de columnas del designer es basico label).
+  Luego F3 (transaccionalidad: consecutivo/estado/cierre).
+
+## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F2 (parcial) - Campo calculado
+
+- **Agentes**: Claude (worktree `funny-bell-3f8562`). Mismo protocolo de esquema que F1 (ver doc 03 s.D / doc 04 del vault).
+- **Hecho (F2, primer incremento: campos calculados escalares)**:
+  - DOMINIO: `FormQuestion` += `CalcExpression (string?)`, `Aggregate (FormAggregate)`; enum `FormAggregate`
+    (None|Sum|Count|Avg|Min|Max) registrado en `ConfigureConventions`.
+  - MIGRACION DUAL `AddFormCalcFields` (PG `20260712202108` + SQL Server), aditiva. Aplicada en local
+    `ecorex_forms`; **PENDIENTE en prod** (la aplica la sesion principal, registro en doc 04).
+  - EVALUADOR: `FormExpressionEvaluator` (Application/Forms/Calc) - sandbox TIPADO con allow-list:
+    aritmetica + parentesis + menos unario + refs `{codigo}`; sin codigo arbitrario ni reflexion
+    (evita el RCE del legacy). Campo vacio = 0; expresion invalida = null. 16 unit tests verdes.
+  - RENDERER: campo calculado = solo lectura, recomputado en cliente ante cualquier cambio
+    (`RecomputeCalculatedFields`) con el MISMO evaluador; incluido en carga, SetValue, ToggleMulti y
+    autollenado de lookup (encadena F1->F2).
+  - SERVIDOR: `FormResponseService.SaveAsync` recomputa los calc en servidor y DESCARTA el valor del
+    cliente (no confiable para montos; fuente de verdad = servidor).
+  - DESIGNER: input "Formula (campo calculado)" en el tab Datos.
+- **Verificado (navegador, `ecorex_forms`)**: campo Subtotal = `{cantidad} * {precio_item}` -> Cantidad=3,
+  Precio=540000 -> Subtotal=1620000 en vivo, solo lectura. Solution build verde; 351/351 tests Application.
+- **Siguiente (resto de F2)**: totales de columna en GridDetail (`Aggregate` -> fila de totales) + columna
+  calculada por fila + roll-up al encabezado (doc 01 D5, doc 02 s4). Luego F3 (transaccionalidad).
+- **Decisiones**: formulas modestas (aritmetica), "sin artilleria pesada" (doc 03 B). Evaluador compartido
+  cliente/servidor. Valor del cliente para calc se ignora en el guardado.
+
+## 2026-07-12 - Sesion (worktree formularios): Formularios avanzados OLA F1 - Lookups / autollenado
+
+- **Agentes**: Claude (worktree `funny-bell-3f8562`, rama `claude/briefing-worktree-formularios-f50017`).
+- **Contexto de trabajo (acordado con el usuario)**: se trabaja SOLO en formularios avanzados, en un
+  worktree aparte, en paralelo con la sesion principal. El agente CODEA todo (incluida la migracion),
+  la aplica en una BD LOCAL de trabajo (`ecorex_forms`, copia de dev) y deja el registro de cada cambio
+  de esquema en el vault (doc 04) para que la sesion principal lo replique en PROD cuando pueda. La
+  remota NO se toca desde aqui. Protocolo: vault doc 03 seccion D; registro de tablas: vault doc 04.
+- **Hecho (F1 completa, spec vault Capa 4, doc 01 D4 + doc 02 s2)**:
+  - DOMINIO: `FormQuestion` += 7 columnas (`SourceKind/SourceRef/DisplayField/ValueField/FilterJson/
+    AutofillMapJson/Presentation`); enums nuevos `FormSourceKind` (Options|DataContainer|Tercero|Item)
+    y `FormFieldPresentation` (Autocomplete|Dropdown|Modal), registrados en `ConfigureConventions`.
+  - MIGRACION DUAL: `AddFormLookupFields` en PG (`Ecorex.Infrastructure`) y SQL Server
+    (`Ecorex.Infrastructure.SqlServer`); ADITIVA (bajo riesgo). Validada en Postgres local efimero.
+    **Reporte de campos entregado (doc 04). Estado: aplicada en local, PENDIENTE en prod (la aplica la
+    sesion principal).**
+  - SERVICIO: `IFormLookupService` + `IFormLookupSource` con 3 adaptadores (`TerceroLookupSource`,
+    `ItemLookupSource`, `DataContainerLookupSource`) en `Application/Forms/Lookups`. Server-side,
+    paginado, parametrizado; tenant por el filtro global; interfaz extensible (sumar fuente = registrar
+    otro adaptador). `ResolveAsync` revalida el id elegido (existe + del tenant). Reusa
+    `TerceroFieldService`/`ItemFieldService` (fichas dinamicas) y `IDataContainerService`.
+  - UI: `DynamicFormRenderer` -> control lookup (autocompletar/lista/buscador); al elegir guarda el id y
+    COPIA los campos de `AutofillMapJson` a los destinos; boton "Crear" deep-link al modulo si falta el
+    dato. `FormDesigner` (tab Datos) -> bloque "Origen de datos" (Origen/Fuente/Presentacion/Mostrar/
+    Filtro/mapa de autollenado), con metadata de campos (estandar + fichas) cargada por el servicio.
+  - DTOs (`SaveFormQuestionRequest`/`FormQuestionDto`) y mapeo en `FormDefinitionService` extendidos;
+    `ToRequest` del designer arrastra los campos de lookup (no se pierden al hacer patch).
+- **Verificado (navegador, BD local `ecorex_forms`)**: campo Cliente (Directorio, Autocompletar) ->
+  escribir "a" trae 5 terceros reales -> elegir "ANDINA S.A.S" autollena NIT=901.111.222 y Ciudad=Bogota.
+  Designer muestra todo el bloque configurable (incluye fichas dinamicas del tenant). `dotnet build`
+  solution verde; unit del dispatcher `FormLookupServiceTests` 4/4.
+- **Siguiente**: (1) la sesion principal aplica `AddFormLookupFields` a prod (doc 04); (2) test de
+  aislamiento cross-tenant del lookup en `Integration.Tests` (Testcontainers, dual) + round-trip
+  guardar/leer; (3) probar en navegador los adaptadores Item y DataContainer; (4) revalidacion de
+  servidor del id lookup en `FormResponseService.SaveAsync` (hoy la garantia es el filtro global +
+  `ResolveAsync`). Luego OLA F2 (calculo/formulas).
+- **Bloqueos**: el navegador integrado hace timeout en screenshots y su snapshot va con retraso con
+  Blazor Server; se verifico manejando el DOM vivo con javascript_tool (los clicks/handlers SI corren).
+- **Decisiones**: valor guardado = id de la entidad/fila; autollenado por COPIA (snapshot), no
+  referencia (decision del usuario). `ValueField` fijo a "id" al elegir una fuente de datos.
+
 ## 2026-07-08 - Sesion: Editor bpmn-js (iconos) + deploy a prod + dev conectado a la BD de prod
 
 **Agentes**: sesion principal + agente de fix de gateways (ADR-0037, ver entrada siguiente).
@@ -3513,3 +3734,56 @@ llama `OpenAsync(presetSubcategoriaId)`; `OnCreated` recarga el tablero. Se revi
 del rapido (vuelve a ser solo no-proceso). Ademas se unifico el NAMING de la creacion del tablero a
 "actividad" (boton/modal/commit/header/toast). Validado en el Chrome del usuario: abre el wizard grande con
 Proceso=Comercial + Actividad=Cotizacion de equipos preseleccionados (screenshot). Build verde.
+## Sesion 2026-07-13 - Formularios avanzados F6 (transversales): cierre de mascaras + captura Tier 2
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562` (rama `claude/briefing-worktree-formularios-f50017`).
+**Contexto**: trabajo contra BD local `ecorex_forms` (no se despliega a prod hasta que el usuario lo indique;
+el agente codea todo, incluidas migraciones, y documenta el esquema en el vault doc 04 para la sesion principal).
+
+**Cerrados los 2 pendientes de F6 (sin migracion nueva: reutilizan columnas F6 ya existentes
+`format`, `default_dynamic`, `field_visibility_json`)**:
+- **Mascaras de entrada** (`DynamicFormRenderer.MaskInput`): en campos de texto la mascara reformatea al
+  perder el foco. `phone` -> `(300) 123-4567`; `document` -> `900,123,456`. El valor GUARDADO queda crudo
+  (la mascara es solo presentacion). Opciones "Telefono (mascara)" y "Documento (miles)" agregadas al
+  dropdown Formato del disenador (pestana Datos).
+- **Captura Tier 2 real** (`form-capture.js` + fragments en el renderer): **firma** en canvas -> dataURL PNG
+  inline; **GPS** via `navigator.geolocation`; **archivo/foto** -> data-URI inline con tope de 1 MB
+  (almacenamiento de objetos para adjuntos grandes queda como incremento posterior). Se cargo el script en
+  `App.razor` y se agregaron estilos en `DynamicFormRenderer.razor.css`.
+
+**Prueba E2E via MCP de Chrome** (usuario `completo@sky-system.local`, rol **Advisor**): se creo el
+formulario **FRM-022** DESDE el disenador (drag del palette + Formato=phone persistido), se sembraron 7
+campos F6 adicionales, se **Activo** y se lleno en Vista previa (modo Fill). Validado y persistido en BD:
+mascara phone `3001234567`->`(300) 123-4567` (guarda crudo), mascara document `900123456`->`900,123,456`,
+default dinamico Hoy = `2026-07-13`, firma dataURL PNG (4358 chars), GPS (cableado OK; permiso denegado en
+sandbox), archivo data-URI PNG con preview, **solo-lectura por rol** (notas dentro de `fieldset[disabled]`
+para Advisor) y **oculto por rol** (campo "codigo interno" no renderiza para Advisor). Envio -> "Enviado".
+
+**Diferido explicitamente (NO construido, el usuario analiza la documentacion)**: webhooks / botones con
+reglas de accion e integraciones por reflexion (verbos tipados). Tambien diferido: PDF con plantilla y
+almacenamiento de objetos para adjuntos grandes.
+
+**Siguiente**: marcar F6 completado en el vault (docs 00/03); a la espera de "ok deploy" del usuario para
+que la sesion principal aplique a prod (no hay migracion nueva de F6, solo codigo).
+
+---
+
+## Sesion 2026-07-13 (cont.) - Impresion basica del registro (print / PDF nativo)
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562`. **Sin migracion, sin dependencias nuevas.**
+
+Version BASICA de la "impresion/PDF" de F6 (la avanzada con plantilla + object storage sigue diferida):
+- **Pagina `/formularios/imprimir/{responseId}`** (`FormPrint.razor`, `EmptyLayout`, sin chrome): carga el
+  registro + su definicion y arma un **documento limpio de solo lectura** (cabecera con titulo/codigo/
+  numero/estado/fecha + filas etiqueta->valor). Respeta formato y mascara (phone/document/moneda/%),
+  fecha `dd/MM/yyyy`, opciones->etiqueta, multi-check, toggle Si/No, **firma e imagen adjunta inline**
+  (`<img>` del data-URI), **grid como tabla**, y **lookup resuelto a su etiqueta** (no el id). Al cargar
+  lanza el **dialogo NATIVO** del navegador (`window.print()`) -> Imprimir o **Guardar como PDF**.
+- **Boton "Imprimir"** en el footer del `DynamicFormRenderer` (solo sesion logueada; el visor publico no
+  tiene tenant) que abre esa pagina en pestana nueva.
+
+**Verificado E2E via Chrome** (FRM-022, `/formularios/imprimir/019f5c5d...`): documento con 8 filas ->
+telefono `(300) 123-4567`, NIT `900,123,456`, fecha `13/07/2026`, firma e imagen adjunta como `<img>`,
+GPS y notas OK. El boton "Imprimir" aparece en la vista previa apuntando a `/formularios/imprimir/{id}`.
+
+**Diferido**: PDF con plantilla de servidor (logo/layout) + object storage para guardar/adjuntar el PDF.

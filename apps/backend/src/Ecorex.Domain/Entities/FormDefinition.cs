@@ -34,4 +34,38 @@ public class FormDefinition : TenantEntity, IVersioned
 
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
+
+    // ---- Transaccionalidad (Formularios avanzados, ola F3; doc 01 D2/D3) ----
+
+    /// <summary>Si es true, cada envio confirmado es un REGISTRO (hecho) con identidad, estado y fecha.</summary>
+    public bool IsTransactional { get; set; }
+
+    /// <summary>Como produce la identidad el registro (ninguna / clave natural / consecutivo).</summary>
+    public FormIdentityMode IdentityMode { get; set; } = FormIdentityMode.None;
+
+    /// <summary>NaturalKey: campo del formulario cuyo valor es el numero/clave del registro.</summary>
+    public string? IdentitySourceFieldCode { get; set; }
+
+    /// <summary>NaturalKey: codigos de campo que forman la clave unica por tenant (arreglo JSON).</summary>
+    public string? UniqueKeyFieldsJson { get; set; }
+
+    /// <summary>Sequence: referencia logica a la TenantSequence que se consume al confirmar (null si otro modo).</summary>
+    public Guid? SequenceId { get; set; }
+
+    // ---- Formulario como MODULO del sistema (Formularios avanzados, ola F4; doc 01 D1/D6) ----
+
+    /// <summary>Si es true, el formulario es un modulo con nodo de menu propio y bandeja en /m/{code}.</summary>
+    public bool IsModule { get; set; }
+
+    /// <summary>Nodo de menu generado al promover a modulo (el usuario elige DONDE colgarlo). Null si no es modulo.</summary>
+    public Guid? ModuleMenuNodeId { get; set; }
+
+    /// <summary>Icono del modulo en el menu (clave de icono del prototipo).</summary>
+    public string? ModuleIcon { get; set; }
+
+    /// <summary>Columnas de la bandeja del modulo (arreglo JSON de field codes). Null = por defecto.</summary>
+    public string? ListColumnsJson { get; set; }
+
+    /// <summary>Campos de filtro de la bandeja (arreglo JSON de field codes).</summary>
+    public string? FilterFieldsJson { get; set; }
 }

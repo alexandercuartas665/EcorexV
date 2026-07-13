@@ -119,6 +119,7 @@ public class TenantUserServiceTests
         public DbSet<FormResponse> FormResponses => throw new NotSupportedException();
         public DbSet<FormFlowLink> FormFlowLinks => throw new NotSupportedException();
         public DbSet<FormToken> FormTokens => throw new NotSupportedException();
+        public DbSet<FormRecordLink> FormRecordLinks => throw new NotSupportedException();
         public DbSet<WorkflowNodeForm> WorkflowNodeForms => throw new NotSupportedException();
         public DbSet<RuleDocument> RuleDocuments => throw new NotSupportedException();
         public DbSet<Rule> Rules => throw new NotSupportedException();

@@ -1,11 +1,18 @@
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Calc
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
 @inject IFormRuleDispatcher RulesDispatcher
+@inject IFormLookupService LookupSvc
+@inject IJSRuntime JS
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -42,6 +49,15 @@ else
                     @if (!string.IsNullOrWhiteSpace(_response?.Reference))
                     {
                         <span class="dfr-chip">ref @_response!.Reference</span>
+                    }
+                    @* Registro transaccional (ola F3): numero y estado tras confirmar. *@
+                    @if (!string.IsNullOrWhiteSpace(_response?.RecordNumber))
+                    {
+                        <span class="dfr-chip dfr-chip-record">@_response!.RecordNumber</span>
+                    }
+                    @if (_response?.RecordStatus == FormRecordStatus.Voided)
+                    {
+                        <span class="dfr-chip dfr-chip-void">Anulado</span>
                     }
                 </div>
             </div>
@@ -93,6 +109,27 @@ else
                 <span class="dfr-autosave">
                     @(_lastSavedAt is null ? "Borrador sin guardar" : $"Borrador guardado {_lastSavedAt:HH:mm:ss}")
                 </span>
+                @* Anular registro transaccional confirmado (ola F3). *@
+                @if (_response?.RecordStatus == FormRecordStatus.Confirmed)
+                {
+                    @if (_voiding)
+                    {
+                        <input class="form-control dfr-void-reason" placeholder="Motivo de anulacion"
+                               value="@_voidReason" @oninput="@(e => _voidReason = e.Value?.ToString())" />
+                        <button class="btn btn-outline-danger" @onclick="VoidAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_voidReason))">Confirmar anulacion</button>
+                        <button class="btn btn-outline-secondary" @onclick="@(() => _voiding = false)" disabled="@_busy">Cancelar</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-danger" @onclick="@(() => _voiding = true)" disabled="@_busy">Anular</button>
+                    }
+                }
+                @* Impresion basica (ola F6): abre el registro en un documento limpio + dialogo nativo del
+                   navegador (Imprimir / Guardar PDF). Solo en sesion logueada (el visor publico no tiene tenant). *@
+                @if (AmbientTenantId is null)
+                {
+                    <a class="btn btn-outline-secondary" href="@($"/formularios/imprimir/{_response!.Id}")" target="_blank" rel="noopener">Imprimir</a>
+                }
                 <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
                     @(IsSubmitted ? "Enviado" : "Enviar")
                 </button>
@@ -124,6 +161,9 @@ else
     /// deshabilita hasta que haya eleccion. Vacio/null = paso sin compuerta adelante.
     /// </summary>
     [Parameter] public IReadOnlyList<string>? ApprovalOptions { get; set; }
+    /// <summary>Rol del usuario (tenant_role) para permisos por campo (ola F6). Null en el visor publico.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private string? _currentRole;
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -135,6 +175,9 @@ else
     private FormRuleUiState _ruleUiState = new();
     // Decision elegida para la compuerta adelante (ADR-0037); null hasta que el usuario elige.
     private string? _approvalChoice;
+    // Anulacion de registro transaccional (ola F3).
+    private bool _voiding;
+    private string? _voidReason;
     private bool _loading = true;
     private bool _busy;
     private bool _dirty;
@@ -177,6 +220,11 @@ else
         _loadInProgress = true;
         try
         {
+            // Permisos por campo (ola F6): rol del usuario (null en el visor publico -> sin restriccion).
+            if (AuthState is not null)
+            {
+                _currentRole = (await AuthState).User.FindFirst("tenant_role")?.Value;
+            }
             using var ambient = BeginAmbient();
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
@@ -215,17 +263,30 @@ else
                 {
                     foreach (var q in _definition.Questions)
                     {
-                        if (!string.IsNullOrWhiteSpace(q.DefaultValue)
-                            && !FormFieldValidator.IsNonInput(q.ControlType)
+                        if (!FormFieldValidator.IsNonInput(q.ControlType)
                             && !FormFieldValidator.IsPlaceholderCapture(q.ControlType)
                             && q.ControlType != FormControlType.GridDetail
                             && string.IsNullOrEmpty(_values.GetValueOrDefault(q.FieldCode)))
                         {
-                            _values[q.FieldCode] = q.DefaultValue;
-                            _dirty = true;
+                            // Default DINAMICO (ola F6, doc 01 D8) gana sobre el literal DefaultValue.
+                            var dyn = ResolveDynamicDefault(q.DefaultDynamic);
+                            var def = dyn ?? (string.IsNullOrWhiteSpace(q.DefaultValue) ? null : q.DefaultValue);
+                            if (def is not null)
+                            {
+                                _values[q.FieldCode] = def;
+                                _dirty = true;
+                            }
                         }
                     }
                 }
+                // Lookup (ola F1): resuelve las etiquetas de los ids ya guardados para mostrar
+                // el nombre en vez del Guid (dentro del ambient de la carga).
+                await ResolveLookupDisplaysAsync();
+                // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
+                RecomputeGrids();
+                RecomputeCalculatedFields();
+                // Maestro-detalle (ola F5): registros hijos de los subformularios.
+                await LoadSubformChildrenAsync();
             }
         }
         finally
@@ -242,6 +303,17 @@ else
             _autosaveTimer = new System.Threading.Timer(
                 _ => _ = InvokeAsync(AutosaveTickAsync),
                 null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+    }
+
+    /// <summary>Inicializa el trazo de los canvas de firma tras cada render (idempotente en JS).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_definition is null || IsDisabled) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Signature))
+        {
+            try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", $"sig-{q.Id}"); }
+            catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
         }
     }
 
@@ -381,8 +453,8 @@ else
 
     private RenderFragment RenderQuestion(FormQuestionDto q, bool forceFullWidth = false) => __builder =>
     {
-        @* Campos ocultos por regla O por el disenador (ADR-0021): no se pintan ni validan. *@
-        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden)
+        @* Campos ocultos por regla, por el disenador (ADR-0021) O por permiso de rol (ola F6). *@
+        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden || IsFieldHidden(q))
         {
             return;
         }
@@ -428,7 +500,15 @@ else
                     {
                         <div class="dfr-caption">@q.Caption</div>
                     }
-                    @RenderInput(q)
+                    @* Solo lectura por rol (ola F6): fieldset disabled deshabilita el control sin tocar RenderInput. *@
+                    @if (IsFieldReadonly(q))
+                    {
+                        <fieldset disabled class="dfr-ro">@RenderInput(q)</fieldset>
+                    }
+                    else
+                    {
+                        @RenderInput(q)
+                    }
                     @if (!string.IsNullOrWhiteSpace(q.HelpText))
                     {
                         <div class="dfr-help">@q.HelpText</div>
@@ -445,10 +525,25 @@ else
     private RenderFragment RenderInput(FormQuestionDto q) => __builder =>
     {
         var value = _values.GetValueOrDefault(q.FieldCode);
+        // Campo calculado (ola F2, doc 01 D5): solo lectura, valor recomputado por el evaluador.
+        // Con formato (ola F6) se muestra formateado (moneda/%/...).
+        if (!string.IsNullOrWhiteSpace(q.CalcExpression))
+        {
+            <input class="form-control dfr-calc" value="@FormatValue(q.Format, value)" tabindex="-1" readonly disabled />
+            return;
+        }
+        // Origen de datos / lookup (ola F1, doc 01 D4): si el campo tiene una fuente de datos,
+        // se pinta el control de autocompletar/lista/buscador en vez del control base.
+        if (q.SourceKind != FormSourceKind.Options)
+        {
+            @RenderLookup(q, value)
+            return;
+        }
         switch (q.ControlType)
         {
             case FormControlType.Text:
-                <input class="form-control" value="@value" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
+                <input class="form-control" value="@(string.IsNullOrEmpty(q.Format) ? value : MaskInput(q.Format, value))"
+                       disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                        @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
                 break;
             case FormControlType.TextArea:
@@ -511,19 +606,29 @@ else
                    valor del campo es un arreglo JSON de filas [{colId:"valor"}]. *@
                 @RenderGrid(q, value)
                 break;
+            case FormControlType.Subform:
+                @* Maestro-detalle (ola F5, doc 01 D7): registros HIJOS de otra definicion. *@
+                @RenderSubform(q)
+                break;
             case FormControlType.Signature:
-                @RenderCapturePlaceholder(q, "dashed", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "Firma aqui")
+                @* Captura Tier 2 real (ola F6): trazo en canvas -> dataURL guardado inline. *@
+                @RenderSignature(q, value)
                 break;
             case FormControlType.Photo:
             case FormControlType.Image:
-                @RenderCapturePlaceholder(q, "dashed", "M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z", "Capturar")
+                @* Captura Tier 2 real (ola F6): foto/imagen -> data-URI inline (limite de tamano). *@
+                @RenderFileCapture(q, value, accept: "image/*", capture: q.ControlType == FormControlType.Photo, label: "Tomar / subir imagen")
                 break;
             case FormControlType.Gps:
-                @RenderCapturePlaceholder(q, "solid", "M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z", "Ubicacion")
+                @* Captura Tier 2 real (ola F6): geolocalizacion del navegador. *@
+                @RenderGps(q, value)
                 break;
             case FormControlType.File:
+                @* Captura Tier 2 real (ola F6): archivo -> data-URI inline (limite de tamano). *@
+                @RenderFileCapture(q, value, accept: null, capture: false, label: "Subir archivo")
+                break;
             case FormControlType.Audio:
-                @RenderCapturePlaceholder(q, "dashed", "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z M14 3v5h5", "Subir archivo")
+                @RenderCapturePlaceholder(q, "dashed", "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM5 11a7 7 0 0 0 14 0M12 18v3", "Grabar audio")
                 break;
             case FormControlType.Barcode:
                 @RenderCapturePlaceholder(q, "solid", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "Escanear")
@@ -548,17 +653,385 @@ else
         </div>
     };
 
-    // ---- Tabla (GridDetail) funcional ----
+    // ---- Captura Tier 2 real (ola F6, doc 01 D9): firma, foto/imagen, GPS, archivo ----
+    // Todo se guarda INLINE (data-URI / coordenadas) con tope de 1 MB; el almacenamiento de
+    // objetos para adjuntos grandes es un incremento posterior documentado en el vault.
+
+    private readonly Dictionary<string, string> _captureError = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderSignature(FormQuestionDto q, string? value) => __builder =>
+    {
+        var hasVal = !string.IsNullOrEmpty(value);
+        <div class="dfr-sign">
+            @if (IsDisabled)
+            {
+                @if (hasVal)
+                {
+                    <img class="dfr-sign-preview" src="@value" alt="Firma" />
+                }
+                else
+                {
+                    <div class="dfr-capture" aria-disabled="true"><span>Sin firma</span></div>
+                }
+            }
+            else
+            {
+                <canvas id="@($"sig-{q.Id}")" class="dfr-sign-canvas" width="320" height="120"></canvas>
+                <div class="dfr-sign-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => ClearSignatureAsync(q))">Limpiar</button>
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="@(() => SaveSignatureAsync(q))">Guardar firma</button>
+                    @if (hasVal)
+                    {
+                        <span class="dfr-capture-ok">Firma capturada</span>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private RenderFragment RenderGps(FormQuestionDto q, string? value) => __builder =>
+    {
+        <div class="dfr-gps">
+            <input class="form-control" readonly value="@value" placeholder="Sin ubicacion" />
+            @if (!IsDisabled)
+            {
+                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="@(() => CaptureGpsAsync(q))">Capturar ubicacion</button>
+            }
+        </div>
+    };
+
+    private RenderFragment RenderFileCapture(FormQuestionDto q, string? value, string? accept, bool capture, string label) => __builder =>
+    {
+        var hasVal = !string.IsNullOrEmpty(value);
+        <div class="dfr-file">
+            @if (!IsDisabled)
+            {
+                @if (capture)
+                {
+                    <InputFile OnChange="@(e => OnFileSelectedAsync(q, e))" accept="@accept" capture="environment" />
+                }
+                else
+                {
+                    <InputFile OnChange="@(e => OnFileSelectedAsync(q, e))" accept="@accept" />
+                }
+            }
+            @if (_captureError.TryGetValue(q.FieldCode, out var cerr))
+            {
+                <div class="tk-field-error">@cerr</div>
+            }
+            @if (hasVal)
+            {
+                <div class="dfr-file-chosen">
+                    @if (IsImageDataUri(value))
+                    {
+                        <img class="dfr-file-preview" src="@value" alt="adjunto" />
+                    }
+                    <span class="dfr-capture-ok">@(MimeOf(value) ?? "archivo adjunto")</span>
+                    @if (!IsDisabled)
+                    {
+                        <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => SetValue(q, null))">&times;</button>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private static bool IsImageDataUri(string? v)
+        => v is not null && v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase);
+
+    private static string? MimeOf(string? v)
+    {
+        if (string.IsNullOrEmpty(v) || !v.StartsWith("data:", StringComparison.Ordinal)) { return null; }
+        var semi = v.IndexOf(';');
+        return semi > 5 ? v[5..semi] : null;
+    }
+
+    private async Task SaveSignatureAsync(FormQuestionDto q)
+    {
+        try
+        {
+            var data = await JS.InvokeAsync<string>("ecorexFormCapture.signatureData", $"sig-{q.Id}");
+            if (!string.IsNullOrEmpty(data)) { await SetValue(q, data); }
+        }
+        catch (JSException) { /* JS no disponible (prerender): sin captura */ }
+    }
+
+    private async Task ClearSignatureAsync(FormQuestionDto q)
+    {
+        try { await JS.InvokeVoidAsync("ecorexFormCapture.clearSignature", $"sig-{q.Id}"); }
+        catch (JSException) { }
+        await SetValue(q, null);
+    }
+
+    private async Task CaptureGpsAsync(FormQuestionDto q)
+    {
+        try
+        {
+            var coords = await JS.InvokeAsync<string>("ecorexFormCapture.geolocate");
+            await SetValue(q, coords);
+        }
+        catch (JSException) { }
+    }
+
+    private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) { return; }
+        const long max = 1024 * 1024; // 1 MB inline; objetos grandes = incremento posterior.
+        if (file.Size > max)
+        {
+            _captureError[q.FieldCode] = $"El archivo supera 1 MB ({file.Size / 1024} KB). El almacenamiento de objetos para adjuntos grandes llega en un incremento posterior.";
+            return;
+        }
+        _captureError.Remove(q.FieldCode);
+        try
+        {
+            await using var stream = file.OpenReadStream(max);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            await SetValue(q, $"data:{mime};base64,{b64}");
+        }
+        catch (Exception ex)
+        {
+            _captureError[q.FieldCode] = $"No se pudo leer el archivo: {ex.Message}";
+        }
+    }
+
+    // ---- Lookup / autocompletado (ola F1, doc 01 D4) ----
+
+    // Estado de UI del lookup por campo (fieldCode).
+    private readonly Dictionary<string, string?> _lookupDisplay = new(StringComparer.Ordinal); // etiqueta del id elegido
+    private readonly Dictionary<string, string?> _lookupQuery = new(StringComparer.Ordinal);   // texto tecleado
+    private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _lookupResults = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _lookupOpen = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _lookupBusy = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderLookup(FormQuestionDto q, string? value) => __builder =>
+    {
+        var display = _lookupDisplay.GetValueOrDefault(q.FieldCode) ?? value;
+        var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+
+        if (q.Presentation == FormFieldPresentation.Dropdown)
+        {
+            <select class="form-control" disabled="@IsDisabled"
+                    @onclick="@(() => LookupSearchAsync(q, null))"
+                    @onchange="@(e => LookupChooseByValueAsync(q, e.Value?.ToString()))">
+                <option value="" selected="@string.IsNullOrEmpty(value)">-- Selecciona --</option>
+                @if (results is not null)
+                {
+                    @foreach (var it in results)
+                    {
+                        <option value="@it.Value" selected="@(it.Value == value)">@it.Display</option>
+                    }
+                }
+                else if (!string.IsNullOrEmpty(value))
+                {
+                    <option value="@value" selected="true">@display</option>
+                }
+            </select>
+            return;
+        }
+
+        @* Autocomplete y Modal: input de busqueda + panel de resultados. *@
+        <div class="dfr-lookup @(q.Presentation == FormFieldPresentation.Modal ? "is-modal" : "")">
+            <div class="dfr-lookup-box">
+                <input class="form-control" disabled="@IsDisabled"
+                       placeholder="@(string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Buscar..." : q.PlaceholderText)"
+                       value="@(_lookupQuery.TryGetValue(q.FieldCode, out var typed) ? typed : display)"
+                       @oninput="@(e => LookupTypeAsync(q, e.Value?.ToString()))"
+                       @onfocus="@(() => LookupSearchAsync(q, _lookupQuery.GetValueOrDefault(q.FieldCode)))" />
+                @if (!string.IsNullOrEmpty(value) && !IsDisabled)
+                {
+                    <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => LookupClearAsync(q))">&times;</button>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display))
+            {
+                <div class="dfr-lookup-chosen">Seleccionado: <strong>@display</strong></div>
+            }
+            @if (_lookupOpen.Contains(q.FieldCode))
+            {
+                <div class="dfr-lookup-panel">
+                    @if (_lookupBusy.Contains(q.FieldCode))
+                    {
+                        <div class="dfr-lookup-empty"><em>Buscando...</em></div>
+                    }
+                    else if (results is null || results.Count == 0)
+                    {
+                        <div class="dfr-lookup-empty">
+                            <span>Sin resultados.</span>
+                            <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var it in results)
+                        {
+                            var item = it;
+                            <button type="button" class="dfr-lookup-opt" @onclick="@(() => LookupChooseAsync(q, item))">@item.Display</button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    /// <summary>Campos de la fuente que hay que traer: el de mostrar + los origenes del mapa de autollenado.</summary>
+    private static IReadOnlyList<string> LookupFields(FormQuestionDto q)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(q.DisplayField)) { set.Add(q.DisplayField!); }
+        foreach (var src in ParseAutofillMap(q.AutofillMapJson).Keys) { set.Add(src); }
+        return set.ToList();
+    }
+
+    /// <summary>AutofillMapJson: { "campoFuente": "campoFormulario" }. Defensivo ante JSON invalido.</summary>
+    private static IReadOnlyDictionary<string, string> ParseAutofillMap(string? json)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) { return map; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var target = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(target)) { map[p.Name] = target!; }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* mapa invalido: se ignora */ }
+        return map;
+    }
+
+    private static string CreateLink(FormSourceKind kind) => kind switch
+    {
+        FormSourceKind.Tercero => "/directorio-general",
+        FormSourceKind.Item => "/inventario-items",
+        FormSourceKind.DataContainer => "/contenedor-datos",
+        _ => "#",
+    };
+
+    private async Task LookupTypeAsync(FormQuestionDto q, string? text)
+    {
+        _lookupQuery[q.FieldCode] = text;
+        await LookupSearchAsync(q, text);
+    }
+
+    private async Task LookupSearchAsync(FormQuestionDto q, string? text)
+    {
+        if (IsDisabled) { return; }
+        _lookupOpen.Add(q.FieldCode);
+        _lookupBusy.Add(q.FieldCode);
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q), Skip: 0, Take: 20));
+            _lookupResults[q.FieldCode] = page.Items;
+        }
+        catch (Exception ex)
+        {
+            _lookupResults[q.FieldCode] = Array.Empty<FormLookupItem>();
+            _globalError = $"No se pudo buscar en la fuente: {ex.Message}";
+        }
+        finally
+        {
+            _dbGate.Release();
+            _lookupBusy.Remove(q.FieldCode);
+        }
+    }
+
+    private async Task LookupChooseAsync(FormQuestionDto q, FormLookupItem item)
+    {
+        // Guarda el ID (ValueField) en data y COPIA (snapshot) los campos mapeados a sus destinos.
+        _lookupDisplay[q.FieldCode] = item.Display;
+        _lookupQuery[q.FieldCode] = item.Display;
+        _lookupOpen.Remove(q.FieldCode);
+        await SetValue(q, item.Value);
+
+        var map = ParseAutofillMap(q.AutofillMapJson);
+        foreach (var (source, target) in map)
+        {
+            _values[target] = item.Fields.TryGetValue(source, out var v) ? v : null;
+            var targetQ = _definition!.Questions.FirstOrDefault(x => x.FieldCode == target);
+            if (targetQ is not null) { ValidateField(targetQ); }
+        }
+        RecomputeCalculatedFields();
+        _dirty = true;
+    }
+
+    private async Task LookupChooseByValueAsync(FormQuestionDto q, string? val)
+    {
+        if (string.IsNullOrEmpty(val)) { await LookupClearAsync(q); return; }
+        var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+        var item = results?.FirstOrDefault(i => i.Value == val);
+        if (item is not null) { await LookupChooseAsync(q, item); }
+        else { await SetValue(q, val); }
+    }
+
+    private async Task LookupClearAsync(FormQuestionDto q)
+    {
+        _lookupDisplay.Remove(q.FieldCode);
+        _lookupQuery[q.FieldCode] = null;
+        _lookupOpen.Remove(q.FieldCode);
+        await SetValue(q, null);
+    }
+
+    /// <summary>Al cargar, resuelve la etiqueta de cada id ya guardado (para mostrar nombre, no el Guid).</summary>
+    private async Task ResolveLookupDisplaysAsync()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.SourceKind != FormSourceKind.Options))
+        {
+            var value = _values.GetValueOrDefault(q.FieldCode);
+            if (string.IsNullOrEmpty(value)) { continue; }
+            try
+            {
+                var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
+                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+            }
+            catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
+        }
+    }
+
+    // ---- Tabla (GridDetail) funcional + totales (ola F2, doc 01 D5 / doc 02 s4) ----
+
+    // Parseo/agregado/recompute de tablas: helper COMPARTIDO con el servidor (FormGridCalculator),
+    // para que cliente y servidor calculen igual (fuente de verdad = servidor).
+    private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
+        => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    /// <summary>
+    /// Recalcula todas las tablas (ola F2): formula por fila + roll-up de columnas al encabezado,
+    /// via el helper compartido. Persiste las filas computadas en _values.
+    /// </summary>
+    private void RecomputeGrids()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+        {
+            var cols = GridColumnsOf(q);
+            if (cols.Count == 0) { continue; }
+            var (rows, rollups) = FormGridCalculator.Recompute(GridRowsOf(q), cols);
+            _values[q.FieldCode] = rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows);
+            foreach (var (field, total) in rollups) { _values[field] = total; }
+        }
+    }
 
     private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>
     {
-        var columns = FormFieldValidator.ParseOptions(q.OptionsJson);
+        var columns = GridColumnsOf(q);
         var rows = FormFieldValidator.ParseGridRows(value).Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
         @if (columns.Count == 0)
         {
             <div class="dfr-unsupported">La tabla no tiene columnas definidas.</div>
             return;
         }
+        var hasTotals = columns.Any(c => c.Agg != FormAggregate.None);
         <div class="dfr-grid">
             <table class="dfr-grid-table">
                 <thead>
@@ -588,9 +1061,18 @@ else
                             {
                                 var colId = col.Id;
                                 <td>
-                                    <input class="form-control form-control-sm" disabled="@IsDisabled"
-                                           value="@rows[rowIndex].GetValueOrDefault(colId)"
-                                           @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                    @if (col.Calc is not null)
+                                    {
+                                        @* Columna calculada por fila (ola F2): solo lectura. *@
+                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
+                                               value="@rows[rowIndex].GetValueOrDefault(colId)" />
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm" disabled="@IsDisabled"
+                                               value="@rows[rowIndex].GetValueOrDefault(colId)"
+                                               @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                    }
                                 </td>
                             }
                             @if (!IsDisabled)
@@ -603,6 +1085,23 @@ else
                         </tr>
                     }
                 </tbody>
+                @if (hasTotals && rows.Count > 0)
+                {
+                    <tfoot>
+                        <tr class="dfr-grid-total">
+                            @foreach (var col in columns)
+                            {
+                                var total = col.Agg == FormAggregate.None ? null
+                                    : FormGridCalculator.Aggregate(col.Agg, rows.Select(r => r.GetValueOrDefault(col.Id)));
+                                <td>@(total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")</td>
+                            }
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-x"></td>
+                            }
+                        </tr>
+                    </tfoot>
+                }
             </table>
             @if (!IsDisabled)
             {
@@ -610,6 +1109,116 @@ else
             }
         </div>
     };
+
+    // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----
+
+    private readonly Dictionary<string, IReadOnlyList<FormRecordListItemDto>> _subformChildren = new(StringComparer.Ordinal);
+    private string? _activeChildField;
+    private Guid? _activeChildResponseId;
+
+    private RenderFragment RenderSubform(FormQuestionDto q) => __builder =>
+    {
+        if (q.SubformDefinitionId is not Guid childDef)
+        {
+            <div class="dfr-unsupported">Subformulario sin definicion hija configurada.</div>
+            return;
+        }
+        var children = _subformChildren.GetValueOrDefault(q.FieldCode) ?? Array.Empty<FormRecordListItemDto>();
+        <div class="dfr-subform">
+            <table class="dfr-grid-table">
+                <thead>
+                    <tr><th>Registro</th><th>Estado</th><th>Referencia</th>@if (!IsDisabled) { <th class="dfr-grid-x"></th> }</tr>
+                </thead>
+                <tbody>
+                    @if (children.Count == 0)
+                    {
+                        <tr><td class="dfr-grid-empty" colspan="@(IsDisabled ? 3 : 4)">Sin registros hijos todavia.</td></tr>
+                    }
+                    @foreach (var c in children)
+                    {
+                        var childId = c.Id;
+                        <tr>
+                            <td>@(c.RecordNumber ?? "(borrador)")</td>
+                            <td>@(c.RecordStatus == FormRecordStatus.Confirmed ? "Confirmado" : c.RecordStatus == FormRecordStatus.Voided ? "Anulado" : "Borrador")</td>
+                            <td>@(c.Reference ?? "-")</td>
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-x">
+                                    <button type="button" class="dfr-grid-del" title="Quitar del padre" @onclick="@(() => RemoveSubformChildAsync(q, childId))">&times;</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!IsDisabled && _activeChildField != q.FieldCode)
+            {
+                <button type="button" class="dfr-grid-add" @onclick="@(() => AddSubformChildAsync(q))">+ Agregar registro</button>
+            }
+            @if (_activeChildField == q.FieldCode && _activeChildResponseId is Guid activeChild)
+            {
+                <div class="dfr-subform-child">
+                    <div class="dfr-subform-childhead">Nuevo registro hijo</div>
+                    <DynamicFormRenderer DefinitionId="childDef" ResponseId="activeChild" Mode="FormRenderMode.Fill"
+                                         SubmittedByTenantUserId="SubmittedByTenantUserId" AmbientTenantId="AmbientTenantId"
+                                         ShowHeader="false" OnSubmitted="@(_ => OnSubformChildSubmittedAsync(q))" />
+                </div>
+            }
+        </div>
+    };
+
+    private async Task LoadSubformChildrenAsync()
+    {
+        if (_definition is null || _response is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Subform))
+        {
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response.Id, q.FieldCode);
+        }
+    }
+
+    private async Task AddSubformChildAsync(FormQuestionDto q)
+    {
+        if (_response is null || q.SubformDefinitionId is not Guid childDef) { return; }
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var result = await ResponsesSvc.AddChildAsync(_response.Id, q.FieldCode, childDef);
+            if (result.IsOk)
+            {
+                _activeChildField = q.FieldCode;
+                _activeChildResponseId = result.Value;
+            }
+            else { _globalError = result.Error; }
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task OnSubformChildSubmittedAsync(FormQuestionDto q)
+    {
+        _activeChildField = null;
+        _activeChildResponseId = null;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response!.Id, q.FieldCode);
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task RemoveSubformChildAsync(FormQuestionDto q, Guid childId)
+    {
+        if (_response is null) { return; }
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            await ResponsesSvc.UnlinkChildAsync(_response.Id, q.FieldCode, childId);
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response.Id, q.FieldCode);
+        }
+        finally { _dbGate.Release(); }
+    }
 
     private List<Dictionary<string, string?>> GridRowsOf(FormQuestionDto q)
         => FormFieldValidator.ParseGridRows(_values.GetValueOrDefault(q.FieldCode))
@@ -659,8 +1268,92 @@ else
     {
         _values[q.FieldCode] = value;
         _dirty = true;
+        RecomputeGrids();
+        RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);
+    }
+
+    // ---- Transversales (ola F6, doc 01 D8) ----
+
+    // Permisos por campo (ola F6, doc 01 D8): FieldVisibilityJson = { "hide":[...], "readonly":[...] }.
+    private bool IsFieldHidden(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "hide");
+    private bool IsFieldReadonly(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "readonly");
+
+    private bool FieldRoleMatch(string? json, string key)
+    {
+        if (string.IsNullOrWhiteSpace(json) || _currentRole is null) { return false; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty(key, out var arr)
+                || arr.ValueKind != System.Text.Json.JsonValueKind.Array) { return false; }
+            foreach (var r in arr.EnumerateArray())
+            {
+                if (string.Equals(r.GetString(), _currentRole, StringComparison.OrdinalIgnoreCase)) { return true; }
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return false;
+    }
+
+    /// <summary>Resuelve un valor por defecto dinamico al abrir el formulario (Hoy / Usuario actual).</summary>
+    private string? ResolveDynamicDefault(FormDefaultDynamic d) => d switch
+    {
+        FormDefaultDynamic.Today => DateTimeOffset.Now.ToString("yyyy-MM-dd"),
+        FormDefaultDynamic.CurrentUser => SubmittedByTenantUserId?.ToString(),
+        _ => null,
+    };
+
+    /// <summary>Aplica el formato de presentacion (moneda/%/entero) para MOSTRAR (no altera el valor guardado).</summary>
+    private static string FormatValue(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? ""; }
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!decimal.TryParse(value.Replace(" ", "").Replace(",", ""), System.Globalization.NumberStyles.Any, ci, out var num))
+        {
+            return value;
+        }
+        return format.Trim().ToLowerInvariant() switch
+        {
+            "currency" => "$ " + num.ToString("#,##0", ci),
+            "percent" => num.ToString("0.##", ci) + " %",
+            "integer" => Math.Round(num).ToString("#,##0", ci),
+            "decimal" => num.ToString("#,##0.00", ci),
+            "document" => num.ToString("#,##0", ci),
+            _ => value,
+        };
+    }
+
+    /// <summary>Mascara de ENTRADA (ola F6): reformatea el valor tecleado al perder el foco. Para campos
+    /// de texto (telefono) usa los digitos; para numericos reusa <see cref="FormatValue"/>.</summary>
+    private static string MaskInput(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? ""; }
+        if (format.Trim().ToLowerInvariant() == "phone")
+        {
+            var d = new string(value.Where(char.IsDigit).ToArray());
+            if (d.Length == 10) { return $"({d[..3]}) {d[3..6]}-{d[6..]}"; }
+            if (d.Length == 7) { return $"{d[..3]}-{d[3..]}"; }
+            return value;
+        }
+        return FormatValue(format, value);
+    }
+
+    /// <summary>
+    /// Recalcula en cliente todos los campos con CalcExpression (ola F2, doc 01 D5) con el MISMO
+    /// evaluador tipado del servidor. Se invoca ante cualquier cambio de valor; el servidor
+    /// revalida al guardar (fuente de verdad, el cliente no es confiable para montos).
+    /// </summary>
+    private void RecomputeCalculatedFields()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => !string.IsNullOrWhiteSpace(x.CalcExpression)))
+        {
+            var result = FormExpressionEvaluator.Evaluate(q.CalcExpression, _values);
+            _values[q.FieldCode] = result?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>
@@ -720,6 +1413,7 @@ else
             ? null
             : System.Text.Json.JsonSerializer.Serialize(selected);
         _dirty = true;
+        RecomputeCalculatedFields();
         ValidateField(q);
         await DispatchFieldRulesAsync(q);
     }
@@ -770,6 +1464,34 @@ else
         }
         await SaveAsync(submit: false);
         StateHasChanged();
+    }
+
+    /// <summary>Anula el registro transaccional confirmado (ola F3): llama a VoidAsync con el motivo.</summary>
+    private async Task VoidAsync()
+    {
+        if (_response is null || string.IsNullOrWhiteSpace(_voidReason)) { return; }
+        _busy = true;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var result = await ResponsesSvc.VoidAsync(_response.Id, _voidReason!, SubmittedByTenantUserId);
+            if (result.IsOk && result.Value is not null)
+            {
+                _response = result.Value;
+                _voiding = false;
+                _voidReason = null;
+            }
+            else
+            {
+                _globalError = result.Error ?? "No se pudo anular el registro.";
+            }
+        }
+        finally
+        {
+            _dbGate.Release();
+            _busy = false;
+        }
     }
 
     private async Task SubmitAsync()

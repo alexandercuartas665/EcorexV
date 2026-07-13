@@ -599,10 +599,17 @@ public abstract class DynamicFormsTestsBase
     }
 
     private static FormDefinitionService BuildDefinitionService(EcorexDbContext ctx, SeedData seed)
-        => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
+    {
+        var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        return new(ctx, tenant, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenant));
+    }
 
     private static FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine? engine = null)
-        => new(ctx, engine ?? BuildEngine(ctx, seed));
+    {
+        var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        return new(ctx, engine ?? BuildEngine(ctx, seed),
+            new SequenceService(ctx, tenant), tenant, new NoOpFormRecordBroadcaster());
+    }
 
     private static FormTokenService BuildTokenService(EcorexDbContext ctx, SeedData seed)
         => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));

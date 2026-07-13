@@ -23,11 +23,19 @@ public sealed class FormResponseService : IFormResponseService
 
     private readonly IApplicationDbContext _db;
     private readonly IWorkflowEngine _workflowEngine;
+    private readonly Tenancy.ISequenceService _sequences;
+    private readonly Common.ITenantContext _tenant;
+    private readonly Tenancy.IFormRecordBroadcaster _recordBroadcaster;
 
-    public FormResponseService(IApplicationDbContext db, IWorkflowEngine workflowEngine)
+    public FormResponseService(
+        IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences,
+        Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster)
     {
         _db = db;
         _workflowEngine = workflowEngine;
+        _sequences = sequences;
+        _tenant = tenant;
+        _recordBroadcaster = recordBroadcaster;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -110,6 +118,38 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Tablas en SERVIDOR (ola F2, doc 01 D5): formula por fila + roll-up de columnas al
+        // encabezado, con el helper compartido con el renderer. Persiste las filas computadas.
+        foreach (var question in questions.Where(q => q.ControlType == FormControlType.GridDetail))
+        {
+            var cols = Calc.FormGridCalculator.ParseColumns(question.OptionsJson);
+            if (cols.Count == 0) { continue; }
+            document.TryGetValue(question.FieldCode, out var gridField);
+            var gridRows = FormFieldValidator.ParseGridRows(gridField?.Value)
+                .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
+            var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols);
+            document[question.FieldCode] = new FormFieldValue(
+                computed.Count == 0 ? null : JsonSerializer.Serialize(computed, JsonOptions),
+                question.ControlType.ToString());
+            foreach (var (field, total) in rollups)
+            {
+                var type = questionsByCode.TryGetValue(field, out var tq) ? tq.ControlType.ToString() : FormControlType.Text.ToString();
+                document[field] = new FormFieldValue(total, type);
+            }
+        }
+
+        // Calculo en SERVIDOR (ola F2, doc 01 D5): recomputa los campos con CalcExpression con el
+        // MISMO evaluador tipado del cliente. El cliente NO es fuente de verdad para montos: su
+        // valor se descarta y se persiste el del servidor.
+        var calcValues = document.ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+        foreach (var question in questions.Where(q => !string.IsNullOrWhiteSpace(q.CalcExpression)))
+        {
+            var computed = Calc.FormExpressionEvaluator.Evaluate(question.CalcExpression, calcValues)
+                ?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            document[question.FieldCode] = new FormFieldValue(computed, question.ControlType.ToString());
+            calcValues[question.FieldCode] = computed;
+        }
+
         if (submit)
         {
             // VALIDACION SERVIDOR completa por tipo, con errores por fieldCode.
@@ -141,6 +181,34 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Registro transaccional (ola F3, doc 01 D2/D3): confirmar = enviar. La identidad se
+        // resuelve ANTES de abrir la transaccion (patron de ISequenceService: EnsureSequence +
+        // NextAsync fuera de la tx del caso de uso, para no abortar por el INSERT del consecutivo).
+        // Idempotente: si el registro ya esta Confirmed no reasigna.
+        string? recordNumber = null;
+        string? recordFormCode = null;
+        var assignRecord = false;
+        if (submit)
+        {
+            var definition = await _db.FormDefinitions
+                .FirstOrDefaultAsync(d => d.Id == response.DefinitionId, cancellationToken);
+            if (definition?.IsTransactional == true && response.RecordStatus != FormRecordStatus.Confirmed)
+            {
+                var identity = await ResolveIdentityAsync(definition, document, cancellationToken);
+                if (!identity.Ok)
+                {
+                    return FormResult<FormResponseDto>.ValidationFailed(
+                        new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [definition.IdentitySourceFieldCode ?? "_identidad"] = identity.Error!
+                        });
+                }
+                recordNumber = identity.Number;
+                recordFormCode = definition.Code;
+                assignRecord = true;
+            }
+        }
+
         await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
 
         response.Data = JsonSerializer.Serialize(document, JsonOptions);
@@ -149,6 +217,14 @@ public sealed class FormResponseService : IFormResponseService
             response.Status = FormResponseStatus.Submitted;
             response.SubmittedAt = DateTimeOffset.UtcNow;
             response.SubmittedByTenantUserId = submittedByTenantUserId;
+
+            // Registro transaccional (ola F3): identidad ya resuelta antes de la transaccion.
+            if (assignRecord)
+            {
+                response.RecordNumber = recordNumber;
+                response.RecordStatus = FormRecordStatus.Confirmed;
+                response.TransactionDate = DateTimeOffset.UtcNow;
+            }
 
             // Integracion con el flujo: cada link Pending completa SU paso current del
             // workflow (misma transaccion logica; si el motor falla, rollback total).
@@ -188,9 +264,222 @@ public sealed class FormResponseService : IFormResponseService
         {
             return FormResult<FormResponseDto>.Conflict(ConflictMessage);
         }
+        catch (DbUpdateException) when (submit)
+        {
+            // Choca el indice unico de record_number (clave natural duplicada por tenant+definicion).
+            return FormResult<FormResponseDto>.ValidationFailed(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["_identidad"] = "Ya existe un registro con esa clave (numero duplicado)."
+                });
+        }
         if (transaction is not null)
         {
             await transaction.CommitAsync(cancellationToken);
+        }
+
+        // Bandeja en vivo (ola F4): tras confirmar un registro, avisa a la bandeja /m/{code}.
+        if (assignRecord && recordFormCode is not null && _tenant.TenantId is Guid tid)
+        {
+            await _recordBroadcaster.RecordConfirmedAsync(tid, recordFormCode, recordNumber ?? "", cancellationToken);
+        }
+
+        return FormResult<FormResponseDto>.Ok(ToDto(response));
+    }
+
+    /// <summary>
+    /// Resuelve la identidad de un registro transaccional al confirmar (ola F3, doc 01 D3):
+    /// consecutivo (una TenantSequence por formulario, prefijo = codigo del form) o clave natural
+    /// (valor de un campo, unicidad garantizada por indice). None = sin numero.
+    /// </summary>
+    private async Task<(bool Ok, string? Number, string? Error)> ResolveIdentityAsync(
+        FormDefinition definition, IReadOnlyDictionary<string, FormFieldValue> document, CancellationToken cancellationToken)
+    {
+        switch (definition.IdentityMode)
+        {
+            case FormIdentityMode.None:
+                return (true, null, null);
+
+            case FormIdentityMode.NaturalKey:
+                if (string.IsNullOrWhiteSpace(definition.IdentitySourceFieldCode))
+                {
+                    return (false, null, "El formulario no tiene campo de identidad configurado.");
+                }
+                document.TryGetValue(definition.IdentitySourceFieldCode, out var keyField);
+                if (string.IsNullOrWhiteSpace(keyField?.Value))
+                {
+                    return (false, null, "El campo de identidad es obligatorio para confirmar.");
+                }
+                return (true, keyField!.Value, null);
+
+            case FormIdentityMode.Sequence:
+                // Una secuencia por formulario (doc 03 B). El code de TenantSequence es varchar(10):
+                // se usa un codigo corto derivado del id ("F"+8 hex, unico por tenant); el prefijo
+                // legible del numero es el codigo del formulario (ej. FRM-021-000001).
+                var code = "F" + definition.Id.ToString("N")[..8];
+                await _sequences.EnsureSequenceAsync(code, cancellationToken);
+                var number = await _sequences.NextAsync(code, $"{definition.Code}-", 6, cancellationToken);
+                return (true, number, null);
+
+            default:
+                return (true, null, null);
+        }
+    }
+
+    public async Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        // Bandeja del formulario-modulo (ola F4): los registros enviados (no borradores), recientes primero.
+        var rows = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == definitionId && r.Status == FormResponseStatus.Submitted)
+            .OrderByDescending(r => r.TransactionDate ?? r.SubmittedAt)
+            .Select(r => new { r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, r.Data })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r =>
+        {
+            var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            return new FormRecordListItemDto(
+                r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference,
+                fields);
+        }).ToList();
+    }
+
+    public async Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId && d.IsModule, cancellationToken);
+        if (definition is null) { return null; }
+
+        // Columnas de datos configuradas (field codes) + su etiqueta desde las preguntas.
+        var columns = ParseCodeList(definition.ListColumnsJson);
+        var labels = await _db.FormQuestions.AsNoTracking()
+            .Where(q => q.DefinitionId == definitionId)
+            .ToDictionaryAsync(q => q.FieldCode, q => q.Label, StringComparer.Ordinal, cancellationToken);
+
+        var records = await ListRecordsAsync(definitionId, cancellationToken);
+
+        using var wb = new ClosedXML.Excel.XLWorkbook();
+        var ws = wb.Worksheets.Add(definition.Code);
+        // Encabezado: metadatos fijos + columnas de datos (vista aplanada para BI).
+        var headers = new List<string> { "Numero", "Fecha", "Estado", "Referencia" };
+        headers.AddRange(columns.Select(c => labels.TryGetValue(c, out var l) ? l : c));
+        for (var i = 0; i < headers.Count; i++) { ws.Cell(1, i + 1).Value = headers[i]; }
+        ws.Row(1).Style.Font.Bold = true;
+
+        var row = 2;
+        foreach (var r in records)
+        {
+            ws.Cell(row, 1).Value = r.RecordNumber ?? "";
+            ws.Cell(row, 2).Value = (r.TransactionDate ?? r.SubmittedAt)?.ToString("yyyy-MM-dd HH:mm") ?? "";
+            ws.Cell(row, 3).Value = r.RecordStatus.ToString();
+            ws.Cell(row, 4).Value = r.Reference ?? "";
+            for (var c = 0; c < columns.Count; c++)
+            {
+                ws.Cell(row, 5 + c).Value = r.Fields.TryGetValue(columns[c], out var v) ? v ?? "" : "";
+            }
+            row++;
+        }
+        ws.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        return ms.ToArray();
+    }
+
+    // ---- Maestro-detalle (ola F5, doc 01 D7) ----
+
+    public async Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(
+        Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
+    {
+        var links = await _db.FormRecordLinks.AsNoTracking()
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .ToListAsync(cancellationToken);
+
+        return links.Select(r =>
+        {
+            var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            return new FormRecordListItemDto(r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, fields);
+        }).ToList();
+    }
+
+    public async Task<FormResult<Guid>> AddChildAsync(
+        Guid parentResponseId, string parentFieldCode, Guid childDefinitionId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId)
+        {
+            return FormResult<Guid>.Invalid("No hay tenant activo.");
+        }
+        var parentExists = await _db.FormResponses.AsNoTracking().AnyAsync(r => r.Id == parentResponseId, cancellationToken);
+        if (!parentExists) { return FormResult<Guid>.NotFound("Registro padre no encontrado."); }
+        var childDefExists = await _db.FormDefinitions.AsNoTracking().AnyAsync(d => d.Id == childDefinitionId, cancellationToken);
+        if (!childDefExists) { return FormResult<Guid>.NotFound("Definicion hija no encontrada."); }
+
+        var child = new FormResponse { TenantId = tenantId, DefinitionId = childDefinitionId, Data = "{}" };
+        _db.FormResponses.Add(child);
+        var order = await _db.FormRecordLinks
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode)
+            .CountAsync(cancellationToken);
+        _db.FormRecordLinks.Add(new FormRecordLink
+        {
+            TenantId = tenantId,
+            ParentResponseId = parentResponseId,
+            ParentFieldCode = parentFieldCode,
+            ChildResponseId = child.Id,
+            SortOrder = order,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<Guid>.Ok(child.Id);
+    }
+
+    public async Task<FormResult<bool>> UnlinkChildAsync(
+        Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default)
+    {
+        var link = await _db.FormRecordLinks
+            .FirstOrDefaultAsync(l => l.ParentResponseId == parentResponseId
+                && l.ParentFieldCode == parentFieldCode && l.ChildResponseId == childResponseId, cancellationToken);
+        if (link is null) { return FormResult<bool>.NotFound("Enlace no encontrado."); }
+        _db.FormRecordLinks.Remove(link);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<bool>.Ok(true);
+    }
+
+    /// <summary>Deserializa un arreglo JSON de field codes (columnas/filtros de la bandeja). Vacio si invalido.</summary>
+    private static IReadOnlyList<string> ParseCodeList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (JsonException) { return Array.Empty<string>(); }
+    }
+
+    /// <summary>
+    /// Anula un registro transaccional confirmado (ola F3, doc 01 D2): RecordStatus=Voided + motivo
+    /// + auditoria. NO borra ni libera el numero (queda el hueco, trazable). Idempotente.
+    /// </summary>
+    public async Task<FormResult<FormResponseDto>> VoidAsync(
+        Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null)
+        {
+            return FormResult<FormResponseDto>.NotFound("Respuesta no encontrada.");
+        }
+        if (response.RecordStatus != FormRecordStatus.Confirmed)
+        {
+            return FormResult<FormResponseDto>.Invalid("Solo se puede anular un registro confirmado.");
+        }
+        response.RecordStatus = FormRecordStatus.Voided;
+        response.VoidedAt = DateTimeOffset.UtcNow;
+        response.VoidedByTenantUserId = byTenantUserId;
+        response.VoidReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return FormResult<FormResponseDto>.Conflict(ConflictMessage);
         }
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
@@ -294,7 +583,8 @@ public sealed class FormResponseService : IFormResponseService
     private static FormResponseDto ToDto(FormResponse response)
         => new(response.Id, response.DefinitionId, response.Reference, response.Status,
             ParseDocument(response.Data), response.SubmittedAt, response.SubmittedByTenantUserId,
-            response.Version);
+            response.Version,
+            response.RecordNumber, response.RecordStatus, response.TransactionDate);
 
     /// <summary>Deserializa el documento { fieldCode: { value, type } }; vacio si es invalido.</summary>
     public static IReadOnlyDictionary<string, FormFieldValue> ParseDocument(string? data)

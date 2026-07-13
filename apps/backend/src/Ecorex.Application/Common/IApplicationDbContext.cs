@@ -76,6 +76,7 @@ public interface IApplicationDbContext
     DbSet<FormResponse> FormResponses { get; }
     DbSet<FormFlowLink> FormFlowLinks { get; }
     DbSet<FormToken> FormTokens { get; }
+    DbSet<FormRecordLink> FormRecordLinks { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }

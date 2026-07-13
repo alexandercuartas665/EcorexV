@@ -117,8 +117,8 @@ public abstract class RulesEngineTestsBase
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
-        var definitions = new FormDefinitionService(ctx, tenantContext);
-        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine));
+        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext));
+        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine), new SequenceService(ctx, tenantContext), tenantContext, new NoOpFormRecordBroadcaster());
         var dispatcher = new FormRuleDispatcher(ctx, engine);
 
         // Formulario con 2 campos texto y regla PASAR_CAMPOS origen -> destino, vinculada
@@ -409,7 +409,7 @@ public abstract class RulesEngineTestsBase
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
-        var definitions = new FormDefinitionService(ctx, tenantContext);
+        var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext));
 
         var document = (await documents.CreateDocumentAsync(new SaveRuleDocumentRequest(
             "RUL-DUP", "Duplicados", "FORMULARIOS", Status: RuleStatus.Active))).Value!;

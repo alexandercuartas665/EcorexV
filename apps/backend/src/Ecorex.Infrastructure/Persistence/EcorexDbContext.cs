@@ -133,6 +133,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
+    public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
     // Motor de reglas (FASE 4 ola 3, ADR-0016): documentos de reglas, reglas con verbo
@@ -272,6 +273,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<FormControlType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormResponseStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormFlowLinkStatus>().HaveConversion<string>().HaveMaxLength(40);
+        // Origen de datos / lookup (ola F1): enums persistidos como string para DAL dual.
+        configurationBuilder.Properties<FormSourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormFieldPresentation>().HaveConversion<string>().HaveMaxLength(40);
+        // Calculo / agregacion (ola F2).
+        configurationBuilder.Properties<FormAggregate>().HaveConversion<string>().HaveMaxLength(40);
+        // Transaccionalidad (ola F3).
+        configurationBuilder.Properties<FormIdentityMode>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormRecordStatus>().HaveConversion<string>().HaveMaxLength(40);
+        // Transversales (ola F6).
+        configurationBuilder.Properties<FormDefaultDynamic>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleTriggerKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<RuleExecutionStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -1166,6 +1177,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Revision).HasDefaultValue(1);
             // Concurrencia optimista portable (ADR-0013), igual que TaskItem.
             b.Property(x => x.Version).IsConcurrencyToken();
+            // Transaccionalidad (ola F3, doc 01 D2/D3). Aditivas: enum con default, resto nullable.
+            b.Property(x => x.IdentityMode).HasDefaultValue(FormIdentityMode.None);
+            b.Property(x => x.IdentitySourceFieldCode).HasMaxLength(60);
+            b.Property(x => x.UniqueKeyFieldsJson).HasColumnType(jsonColumnType);
+            // Formulario como modulo (ola F4, doc 01 D1/D6). Aditivas.
+            b.Property(x => x.ModuleIcon).HasMaxLength(60);
+            b.Property(x => x.ListColumnsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.FilterFieldsJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });
@@ -1201,6 +1220,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Width).HasDefaultValue(12);
             b.Property(x => x.PlaceholderText).HasMaxLength(200);
             b.Property(x => x.DefaultValue).HasMaxLength(2000);
+            // Origen de datos / lookup (ola F1, doc 01 D4). Columnas ADITIVAS: los enums llevan
+            // default de string para no romper las filas existentes; los JSON usan el tipo dual.
+            b.Property(x => x.SourceKind).HasDefaultValue(FormSourceKind.Options);
+            b.Property(x => x.SourceRef).HasMaxLength(200);
+            b.Property(x => x.DisplayField).HasMaxLength(120);
+            b.Property(x => x.ValueField).HasMaxLength(120);
+            b.Property(x => x.FilterJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.AutofillMapJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Presentation).HasDefaultValue(FormFieldPresentation.Autocomplete);
+            // Calculo / agregacion (ola F2). Aditivas: CalcExpression nullable, Aggregate con default.
+            b.Property(x => x.CalcExpression).HasMaxLength(1000);
+            b.Property(x => x.Aggregate).HasDefaultValue(FormAggregate.None);
+            // Transversales (ola F6). Aditivas.
+            b.Property(x => x.DefaultDynamic).HasDefaultValue(FormDefaultDynamic.None);
+            b.Property(x => x.Format).HasMaxLength(40);
+            b.Property(x => x.FieldVisibilityJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server
@@ -1224,7 +1259,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Sin cascada: las respuestas sobreviven (la definicion se archiva, no se borra).
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+            // Registro transaccional (ola F3, doc 01 D2). Aditivas: enum con default, resto nullable.
+            b.Property(x => x.RecordNumber).HasMaxLength(100);
+            b.Property(x => x.RecordStatus).HasDefaultValue(FormRecordStatus.Draft);
+            b.Property(x => x.VoidReason).HasMaxLength(500);
             b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.Reference });
+            // Numero de registro unico por tenant+definicion cuando existe (indice filtrado).
+            b.HasIndex(x => new { x.TenantId, x.DefinitionId, x.RecordNumber }).IsUnique()
+                .HasFilter(isNpgsql ? "record_number IS NOT NULL" : "[record_number] IS NOT NULL");
         });
 
         modelBuilder.Entity<FormFlowLink>(b =>
@@ -1239,6 +1281,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.WorkflowNodeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.WorkflowInstanceId, x.WorkflowNodeId, x.FormResponseId }).IsUnique();
             b.HasIndex(x => new { x.FormResponseId, x.Status });
+        });
+
+        // Maestro-detalle entre formularios (ola F5, doc 01 D7).
+        modelBuilder.Entity<FormRecordLink>(b =>
+        {
+            b.Property(x => x.ParentFieldCode).HasMaxLength(60).IsRequired();
+            // Restrict en ambos lados: los FormResponse sobreviven (soft-delete del agregado); el
+            // servicio decide que pasa con los enlaces. Evita la doble ruta de cascada en SQL Server.
+            b.HasOne(x => x.ParentResponse).WithMany()
+                .HasForeignKey(x => x.ParentResponseId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.ChildResponse).WithMany()
+                .HasForeignKey(x => x.ChildResponseId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.ParentResponseId, x.ParentFieldCode, x.ChildResponseId }).IsUnique();
         });
 
         modelBuilder.Entity<FormToken>(b =>

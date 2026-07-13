@@ -121,6 +121,27 @@
 .dfr-capture.dashed { border: 1.5px dashed var(--line-2, rgba(20,20,25,.12)); min-height: 56px; }
 .dfr-capture-soon { font-size: 10px; opacity: .7; margin-left: 6px; }
 
+/* Captura Tier 2 real (ola F6): firma, foto/imagen, GPS, archivo. */
+.dfr-capture-ok { font-size: 11px; font-weight: 600; color: var(--success, #16A34A); }
+.dfr-sign { display: flex; flex-direction: column; gap: 6px; }
+.dfr-sign-canvas {
+    width: 320px; max-width: 100%; height: 120px; touch-action: none;
+    border: 1.5px dashed var(--line-2, rgba(20,20,25,.14)); border-radius: 9px;
+    background: var(--surface-1, #FFF); cursor: crosshair;
+}
+.dfr-sign-actions { display: flex; align-items: center; gap: 8px; }
+.dfr-sign-preview {
+    max-width: 320px; height: auto; border: 1px solid var(--line-2, rgba(20,20,25,.12)); border-radius: 9px;
+    background: var(--surface-1, #FFF);
+}
+.dfr-gps { display: flex; align-items: center; gap: 8px; }
+.dfr-gps .form-control { max-width: 260px; }
+.dfr-file { display: flex; flex-direction: column; gap: 6px; }
+.dfr-file-chosen { display: flex; align-items: center; gap: 8px; }
+.dfr-file-preview {
+    max-height: 96px; border-radius: 8px; border: 1px solid var(--line-2, rgba(20,20,25,.12));
+}
+
 /* Tabla (GridDetail) funcional. */
 .dfr-grid { display: flex; flex-direction: column; gap: 8px; }
 .dfr-grid-table {
@@ -146,3 +167,54 @@
     background: none; color: var(--ink-3, #A2A2AC); cursor: pointer; font-family: inherit;
 }
 .dfr-grid-add:hover { color: var(--brand, #1B1B1E); border-color: var(--brand, #1B1B1E); }
+
+/* ---- Lookup / autocompletado (ola F1) ---- */
+.dfr-lookup { position: relative; }
+.dfr-lookup-box { display: flex; align-items: center; gap: 6px; }
+.dfr-lookup-clear {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 8px; border: none;
+    background: var(--surface-3, #F2F2F3); color: var(--ink-3, #A2A2AC);
+    font-size: 16px; line-height: 1; font-weight: 700; cursor: pointer;
+}
+.dfr-lookup-clear:hover { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
+.dfr-lookup-chosen { font-size: 11.5px; color: var(--ink-2, #5C5C66); margin-top: 4px; }
+.dfr-lookup-chosen strong { color: var(--ink, #1B1B1E); }
+.dfr-lookup-panel {
+    position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
+    max-height: 260px; overflow-y: auto; padding: 4px;
+    background: var(--surface, #FFFFFF);
+    border: 1px solid var(--line, rgba(20,20,25,.07));
+    border-radius: var(--rad-sm, 12px);
+    box-shadow: var(--sh-md, 0 8px 24px rgba(20,20,25,.12));
+}
+.dfr-lookup.is-modal .dfr-lookup-panel { position: static; margin-top: 6px; box-shadow: none; }
+.dfr-lookup-opt {
+    display: block; width: 100%; text-align: left; padding: 8px 10px;
+    font-size: 13px; color: var(--ink, #1B1B1E); background: none; border: none;
+    border-radius: 8px; cursor: pointer; font-family: inherit;
+}
+.dfr-lookup-opt:hover { background: var(--surface-2, #FAFAFA); }
+.dfr-lookup-empty {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 10px; font-size: 12.5px; color: var(--ink-3, #A2A2AC);
+}
+.dfr-lookup-create {
+    font-size: 12px; font-weight: 600; color: var(--brand, #1B1B1E);
+    text-decoration: none; white-space: nowrap;
+}
+.dfr-lookup-create:hover { text-decoration: underline; }
+
+/* ---- Campo calculado (ola F2) ---- */
+.dfr-calc { background: var(--surface-3, #F2F2F3); font-weight: 600; color: var(--ink, #1B1B1E); }
+
+/* ---- Maestro-detalle / subformulario (ola F5) ---- */
+.dfr-subform { display: flex; flex-direction: column; gap: 10px; }
+.dfr-subform-child {
+    margin-top: 6px; padding: 14px; border-radius: var(--rad-sm, 12px);
+    border: 1px dashed var(--line-2, rgba(20,20,25,.12)); background: var(--surface-2, #FAFAFA);
+}
+.dfr-subform-childhead { font-size: 12px; font-weight: 700; color: var(--ink-2, #5C5C66); margin-bottom: 8px; }
+
+/* ---- Registro transaccional (ola F3) ---- */
+.dfr-chip-record { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); font-weight: 700; }
+.dfr-chip-void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); font-weight: 700; }

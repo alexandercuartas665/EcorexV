@@ -28,4 +28,20 @@ public class FormResponse : TenantEntity, IVersioned
 
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
+
+    // ---- Registro transaccional (Formularios avanzados, ola F3; doc 01 D2). Solo aplica cuando
+    // la definicion es transaccional; INDEPENDIENTE de Status (Draft/Submitted, ciclo de envio). ----
+
+    /// <summary>Numero/clave del registro (consecutivo o clave natural). Null hasta confirmar.</summary>
+    public string? RecordNumber { get; set; }
+
+    /// <summary>Ciclo del registro: Draft -> Confirmed -> Voided (anular no borra ni libera el numero).</summary>
+    public FormRecordStatus RecordStatus { get; set; } = FormRecordStatus.Draft;
+
+    /// <summary>Fecha del hecho (por sistema al confirmar; los campos fecha del formulario son aparte).</summary>
+    public DateTimeOffset? TransactionDate { get; set; }
+
+    public DateTimeOffset? VoidedAt { get; set; }
+    public Guid? VoidedByTenantUserId { get; set; }
+    public string? VoidReason { get; set; }
 }

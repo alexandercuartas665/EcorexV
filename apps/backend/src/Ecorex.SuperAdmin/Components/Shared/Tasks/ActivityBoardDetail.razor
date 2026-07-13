@@ -162,7 +162,7 @@
                 </button>
                 <button class="ab-btn-task" @onclick="@(() => OpenQuickCreate(null))">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                    Tarea
+                    Actividad
                 </button>
             </div>
         </div>
@@ -294,7 +294,7 @@
                         }
                         <button class="ab-addtask" @onclick="@(() => OpenQuickCreate(column.Id))">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                            Anadir tarea
+                            Anadir actividad
                         </button>
                     </div>
                 </div>
@@ -308,7 +308,7 @@
         <div class="ab-listwrap">
             <div class="ab-list">
                 <div class="ab-list-head">
-                    <span>TAREA</span><span>ESTADO</span><span>ASIGNADO</span><span>PRIORIDAD</span><span>PROGRESO</span><span style="text-align:right">FECHA</span>
+                    <span>ACTIVIDAD</span><span>ESTADO</span><span>ASIGNADO</span><span>PRIORIDAD</span><span>PROGRESO</span><span style="text-align:right">FECHA</span>
                 </div>
                 @foreach (var (column, colIdx, card) in ListRows())
                 {
@@ -453,7 +453,7 @@
     <div class="ab-modal-overlay" @onclick="@(() => _qcOpen = false)">
         <div class="ab-modal wide ab-quick-modal" @onclick:stopPropagation="true">
             <div class="ab-modal-head">
-                <h3>Nueva tarea</h3>
+                <h3>Nueva actividad</h3>
                 <button class="ab-modal-x" @onclick="@(() => _qcOpen = false)" aria-label="Cerrar">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
@@ -535,7 +535,7 @@
             </div>
             <div class="ab-modal-foot">
                 <button class="ab-btn-secondary" @onclick="@(() => _qcOpen = false)">Cancelar</button>
-                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_qcTitle))" @onclick="QuickCreateAsync">Crear tarea</button>
+                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_qcTitle))" @onclick="QuickCreateAsync">Crear actividad</button>
             </div>
         </div>
     </div>
@@ -1258,7 +1258,7 @@
             }
             _qcOpen = false;
             var created = result.Value!.Item;
-            _toasts?.Success($"Tarea {created.Number} creada.");
+            _toasts?.Success($"Actividad {created.Number} creada.");
             await BroadcastAsync(created.Id, created.Status);
             await LoadMembersAsync();
             await ReloadAsync();

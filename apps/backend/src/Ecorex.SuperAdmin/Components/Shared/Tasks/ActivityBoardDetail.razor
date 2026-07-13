@@ -643,6 +643,9 @@
 <TaskToasts @ref="_toasts" />
 <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 
+@* Mis Procesos (?sub=): el WIZARD grande "Crear actividad" precargado con el concepto (ADR-0038). *@
+<TaskWizard @ref="_wizard" OnCreated="OnWizardCreatedAsync" />
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [Parameter] public Guid BoardId { get; set; }
@@ -743,6 +746,24 @@
     // sin aislamiento EF lanza "second operation on this context".
     private readonly SemaphoreSlim _reloadLock = new(1, 1);
 
+    // Mis Procesos (?sub=): abrir el WIZARD grande "Crear actividad" precargado con el concepto.
+    private TaskWizard? _wizard;
+    private bool _openWizardPending;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // El @ref del wizard existe recien tras el primer render; aqui lo abrimos precargado UNA vez.
+        if (_openWizardPending && _wizard is not null && PresetSubcategoriaId is Guid presetSub)
+        {
+            _openWizardPending = false;
+            await _wizard.OpenAsync(presetSubcategoriaId: presetSub);
+        }
+    }
+
+    /// <summary>El wizard creo la actividad: refrescar el tablero para que aparezca la tarjeta.</summary>
+    private async Task OnWizardCreatedAsync(TaskItemDetailDto _)
+        => await ReloadAsync();
+
     protected override async Task OnParametersSetAsync()
     {
         if (_loadedBoardId == BoardId) { return; }
@@ -758,28 +779,17 @@
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _tags = (await TasksSvc.ListTagsAsync()).ToList();
         _types = (await TypesSvc.ListAsync()).ToList();
-        // Ola 6: actividades SIN proceso (subcategorias sin flujo) para el crear-desde-tablero.
-        // Paso corto (Mis Procesos): si llegamos con un CONCEPTO preseleccionado (PresetSubcategoriaId),
-        // lo incluimos en el modal rapido aunque sea de proceso, para crear desde ahi precargado.
-        var allSubs = (await CatalogoSvc.ListSubcategoriasAsync(includeArchived: false))
+        // Ola 6: actividades SIN proceso (subcategorias sin flujo) para el crear-desde-tablero rapido.
+        _freeSubs = (await CatalogoSvc.ListSubcategoriasAsync(includeArchived: false))
+            .Where(s => s.WorkflowDefinitionId is null)
             .OrderBy(s => s.Nombre).ToList();
-        _freeSubs = allSubs.Where(s => s.WorkflowDefinitionId is null).ToList();
-        if (PresetSubcategoriaId is Guid presetSubId && _freeSubs.All(s => s.Id != presetSubId))
-        {
-            var presetSub = allSubs.FirstOrDefault(s => s.Id == presetSubId);
-            if (presetSub is not null) { _freeSubs.Insert(0, presetSub); }
-        }
         _meTenantUserId = await MeTenantUserIdAsync();
         await LoadMembersAsync();
         await ReloadAsync();
-        // Paso corto: al aterrizar desde "Mis Procesos" (?sub=), auto-abrir el modal rapido del tablero
-        // precargado con el concepto (la categoria queda implicita por el concepto).
-        if (PresetSubcategoriaId is Guid pid && _detail is not null && _detail.Columns.Count > 0
-            && _freeSubs.Any(s => s.Id == pid))
-        {
-            OpenQuickCreate(null);
-            _qcSubId = pid.ToString();
-        }
+        // Mis Procesos (?sub=): al aterrizar, abrir el WIZARD grande "Crear actividad" (4 pasos, form-first)
+        // precargado con el concepto -> NO el modal rapido. Se dispara en OnAfterRenderAsync, cuando el
+        // @ref del wizard ya existe.
+        _openWizardPending = PresetSubcategoriaId is not null;
         await EnsureHubAsync();
     }
 

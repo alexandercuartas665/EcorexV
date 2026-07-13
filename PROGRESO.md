@@ -3505,3 +3505,11 @@ en el concepto y auto-abrir el modal "Nueva actividad" precargado con la (cat)/s
 - **Pendiente (siguiente paso corto)**: si el concepto NO tiene tablero (`TaskBoardId` null) hoy cae al
   indice; definir fallback (exigir tablero en Conceptos, o abrir el wizard). Nota de proceso: el modal
   rapido no tiene paso "Formulario" (form-first); para conceptos con formulario habra que iterar.
+
+**Correccion (2026-07-13, feedback del usuario "unificar todo a Crear actividad")**: al aterrizar desde
+"Mis Procesos" NO se abre el modal RAPIDO sino el **WIZARD grande "Nueva actividad" (4 pasos, form-first)**
+precargado con el concepto. `ActivityBoardDetail` monta `<TaskWizard @ref=...>` y en `OnAfterRenderAsync`
+llama `OpenAsync(presetSubcategoriaId)`; `OnCreated` recarga el tablero. Se revirtio el parche del dropdown
+del rapido (vuelve a ser solo no-proceso). Ademas se unifico el NAMING de la creacion del tablero a
+"actividad" (boton/modal/commit/header/toast). Validado en el Chrome del usuario: abre el wizard grande con
+Proceso=Comercial + Actividad=Cotizacion de equipos preseleccionados (screenshot). Build verde.

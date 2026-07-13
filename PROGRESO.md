@@ -3651,3 +3651,37 @@ previo (`backups/ecorex-2026-07-12-0841.sql.gz`), `build --no-cache` + `up -d`, 
 
 **Pendiente**: refrescar en el vault (doc 03) el inventario; backlog post-v1 (form multimedia, vista
 cliente-final, satelites legacy) sigue diferido a la fase de formularios avanzada.
+
+---
+
+## Sesion 2026-07-13 - Formularios avanzados F6 (transversales): cierre de mascaras + captura Tier 2
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562` (rama `claude/briefing-worktree-formularios-f50017`).
+**Contexto**: trabajo contra BD local `ecorex_forms` (no se despliega a prod hasta que el usuario lo indique;
+el agente codea todo, incluidas migraciones, y documenta el esquema en el vault doc 04 para la sesion principal).
+
+**Cerrados los 2 pendientes de F6 (sin migracion nueva: reutilizan columnas F6 ya existentes
+`format`, `default_dynamic`, `field_visibility_json`)**:
+- **Mascaras de entrada** (`DynamicFormRenderer.MaskInput`): en campos de texto la mascara reformatea al
+  perder el foco. `phone` -> `(300) 123-4567`; `document` -> `900,123,456`. El valor GUARDADO queda crudo
+  (la mascara es solo presentacion). Opciones "Telefono (mascara)" y "Documento (miles)" agregadas al
+  dropdown Formato del disenador (pestana Datos).
+- **Captura Tier 2 real** (`form-capture.js` + fragments en el renderer): **firma** en canvas -> dataURL PNG
+  inline; **GPS** via `navigator.geolocation`; **archivo/foto** -> data-URI inline con tope de 1 MB
+  (almacenamiento de objetos para adjuntos grandes queda como incremento posterior). Se cargo el script en
+  `App.razor` y se agregaron estilos en `DynamicFormRenderer.razor.css`.
+
+**Prueba E2E via MCP de Chrome** (usuario `completo@sky-system.local`, rol **Advisor**): se creo el
+formulario **FRM-022** DESDE el disenador (drag del palette + Formato=phone persistido), se sembraron 7
+campos F6 adicionales, se **Activo** y se lleno en Vista previa (modo Fill). Validado y persistido en BD:
+mascara phone `3001234567`->`(300) 123-4567` (guarda crudo), mascara document `900123456`->`900,123,456`,
+default dinamico Hoy = `2026-07-13`, firma dataURL PNG (4358 chars), GPS (cableado OK; permiso denegado en
+sandbox), archivo data-URI PNG con preview, **solo-lectura por rol** (notas dentro de `fieldset[disabled]`
+para Advisor) y **oculto por rol** (campo "codigo interno" no renderiza para Advisor). Envio -> "Enviado".
+
+**Diferido explicitamente (NO construido, el usuario analiza la documentacion)**: webhooks / botones con
+reglas de accion e integraciones por reflexion (verbos tipados). Tambien diferido: PDF con plantilla y
+almacenamiento de objetos para adjuntos grandes.
+
+**Siguiente**: marcar F6 completado en el vault (docs 00/03); a la espera de "ok deploy" del usuario para
+que la sesion principal aplique a prod (no hay migracion nueva de F6, solo codigo).

@@ -4,12 +4,15 @@
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
 @inject IFormRuleDispatcher RulesDispatcher
 @inject IFormLookupService LookupSvc
+@inject IJSRuntime JS
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -297,6 +300,17 @@ else
         }
     }
 
+    /// <summary>Inicializa el trazo de los canvas de firma tras cada render (idempotente en JS).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_definition is null || IsDisabled) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Signature))
+        {
+            try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", $"sig-{q.Id}"); }
+            catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
+        }
+    }
+
     // ---- Arbol ----
 
     private List<FormContainerDto> ChildrenOf(Guid? parentId)
@@ -522,7 +536,8 @@ else
         switch (q.ControlType)
         {
             case FormControlType.Text:
-                <input class="form-control" value="@value" disabled="@IsDisabled" placeholder="@q.PlaceholderText"
+                <input class="form-control" value="@(string.IsNullOrEmpty(q.Format) ? value : MaskInput(q.Format, value))"
+                       disabled="@IsDisabled" placeholder="@q.PlaceholderText"
                        @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
                 break;
             case FormControlType.TextArea:
@@ -590,18 +605,24 @@ else
                 @RenderSubform(q)
                 break;
             case FormControlType.Signature:
-                @RenderCapturePlaceholder(q, "dashed", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "Firma aqui")
+                @* Captura Tier 2 real (ola F6): trazo en canvas -> dataURL guardado inline. *@
+                @RenderSignature(q, value)
                 break;
             case FormControlType.Photo:
             case FormControlType.Image:
-                @RenderCapturePlaceholder(q, "dashed", "M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z", "Capturar")
+                @* Captura Tier 2 real (ola F6): foto/imagen -> data-URI inline (limite de tamano). *@
+                @RenderFileCapture(q, value, accept: "image/*", capture: q.ControlType == FormControlType.Photo, label: "Tomar / subir imagen")
                 break;
             case FormControlType.Gps:
-                @RenderCapturePlaceholder(q, "solid", "M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z", "Ubicacion")
+                @* Captura Tier 2 real (ola F6): geolocalizacion del navegador. *@
+                @RenderGps(q, value)
                 break;
             case FormControlType.File:
+                @* Captura Tier 2 real (ola F6): archivo -> data-URI inline (limite de tamano). *@
+                @RenderFileCapture(q, value, accept: null, capture: false, label: "Subir archivo")
+                break;
             case FormControlType.Audio:
-                @RenderCapturePlaceholder(q, "dashed", "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z M14 3v5h5", "Subir archivo")
+                @RenderCapturePlaceholder(q, "dashed", "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM5 11a7 7 0 0 0 14 0M12 18v3", "Grabar audio")
                 break;
             case FormControlType.Barcode:
                 @RenderCapturePlaceholder(q, "solid", "M4 5v14M7 5v14M10 5v14M14 5v14M17 5v14M20 5v14", "Escanear")
@@ -625,6 +646,152 @@ else
             <span class="dfr-capture-soon">captura disponible proximamente</span>
         </div>
     };
+
+    // ---- Captura Tier 2 real (ola F6, doc 01 D9): firma, foto/imagen, GPS, archivo ----
+    // Todo se guarda INLINE (data-URI / coordenadas) con tope de 1 MB; el almacenamiento de
+    // objetos para adjuntos grandes es un incremento posterior documentado en el vault.
+
+    private readonly Dictionary<string, string> _captureError = new(StringComparer.Ordinal);
+
+    private RenderFragment RenderSignature(FormQuestionDto q, string? value) => __builder =>
+    {
+        var hasVal = !string.IsNullOrEmpty(value);
+        <div class="dfr-sign">
+            @if (IsDisabled)
+            {
+                @if (hasVal)
+                {
+                    <img class="dfr-sign-preview" src="@value" alt="Firma" />
+                }
+                else
+                {
+                    <div class="dfr-capture" aria-disabled="true"><span>Sin firma</span></div>
+                }
+            }
+            else
+            {
+                <canvas id="@($"sig-{q.Id}")" class="dfr-sign-canvas" width="320" height="120"></canvas>
+                <div class="dfr-sign-actions">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => ClearSignatureAsync(q))">Limpiar</button>
+                    <button type="button" class="btn btn-sm btn-primary" @onclick="@(() => SaveSignatureAsync(q))">Guardar firma</button>
+                    @if (hasVal)
+                    {
+                        <span class="dfr-capture-ok">Firma capturada</span>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private RenderFragment RenderGps(FormQuestionDto q, string? value) => __builder =>
+    {
+        <div class="dfr-gps">
+            <input class="form-control" readonly value="@value" placeholder="Sin ubicacion" />
+            @if (!IsDisabled)
+            {
+                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="@(() => CaptureGpsAsync(q))">Capturar ubicacion</button>
+            }
+        </div>
+    };
+
+    private RenderFragment RenderFileCapture(FormQuestionDto q, string? value, string? accept, bool capture, string label) => __builder =>
+    {
+        var hasVal = !string.IsNullOrEmpty(value);
+        <div class="dfr-file">
+            @if (!IsDisabled)
+            {
+                @if (capture)
+                {
+                    <InputFile OnChange="@(e => OnFileSelectedAsync(q, e))" accept="@accept" capture="environment" />
+                }
+                else
+                {
+                    <InputFile OnChange="@(e => OnFileSelectedAsync(q, e))" accept="@accept" />
+                }
+            }
+            @if (_captureError.TryGetValue(q.FieldCode, out var cerr))
+            {
+                <div class="tk-field-error">@cerr</div>
+            }
+            @if (hasVal)
+            {
+                <div class="dfr-file-chosen">
+                    @if (IsImageDataUri(value))
+                    {
+                        <img class="dfr-file-preview" src="@value" alt="adjunto" />
+                    }
+                    <span class="dfr-capture-ok">@(MimeOf(value) ?? "archivo adjunto")</span>
+                    @if (!IsDisabled)
+                    {
+                        <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => SetValue(q, null))">&times;</button>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private static bool IsImageDataUri(string? v)
+        => v is not null && v.StartsWith("data:image", StringComparison.OrdinalIgnoreCase);
+
+    private static string? MimeOf(string? v)
+    {
+        if (string.IsNullOrEmpty(v) || !v.StartsWith("data:", StringComparison.Ordinal)) { return null; }
+        var semi = v.IndexOf(';');
+        return semi > 5 ? v[5..semi] : null;
+    }
+
+    private async Task SaveSignatureAsync(FormQuestionDto q)
+    {
+        try
+        {
+            var data = await JS.InvokeAsync<string>("ecorexFormCapture.signatureData", $"sig-{q.Id}");
+            if (!string.IsNullOrEmpty(data)) { await SetValue(q, data); }
+        }
+        catch (JSException) { /* JS no disponible (prerender): sin captura */ }
+    }
+
+    private async Task ClearSignatureAsync(FormQuestionDto q)
+    {
+        try { await JS.InvokeVoidAsync("ecorexFormCapture.clearSignature", $"sig-{q.Id}"); }
+        catch (JSException) { }
+        await SetValue(q, null);
+    }
+
+    private async Task CaptureGpsAsync(FormQuestionDto q)
+    {
+        try
+        {
+            var coords = await JS.InvokeAsync<string>("ecorexFormCapture.geolocate");
+            await SetValue(q, coords);
+        }
+        catch (JSException) { }
+    }
+
+    private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) { return; }
+        const long max = 1024 * 1024; // 1 MB inline; objetos grandes = incremento posterior.
+        if (file.Size > max)
+        {
+            _captureError[q.FieldCode] = $"El archivo supera 1 MB ({file.Size / 1024} KB). El almacenamiento de objetos para adjuntos grandes llega en un incremento posterior.";
+            return;
+        }
+        _captureError.Remove(q.FieldCode);
+        try
+        {
+            await using var stream = file.OpenReadStream(max);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            var mime = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            await SetValue(q, $"data:{mime};base64,{b64}");
+        }
+        catch (Exception ex)
+        {
+            _captureError[q.FieldCode] = $"No se pudo leer el archivo: {ex.Message}";
+        }
+    }
 
     // ---- Lookup / autocompletado (ola F1, doc 01 D4) ----
 
@@ -1148,8 +1315,24 @@ else
             "percent" => num.ToString("0.##", ci) + " %",
             "integer" => Math.Round(num).ToString("#,##0", ci),
             "decimal" => num.ToString("#,##0.00", ci),
+            "document" => num.ToString("#,##0", ci),
             _ => value,
         };
+    }
+
+    /// <summary>Mascara de ENTRADA (ola F6): reformatea el valor tecleado al perder el foco. Para campos
+    /// de texto (telefono) usa los digitos; para numericos reusa <see cref="FormatValue"/>.</summary>
+    private static string MaskInput(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? ""; }
+        if (format.Trim().ToLowerInvariant() == "phone")
+        {
+            var d = new string(value.Where(char.IsDigit).ToArray());
+            if (d.Length == 10) { return $"({d[..3]}) {d[3..6]}-{d[6..]}"; }
+            if (d.Length == 7) { return $"{d[..3]}-{d[3..]}"; }
+            return value;
+        }
+        return FormatValue(format, value);
     }
 
     /// <summary>

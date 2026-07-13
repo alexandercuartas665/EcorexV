@@ -108,6 +108,12 @@ public class FormQuestion : TenantEntity
     /// <summary>Como se ofrece el catalogo al llenar: autocompletar (default), lista o buscador modal.</summary>
     public FormFieldPresentation Presentation { get; set; } = FormFieldPresentation.Autocomplete;
 
+    /// <summary>
+    /// Maestro-detalle (ola F5, doc 01 D7): definicion HIJA que este campo Subform embebe. Los
+    /// registros hijos se enlazan al padre por FormRecordLink. Null salvo en campos Subform.
+    /// </summary>
+    public Guid? SubformDefinitionId { get; set; }
+
     // ---- Calculo y agregacion (Formularios avanzados, ola F2; doc 01 seccion D5) ----
 
     /// <summary>

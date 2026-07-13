@@ -56,5 +56,13 @@ public enum FormControlType
     Divider,
     /// <summary>Espaciado vertical (prototipo 'espacio'): alto en px en DefaultValue;
     /// no captura datos.</summary>
-    Spacer
+    Spacer,
+
+    /// <summary>
+    /// Maestro-detalle (Formularios avanzados, ola F5, doc 01 D7): el campo embebe registros HIJOS
+    /// de OTRA definicion (FormQuestion.SubformDefinitionId), enlazados al registro padre por
+    /// FormRecordLink. A diferencia de GridDetail (filas en el jsonb del padre), cada hijo es un
+    /// FormResponse propio, reportable aparte.
+    /// </summary>
+    Subform
 }

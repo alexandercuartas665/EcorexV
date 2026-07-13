@@ -47,4 +47,15 @@ public interface IFormResponseService
 
     /// <summary>Exporta los registros de la bandeja a Excel (.xlsx) con las columnas configuradas (ola F4). Null si no es modulo.</summary>
     Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    // ---- Maestro-detalle (ola F5, doc 01 D7) ----
+
+    /// <summary>Registros hijos enlazados a un campo Subform del padre.</summary>
+    Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Crea un registro hijo (borrador) de la definicion dada y lo enlaza al padre. Devuelve el id del hijo.</summary>
+    Task<FormResult<Guid>> AddChildAsync(Guid parentResponseId, string parentFieldCode, Guid childDefinitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Quita el enlace de un hijo (el registro hijo se conserva, se desengancha del padre).</summary>
+    Task<FormResult<bool>> UnlinkChildAsync(Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default);
 }

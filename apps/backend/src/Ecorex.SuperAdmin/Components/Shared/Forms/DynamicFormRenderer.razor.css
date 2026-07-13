@@ -186,6 +186,14 @@
 /* ---- Campo calculado (ola F2) ---- */
 .dfr-calc { background: var(--surface-3, #F2F2F3); font-weight: 600; color: var(--ink, #1B1B1E); }
 
+/* ---- Maestro-detalle / subformulario (ola F5) ---- */
+.dfr-subform { display: flex; flex-direction: column; gap: 10px; }
+.dfr-subform-child {
+    margin-top: 6px; padding: 14px; border-radius: var(--rad-sm, 12px);
+    border: 1px dashed var(--line-2, rgba(20,20,25,.12)); background: var(--surface-2, #FAFAFA);
+}
+.dfr-subform-childhead { font-size: 12px; font-weight: 700; color: var(--ink-2, #5C5C66); margin-bottom: 8px; }
+
 /* ---- Registro transaccional (ola F3) ---- */
 .dfr-chip-record { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); font-weight: 700; }
 .dfr-chip-void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); font-weight: 700; }

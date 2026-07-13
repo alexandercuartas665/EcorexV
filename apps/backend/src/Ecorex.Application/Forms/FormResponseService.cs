@@ -386,6 +386,65 @@ public sealed class FormResponseService : IFormResponseService
         return ms.ToArray();
     }
 
+    // ---- Maestro-detalle (ola F5, doc 01 D7) ----
+
+    public async Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(
+        Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
+    {
+        var links = await _db.FormRecordLinks.AsNoTracking()
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .ToListAsync(cancellationToken);
+
+        return links.Select(r =>
+        {
+            var fields = ParseDocument(r.Data).ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+            return new FormRecordListItemDto(r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, fields);
+        }).ToList();
+    }
+
+    public async Task<FormResult<Guid>> AddChildAsync(
+        Guid parentResponseId, string parentFieldCode, Guid childDefinitionId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId)
+        {
+            return FormResult<Guid>.Invalid("No hay tenant activo.");
+        }
+        var parentExists = await _db.FormResponses.AsNoTracking().AnyAsync(r => r.Id == parentResponseId, cancellationToken);
+        if (!parentExists) { return FormResult<Guid>.NotFound("Registro padre no encontrado."); }
+        var childDefExists = await _db.FormDefinitions.AsNoTracking().AnyAsync(d => d.Id == childDefinitionId, cancellationToken);
+        if (!childDefExists) { return FormResult<Guid>.NotFound("Definicion hija no encontrada."); }
+
+        var child = new FormResponse { TenantId = tenantId, DefinitionId = childDefinitionId, Data = "{}" };
+        _db.FormResponses.Add(child);
+        var order = await _db.FormRecordLinks
+            .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode)
+            .CountAsync(cancellationToken);
+        _db.FormRecordLinks.Add(new FormRecordLink
+        {
+            TenantId = tenantId,
+            ParentResponseId = parentResponseId,
+            ParentFieldCode = parentFieldCode,
+            ChildResponseId = child.Id,
+            SortOrder = order,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<Guid>.Ok(child.Id);
+    }
+
+    public async Task<FormResult<bool>> UnlinkChildAsync(
+        Guid parentResponseId, string parentFieldCode, Guid childResponseId, CancellationToken cancellationToken = default)
+    {
+        var link = await _db.FormRecordLinks
+            .FirstOrDefaultAsync(l => l.ParentResponseId == parentResponseId
+                && l.ParentFieldCode == parentFieldCode && l.ChildResponseId == childResponseId, cancellationToken);
+        if (link is null) { return FormResult<bool>.NotFound("Enlace no encontrado."); }
+        _db.FormRecordLinks.Remove(link);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<bool>.Ok(true);
+    }
+
     /// <summary>Deserializa un arreglo JSON de field codes (columnas/filtros de la bandeja). Vacio si invalido.</summary>
     private static IReadOnlyList<string> ParseCodeList(string? json)
     {

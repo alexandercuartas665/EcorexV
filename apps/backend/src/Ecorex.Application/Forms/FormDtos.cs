@@ -37,7 +37,9 @@ public sealed record FormQuestionDto(
     string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
     string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
     // Calculo / agregacion (ola F2, doc 01 D5).
-    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None);
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
+    // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
+    Guid? SubformDefinitionId = null);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -97,7 +99,9 @@ public sealed record SaveFormQuestionRequest(
     string? DisplayField = null, string? ValueField = null, string? FilterJson = null,
     string? AutofillMapJson = null, FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
     // Calculo / agregacion (ola F2, doc 01 D5).
-    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None);
+    string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
+    // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
+    Guid? SubformDefinitionId = null);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

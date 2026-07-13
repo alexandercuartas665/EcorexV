@@ -3167,6 +3167,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("source_ref");
 
+                    b.Property<Guid?>("SubformDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subform_definition_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -3208,6 +3212,64 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_form_questions_definition_id_container_id_sort_order");
 
                     b.ToTable("form_questions", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChildResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("child_response_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ParentFieldCode")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("parent_field_code");
+
+                    b.Property<Guid>("ParentResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_response_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_form_record_links");
+
+                    b.HasIndex("ChildResponseId")
+                        .HasDatabaseName("ix_form_record_links_child_response_id");
+
+                    b.HasIndex("ParentResponseId", "ParentFieldCode", "ChildResponseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_form_record_links_parent_response_id_parent_field_code_chil");
+
+                    b.ToTable("form_record_links", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>
@@ -10454,6 +10516,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Container");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.FormRecordLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ChildResponse")
+                        .WithMany()
+                        .HasForeignKey("ChildResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_child_response_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "ParentResponse")
+                        .WithMany()
+                        .HasForeignKey("ParentResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_form_record_links_form_responses_parent_response_id");
+
+                    b.Navigation("ChildResponse");
+
+                    b.Navigation("ParentResponse");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FormResponse", b =>

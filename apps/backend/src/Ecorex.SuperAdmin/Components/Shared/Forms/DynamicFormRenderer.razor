@@ -262,6 +262,8 @@ else
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
+                // Maestro-detalle (ola F5): registros hijos de los subformularios.
+                await LoadSubformChildrenAsync();
             }
         }
         finally
@@ -559,6 +561,10 @@ else
                 @* Tabla FUNCIONAL (ADR-0021): columnas en OptionsJson [{id,label}] y el
                    valor del campo es un arreglo JSON de filas [{colId:"valor"}]. *@
                 @RenderGrid(q, value)
+                break;
+            case FormControlType.Subform:
+                @* Maestro-detalle (ola F5, doc 01 D7): registros HIJOS de otra definicion. *@
+                @RenderSubform(q)
                 break;
             case FormControlType.Signature:
                 @RenderCapturePlaceholder(q, "dashed", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "Firma aqui")
@@ -907,6 +913,116 @@ else
             }
         </div>
     };
+
+    // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----
+
+    private readonly Dictionary<string, IReadOnlyList<FormRecordListItemDto>> _subformChildren = new(StringComparer.Ordinal);
+    private string? _activeChildField;
+    private Guid? _activeChildResponseId;
+
+    private RenderFragment RenderSubform(FormQuestionDto q) => __builder =>
+    {
+        if (q.SubformDefinitionId is not Guid childDef)
+        {
+            <div class="dfr-unsupported">Subformulario sin definicion hija configurada.</div>
+            return;
+        }
+        var children = _subformChildren.GetValueOrDefault(q.FieldCode) ?? Array.Empty<FormRecordListItemDto>();
+        <div class="dfr-subform">
+            <table class="dfr-grid-table">
+                <thead>
+                    <tr><th>Registro</th><th>Estado</th><th>Referencia</th>@if (!IsDisabled) { <th class="dfr-grid-x"></th> }</tr>
+                </thead>
+                <tbody>
+                    @if (children.Count == 0)
+                    {
+                        <tr><td class="dfr-grid-empty" colspan="@(IsDisabled ? 3 : 4)">Sin registros hijos todavia.</td></tr>
+                    }
+                    @foreach (var c in children)
+                    {
+                        var childId = c.Id;
+                        <tr>
+                            <td>@(c.RecordNumber ?? "(borrador)")</td>
+                            <td>@(c.RecordStatus == FormRecordStatus.Confirmed ? "Confirmado" : c.RecordStatus == FormRecordStatus.Voided ? "Anulado" : "Borrador")</td>
+                            <td>@(c.Reference ?? "-")</td>
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-x">
+                                    <button type="button" class="dfr-grid-del" title="Quitar del padre" @onclick="@(() => RemoveSubformChildAsync(q, childId))">&times;</button>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!IsDisabled && _activeChildField != q.FieldCode)
+            {
+                <button type="button" class="dfr-grid-add" @onclick="@(() => AddSubformChildAsync(q))">+ Agregar registro</button>
+            }
+            @if (_activeChildField == q.FieldCode && _activeChildResponseId is Guid activeChild)
+            {
+                <div class="dfr-subform-child">
+                    <div class="dfr-subform-childhead">Nuevo registro hijo</div>
+                    <DynamicFormRenderer DefinitionId="childDef" ResponseId="activeChild" Mode="FormRenderMode.Fill"
+                                         SubmittedByTenantUserId="SubmittedByTenantUserId" AmbientTenantId="AmbientTenantId"
+                                         ShowHeader="false" OnSubmitted="@(_ => OnSubformChildSubmittedAsync(q))" />
+                </div>
+            }
+        </div>
+    };
+
+    private async Task LoadSubformChildrenAsync()
+    {
+        if (_definition is null || _response is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Subform))
+        {
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response.Id, q.FieldCode);
+        }
+    }
+
+    private async Task AddSubformChildAsync(FormQuestionDto q)
+    {
+        if (_response is null || q.SubformDefinitionId is not Guid childDef) { return; }
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var result = await ResponsesSvc.AddChildAsync(_response.Id, q.FieldCode, childDef);
+            if (result.IsOk)
+            {
+                _activeChildField = q.FieldCode;
+                _activeChildResponseId = result.Value;
+            }
+            else { _globalError = result.Error; }
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task OnSubformChildSubmittedAsync(FormQuestionDto q)
+    {
+        _activeChildField = null;
+        _activeChildResponseId = null;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response!.Id, q.FieldCode);
+        }
+        finally { _dbGate.Release(); }
+    }
+
+    private async Task RemoveSubformChildAsync(FormQuestionDto q, Guid childId)
+    {
+        if (_response is null) { return; }
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            await ResponsesSvc.UnlinkChildAsync(_response.Id, q.FieldCode, childId);
+            _subformChildren[q.FieldCode] = await ResponsesSvc.ListChildrenAsync(_response.Id, q.FieldCode);
+        }
+        finally { _dbGate.Release(); }
+    }
 
     private List<Dictionary<string, string?>> GridRowsOf(FormQuestionDto q)
         => FormFieldValidator.ParseGridRows(_values.GetValueOrDefault(q.FieldCode))

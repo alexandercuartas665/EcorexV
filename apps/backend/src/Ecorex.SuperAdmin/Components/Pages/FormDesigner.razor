@@ -888,7 +888,7 @@ else
         q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
-        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate);
+        q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);

@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F5 - maestro-detalle entre formularios
+
+- **Hecho (F5, doc 01 D7)**: el detalle son registros de OTRA definicion (no solo GridDetail embebido).
+  - ESQUEMA: `FormControlType` += `Subform`; `FormQuestion.SubformDefinitionId`; **tabla nueva
+    `form_record_links`** (padre-hijo: parent_response_id, parent_field_code, child_response_id, unico).
+    Migracion dual `AddFormRecordLink` (1 tabla + 1 columna). Aplicada local; PENDIENTE prod (doc 04).
+  - SERVICIO: `FormResponseService.ListChildrenAsync/AddChildAsync/UnlinkChildAsync` (crea el hijo como
+    FormResponse propio de la definicion hija + enlace). `Subform` marcado IsNonInput (no va en el jsonb).
+  - RENDERER: el campo Subform lista los hijos + "Agregar registro" -> abre el formulario hijo ANIDADO
+    (DynamicFormRenderer recursivo, Fill) -> al enviar, el hijo (con su numero/estado) aparece enlazado.
+    Quitar desengancha (conserva el hijo).
+- **Verificado en navegador (`ecorex_forms`)**: FRM-021 con campo Subform -> hijo FRM-002; Agregar ->
+  formulario FRM-002 anidado (Bodega/Fecha) -> Enviar -> hijo **FRM-002-000001 (Confirmado)** enlazado en
+  la lista del padre; `form_record_links` con el enlace (detalle -> FRM-002-000001). Solution verde; 360 tests.
+- **Siguiente**: designer para crear/configurar el campo Subform (elegir definicion hija) sin SQL;
+  reportar el detalle aparte (ya es posible: cada hijo es un registro con numero). Luego F6.
+
 ## 2026-07-13 - Sesion (worktree formularios): F4 ARRANQUE - formulario como modulo (menu dinamico)
 
 - **Hecho (F4, nucleo: promover a modulo con colocacion dinamica en el menu)**:

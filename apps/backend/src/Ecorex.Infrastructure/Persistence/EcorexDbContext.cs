@@ -133,6 +133,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<FormResponse> FormResponses => Set<FormResponse>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
+    public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
     // Motor de reglas (FASE 4 ola 3, ADR-0016): documentos de reglas, reglas con verbo
@@ -1274,6 +1275,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.WorkflowNodeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.WorkflowInstanceId, x.WorkflowNodeId, x.FormResponseId }).IsUnique();
             b.HasIndex(x => new { x.FormResponseId, x.Status });
+        });
+
+        // Maestro-detalle entre formularios (ola F5, doc 01 D7).
+        modelBuilder.Entity<FormRecordLink>(b =>
+        {
+            b.Property(x => x.ParentFieldCode).HasMaxLength(60).IsRequired();
+            // Restrict en ambos lados: los FormResponse sobreviven (soft-delete del agregado); el
+            // servicio decide que pasa con los enlaces. Evita la doble ruta de cascada en SQL Server.
+            b.HasOne(x => x.ParentResponse).WithMany()
+                .HasForeignKey(x => x.ParentResponseId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.ChildResponse).WithMany()
+                .HasForeignKey(x => x.ChildResponseId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.ParentResponseId, x.ParentFieldCode, x.ChildResponseId }).IsUnique();
         });
 
         modelBuilder.Entity<FormToken>(b =>

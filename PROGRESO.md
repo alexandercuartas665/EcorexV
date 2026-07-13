@@ -25,9 +25,16 @@
   este mes con % crecimiento vs mes anterior) + filtros (estado + busqueda por numero/referencia) +
   export CSV (data-URI). VERIFICADO en navegador: 3 reg (2 conf, 1 anul, este mes +100%); filtro
   Anulados -> 1 fila; busqueda "002" -> FRM-021-000002.
-- **Siguiente (resto de F4)**: bandeja EN VIVO (SignalR record.created), vista aplanada para BI, policies
-  `Form.{code}.*` (hoy [Authorize] + visibilidad del nodo), config de columnas/filtros de la bandeja en
-  el designer, export a Excel (hoy CSV). Luego F5/F6.
+- **Bandeja EN VIVO (SignalR, mismo dia)**: `IFormRecordBroadcaster` (Application) + impl
+  `SignalRFormRecordBroadcaster` (reusa `TaskHub` y su grupo por tenant, evento "FormRecord");
+  `FormResponseService` emite tras confirmar un registro. `FormModule.razor` se suscribe (HubConnection
+  server-side, patron de ActivityBoardsIndex) y recarga. VERIFICADO en navegador con DOS pestanas: enviar
+  en el constructor -> la bandeja pasa de 4 a 5 SOLA (FRM-021-000011 arriba, sin recargar).
+  OJO fix: el connect NO puede ir gated en `_def` dentro de OnAfterRenderAsync(firstRender) porque
+  OnParametersSetAsync puede seguir cargando; el handler chequea `_def`.
+- **Siguiente (resto de F4)**: vista aplanada para BI, policies `Form.{code}.*` (hoy [Authorize] +
+  visibilidad del nodo), config de columnas/filtros de la bandeja en el designer, export a Excel (hoy
+  CSV). F4 ya cubre lo esencial (modulo + menu dinamico + bandeja KPIs/filtros/export/en vivo). Luego F5/F6.
 - **Decision (doc 03 B)**: "convertir en modulo" es opcional del formulario; el usuario elige la
   ubicacion en el menu (vista + grupo), no es fija.
 

@@ -4,6 +4,9 @@
 @using System.Text
 @using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
 @inject IFormDefinitionService FormsSvc
 @inject IFormResponseService ResponsesSvc
 @inject NavigationManager Nav
@@ -85,12 +88,15 @@ else
 
 @code {
     [Parameter] public string Code { get; set; } = "";
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private FormDefinitionDetailDto? _def;
     private IReadOnlyList<FormRecordListItemDto> _records = [];
     private bool _loading = true;
     private string? _statusFilter;
     private string? _search;
+    private HubConnection? _hub;
+    private string? _tenantId;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -110,6 +116,37 @@ else
             }
         }
         _loading = false;
+    }
+
+    /// <summary>Bandeja en vivo (ola F4): se suscribe a "FormRecord" y recarga cuando entra un registro de este modulo.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Se conecta una sola vez (no gated en _def: OnParametersSetAsync puede seguir cargando en
+        // el primer render). El handler chequea _def antes de recargar.
+        if (!firstRender || _hub is not null || AuthState is null) { return; }
+        var st = await AuthState;
+        _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        if (_tenantId is null) { return; }
+        _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/tasks")).WithAutomaticReconnect().Build();
+        _hub.On<string, string>("FormRecord", async (code, _) =>
+        {
+            if (_def is not null && string.Equals(code, Code, StringComparison.OrdinalIgnoreCase))
+            {
+                _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
+                await InvokeAsync(StateHasChanged);
+            }
+        });
+        await _hub.StartAsync();
+        await _hub.SendAsync("JoinTenant", _tenantId);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try { if (_tenantId is not null) { await _hub.SendAsync("LeaveTenant", _tenantId); } } catch { }
+            await _hub.DisposeAsync();
+        }
     }
 
     private bool HasFilters => !string.IsNullOrWhiteSpace(_statusFilter) || !string.IsNullOrWhiteSpace(_search);

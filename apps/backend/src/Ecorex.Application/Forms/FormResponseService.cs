@@ -24,12 +24,18 @@ public sealed class FormResponseService : IFormResponseService
     private readonly IApplicationDbContext _db;
     private readonly IWorkflowEngine _workflowEngine;
     private readonly Tenancy.ISequenceService _sequences;
+    private readonly Common.ITenantContext _tenant;
+    private readonly Tenancy.IFormRecordBroadcaster _recordBroadcaster;
 
-    public FormResponseService(IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences)
+    public FormResponseService(
+        IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences,
+        Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster)
     {
         _db = db;
         _workflowEngine = workflowEngine;
         _sequences = sequences;
+        _tenant = tenant;
+        _recordBroadcaster = recordBroadcaster;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -180,6 +186,7 @@ public sealed class FormResponseService : IFormResponseService
         // NextAsync fuera de la tx del caso de uso, para no abortar por el INSERT del consecutivo).
         // Idempotente: si el registro ya esta Confirmed no reasigna.
         string? recordNumber = null;
+        string? recordFormCode = null;
         var assignRecord = false;
         if (submit)
         {
@@ -197,6 +204,7 @@ public sealed class FormResponseService : IFormResponseService
                         });
                 }
                 recordNumber = identity.Number;
+                recordFormCode = definition.Code;
                 assignRecord = true;
             }
         }
@@ -269,6 +277,13 @@ public sealed class FormResponseService : IFormResponseService
         {
             await transaction.CommitAsync(cancellationToken);
         }
+
+        // Bandeja en vivo (ola F4): tras confirmar un registro, avisa a la bandeja /m/{code}.
+        if (assignRecord && recordFormCode is not null && _tenant.TenantId is Guid tid)
+        {
+            await _recordBroadcaster.RecordConfirmedAsync(tid, recordFormCode, recordNumber ?? "", cancellationToken);
+        }
+
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
 

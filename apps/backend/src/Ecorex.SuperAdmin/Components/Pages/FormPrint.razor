@@ -1,0 +1,363 @@
+@page "/formularios/imprimir/{ResponseId:guid}"
+@layout EmptyLayout
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Calc
+@using Ecorex.Application.Forms.Lookups
+@using Ecorex.Domain.Enums
+@using Microsoft.JSInterop
+@inject IFormDefinitionService DefinitionsSvc
+@inject IFormResponseService ResponsesSvc
+@inject IFormLookupService LookupSvc
+@inject IJSRuntime JS
+
+@* Impresion basica de un registro (ola F6, doc 01 D8 - version basica sin object storage/PDF de
+   servidor): renderiza el registro en un documento limpio de solo lectura (etiqueta -> valor,
+   respetando formato/mascara y mostrando firma/imagen inline) y lanza el dialogo NATIVO del
+   navegador (Imprimir / Guardar como PDF). Sin dependencias nuevas. *@
+
+<PageTitle>Imprimir - ECOREX</PageTitle>
+
+<style>
+    .fpr-wrap { max-width: 820px; margin: 0 auto; padding: 24px 28px 60px; color: #1B1B1E;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .fpr-toolbar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 16px; }
+    .fpr-btn { border: 1px solid #d5d5da; background: #fff; border-radius: 8px; padding: 7px 14px;
+        font-size: 13px; font-weight: 600; cursor: pointer; color: #1B1B1E; }
+    .fpr-btn.primary { background: #1B1B1E; color: #fff; border-color: #1B1B1E; }
+    .fpr-head { border-bottom: 2px solid #1B1B1E; padding-bottom: 12px; margin-bottom: 18px; }
+    .fpr-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+    .fpr-sub { font-size: 13px; color: #5C5C66; margin: 0 0 8px; }
+    .fpr-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fpr-chip { font-size: 11px; font-weight: 600; border: 1px solid #d5d5da; border-radius: 999px;
+        padding: 2px 10px; color: #3a3a42; }
+    .fpr-chip.void { border-color: #E11D48; color: #E11D48; }
+    .fpr-chip.ok { border-color: #16A34A; color: #16A34A; }
+    .fpr-section { font-size: 14px; font-weight: 700; margin: 20px 0 8px; color: #1B1B1E;
+        border-bottom: 1px solid #ececef; padding-bottom: 4px; }
+    .fpr-row { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 7px 0;
+        border-bottom: 1px solid #f2f2f3; break-inside: avoid; }
+    .fpr-k { font-size: 12.5px; font-weight: 600; color: #5C5C66; }
+    .fpr-v { font-size: 13.5px; color: #1B1B1E; white-space: pre-wrap; word-break: break-word; }
+    .fpr-v.empty { color: #A2A2AC; }
+    .fpr-sign { max-width: 320px; max-height: 130px; border: 1px solid #e3e3e6; border-radius: 8px; }
+    .fpr-img { max-width: 260px; max-height: 200px; border: 1px solid #e3e3e6; border-radius: 8px; }
+    .fpr-gtable { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    .fpr-gtable th, .fpr-gtable td { border: 1px solid #e3e3e6; padding: 4px 8px; text-align: left; }
+    .fpr-gtable th { background: #f7f7f8; font-weight: 600; }
+    .fpr-foot { margin-top: 26px; font-size: 11px; color: #A2A2AC; text-align: right; }
+    @@media print {
+        .fpr-toolbar { display: none; }
+        .fpr-wrap { max-width: none; padding: 0; }
+        .fpr-row { break-inside: avoid; }
+    }
+</style>
+
+<div class="fpr-wrap">
+    @if (_loading)
+    {
+        <p><em>Cargando registro...</em></p>
+    }
+    else if (_definition is null || _response is null)
+    {
+        <p>El registro no esta disponible.</p>
+    }
+    else
+    {
+        <div class="fpr-toolbar">
+            <button class="fpr-btn primary" @onclick="PrintAsync">Imprimir / PDF</button>
+            <button class="fpr-btn" @onclick="Close">Cerrar</button>
+        </div>
+
+        <div class="fpr-head">
+            <h1 class="fpr-title">@_definition.Title</h1>
+            @if (!string.IsNullOrWhiteSpace(_definition.Description))
+            {
+                <p class="fpr-sub">@_definition.Description</p>
+            }
+            <div class="fpr-meta">
+                <span class="fpr-chip">@_definition.Code</span>
+                @if (!string.IsNullOrWhiteSpace(_response.RecordNumber))
+                {
+                    <span class="fpr-chip ok">@_response.RecordNumber</span>
+                }
+                @if (_response.RecordStatus == FormRecordStatus.Confirmed)
+                {
+                    <span class="fpr-chip ok">Confirmado</span>
+                }
+                else if (_response.RecordStatus == FormRecordStatus.Voided)
+                {
+                    <span class="fpr-chip void">Anulado</span>
+                }
+                @if (_response.TransactionDate is DateTimeOffset td)
+                {
+                    <span class="fpr-chip">@td.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(_response.Reference))
+                {
+                    <span class="fpr-chip">ref @_response.Reference</span>
+                }
+            </div>
+        </div>
+
+        @foreach (var node in OrderedNodes())
+        {
+            @if (node.SectionTitle is not null)
+            {
+                <div class="fpr-section">@node.SectionTitle</div>
+            }
+            else if (node.Question is FormQuestionDto q)
+            {
+                @if (q.ControlType == FormControlType.Heading)
+                {
+                    <div class="fpr-section">@Prefixed(q)</div>
+                }
+                else if (q.ControlType == FormControlType.Paragraph)
+                {
+                    <p class="fpr-v">@(string.IsNullOrWhiteSpace(q.DefaultValue) ? q.Label : q.DefaultValue)</p>
+                }
+                else if (!FormFieldValidator.IsNonInput(q.ControlType))
+                {
+                    <div class="fpr-row">
+                        <div class="fpr-k">@Prefixed(q)</div>
+                        <div class="fpr-v @(IsEmpty(q) ? "empty" : "")">@RenderValue(q)</div>
+                    </div>
+                }
+            }
+        }
+
+        <div class="fpr-foot">Generado por ECOREX.tareas - @_definition.Code</div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid ResponseId { get; set; }
+
+    private FormDefinitionDetailDto? _definition;
+    private FormResponseDto? _response;
+    private readonly Dictionary<string, string> _lookupDisplay = new(StringComparer.Ordinal);
+    private bool _loading = true;
+    private bool _printed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _response = await ResponsesSvc.GetAsync(ResponseId);
+        if (_response is not null)
+        {
+            _definition = await DefinitionsSvc.GetAsync(_response.DefinitionId);
+            await ResolveLookupDisplaysAsync();
+        }
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Lanza el dialogo de impresion una sola vez, cuando el registro ya esta pintado.
+        if (firstRender && !_printed && _definition is not null && _response is not null)
+        {
+            _printed = true;
+            await Task.Delay(350);
+            try { await JS.InvokeVoidAsync("window.print"); }
+            catch (JSException) { /* el usuario puede usar el boton Imprimir */ }
+        }
+    }
+
+    private async Task PrintAsync()
+    {
+        try { await JS.InvokeVoidAsync("window.print"); }
+        catch (JSException) { }
+    }
+
+    private async Task Close()
+    {
+        try { await JS.InvokeVoidAsync("window.close"); }
+        catch (JSException) { }
+    }
+
+    private sealed record PrintNode(string? SectionTitle, FormQuestionDto? Question);
+
+    private IEnumerable<PrintNode> OrderedNodes()
+    {
+        // Recorre contenedores en orden de arbol y sus preguntas por SortOrder, luego las raiz;
+        // asi el documento respeta la estructura del formulario (secciones + campos).
+        var result = new List<PrintNode>();
+        void Walk(Guid? containerId)
+        {
+            foreach (var q in _definition!.Questions.Where(x => x.ContainerId == containerId).OrderBy(x => x.SortOrder))
+            {
+                result.Add(new PrintNode(null, q));
+            }
+            foreach (var c in _definition!.Containers.Where(x => x.ParentId == containerId).OrderBy(x => x.SortOrder))
+            {
+                if (!string.IsNullOrWhiteSpace(c.Name))
+                {
+                    result.Add(new PrintNode(c.Name, null));
+                }
+                Walk(c.Id);
+            }
+        }
+        Walk(null);
+        return result;
+    }
+
+    private bool IsEmpty(FormQuestionDto q)
+        => string.IsNullOrEmpty(_response!.Data.TryGetValue(q.FieldCode, out var v) ? v.Value : null);
+
+    private string? Raw(FormQuestionDto q)
+        => _response!.Data.TryGetValue(q.FieldCode, out var v) ? v.Value : null;
+
+    private RenderFragment RenderValue(FormQuestionDto q) => __builder =>
+    {
+        var value = Raw(q);
+        if (string.IsNullOrEmpty(value))
+        {
+            <text>&mdash;</text>
+            return;
+        }
+        switch (q.ControlType)
+        {
+            case FormControlType.Signature:
+                if (value.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
+                {
+                    <img class="fpr-sign" src="@value" alt="Firma" />
+                }
+                else { <text>@value</text> }
+                break;
+            case FormControlType.Photo:
+            case FormControlType.Image:
+            case FormControlType.File:
+                if (value.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
+                {
+                    <img class="fpr-img" src="@value" alt="Adjunto" />
+                }
+                else if (value.StartsWith("data:", StringComparison.Ordinal))
+                {
+                    <text>Archivo adjunto (@MimeOf(value))</text>
+                }
+                else { <text>@value</text> }
+                break;
+            case FormControlType.GridDetail:
+                @RenderGrid(q, value)
+                break;
+            case FormControlType.Toggle:
+                <text>@(value == "true" ? "Si" : "No")</text>
+                break;
+            case FormControlType.Select:
+            case FormControlType.Radio:
+                <text>@OptionLabel(q, value)</text>
+                break;
+            case FormControlType.MultiCheck:
+                <text>@string.Join(", ", FormFieldValidator.ParseMultiValues(value).Select(id => OptionLabel(q, id)))</text>
+                break;
+            case FormControlType.Date:
+                <text>@FormatDate(value)</text>
+                break;
+            default:
+                // Lookup (F1): muestra la etiqueta resuelta, no el id. Numero/texto: aplica formato/mascara.
+                if (q.SourceKind != FormSourceKind.Options && _lookupDisplay.TryGetValue(q.FieldCode, out var disp))
+                {
+                    <text>@disp</text>
+                }
+                else
+                {
+                    <text>@DisplayFormatted(q.Format, value)</text>
+                }
+                break;
+        }
+    };
+
+    private RenderFragment RenderGrid(FormQuestionDto q, string value) => __builder =>
+    {
+        var cols = FormGridCalculator.ParseColumns(q.OptionsJson);
+        var rows = FormFieldValidator.ParseGridRows(value);
+        if (cols.Count == 0 || rows.Count == 0)
+        {
+            <text>&mdash;</text>
+            return;
+        }
+        <table class="fpr-gtable">
+            <thead>
+                <tr>
+                    @foreach (var c in cols)
+                    {
+                        <th>@c.Label</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in rows)
+                {
+                    <tr>
+                        @foreach (var c in cols)
+                        {
+                            <td>@(row.TryGetValue(c.Id, out var cv) ? cv : "")</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    };
+
+    private string OptionLabel(FormQuestionDto q, string id)
+    {
+        var opt = FormFieldValidator.ParseOptions(q.OptionsJson).FirstOrDefault(o => o.Id == id);
+        return opt?.Label ?? id;
+    }
+
+    private static string FormatDate(string value)
+        => DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var d) ? d.ToString("dd/MM/yyyy") : value;
+
+    private static string? MimeOf(string v)
+    {
+        var semi = v.IndexOf(';');
+        return semi > 5 ? v[5..semi] : "archivo";
+    }
+
+    private static string Prefixed(FormQuestionDto q)
+        => string.IsNullOrWhiteSpace(q.Numeral) ? q.Label : $"{q.Numeral}. {q.Label}";
+
+    /// <summary>Formato de presentacion (moneda/%/entero) + mascaras de texto (phone/document), igual que el renderer.</summary>
+    private static string DisplayFormatted(string? format, string value)
+    {
+        if (string.IsNullOrWhiteSpace(format)) { return value; }
+        var f = format.Trim().ToLowerInvariant();
+        if (f == "phone")
+        {
+            var d = new string(value.Where(char.IsDigit).ToArray());
+            if (d.Length == 10) { return $"({d[..3]}) {d[3..6]}-{d[6..]}"; }
+            if (d.Length == 7) { return $"{d[..3]}-{d[3..]}"; }
+            return value;
+        }
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!decimal.TryParse(value.Replace(" ", "").Replace(",", ""), System.Globalization.NumberStyles.Any, ci, out var num))
+        {
+            return value;
+        }
+        return f switch
+        {
+            "currency" => "$ " + num.ToString("#,##0", ci),
+            "percent" => num.ToString("0.##", ci) + " %",
+            "integer" => Math.Round(num).ToString("#,##0", ci),
+            "decimal" => num.ToString("#,##0.00", ci),
+            "document" => num.ToString("#,##0", ci),
+            _ => value,
+        };
+    }
+
+    private async Task ResolveLookupDisplaysAsync()
+    {
+        foreach (var q in _definition!.Questions.Where(x => x.SourceKind != FormSourceKind.Options))
+        {
+            var value = Raw(q);
+            if (string.IsNullOrEmpty(value)) { continue; }
+            var fields = string.IsNullOrWhiteSpace(q.DisplayField) ? Array.Empty<string>() : new[] { q.DisplayField! };
+            try
+            {
+                var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, fields);
+                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+            }
+            catch (Exception) { /* la resolucion de etiqueta nunca rompe el documento */ }
+        }
+    }
+}

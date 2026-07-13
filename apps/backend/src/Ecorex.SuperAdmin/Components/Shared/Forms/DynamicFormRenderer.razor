@@ -124,6 +124,12 @@ else
                         <button class="btn btn-outline-danger" @onclick="@(() => _voiding = true)" disabled="@_busy">Anular</button>
                     }
                 }
+                @* Impresion basica (ola F6): abre el registro en un documento limpio + dialogo nativo del
+                   navegador (Imprimir / Guardar PDF). Solo en sesion logueada (el visor publico no tiene tenant). *@
+                @if (AmbientTenantId is null)
+                {
+                    <a class="btn btn-outline-secondary" href="@($"/formularios/imprimir/{_response!.Id}")" target="_blank" rel="noopener">Imprimir</a>
+                }
                 <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
                     @(IsSubmitted ? "Enviado" : "Enviar")
                 </button>

@@ -118,7 +118,7 @@ public abstract class RulesEngineTestsBase
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
         var definitions = new FormDefinitionService(ctx, tenantContext);
-        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine));
+        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine), new SequenceService(ctx, tenantContext));
         var dispatcher = new FormRuleDispatcher(ctx, engine);
 
         // Formulario con 2 campos texto y regla PASAR_CAMPOS origen -> destino, vinculada

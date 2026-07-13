@@ -105,6 +105,21 @@ else
                 <span class="dfr-autosave">
                     @(_lastSavedAt is null ? "Borrador sin guardar" : $"Borrador guardado {_lastSavedAt:HH:mm:ss}")
                 </span>
+                @* Anular registro transaccional confirmado (ola F3). *@
+                @if (_response?.RecordStatus == FormRecordStatus.Confirmed)
+                {
+                    @if (_voiding)
+                    {
+                        <input class="form-control dfr-void-reason" placeholder="Motivo de anulacion"
+                               value="@_voidReason" @oninput="@(e => _voidReason = e.Value?.ToString())" />
+                        <button class="btn btn-outline-danger" @onclick="VoidAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_voidReason))">Confirmar anulacion</button>
+                        <button class="btn btn-outline-secondary" @onclick="@(() => _voiding = false)" disabled="@_busy">Cancelar</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-danger" @onclick="@(() => _voiding = true)" disabled="@_busy">Anular</button>
+                    }
+                }
                 <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
                     @(IsSubmitted ? "Enviado" : "Enviar")
                 </button>
@@ -147,6 +162,9 @@ else
     private FormRuleUiState _ruleUiState = new();
     // Decision elegida para la compuerta adelante (ADR-0037); null hasta que el usuario elige.
     private string? _approvalChoice;
+    // Anulacion de registro transaccional (ola F3).
+    private bool _voiding;
+    private string? _voidReason;
     private bool _loading = true;
     private bool _busy;
     private bool _dirty;
@@ -1067,6 +1085,34 @@ else
         }
         await SaveAsync(submit: false);
         StateHasChanged();
+    }
+
+    /// <summary>Anula el registro transaccional confirmado (ola F3): llama a VoidAsync con el motivo.</summary>
+    private async Task VoidAsync()
+    {
+        if (_response is null || string.IsNullOrWhiteSpace(_voidReason)) { return; }
+        _busy = true;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var result = await ResponsesSvc.VoidAsync(_response.Id, _voidReason!, SubmittedByTenantUserId);
+            if (result.IsOk && result.Value is not null)
+            {
+                _response = result.Value;
+                _voiding = false;
+                _voidReason = null;
+            }
+            else
+            {
+                _globalError = result.Error ?? "No se pudo anular el registro.";
+            }
+        }
+        finally
+        {
+            _dbGate.Release();
+            _busy = false;
+        }
     }
 
     private async Task SubmitAsync()

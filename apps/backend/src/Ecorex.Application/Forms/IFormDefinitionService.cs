@@ -20,6 +20,9 @@ public interface IFormDefinitionService
 
     Task<FormResult<FormDefinitionDetailDto>> UpdateHeaderAsync(Guid definitionId, UpdateFormDefinitionRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Configura la transaccionalidad del formulario (ola F3): IsTransactional + modo de identidad + campo clave.</summary>
+    Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Draft/Inactive -> Active, validando la estructura (preguntas, opciones, patterns).</summary>
     Task<FormResult<FormDefinitionDetailDto>> ActivateAsync(Guid definitionId, CancellationToken cancellationToken = default);
 

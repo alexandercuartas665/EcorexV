@@ -43,7 +43,14 @@ public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
     int Revision, bool IsArchived, long Version,
     IReadOnlyList<FormContainerDto> Containers,
-    IReadOnlyList<FormQuestionDto> Questions);
+    IReadOnlyList<FormQuestionDto> Questions,
+    // Transaccionalidad (ola F3, doc 01 D2/D3).
+    bool IsTransactional = false, FormIdentityMode IdentityMode = FormIdentityMode.None,
+    string? IdentitySourceFieldCode = null);
+
+/// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del formulario".</summary>
+public sealed record SetFormTransactionalRequest(
+    bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 

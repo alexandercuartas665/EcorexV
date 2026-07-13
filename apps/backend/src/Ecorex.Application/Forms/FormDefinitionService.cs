@@ -607,7 +607,27 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.Id, definition.Code, definition.Title, definition.Description,
             definition.Status, definition.Revision, definition.IsArchived, definition.Version,
             containers.Select(ToDto).ToList(),
-            questions.Select(ToDto).ToList());
+            questions.Select(ToDto).ToList(),
+            definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode);
+    }
+
+    public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
+        Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+        definition.IsTransactional = request.IsTransactional;
+        definition.IdentityMode = request.IsTransactional ? request.IdentityMode : FormIdentityMode.None;
+        definition.IdentitySourceFieldCode =
+            request.IsTransactional && request.IdentityMode == FormIdentityMode.NaturalKey
+                ? Normalize(request.IdentitySourceFieldCode) : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
     }
 
     private static FormContainerDto ToDto(FormContainer c)

@@ -602,7 +602,8 @@ public abstract class DynamicFormsTestsBase
         => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));
 
     private static FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine? engine = null)
-        => new(ctx, engine ?? BuildEngine(ctx, seed));
+        => new(ctx, engine ?? BuildEngine(ctx, seed),
+            new SequenceService(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId)));
 
     private static FormTokenService BuildTokenService(EcorexDbContext ctx, SeedData seed)
         => new(ctx, new TestTenantContext(seed.TenantId, seed.PlatformUserId));

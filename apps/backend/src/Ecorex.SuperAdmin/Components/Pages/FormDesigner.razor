@@ -57,6 +57,7 @@ else
                 }
                 <span class="fb-status" style="background:@StatusSoft();color:@StatusColor()">@StatusLabel()</span>
                 <div class="fb-header-actions">
+                    <button class="fb-btn-ghost" @onclick="OpenFormProps">Propiedades</button>
                     <button class="fb-btn-ghost" @onclick="OpenPreview">Vista previa</button>
                     @if (_def.Status == FormStatus.Active)
                     {
@@ -373,6 +374,60 @@ else
     </div>
 }
 
+@* ===== Propiedades del formulario (ola F3): transaccionalidad + identidad ===== *@
+@if (_showFormProps && _def is not null)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showFormProps = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Propiedades del formulario</h3>
+                <button class="modal-close" @onclick="@(() => _showFormProps = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="pl-toggle"><input type="checkbox" @bind="_txIsTransactional" /> Es transaccional (cada envio confirmado es un registro)</label>
+                @if (_txIsTransactional)
+                {
+                    <div class="field" style="margin-top:14px;">
+                        <label class="form-label">Identidad del registro</label>
+                        <select class="form-control" @bind="_txMode">
+                            <option value="@nameof(FormIdentityMode.None)">Ninguna</option>
+                            <option value="@nameof(FormIdentityMode.Sequence)">Consecutivo del sistema</option>
+                            <option value="@nameof(FormIdentityMode.NaturalKey)">Por dato (clave natural)</option>
+                        </select>
+                    </div>
+                    @if (_txMode == nameof(FormIdentityMode.NaturalKey))
+                    {
+                        <div class="field">
+                            <label class="form-label">Campo clave (unico por tenant)</label>
+                            <select class="form-control" @bind="_txField">
+                                <option value="">Selecciona...</option>
+                                @foreach (var q in _def.Questions.Where(x => x.SourceKind == FormSourceKind.Options && string.IsNullOrWhiteSpace(x.CalcExpression)))
+                                {
+                                    <option value="@q.FieldCode">@q.Label (@q.FieldCode)</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    @if (_txMode == nameof(FormIdentityMode.Sequence))
+                    {
+                        <p style="font-size:12px;color:var(--ink-3);margin-top:8px;">
+                            El numero se genera con el prefijo del codigo del formulario (ej. @_def.Code-000001).
+                        </p>
+                    }
+                }
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showFormProps = false)" disabled="@_busy">Cerrar</button>
+                <button class="btn btn-primary" @onclick="SaveFormPropsAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public Guid Id { get; set; }
 
@@ -400,6 +455,11 @@ else
     // Vista previa y tokens.
     private bool _showPreview;
     private bool _showTokenModal;
+    // Propiedades del formulario / transaccionalidad (ola F3).
+    private bool _showFormProps;
+    private bool _txIsTransactional;
+    private string _txMode = nameof(FormIdentityMode.None);
+    private string? _txField;
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -938,6 +998,39 @@ else
     }
 
     private void OpenPreview() => _showPreview = true;
+
+    private void OpenFormProps()
+    {
+        _modalError = null;
+        _txIsTransactional = _def!.IsTransactional;
+        _txMode = _def.IdentityMode.ToString();
+        _txField = _def.IdentitySourceFieldCode;
+        _showFormProps = true;
+    }
+
+    private async Task SaveFormPropsAsync()
+    {
+        _modalError = null;
+        var mode = Enum.TryParse<FormIdentityMode>(_txMode, out var m) ? m : FormIdentityMode.None;
+        if (_txIsTransactional && mode == FormIdentityMode.NaturalKey && string.IsNullOrWhiteSpace(_txField))
+        {
+            _modalError = "Elige el campo clave para la identidad por dato.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var result = await FormsSvc.SetTransactionalAsync(_def!.Id,
+                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField));
+            if (!result.IsOk) { _modalError = result.Error; return; }
+            _def = result.Value;
+            _showFormProps = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private async void OpenTokenModal()
     {

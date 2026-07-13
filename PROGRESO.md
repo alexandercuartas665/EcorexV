@@ -22,9 +22,15 @@
 - **Verificado (navegador, `ecorex_forms`)**: FRM-021 transaccional (Sequence) -> Enviar -> registro
   FRM-021-000001, status=Submitted, rec_status=Confirmed, tx_date fijada, secuencia consumida (next=2).
   Build verde; 360/360 tests Application.
-- **Siguiente**: panel "Propiedades del formulario" en el designer (IsTransactional + IdentityMode +
-  campo clave / prefijo) sin SQL; boton Anular en el renderer/bandeja; cierre por evento (firma) doc 03 B;
-  test unit/integracion de confirmar. Luego F4 (formulario-modulo).
+- **UI de F3 (mismo dia)**: panel "Propiedades del formulario" en el designer (boton Propiedades ->
+  modal con toggle Es transaccional + selector de identidad Ninguna/Consecutivo/Clave natural +
+  selector de campo clave) via `IFormDefinitionService.SetTransactionalAsync`; `FormDefinitionDetailDto`
+  += IsTransactional/IdentityMode/IdentitySourceFieldCode. Boton "Anular" (con motivo) en el renderer
+  cuando el registro esta Confirmed -> `IFormResponseService.VoidAsync`. VERIFICADO en navegador:
+  el panel lee (transaccional=on, Sequence) y escribe (cambio a NaturalKey campo=nit persistido).
+- **Con esto F3 queda funcional end-to-end** (esquema + logica + UI de config + anular). Pendiente fino:
+  cierre por evento (firma) doc 03 B; indices de dimension para BI; test unit/integracion de confirmar.
+  Luego F4 (formulario-modulo).
 
 ## 2026-07-12 - Sesion (worktree formularios): F3 ARRANQUE - esquema transaccional
 

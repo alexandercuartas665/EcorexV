@@ -1,0 +1,101 @@
+@page "/m/{Code}"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@inject IFormDefinitionService FormsSvc
+@inject IFormResponseService ResponsesSvc
+@inject NavigationManager Nav
+
+@* ============================================================
+   Bandeja del formulario-MODULO (Formularios avanzados, ola F4,
+   doc 01 D6 / doc 02 s5). Ruta /m/{code}: lista los registros
+   enviados de la definicion. Version base (listado); filtros
+   dinamicos, KPIs y export son el siguiente incremento.
+   ============================================================ *@
+
+<PageTitle>@(_def?.Title ?? "Modulo") - ECOREX.tareas</PageTitle>
+
+@if (_loading)
+{
+    <p style="padding:24px;"><em>Cargando modulo...</em></p>
+}
+else if (_def is null)
+{
+    <div style="padding:32px;">
+        <h3>Modulo no encontrado</h3>
+        <p>No existe un formulario con codigo <strong>@Code</strong> o no esta publicado como modulo.</p>
+    </div>
+}
+else
+{
+    <div class="fm-wrap">
+        <div class="fm-head">
+            <div>
+                <h2 class="fm-title">@_def.Title</h2>
+                <p class="fm-sub">Modulo @_def.Code - @_records.Count registro(s)</p>
+            </div>
+        </div>
+
+        <table class="fm-table">
+            <thead>
+                <tr>
+                    <th>Numero</th>
+                    <th>Fecha</th>
+                    <th>Estado</th>
+                    <th>Referencia</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_records.Count == 0)
+                {
+                    <tr><td colspan="4" class="fm-empty">Sin registros todavia.</td></tr>
+                }
+                @foreach (var r in _records)
+                {
+                    <tr>
+                        <td>@(r.RecordNumber ?? "-")</td>
+                        <td>@((r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</td>
+                        <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
+                        <td>@(r.Reference ?? "-")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public string Code { get; set; } = "";
+
+    private FormDefinitionDetailDto? _def;
+    private IReadOnlyList<FormRecordListItemDto> _records = [];
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        var list = await FormsSvc.ListAsync(includeArchived: true);
+        var item = list.FirstOrDefault(d => string.Equals(d.Code, Code, StringComparison.OrdinalIgnoreCase));
+        if (item is not null)
+        {
+            _def = await FormsSvc.GetAsync(item.Id);
+            if (_def is { IsModule: true })
+            {
+                _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
+            }
+            else
+            {
+                _def = null; // existe pero no es modulo -> no exponer la bandeja
+            }
+        }
+        _loading = false;
+    }
+
+    private static string RecordStatusLabel(FormRecordStatus s) => s switch
+    {
+        FormRecordStatus.Confirmed => "Confirmado",
+        FormRecordStatus.Voided => "Anulado",
+        _ => "Borrador",
+    };
+}

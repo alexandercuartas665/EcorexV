@@ -17,14 +17,16 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly MenuConfig.IMenuConfigService _menu;
 
     [GeneratedRegex("^[A-Za-z][A-Za-z0-9_-]*$")]
     private static partial Regex FieldCodeRegex();
 
-    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext)
+    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext, MenuConfig.IMenuConfigService menu)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _menu = menu;
     }
 
     public async Task<IReadOnlyList<FormDefinitionListItemDto>> ListAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
@@ -608,7 +610,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             definition.Status, definition.Revision, definition.IsArchived, definition.Version,
             containers.Select(ToDto).ToList(),
             questions.Select(ToDto).ToList(),
-            definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode);
+            definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
+            definition.IsModule, definition.ModuleIcon);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -624,6 +627,59 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         definition.IdentitySourceFieldCode =
             request.IsTransactional && request.IdentityMode == FormIdentityMode.NaturalKey
                 ? Normalize(request.IdentitySourceFieldCode) : null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    /// <summary>
+    /// Promueve o retira el formulario como MODULO del sistema (ola F4, doc 01 D1). Al promover crea
+    /// un nodo de menu (Kind=Item, Route=/m/{code}) EN EL GRUPO que el usuario elige (vista + padre),
+    /// reusando el menu data-driven; al retirar borra ese nodo. El icono se guarda en la definicion.
+    /// </summary>
+    public async Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(
+        Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+
+        if (request.IsModule)
+        {
+            definition.ModuleIcon = Normalize(request.Icon);
+            // Si aun no tiene nodo, se crea en la vista+grupo elegidos por el usuario.
+            if (definition.ModuleMenuNodeId is null)
+            {
+                if (request.MenuViewId is not Guid viewId)
+                {
+                    return FormResult<FormDefinitionDetailDto>.Invalid("Elige la vista de menu donde colgar el modulo.");
+                }
+                var node = await _menu.CreateNodeAsync(
+                    viewId, request.ParentNodeId, Domain.Enums.MenuNodeKind.Item, definition.Title,
+                    iconKey: definition.ModuleIcon, legacyCode: definition.Code,
+                    route: $"/m/{definition.Code}", cancellationToken: cancellationToken);
+                if (!node.IsOk || node.Value is null)
+                {
+                    return FormResult<FormDefinitionDetailDto>.Invalid(node.Error ?? "No se pudo crear el nodo de menu.");
+                }
+                definition.ModuleMenuNodeId = node.Value.Id;
+            }
+            definition.IsModule = true;
+        }
+        else
+        {
+            // Retirar: borra el nodo de menu (si existe) y limpia la marca.
+            if (definition.ModuleMenuNodeId is Guid nodeId)
+            {
+                await _menu.DeleteNodeAsync(nodeId, cancellationToken);
+                definition.ModuleMenuNodeId = null;
+            }
+            definition.IsModule = false;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

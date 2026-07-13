@@ -1178,6 +1178,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.IdentityMode).HasDefaultValue(FormIdentityMode.None);
             b.Property(x => x.IdentitySourceFieldCode).HasMaxLength(60);
             b.Property(x => x.UniqueKeyFieldsJson).HasColumnType(jsonColumnType);
+            // Formulario como modulo (ola F4, doc 01 D1/D6). Aditivas.
+            b.Property(x => x.ModuleIcon).HasMaxLength(60);
+            b.Property(x => x.ListColumnsJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.FilterFieldsJson).HasColumnType(jsonColumnType);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

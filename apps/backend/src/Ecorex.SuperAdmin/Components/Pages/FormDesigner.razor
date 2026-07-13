@@ -5,6 +5,7 @@
 @using System.Text.Json
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Forms.Lookups
+@using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
@@ -12,6 +13,7 @@
 @inject IFormTokenService TokensSvc
 @inject IRuleDocumentService RulesSvc
 @inject IFormLookupService LookupSvc
+@inject IMenuConfigService MenuSvc
 @inject NavigationManager Nav
 
 @* ============================================================
@@ -415,6 +417,43 @@ else
                         </p>
                     }
                 }
+
+                <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+                <label class="pl-toggle"><input type="checkbox" @bind="_isModule" @bind:after="OnModuleToggledAsync" /> Es un modulo del sistema (menu propio + bandeja en /m/@_def.Code)</label>
+                @if (_isModule)
+                {
+                    <div class="field-row" style="margin-top:12px;">
+                        <div class="field">
+                            <label class="form-label">Menu (vista)</label>
+                            <select class="form-control" value="@(_moduleViewId?.ToString() ?? "")"
+                                    @onchange="@(e => OnModuleViewChangedAsync(Guid.TryParse(e.Value?.ToString(), out var v) ? v : (Guid?)null))">
+                                <option value="">Selecciona...</option>
+                                @foreach (var view in _menuViews)
+                                {
+                                    <option value="@view.Id" selected="@(view.Id == _moduleViewId)">@view.Name@(view.IsDefault ? " (por defecto)" : "")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label">Grupo del menu (donde aparece)</label>
+                            <select class="form-control" @bind="_moduleParentId">
+                                <option value="">Raiz del menu</option>
+                                @foreach (var g in _menuGroups)
+                                {
+                                    <option value="@g.Id">@g.Label</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Icono (clave, opcional)</label>
+                        <input class="form-control" @bind="_moduleIcon" maxlength="60" placeholder="clipboard, chart, box..." />
+                    </div>
+                    @if (_def.IsModule)
+                    {
+                        <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
+                    }
+                }
                 @if (_modalError is not null)
                 {
                     <div class="tk-field-error">@_modalError</div>
@@ -460,6 +499,13 @@ else
     private bool _txIsTransactional;
     private string _txMode = nameof(FormIdentityMode.None);
     private string? _txField;
+    // Formulario como modulo (ola F4).
+    private bool _isModule;
+    private Guid? _moduleViewId;
+    private string? _moduleParentId;
+    private string? _moduleIcon;
+    private IReadOnlyList<MenuViewDto> _menuViews = [];
+    private readonly List<(Guid Id, string Label)> _menuGroups = new();
     private string _tReference = "";
     private int _tHours = 24;
     private bool _tSingleUse;
@@ -999,13 +1045,56 @@ else
 
     private void OpenPreview() => _showPreview = true;
 
-    private void OpenFormProps()
+    private async void OpenFormProps()
     {
         _modalError = null;
         _txIsTransactional = _def!.IsTransactional;
         _txMode = _def.IdentityMode.ToString();
         _txField = _def.IdentitySourceFieldCode;
+        _isModule = _def.IsModule;
+        _moduleIcon = _def.ModuleIcon;
+        _moduleParentId = null;
         _showFormProps = true;
+        // Vistas de menu para elegir DONDE colgar el modulo (ola F4).
+        _menuViews = await MenuSvc.ListViewsAsync();
+        _moduleViewId = _menuViews.FirstOrDefault(v => v.IsDefault)?.Id ?? _menuViews.FirstOrDefault()?.Id;
+        if (_isModule && _moduleViewId is Guid vid) { await LoadMenuGroupsAsync(vid); }
+        StateHasChanged();
+    }
+
+    private async Task OnModuleToggledAsync()
+    {
+        if (_isModule && _menuGroups.Count == 0 && _moduleViewId is Guid vid)
+        {
+            await LoadMenuGroupsAsync(vid);
+        }
+    }
+
+    private async Task OnModuleViewChangedAsync(Guid? viewId)
+    {
+        _moduleViewId = viewId;
+        _moduleParentId = null;
+        if (viewId is Guid vid) { await LoadMenuGroupsAsync(vid); } else { _menuGroups.Clear(); }
+    }
+
+    /// <summary>Aplana el arbol de la vista a grupos (Section/Subgroup) para el selector de ubicacion.</summary>
+    private async Task LoadMenuGroupsAsync(Guid viewId)
+    {
+        _menuGroups.Clear();
+        var tree = await MenuSvc.GetViewTreeAsync(viewId);
+        if (!tree.IsOk || tree.Value is null) { return; }
+        void Walk(IReadOnlyList<MenuEditorNodeDto> nodes, int depth)
+        {
+            foreach (var n in nodes)
+            {
+                if (n.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                {
+                    _menuGroups.Add((n.Id, new string(' ', depth * 3) + n.Name));
+                }
+                if (n.Children.Count > 0) { Walk(n.Children, depth + 1); }
+            }
+        }
+        Walk(tree.Value.Roots, 0);
     }
 
     private async Task SaveFormPropsAsync()
@@ -1017,13 +1106,26 @@ else
             _modalError = "Elige el campo clave para la identidad por dato.";
             return;
         }
+        if (_isModule && !_def!.IsModule && _moduleViewId is null)
+        {
+            _modalError = "Elige la vista de menu donde publicar el modulo.";
+            return;
+        }
         _busy = true;
         try
         {
-            var result = await FormsSvc.SetTransactionalAsync(_def!.Id,
+            var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
                 new SetFormTransactionalRequest(_txIsTransactional, mode, _txField));
-            if (!result.IsOk) { _modalError = result.Error; return; }
-            _def = result.Value;
+            if (!tx.IsOk) { _modalError = tx.Error; return; }
+            _def = tx.Value;
+
+            // Modulo: promover/retirar con el grupo elegido (ola F4).
+            Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
+            var mod = await FormsSvc.SetModuleAsync(_def!.Id,
+                new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon));
+            if (!mod.IsOk) { _modalError = mod.Error; return; }
+            _def = mod.Value;
+
             _showFormProps = false;
         }
         finally

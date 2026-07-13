@@ -46,11 +46,23 @@ public sealed record FormDefinitionDetailDto(
     IReadOnlyList<FormQuestionDto> Questions,
     // Transaccionalidad (ola F3, doc 01 D2/D3).
     bool IsTransactional = false, FormIdentityMode IdentityMode = FormIdentityMode.None,
-    string? IdentitySourceFieldCode = null);
+    string? IdentitySourceFieldCode = null,
+    // Formulario como modulo (ola F4, doc 01 D1).
+    bool IsModule = false, string? ModuleIcon = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del formulario".</summary>
 public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode);
+
+/// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado.</summary>
+public sealed record FormRecordListItemDto(
+    Guid Id, string? RecordNumber, FormRecordStatus RecordStatus,
+    DateTimeOffset? TransactionDate, DateTimeOffset? SubmittedAt, string? Reference);
+
+/// <summary>Config de formulario-modulo (ola F4). Al promover, el usuario elige la vista de menu y el
+/// grupo padre DONDE colgar el modulo; el icono es opcional.</summary>
+public sealed record SetFormModuleRequest(
+    bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 

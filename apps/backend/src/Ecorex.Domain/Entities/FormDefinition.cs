@@ -51,4 +51,21 @@ public class FormDefinition : TenantEntity, IVersioned
 
     /// <summary>Sequence: referencia logica a la TenantSequence que se consume al confirmar (null si otro modo).</summary>
     public Guid? SequenceId { get; set; }
+
+    // ---- Formulario como MODULO del sistema (Formularios avanzados, ola F4; doc 01 D1/D6) ----
+
+    /// <summary>Si es true, el formulario es un modulo con nodo de menu propio y bandeja en /m/{code}.</summary>
+    public bool IsModule { get; set; }
+
+    /// <summary>Nodo de menu generado al promover a modulo (el usuario elige DONDE colgarlo). Null si no es modulo.</summary>
+    public Guid? ModuleMenuNodeId { get; set; }
+
+    /// <summary>Icono del modulo en el menu (clave de icono del prototipo).</summary>
+    public string? ModuleIcon { get; set; }
+
+    /// <summary>Columnas de la bandeja del modulo (arreglo JSON de field codes). Null = por defecto.</summary>
+    public string? ListColumnsJson { get; set; }
+
+    /// <summary>Campos de filtro de la bandeja (arreglo JSON de field codes).</summary>
+    public string? FilterFieldsJson { get; set; }
 }

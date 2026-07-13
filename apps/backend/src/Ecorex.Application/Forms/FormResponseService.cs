@@ -311,6 +311,17 @@ public sealed class FormResponseService : IFormResponseService
         }
     }
 
+    public async Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        // Bandeja del formulario-modulo (ola F4): los registros enviados (no borradores), recientes primero.
+        return await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == definitionId && r.Status == FormResponseStatus.Submitted)
+            .OrderByDescending(r => r.TransactionDate ?? r.SubmittedAt)
+            .Select(r => new FormRecordListItemDto(
+                r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference))
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Anula un registro transaccional confirmado (ola F3, doc 01 D2): RecordStatus=Voided + motivo
     /// + auditoria. NO borra ni libera el numero (queda el hueco, trazable). Idempotente.

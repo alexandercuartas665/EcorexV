@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F4 ARRANQUE - formulario como modulo (menu dinamico)
+
+- **Hecho (F4, nucleo: promover a modulo con colocacion dinamica en el menu)**:
+  - ESQUEMA: `FormDefinition` += `IsModule`, `ModuleMenuNodeId`, `ModuleIcon`, `ListColumnsJson`,
+    `FilterFieldsJson`. Migracion dual `AddFormModule` (PG `20260713121447` + SQL Server), aditiva.
+    Aplicada en local; **PENDIENTE en prod** (doc 04).
+  - SERVICIO: `FormDefinitionService.SetModuleAsync` reusa `IMenuConfigService.CreateNodeAsync`
+    (Kind=Item, Route=/m/{code}) para crear el nodo de menu EN LA VISTA + GRUPO que elige el usuario;
+    al retirar borra el nodo. `FormResponseService.ListRecordsAsync` para la bandeja.
+  - UI: panel "Propiedades del formulario" += toggle "Es un modulo" + selector de **vista** + selector
+    de **grupo del menu (donde aparece)** (arbol aplanado a Section/Subgroup) + icono. Pagina bandeja
+    `FormModule.razor` en `/m/{code}` con el listado de registros enviados.
+- **Verificado en navegador (`ecorex_forms`)**: promover FRM-021 -> elegir grupo "Automatizacion" ->
+  nodo de menu creado (Item, /m/FRM-021) bajo ese grupo, is_module=true; el modulo aparece en el menu y
+  `/m/FRM-021` muestra la bandeja con el registro FRM-021-000001 (Confirmado). Encadena F3->F4.
+  Solution verde; 360/360 tests.
+- **Siguiente (resto de F4)**: filtros dinamicos + KPIs (cantidad, suma, % crecimiento) + export Excel +
+  bandeja en vivo (SignalR record.created) + vista aplanada para BI; policies `Form.{code}.*`
+  (hoy la bandeja usa [Authorize] simple + visibilidad del nodo de menu). Config de columnas/filtros
+  en el designer. Luego F5/F6.
+- **Decision (doc 03 B)**: "convertir en modulo" es opcional del formulario; el usuario elige la
+  ubicacion en el menu (vista + grupo), no es fija.
+
 ## 2026-07-13 - Sesion (worktree formularios): F3 - logica confirmar/anular + identidad
 
 - **Hecho (F3, logica sobre el esquema)**:

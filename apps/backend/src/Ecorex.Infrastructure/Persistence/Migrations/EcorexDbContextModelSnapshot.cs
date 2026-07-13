@@ -2817,6 +2817,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(600)")
                         .HasColumnName("description");
 
+                    b.Property<string>("FilterFieldsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("filter_fields_json");
+
                     b.Property<string>("IdentityMode")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2834,9 +2838,26 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_archived");
 
+                    b.Property<bool>("IsModule")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_module");
+
                     b.Property<bool>("IsTransactional")
                         .HasColumnType("boolean")
                         .HasColumnName("is_transactional");
+
+                    b.Property<string>("ListColumnsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("list_columns_json");
+
+                    b.Property<string>("ModuleIcon")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("module_icon");
+
+                    b.Property<Guid?>("ModuleMenuNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("module_menu_node_id");
 
                     b.Property<int>("Revision")
                         .ValueGeneratedOnAdd()

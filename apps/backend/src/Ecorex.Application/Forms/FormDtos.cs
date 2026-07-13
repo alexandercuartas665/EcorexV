@@ -40,8 +40,9 @@ public sealed record FormQuestionDto(
     string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
     // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
     Guid? SubformDefinitionId = null,
-    // Transversales (ola F6, doc 01 D8): default dinamico + formato.
-    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null);
+    // Transversales (ola F6, doc 01 D8): default dinamico + formato + permisos por campo.
+    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
+    string? FieldVisibilityJson = null);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -104,8 +105,9 @@ public sealed record SaveFormQuestionRequest(
     string? CalcExpression = null, FormAggregate Aggregate = FormAggregate.None,
     // Maestro-detalle (ola F5, doc 01 D7): definicion hija del campo Subform.
     Guid? SubformDefinitionId = null,
-    // Transversales (ola F6, doc 01 D8): default dinamico + formato.
-    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null);
+    // Transversales (ola F6, doc 01 D8): default dinamico + formato + permisos por campo.
+    FormDefaultDynamic DefaultDynamic = FormDefaultDynamic.None, string? Format = null,
+    string? FieldVisibilityJson = null);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

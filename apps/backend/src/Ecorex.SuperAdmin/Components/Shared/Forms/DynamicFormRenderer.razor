@@ -3,6 +3,7 @@
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Authorization
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
 @inject IFormDefinitionService DefinitionsSvc
@@ -151,6 +152,9 @@ else
     /// deshabilita hasta que haya eleccion. Vacio/null = paso sin compuerta adelante.
     /// </summary>
     [Parameter] public IReadOnlyList<string>? ApprovalOptions { get; set; }
+    /// <summary>Rol del usuario (tenant_role) para permisos por campo (ola F6). Null en el visor publico.</summary>
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private string? _currentRole;
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -207,6 +211,11 @@ else
         _loadInProgress = true;
         try
         {
+            // Permisos por campo (ola F6): rol del usuario (null en el visor publico -> sin restriccion).
+            if (AuthState is not null)
+            {
+                _currentRole = (await AuthState).User.FindFirst("tenant_role")?.Value;
+            }
             using var ambient = BeginAmbient();
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
@@ -424,8 +433,8 @@ else
 
     private RenderFragment RenderQuestion(FormQuestionDto q, bool forceFullWidth = false) => __builder =>
     {
-        @* Campos ocultos por regla O por el disenador (ADR-0021): no se pintan ni validan. *@
-        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden)
+        @* Campos ocultos por regla, por el disenador (ADR-0021) O por permiso de rol (ola F6). *@
+        if (_ruleUiState.IsHidden(q.FieldCode) || q.IsHidden || IsFieldHidden(q))
         {
             return;
         }
@@ -471,7 +480,15 @@ else
                     {
                         <div class="dfr-caption">@q.Caption</div>
                     }
-                    @RenderInput(q)
+                    @* Solo lectura por rol (ola F6): fieldset disabled deshabilita el control sin tocar RenderInput. *@
+                    @if (IsFieldReadonly(q))
+                    {
+                        <fieldset disabled class="dfr-ro">@RenderInput(q)</fieldset>
+                    }
+                    else
+                    {
+                        @RenderInput(q)
+                    }
                     @if (!string.IsNullOrWhiteSpace(q.HelpText))
                     {
                         <div class="dfr-help">@q.HelpText</div>
@@ -1085,6 +1102,28 @@ else
     }
 
     // ---- Transversales (ola F6, doc 01 D8) ----
+
+    // Permisos por campo (ola F6, doc 01 D8): FieldVisibilityJson = { "hide":[...], "readonly":[...] }.
+    private bool IsFieldHidden(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "hide");
+    private bool IsFieldReadonly(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "readonly");
+
+    private bool FieldRoleMatch(string? json, string key)
+    {
+        if (string.IsNullOrWhiteSpace(json) || _currentRole is null) { return false; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty(key, out var arr)
+                || arr.ValueKind != System.Text.Json.JsonValueKind.Array) { return false; }
+            foreach (var r in arr.EnumerateArray())
+            {
+                if (string.Equals(r.GetString(), _currentRole, StringComparison.OrdinalIgnoreCase)) { return true; }
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return false;
+    }
 
     /// <summary>Resuelve un valor por defecto dinamico al abrir el formulario (Hoy / Usuario actual).</summary>
     private string? ResolveDynamicDefault(FormDefaultDynamic d) => d switch

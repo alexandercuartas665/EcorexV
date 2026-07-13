@@ -3104,6 +3104,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(60)")
                         .HasColumnName("field_code");
 
+                    b.Property<string>("FieldVisibilityJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("field_visibility_json");
+
                     b.Property<string>("FilterJson")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("filter_json");

@@ -894,7 +894,7 @@ else
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
         q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-        q.DefaultDynamic, q.Format);
+        q.DefaultDynamic, q.Format, q.FieldVisibilityJson);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -1076,6 +1076,41 @@ else
     private static void ToggleSet(HashSet<string> set, string code, bool on)
     {
         if (on) { set.Add(code); } else { set.Remove(code); }
+    }
+
+    // Permisos por campo (ola F6): roles del tenant + lectura/escritura de FieldVisibilityJson.
+    private static readonly string[] TenantRoles = { "Owner", "Admin", "Supervisor", "Advisor" };
+
+    private static Dictionary<string, List<string>> ParseFieldVis(string? json)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal) { ["hide"] = new(), ["readonly"] = new() };
+        if (string.IsNullOrWhiteSpace(json)) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            foreach (var key in new[] { "hide", "readonly" })
+            {
+                if (doc.RootElement.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    map[key] = arr.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).ToList();
+                }
+            }
+        }
+        catch (JsonException) { }
+        return map;
+    }
+
+    private static bool FieldVisHas(FormQuestionDto q, string key, string role)
+        => ParseFieldVis(q.FieldVisibilityJson)[key].Contains(role, StringComparer.OrdinalIgnoreCase);
+
+    private Task ToggleFieldVisAsync(FormQuestionDto q, string key, string role, bool on)
+    {
+        var map = ParseFieldVis(q.FieldVisibilityJson);
+        map[key].RemoveAll(r => string.Equals(r, role, StringComparison.OrdinalIgnoreCase));
+        if (on) { map[key].Add(role); }
+        var isEmpty = map["hide"].Count == 0 && map["readonly"].Count == 0;
+        var json = isEmpty ? null : JsonSerializer.Serialize(map);
+        return PatchQuestionAsync(q, r => r with { FieldVisibilityJson = json });
     }
 
     private static IReadOnlyList<string> ParseCodeList(string? json)
@@ -1695,6 +1730,26 @@ else
                     <option value="integer">Entero (miles)</option>
                     <option value="decimal">Decimal</option>
                 </select>
+            </div>
+            <div class="fb-field">
+                <label>Ocultar para roles</label>
+                <div class="fb-chkgrid">
+                    @foreach (var role in TenantRoles)
+                    {
+                        <label class="pl-toggle"><input type="checkbox" checked="@FieldVisHas(node.Q!, "hide", role)"
+                            @onchange="@(e => ToggleFieldVisAsync(node.Q!, "hide", role, (bool)e.Value!))" /> @role</label>
+                    }
+                </div>
+            </div>
+            <div class="fb-field">
+                <label>Solo lectura para roles</label>
+                <div class="fb-chkgrid">
+                    @foreach (var role in TenantRoles)
+                    {
+                        <label class="pl-toggle"><input type="checkbox" checked="@FieldVisHas(node.Q!, "readonly", role)"
+                            @onchange="@(e => ToggleFieldVisAsync(node.Q!, "readonly", role, (bool)e.Value!))" /> @role</label>
+                    }
+                </div>
             </div>
             @RenderToggleRow("Campo obligatorio", "No permite envio vacio", node.Q!.Required,
                 () => PatchQuestionAsync(node.Q!, r => r with { Required = !node.Q!.Required }))

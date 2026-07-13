@@ -701,7 +701,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
             q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
             q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-            q.DefaultDynamic, q.Format);
+            q.DefaultDynamic, q.Format, q.FieldVisibilityJson);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -758,6 +758,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         // Transversales (ola F6, doc 01 D8).
         question.DefaultDynamic = request.DefaultDynamic;
         question.Format = Normalize(request.Format);
+        question.FieldVisibilityJson = Normalize(request.FieldVisibilityJson);
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

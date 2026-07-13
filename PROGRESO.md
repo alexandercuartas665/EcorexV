@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F6 - permisos por campo (visibilidad por rol)
+
+- **Hecho (F6, doc 01 D8)**: permisos a nivel de campo.
+  - ESQUEMA: `FormQuestion.FieldVisibilityJson` = { "hide":[roles], "readonly":[roles] } (nombres de
+    TenantRole: Owner/Admin/Supervisor/Advisor). Migracion dual `AddFormFieldVisibility`. Local; PENDIENTE prod.
+  - RENDERER: lee el rol del claim `tenant_role` (cascading AuthState; null en el visor publico -> sin
+    restriccion). Un rol en `hide` no ve el campo (RenderQuestion return); en `readonly` lo ve dentro de un
+    `<fieldset disabled>` (deshabilita el control sin tocar RenderInput). El valor se conserva al guardar.
+  - DESIGNER: checkboxes por rol "Ocultar para" y "Solo lectura para" en el tab Datos.
+- **Verificado en navegador (rol Owner)**: NIT con hide=[Owner] -> NO se pinta; Ciudad con readonly=[Owner]
+  -> input efectivamente deshabilitado (`:disabled` via `fieldset[disabled]`). Solution verde; 360 tests.
+- **WEBHOOKS/INTEGRACIONES: PENDIENTE (decision del usuario 2026-07-13)**: el usuario quiere botones en el
+  formulario con reglas de accion configurables (integraciones). El patron .NET correcto NO es reflexion
+  abierta (el proyecto la prohibe) sino un REGISTRO DE VERBOS TIPADOS resuelto por DI -> ES EL RulesEngine
+  YA EXISTENTE (`Ecorex.Application/Rules/Verbs/`, IRuleVerb). Mapeo: boton (FormControlType.Button) ->
+  FormFieldRule -> verbo tipado (allow-list) -> integracion. El usuario analizara la documentacion antes de
+  construirlo. NO construir webhooks hasta entonces.
+- **Siguiente (resto de F6)**: mascaras de ENTRADA; impresion/PDF con plantilla (object storage); captura
+  Tier 2 real (foto/firma/GPS/archivo/barcode) con object storage; botones con reglas de accion (ver nota).
+
 ## 2026-07-13 - Sesion (worktree formularios): F5 designer + F6 transversales (defaults dinamicos + formato)
 
 - **F5 (cierre)**: el campo Subform ahora se crea/configura EN EL DESIGNER (tipo "Subformulario" en la

@@ -1235,6 +1235,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Transversales (ola F6). Aditivas.
             b.Property(x => x.DefaultDynamic).HasDefaultValue(FormDefaultDynamic.None);
             b.Property(x => x.Format).HasMaxLength(40);
+            b.Property(x => x.FieldVisibilityJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

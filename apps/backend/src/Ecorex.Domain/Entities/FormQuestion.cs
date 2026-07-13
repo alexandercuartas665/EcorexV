@@ -122,6 +122,13 @@ public class FormQuestion : TenantEntity
     /// <summary>Formato/mascara de presentacion del valor: currency | percent | integer | phone | ... (null = sin formato).</summary>
     public string? Format { get; set; }
 
+    /// <summary>
+    /// Permisos por campo (ola F6, doc 01 D8) como JSON: { "hide": ["Advisor"], "readonly": ["Supervisor"] }
+    /// (nombres de TenantRole). Un rol en hide no ve el campo; en readonly lo ve pero no lo edita. Null = sin
+    /// restriccion. En el visor publico (sin rol) no aplica.
+    /// </summary>
+    public string? FieldVisibilityJson { get; set; }
+
     // ---- Calculo y agregacion (Formularios avanzados, ola F2; doc 01 seccion D5) ----
 
     /// <summary>

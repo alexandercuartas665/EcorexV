@@ -38,4 +38,7 @@ public interface IFormResponseService
     /// con Reference = numero de la tarea y su FormFlowLink, y los devuelve para la UI.
     /// </summary>
     Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>Anula un registro transaccional confirmado (ola F3): Voided + motivo + auditoria; no libera el numero.</summary>
+    Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default);
 }

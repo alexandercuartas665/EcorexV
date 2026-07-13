@@ -23,11 +23,13 @@ public sealed class FormResponseService : IFormResponseService
 
     private readonly IApplicationDbContext _db;
     private readonly IWorkflowEngine _workflowEngine;
+    private readonly Tenancy.ISequenceService _sequences;
 
-    public FormResponseService(IApplicationDbContext db, IWorkflowEngine workflowEngine)
+    public FormResponseService(IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences)
     {
         _db = db;
         _workflowEngine = workflowEngine;
+        _sequences = sequences;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -173,6 +175,32 @@ public sealed class FormResponseService : IFormResponseService
             }
         }
 
+        // Registro transaccional (ola F3, doc 01 D2/D3): confirmar = enviar. La identidad se
+        // resuelve ANTES de abrir la transaccion (patron de ISequenceService: EnsureSequence +
+        // NextAsync fuera de la tx del caso de uso, para no abortar por el INSERT del consecutivo).
+        // Idempotente: si el registro ya esta Confirmed no reasigna.
+        string? recordNumber = null;
+        var assignRecord = false;
+        if (submit)
+        {
+            var definition = await _db.FormDefinitions
+                .FirstOrDefaultAsync(d => d.Id == response.DefinitionId, cancellationToken);
+            if (definition?.IsTransactional == true && response.RecordStatus != FormRecordStatus.Confirmed)
+            {
+                var identity = await ResolveIdentityAsync(definition, document, cancellationToken);
+                if (!identity.Ok)
+                {
+                    return FormResult<FormResponseDto>.ValidationFailed(
+                        new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [definition.IdentitySourceFieldCode ?? "_identidad"] = identity.Error!
+                        });
+                }
+                recordNumber = identity.Number;
+                assignRecord = true;
+            }
+        }
+
         await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
 
         response.Data = JsonSerializer.Serialize(document, JsonOptions);
@@ -181,6 +209,14 @@ public sealed class FormResponseService : IFormResponseService
             response.Status = FormResponseStatus.Submitted;
             response.SubmittedAt = DateTimeOffset.UtcNow;
             response.SubmittedByTenantUserId = submittedByTenantUserId;
+
+            // Registro transaccional (ola F3): identidad ya resuelta antes de la transaccion.
+            if (assignRecord)
+            {
+                response.RecordNumber = recordNumber;
+                response.RecordStatus = FormRecordStatus.Confirmed;
+                response.TransactionDate = DateTimeOffset.UtcNow;
+            }
 
             // Integracion con el flujo: cada link Pending completa SU paso current del
             // workflow (misma transaccion logica; si el motor falla, rollback total).
@@ -220,9 +256,88 @@ public sealed class FormResponseService : IFormResponseService
         {
             return FormResult<FormResponseDto>.Conflict(ConflictMessage);
         }
+        catch (DbUpdateException) when (submit)
+        {
+            // Choca el indice unico de record_number (clave natural duplicada por tenant+definicion).
+            return FormResult<FormResponseDto>.ValidationFailed(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["_identidad"] = "Ya existe un registro con esa clave (numero duplicado)."
+                });
+        }
         if (transaction is not null)
         {
             await transaction.CommitAsync(cancellationToken);
+        }
+        return FormResult<FormResponseDto>.Ok(ToDto(response));
+    }
+
+    /// <summary>
+    /// Resuelve la identidad de un registro transaccional al confirmar (ola F3, doc 01 D3):
+    /// consecutivo (una TenantSequence por formulario, prefijo = codigo del form) o clave natural
+    /// (valor de un campo, unicidad garantizada por indice). None = sin numero.
+    /// </summary>
+    private async Task<(bool Ok, string? Number, string? Error)> ResolveIdentityAsync(
+        FormDefinition definition, IReadOnlyDictionary<string, FormFieldValue> document, CancellationToken cancellationToken)
+    {
+        switch (definition.IdentityMode)
+        {
+            case FormIdentityMode.None:
+                return (true, null, null);
+
+            case FormIdentityMode.NaturalKey:
+                if (string.IsNullOrWhiteSpace(definition.IdentitySourceFieldCode))
+                {
+                    return (false, null, "El formulario no tiene campo de identidad configurado.");
+                }
+                document.TryGetValue(definition.IdentitySourceFieldCode, out var keyField);
+                if (string.IsNullOrWhiteSpace(keyField?.Value))
+                {
+                    return (false, null, "El campo de identidad es obligatorio para confirmar.");
+                }
+                return (true, keyField!.Value, null);
+
+            case FormIdentityMode.Sequence:
+                // Una secuencia por formulario (doc 03 B). El code de TenantSequence es varchar(10):
+                // se usa un codigo corto derivado del id ("F"+8 hex, unico por tenant); el prefijo
+                // legible del numero es el codigo del formulario (ej. FRM-021-000001).
+                var code = "F" + definition.Id.ToString("N")[..8];
+                await _sequences.EnsureSequenceAsync(code, cancellationToken);
+                var number = await _sequences.NextAsync(code, $"{definition.Code}-", 6, cancellationToken);
+                return (true, number, null);
+
+            default:
+                return (true, null, null);
+        }
+    }
+
+    /// <summary>
+    /// Anula un registro transaccional confirmado (ola F3, doc 01 D2): RecordStatus=Voided + motivo
+    /// + auditoria. NO borra ni libera el numero (queda el hueco, trazable). Idempotente.
+    /// </summary>
+    public async Task<FormResult<FormResponseDto>> VoidAsync(
+        Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null)
+        {
+            return FormResult<FormResponseDto>.NotFound("Respuesta no encontrada.");
+        }
+        if (response.RecordStatus != FormRecordStatus.Confirmed)
+        {
+            return FormResult<FormResponseDto>.Invalid("Solo se puede anular un registro confirmado.");
+        }
+        response.RecordStatus = FormRecordStatus.Voided;
+        response.VoidedAt = DateTimeOffset.UtcNow;
+        response.VoidedByTenantUserId = byTenantUserId;
+        response.VoidReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return FormResult<FormResponseDto>.Conflict(ConflictMessage);
         }
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
@@ -326,7 +441,8 @@ public sealed class FormResponseService : IFormResponseService
     private static FormResponseDto ToDto(FormResponse response)
         => new(response.Id, response.DefinitionId, response.Reference, response.Status,
             ParseDocument(response.Data), response.SubmittedAt, response.SubmittedByTenantUserId,
-            response.Version);
+            response.Version,
+            response.RecordNumber, response.RecordStatus, response.TransactionDate);
 
     /// <summary>Deserializa el documento { fieldCode: { value, type } }; vacio si es invalido.</summary>
     public static IReadOnlyDictionary<string, FormFieldValue> ParseDocument(string? data)

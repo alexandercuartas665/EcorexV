@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-13 - Sesion (worktree formularios): F3 - logica confirmar/anular + identidad
+
+- **Hecho (F3, logica sobre el esquema)**:
+  - `FormResponseService.SaveAsync`: confirmar = enviar. Al enviar un form transaccional se asigna
+    identidad ANTES de la transaccion (patron `ISequenceService`: EnsureSequence+Next fuera de la tx),
+    RecordStatus=Confirmed, TransactionDate. Idempotente (no reasigna si ya Confirmed).
+    - Modo Sequence: consume `TenantSequence` (code corto "F"+8hex del id porque `code` es varchar(10);
+      OJO bug cazado: `FORM:{guid}` de 41 chars hacia fallar el INSERT y `EnsureSequenceAsync` se lo
+      tragaba -> "contencion excesiva"). Numero legible: prefijo = codigo del form (FRM-021-000001).
+    - Modo NaturalKey: numero = valor del campo `IdentitySourceFieldCode`; unicidad por indice unico
+      filtrado (DbUpdateException -> error de validacion "clave duplicada").
+  - `VoidAsync`: anula un registro Confirmed (Voided + motivo + auditoria; no libera el numero).
+  - DTO `FormResponseDto` += RecordNumber/RecordStatus/TransactionDate; renderer muestra chip verde con
+    el numero y chip "Anulado".
+- **Verificado (navegador, `ecorex_forms`)**: FRM-021 transaccional (Sequence) -> Enviar -> registro
+  FRM-021-000001, status=Submitted, rec_status=Confirmed, tx_date fijada, secuencia consumida (next=2).
+  Build verde; 360/360 tests Application.
+- **Siguiente**: panel "Propiedades del formulario" en el designer (IsTransactional + IdentityMode +
+  campo clave / prefijo) sin SQL; boton Anular en el renderer/bandeja; cierre por evento (firma) doc 03 B;
+  test unit/integracion de confirmar. Luego F4 (formulario-modulo).
+
 ## 2026-07-12 - Sesion (worktree formularios): F3 ARRANQUE - esquema transaccional
 
 - **Contexto**: se confirmo que los agregados de GridDetail (Sum/Count/Avg/Min/Max) YA funcionan todos

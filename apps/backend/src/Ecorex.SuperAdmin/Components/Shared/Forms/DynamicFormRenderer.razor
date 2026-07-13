@@ -46,6 +46,15 @@ else
                     {
                         <span class="dfr-chip">ref @_response!.Reference</span>
                     }
+                    @* Registro transaccional (ola F3): numero y estado tras confirmar. *@
+                    @if (!string.IsNullOrWhiteSpace(_response?.RecordNumber))
+                    {
+                        <span class="dfr-chip dfr-chip-record">@_response!.RecordNumber</span>
+                    }
+                    @if (_response?.RecordStatus == FormRecordStatus.Voided)
+                    {
+                        <span class="dfr-chip dfr-chip-void">Anulado</span>
+                    }
                 </div>
             </div>
         }

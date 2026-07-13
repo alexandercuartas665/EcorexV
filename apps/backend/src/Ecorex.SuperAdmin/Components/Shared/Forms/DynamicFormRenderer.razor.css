@@ -185,3 +185,7 @@
 
 /* ---- Campo calculado (ola F2) ---- */
 .dfr-calc { background: var(--surface-3, #F2F2F3); font-weight: 600; color: var(--ink, #1B1B1E); }
+
+/* ---- Registro transaccional (ola F3) ---- */
+.dfr-chip-record { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); font-weight: 700; }
+.dfr-chip-void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); font-weight: 700; }

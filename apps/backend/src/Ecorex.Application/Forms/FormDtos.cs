@@ -78,7 +78,10 @@ public sealed record SaveFormQuestionRequest(
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,
     IReadOnlyDictionary<string, FormFieldValue> Data,
-    DateTimeOffset? SubmittedAt, Guid? SubmittedByTenantUserId, long Version);
+    DateTimeOffset? SubmittedAt, Guid? SubmittedByTenantUserId, long Version,
+    // Registro transaccional (ola F3, doc 01 D2).
+    string? RecordNumber = null, FormRecordStatus RecordStatus = FormRecordStatus.Draft,
+    DateTimeOffset? TransactionDate = null);
 
 /// <summary>Opciones de emision de un token de publicacion por URL.</summary>
 public sealed record EmitFormTokenRequest(

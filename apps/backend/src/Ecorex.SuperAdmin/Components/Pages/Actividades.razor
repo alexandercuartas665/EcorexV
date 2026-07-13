@@ -24,7 +24,7 @@
 }
 else if (BoardIdOrNull is Guid boardId)
 {
-    <ActivityBoardDetail BoardId="boardId" OnBack="BackToIndex" />
+    <ActivityBoardDetail BoardId="boardId" PresetSubcategoriaId="_resolvedSubId" OnBack="BackToIndex" />
 }
 else
 {
@@ -39,6 +39,7 @@ else
     public string? Sub { get; set; }
 
     private Guid? _resolvedBoardId;   // tablero del concepto (Ola 6, ?sub=)
+    private Guid? _resolvedSubId;     // concepto que preselecciona el modal rapido (paso corto)
     private bool _resolving;
 
     // El tablero visible: el ?board= explicito o el derivado del concepto (?sub=).
@@ -57,6 +58,8 @@ else
                 var catalogo = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
                 var sub = await catalogo.GetSubcategoriaAsync(subId);
                 _resolvedBoardId = sub?.TaskBoardId;
+                // Solo preseleccionamos el concepto si REALMENTE abrimos su tablero (si no, cae al indice).
+                if (_resolvedBoardId is not null) { _resolvedSubId = subId; }
             }
             catch { /* concepto sin tablero o sin acceso: cae al indice */ }
             finally { _resolving = false; }

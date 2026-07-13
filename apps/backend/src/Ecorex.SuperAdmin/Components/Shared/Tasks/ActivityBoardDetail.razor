@@ -648,6 +648,10 @@
     [Parameter] public Guid BoardId { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
 
+    /// <summary>Concepto preseleccionado al llegar desde "Mis Procesos" (?sub=): incluye el concepto
+    /// (aunque sea de proceso) en el modal rapido y lo AUTO-ABRE precargado al aterrizar (paso corto).</summary>
+    [Parameter] public Guid? PresetSubcategoriaId { get; set; }
+
     private ActivityBoardDetailDto? _detail;
     private List<ActivityBoardMemberDto> _members = new();
     private List<TaskItemTagDto> _boardTags = new();
@@ -755,12 +759,27 @@
         _tags = (await TasksSvc.ListTagsAsync()).ToList();
         _types = (await TypesSvc.ListAsync()).ToList();
         // Ola 6: actividades SIN proceso (subcategorias sin flujo) para el crear-desde-tablero.
-        _freeSubs = (await CatalogoSvc.ListSubcategoriasAsync(includeArchived: false))
-            .Where(s => s.WorkflowDefinitionId is null)
+        // Paso corto (Mis Procesos): si llegamos con un CONCEPTO preseleccionado (PresetSubcategoriaId),
+        // lo incluimos en el modal rapido aunque sea de proceso, para crear desde ahi precargado.
+        var allSubs = (await CatalogoSvc.ListSubcategoriasAsync(includeArchived: false))
             .OrderBy(s => s.Nombre).ToList();
+        _freeSubs = allSubs.Where(s => s.WorkflowDefinitionId is null).ToList();
+        if (PresetSubcategoriaId is Guid presetSubId && _freeSubs.All(s => s.Id != presetSubId))
+        {
+            var presetSub = allSubs.FirstOrDefault(s => s.Id == presetSubId);
+            if (presetSub is not null) { _freeSubs.Insert(0, presetSub); }
+        }
         _meTenantUserId = await MeTenantUserIdAsync();
         await LoadMembersAsync();
         await ReloadAsync();
+        // Paso corto: al aterrizar desde "Mis Procesos" (?sub=), auto-abrir el modal rapido del tablero
+        // precargado con el concepto (la categoria queda implicita por el concepto).
+        if (PresetSubcategoriaId is Guid pid && _detail is not null && _detail.Columns.Count > 0
+            && _freeSubs.Any(s => s.Id == pid))
+        {
+            OpenQuickCreate(null);
+            _qcSubId = pid.ToString();
+        }
         await EnsureHubAsync();
     }
 

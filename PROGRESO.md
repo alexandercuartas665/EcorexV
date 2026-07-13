@@ -3485,3 +3485,23 @@ mios = 26"** = 5 por asignacion + 21 ruteadas por cargo (Requerimiento -> Asesor
 26 filas en Lista. Build de la solucion verde; `ActivityBoardTests` 12/12 (dual PG+SqlServer).
 
 **Nota**: no desplegado a prod en esta sesion (el seeder retirara el item 000637 en el proximo deploy).
+
+---
+
+## Sesion 2026-07-13 - Paso corto: "Mis Procesos" -> tablero del concepto + modal rapido precargado
+
+**Agentes**: Claude (Opus 4.8). **Accion**: al entrar por "Mis Procesos", abrir el TABLERO parametrizado
+en el concepto y auto-abrir el modal "Nueva actividad" precargado con la (cat)/subcategoria del concepto.
+
+- Ya existia: el concepto guarda `ActividadSubcategoria.TaskBoardId`; el menu enlaza a `/actividades?sub=`
+  y la pagina resuelve el tablero del concepto (`Actividades.razor`).
+- **Nuevo** (decision del usuario: usar el MODAL RAPIDO del tablero): `Actividades.razor` pasa el sub al
+  detalle (`PresetSubcategoriaId`); `ActivityBoardDetail` incluye el concepto-proceso en el dropdown del
+  modal rapido (antes solo no-proceso, Ola 6) y, al aterrizar via `?sub=`, AUTO-ABRE el modal precargado
+  con el concepto (`OpenQuickCreate` + `_qcSubId`).
+- **Validado en Chrome**: `/actividades?sub=<Cotizacion de equipos>` abre el tablero "Comercial -
+  Requerimiento Infraestructura" y el modal rapido queda abierto con "Cotizacion de equipos"
+  preseleccionado. Build verde.
+- **Pendiente (siguiente paso corto)**: si el concepto NO tiene tablero (`TaskBoardId` null) hoy cae al
+  indice; definir fallback (exigir tablero en Conceptos, o abrir el wizard). Nota de proceso: el modal
+  rapido no tiene paso "Formulario" (form-first); para conceptos con formulario habra que iterar.

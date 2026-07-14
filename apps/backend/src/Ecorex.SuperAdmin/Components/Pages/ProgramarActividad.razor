@@ -2,8 +2,11 @@
 @attribute [Authorize(Policy = "TenantMember")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Scheduling
+@using Ecorex.Application.Tenancy
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
 @inject IScheduledJobService JobsSvc
+@inject ITenantUserService TenantUsersSvc
 
 @* ============================================================
    PROGRAMAR ACTIVIDAD (modulo 000889) - pantalla 'isProgramar'
@@ -98,6 +101,22 @@
 
                 <label class="pa-label">Nombre</label>
                 <input class="pa-input" @bind="_name" @bind:event="oninput" placeholder="Ej. Recordatorio pago proveedores" />
+
+                @* Encargado OPCIONAL: en tipo Actividad se pasa como AssigneeTenantUserId al crear la
+                   tarea (vacio -> nace sin asignar); en Notificacion es el destinatario in-app. *@
+                <label class="pa-label">Encargado <span class="pa-opt">(opcional)</span></label>
+                <select class="pa-select pa-assignee" @onchange="OnAssigneeChanged">
+                    <option value="" selected="@(_assigneeId is null)">Sin asignar</option>
+                    @foreach (var u in _users)
+                    {
+                        <option value="@u.Id" selected="@(u.Id == _assigneeId)">@TaskUi.UserLabel(u)</option>
+                    }
+                </select>
+                <div class="pa-hint pa-assignee-hint">
+                    @(_type == ScheduledJobType.Activity
+                        ? "Si lo dejas vacio, la actividad nace sin asignar (Pendiente) en el tablero del concepto."
+                        : "Recibira el aviso in-app cuando se dispare la programacion.")
+                </div>
 
                 @if (_type == ScheduledJobType.Activity)
                 {
@@ -254,6 +273,8 @@
 @code {
     private IReadOnlyList<ScheduledJobListItemDto>? _items;
     private IReadOnlyList<ScheduledJobCategoryDto> _catalog = Array.Empty<ScheduledJobCategoryDto>();
+    private IReadOnlyList<TenantUserDto> _users = Array.Empty<TenantUserDto>();
+    private Guid? _assigneeId;
 
     private bool _modalOpen;
     private bool _busy;
@@ -270,8 +291,13 @@
     protected override async Task OnInitializedAsync()
     {
         _catalog = await JobsSvc.GetConceptCatalogAsync();
+        // Mismo origen que el wizard de actividades (ITenantUserService) para el select de encargado.
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
         await ReloadAsync();
     }
+
+    private void OnAssigneeChanged(ChangeEventArgs e)
+        => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
 
     private async Task ReloadAsync()
     {
@@ -288,6 +314,7 @@
         _type = ScheduledJobType.Notification;
         _catId = null;
         _subId = null;
+        _assigneeId = null;
         _rules.Clear();
         _rules.Add(RuleEdit.Default());
         _channels.Clear();
@@ -306,6 +333,7 @@
         _type = dto.Type;
         _catId = dto.CategoryId;
         _subId = dto.SubcategoryId;
+        _assigneeId = dto.AssigneeTenantUserId;
         _rules.Clear();
         foreach (var r in dto.Rules) { _rules.Add(RuleEdit.From(r)); }
         if (_rules.Count == 0) { _rules.Add(RuleEdit.Default()); }
@@ -366,7 +394,7 @@
             var req = new SaveScheduledJobRequest(
                 _name, _type, _catId, _subId,
                 _rules.Select(r => r.ToDto()).ToList(),
-                _channels.ToList(), _version);
+                _channels.ToList(), _assigneeId, _version);
             var result = await JobsSvc.SaveAsync(_editId, req);
             if (!result.IsOk)
             {

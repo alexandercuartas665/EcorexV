@@ -34,6 +34,14 @@ public class ScheduledJob : TenantEntity, IVersioned
     /// <summary>Solo Type=Activity: subcategoria (concepto) que se disparara. Referencia suelta en P1.</summary>
     public Guid? SubcategoryId { get; set; }
 
+    /// <summary>
+    /// Encargado OPCIONAL de la programacion (TenantUser). Type=Activity: se pasa como
+    /// <c>CreateTaskItemRequest.AssigneeTenantUserId</c> al crear la tarea (si va null, la
+    /// actividad nace Pending / sin asignar, que es el comportamiento por defecto de TaskItemService).
+    /// Type=Notification: destinatario in-app del aviso. Referencia suelta (sin FK dura).
+    /// </summary>
+    public Guid? AssigneeTenantUserId { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
 

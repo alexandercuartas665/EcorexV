@@ -55,7 +55,8 @@ public sealed class ScheduledJobService : IScheduledJobService
         if (j is null) { return null; }
 
         return new ScheduledJobDetailDto(
-            j.Id, j.Code, j.Name, j.Type, j.Status, j.CategoryId, j.SubcategoryId, j.Version,
+            j.Id, j.Code, j.Name, j.Type, j.Status, j.CategoryId, j.SubcategoryId,
+            j.AssigneeTenantUserId, j.Version,
             j.Rules.OrderBy(r => r.SortOrder).Select(ToRuleDto).ToList(),
             j.Channels.Select(c => c.Channel).ToList());
     }
@@ -89,6 +90,7 @@ public sealed class ScheduledJobService : IScheduledJobService
                 Priority = ScheduledJobPriority.Normal,
                 CategoryId = catId,
                 SubcategoryId = subId,
+                AssigneeTenantUserId = request.AssigneeTenantUserId,
             };
             ApplyRules(job, request.Rules);
             ApplyChannels(job, request.Channels);
@@ -111,6 +113,7 @@ public sealed class ScheduledJobService : IScheduledJobService
         existing.Type = request.Type;
         existing.CategoryId = catId;
         existing.SubcategoryId = subId;
+        existing.AssigneeTenantUserId = request.AssigneeTenantUserId;
         // Reemplazo total de reglas y canales (sin referencias externas en P1).
         _db.ScheduledJobRules.RemoveRange(existing.Rules);
         _db.ScheduledJobChannels.RemoveRange(existing.Channels);

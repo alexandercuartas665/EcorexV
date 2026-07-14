@@ -6471,6 +6471,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("area_entity_id");
 
+                    b.Property<Guid?>("AssigneeTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assignee_tenant_user_id");
+
                     b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("category_id");

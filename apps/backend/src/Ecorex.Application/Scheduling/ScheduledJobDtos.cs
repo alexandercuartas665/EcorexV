@@ -19,14 +19,15 @@ public sealed record ScheduledJobRuleDto(
 /// <summary>Detalle completo de una programacion (para abrir el modal en edicion).</summary>
 public sealed record ScheduledJobDetailDto(
     Guid Id, string Code, string Name, ScheduledJobType Type, ScheduledJobStatus Status,
-    Guid? CategoryId, Guid? SubcategoryId, long Version,
+    Guid? CategoryId, Guid? SubcategoryId, Guid? AssigneeTenantUserId, long Version,
     IReadOnlyList<ScheduledJobRuleDto> Rules, IReadOnlyList<ScheduledJobChannelType> Channels);
 
-/// <summary>Datos de guardado de una programacion (crear o actualizar).</summary>
+/// <summary>Datos de guardado de una programacion (crear o actualizar). Encargado OPCIONAL.</summary>
 public sealed record SaveScheduledJobRequest(
     string Name, ScheduledJobType Type, Guid? CategoryId, Guid? SubcategoryId,
     IReadOnlyList<ScheduledJobRuleDto> Rules,
-    IReadOnlyList<ScheduledJobChannelType> Channels, long Version = 0);
+    IReadOnlyList<ScheduledJobChannelType> Channels,
+    Guid? AssigneeTenantUserId = null, long Version = 0);
 
 /// <summary>Resultado de guardar (Ok con Id, o Fail con mensaje de validacion/concurrencia).</summary>
 public sealed record ScheduledJobSaveResult(bool IsOk, Guid? Id, string? Error)

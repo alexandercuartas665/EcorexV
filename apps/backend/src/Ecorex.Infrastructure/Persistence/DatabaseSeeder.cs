@@ -2572,12 +2572,11 @@ public sealed class DatabaseSeeder
         var misproc = Add(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
         // ADR-0038: se retiro el item "Mis pasos" (000637). El runtime de flujos vive DENTRO de la
         // tarea (seccion Flujo del detalle) y los pasos pendientes se descubren en el TABLERO.
-        Item(misproc.Id, "Crear una actividad", "crear-actividad", "000038");
+        // La creacion se unifico al wizard (tableros/conceptos): se retiro "Crear una actividad".
+        // El grupo "Procesos" (categorias con flujo) lo despliega NavMenu por IsProcessGroup.
         Item(misproc.Id, "Proyectos", "proyectos", "000042");
         Item(misproc.Id, "Administrar actividades", "actividades", "000636");
         Item(misproc.Id, "Programar actividad", "modulo/programar-actividad", "000889");
-        var comercial = Add(MenuNodeKind.Subgroup, "Comercial", misproc.Id, "sg-comercial");
-        Item(comercial.Id, "Requerimientos equipos", "actividades", "000477");
 
         // ---- Seccion: Negocio (slug nego) ----
         var nego = Add(MenuNodeKind.Section, "Negocio", null, "nego", iconKey: "briefcase");
@@ -2711,7 +2710,7 @@ public sealed class DatabaseSeeder
 
         var sMisproc = AddS(MenuNodeKind.Section, "Mis Procesos", null, "misproc", iconKey: "list");
         // ADR-0038: item "Mis pasos" (000637) retirado; el runtime va en la tarea, descubrimiento en el tablero.
-        AddS(MenuNodeKind.Item, "Crear una actividad", sMisproc.Id, "crear-actividad", legacyCode: "000038");
+        // "Crear una actividad" retirado: la creacion se unifico al wizard (tableros/conceptos).
         AddS(MenuNodeKind.Item, "Administrar actividades", sMisproc.Id, "actividades", legacyCode: "000636");
         AddS(MenuNodeKind.Item, "Proyectos", sMisproc.Id, "proyectos", legacyCode: "000042");
 
@@ -2792,6 +2791,12 @@ public sealed class DatabaseSeeder
         // El runtime de flujos vive DENTRO de la tarea (seccion Flujo) y los pasos pendientes se
         // descubren en el TABLERO ("mis pendientes"); no hay bandeja/pagina aparte.
         await RemoveMenuItemByRouteAsync(tenantId, route: "mis-pasos", cancellationToken);
+
+        // Reorg del menu "Mis Procesos": la creacion se unifico al wizard -> se retira "Crear una
+        // actividad"; y el subgrupo estatico "Comercial" (sg-comercial) tambien. Idempotente, todos
+        // los tenants. El grupo "Procesos" (categorias con flujo) lo despliega NavMenu por IsProcessGroup.
+        await RemoveMenuItemByRouteAsync(tenantId, route: "crear-actividad", cancellationToken);
+        await RemoveMenuSubtreeByRouteAsync(tenantId, route: "sg-comercial", cancellationToken);
 
         // Alta idempotente del item "Contenedor de datos" (modelos dinamicos + importacion) en la
         // seccion "Sistema . General" (slug gen) de cada vista ya sembrada que aun no lo tenga.
@@ -2874,6 +2879,40 @@ public sealed class DatabaseSeeder
         _logger.LogInformation(
             "Reconciliacion del menu para el tenant {Tenant}: item '{Route}' RETIRADO de {Count} vista(s) (ADR-0038).",
             tenantId, route, stale.Count);
+    }
+
+    /// <summary>
+    /// Retiro idempotente de un nodo de menu (cualquier Kind) y TODA su descendencia, por ruta, en
+    /// todas las vistas del tenant. Para quitar subgrupos con hijos (p.ej. "Comercial"/sg-comercial).
+    /// </summary>
+    private async Task RemoveMenuSubtreeByRouteAsync(
+        Guid tenantId, string route, CancellationToken cancellationToken)
+    {
+        var toDelete = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.Route == route)
+            .Select(n => n.Id).ToListAsync(cancellationToken);
+        if (toDelete.Count == 0) { return; }
+
+        // Recolectar descendientes por niveles (el arbol de menu es superficial).
+        var frontier = new List<Guid>(toDelete);
+        while (frontier.Count > 0)
+        {
+            var kids = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.TenantId == tenantId && n.ParentId != null && frontier.Contains(n.ParentId.Value))
+                .Select(n => n.Id).ToListAsync(cancellationToken);
+            kids = kids.Where(k => !toDelete.Contains(k)).ToList();
+            if (kids.Count == 0) { break; }
+            toDelete.AddRange(kids);
+            frontier = kids;
+        }
+
+        var nodes = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => toDelete.Contains(n.Id)).ToListAsync(cancellationToken);
+        _db.MenuNodes.RemoveRange(nodes);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Reconciliacion del menu para el tenant {Tenant}: subarbol '{Route}' RETIRADO ({Count} nodos).",
+            tenantId, route, nodes.Count);
     }
 
     private async Task EnsureMenuDemoUserAsync(

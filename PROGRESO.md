@@ -3831,3 +3831,12 @@ ahora se agrupan bajo un nodo colapsable "Procesos" en NavMenu (antes iban suelt
 bajo misproc (via SQL local, TEMPORAL -> no esta en el seed). Validado en el Chrome del usuario.
 Pendiente de decision: quitar/ocultar "Crear una actividad" (000038, redundante con el wizard) y el
 subgrupo estatico "Comercial" (sg-comercial) que no estan en el target del usuario.
+
+**Menu (2026-07-14, cont.):** (1) Quitados los CODIGOS NUMERICOS (legacy_code) de todos los items del
+menu lateral (NavMenu, deja solo el badge "proc" y los contadores). (2) "Mis Procesos" = solo el grupo
+dinamico "Procesos" + Proyectos + Administrar actividades + Programar actividad: se retiro "Crear una
+actividad" (creacion unificada al wizard) y el subgrupo estatico "Comercial" (sg-comercial). Permanente y
+para TODOS los tenants via seeder: se quito del seed estatico (2 vistas) + reconciliacion
+RemoveMenuItemByRouteAsync("crear-actividad") y nueva RemoveMenuSubtreeByRouteAsync("sg-comercial").
+(3) La carpeta "Documentos" (con el formulario-modulo /m/FRM-021) se subio a nivel top-level (Section) via
+SQL local -> demo-especifico, no en el seed. Validado en el Chrome del usuario (build verde, seeder OK).

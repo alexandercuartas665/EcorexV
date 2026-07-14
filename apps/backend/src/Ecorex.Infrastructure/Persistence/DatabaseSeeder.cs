@@ -2581,7 +2581,6 @@ public sealed class DatabaseSeeder
         // ---- Seccion: Negocio (slug nego) ----
         var nego = Add(MenuNodeKind.Section, "Negocio", null, "nego", iconKey: "briefcase");
         Item(nego.Id, "Directorio General", "directorio-general", "000232");
-        Item(nego.Id, "Seguimiento de clientes", "modulo/seguimiento-de-clientes", "000123");
         Item(nego.Id, "Cargador de contactos", "cargador-contactos", "000740");
 
         // ---- Seccion: Automatizacion (slug auto) ----
@@ -2814,6 +2813,12 @@ public sealed class DatabaseSeeder
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "nego", route: "directorio-general",
             name: "Directorio General", legacyCode: "000232", cancellationToken);
+
+        // Reorg "Negocio": se retiran "Creacion de clientes" y "Seguimiento de clientes" (modulos
+        // legacy stub); la gestion de terceros queda unificada en "Directorio General" + "Cargador
+        // de contactos". Scopeado por seccion (nego) para no tocar rutas homonimas de otras secciones.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/creacion-de-clientes", cancellationToken);
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/seguimiento-de-clientes", cancellationToken);
     }
 
     /// <summary>

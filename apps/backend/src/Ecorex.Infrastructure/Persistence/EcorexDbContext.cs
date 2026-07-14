@@ -1132,6 +1132,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // para filas preexistentes (el seeder les aplica auto-layout).
             b.Property(x => x.X).HasDefaultValue(0);
             b.Property(x => x.Y).HasDefaultValue(0);
+            // Apariencia del nodo en el graficador (color de paleta + nota post-it). Aditivas, nullable.
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Note).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<WorkflowEdge>(b =>

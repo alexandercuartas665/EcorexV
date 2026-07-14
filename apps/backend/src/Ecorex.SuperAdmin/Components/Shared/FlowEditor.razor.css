@@ -291,6 +291,20 @@
 }
 .fe-input.sm { height: 34px; font-size: 12.5px; background: var(--surface); }
 .fe-input.mono { font-family: monospace; font-size: 12px; }
+textarea.fe-input { height: auto; padding: 8px 12px; line-height: 1.4; resize: vertical; }
+
+/* Color del nodo: fila de swatches (apariencia restaurada del canvas propio). */
+.fe-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
+.fe-swatch {
+    width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--line-2);
+    cursor: pointer; padding: 0; outline: none; transition: transform .1s;
+}
+.fe-swatch:hover { transform: scale(1.08); }
+.fe-swatch.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.fe-swatch-none {
+    background: var(--surface); color: var(--ink-3); font-size: 14px; font-weight: 700;
+    display: grid; place-items: center; line-height: 1;
+}
 .fe-textarea {
     width: 100%; min-height: 110px; padding: 12px 13px;
     border: 1px solid var(--line-2); border-radius: 11px; background: var(--surface-2);

@@ -658,6 +658,38 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    /// <summary>Paleta de colores permitida para el nodo (la conoce el JS del editor). Null = sin color.</summary>
+    private static readonly HashSet<string> NodeColorPalette = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "violet", "blue", "green", "amber", "rose", "slate"
+    };
+
+    public async Task<WorkflowResult<bool>> SetNodeAppearanceAsync(
+        Guid nodeId, string? color, string? note, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Color/nota SI se pueden editar sobre una definicion publicada (son metadatos, como el
+        // formulario/regla por nodo): no cambian la topologia ni el XML. No requieren borrador.
+        var key = string.IsNullOrWhiteSpace(color) ? null : color.Trim().ToLowerInvariant();
+        if (key is not null && !NodeColorPalette.Contains(key))
+        {
+            return WorkflowResult<bool>.Invalid($"Color de nodo no valido: '{color}'.");
+        }
+        var trimmedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (trimmedNote is { Length: > 1000 })
+        {
+            trimmedNote = trimmedNote[..1000];
+        }
+        node.Color = key;
+        node.Note = trimmedNote;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     // ---- Propiedades y ciclo de vida ----
 
     public async Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(
@@ -1283,7 +1315,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Id, n.BpmnElementId, n.Name, n.NodeType, n.X, n.Y, n.W ?? dw, n.H ?? dh,
                 n.AllowsAssignment, n.RestartNodeId,
                 form?.Id, form?.Code, form?.Title,
-                rulesByNode.GetValueOrDefault(n.Id) ?? []);
+                rulesByNode.GetValueOrDefault(n.Id) ?? [],
+                n.Color, n.Note);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

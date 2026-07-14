@@ -519,16 +519,35 @@ else
     {
         try
         {
-            _bpmn ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ecorex-bpmn.js");
+            _bpmn ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ecorex-bpmn.js?v=3");
             _selfRef ??= DotNetObjectReference.Create(this);
             var xml = "";
             await GuardAsync(async () => xml = await DesignSvc.GetBpmnXmlAsync(DefinitionId) ?? "");
             _bpmnReady = await _bpmn.InvokeAsync<bool>("init", CanvasId, _selfRef, xml);
+            await ApplyNodeAppearanceAsync();
         }
         catch (Exception ex)
         {
             _error = $"No se pudo iniciar el editor BPMN: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Repinta el COLOR de los nodos y muestra las NOTAS como post-it en el lienzo. Se llama tras cada
+    /// import (init/re-import) y cuando el usuario cambia el color o la nota de un nodo. Color y nota son
+    /// metadatos de la BD (no viajan en el XML), asi que bpmn-js los pierde al importar y hay que re-aplicar.
+    /// </summary>
+    private async Task ApplyNodeAppearanceAsync()
+    {
+        if (!_bpmnReady || _bpmn is null || _canvas is null) { return; }
+        var colors = _canvas.Nodes.Select(n => new { id = n.BpmnElementId, color = n.Color }).ToList();
+        var notes = _canvas.Nodes.Select(n => new { id = n.BpmnElementId, note = n.Note }).ToList();
+        try
+        {
+            await _bpmn.InvokeVoidAsync("applyNodeColors", CanvasId, colors);
+            await _bpmn.InvokeVoidAsync("applyNodeNotes", CanvasId, notes);
+        }
+        catch (JSException) { /* el editor puede estar re-montandose */ }
     }
 
     // ---- Callbacks desde bpmn-js ----
@@ -688,7 +707,43 @@ else
                    @onchange="@(e => OnAllowsAssignmentChangedAsync(node, e))" />
             Permite asignacion manual del paso
         </label>
+
+        @* Apariencia del nodo (restaurado del canvas propio): color de paleta + nota post-it. Son
+           metadatos (no viajan en el XML), asi que se pueden editar tambien sobre una publicada. *@
+        <div class="fe-field" style="margin-top:10px;">
+            <label>Color del nodo</label>
+            <div class="fe-swatches">
+                <button type="button" class="fe-swatch fe-swatch-none @(string.IsNullOrEmpty(node.Color) ? "on" : "")"
+                        title="Sin color" @onclick="@(() => OnNodeColorAsync(node, null))">&times;</button>
+                @foreach (var key in NodeColorKeys)
+                {
+                    var k = key;
+                    <button type="button" class="fe-swatch @(string.Equals(node.Color, k, StringComparison.OrdinalIgnoreCase) ? "on" : "")"
+                            style="background:@SwatchFill(k);border-color:@SwatchStroke(k)"
+                            title="@k" @onclick="@(() => OnNodeColorAsync(node, k))"></button>
+                }
+            </div>
+        </div>
+        <div class="fe-field">
+            <label>Nota (se muestra en el lienzo)</label>
+            <textarea class="fe-input" rows="3" placeholder="Nota del paso..."
+                      value="@node.Note" @onchange="@(e => OnNodeNoteAsync(node, e.Value?.ToString()))"></textarea>
+        </div>
     };
+
+    // Paleta de colores del nodo (misma que el JS del editor); el valor guardado es la CLAVE.
+    private static readonly string[] NodeColorKeys = { "violet", "blue", "green", "amber", "rose", "slate" };
+    private static readonly Dictionary<string, (string Fill, string Stroke)> SwatchColors = new(StringComparer.Ordinal)
+    {
+        ["violet"] = ("#ede9ff", "#7c5cff"),
+        ["blue"] = ("#e6f0ff", "#2f6bff"),
+        ["green"] = ("#e3f6ec", "#16a34a"),
+        ["amber"] = ("#fdf1d6", "#d98a00"),
+        ["rose"] = ("#fde7ec", "#e11d48"),
+        ["slate"] = ("#eef1f5", "#64748b"),
+    };
+    private static string SwatchFill(string k) => SwatchColors.TryGetValue(k, out var c) ? c.Fill : "transparent";
+    private static string SwatchStroke(string k) => SwatchColors.TryGetValue(k, out var c) ? c.Stroke : "var(--line-2)";
 
     // Acordeon 1: Asignar usuarios (asignacion por nodo REAL, ADR-0035). Dependencias/Cargos
     // del organigrama atienden el paso; el resolver expande a los funcionarios candidatos.
@@ -874,6 +929,7 @@ else
         {
             var xml = await DesignSvc.GetBpmnXmlAsync(DefinitionId) ?? "";
             await _bpmn.InvokeVoidAsync("importXml", CanvasId, xml);
+            await ApplyNodeAppearanceAsync();
         }
     }
 
@@ -896,6 +952,22 @@ else
         var result = await DesignSvc.SetNodeConfigAsync(node.Id, allows, node.RestartNodeId);
         if (!result.IsOk) { _error = result.Error; }
         _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+    }
+
+    private async Task OnNodeColorAsync(FlowCanvasNodeDto node, string? key)
+        => await SetAppearanceAsync(node, key, node.Note);
+
+    private async Task OnNodeNoteAsync(FlowCanvasNodeDto node, string? note)
+        => await SetAppearanceAsync(node, node.Color, note);
+
+    private async Task SetAppearanceAsync(FlowCanvasNodeDto node, string? color, string? note)
+    {
+        _error = null;
+        var result = await DesignSvc.SetNodeAppearanceAsync(node.Id, color, note);
+        if (!result.IsOk) { _error = result.Error; return; }
+        // Refresca el canvas (para que el swatch/nota activos reflejen lo guardado) y repinta el lienzo.
+        _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        await ApplyNodeAppearanceAsync();
     }
 
     private async Task OpenFormPickerAsync()

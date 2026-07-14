@@ -75,6 +75,12 @@ public interface IWorkflowDesignService
     /// <summary>Configuracion basica del nodo: AllowsAssignment + reinicio (reusa SetRestartTargetAsync del motor).</summary>
     Task<WorkflowResult<bool>> SetNodeConfigAsync(Guid nodeId, bool allowsAssignment, Guid? restartNodeId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Apariencia del nodo en el graficador: color de paleta (violet/blue/green/amber/rose/slate o null)
+    /// y nota post-it. Son metadatos del nodo (no viajan en el XML BPMN); no regenera el XML.
+    /// </summary>
+    Task<WorkflowResult<bool>> SetNodeAppearanceAsync(Guid nodeId, string? color, string? note, CancellationToken cancellationToken = default);
+
     // ---- Propiedades y ciclo de vida de la definicion ----
 
     Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(Guid definitionId, string name, string? category, string? description, CancellationToken cancellationToken = default);

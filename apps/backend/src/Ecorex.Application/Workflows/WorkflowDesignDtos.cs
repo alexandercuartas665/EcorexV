@@ -30,7 +30,9 @@ public sealed record FlowCanvasNodeDto(
     Guid Id, string BpmnElementId, string? Name, WorkflowNodeType NodeType,
     int X, int Y, int W, int H, bool AllowsAssignment, Guid? RestartNodeId,
     Guid? FormDefinitionId, string? FormCode, string? FormTitle,
-    IReadOnlyList<FlowNodeRuleDto> Rules);
+    IReadOnlyList<FlowNodeRuleDto> Rules,
+    // Apariencia del nodo en el graficador (color de paleta + nota post-it). Metadatos, no viajan en el XML.
+    string? Color = null, string? Note = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

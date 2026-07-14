@@ -242,7 +242,16 @@ function injectStyle() {
     const css =
         '.djs-palette .entry img, .djs-context-pad .entry img { width: 20px; height: 20px; }' +
         '.djs-palette .entry, .djs-context-pad .entry { display: flex; align-items: center; justify-content: center; }' +
-        '.djs-palette .entry { width: 44px; height: 44px; }';
+        '.djs-palette .entry { width: 44px; height: 44px; }' +
+        // Post-it de la nota del nodo (overlay).
+        // width FIJO (no max-width): el contenedor de overlay de diagram-js nace con ancho ~0 y, sin un
+        // ancho explicito, el texto se parte caracter por caracter (queda vertical).
+        '.ecorex-node-note { width: 168px; box-sizing: border-box; font: 500 11px system-ui, sans-serif;' +
+        ' color: #4b3b00; background: #fff7cc; border: 1px solid #e8d98a; border-radius: 6px; padding: 4px 8px;' +
+        ' box-shadow: 0 1px 3px rgba(0,0,0,.15); white-space: normal; overflow-wrap: break-word;' +
+        ' word-break: normal; line-height: 1.3; position: relative; cursor: default; }' +
+        '.ecorex-node-note-pin { display: inline-block; width: 6px; height: 6px; border-radius: 50%;' +
+        ' background: #d98a00; margin-right: 5px; vertical-align: middle; }';
     const style = document.createElement('style');
     style.id = 'ecorex-bpmn-style';
     style.textContent = css;
@@ -378,6 +387,72 @@ export function zoomFit(containerId) {
     try {
         state.modeler.get('canvas').zoom('fit-viewport', 'auto');
     } catch (err) { /* aun sin diagrama */ }
+}
+
+// ---- Apariencia del nodo: color + nota post-it (restaurado del canvas propio) ---------------
+// El bundle de bpmn-js NO trae soporte de color; se pinta directamente sobre el SVG del elemento.
+// La nota se muestra como overlay (post-it) anclado al nodo. Ambos son METADATOS (viven en la BD,
+// no en el XML): el editor los re-aplica tras cada import.
+const NODE_COLORS = {
+    violet: { fill: '#ede9ff', stroke: '#7c5cff' },
+    blue: { fill: '#e6f0ff', stroke: '#2f6bff' },
+    green: { fill: '#e3f6ec', stroke: '#16a34a' },
+    amber: { fill: '#fdf1d6', stroke: '#d98a00' },
+    rose: { fill: '#fde7ec', stroke: '#e11d48' },
+    slate: { fill: '#eef1f5', stroke: '#64748b' }
+};
+
+// Pinta (o limpia) el color de los nodos. `items` = [{ id, color }]; color null/desconocido = sin color.
+// OJO: bpmn-js pinta el relleno como ESTILO INLINE; quitarlo a secas deja el nodo en el relleno por
+// defecto del SVG (negro). Por eso se GUARDA el relleno/borde original la primera vez que se colorea y se
+// RESTAURA al quitar el color; un nodo que nunca se coloreo no se toca (conserva el aspecto de bpmn-js).
+export function applyNodeColors(containerId, items) {
+    const state = instances.get(containerId);
+    if (!state || !Array.isArray(items)) { return; }
+    state._origColor = state._origColor || {};
+    const registry = state.modeler.get('elementRegistry');
+    items.forEach(function (it) {
+        const gfx = registry.getGraphics(it.id);
+        if (!gfx) { return; }
+        const visual = gfx.querySelector('.djs-visual');
+        const shape = visual && visual.firstElementChild;
+        if (!shape) { return; }
+        const c = it.color && NODE_COLORS[it.color];
+        if (c) {
+            if (state._origColor[it.id] === undefined) {
+                state._origColor[it.id] = { fill: shape.style.fill, stroke: shape.style.stroke };
+            }
+            shape.style.fill = c.fill;
+            shape.style.stroke = c.stroke;
+        } else if (state._origColor[it.id] !== undefined) {
+            // Se quito el color: restaura EXACTAMENTE lo que bpmn-js tenia antes de pintar.
+            shape.style.fill = state._origColor[it.id].fill;
+            shape.style.stroke = state._origColor[it.id].stroke;
+            delete state._origColor[it.id];
+        }
+        // color null y sin original guardado -> no se toca (aspecto por defecto de bpmn-js).
+    });
+}
+
+// Muestra la nota como post-it anclado al nodo. `items` = [{ id, note }]; note vacio = quita el post-it.
+export function applyNodeNotes(containerId, items) {
+    const state = instances.get(containerId);
+    if (!state || !Array.isArray(items)) { return; }
+    let overlays;
+    try { overlays = state.modeler.get('overlays'); } catch (err) { return; }
+    const registry = state.modeler.get('elementRegistry');
+    items.forEach(function (it) {
+        if (!registry.get(it.id)) { return; }
+        try { overlays.remove({ element: it.id, type: 'ecorex-note' }); } catch (err) { /* sin overlay previo */ }
+        const text = (it.note || '').trim();
+        if (!text) { return; }
+        const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        overlays.add(it.id, 'ecorex-note', {
+            position: { bottom: -8, left: 0 },
+            html: '<div class="ecorex-node-note" title="' + safe + '">'
+                + '<span class="ecorex-node-note-pin"></span>' + safe + '</div>'
+        });
+    });
 }
 
 export function isDirty(containerId) {

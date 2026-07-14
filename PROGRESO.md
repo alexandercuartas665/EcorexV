@@ -3915,3 +3915,20 @@ dispara el puente Concepto->Tarea (titulo auto, tablero del concepto, flujo, des
 (Operaciones/Visita tecnica, encargado operator@); la UI muestra "2 ejecutados hoy". Sin cambios de esquema.
 
 **Pendiente (P4)**: canales externos reales (Correo/WhatsApp/Slack; hoy solo in-app) + reintento/dead-letter.
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P4: canales reales + reintento. MODULO COMPLETO
+
+- **BUG DE HONESTIDAD corregido**: la bitacora decia "Ok - Canales configurados: Email, Slack, WhatsApp"
+  cuando solo se habia entregado la notificacion in-app. Ahora se entrega de verdad y se reporta canal por
+  canal; un canal que falla vuelve la ejecucion un Error (antes fingia exito).
+- **Canales** (allow-list tipada por DI, sin reflexion): **Correo REAL** (SMTP) al correo del encargado y
+  **WhatsApp REAL** por las lineas del tenant (el numero del encargado = PhoneNumber de la linea que tiene
+  asignada). **Slack/SMS no tienen integracion**: se retiran de los chips y la bitacora lo dice.
+- **Reintento + dead-letter** (migracion dual aditiva `AddSchedulerRetry`): la ventana conserva su identidad
+  y se reintenta la MISMA con backoff 5/10/15 min; a los 3 intentos -> dead-letter y la regla vuelve a su
+  cadencia. Indice unico ahora incluye el intento (cada intento deja fila, ninguno se duplica).
+- **32/32 tests DUAL verde.** En vivo: la bitacora reporto la verdad y el reintento corrio solo (2 filas
+  Error con el mismo fired_at, backoff 5 -> 10 min).
+
+**MODULO 000889 COMPLETO (P1..P4).** Pendiente de configuracion (no de codigo): SMTP para que el correo
+entregue; linea de WhatsApp asignada al encargado. Slack/SMS requeririan integrarse desde cero.

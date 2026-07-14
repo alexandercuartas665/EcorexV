@@ -29,6 +29,9 @@
 .pa-cell { padding: 12px; min-width: 0; }
 .pa-cell:first-child { padding-left: 16px; }
 .pa-tag { font-size: 9.5px; font-weight: 700; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+/* Chip de ESTADO clickeable (pausar/activar) sin alterar el aspecto del chip del prototipo. */
+.pa-tag-btn { border: none; font: inherit; font-size: 9.5px; font-weight: 700; cursor: pointer; }
+.pa-tag-btn:hover { filter: brightness(.94); }
 .pa-cell-name { min-width: 0; }
 .pa-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pa-sub { font-size: 11px; color: var(--ink-3); }

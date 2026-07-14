@@ -114,13 +114,22 @@ public sealed class ScheduledJobService : IScheduledJobService
         existing.CategoryId = catId;
         existing.SubcategoryId = subId;
         existing.AssigneeTenantUserId = request.AssigneeTenantUserId;
-        // Reemplazo total de reglas y canales (sin referencias externas en P1).
-        _db.ScheduledJobRules.RemoveRange(existing.Rules);
-        _db.ScheduledJobChannels.RemoveRange(existing.Channels);
-        existing.Rules.Clear();
-        existing.Channels.Clear();
-        ApplyRules(existing, request.Rules);
-        ApplyChannels(existing, request.Channels);
+
+        // Reemplazo TOTAL de reglas y canales. Se opera sobre los DbSet y NUNCA sobre las
+        // colecciones de navegacion del padre: vaciar la nav de una relacion con cascada marca los
+        // hijos como HUERFANOS y EF emite un SEGUNDO DELETE sobre filas que RemoveRange ya borro
+        // -> "affected 0 rows" -> DbUpdateConcurrencyException espuria (bug real cazado por los tests).
+        _db.ScheduledJobRules.RemoveRange(existing.Rules.ToList());
+        _db.ScheduledJobChannels.RemoveRange(existing.Channels.ToList());
+        var order = 0;
+        foreach (var r in request.Rules)
+        {
+            _db.ScheduledJobRules.Add(NewRule(existing.Id, r, order++));
+        }
+        foreach (var ch in request.Channels.Distinct())
+        {
+            _db.ScheduledJobChannels.Add(new ScheduledJobChannel { JobId = existing.Id, Channel = ch });
+        }
 
         try
         {
@@ -178,34 +187,38 @@ public sealed class ScheduledJobService : IScheduledJobService
     private static string Lookup(Dictionary<Guid, string> map, Guid? id)
         => id is Guid g && map.TryGetValue(g, out var v) ? v : "";
 
-    private void ApplyRules(ScheduledJob job, IReadOnlyList<ScheduledJobRuleDto> rules)
+    /// <summary>Normaliza una regla del request a la entidad (limpia los campos que no aplican a la frecuencia).</summary>
+    private static ScheduledJobRule NewRule(Guid jobId, ScheduledJobRuleDto r, int sortOrder) => new()
+    {
+        JobId = jobId,
+        SortOrder = sortOrder,
+        Frequency = r.Frequency,
+        IntervalNum = r.IntervalNum < 1 ? 1 : r.IntervalNum,
+        Weekdays = r.Frequency == ScheduledJobFrequency.Weekly ? NullIfEmpty(r.Weekdays) : null,
+        MonthOrdinal = r.Frequency == ScheduledJobFrequency.Monthly ? NullIfEmpty(r.MonthOrdinal) : null,
+        MonthWeekday = r.Frequency == ScheduledJobFrequency.Monthly ? NullIfEmpty(r.MonthWeekday) : null,
+        DayOfMonth = r.Frequency == ScheduledJobFrequency.Monthly ? r.DayOfMonth : null,
+        AtTime = NullIfEmpty(r.AtTime),
+        RepeatIntraday = r.Frequency != ScheduledJobFrequency.Once && r.RepeatIntraday,
+        RepeatEveryHours = r.RepeatIntraday ? r.RepeatEveryHours : null,
+        RepeatFrom = r.RepeatIntraday ? NullIfEmpty(r.RepeatFrom) : null,
+        RepeatTo = r.RepeatIntraday ? NullIfEmpty(r.RepeatTo) : null,
+        ValidFrom = r.ValidFrom,
+        ValidTo = r.ValidTo,
+        Description = NullIfEmpty(r.Description),
+    };
+
+    /// <summary>Solo en CREAR: el padre esta Added, asi que las navs son la via natural del grafo.</summary>
+    private static void ApplyRules(ScheduledJob job, IReadOnlyList<ScheduledJobRuleDto> rules)
     {
         var i = 0;
         foreach (var r in rules)
         {
-            job.Rules.Add(new ScheduledJobRule
-            {
-                JobId = job.Id,
-                SortOrder = i++,
-                Frequency = r.Frequency,
-                IntervalNum = r.IntervalNum < 1 ? 1 : r.IntervalNum,
-                Weekdays = r.Frequency == ScheduledJobFrequency.Weekly ? NullIfEmpty(r.Weekdays) : null,
-                MonthOrdinal = r.Frequency == ScheduledJobFrequency.Monthly ? NullIfEmpty(r.MonthOrdinal) : null,
-                MonthWeekday = r.Frequency == ScheduledJobFrequency.Monthly ? NullIfEmpty(r.MonthWeekday) : null,
-                DayOfMonth = r.Frequency == ScheduledJobFrequency.Monthly ? r.DayOfMonth : null,
-                AtTime = NullIfEmpty(r.AtTime),
-                RepeatIntraday = r.Frequency != ScheduledJobFrequency.Once && r.RepeatIntraday,
-                RepeatEveryHours = r.RepeatIntraday ? r.RepeatEveryHours : null,
-                RepeatFrom = r.RepeatIntraday ? NullIfEmpty(r.RepeatFrom) : null,
-                RepeatTo = r.RepeatIntraday ? NullIfEmpty(r.RepeatTo) : null,
-                ValidFrom = r.ValidFrom,
-                ValidTo = r.ValidTo,
-                Description = NullIfEmpty(r.Description),
-            });
+            job.Rules.Add(NewRule(job.Id, r, i++));
         }
     }
 
-    private void ApplyChannels(ScheduledJob job, IReadOnlyList<ScheduledJobChannelType> channels)
+    private static void ApplyChannels(ScheduledJob job, IReadOnlyList<ScheduledJobChannelType> channels)
     {
         foreach (var ch in channels.Distinct())
         {

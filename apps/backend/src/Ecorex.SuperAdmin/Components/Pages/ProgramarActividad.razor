@@ -62,7 +62,15 @@
                     </div>
                     <div class="pa-cell pa-rule">@row.RuleSummary</div>
                     <div class="pa-cell pa-chan">@(row.Channels.Count == 0 ? "-" : string.Join(" · ", row.Channels))</div>
-                    <div class="pa-cell"><span class="pa-tag" style="@EstadoTagStyle(row.Status)">@EstadoLabel(row.Status)</span></div>
+                    @* El chip de ESTADO alterna Activa/Pausada sin abrir el modal (stopPropagation).
+                       El worker de P2 solo dispara las Activas. *@
+                    <div class="pa-cell">
+                        <button type="button" class="pa-tag pa-tag-btn" style="@EstadoTagStyle(row.Status)"
+                                title="@(row.Status == ScheduledJobStatus.Active ? "Pausar programacion" : "Activar programacion")"
+                                @onclick="@(() => ToggleStatusAsync(row.Id))" @onclick:stopPropagation="true">
+                            @EstadoLabel(row.Status)
+                        </button>
+                    </div>
                     <div class="pa-cell pa-edit">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
                     </div>
@@ -302,6 +310,13 @@
     private async Task ReloadAsync()
     {
         _items = await JobsSvc.ListAsync();
+    }
+
+    /// <summary>Alterna Activa/Pausada desde la fila (el worker de P2 solo dispara las Activas).</summary>
+    private async Task ToggleStatusAsync(Guid id)
+    {
+        await JobsSvc.ToggleStatusAsync(id);
+        await ReloadAsync();
     }
 
     // ---- Modal ----

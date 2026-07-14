@@ -2807,6 +2807,13 @@ public sealed class DatabaseSeeder
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "gen", route: "contenedor-datos",
             name: "Contenedor de datos", legacyCode: "000920", cancellationToken);
+
+        // Alta idempotente del item "Directorio General" (000232, CRM de terceros: crear/editar
+        // empresas, personas y contactos) en la seccion "Negocio" (slug nego). El feature 83100d9 solo
+        // lo dejo en el seed inicial, asi que los tenants ya sembrados nunca lo recibieron -> se repone.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "nego", route: "directorio-general",
+            name: "Directorio General", legacyCode: "000232", cancellationToken);
     }
 
     /// <summary>

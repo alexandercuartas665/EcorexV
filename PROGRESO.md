@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
+
+- **Sintoma (reporte del usuario)**: en la seccion de menu "Negocio" faltaba el modulo para crear terceros.
+- **Causa raiz**: el feature original (commit `83100d9`) agrego "Directorio General" (route `directorio-general`,
+  el CRM de terceros: empresas/personas/contactos, boton "+ Nuevo cliente") SOLO al bloque de seed INICIAL del
+  menu, que corre unicamente para tenants nuevos. Los tenants ya sembrados (demo SKY SYSTEM incluido) nunca lo
+  recibieron -> `SELECT count(*) FROM menu_nodes WHERE route='directorio-general'` daba 0. No fue una regresion
+  de esta sesion; el item nunca se propago a tenants existentes.
+- **Fix**: se agrego una llamada idempotente `EnsureMenuItemInSectionAsync(tenantId, sectionSlug:"nego",
+  route:"directorio-general", name:"Directorio General", legacyCode:"000232")` en el bloque de reconciliacion
+  del `DatabaseSeeder`. Repone el item en la seccion "Negocio" de todos los tenants ya sembrados sin duplicar.
+- **Verificado**: al reiniciar la app el log confirmo "item 'Directorio General' (directorio-general) agregado a
+  1 vista(s)"; en Chrome real, "Negocio" ahora lista 4 items (Creacion de clientes, Seguimiento de clientes,
+  Cargador de contactos, Directorio General) y la pagina `/directorio-general` carga el CRM de terceros.
+- **Siguiente**: acumulado de cambios de menu/conceptos/tableros de esta tanda sigue PENDIENTE de deploy a prod.
+
 ## 2026-07-13 - Sesion (worktree formularios): F6 - permisos por campo (visibilidad por rol)
 
 - **Hecho (F6, doc 01 D8)**: permisos a nivel de campo.

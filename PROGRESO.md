@@ -3840,3 +3840,13 @@ para TODOS los tenants via seeder: se quito del seed estatico (2 vistas) + recon
 RemoveMenuItemByRouteAsync("crear-actividad") y nueva RemoveMenuSubtreeByRouteAsync("sg-comercial").
 (3) La carpeta "Documentos" (con el formulario-modulo /m/FRM-021) se subio a nivel top-level (Section) via
 SQL local -> demo-especifico, no en el seed. Validado en el Chrome del usuario (build verde, seeder OK).
+
+**Conceptos<->Tableros (2026-07-14):** (1) "Actividades" (indice de tableros) retirado de Sistema.General
+(redundante con Mis Procesos > Administrar actividades); seed + reconciliacion scopeada por seccion. (2) Se
+enlazo CADA concepto (subcategoria) a SU tablero via la relacion existente TaskBoardId (1:1): para cada
+concepto sin tablero se creo un tablero dedicado (columnas default Por hacer/En progreso/En revision/
+Completado + code CNC-xxxxxx) y se fijo task_board_id + task_board_column_id (columna "Completado" = cierre).
+Hecho por SQL local (demo). Validado en Chrome: "Compra urgente" ahora abre su tablero + wizard (antes caia
+al indice). PENDIENTE de decision para PERMANENCIA/todos los tenants: (a) auto-crear el tablero al crear/
+guardar un concepto (ActividadCatalogoService), o (b) reconciliacion en el seeder; y opcional "+ Crear
+tablero" en la seccion "Tablero y estado de cierre" de Conceptos.

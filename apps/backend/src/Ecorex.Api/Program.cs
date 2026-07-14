@@ -44,6 +44,11 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddScoped<ITenantContext, HttpContextTenantContext>();
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentAssetReader, Ecorex.Api.Auth.NullAgentAssetReader>();
+// La difusion en vivo de registros de formulario es SignalR y vive en la consola Blazor; este host
+// no tiene hub, asi que se registra el no-op (mismo patron que NoOpTaskBroadcaster). Sin esto el
+// contenedor de DI no puede construir FormResponseService y la API entera no arranca.
+builder.Services.AddSingleton<Ecorex.Application.Tenancy.IFormRecordBroadcaster,
+    Ecorex.Application.Tenancy.NoOpFormRecordBroadcaster>();
 
 JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 builder.Services

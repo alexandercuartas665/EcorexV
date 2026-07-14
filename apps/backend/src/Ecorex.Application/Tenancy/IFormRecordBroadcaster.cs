@@ -10,3 +10,10 @@ public interface IFormRecordBroadcaster
     /// <summary>Un registro se confirmo en el formulario <paramref name="formCode"/> del tenant.</summary>
     Task RecordConfirmedAsync(Guid tenantId, string formCode, string recordNumber, CancellationToken cancellationToken = default);
 }
+
+/// <summary>Implementacion por defecto (no hace nada) para procesos sin SignalR (Api, tests).</summary>
+public sealed class NoOpFormRecordBroadcaster : IFormRecordBroadcaster
+{
+    public Task RecordConfirmedAsync(Guid tenantId, string formCode, string recordNumber, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+}

@@ -1310,6 +1310,11 @@ public sealed class TaskItemService : ITaskItemService
     private static string RenderConceptTemplate(string template, CreateTaskItemRequest request)
     {
         var cliente = (request.RequesterName ?? "").Trim();
-        return template.Replace("@cliente", cliente, StringComparison.OrdinalIgnoreCase);
+        var rendered = template.Replace("@cliente", cliente, StringComparison.OrdinalIgnoreCase);
+
+        // Si el token quedo vacio (p.ej. el arranque form-first no captura el cliente), la plantilla
+        // "Requerimiento infra - @cliente" dejaria un separador colgando: "Requerimiento infra - ".
+        // Se limpia el borde para que el titulo no nazca roto.
+        return cliente.Length == 0 ? rendered.Trim().TrimEnd('-', ':', '|', ',', ' ').TrimEnd() : rendered;
     }
 }

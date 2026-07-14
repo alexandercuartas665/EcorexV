@@ -646,6 +646,10 @@
 @* Mis Procesos (?sub=): el WIZARD grande "Crear actividad" precargado con el concepto (ADR-0038). *@
 <TaskWizard @ref="_wizard" OnCreated="OnWizardCreatedAsync" />
 
+@* Ola B1: si el concepto es FORM-FIRST (IniciaModulo), la actividad arranca por el FORMULARIO,
+   no por el wizard. Si el formulario no sirve, TryOpenAsync devuelve false y se cae al wizard. *@
+<FormFirstStarter @ref="_formFirst" OnCreated="OnWizardCreatedAsync" />
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [Parameter] public Guid BoardId { get; set; }
@@ -746,16 +750,27 @@
     // sin aislamiento EF lanza "second operation on this context".
     private readonly SemaphoreSlim _reloadLock = new(1, 1);
 
-    // Mis Procesos (?sub=): abrir el WIZARD grande "Crear actividad" precargado con el concepto.
+    // Mis Procesos (?sub=): abrir el arranque precargado con el concepto.
     private TaskWizard? _wizard;
+    private FormFirstStarter? _formFirst;
     private bool _openWizardPending;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // El @ref del wizard existe recien tras el primer render; aqui lo abrimos precargado UNA vez.
-        if (_openWizardPending && _wizard is not null && PresetSubcategoriaId is Guid presetSub)
+        // Los @ref existen recien tras el primer render; aqui abrimos el arranque UNA vez.
+        if (_openWizardPending && _wizard is not null && _formFirst is not null
+            && PresetSubcategoriaId is Guid presetSub)
         {
             _openWizardPending = false;
+
+            // Ola B1: los conceptos marcados "Inicia modulo al crear la tarea" arrancan por el
+            // FORMULARIO, no por el wizard de 4 pasos. TryOpenAsync devuelve false si el concepto no
+            // es form-first o si su formulario no es utilizable -> escape hatch al wizard de siempre.
+            if (await _formFirst.TryOpenAsync(presetSub))
+            {
+                return;
+            }
+
             await _wizard.OpenAsync(presetSubcategoriaId: presetSub);
         }
     }

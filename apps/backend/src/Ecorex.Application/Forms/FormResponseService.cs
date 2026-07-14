@@ -86,6 +86,31 @@ public sealed class FormResponseService : IFormResponseService
         return response is null ? null : ToDto(response);
     }
 
+    public async Task<FormResult<FormResponseDto>> SetReferenceAsync(
+        Guid responseId, string reference, CancellationToken cancellationToken = default)
+    {
+        var normalized = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
+        if (normalized is null)
+        {
+            return FormResult<FormResponseDto>.Invalid("La referencia no puede estar vacia.");
+        }
+
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null)
+        {
+            return FormResult<FormResponseDto>.NotFound("Respuesta no encontrada.");
+        }
+
+        // No destructivo: si ya quedo anclada (p.ej. la respuesta del paso del flujo), se respeta.
+        if (string.IsNullOrWhiteSpace(response.Reference))
+        {
+            response.Reference = normalized;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return FormResult<FormResponseDto>.Ok(ToDto(response));
+    }
+
     public async Task<FormResult<FormResponseDto>> SaveAsync(
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
         Guid? submittedByTenantUserId = null, string? approvalResult = null,

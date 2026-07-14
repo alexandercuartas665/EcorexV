@@ -84,7 +84,26 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   creado por el alta no nazca sin menu). Su refactor dejo el arbol sin compilar un rato; se completo
   el cableado que faltaba (`TenantAdminService` ahora exige `IMenuProvisioningService` -> doble
   `NoOpMenuProvisioning` en los tests que no ejercitan el menu).
-- **Siguiente**: Ola B1 (la hoja form-first abre el formulario directo, no el wizard).
+- **Ola B1 - HECHA**: los conceptos form-first (`IniciaModulo` + `FormDefinitionId`) arrancan por el
+  FORMULARIO, no por el wizard. Nuevo `FormFirstStarter.razor`; `ActivityBoardDetail` intenta
+  `TryOpenAsync(sub)` y, si el concepto no es form-first o su formulario no sirve, **cae al wizard**
+  (escape hatch). Nuevo `IFormResponseService.SetReferenceAsync` para anclar una respuesta ya enviada
+  al numero de la tarea (que al diligenciarla aun no existia).
+- **Lo importante de B1 es el ORDEN**: antes el wizard creaba la tarea AL ENTRAR al paso 3 (parche de
+  la Ola 5), asi que un formulario invalido dejaba una **tarea huerfana con su flujo ya arrancado**.
+  Ahora: formulario -> validacion en SERVIDOR -> recien entonces nace la actividad -> se ancla la
+  respuesta.
+- **Bug hallado en la validacion visual y corregido**: con `TituloAuto` = "Requerimiento infra -
+  @cliente" y sin cliente capturado, la tarea nacia titulada "Requerimiento infra - " (separador
+  colgando). `RenderConceptTemplate` limpia el borde cuando el token queda vacio.
+- **Verificado en Chrome real**: el concepto form-first abre FRM-001 **directo** (sin wizard);
+  enviarlo **vacio bloquea y NO crea tarea** (la ultima siguio siendo T00216) -- ese era el punto que
+  fallaba; al llenarlo nace **T00218** con titulo limpio "Requerimiento infra", en el tablero del
+  concepto, y la respuesta queda **Submitted con ref=T00218**. Regresion: 360/360 Application.Tests +
+  64/64 Integration (flujos y formularios, matriz dual).
+- **Pendiente menor anotado**: mapear un campo del formulario al token `@cliente` (hoy no hay
+  convencion que diga QUE campo es el cliente; se limpia el separador para no romper el titulo).
+- **Siguiente**: Ola B2 (limpiar del wizard el parche de crear-tarea-anticipada del paso 3).
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

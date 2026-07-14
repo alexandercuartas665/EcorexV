@@ -18,6 +18,14 @@ public interface IFormResponseService
     Task<FormResponseDto?> GetAsync(Guid responseId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Ancla una respuesta YA ENVIADA a una referencia (el numero de la tarea) cuando esa tarea aun
+    /// no existia al diligenciarla. Lo usa el arranque FORM-FIRST (Ola B1): el usuario llena el
+    /// formulario, el servidor lo valida y SOLO entonces nace la actividad; recien ahi hay numero
+    /// que anclar. Idempotente y no destructivo: si la respuesta ya tiene referencia, no la pisa.
+    /// </summary>
+    Task<FormResult<FormResponseDto>> SetReferenceAsync(Guid responseId, string reference, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Guarda el documento de datos. Con submit=false (autosave) solo persiste; con
     /// submit=true valida TODO por tipo (required, min/max length, pattern, rango numerico,
     /// opcion valida, fecha valida) y devuelve ValidationFailed con errores por fieldCode

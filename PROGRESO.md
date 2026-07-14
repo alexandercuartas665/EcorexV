@@ -4022,3 +4022,22 @@ Resultado verificado: 6 tenants, 0 usuarios sin menu, 70 nodos "Completo" en cad
 implementado por `DatabaseSeeder` y llamado desde `TenantAdminService.CreateAsync` y `OnboardingService`, para
 que NINGUN tenant futuro nazca sin menu, + normalizacion del nombre a MAYUSCULA en el alta. Mientras eso no
 este desplegado, todo tenant creado desde la UI hay que sembrarlo a mano.
+
+**Migracion de usuarios SOLDARCO desde db3dev (2026-07-14, por SQL directo):** se dieron de alta en PRODUCCION
+los usuarios de la sucursal `02` = SOLDARCO del legacy (db3dev, SQL Server, SOLO LECTURA). Origen: tabla
+`USUARIO WHERE SUCURSAL='02'` (30 filas). Reglas de depuracion (mismas del onboarding 2026-07-09 + saltar
+inactivos y filas de prueba): correo = login, clave = `ID_USUARIO` (cedula), rol Owner, vista Completo.
+- **25 creados**, **5 omitidos**: 1 INACTIVO en legacy (Carlos.Rivera, FLAG_INAC=1), 2 de PRUEBA
+  (NUEVO.USUARIO.02, USUARIO.NUEVO.03), 2 correos DUPLICADOS en el lote (Soldarco-empresa y VALLEJO.ALEXANDER;
+  `administracion@` quedo para el activo Saul.Leon y `almacen@` para Rosas.Victor).
+- Hash de clave: PBKDF2-SHA256 formato `v1.100000.{salt}.{key}` reproducido byte a byte con el de
+  `Pbkdf2PasswordHasher` (validado con LOGIN REAL via Chrome MCP: `recepcion@soldarco.com` + cedula ->
+  entro a SOLDARCO con el menu Completo, display_name con acentos correcto).
+- Los 25 quedaron Owner/Active con vista Completo (70 nodos). Cada usuario debe cambiar su clave al primer ingreso.
+- Correos con `@bitcode.com.co` (5) son personal de Bitcode registrado en la sucursal 02; se migraron a SOLDARCO
+  por pertenecer a esa sucursal.
+
+> Igual que el backfill de tenants: hecho por **SQL directo**, SIN traza en `AdminAuditLog` (excepcion
+> autorizada). El mecanismo auditado equivalente es `LegacyOnboardingSeeder` (ECOREX_RUN_ONBOARDING), que hoy
+> solo cubre sucursales '01' y '00136'; si se quiere repetir por la via auditada, extenderlo a '02'.
+> VALLEJO.ALEXANDER (real, comparte `almacen@soldarco.com`) quedo sin cuenta: necesita un correo propio.

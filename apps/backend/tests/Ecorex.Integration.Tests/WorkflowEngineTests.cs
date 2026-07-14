@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -466,7 +467,7 @@ public abstract class WorkflowEngineTestsBase
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine engine)
     {
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender());
+        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
     }
 
     /// <summary>Hook de reglas de prueba: toda Task se resuelve sola (regla autonoma).</summary>

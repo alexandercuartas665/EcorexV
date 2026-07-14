@@ -55,7 +55,36 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   persona distinta: el servicio lee de verdad el BPMN); `Solicitud de compra` (sin flujo) -> sin chip,
   encargado limpio, lista completa (11 usuarios). Regresion: **360/360** Application.Tests + **35/35**
   Domain.Tests.
-- **Siguiente**: Ola A3 (persistir + notificar el asignado del primer paso; revalidar D2 en servidor).
+- **Ola A3 - HECHA**: `TaskItemService.CreateAsync`, dentro de la MISMA transaccion y tras
+  `StartInstanceAsync`: (1) toma el paso actual (IsCurrent/Pending); (2) **revalida D2 en SERVIDOR**
+  -- si el nodo tiene cargo y el encargado no es candidato (`INodeAssigneeResolver`) -> **rollback
+  total** + error tipado (restringir el combo del wizard no basta: un API podria saltarselo);
+  (3) **FIJA** `WorkflowStepHistory.AssignedToTenantUserId` (el paso ya no nace colgando);
+  (4) audita "ruto el primer paso del flujo a {usuario}". `INodeAssigneeResolver` se inyecta como
+  parametro REQUERIDO: una regla de gobierno no debe poder desactivarse en silencio si falla la DI.
+- **Verificado (tests)**: `WorkflowStartServiceTests` sube a 10 casos, **verde en matriz dual
+  (PG 10/10 + SQL Server 10/10)**: el primer paso nace asignado + notificado; encargado fuera del
+  cargo -> Invalid con rollback total (ni tarea, ni instancia, ni pasos); actividad sin flujo sigue
+  aceptando cualquier encargado.
+- **Verificado (CICLO COMPLETO en Chrome real)**: Owner entra por Mis Procesos > Cotizacion de
+  equipos -> wizard con chip "Paso 1 - Requerimiento - Asesor Comercial" y Operator preseleccionado
+  -> crea **T00216** -> en BD: ENROLADA / paso "Requerimiento" / Pending / **asignado a operator**
+  (antes NULL) -> auditoria: creo la tarea -> notifico a operator -> inicio el flujo -> **ruto el
+  primer paso del flujo a operator** -> **login como Operator: T00216 aparece en "Pendientes mios"
+  (27) SIN reclamarla**. Ese claim manual era justo lo que A3 elimina.
+- **BUG PREEXISTENTE ENCONTRADO Y CORREGIDO (no era de estas olas)**: el host **Ecorex.Api no
+  arrancaba** desde el merge de la rama de formularios: `FormResponseService` exige
+  `IFormRecordBroadcaster` y **solo la consola Blazor lo registraba**, asi que el contenedor de DI de
+  la API no se podia construir -> **27 tests de endpoints en rojo** (Auth/Admin/TenantUsers/
+  Onboarding...). Se agrega `NoOpFormRecordBroadcaster` junto a su interfaz (mismo patron que
+  `NoOpTaskBroadcaster`, "para procesos sin SignalR (Api, tests)") y se registra en `Ecorex.Api`.
+  Los 27 tests vuelven a verde.
+- **Nota de coordinacion**: otra sesion estaba refactorizando en PARALELO el mismo working tree
+  (extraer el aprovisionamiento del menu del seeder a `IMenuProvisioningService`, para que un tenant
+  creado por el alta no nazca sin menu). Su refactor dejo el arbol sin compilar un rato; se completo
+  el cableado que faltaba (`TenantAdminService` ahora exige `IMenuProvisioningService` -> doble
+  `NoOpMenuProvisioning` en los tests que no ejercitan el menu).
+- **Siguiente**: Ola B1 (la hoja form-first abre el formulario directo, no el wizard).
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

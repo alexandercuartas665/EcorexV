@@ -1,8 +1,10 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Organization;
+using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
+using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Integration.Tests;
@@ -186,9 +188,129 @@ public abstract class WorkflowStartServiceTestsBase
         }
     }
 
+    // ================== Ola A3: el primer paso NACE ASIGNADO, y D2 se valida en SERVIDOR ==================
+
+    [Fact]
+    public async Task CreateTask_ProcessActivity_FirstStepIsBornAssignedToTheCargoCandidate()
+    {
+        // El corazon de A3: antes, StartInstanceAsync dejaba el primer paso con
+        // AssignedToTenantUserId = null y la asignacion se resolvia perezosamente cuando alguien lo
+        // "reclamaba". Ahora nace ASIGNADO al encargado (que a su vez es candidato del cargo del nodo).
+        var seed = await SeedTenantAsync("A3 Nace Asignado");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+
+        var cargoId = await SeedCargoAsync(ctx, tenantCtx, "Comprador", seed.TenantUserId);
+        var flow = await SeedFlowAsync(ctx, seed.TenantId, published: true, withGateway: false);
+        await AddPolicyAsync(ctx, tenantCtx, flow.FirstTaskNodeId, cargoId);
+        var subId = await SeedConceptoAsync(ctx, seed.TenantId, "Compra", flow.DefinitionId);
+
+        var tasks = BuildTaskService(ctx, tenantCtx);
+        var created = await tasks.CreateAsync(
+            new CreateTaskItemRequest("Compra de equipos", ActivityTypeId: null,
+                AssigneeTenantUserId: seed.TenantUserId, SubcategoriaId: subId),
+            seed.PlatformUserId, "Tester");
+
+        Assert.True(created.IsOk, created.Error);
+        var taskId = created.Value!.Item.Id;
+
+        // La instancia arranco y el primer paso quedo Pending/IsCurrent... Y ASIGNADO.
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == taskId);
+        var step = await ctx.WorkflowStepHistories.AsNoTracking()
+            .SingleAsync(s => s.InstanceId == instance.Id && s.IsCurrent && s.Status == WorkflowStepStatus.Pending);
+
+        Assert.Equal(flow.FirstTaskNodeId, step.NodeId);
+        Assert.Equal(seed.TenantUserId, step.AssignedToTenantUserId); // <-- lo que antes nacia en null
+
+        // Y el encargado quedo notificado al NACER la tarea (no al reclamar el paso).
+        Assert.True(await ctx.Notifications.AsNoTracking()
+            .AnyAsync(n => n.RecipientTenantUserId == seed.TenantUserId
+                && n.Kind == NotificationKind.TaskAssigned
+                && n.RelatedTaskItemId == taskId));
+    }
+
+    [Fact]
+    public async Task CreateTask_AssigneeOutsideTheNodeCargo_IsRejectedByTheServer()
+    {
+        // D2 en SERVIDOR: restringir el combo del wizard no basta, un API podria saltarselo.
+        var seed = await SeedTenantAsync("A3 D2 Servidor");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+
+        // El cargo del nodo lo ocupa el usuario del seed; el "extrano" NO lo ocupa.
+        var cargoId = await SeedCargoAsync(ctx, tenantCtx, "Comprador", seed.TenantUserId);
+        var extranoId = await AddTenantUserAsync(ctx, seed.TenantId, "extrano");
+
+        var flow = await SeedFlowAsync(ctx, seed.TenantId, published: true, withGateway: false);
+        await AddPolicyAsync(ctx, tenantCtx, flow.FirstTaskNodeId, cargoId);
+        var subId = await SeedConceptoAsync(ctx, seed.TenantId, "Compra", flow.DefinitionId);
+
+        var tasks = BuildTaskService(ctx, tenantCtx);
+        var created = await tasks.CreateAsync(
+            new CreateTaskItemRequest("Compra colada", ActivityTypeId: null,
+                AssigneeTenantUserId: extranoId, SubcategoriaId: subId),
+            seed.PlatformUserId, "Tester");
+
+        Assert.Equal(TaskCoreStatus.Invalid, created.Status);
+        Assert.Contains("cargo", created.Error!, StringComparison.OrdinalIgnoreCase);
+
+        // Rollback total: ni tarea, ni instancia, ni pasos (regla del proyecto: todo o nada).
+        Assert.Empty(await ctx.TaskItems.AsNoTracking().ToListAsync());
+        Assert.Empty(await ctx.WorkflowInstances.AsNoTracking().ToListAsync());
+        Assert.Empty(await ctx.WorkflowStepHistories.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateTask_SimpleActivity_KeepsAcceptingAnyAssignee()
+    {
+        // Regresion: una actividad SIN flujo no tiene cargo que dictar nada -> cualquier usuario
+        // del tenant sigue siendo un encargado valido.
+        var seed = await SeedTenantAsync("A3 Sin Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+
+        var extranoId = await AddTenantUserAsync(ctx, seed.TenantId, "cualquiera");
+        var subId = await SeedConceptoAsync(ctx, seed.TenantId, "Nota simple", definitionId: null);
+
+        var tasks = BuildTaskService(ctx, tenantCtx);
+        var created = await tasks.CreateAsync(
+            new CreateTaskItemRequest("Tarea simple", ActivityTypeId: null,
+                AssigneeTenantUserId: extranoId, SubcategoriaId: subId),
+            seed.PlatformUserId, "Tester");
+
+        Assert.True(created.IsOk, created.Error);
+        Assert.Empty(await ctx.WorkflowInstances.AsNoTracking().ToListAsync()); // no hay flujo
+    }
+
     // ---- Helpers ----
 
     private sealed record FlowSeed(Guid DefinitionId, Guid FirstTaskNodeId);
+
+    private static TaskItemService BuildTaskService(EcorexDbContext ctx, ITenantContext tenantCtx)
+        => new(ctx, tenantCtx, new SequenceService(ctx, tenantCtx),
+            new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
+            new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
+
+    /// <summary>Alta de un usuario del tenant (PlatformUser + TenantUser). Devuelve el TenantUserId.</summary>
+    private static async Task<Guid> AddTenantUserAsync(IApplicationDbContext ctx, Guid tenantId, string tag)
+    {
+        var platformUser = new PlatformUser
+        {
+            Email = $"{tag}-{Guid.NewGuid():N}@start.test",
+            EmailVerified = true,
+            Status = PlatformUserStatus.Active
+        };
+        ctx.PlatformUsers.Add(platformUser);
+        var tenantUser = new TenantUser
+        {
+            TenantId = tenantId,
+            PlatformUserId = platformUser.Id,
+            Email = platformUser.Email
+        };
+        ctx.TenantUsers.Add(tenantUser);
+        await ctx.SaveChangesAsync();
+        return tenantUser.Id;
+    }
 
     /// <summary>
     /// Siembra un flujo con nodos y aristas reales (el servicio los lee de esas tablas).

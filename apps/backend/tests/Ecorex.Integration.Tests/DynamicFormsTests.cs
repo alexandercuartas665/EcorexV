@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
@@ -621,7 +622,7 @@ public abstract class DynamicFormsTestsBase
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine engine)
     {
         var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
-        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender());
+        return new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

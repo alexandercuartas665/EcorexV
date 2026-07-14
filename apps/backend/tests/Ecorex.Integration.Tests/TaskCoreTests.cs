@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -473,7 +474,7 @@ public abstract class TaskCoreTestsBase
     private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext, IEmailSender emailSender)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
             new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
-            emailSender);
+            emailSender, new NodeAssigneeResolver(ctx));
 
     private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskAsync(SeedData seed, string title)
     {

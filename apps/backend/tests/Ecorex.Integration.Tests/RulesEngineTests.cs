@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Rules;
 using Ecorex.Application.Rules.Verbs;
@@ -488,7 +489,7 @@ public abstract class RulesEngineTestsBase
         services.AddSingleton<IRuleVerb>(_ => new AsignarConsecutivoVerb(new SequenceService(ctx, tenantContext), ctx));
         services.AddSingleton<IRuleVerb>(_ => new GenerarTareasDesdeTablaVerb(
             new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext),
-                new WorkflowEngine(ctx, tenantContext, new WorkflowRuleHook(engine), new NoOpTaskBroadcaster()), new NoOpEmailSender())));
+                new WorkflowEngine(ctx, tenantContext, new WorkflowRuleHook(engine), new NoOpTaskBroadcaster()), new NoOpEmailSender(), new NodeAssigneeResolver(ctx))));
         services.AddSingleton<IRuleVerb>(_ => new NotificarVerb(ctx));
         var provider = services.BuildServiceProvider();
         engine = new RulesEngine(ctx, tenantContext, provider);

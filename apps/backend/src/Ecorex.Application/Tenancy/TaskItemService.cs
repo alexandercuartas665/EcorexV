@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Notifications;
+using Ecorex.Application.Organization;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -29,10 +30,15 @@ public sealed class TaskItemService : ITaskItemService
     private readonly IWorkflowEngine _workflowEngine;
     private readonly IEmailSender _emailSender;
     private readonly INotificationBroadcaster? _notificationBroadcaster;
+    // Ola A3: expande el cargo del nodo -> usuarios candidatos. Con esto el primer paso del flujo
+    // nace ASIGNADO (no colgando) y se revalida en servidor que el encargado ocupe ese cargo (D2).
+    private readonly INodeAssigneeResolver _nodeAssignees;
 
     public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences,
-        IWorkflowEngine workflowEngine, IEmailSender emailSender, INotificationBroadcaster? notificationBroadcaster = null)
+        IWorkflowEngine workflowEngine, IEmailSender emailSender, INodeAssigneeResolver nodeAssignees,
+        INotificationBroadcaster? notificationBroadcaster = null)
     {
+        _nodeAssignees = nodeAssignees;
         _db = db;
         _tenantContext = tenantContext;
         _sequences = sequences;
@@ -294,6 +300,46 @@ public sealed class TaskItemService : ITaskItemService
                 await transaction.RollbackAsync(cancellationToken);
                 return TaskCoreResult<TaskItemDetailDto>.Invalid(
                     $"No se pudo iniciar el flujo del concepto/tipo de actividad: {started.Error}");
+            }
+
+            // Ola A3: el paso que quedo activo NO debe nacer colgando. Hasta ahora AddStep lo dejaba
+            // sin AssignedToTenantUserId y la asignacion se resolvia perezosamente cuando alguien lo
+            // "reclamaba"; el candidato no se enteraba de nada. Aqui, en la MISMA transaccion:
+            //   1. se revalida en SERVIDOR que el encargado ocupe el cargo del nodo (D2: el flujo
+            //      manda; restringir el combo del wizard no basta, un API podria saltarselo);
+            //   2. se FIJA el asignado del paso;
+            //   3. la notificacion al encargado ya la emitio el bloque de arriba (TaskAssigned).
+            var currentStep = task.WorkflowInstanceId is Guid instanceId
+                ? await _db.WorkflowStepHistories
+                    .Where(s => s.InstanceId == instanceId
+                        && s.IsCurrent
+                        && s.Status == WorkflowStepStatus.Pending)
+                    .OrderBy(s => s.CreatedAt)
+                    .FirstOrDefaultAsync(cancellationToken)
+                : null;
+
+            if (currentStep is not null)
+            {
+                var candidates = await _nodeAssignees.ResolveCandidatesAsync(currentStep.NodeId, cancellationToken);
+                var nodeHasCargo = await _db.WorkflowNodePolicies
+                    .AnyAsync(p => p.WorkflowNodeId == currentStep.NodeId, cancellationToken);
+
+                if (assignee is not null && nodeHasCargo && !candidates.Contains(assignee.Id))
+                {
+                    // El encargado no ocupa el cargo que dicta el flujo para este paso.
+                    await transaction.RollbackAsync(cancellationToken);
+                    return TaskCoreResult<TaskItemDetailDto>.Invalid(
+                        "El encargado debe ocupar el cargo que el flujo asigna al primer paso.");
+                }
+
+                if (assignee is not null)
+                {
+                    currentStep.AssignedToTenantUserId = assignee.Id;
+                    _db.TaskItemActivities.Add(BuildActivity(tenantId, task.Id, actorUserId, actorName,
+                        TaskActivityType.Action,
+                        $"ruto el primer paso del flujo a {assignee.Email}"));
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
             }
         }
 

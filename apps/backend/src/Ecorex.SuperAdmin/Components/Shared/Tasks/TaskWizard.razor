@@ -2,6 +2,7 @@
 @using Ecorex.Application.Actividades
 @using Ecorex.Application.Entidades
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject ITaskItemService TasksSvc
@@ -9,6 +10,7 @@
 @inject IActividadCatalogoService CatalogoSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IProjectService ProjectsSvc
+@inject IWorkflowStartService StartSvc
 @inject ITaskBroadcaster Broadcaster
 
 @* ===== Wizard "Nueva actividad" (Ola 3): 4 pasos, milimetrico al prototipo ECOREX.dc.html =====
@@ -92,11 +94,27 @@
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                                         <div>
-                                            <label style="@LblStyle">Encargado</label>
-                                            <select style="@SelStyle" value="@(_assigneeId?.ToString() ?? "")" @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                                            <label style="@LblStyle">
+                                                Encargado
+                                                @if (PasoLabel is { Length: > 0 } paso)
+                                                {
+                                                    @* El encargado no lo elige el usuario: lo dicta el flujo (D2). *@
+                                                    <span style="margin-left:7px;font-size:10px;font-weight:700;letter-spacing:.02em;padding:2px 7px;border-radius:6px;background:var(--t-violet-bg, rgba(124,92,255,.14));color:var(--t-violet, #7c5cff)">@paso</span>
+                                                }
+                                            </label>
+                                            <select style="@SelStyle" value="@(_assigneeId?.ToString() ?? "")" @onchange="@(e => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)" disabled="@(_encargadoRestringido && !EncargadoOptions.Any())">
                                                 <option value="">Selecciona Encargado</option>
                                                 @foreach (var u in EncargadoOptions) { <option value="@u.Id">@TaskUi.UserLabel(u)</option> }
                                             </select>
+                                            @if (_errors.TryGetValue("assignee", out var asgErr)) { <div style="@ErrStyle">@asgErr</div> }
+                                            else if (_firstStep?.Status == FirstStepStatus.SinCandidatos)
+                                            {
+                                                <div style="@ErrStyle">El cargo "@_firstStep.CargoPrincipal" del primer paso no tiene ocupantes. Asignalo en Dependencias.</div>
+                                            }
+                                            else if (_encargadoRestringido)
+                                            {
+                                                <div style="font-size:11.5px;color:var(--ink-3);margin-top:5px">Lo dicta el flujo: solo el cargo "@_firstStep!.CargoPrincipal" atiende este paso.</div>
+                                            }
                                         </div>
                                         <div>
                                             <label style="@LblStyle">Fecha de entrega</label>
@@ -380,12 +398,38 @@
     private string? _createdTaskNumber;
     private TaskItemDetailDto? _createdDetail;
 
+    // Ola A2: el paso 1 del flujo de la subcategoria (nodo + cargo + candidatos), resuelto por
+    // IWorkflowStartService sin ejecutar el motor. Null si la actividad no es un proceso.
+    private FirstStepDto? _firstStep;
+    // true cuando el combo de Encargado esta acotado al cargo del primer nodo (D2: el flujo manda).
+    private bool _encargadoRestringido;
+
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
     private bool HasForm => SelectedSub?.FormDefinitionId is not null;
     private bool IsFormFirst => SelectedSub is { IniciaModulo: true } s && s.FormDefinitionId is not null;
     private bool FormStepLocked => IsFormFirst && _step == 3 && _createdTaskId is not null;
+
+    // Restringido: SOLO los candidatos del cargo del nodo (aunque la lista quede vacia).
+    // Libre: los cargos del concepto, y si el concepto no acota ningun cargo, todos los usuarios.
     private IEnumerable<TenantUserDto> EncargadoOptions =>
-        _encargadoIds.Count == 0 ? _users : _users.Where(u => _encargadoIds.Contains(u.Id));
+        _encargadoRestringido || _encargadoIds.Count > 0
+            ? _users.Where(u => _encargadoIds.Contains(u.Id))
+            : _users;
+
+    /// <summary>El primer paso del flujo se resolvio: sabemos que cargo lo atiende.</summary>
+    private bool TienePasoResuelto => _firstStep is { Status: FirstStepStatus.Ok or FirstStepStatus.SinCandidatos };
+
+    /// <summary>Etiqueta del paso que dicta el encargado, ej. "Paso 1 - Cotizar - Comprador".</summary>
+    private string? PasoLabel
+    {
+        get
+        {
+            if (!TienePasoResuelto) { return null; }
+            var nodo = string.IsNullOrWhiteSpace(_firstStep!.NodeName) ? "Primer paso" : _firstStep.NodeName;
+            var cargo = _firstStep.CargoPrincipal;
+            return string.IsNullOrWhiteSpace(cargo) ? $"Paso 1 - {nodo}" : $"Paso 1 - {nodo} - {cargo}";
+        }
+    }
 
     private string? SumEmpresa => _entidades.FirstOrDefault(e => e.Id == _entidadId)?.Label;
     private string? SumProceso => _categorias.FirstOrDefault(c => c.Id == _categoriaId)?.Nombre;
@@ -449,6 +493,7 @@
         _presetBoardId = null; _presetColumnId = null;
         _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
+        _firstStep = null; _encargadoRestringido = false;
         _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
     }
 
@@ -501,6 +546,8 @@
         _subcategoriaId = null;
         _assigneeId = null;
         _encargadoIds = Array.Empty<Guid>();
+        _firstStep = null;
+        _encargadoRestringido = false;
         _subcategorias = _categoriaId is Guid catId
             ? (await CatalogoSvc.ListSubcategoriasAsync(catId, includeArchived: false)).ToList()
             : new();
@@ -512,10 +559,52 @@
         await ResolveEncargadoAsync();
     }
 
+    /// <summary>
+    /// Ola A2: de donde sale el ENCARGADO.
+    ///
+    /// - Actividad-PROCESO (la subcategoria tiene flujo): lo DICTA EL FLUJO, no el usuario
+    ///   (decision D2). Se piden los candidatos del cargo del PRIMER NODO del BPMN via
+    ///   IWorkflowStartService (Ola A1) -- NO los cargos del concepto. El combo queda RESTRINGIDO
+    ///   a esos candidatos y, si hay uno solo, se PRESELECCIONA.
+    /// - Actividad simple (sin flujo), o flujo aun no utilizable (borrador / sin nodo Task / sin
+    ///   cargo): se cae al comportamiento de siempre (cargos del concepto). El aviso de "nacera sin
+    ///   proceso" lo pondra la Ola C1.
+    /// </summary>
     private async Task ResolveEncargadoAsync()
     {
-        var cargoIds = SelectedSub?.CargoIds ?? (IReadOnlyList<Guid>)Array.Empty<Guid>();
-        _encargadoIds = await CatalogoSvc.ListEncargadoUserIdsAsync(cargoIds);
+        // Si el encargado actual lo habia DICTADO un flujo, no se arrastra al cambiar de actividad:
+        // no lo eligio el usuario, y en otra actividad (u otro flujo) no tiene por que valer.
+        var veniaDelFlujo = _encargadoRestringido;
+
+        _firstStep = null;
+        _encargadoRestringido = false;
+
+        var sub = SelectedSub;
+        if (sub is null)
+        {
+            _encargadoIds = Array.Empty<Guid>();
+            return;
+        }
+
+        if (sub.WorkflowDefinitionId is not null)
+        {
+            _firstStep = await StartSvc.ResolveFirstStepAsync(sub.Id);
+
+            // Solo cuando el cargo del primer paso se pudo resolver mandamos nosotros el combo.
+            // (SinCandidatos tambien restringe: el cargo existe pero esta vacante -> no hay a quien
+            //  asignar, y ofrecer "cualquier usuario" seria justo lo que D2 prohibe.)
+            if (_firstStep.Status is FirstStepStatus.Ok or FirstStepStatus.SinCandidatos)
+            {
+                _encargadoIds = _firstStep.CandidateUserIds;
+                _encargadoRestringido = true;
+                _assigneeId = _firstStep.TieneCandidatoUnico ? _firstStep.CandidateUserIds[0] : null;
+                return;
+            }
+        }
+
+        if (veniaDelFlujo) { _assigneeId = null; }
+
+        _encargadoIds = await CatalogoSvc.ListEncargadoUserIdsAsync(sub.CargoIds);
         // Si el encargado elegido ya no esta entre las opciones, se limpia.
         if (_assigneeId is Guid a && _encargadoIds.Count > 0 && !_encargadoIds.Contains(a))
         {
@@ -628,6 +717,12 @@
         if (step == 1)
         {
             if (_subcategoriaId is null) { _errors["sub"] = "Selecciona la actividad (concepto)."; }
+            // D2 (el flujo manda): en una actividad-proceso el encargado tiene que ocupar el cargo
+            // del primer nodo. El servidor lo revalida al crear (Ola A3); esto es solo el atajo de UI.
+            if (_encargadoRestringido && _assigneeId is Guid asg && !_encargadoIds.Contains(asg))
+            {
+                _errors["assignee"] = "El encargado debe ocupar el cargo del primer paso del flujo.";
+            }
             var hasAutoTitle = SelectedSub?.TituloAuto is { Length: > 0 };
             if (string.IsNullOrWhiteSpace(_title) && !hasAutoTitle) { _errors["title"] = "El titulo es obligatorio (o elige un concepto con titulo automatico)."; }
             else if (_title.Trim().Length > 200) { _errors["title"] = "El titulo no puede superar 200 caracteres."; }

@@ -39,7 +39,23 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   SQL Server 7/7. Cubre flujo lineal (primer Task "Cotizar" + cargo + candidato unico), **compuerta
   justo despues del startEvent (la atraviesa)**, los 4 estados de config incompleta y el
   **aislamiento cross-tenant**. Solucion completa en verde.
-- **Siguiente**: Ola A2 (el wizard muestra/preselecciona ese encargado, restringido por D2).
+- **Ola A2 - HECHA**: `TaskWizard.razor` consume `IWorkflowStartService`. En una actividad-proceso el
+  combo "Encargado" se llena con los **candidatos del cargo del PRIMER NODO** (ya no con los cargos
+  del concepto), queda **RESTRINGIDO** a ellos (D2: el flujo manda), muestra el chip
+  **"Paso 1 - {nodo} - {cargo}"** + la nota "Lo dicta el flujo...", y **PRESELECCIONA** al candidato
+  cuando hay uno solo. Si el cargo esta vacante, el combo se deshabilita y avisa que hay que
+  ocuparlo en Dependencias. `ValidateStep(1)` rechaza un encargado fuera de los candidatos (atajo de
+  UI; el servidor lo revalidara en A3). Una actividad SIN flujo conserva el comportamiento clasico.
+- **Bug hallado en la validacion visual y corregido**: al cambiar de una actividad-proceso a una
+  actividad simple, el encargado **que habia dictado el flujo** se quedaba pegado (el usuario nunca
+  lo eligio). Ahora se limpia al salir del modo restringido.
+- **Verificado en Chrome real (tenant demo)**: `Cotizacion de equipos` -> chip "Paso 1 - Requerimiento
+  - Asesor Comercial", 1 sola opcion, preseleccionado **Operator**; `Compra urgente` -> chip "Paso 1 -
+  Aprobacion jefe de compras - Aprobador", 1 sola opcion, preseleccionado **Admin** (cargo distinto ->
+  persona distinta: el servicio lee de verdad el BPMN); `Solicitud de compra` (sin flujo) -> sin chip,
+  encargado limpio, lista completa (11 usuarios). Regresion: **360/360** Application.Tests + **35/35**
+  Domain.Tests.
+- **Siguiente**: Ola A3 (persistir + notificar el asignado del primer paso; revalidar D2 en servidor).
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

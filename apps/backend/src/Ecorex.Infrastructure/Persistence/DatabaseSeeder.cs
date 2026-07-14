@@ -2744,6 +2744,9 @@ public sealed class DatabaseSeeder
         {
             ("000073", "admin-usuarios", "Administracion de usuarios"),
             ("000194", "configuracion-menu", "Administrador de Menu"),
+            // Motor de programaciones (P1): el nodo existia como stub "modulo/programar-actividad".
+            // Los tenants YA sembrados (prod) se corrigen aqui al arrancar -> pagina real + Ready.
+            ("000889", "programar-actividad", "Programar actividad"),
         };
 
         var codes = expected.Select(e => e.LegacyCode).ToArray();

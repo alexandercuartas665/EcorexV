@@ -3866,3 +3866,19 @@ Actividad (Operaciones/Visita tecnica, Mensual primer Lunes) -> PAC-000002; edit
 visible para Owner (filtrado por permisos para roles sin acceso, por diseno). Solucion completa en verde.
 
 **Siguiente**: P2 (motor de recurrencia + worker + bitacora + KPIs). Commit: rama `tareasprogramadas`.
+
+### Cierre de P1 (000889) - pausar/activar + tests duales + bug de edicion
+
+Antes de arrancar P2 se cerraron los pendientes de P1:
+- **Pausar/activar** desde la fila (chip de ESTADO como boton). Sin esto no habia forma de pausar, y el
+  worker de P2 (que solo dispara las Activas) no seria verificable.
+- **Nodo de menu en PROD**: 000889 agregado a `expected` de `ReconcileMenuNodesAsync` -> los tenants ya
+  sembrados se auto-corrigen al arrancar (antes el modulo habria quedado inalcanzable desde el menu en prod).
+- **BUG REAL cazado por los tests** (la prueba manual no lo vio porque nunca se llego a GUARDAR una
+  edicion): al editar se hacia RemoveRange(hijos) + vaciar las navs del padre; con relacion en CASCADA eso
+  marca huerfanos y EF emite un SEGUNDO DELETE sobre filas ya borradas -> DbUpdateConcurrencyException
+  espuria -> **ninguna edicion se podia guardar**. Arreglado (reemplazo total via DbSet, sin tocar navs).
+- **Tests de integracion DUALES** (PG + SQL Server): 10/10 verde, incluido el BLOQUEANTE de aislamiento
+  cross-tenant y el consecutivo PAC por tenant.
+
+**P1 CERRADA.** Siguiente: P2 (motor de recurrencia + worker + bitacora + KPIs).

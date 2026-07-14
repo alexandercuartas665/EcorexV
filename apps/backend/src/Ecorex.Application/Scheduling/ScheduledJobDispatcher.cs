@@ -1,5 +1,6 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Notifications;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -38,15 +39,18 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly INotificationService _notifications;
+    private readonly ITaskItemService _tasks;
     private readonly ILogger<ScheduledJobDispatcher> _logger;
 
     public ScheduledJobDispatcher(
         IApplicationDbContext db, ITenantContext tenantContext,
-        INotificationService notifications, ILogger<ScheduledJobDispatcher> logger)
+        INotificationService notifications, ITaskItemService tasks,
+        ILogger<ScheduledJobDispatcher> logger)
     {
         _db = db;
         _tenantContext = tenantContext;
         _notifications = notifications;
+        _tasks = tasks;
         _logger = logger;
     }
 
@@ -207,14 +211,59 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
                     $"Notificacion in-app entregada. Canales configurados: {channelList}.", null);
 
             case ScheduledJobType.Activity:
-                // La creacion de la ACTIVIDAD (== TaskItem, la misma del wizard de 4 pasos) reutiliza
-                // ITaskItemService.CreateAsync con el SubcategoriaId del concepto: se construye en la ola P3.
-                return (ScheduledJobRunResult.Skipped,
-                    "Tipo Actividad: la creacion de la tarea desde el concepto llega en la ola P3.", null);
+                return await CreateActivityAsync(job, cancellationToken);
 
             default:
                 return (ScheduledJobRunResult.Skipped, $"Tipo no soportado: {job.Type}.", null);
         }
+    }
+
+    /// <summary>
+    /// Crea la ACTIVIDAD (ola P3). "Tarea" y "actividad" son LA MISMA entidad (TaskItem): la que produce
+    /// el wizard de 4 pasos. Por eso aqui NO se duplica nada: se llama al MISMO
+    /// <see cref="ITaskItemService.CreateAsync"/> pasando el <c>SubcategoriaId</c> del concepto, que es
+    /// quien dispara el puente Concepto->Tarea dentro del servicio (titulo automatico, tablero del
+    /// concepto, arranque del flujo y aviso a los destinatarios del concepto).
+    /// </summary>
+    private async Task<(ScheduledJobRunResult Result, string? Detail, string? CreatedRef)> CreateActivityAsync(
+        ScheduledJob job, CancellationToken cancellationToken)
+    {
+        if (job.SubcategoryId is not Guid subcategoriaId)
+        {
+            return (ScheduledJobRunResult.Error,
+                "La programacion es de tipo Actividad pero no tiene concepto (sub-categoria) configurado.", null);
+        }
+
+        // Titulo: manda el TituloAuto del concepto (soporta tokens tipo @cliente). Si el concepto no lo
+        // define, TaskItemService rechazaria la tarea sin titulo -> se cae al nombre de la programacion.
+        var tituloAuto = await _db.ActividadSubcategorias
+            .Where(s => s.Id == subcategoriaId)
+            .Select(s => s.TituloAuto)
+            .FirstOrDefaultAsync(cancellationToken);
+        var title = string.IsNullOrWhiteSpace(tituloAuto) ? job.Name : "";
+
+        var request = new CreateTaskItemRequest(
+            Title: title,
+            ActivityTypeId: null,
+            SubcategoriaId: subcategoriaId,              // el CONCEPTO: puente Concepto -> Tarea
+            AssigneeTenantUserId: job.AssigneeTenantUserId, // encargado OPCIONAL (null -> nace Pendiente)
+            EntidadId: job.AreaEntityId);
+
+        // Actor: quien configuro la programacion (si se conoce); el nombre deja rastro de que fue el motor.
+        var actor = job.CreatedBy ?? Guid.Empty;
+        var result = await _tasks.CreateAsync(
+            request, actor, $"Motor de programaciones ({job.Code})", cancellationToken);
+
+        if (!result.IsOk || result.Value is null)
+        {
+            return (ScheduledJobRunResult.Error,
+                Truncate($"No se pudo crear la actividad: {result.Error}", 600), null);
+        }
+
+        var task = result.Value.Item;
+        return (ScheduledJobRunResult.Ok,
+            $"Actividad creada: {task.Number} - {task.Title}.",
+            task.Number);
     }
 
     private static string Truncate(string value, int max)

@@ -2,8 +2,10 @@ using Ecorex.Application.Common;
 using Ecorex.Application.Notifications;
 using Ecorex.Application.Scheduling;
 using Ecorex.Application.Tenancy;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
+using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -87,22 +89,72 @@ public abstract class ScheduledJobDispatcherTestsBase
         Assert.Single(await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
     }
 
+    /// <summary>
+    /// Ola P3: el tipo Actividad CREA la tarea (TaskItem, la misma del wizard de 4 pasos) consumiendo el
+    /// concepto. No se duplica logica: se llama al mismo ITaskItemService.CreateAsync.
+    /// </summary>
     [Fact]
-    public async Task ActivityType_IsSkipped_UntilP3()
+    public async Task ActivityType_CreatesTheTaskFromTheConcept_WithAssignee_AndLogsItsNumber()
     {
         var tenantId = await SeedTenantAsync("Actividad P3");
+        var assigneeId = await SeedTenantUserAsync(tenantId, "encargado@actividad.local");
+        var subcategoriaId = await SeedConceptAsync(tenantId, tituloAuto: null);
         var window = DateTimeOffset.UtcNow.AddMinutes(-5);
         var (jobId, _) = await SeedJobAsync(tenantId, ScheduledJobType.Activity,
-            ScheduledJobStatus.Active, window, assigneeId: null);
+            ScheduledJobStatus.Active, window, assigneeId, subcategoriaId);
 
-        var notifications = new FakeNotifications();
-        Assert.Equal(1, await RunDueAsync(tenantId, DateTimeOffset.UtcNow, notifications));
+        Assert.Equal(1, await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications()));
 
         await using var ctx = _fixture.CreateContext(tenantId);
+
+        // Se creo UNA tarea, con el concepto y el encargado de la programacion.
+        var task = Assert.Single(await ctx.TaskItems.ToListAsync());
+        Assert.Equal(subcategoriaId, task.SubcategoriaId);
+        Assert.Equal(assigneeId, task.AssigneeTenantUserId);
+        // Sin TituloAuto en el concepto, el titulo cae al nombre de la programacion.
+        Assert.Equal("Programacion Activity", task.Title);
+
+        // La bitacora deja el numero de la tarea creada (trazabilidad).
         var run = Assert.Single(await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
-        Assert.Equal(ScheduledJobRunResult.Skipped, run.Result);
-        Assert.Contains("P3", run.Detail);
-        Assert.Empty(notifications.Sent); // no es una notificacion
+        Assert.Equal(ScheduledJobRunResult.Ok, run.Result);
+        Assert.Equal(task.Number, run.CreatedEntityRef);
+        Assert.Contains(task.Number, run.Detail);
+    }
+
+    [Fact]
+    public async Task ActivityType_UsesTheConceptsTituloAuto_WhenItDefinesOne()
+    {
+        var tenantId = await SeedTenantAsync("Actividad TituloAuto");
+        var subcategoriaId = await SeedConceptAsync(tenantId, tituloAuto: "Visita preventiva del mes");
+        var window = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await SeedJobAsync(tenantId, ScheduledJobType.Activity,
+            ScheduledJobStatus.Active, window, assigneeId: null, subcategoriaId: subcategoriaId);
+
+        Assert.Equal(1, await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications()));
+
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var task = Assert.Single(await ctx.TaskItems.ToListAsync());
+        // Manda el TituloAuto del concepto, no el nombre de la programacion.
+        Assert.Equal("Visita preventiva del mes", task.Title);
+        // Sin encargado, la actividad nace SIN ASIGNAR (Pendiente): comportamiento por defecto de TaskItemService.
+        Assert.Null(task.AssigneeTenantUserId);
+        Assert.Equal(TaskItemStatus.Pending, task.Status);
+    }
+
+    [Fact]
+    public async Task ActivityType_WithoutConcept_IsRecordedAsError()
+    {
+        var tenantId = await SeedTenantAsync("Actividad sin concepto");
+        var window = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var (jobId, _) = await SeedJobAsync(tenantId, ScheduledJobType.Activity,
+            ScheduledJobStatus.Active, window, assigneeId: null, subcategoriaId: null);
+
+        Assert.Equal(1, await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications()));
+
+        await using var ctx = _fixture.CreateContext(tenantId);
+        Assert.Empty(await ctx.TaskItems.ToListAsync());
+        var run = Assert.Single(await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
+        Assert.Equal(ScheduledJobRunResult.Error, run.Result);
     }
 
     [Fact]
@@ -144,28 +196,53 @@ public abstract class ScheduledJobDispatcherTestsBase
 
     // ---- Helpers ----
 
+    /// <summary>Dispatcher con el servicio de TAREAS real: el tipo Actividad crea una TaskItem de verdad (P3).</summary>
+    private static ScheduledJobDispatcher BuildDispatcher(
+        EcorexDbContext ctx, ITenantContext tenant, INotificationService notifications)
+        => new(ctx, tenant, notifications,
+            new TaskItemService(ctx, tenant, new SequenceService(ctx, tenant),
+                new WorkflowEngine(ctx, tenant, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
+                new NoOpEmailSender()),
+            NullLogger<ScheduledJobDispatcher>.Instance);
+
     private async Task<int> RunDueAsync(Guid tenantId, DateTimeOffset nowUtc, FakeNotifications notifications)
     {
         await using var ctx = _fixture.CreateContext(tenantId);
-        var dispatcher = new ScheduledJobDispatcher(
-            ctx, new TestTenantContext(tenantId), notifications,
-            NullLogger<ScheduledJobDispatcher>.Instance);
+        var dispatcher = BuildDispatcher(ctx, new TestTenantContext(tenantId), notifications);
         return await dispatcher.RunDueForTenantAsync(nowUtc);
     }
 
     private async Task<IReadOnlyList<Guid>> FindDueTenantsAsync(Guid anyTenantId, DateTimeOffset nowUtc)
     {
         await using var ctx = _fixture.CreateContext(anyTenantId);
-        var dispatcher = new ScheduledJobDispatcher(
-            ctx, new TestTenantContext(anyTenantId), new FakeNotifications(),
-            NullLogger<ScheduledJobDispatcher>.Instance);
+        var dispatcher = BuildDispatcher(ctx, new TestTenantContext(anyTenantId), new FakeNotifications());
         return await dispatcher.FindTenantsWithDueRulesAsync(nowUtc);
+    }
+
+    /// <summary>Siembra el concepto (categoria -> subcategoria) que disparara el tipo Actividad.</summary>
+    private async Task<Guid> SeedConceptAsync(Guid tenantId, string? tituloAuto)
+    {
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var categoria = new ActividadCategoria { TenantId = tenantId, Codigo = "CAT-OPS", Nombre = "Operaciones" };
+        ctx.ActividadCategorias.Add(categoria);
+        await ctx.SaveChangesAsync();
+        var sub = new ActividadSubcategoria
+        {
+            TenantId = tenantId,
+            CategoriaId = categoria.Id,
+            Codigo = "CAT-OPS-01",
+            Nombre = "Visita tecnica",
+            TituloAuto = tituloAuto,
+        };
+        ctx.ActividadSubcategorias.Add(sub);
+        await ctx.SaveChangesAsync();
+        return sub.Id;
     }
 
     /// <summary>Siembra una programacion con UNA regla diaria cuya ventana (NextRunAt) se fija a mano.</summary>
     private async Task<(Guid JobId, Guid RuleId)> SeedJobAsync(
         Guid tenantId, ScheduledJobType type, ScheduledJobStatus status,
-        DateTimeOffset? nextRunAt, Guid? assigneeId)
+        DateTimeOffset? nextRunAt, Guid? assigneeId, Guid? subcategoriaId = null)
     {
         await using var ctx = _fixture.CreateContext(tenantId);
         var job = new ScheduledJob
@@ -176,6 +253,7 @@ public abstract class ScheduledJobDispatcherTestsBase
             Type = type,
             Status = status,
             AssigneeTenantUserId = assigneeId,
+            SubcategoryId = subcategoriaId,
         };
         job.Rules.Add(new ScheduledJobRule
         {

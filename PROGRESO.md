@@ -3899,3 +3899,19 @@ Antes de arrancar P2 se cerraron los pendientes de P1:
   y reprogramo a las 08:00 de Bogota.
 
 **Siguiente**: P3 (tipo Actividad crea la TaskItem via ITaskItemService.CreateAsync con el SubcategoriaId).
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P3: crea la ACTIVIDAD real
+
+Aplica la regla de dominio **tarea == actividad == TaskItem** (la misma del wizard de 4 pasos): el motor NO
+duplica logica, llama al MISMO `ITaskItemService.CreateAsync` con el `SubcategoriaId` del concepto, que
+dispara el puente Concepto->Tarea (titulo auto, tablero del concepto, flujo, destinatarios).
+
+- Titulo: manda el TituloAuto del concepto; si no lo define, cae al nombre de la programacion.
+- Encargado opcional -> AssigneeTenantUserId (vacio = nace Pendiente/sin asignar).
+- Trazabilidad: el numero de la tarea queda en `scheduled_job_runs.created_entity_ref`.
+- Sin concepto -> Error en la bitacora (no revienta el motor).
+
+**26/26 tests DUAL verde.** En vivo: ventana vencida de PAC-000003 -> el worker creo la tarea REAL **T00215**
+(Operaciones/Visita tecnica, encargado operator@); la UI muestra "2 ejecutados hoy". Sin cambios de esquema.
+
+**Pendiente (P4)**: canales externos reales (Correo/WhatsApp/Slack; hoy solo in-app) + reintento/dead-letter.

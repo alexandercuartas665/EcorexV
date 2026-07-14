@@ -3816,3 +3816,11 @@ GPS y notas OK. El boton "Imprimir" aparece en la vista previa apuntando a `/for
 **Diferido (decision del usuario, no construido)**: botones con reglas de accion + integraciones
 (Siigo/WhatsApp/correo), PDF con plantilla de servidor + object storage, captura real de codigo de
 barras/audio, y refinamientos menores (KPIs configurables, policies tipadas Form.{code}.*, etc.).
+
+**Ajuste (2026-07-13): "solo el wizard" en el tablero.** Los 3 botones de crear del tablero (+Actividad,
++Anadir actividad por columna, celda de calendario) ahora abren el WIZARD grande (4 pasos), NO el modal
+rapido. `TaskWizard.OpenAsync` gana `presetBoardId`/`presetColumnId` y los pasa al `CreateTaskItemRequest`
+(BoardId/ColumnId) para que la actividad caiga EN ese tablero (`CreateAsync` respeta `request.BoardId`).
+El modal rapido (`ab-quick-modal`, `OpenQuickCreate`) queda SIN USO -> limpieza pendiente. Ademas se
+integro el merge de Formularios avanzados (7 migraciones) y la solucion compila unida (0 errores).
+Validado en el Chrome del usuario: +Actividad abre el wizard, el modal pequeno no aparece.

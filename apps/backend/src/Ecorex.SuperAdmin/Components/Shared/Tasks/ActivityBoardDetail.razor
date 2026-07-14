@@ -160,7 +160,7 @@
                         <span class="ab-filter-badge">@FilterCount</span>
                     }
                 </button>
-                <button class="ab-btn-task" @onclick="@(() => OpenQuickCreate(null))">
+                <button class="ab-btn-task" @onclick="@(() => OpenWizardOnBoardAsync())">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     Actividad
                 </button>
@@ -292,7 +292,7 @@
                                 </div>
                             </div>
                         }
-                        <button class="ab-addtask" @onclick="@(() => OpenQuickCreate(column.Id))">
+                        <button class="ab-addtask" @onclick="@(() => OpenWizardOnBoardAsync(column.Id))">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                             Anadir actividad
                         </button>
@@ -373,7 +373,7 @@
                         else
                         {
                             var cellDate = cell.Date;
-                            <div class="ab-cal-cell @(cell.IsToday ? "today" : "")" @onclick="@(() => OpenQuickCreate(null, cellDate))">
+                            <div class="ab-cal-cell @(cell.IsToday ? "today" : "")" @onclick="@(() => OpenWizardOnBoardAsync())">
                                 <span class="ab-cal-num @(cell.IsToday ? "today" : "")">@cell.Date.Day</span>
                                 @foreach (var (colIdx, card) in cell.Chips.Take(3))
                                 {
@@ -763,6 +763,14 @@
     /// <summary>El wizard creo la actividad: refrescar el tablero para que aparezca la tarjeta.</summary>
     private async Task OnWizardCreatedAsync(TaskItemDetailDto _)
         => await ReloadAsync();
+
+    /// <summary>Crear actividad desde el tablero: SIEMPRE el WIZARD grande (4 pasos), con este tablero y
+    /// columna preseleccionados para que la actividad caiga aqui. Reemplaza al modal rapido.</summary>
+    private async Task OpenWizardOnBoardAsync(Guid? columnId = null)
+    {
+        if (_wizard is null) { return; }
+        await _wizard.OpenAsync(presetBoardId: BoardId, presetColumnId: columnId);
+    }
 
     protected override async Task OnParametersSetAsync()
     {

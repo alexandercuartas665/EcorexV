@@ -367,6 +367,8 @@
     private string _ccInput = "";
     private Guid? _projectId;
     private Guid? _presetProjectId;
+    private Guid? _presetBoardId;
+    private Guid? _presetColumnId;
     // Proyectos P3: hito del proyecto elegido (se cargan al elegir proyecto).
     private Guid? _milestoneId;
     private List<ProjectMilestoneDto> _milestones = new();
@@ -396,12 +398,16 @@
     /// concepto (menu Mis Procesos -&gt; categoria/subcategoria) y/o entidad.
     /// </summary>
     public async Task OpenAsync(Guid? presetProjectId = null, Guid? presetSubcategoriaId = null,
-        Guid? presetCategoriaId = null, Guid? presetEntidadId = null)
+        Guid? presetCategoriaId = null, Guid? presetEntidadId = null,
+        Guid? presetBoardId = null, Guid? presetColumnId = null)
     {
         ResetAll();
         _presetProjectId = presetProjectId;
         _projectId = presetProjectId;
         _entidadId = presetEntidadId;
+        // Al crear desde un tablero, la actividad debe caer EN ese tablero/columna (no solo por concepto).
+        _presetBoardId = presetBoardId;
+        _presetColumnId = presetColumnId;
 
         _entidades = (await EntidadSvc.ListOptionsAsync()).ToList();
         _categorias = (await CatalogoSvc.ListCategoriasAsync(includeArchived: false)).ToList();
@@ -440,6 +446,7 @@
         _tags.Clear(); _tagInput = "";
         _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
         _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
+        _presetBoardId = null; _presetColumnId = null;
         _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
         _createdTaskId = null; _createdTaskNumber = null; _createdDetail = null;
@@ -589,7 +596,9 @@
             TagIds: tagIds.Count == 0 ? null : tagIds,
             SubcategoriaId: _subcategoriaId,
             EntidadId: _entidadId,
-            MilestoneId: _milestoneId);
+            MilestoneId: _milestoneId,
+            BoardId: _presetBoardId,
+            ColumnId: _presetColumnId);
 
         var result = await TasksSvc.CreateAsync(request, actor, actorName);
         if (result.IsOk && await TenantIdAsync() is Guid tenantId)

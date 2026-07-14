@@ -3840,3 +3840,29 @@ para TODOS los tenants via seeder: se quito del seed estatico (2 vistas) + recon
 RemoveMenuItemByRouteAsync("crear-actividad") y nueva RemoveMenuSubtreeByRouteAsync("sg-comercial").
 (3) La carpeta "Documentos" (con el formulario-modulo /m/FRM-021) se subio a nivel top-level (Section) via
 SQL local -> demo-especifico, no en el seed. Validado en el Chrome del usuario (build verde, seeder OK).
+
+---
+
+## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562`, rama nueva `tareasprogramadas` (basada en el
+main con Formularios ya integrado). **Modo**: agent codea todo incl. migracion dual, valida en la BD local
+`ecorex_forms`, documenta el esquema en el vault para la sesion principal; **sin deploy a prod** hasta orden.
+
+Modulo NUEVO desde cero, fiel al prototipo (pantalla `isProgramar`, ECOREX.dc.html). **Ola P1 HECHA**:
+- **Dominio** (4 entidades tenant-scoped + 6 enums texto): `ScheduledJob` (cabecera, consecutivo PAC,
+  concurrencia optimista) + `ScheduledJobRule` (recurrencia 1:N) + `ScheduledJobChannel` (N) +
+  `ScheduledJobRun` (bitacora, la llena P2).
+- **Migracion DUAL** `AddScheduledJobs` (PG + SQL Server), 4 tablas nuevas, aplicada SOLO a `ecorex_forms`.
+  Registro de esquema para prod en el vault (doc del modulo, seccion "Esquema para PROD").
+- **Servicio** `ScheduledJobService` (EF parametrizado, sin el SQL concatenado del legacy): List/Get/Save
+  (crear-actualizar con reglas+canales, PAC via ISequenceService)/ToggleStatus/Delete + catalogo Conceptos.
+- **UI** `/programar-actividad` (`ProgramarActividad.razor` + `.razor.css`): lista + modal "Nueva
+  programacion" (tabs Notificacion/Actividad, nombre, categoria/subcat, N reglas, canales). ASCII en texto,
+  milimetrico en layout/tokens. Nodo de menu 000889 corregido a la pagina real (antes stub modulo/...).
+
+**Verificado E2E en Chrome** (`ecorex_forms`): Notificacion (Semanal Lun/Mie, Correo+WhatsApp) -> PAC-000001;
+Actividad (Operaciones/Visita tecnica, Mensual primer Lunes) -> PAC-000002; editar recarga; enlace de menu
+visible para Owner (filtrado por permisos para roles sin acceso, por diseno). Solucion completa en verde.
+
+**Siguiente**: P2 (motor de recurrencia + worker + bitacora + KPIs). Commit: rama `tareasprogramadas`.

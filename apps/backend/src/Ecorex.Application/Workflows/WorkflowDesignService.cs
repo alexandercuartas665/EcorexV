@@ -1184,7 +1184,10 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             .Where(e => e.DefinitionId == definition.Id)
             .OrderBy(e => e.CreatedAt).ThenBy(e => e.BpmnElementId, StringComparer.Ordinal)
             .ToList();
-        definition.BpmnXml = WriteXml(definition.ProcessCode, nodes, edges);
+        // MERGE, no reescritura: se sincroniza SOLO el grafo del motor dentro del XML existente. Antes esto
+        // regeneraba el documento entero y borraba todo lo que el motor no modela (objeto de datos, almacen,
+        // grupo, subproceso, pool, anotaciones...), que el graficador ahora ofrece para DOCUMENTAR.
+        definition.BpmnXml = MergeXml(definition.BpmnXml, definition.ProcessCode, nodes, edges);
     }
 
     /// <summary>
@@ -1193,6 +1196,27 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
     /// definiciones anteriores al layout).
     /// </summary>
     public static string WriteXml(string processCode, IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
+    {
+        var (writerNodes, writerEdges) = ToWriterGraph(nodes, edges);
+        return BpmnXmlWriter.Write(processCode, writerNodes, writerEdges);
+    }
+
+    /// <summary>
+    /// Sincroniza el grafo del motor DENTRO del XML existente en vez de regenerarlo: preserva las figuras
+    /// que el motor no modela (objeto de datos, almacen, grupo, subproceso, pool, anotaciones), que el
+    /// graficador ofrece para DOCUMENTAR el proceso. Cae a <see cref="WriteXml"/> si no hay XML utilizable.
+    /// </summary>
+    public static string MergeXml(
+        string? existingXml, string processCode,
+        IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
+    {
+        var (writerNodes, writerEdges) = ToWriterGraph(nodes, edges);
+        return BpmnXmlMerger.Merge(existingXml, processCode, writerNodes, writerEdges);
+    }
+
+    /// <summary>Convierte el grafo materializado (entidades) al modelo del serializador BPMN.</summary>
+    private static (List<BpmnWriterNode> Nodes, List<BpmnWriterEdge> Edges) ToWriterGraph(
+        IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
     {
         var byId = nodes.ToDictionary(n => n.Id);
         var used = new HashSet<string>(StringComparer.Ordinal);
@@ -1218,7 +1242,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 edge.BpmnElementId, byId[edge.SourceNodeId].BpmnElementId,
                 byId[edge.TargetNodeId].BpmnElementId, edge.Name, edge.ConditionExpression));
         }
-        return BpmnXmlWriter.Write(processCode, writerNodes, writerEdges);
+        return (writerNodes, writerEdges);
     }
 
     private async Task<FlowCanvasDto?> BuildCanvasAsync(WorkflowDefinition definition, CancellationToken cancellationToken)

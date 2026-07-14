@@ -35,7 +35,16 @@ const ICONS = {
     connect: svgIcon('<path d="M4 12h13"/><path d="M13 7l5 5-5 5"/>'),
     trash: svgIcon('<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>'),
     hand: svgIcon('<path d="M8 11V7a1.6 1.6 0 0 1 3.2 0M11.2 8V5.5a1.6 1.6 0 0 1 3.2 0V8M14.4 7.5a1.6 1.6 0 0 1 3.2 0V13a5 5 0 0 1-5 5h-1.6a5 5 0 0 1-3.9-2l-2.3-3.2"/>'),
-    lasso: svgIcon('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>')
+    lasso: svgIcon('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>'),
+    // Herramientas de lienzo que faltaban.
+    space: svgIcon('<path d="M3 12h18"/><path d="M7 8l-4 4 4 4"/><path d="M17 8l4 4-4 4"/>'),
+    // Figuras de DOCUMENTACION (el motor no las ejecuta; ver AcotadoPaletteProvider).
+    intermediate: svgIcon('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="5.5"/>'),
+    subprocess: svgIcon('<rect x="3" y="6" width="18" height="12" rx="2"/><rect x="9" y="12" width="6" height="4" rx="1"/>'),
+    dataObject: svgIcon('<path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v4h4"/>'),
+    dataStore: svgIcon('<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6"/><path d="M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6"/>'),
+    pool: svgIcon('<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M8 5v14"/>'),
+    group: svgIcon('<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/>')
 };
 
 // ---- PaletteProvider ACOTADO ------------------------------------------------
@@ -45,8 +54,10 @@ const ICONS = {
 function AcotadoPaletteProvider(palette, create, elementFactory, spaceTool, lassoTool, handTool, globalConnect, translate) {
     this._create = create;
     this._elementFactory = elementFactory;
+    this._spaceTool = spaceTool;
     this._lassoTool = lassoTool;
     this._handTool = handTool;
+    this._globalConnect = globalConnect;
     this._translate = translate;
     palette.registerProvider(this);
 }
@@ -56,11 +67,17 @@ AcotadoPaletteProvider.$inject = [
     'lassoTool', 'handTool', 'globalConnect', 'translate'
 ];
 
+// Sufijo que se agrega al tooltip de las figuras que el motor NO ejecuta.
+const SOLO_DOC = ' - figura de DOCUMENTACION: se dibuja y se guarda, pero el motor no la ejecuta '
+    + '(no la pongas dentro del camino del flujo).';
+
 AcotadoPaletteProvider.prototype.getPaletteEntries = function () {
     const create = this._create;
     const elementFactory = this._elementFactory;
     const handTool = this._handTool;
     const lassoTool = this._lassoTool;
+    const spaceTool = this._spaceTool;
+    const globalConnect = this._globalConnect;
 
     function startCreate(type, options) {
         return function (event) {
@@ -68,48 +85,73 @@ AcotadoPaletteProvider.prototype.getPaletteEntries = function () {
             create.start(event, shape);
         };
     }
+    // Los participantes (pool) no son un shape normal: se crean como participante del lienzo.
+    function startCreateParticipant() {
+        return function (event) {
+            const shape = elementFactory.createParticipantShape();
+            create.start(event, shape);
+        };
+    }
+    function entry(group, title, icon, type, options) {
+        return {
+            group: group,
+            title: title,
+            imageUrl: icon,
+            action: { dragstart: startCreate(type, options), click: startCreate(type, options) }
+        };
+    }
 
     return {
+        // ---- Herramientas de lienzo (sin semantica BPMN) ----
         'hand-tool': {
             group: 'tools',
-            title: 'Activar herramienta de mano (mover el lienzo)',
+            title: 'Mano (mover el lienzo)',
             imageUrl: ICONS.hand,
             action: { click: function (e) { handTool.activateHand(e); } }
         },
         'lasso-tool': {
             group: 'tools',
-            title: 'Activar seleccion por lazo',
+            title: 'Seleccion por lazo',
             imageUrl: ICONS.lasso,
             action: { click: function (e) { lassoTool.activateSelection(e); } }
         },
+        'space-tool': {
+            group: 'tools',
+            title: 'Herramienta de espacio (insertar o quitar espacio)',
+            imageUrl: ICONS.space,
+            action: { click: function (e) { spaceTool.activateSelection(e); } }
+        },
+        'global-connect-tool': {
+            group: 'tools',
+            title: 'Conectar elementos',
+            imageUrl: ICONS.connect,
+            action: { click: function (e) { globalConnect.start(e); } }
+        },
         'tool-separator': { group: 'tools', separator: true },
-        'create.start-event': {
-            group: 'event',
-            title: 'Evento de inicio',
-            imageUrl: ICONS.start,
-            action: { dragstart: startCreate('bpmn:StartEvent'), click: startCreate('bpmn:StartEvent') }
+
+        // ---- Elementos que el MOTOR EJECUTA ----
+        'create.start-event': entry('event', 'Evento de inicio', ICONS.start, 'bpmn:StartEvent'),
+        'create.intermediate-event': entry(
+            'event', 'Evento intermedio' + SOLO_DOC, ICONS.intermediate, 'bpmn:IntermediateThrowEvent'),
+        'create.end-event': entry('event', 'Evento de fin', ICONS.end, 'bpmn:EndEvent'),
+        'create.exclusive-gateway': entry('gateway', 'Compuerta exclusiva', ICONS.gateway, 'bpmn:ExclusiveGateway'),
+        'create.task': entry('activity', 'Tarea', ICONS.task, 'bpmn:Task'),
+
+        // ---- Figuras de DOCUMENTACION (se conservan en el XML; el motor las ignora) ----
+        'create.subprocess': entry(
+            'activity', 'Subproceso' + SOLO_DOC, ICONS.subprocess,
+            'bpmn:SubProcess', { isExpanded: true }),
+        'create.data-object': entry(
+            'data', 'Objeto de datos' + SOLO_DOC, ICONS.dataObject, 'bpmn:DataObjectReference'),
+        'create.data-store': entry(
+            'data', 'Almacen de datos' + SOLO_DOC, ICONS.dataStore, 'bpmn:DataStoreReference'),
+        'create.participant': {
+            group: 'collaboration',
+            title: 'Pool / Participante' + SOLO_DOC,
+            imageUrl: ICONS.pool,
+            action: { dragstart: startCreateParticipant(), click: startCreateParticipant() }
         },
-        'create.end-event': {
-            group: 'event',
-            title: 'Evento de fin',
-            imageUrl: ICONS.end,
-            action: { dragstart: startCreate('bpmn:EndEvent'), click: startCreate('bpmn:EndEvent') }
-        },
-        'create.exclusive-gateway': {
-            group: 'gateway',
-            title: 'Compuerta exclusiva',
-            imageUrl: ICONS.gateway,
-            action: {
-                dragstart: startCreate('bpmn:ExclusiveGateway'),
-                click: startCreate('bpmn:ExclusiveGateway')
-            }
-        },
-        'create.task': {
-            group: 'activity',
-            title: 'Tarea',
-            imageUrl: ICONS.task,
-            action: { dragstart: startCreate('bpmn:Task'), click: startCreate('bpmn:Task') }
-        }
+        'create.group': entry('artifact', 'Grupo' + SOLO_DOC, ICONS.group, 'bpmn:Group')
     };
 };
 
@@ -413,6 +455,22 @@ function e2eResolve(state, idOrName) {
 // Crea un nodo (type: 'task'|'gateway'|'end') a la derecha de `prev`, lo conecta prev->nuevo por el
 // modeler real (elementFactory + modeling, igual que un dibujo del usuario) y le pone nombre. Devuelve
 // el id del nuevo nodo. Permite construir un flujo lineal + gateway nodo a nodo, de forma determinista.
+// Crea una figura SUELTA (sin conectarla a nada) en el lienzo, con el modeler real. Se usa para las
+// figuras de DOCUMENTACION (objeto de datos, almacen, grupo, subproceso...), que no van cableadas al flujo.
+export function e2eAddShape(containerId, bpmnType, x, y, name) {
+    const state = instances.get(containerId);
+    if (!state) { return null; }
+    const modeler = state.modeler;
+    const elementFactory = modeler.get('elementFactory');
+    const modeling = modeler.get('modeling');
+    const canvas = modeler.get('canvas');
+    const root = canvas.getRootElement();
+    const shape = elementFactory.createShape({ type: bpmnType });
+    const created = modeling.createShape(shape, { x: x || 300, y: y || 320 }, root);
+    if (name) { modeling.updateProperties(created, { name: name }); }
+    return created.id;
+}
+
 export function e2eAddAfter(containerId, prevIdOrName, type, name) {
     const state = instances.get(containerId);
     if (!state) { return null; }
@@ -471,6 +529,8 @@ export function e2eList(containerId) {
 window.ecorexBpmnE2E = {
     addTaskAndConnect: function (containerId, name) { return e2eAddTaskAndConnect(containerId, name); },
     addAfter: function (containerId, prev, type, name) { return e2eAddAfter(containerId, prev, type, name); },
+    // Figura SUELTA (sin conectar): asi es como se usan las de DOCUMENTACION (objeto de datos, grupo...).
+    addShape: function (containerId, bpmnType, x, y, name) { return e2eAddShape(containerId, bpmnType, x, y, name); },
     connect: function (containerId, src, tgt) { return e2eConnect(containerId, src, tgt); },
     remove: function (containerId, idOrName) { return e2eRemove(containerId, idOrName); },
     list: function (containerId) { return e2eList(containerId); },

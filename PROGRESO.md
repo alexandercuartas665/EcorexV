@@ -103,7 +103,17 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   64/64 Integration (flujos y formularios, matriz dual).
 - **Pendiente menor anotado**: mapear un campo del formulario al token `@cliente` (hoy no hay
   convencion que diga QUE campo es el cliente; se limpia el separador para no romper el titulo).
-- **Siguiente**: Ola B2 (limpiar del wizard el parche de crear-tarea-anticipada del paso 3).
+- **Ola B2 - HECHA**: se retira del wizard TODO el parche form-first de la Ola 5: la rama
+  `IsFormFirst` del paso 3, la **creacion anticipada de la tarea** en `NextStep`, `FormStepLocked`,
+  los handlers `OnFormSubmittedAsync`/`OnFormSkipAsync` y el estado muerto. El wizard queda con **UN
+  SOLO camino**: la tarea se crea unicamente al pulsar "Guardar actividad" / "Guardar y crear otra".
+  El paso 3 queda informativo (el formulario se diligencia desde el DETALLE, ADR-0038).
+- **Verificado en Chrome real (forzando el escape hatch)**: se desactivo FRM-001 en la BD local ->
+  el concepto form-first **cayo al wizard** (escape hatch de B1 confirmado); se camino el wizard
+  **hasta el paso 4**, pasando por el paso Formulario -- justo donde antes se creaba la tarea -- y la
+  ultima tarea **siguio siendo T00218**: no se creo nada. El resumen seguia en "Borrador / Sin
+  guardar". FRM-001 restaurado a Active. Solucion verde + 360/360 Application.Tests.
+- **Siguiente**: Ola C1 (guardas: banner de flujo sin publicar segun D3, validacion al publicar).
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

@@ -3850,3 +3850,10 @@ Hecho por SQL local (demo). Validado en Chrome: "Compra urgente" ahora abre su t
 al indice). PENDIENTE de decision para PERMANENCIA/todos los tenants: (a) auto-crear el tablero al crear/
 guardar un concepto (ActividadCatalogoService), o (b) reconciliacion en el seeder; y opcional "+ Crear
 tablero" en la seccion "Tablero y estado de cierre" de Conceptos.
+
+**Auto-tablero por concepto (2026-07-14):** `ActividadCatalogoService` ahora, al crear/editar una
+subcategoria (concepto) que quede SIN tablero, CREA uno dedicado y lo enlaza (helper `EnsureConceptBoardAsync`:
+TaskBoard kind=Activities + code CNC-xxxxxxxxxxxx + 4 columnas default; fija task_board_id + task_board_column_id
+= "Completado"). Asi la creacion del tablero vive DENTRO de Conceptos, es permanente y para todos los tenants,
+y ningun concepto queda huerfano. Validado en Chrome: concepto nuevo "QA auto-tablero" nacio con su tablero
+(4 columnas + cierre). Build verde.

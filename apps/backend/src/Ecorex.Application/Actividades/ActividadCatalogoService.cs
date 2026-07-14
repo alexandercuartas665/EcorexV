@@ -207,6 +207,8 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
+        // Coherencia: cada concepto tiene su tablero. Si no se eligio uno, se crea y enlaza.
+        await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
         // Alta con relaciones hijas: una sola operacion atomica (SaveChanges inserta padre e hijas).
         _db.ActividadSubcategorias.Add(entity);
@@ -252,6 +254,8 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
+        // Coherencia: si tras editar el concepto queda sin tablero, se le crea y enlaza uno dedicado.
+        await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -488,6 +492,50 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         // La columna terminal solo aplica si hay tablero; si no, se limpia.
         entity.TaskBoardColumnId = request.TaskBoardId is null ? null : request.TaskBoardColumnId;
         entity.Sedes = NormalizeSedes(request.Sedes);
+    }
+
+    /// <summary>
+    /// Coherencia concepto&lt;-&gt;tablero (1:1): si el concepto queda SIN tablero, crea uno dedicado
+    /// (columnas default del prototipo + code CNC-) y lo enlaza, con la columna "Completado" como estado
+    /// de cierre. Se agrega al mismo DbContext -> se persiste en el SaveChanges del alta/edicion. Asi la
+    /// creacion del tablero vive DENTRO de Conceptos y ningun concepto queda huerfano de tablero.
+    /// </summary>
+    private async Task EnsureConceptBoardAsync(
+        ActividadSubcategoria entity, Guid tenantId, CancellationToken cancellationToken)
+    {
+        if (entity.TaskBoardId is not null) { return; }
+
+        var nextOrder = (await _db.TaskBoards.Select(b => (int?)b.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+        var board = new TaskBoard
+        {
+            TenantId = tenantId,
+            Kind = TaskBoardKind.Activities,
+            Name = string.IsNullOrWhiteSpace(entity.Nombre) ? "Tablero" : entity.Nombre,
+            Status = TaskBoardStatus.OnTime,
+            SortOrder = nextOrder
+        };
+        board.Code = "CNC-" + board.Id.ToString("N")[..12].ToUpperInvariant();
+        _db.TaskBoards.Add(board);
+
+        Guid? doneColumnId = null;
+        for (int i = 0; i < TaskBoardService.DefaultColumns.Length; i++)
+        {
+            var (cname, ccolor, isDone) = TaskBoardService.DefaultColumns[i];
+            var column = new TaskBoardColumn
+            {
+                TenantId = tenantId,
+                BoardId = board.Id,
+                Name = cname,
+                Color = ccolor,
+                SortOrder = i,
+                IsDone = isDone
+            };
+            _db.TaskBoardColumns.Add(column);
+            if (isDone) { doneColumnId = column.Id; }
+        }
+
+        entity.TaskBoardId = board.Id;
+        entity.TaskBoardColumnId = doneColumnId;
     }
 
     private void SyncNotificaciones(ActividadSubcategoria entity, IReadOnlyList<Guid>? userIds, Guid tenantId)

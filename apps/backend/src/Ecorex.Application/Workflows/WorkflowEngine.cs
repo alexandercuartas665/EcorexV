@@ -156,6 +156,21 @@ public sealed class WorkflowEngine : IWorkflowEngine
             return WorkflowResult<WorkflowDefinitionDto>.Invalid("La definicion esta archivada.");
         }
 
+        // Ola C1: no publicar un flujo IRRECUPERABLE. Un concepto ligado a este flujo arranca su
+        // instancia al crear la actividad; si el flujo no tiene ningun paso humano (nodo Task) no
+        // hay NADA que atender: la actividad naceria enrolada y sin sentido. Se bloquea aqui, una
+        // sola vez, en vez de dejar que falle en cada alta.
+        //   (El caso "paso sin cargo" NO se bloquea al publicar -- seria demasiado rigido para el
+        //    admin a mitad de autoria y rompe flujos mecanicos --; se AVISA al crear la actividad,
+        //    donde IWorkflowStartService devuelve SinCargo/SinCandidatos y la UI muestra el banner.)
+        var hasTaskNode = await _db.WorkflowNodes.AsNoTracking()
+            .AnyAsync(n => n.DefinitionId == definitionId && n.NodeType == WorkflowNodeType.Task, cancellationToken);
+        if (!hasTaskNode)
+        {
+            return WorkflowResult<WorkflowDefinitionDto>.Invalid(
+                "El flujo no tiene ningun paso (nodo de tarea): no hay nada que atender. Agrega al menos un paso antes de publicar.");
+        }
+
         await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
 
         // Solo una version publicada por ProcessCode: despublicar las demas.

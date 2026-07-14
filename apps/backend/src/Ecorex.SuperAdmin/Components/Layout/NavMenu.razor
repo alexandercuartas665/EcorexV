@@ -133,7 +133,16 @@ else
                                             {
                                                 <NavLink class="ecorex-acc-item" href="@($"actividades?sub={s.Id}")">
                                                     <span class="lbl">@s.Nombre</span>
-                                                    <span class="code" title="Actividad tipo proceso">proc</span>
+                                                    @if (!s.Publicado)
+                                                    {
+                                                        @* Ola C1 (D3): el flujo del concepto aun esta en borrador. Se
+                                                           muestra igual (se avisa, no se oculta); el chip lo advierte. *@
+                                                        <span class="code" title="El flujo de este proceso aun no esta publicado" style="background:var(--t-amber-bg, rgba(245,158,11,.16));color:var(--t-amber, #f59e0b)">borrador</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="code" title="Actividad tipo proceso">proc</span>
+                                                    }
                                                 </NavLink>
                                             }
                                         </div>
@@ -386,10 +395,18 @@ else
                 var catalogo = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Actividades.IActividadCatalogoService>();
                 var cats = await catalogo.ListCategoriasAsync(includeArchived: false);
                 var subs = await catalogo.ListSubcategoriasAsync(includeArchived: false);
+                // Ola C1 (D3): flujos PUBLICADOS de este tenant (el contexto ya esta tenant-scoped).
+                // Una hoja cuyo flujo no este aqui se muestra igual, pero con chip "borrador".
+                var procDb = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+                var publicados = (await procDb.WorkflowDefinitions
+                        .Where(w => w.IsPublished && !w.IsArchived)
+                        .Select(w => w.Id)
+                        .ToListAsync()).ToHashSet();
                 _procesoCats = cats
                     .Select(c => new ProcesoCat(c.Nombre, "proc-" + c.Id.ToString("N")[..8],
                         subs.Where(s => s.CategoriaId == c.Id && s.WorkflowDefinitionId != null && !s.IsArchived)
-                            .Select(s => new ProcesoSub(s.Id, s.Nombre)).ToList()))
+                            .Select(s => new ProcesoSub(s.Id, s.Nombre,
+                                Publicado: s.WorkflowDefinitionId is Guid wf && publicados.Contains(wf))).ToList()))
                     .Where(pc => pc.Subs.Count > 0)
                     .ToList();
             }
@@ -400,7 +417,7 @@ else
     /// <summary>Arbol dinamico de "Mis Procesos" (Ola 4): categorias con sus subcategorias tipo proceso.</summary>
     private List<ProcesoCat> _procesoCats = new();
     private sealed record ProcesoCat(string Nombre, string Slug, List<ProcesoSub> Subs);
-    private sealed record ProcesoSub(Guid Id, string Nombre);
+    private sealed record ProcesoSub(Guid Id, string Nombre, bool Publicado);
 
     /// <summary>Inicial del tenant para el tile cuadrado del header (prototipo: "S" de SKY SYSTEM).</summary>
     private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();

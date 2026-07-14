@@ -27,6 +27,38 @@ public abstract class WorkflowEngineTestsBase
     // ---- (1) Import del fixture BPMN real ----
 
     [Fact]
+    public async Task Publish_FlowWithoutTaskNode_IsRejected()
+    {
+        // Ola C1: un flujo sin ningun paso humano (solo start -> end) no se puede publicar: si un
+        // concepto lo usara, la actividad naceria enrolada y sin nada que atender.
+        const string emptyXml = """
+            <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="empty" targetNamespace="http://ecorex.local/bpmn">
+              <bpmn:process id="P_Empty">
+                <bpmn:startEvent id="Start_1" name="Inicio" />
+                <bpmn:endEvent id="End_1" name="Fin" />
+                <bpmn:sequenceFlow id="F1" sourceRef="Start_1" targetRef="End_1" />
+              </bpmn:process>
+            </bpmn:definitions>
+            """;
+
+        var seed = await SeedTenantAsync("Workflow Publish Guard");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+
+        var imported = (await engine.ImportBpmnAsync(new ImportBpmnRequest("EMPTY-01", "Flujo sin pasos", emptyXml))).Value!;
+        var result = await engine.PublishAsync(imported.Id);
+
+        Assert.Equal(WorkflowEngineStatus.Invalid, result.Status);
+        Assert.Contains("paso", result.Error!, StringComparison.OrdinalIgnoreCase);
+        // No se publico: sigue en borrador.
+        Assert.False(await ctx.WorkflowDefinitions.AsNoTracking().AnyAsync(d => d.Id == imported.Id && d.IsPublished));
+
+        // Un flujo lineal CON pasos (Task_A, Task_B) si publica.
+        var linear = (await engine.ImportBpmnAsync(new ImportBpmnRequest("LIN-OK", "Flujo con pasos", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(linear.Id)).IsOk);
+    }
+
+    [Fact]
     public async Task ImportRealFixture00001_MaterializesExpectedGraph_AndKeepsXmlVerbatim()
     {
         var seed = await SeedTenantAsync("Workflow Fixture");

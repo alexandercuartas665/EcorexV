@@ -61,6 +61,16 @@
                         @if (_step == 1)
                         {
                             <div style="display:flex;flex-direction:column;gap:16px;width:100%">
+                                @* Ola C1 (decision D3): el concepto tiene flujo, pero no es utilizable. La
+                                   hoja igual se ofrece en el menu; aqui se AVISA. Se ataca el silencio, no
+                                   la visibilidad. Cubre tres casos que dan un arranque roto o degradado. *@
+                                @if (ProcesoAviso is { Length: > 0 } aviso)
+                                {
+                                    <div style="background:var(--t-amber-bg, rgba(245,158,11,.12));border:1px solid var(--t-amber, #f59e0b);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--ink-2);display:flex;align-items:flex-start;gap:10px">
+                                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--t-amber, #f59e0b)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+                                        <span>@((MarkupString)aviso)</span>
+                                    </div>
+                                }
                                 @* Clasificacion y asignacion *@
                                 <div style="@CardStyle">
                                     <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px">
@@ -382,6 +392,21 @@
 
     /// <summary>El primer paso del flujo se resolvio: sabemos que cargo lo atiende.</summary>
     private bool TienePasoResuelto => _firstStep is { Status: FirstStepStatus.Ok or FirstStepStatus.SinCandidatos };
+
+    /// <summary>
+    /// Ola C1 (D3): aviso ambar cuando el concepto tiene flujo pero NO es utilizable. Null si todo
+    /// bien (o no es proceso). Devuelve HTML (se pinta como MarkupString).
+    /// </summary>
+    private string? ProcesoAviso => _firstStep?.Status switch
+    {
+        FirstStepStatus.FlujoNoPublicado =>
+            "El flujo de este proceso <strong>aun no esta publicado</strong>. La actividad se creara <strong>sin proceso</strong> (no arrancara el flujo ni enrutara el primer paso).",
+        FirstStepStatus.SinNodoTask =>
+            "El flujo de este proceso <strong>no tiene ningun paso</strong> que atender. Revisalo en el editor de flujos antes de usarlo.",
+        FirstStepStatus.SinCargo =>
+            "El primer paso del flujo <strong>no tiene un cargo asignado</strong>: la actividad nacera <strong>sin encargado</strong>. Asigna el cargo en el editor de flujos.",
+        _ => null,
+    };
 
     /// <summary>Etiqueta del paso que dicta el encargado, ej. "Paso 1 - Cotizar - Comprador".</summary>
     private string? PasoLabel

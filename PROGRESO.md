@@ -113,7 +113,17 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   **hasta el paso 4**, pasando por el paso Formulario -- justo donde antes se creaba la tarea -- y la
   ultima tarea **siguio siendo T00218**: no se creo nada. El resumen seguia en "Borrador / Sin
   guardar". FRM-001 restaurado a Active. Solucion verde + 360/360 Application.Tests.
-- **Siguiente**: Ola C1 (guardas: banner de flujo sin publicar segun D3, validacion al publicar).
+- **Ola C1 - HECHA**: guardas de coherencia (D3: avisar, no ocultar). Tres piezas: (1) banner ambar
+  en el arranque (TaskWizard) cuando el flujo no es utilizable -- cubre FlujoNoPublicado / SinNodoTask
+  / SinCargo; FormFirstStarter ya lo traia de B1; (2) chip "borrador" en el menu (NavMenu) para la
+  hoja de un concepto cuyo flujo no esta publicado -- se resuelve con el set de WorkflowDefinitions
+  publicadas del tenant; (3) WorkflowEngine.PublishAsync bloquea publicar un flujo SIN paso Task
+  (irrecuperable). El caso "paso sin cargo" NO bloquea la publicacion (muy rigido) -> se avisa al
+  crear con el banner.
+- **Verificado**: test dual `Publish_FlowWithoutTaskNode_IsRejected` (PG + SQL Server 2/2); regresion
+  45 workflow + 360 unitarios verdes. En Chrome real: despublicando COT-COM en local, la hoja mostro
+  chip "borrador" y el wizard el banner "nacera sin proceso"; restaurado.
+- **Siguiente**: Ola C2 (QA end-to-end del ciclo completo) y despues Ola D + deploy a prod.
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

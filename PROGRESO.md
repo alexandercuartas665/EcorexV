@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-07-14 - Tareas de proceso: Ola 0 (decisiones) + Ola A1 (encargado del primer nodo)
+
+Capitulo nuevo en el vault: `01. Requerimiento/Capa 2 Tareas y Proyectos/Tareas de proceso -
+Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco historias de usuario,
+03 plan por olas). Continua "Modulo de Tareas - Creacion y ejecucion".
+
+- **Auditoria (read-only)**: al crear una actividad desde el menu Mis Procesos, el enrolamiento en
+  el flujo SI funciona (instancia + primer paso Pending/IsCurrent), pero el **ENCARGADO no**: el
+  wizard lo pide a mano filtrado por los cargos del CONCEPTO (`TaskWizard.razor:515-524`), no por
+  el cargo del **primer nodo BPMN**; `INodeAssigneeResolver` no se consumia desde el arranque; y el
+  primer paso nace **sin** `AssignedToTenantUserId` (`WorkflowEngine.AddStep:639-656`), resolviendose
+  perezosamente al reclamar. Ademas los conceptos `IniciaModulo` (form-first) igual abren el wizard
+  de 4 pasos (el formulario es el paso 3), en vez de abrir DIRECTO el formulario.
+- **Hallazgo que cambia el diseno**: `FormDefinitionId` existe SOLO en `ActividadSubcategoria`
+  (`ActividadSubcategoria.cs:60`); **no hay formulario por nodo BPMN**.
+- **Ola 0 - decisiones del usuario (CERRADA)**: **D1** el arranque form-first usa el formulario del
+  CONCEPTO ahora, y el formulario POR NODO se compromete como **Ola D** (dominio + migracion dual +
+  editor + runtime), no como backlog difuso; **D2** el flujo manda: el iniciador NO puede elegir
+  encargado fuera del cargo del primer nodo (combo restringido + validacion server-side); **D3** un
+  concepto con flujo sin publicar SI se ve en el menu, pero el arranque debe AVISAR con un banner
+  que la actividad nacera SIN proceso (se ataca el silencio, no la visibilidad).
+- **Ola A1 - HECHA**: `IWorkflowStartService` + `WorkflowStartService`
+  (`Ecorex.Application/Workflows/`), registrado en DI. Dada una subcategoria, camina el grafo **EN
+  SECO** (sin instancia, sin persistir) desde el `startEvent`, **atraviesa compuertas** y devuelve
+  el **primer nodo Task** + sus **cargos** (`WorkflowNodePolicy`) + sus **candidatos**
+  (`INodeAssigneeResolver`, reusado). La resolucion de compuertas es **espejo exacto** de
+  `WorkflowEngine.ResolveOutgoing` con `approvalResult = null` -> el nodo que devuelve es **el mismo
+  que el motor activara**. Nunca lanza: reporta `FirstStepStatus` (Ok / SinFlujo / FlujoNoPublicado /
+  SinNodoTask / SinCargo / SinCandidatos), que es justo lo que necesitan A2 (preseleccionar),
+  A3 (persistir) y C1 (el banner de D3).
+- **Verificado**: `WorkflowStartServiceTests` (7 casos) **verde en matriz dual**: PostgreSQL 7/7 y
+  SQL Server 7/7. Cubre flujo lineal (primer Task "Cotizar" + cargo + candidato unico), **compuerta
+  justo despues del startEvent (la atraviesa)**, los 4 estados de config incompleta y el
+  **aislamiento cross-tenant**. Solucion completa en verde.
+- **Siguiente**: Ola A2 (el wizard muestra/preselecciona ese encargado, restringido por D2).
+
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 
 - **Sintoma (reporte del usuario)**: en la seccion de menu "Negocio" faltaba el modulo para crear terceros.

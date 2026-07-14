@@ -85,6 +85,10 @@ public static class DependencyInjection
         // atender (formulario o completar/aprobar) + reclamar/reasignar. Une la asignacion por
         // nodo (INodeAssigneeResolver) con el motor (IWorkflowEngine).
         services.AddScoped<Workflows.IWorkflowInboxService, Workflows.WorkflowInboxService>();
+        // Arranque de tareas-proceso (Ola A1): camina el flujo EN SECO desde el startEvent hasta el
+        // primer nodo Task para saber QUIEN lo atendera antes de crear la actividad (el encargado lo
+        // dicta el flujo, no el usuario). Lo consumen el wizard y el arranque form-first.
+        services.AddScoped<Workflows.IWorkflowStartService, Workflows.WorkflowStartService>();
         // Formularios dinamicos (FASE 4 ola 2, ADR-0015): definiciones, respuestas y tokens.
         services.AddScoped<Forms.IFormDefinitionService, Forms.FormDefinitionService>();
         services.AddScoped<Forms.IFormResponseService, Forms.FormResponseService>();

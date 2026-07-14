@@ -36,23 +36,34 @@ public interface IScheduledJobDispatcher
 /// <inheritdoc />
 public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
 {
+    /// <summary>Intentos totales sobre una ventana antes de darla por perdida (dead-letter). Ola P4.</summary>
+    private const int MaxAttempts = 3;
+
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly INotificationService _notifications;
     private readonly ITaskItemService _tasks;
+    private readonly IEnumerable<IScheduledJobChannelSender> _channelSenders;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<ScheduledJobDispatcher> _logger;
 
     public ScheduledJobDispatcher(
         IApplicationDbContext db, ITenantContext tenantContext,
         INotificationService notifications, ITaskItemService tasks,
+        IEnumerable<IScheduledJobChannelSender> channelSenders, TimeProvider timeProvider,
         ILogger<ScheduledJobDispatcher> logger)
     {
         _db = db;
         _tenantContext = tenantContext;
         _notifications = notifications;
         _tasks = tasks;
+        _channelSenders = channelSenders;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
+
+    /// <summary>Espera antes del reintento N (backoff): 5, 15 minutos...</summary>
+    private static TimeSpan Backoff(int attempt) => TimeSpan.FromMinutes(5 * attempt);
 
     public async Task<IReadOnlyList<Guid>> FindTenantsWithDueRulesAsync(
         DateTimeOffset nowUtc, CancellationToken cancellationToken = default)
@@ -130,10 +141,15 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
     private async Task<bool> FireAsync(
         ScheduledJob job, ScheduledJobRule rule, TimeZoneInfo tz, CancellationToken cancellationToken)
     {
-        if (rule.NextRunAt is not DateTimeOffset window)
+        if (rule.NextRunAt is not DateTimeOffset scheduledAt)
         {
             return false;
         }
+
+        // La VENTANA conserva su identidad durante los reintentos: si hay una ventana fallida pendiente,
+        // se sigue reintentando ESA (NextRunAt es solo el instante del reintento, no una ventana nueva).
+        var window = rule.PendingWindowAt ?? scheduledAt;
+        var attempt = rule.Attempt + 1;
 
         var result = ScheduledJobRunResult.Ok;
         string? detail;
@@ -145,11 +161,36 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
         }
         catch (Exception ex)
         {
-            // Un fallo de la accion NO frena el motor: queda registrado como Error y la regla igual avanza
-            // (el reintento con dead-letter es un incremento posterior, ola P4).
             _logger.LogError(ex, "Fallo al disparar la programacion {Code} (regla {RuleId})", job.Code, rule.Id);
             result = ScheduledJobRunResult.Error;
             detail = Truncate(ex.Message, 600);
+        }
+
+        var nowUtc = _timeProvider.GetUtcNow();
+        var failed = result == ScheduledJobRunResult.Error;
+        var deadLettered = failed && attempt >= MaxAttempts;
+
+        if (failed && !deadLettered)
+        {
+            // REINTENTO (ola P4): se conserva la ventana y se reprograma con backoff.
+            rule.PendingWindowAt = window;
+            rule.Attempt = attempt;
+            rule.NextRunAt = nowUtc + Backoff(attempt);
+            detail = Truncate($"{detail} [intento {attempt}/{MaxAttempts}; se reintenta en {Backoff(attempt).TotalMinutes:0} min]", 600);
+        }
+        else
+        {
+            // Exito, o DEAD-LETTER tras agotar los intentos: en ambos casos la ventana se cierra y la
+            // regla vuelve a su cadencia normal (la ventana perdida queda registrada como Error).
+            if (deadLettered)
+            {
+                detail = Truncate($"{detail} [descartada tras {attempt} intentos: dead-letter]", 600);
+            }
+            rule.PendingWindowAt = null;
+            rule.Attempt = 0;
+            // La proxima ejecucion se calcula DESDE la ventana (no desde "ahora"): un worker atrasado no
+            // se salta ventanas intermedias.
+            rule.NextRunAt = ScheduledJobRecurrence.ComputeNextRun(rule, window, tz);
         }
 
         _db.ScheduledJobRuns.Add(new ScheduledJobRun
@@ -157,14 +198,11 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
             JobId = job.Id,
             RuleId = rule.Id,
             FiredAt = window,
+            Attempt = attempt,
             Result = result,
             Detail = detail,
             CreatedEntityRef = createdRef,
         });
-
-        // Avanza la ventana: la proxima ejecucion se calcula DESDE la ventana disparada (no desde "ahora"),
-        // de modo que un worker atrasado no se salte ventanas intermedias.
-        rule.NextRunAt = ScheduledJobRecurrence.ComputeNextRun(rule, window, tz);
 
         try
         {
@@ -173,10 +211,10 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
         }
         catch (DbUpdateException)
         {
-            // Choque contra el indice unico (tenant, job, rule, fired_at): otra instancia del worker ya
-            // disparo esta MISMA ventana. Es el caso feliz de la idempotencia, no un error.
-            _logger.LogDebug("Ventana {Window:o} de {Code} ya disparada por otra instancia; se descarta.",
-                window, job.Code);
+            // Choque contra el indice unico (tenant, job, rule, fired_at, attempt): otra instancia del
+            // worker ya disparo esta MISMA ventana en este MISMO intento. Idempotencia, no un error.
+            _logger.LogDebug("Ventana {Window:o} (intento {Attempt}) de {Code} ya disparada por otra instancia.",
+                window, attempt, job.Code);
             return false;
         }
     }
@@ -185,30 +223,10 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
     private async Task<(ScheduledJobRunResult Result, string? Detail, string? CreatedRef)> ExecuteAsync(
         ScheduledJob job, CancellationToken cancellationToken)
     {
-        var channels = await _db.ScheduledJobChannels
-            .Where(c => c.JobId == job.Id)
-            .Select(c => c.Channel)
-            .ToListAsync(cancellationToken);
-        var channelList = channels.Count == 0 ? "(sin canales)" : string.Join(", ", channels);
-
         switch (job.Type)
         {
             case ScheduledJobType.Notification:
-                if (job.AssigneeTenantUserId is not Guid recipient)
-                {
-                    // Sin encargado no hay destinatario in-app; los canales externos llegan en P4.
-                    return (ScheduledJobRunResult.Ok,
-                        $"Sin encargado: no hay destinatario in-app. Canales configurados: {channelList}.", null);
-                }
-                await _notifications.CreateAsync(
-                    recipient,
-                    NotificationKind.General,
-                    title: job.Name,
-                    body: $"Recordatorio programado ({job.Code}).",
-                    linkRoute: "/programar-actividad",
-                    cancellationToken: cancellationToken);
-                return (ScheduledJobRunResult.Ok,
-                    $"Notificacion in-app entregada. Canales configurados: {channelList}.", null);
+                return await NotifyAsync(job, cancellationToken);
 
             case ScheduledJobType.Activity:
                 return await CreateActivityAsync(job, cancellationToken);
@@ -216,6 +234,89 @@ public sealed class ScheduledJobDispatcher : IScheduledJobDispatcher
             default:
                 return (ScheduledJobRunResult.Skipped, $"Tipo no soportado: {job.Type}.", null);
         }
+    }
+
+    /// <summary>
+    /// Entrega la notificacion (ola P4): in-app al encargado + los CANALES configurados, de verdad. La
+    /// bitacora dice canal por canal que paso; si algun canal falla, la ejecucion es un Error y entra al
+    /// ciclo de reintento (antes se reportaba Ok listando los canales sin haber enviado nada por ellos).
+    /// </summary>
+    private async Task<(ScheduledJobRunResult Result, string? Detail, string? CreatedRef)> NotifyAsync(
+        ScheduledJob job, CancellationToken cancellationToken)
+    {
+        var title = job.Name;
+        var body = $"Recordatorio programado ({job.Code}).";
+        var lines = new List<string>();
+        var anyFailure = false;
+
+        // 1) In-app al encargado.
+        if (job.AssigneeTenantUserId is Guid recipientId)
+        {
+            await _notifications.CreateAsync(
+                recipientId, NotificationKind.General, title, body,
+                linkRoute: "/programar-actividad", cancellationToken: cancellationToken);
+            lines.Add("In-app: entregada.");
+        }
+        else
+        {
+            lines.Add("In-app: sin encargado, no hay destinatario.");
+        }
+
+        // 2) Canales externos configurados.
+        var channels = await _db.ScheduledJobChannels
+            .Where(c => c.JobId == job.Id)
+            .Select(c => c.Channel)
+            .ToListAsync(cancellationToken);
+
+        if (channels.Count > 0)
+        {
+            var recipient = await ResolveRecipientAsync(job.AssigneeTenantUserId, cancellationToken);
+            foreach (var channel in channels)
+            {
+                var sender = _channelSenders.FirstOrDefault(s => s.Channel == channel);
+                if (sender is null)
+                {
+                    // Canal SIN integracion (Slack/SMS): no se finge la entrega.
+                    lines.Add($"{channel}: canal sin integracion, no se envio.");
+                    continue;
+                }
+                if (recipient is null)
+                {
+                    lines.Add($"{channel}: sin encargado, no hay a quien enviar.");
+                    anyFailure = true;
+                    continue;
+                }
+                var sent = await sender.SendAsync(recipient, title, body, cancellationToken);
+                lines.Add(sent.Detail);
+                if (!sent.Delivered) { anyFailure = true; }
+            }
+        }
+
+        var detail = Truncate(string.Join(" ", lines), 600);
+        return (anyFailure ? ScheduledJobRunResult.Error : ScheduledJobRunResult.Ok, detail, null);
+    }
+
+    /// <summary>
+    /// Resuelve el destinatario: el correo del encargado y su numero de WhatsApp, que en este modelo es el
+    /// <c>PhoneNumber</c> de la linea que tiene asignada (no hay telefono en el perfil del usuario).
+    /// </summary>
+    private async Task<ScheduledJobRecipient?> ResolveRecipientAsync(
+        Guid? assigneeId, CancellationToken cancellationToken)
+    {
+        if (assigneeId is not Guid id) { return null; }
+
+        var email = await _db.TenantUsers
+            .Where(u => u.Id == id)
+            .Select(u => u.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (email is null) { return null; }
+
+        var phone = await _db.WhatsAppLines
+            .Where(l => l.AssignedToTenantUserId == id && l.PhoneNumber != null)
+            .Select(l => l.PhoneNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new ScheduledJobRecipient(id, email, phone);
     }
 
     /// <summary>

@@ -27,4 +27,11 @@ public class ScheduledJobRun : TenantEntity
 
     /// <summary>Referencia de la entidad creada al disparar (ej. numero de la TaskItem para Type=Activity).</summary>
     public string? CreatedEntityRef { get; set; }
+
+    /// <summary>
+    /// Numero de intento sobre la MISMA ventana (ola P4): 1 = primer disparo, 2..N = reintentos tras un
+    /// fallo. Forma parte de la clave de idempotencia (tenant, job, rule, fired_at, attempt), de modo que
+    /// cada intento deja su propia fila pero un intento concreto nunca se duplica.
+    /// </summary>
+    public int Attempt { get; set; } = 1;
 }

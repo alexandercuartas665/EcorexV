@@ -59,4 +59,16 @@ public class ScheduledJobRule : TenantEntity
 
     /// <summary>Proxima ejecucion calculada por el worker (P2). Null hasta que el motor la fije.</summary>
     public DateTimeOffset? NextRunAt { get; set; }
+
+    // ---- Reintento y dead-letter (ola P4, doc D5) ----
+
+    /// <summary>
+    /// Ventana que quedo FALLIDA y se esta reintentando. Mientras no sea null, <see cref="NextRunAt"/> es
+    /// el instante del REINTENTO (no una ventana nueva): asi el disparo conserva su identidad original
+    /// (fired_at) y el reintento no "inventa" una ventana que nunca toco. Null = operacion normal.
+    /// </summary>
+    public DateTimeOffset? PendingWindowAt { get; set; }
+
+    /// <summary>Intentos ya realizados sobre <see cref="PendingWindowAt"/>. 0 cuando no hay reintento en curso.</summary>
+    public int Attempt { get; set; }
 }

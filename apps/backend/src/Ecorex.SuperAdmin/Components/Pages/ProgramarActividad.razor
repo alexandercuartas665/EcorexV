@@ -506,12 +506,13 @@
     private static readonly string[] Weekdays = { "Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom" };
     private static readonly string[] Ordinals = { "Primer", "Segundo", "Tercer", "Cuarto", "Ultimo" };
     private static readonly string[] MonthWeekdays = { "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo", "dia" };
+    // Solo se ofrecen los canales con ENTREGA REAL (ola P4). Slack y SMS no tienen integracion en el
+    // sistema: ofrecerlos seria prometer un envio que nunca ocurre. El enum los conserva para no romper
+    // las programaciones que ya los tuvieran guardados (la bitacora dice "canal sin integracion").
     private static readonly (ScheduledJobChannelType Value, string Label)[] Channels =
     {
         (ScheduledJobChannelType.Email, "Correo"),
         (ScheduledJobChannelType.WhatsApp, "WhatsApp"),
-        (ScheduledJobChannelType.Slack, "Slack"),
-        (ScheduledJobChannelType.Sms, "SMS"),
     };
 
     private static string FreqUnit(ScheduledJobFrequency f) => f switch

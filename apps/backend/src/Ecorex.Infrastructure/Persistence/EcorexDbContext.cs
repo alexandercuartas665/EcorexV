@@ -1357,9 +1357,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Job).WithMany()
                 .HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.JobId, x.FiredAt });
-            // IDEMPOTENCIA (ola P2, doc D5): una VENTANA = un disparo. Si dos instancias del worker
-            // corren a la vez, la segunda choca contra este indice y su insercion se descarta.
-            b.HasIndex(x => new { x.TenantId, x.JobId, x.RuleId, x.FiredAt }).IsUnique();
+            b.Property(x => x.Attempt).HasDefaultValue(1);
+            // IDEMPOTENCIA (olas P2/P4, doc D5): una VENTANA + INTENTO = un disparo. Si dos instancias del
+            // worker corren a la vez, la segunda choca contra este indice y su insercion se descarta. El
+            // Attempt entra en la clave para que los REINTENTOS de una ventana fallida dejen su propia fila.
+            b.HasIndex(x => new { x.TenantId, x.JobId, x.RuleId, x.FiredAt, x.Attempt }).IsUnique();
         });
 
         modelBuilder.Entity<FormToken>(b =>

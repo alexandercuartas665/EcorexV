@@ -6611,6 +6611,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(8)")
                         .HasColumnName("at_time");
 
+                    b.Property<int>("Attempt")
+                        .HasColumnType("int")
+                        .HasColumnName("attempt");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -6657,6 +6661,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<DateTimeOffset?>("NextRunAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("next_run_at");
+
+                    b.Property<DateTimeOffset?>("PendingWindowAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("pending_window_at");
 
                     b.Property<int?>("RepeatEveryHours")
                         .HasColumnType("int")
@@ -6724,6 +6732,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<int>("Attempt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1)
+                        .HasColumnName("attempt");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -6781,9 +6795,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("TenantId", "JobId", "FiredAt")
                         .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_fired_at");
 
-                    b.HasIndex("TenantId", "JobId", "RuleId", "FiredAt")
+                    b.HasIndex("TenantId", "JobId", "RuleId", "FiredAt", "Attempt")
                         .IsUnique()
-                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_rule_id_fired_at")
+                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_rule_id_fired_at_attempt")
                         .HasFilter("[rule_id] IS NOT NULL");
 
                     b.ToTable("scheduled_job_runs", (string)null);

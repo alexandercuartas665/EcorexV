@@ -157,6 +157,115 @@ public abstract class ScheduledJobDispatcherTestsBase
         Assert.Equal(ScheduledJobRunResult.Error, run.Result);
     }
 
+    // ---- Ola P4: canales reales, reintento y dead-letter ----
+
+    [Fact]
+    public async Task Channels_AreActuallyDelivered_AndTheLogSaysSoChannelByChannel()
+    {
+        var tenantId = await SeedTenantAsync("Canales");
+        var assigneeId = await SeedTenantUserAsync(tenantId, "encargado@canales.local");
+        var window = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var (jobId, _) = await SeedJobAsync(tenantId, ScheduledJobType.Notification,
+            ScheduledJobStatus.Active, window, assigneeId);
+
+        var email = new FakeChannelSender(ScheduledJobChannelType.Email, delivers: true);
+        var fired = await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications(), new[] { email });
+        Assert.Equal(1, fired);
+
+        // El canal se entrego DE VERDAD (antes solo se listaba en el detalle sin enviar nada).
+        Assert.Single(email.Sent);
+
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var run = Assert.Single(await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
+        Assert.Equal(ScheduledJobRunResult.Ok, run.Result);
+        Assert.Contains("In-app: entregada.", run.Detail);
+        Assert.Contains("Email: enviado.", run.Detail);
+    }
+
+    [Fact]
+    public async Task ChannelWithoutIntegration_IsReportedHonestly_NotFakedAsDelivered()
+    {
+        var tenantId = await SeedTenantAsync("Canal sin integracion");
+        var assigneeId = await SeedTenantUserAsync(tenantId, "encargado@slack.local");
+        var window = DateTimeOffset.UtcNow.AddMinutes(-5);
+        // El job se siembra con canal Email; le agregamos Slack, que NO tiene sender registrado.
+        var (jobId, _) = await SeedJobAsync(tenantId, ScheduledJobType.Notification,
+            ScheduledJobStatus.Active, window, assigneeId);
+        await using (var seed = _fixture.CreateContext(tenantId))
+        {
+            seed.ScheduledJobChannels.Add(new ScheduledJobChannel
+            {
+                TenantId = tenantId,
+                JobId = jobId,
+                Channel = ScheduledJobChannelType.Slack
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var email = new FakeChannelSender(ScheduledJobChannelType.Email, delivers: true);
+        await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications(), new[] { email });
+
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var run = Assert.Single(await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
+        // Slack no se finge entregado: se dice que no hay integracion. Y NO cuenta como fallo.
+        Assert.Contains("Slack: canal sin integracion", run.Detail);
+        Assert.Equal(ScheduledJobRunResult.Ok, run.Result);
+    }
+
+    [Fact]
+    public async Task FailedChannel_RetriesTheSameWindow_WithBackoff_AndThenDeadLetters()
+    {
+        var tenantId = await SeedTenantAsync("Reintento");
+        var assigneeId = await SeedTenantUserAsync(tenantId, "encargado@retry.local");
+        var window = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var (jobId, ruleId) = await SeedJobAsync(tenantId, ScheduledJobType.Notification,
+            ScheduledJobStatus.Active, window, assigneeId);
+
+        var failing = new[] { new FakeChannelSender(ScheduledJobChannelType.Email, delivers: false) };
+
+        // Intento 1: falla -> se reprograma un REINTENTO conservando la ventana original.
+        await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications(), failing);
+        await using (var ctx1 = _fixture.CreateContext(tenantId))
+        {
+            var rule = await ctx1.ScheduledJobRules.FirstAsync(r => r.Id == ruleId);
+            Assert.Equal(1, rule.Attempt);
+            Assert.Equal(window.ToUnixTimeSeconds(), rule.PendingWindowAt!.Value.ToUnixTimeSeconds());
+            Assert.True(rule.NextRunAt > DateTimeOffset.UtcNow, "el reintento se agenda hacia el futuro (backoff)");
+
+            var run = Assert.Single(await ctx1.ScheduledJobRuns.Where(r => r.JobId == jobId).ToListAsync());
+            Assert.Equal(ScheduledJobRunResult.Error, run.Result);
+            Assert.Equal(1, run.Attempt);
+        }
+
+        // Intentos 2 y 3: se fuerza que el reintento este vencido. Al 3er intento -> DEAD-LETTER.
+        for (var i = 0; i < 2; i++)
+        {
+            await using (var force = _fixture.CreateContext(tenantId))
+            {
+                var rule = await force.ScheduledJobRules.FirstAsync(r => r.Id == ruleId);
+                rule.NextRunAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+                await force.SaveChangesAsync();
+            }
+            await RunDueAsync(tenantId, DateTimeOffset.UtcNow, new FakeNotifications(), failing);
+        }
+
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var runs = await ctx.ScheduledJobRuns.Where(r => r.JobId == jobId).OrderBy(r => r.Attempt).ToListAsync();
+        // Cada intento dejo su propia fila (la clave de idempotencia incluye el intento).
+        Assert.Equal(3, runs.Count);
+        Assert.Equal(new[] { 1, 2, 3 }, runs.Select(r => r.Attempt));
+        Assert.All(runs, r => Assert.Equal(ScheduledJobRunResult.Error, r.Result));
+        // Todos reintentan la MISMA ventana.
+        Assert.All(runs, r => Assert.Equal(window.ToUnixTimeSeconds(), r.FiredAt.ToUnixTimeSeconds()));
+        Assert.Contains("dead-letter", runs.Last().Detail);
+
+        // Tras el dead-letter la regla vuelve a su cadencia normal (no se queda atascada reintentando).
+        var final = await ctx.ScheduledJobRules.FirstAsync(r => r.Id == ruleId);
+        Assert.Null(final.PendingWindowAt);
+        Assert.Equal(0, final.Attempt);
+        Assert.True(final.NextRunAt > window);
+    }
+
     [Fact]
     public async Task UnscheduledRule_IsSelfHealed_InsteadOfStayingDeadForever()
     {
@@ -198,17 +307,22 @@ public abstract class ScheduledJobDispatcherTestsBase
 
     /// <summary>Dispatcher con el servicio de TAREAS real: el tipo Actividad crea una TaskItem de verdad (P3).</summary>
     private static ScheduledJobDispatcher BuildDispatcher(
-        EcorexDbContext ctx, ITenantContext tenant, INotificationService notifications)
+        EcorexDbContext ctx, ITenantContext tenant, INotificationService notifications,
+        IEnumerable<IScheduledJobChannelSender>? senders = null, TimeProvider? clock = null)
         => new(ctx, tenant, notifications,
             new TaskItemService(ctx, tenant, new SequenceService(ctx, tenant),
                 new WorkflowEngine(ctx, tenant, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
                 new NoOpEmailSender()),
+            senders ?? Array.Empty<IScheduledJobChannelSender>(),
+            clock ?? TimeProvider.System,
             NullLogger<ScheduledJobDispatcher>.Instance);
 
-    private async Task<int> RunDueAsync(Guid tenantId, DateTimeOffset nowUtc, FakeNotifications notifications)
+    private async Task<int> RunDueAsync(
+        Guid tenantId, DateTimeOffset nowUtc, FakeNotifications notifications,
+        IEnumerable<IScheduledJobChannelSender>? senders = null)
     {
         await using var ctx = _fixture.CreateContext(tenantId);
-        var dispatcher = BuildDispatcher(ctx, new TestTenantContext(tenantId), notifications);
+        var dispatcher = BuildDispatcher(ctx, new TestTenantContext(tenantId), notifications, senders);
         return await dispatcher.RunDueForTenantAsync(nowUtc);
     }
 
@@ -217,6 +331,28 @@ public abstract class ScheduledJobDispatcherTestsBase
         await using var ctx = _fixture.CreateContext(anyTenantId);
         var dispatcher = BuildDispatcher(ctx, new TestTenantContext(anyTenantId), new FakeNotifications());
         return await dispatcher.FindTenantsWithDueRulesAsync(nowUtc);
+    }
+
+    /// <summary>Sender de prueba para un canal: permite forzar entrega OK o fallo.</summary>
+    private sealed class FakeChannelSender : IScheduledJobChannelSender
+    {
+        private readonly bool _delivers;
+        public FakeChannelSender(ScheduledJobChannelType channel, bool delivers)
+        {
+            Channel = channel;
+            _delivers = delivers;
+        }
+        public ScheduledJobChannelType Channel { get; }
+        public List<string> Sent { get; } = new();
+
+        public Task<ChannelSendResult> SendAsync(
+            ScheduledJobRecipient recipient, string title, string body, CancellationToken cancellationToken = default)
+        {
+            Sent.Add(title);
+            return Task.FromResult(_delivers
+                ? ChannelSendResult.Ok($"{Channel}: enviado.")
+                : ChannelSendResult.Fail($"{Channel}: fallo simulado."));
+        }
     }
 
     /// <summary>Siembra el concepto (categoria -> subcategoria) que disparara el tipo Actividad.</summary>

@@ -148,6 +148,10 @@ public static class DependencyInjection
         services.AddScoped<Scheduling.IScheduledJobService, Scheduling.ScheduledJobService>();
         // Runner del motor (ola P2): dispara las ventanas vencidas, escribe la bitacora y avanza NextRunAt.
         services.AddScoped<Scheduling.IScheduledJobDispatcher, Scheduling.ScheduledJobDispatcher>();
+        // Canales de entrega (ola P4): ALLOW-LIST TIPADA, sin reflexion. Un canal SIN sender registrado
+        // (Slack/SMS, que no tienen integracion en el sistema) NO se entrega y queda asi en la bitacora.
+        services.AddScoped<Scheduling.IScheduledJobChannelSender, Scheduling.EmailChannelSender>();
+        services.AddScoped<Scheduling.IScheduledJobChannelSender, Scheduling.WhatsAppChannelSender>();
         // Configuracion de la entidad (000615): agencias/areas/sucursales del tenant + campos dinamicos.
         services.AddScoped<Entidades.IEntidadService, Entidades.EntidadService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de

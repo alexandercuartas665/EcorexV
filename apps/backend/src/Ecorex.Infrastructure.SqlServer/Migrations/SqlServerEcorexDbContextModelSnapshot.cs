@@ -6461,6 +6461,325 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("saas_plan_limits", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AreaEntityId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("area_entity_id");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("priority");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("SubcategoryId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("subcategory_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("type");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scheduled_jobs");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scheduled_jobs_tenant_id_code");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_scheduled_jobs_tenant_id_status");
+
+                    b.ToTable("scheduled_jobs", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("channel");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("job_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scheduled_job_channels");
+
+                    b.HasIndex("JobId", "Channel")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scheduled_job_channels_job_id_channel");
+
+                    b.ToTable("scheduled_job_channels", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AtTime")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)")
+                        .HasColumnName("at_time");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int?>("DayOfMonth")
+                        .HasColumnType("int")
+                        .HasColumnName("day_of_month");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("frequency");
+
+                    b.Property<int>("IntervalNum")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1)
+                        .HasColumnName("interval_num");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("job_id");
+
+                    b.Property<string>("MonthOrdinal")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("month_ordinal");
+
+                    b.Property<string>("MonthWeekday")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("month_weekday");
+
+                    b.Property<DateTimeOffset?>("NextRunAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("next_run_at");
+
+                    b.Property<int?>("RepeatEveryHours")
+                        .HasColumnType("int")
+                        .HasColumnName("repeat_every_hours");
+
+                    b.Property<string>("RepeatFrom")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)")
+                        .HasColumnName("repeat_from");
+
+                    b.Property<bool>("RepeatIntraday")
+                        .HasColumnType("bit")
+                        .HasColumnName("repeat_intraday");
+
+                    b.Property<string>("RepeatTo")
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)")
+                        .HasColumnName("repeat_to");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly?>("ValidFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_from");
+
+                    b.Property<DateOnly?>("ValidTo")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_to");
+
+                    b.Property<string>("Weekdays")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("weekdays");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scheduled_job_rules");
+
+                    b.HasIndex("NextRunAt")
+                        .HasDatabaseName("ix_scheduled_job_rules_next_run_at");
+
+                    b.HasIndex("JobId", "SortOrder")
+                        .HasDatabaseName("ix_scheduled_job_rules_job_id_sort_order");
+
+                    b.ToTable("scheduled_job_rules", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedEntityRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("created_entity_ref");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("detail");
+
+                    b.Property<DateTimeOffset>("FiredAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fired_at");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("job_id");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("result");
+
+                    b.Property<Guid?>("RuleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rule_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scheduled_job_runs");
+
+                    b.HasIndex("JobId")
+                        .HasDatabaseName("ix_scheduled_job_runs_job_id");
+
+                    b.HasIndex("TenantId", "JobId", "FiredAt")
+                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_fired_at");
+
+                    b.ToTable("scheduled_job_runs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -10975,6 +11294,42 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Plan");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobChannel", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScheduledJob", "Job")
+                        .WithMany("Channels")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scheduled_job_channels_scheduled_jobs_job_id");
+
+                    b.Navigation("Job");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobRule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScheduledJob", "Job")
+                        .WithMany("Rules")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scheduled_job_rules_scheduled_jobs_job_id");
+
+                    b.Navigation("Job");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJobRun", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScheduledJob", "Job")
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_scheduled_job_runs_scheduled_jobs_job_id");
+
+                    b.Navigation("Job");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ScrapeSource", "Source")
@@ -11600,6 +11955,13 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlan", b =>
                 {
                     b.Navigation("Limits");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScheduledJob", b =>
+                {
+                    b.Navigation("Channels");
+
+                    b.Navigation("Rules");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeSource", b =>

@@ -1783,7 +1783,7 @@ public sealed class DatabaseSeeder
             ("000038", "Actividades", "Crear una actividad (tarea) con tipo, prioridad y flujo.", "/actividades", ModuleArea.Principal, true),
             ("000042", "Proyectos", "Proyectos con equipo, tablero y avance.", "/proyectos", ModuleArea.Principal, true),
             ("000636", "Administrar actividades", "Bandeja de administracion de actividades del tenant.", "/actividades", ModuleArea.Operaciones, false),
-            ("000889", "Programar actividad", "Programacion de actividades recurrentes o futuras.", "/actividades", ModuleArea.Operaciones, false),
+            ("000889", "Programar actividad", "Programacion de actividades recurrentes o futuras.", "/programar-actividad", ModuleArea.Operaciones, false),
             ("000291", "Flujos", "Motor de flujos de proceso BPMN 2.0.", "/flujos", ModuleArea.Automatizacion, false),
             ("000131", "Formularios", "Formularios dinamicos configurables sin codigo.", "/formularios", ModuleArea.Automatizacion, false),
             ("000802", "Reglas", "Motor de reglas de negocio con verbos tipados.", "/reglas", ModuleArea.Automatizacion, false),
@@ -2576,7 +2576,7 @@ public sealed class DatabaseSeeder
         // El grupo "Procesos" (categorias con flujo) lo despliega NavMenu por IsProcessGroup.
         Item(misproc.Id, "Proyectos", "proyectos", "000042");
         Item(misproc.Id, "Administrar actividades", "actividades", "000636");
-        Item(misproc.Id, "Programar actividad", "modulo/programar-actividad", "000889");
+        Item(misproc.Id, "Programar actividad", "programar-actividad", "000889");
 
         // ---- Seccion: Negocio (slug nego) ----
         var nego = Add(MenuNodeKind.Section, "Negocio", null, "nego", iconKey: "briefcase");

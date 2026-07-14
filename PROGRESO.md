@@ -3925,3 +3925,32 @@ TaskBoard kind=Activities + code CNC-xxxxxxxxxxxx + 4 columnas default; fija tas
 = "Completado"). Asi la creacion del tablero vive DENTRO de Conceptos, es permanente y para todos los tenants,
 y ningun concepto queda huerfano. Validado en Chrome: concepto nuevo "QA auto-tablero" nacio con su tablero
 (4 columnas + cierre). Build verde.
+
+**Backfill de tenants y menus en PRODUCCION (2026-07-14, por SQL directo):** a peticion del usuario y con su
+autorizacion explicita, se corrigio el estado de las EMPRESAS CLIENTE en la BD de produccion (10.0.0.3, DB
+`ecorex`). Diagnostico previo: los tenants nuevos NACEN SIN MENU (el seeder solo siembra vistas para el tenant
+Demo), por eso AGROMETALICAS y PLATAFORMA ECOREX tenian 0 vistas de menu y sus usuarios no veian nada; BITCODE
+tenia "Completo" pero SIN marcar como IsDefault y 12/13 usuarios sin vista asignada; SKY SYSTEM arrastraba 4
+vistas basura "E2E ..." de pruebas. Acciones (backup `ecorex-2026-07-14-1521.sql.gz` primero; todo en UNA
+transaccion e idempotente):
+
+1. Nombres de tenant a MAYUSCULA (convencion): `Plataforma ECOREX` -> PLATAFORMA ECOREX, `agrometalicas` -> AGROMETALICAS.
+2. Alta de 2 tenants cliente nuevos: **SOLDARCO** y **CHUZO DE IVAN** (Kind=Standard, Status=Active).
+3. Se borraron las 4 vistas basura "E2E ..." (+ sus 8 nodos) de SKY SYSTEM.
+4. Se sembro la vista "Completo" (arbol canonico de 70 nodos, clonado del de SKY SYSTEM preservando la
+   jerarquia con remapeo de ids) a los 4 tenants que no tenian NINGUNA: AGROMETALICAS, PLATAFORMA ECOREX,
+   SOLDARCO, CHUZO DE IVAN.
+5. "Completo" quedo IsDefault=true en TODOS los tenants (BITCODE incluido).
+6. Los 30 usuarios sin vista quedaron asignados a la "Completo" de SU tenant (se respeto el usuario demo
+   "Perfil Simple" de SKY SYSTEM, cuya vista reducida es intencional).
+
+Resultado verificado: 6 tenants, 0 usuarios sin menu, 70 nodos "Completo" en cada uno.
+
+> ADVERTENCIA (excepcion a la regla inviolable #5): este backfill se hizo por **SQL directo**, no por
+> PlatformAdmin, por lo que **NO quedo traza en `AdminAuditLog`**. Excepcion autorizada explicitamente por el
+> usuario para esta operacion puntual. Esta entrada de PROGRESO.md es su unica traza.
+
+**PENDIENTE (causa raiz, en curso en otra sesion):** `IMenuProvisioningService.EnsureDefaultMenuAsync(tenantId)`
+implementado por `DatabaseSeeder` y llamado desde `TenantAdminService.CreateAsync` y `OnboardingService`, para
+que NINGUN tenant futuro nazca sin menu, + normalizacion del nombre a MAYUSCULA en el alta. Mientras eso no
+este desplegado, todo tenant creado desde la UI hay que sembrarlo a mano.

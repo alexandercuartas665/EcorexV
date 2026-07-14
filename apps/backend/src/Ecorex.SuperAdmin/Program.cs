@@ -141,6 +141,9 @@ builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentAssetReader, Ecor
 builder.Services.AddSingleton<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>();
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentReplyQueue>(sp => sp.GetRequiredService<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>());
+// Motor de programaciones (modulo 000889, ola P2): dispara las programaciones vencidas. Vive AQUI y no en
+// Ecorex.Workers porque el compose de prod solo levanta este servicio (ver deploy/docker-prod).
+builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).

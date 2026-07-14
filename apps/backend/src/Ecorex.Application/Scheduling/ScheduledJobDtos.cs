@@ -7,7 +7,9 @@ namespace Ecorex.Application.Scheduling;
 /// <summary>Fila de la lista (prototipo: TIPO | NOMBRE | REGLA | CANALES | ESTADO).</summary>
 public sealed record ScheduledJobListItemDto(
     Guid Id, string Code, ScheduledJobType Type, string Name, string? SubLabel,
-    string RuleSummary, IReadOnlyList<string> Channels, ScheduledJobStatus Status);
+    string RuleSummary, IReadOnlyList<string> Channels, ScheduledJobStatus Status,
+    // Ola P2: proxima ejecucion calculada por el motor de recurrencia (null = no volvera a disparar).
+    DateTimeOffset? NextRunAt = null);
 
 /// <summary>Una regla de recurrencia (para el detalle y el guardado).</summary>
 public sealed record ScheduledJobRuleDto(
@@ -35,6 +37,13 @@ public sealed record ScheduledJobSaveResult(bool IsOk, Guid? Id, string? Error)
     public static ScheduledJobSaveResult Ok(Guid id) => new(true, id, null);
     public static ScheduledJobSaveResult Fail(string error) => new(false, null, error);
 }
+
+/// <summary>Una fila de la bitacora de ejecucion (ola P2): lo que el origen legacy nunca integro.</summary>
+public sealed record ScheduledJobRunDto(
+    Guid Id, DateTimeOffset FiredAt, ScheduledJobRunResult Result, string? Detail, string? CreatedEntityRef);
+
+/// <summary>KPIs de la bitacora (sucesores de ContarEjecutadosHoy/ContarErrores, que en el origen devolvian 0).</summary>
+public sealed record ScheduledJobKpisDto(int ExecutedToday, int Errors, int ActiveJobs);
 
 // Catalogo de conceptos (000270) para los selects Categoria/Sub-categoria del tipo Actividad.
 public sealed record ScheduledJobSubcategoryDto(Guid Id, string Name);

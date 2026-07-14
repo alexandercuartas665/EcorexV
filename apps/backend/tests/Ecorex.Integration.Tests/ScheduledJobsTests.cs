@@ -214,7 +214,8 @@ public abstract class ScheduledJobsTestsBase
     {
         await using var ctx = _fixture.CreateContext(tenantId);
         var tenant = new TestTenantContext(tenantId);
-        var service = new ScheduledJobService(ctx, new SequenceService(ctx, tenant));
+        var service = new ScheduledJobService(
+            ctx, new SequenceService(ctx, tenant), tenant, TimeProvider.System);
         return await action(service);
     }
 

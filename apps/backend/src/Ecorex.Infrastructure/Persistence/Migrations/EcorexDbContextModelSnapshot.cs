@@ -6780,6 +6780,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "JobId", "FiredAt")
                         .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_fired_at");
 
+                    b.HasIndex("TenantId", "JobId", "RuleId", "FiredAt")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_rule_id_fired_at");
+
                     b.ToTable("scheduled_job_runs", (string)null);
                 });
 
@@ -8333,6 +8337,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)")
                         .HasColumnName("tax_id");
+
+                    b.Property<string>("TimeZoneId")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("time_zone_id");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

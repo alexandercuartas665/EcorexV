@@ -25,6 +25,16 @@
             <div class="pa-eyebrow">MODULO 000889 &middot; TAREAS</div>
             <h1 class="pa-title">Programar actividad</h1>
             <p class="pa-subtitle">Programa notificaciones/alertas o la creacion automatica de actividades con reglas de repeticion.</p>
+            @* KPIs de la bitacora (ola P2): sucesores de ContarEjecutadosHoy/ContarErrores, que en el
+               sistema origen siempre devolvian 0 por falta de log de ejecuciones. *@
+            @if (_kpis is not null)
+            {
+                <div class="pa-kpis">
+                    <span><strong>@_kpis.ExecutedToday</strong> ejecutados hoy</span>
+                    <span class="@(_kpis.Errors > 0 ? "err" : "")"><strong>@_kpis.Errors</strong> errores</span>
+                    <span><strong>@_kpis.ActiveJobs</strong> activas</span>
+                </div>
+            }
         </div>
         <button class="pa-btn-new" @onclick="OpenNew">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
@@ -60,7 +70,24 @@
                         <div class="pa-name">@row.Name</div>
                         <div class="pa-sub">@(string.IsNullOrWhiteSpace(row.SubLabel) ? "-" : row.SubLabel)</div>
                     </div>
-                    <div class="pa-cell pa-rule">@row.RuleSummary</div>
+                    <div class="pa-cell pa-rule">
+                        <div>@row.RuleSummary</div>
+                        @* Proxima ejecucion calculada por el motor (ola P2), en la hora del navegador. *@
+                        <div class="pa-next">
+                            @if (row.Status == ScheduledJobStatus.Paused)
+                            {
+                                <text>En pausa</text>
+                            }
+                            else if (row.NextRunAt is DateTimeOffset next)
+                            {
+                                <text>Proxima: @next.ToLocalTime().ToString("dd/MM HH:mm")</text>
+                            }
+                            else
+                            {
+                                <text>Sin proxima ejecucion</text>
+                            }
+                        </div>
+                    </div>
                     <div class="pa-cell pa-chan">@(row.Channels.Count == 0 ? "-" : string.Join(" · ", row.Channels))</div>
                     @* El chip de ESTADO alterna Activa/Pausada sin abrir el modal (stopPropagation).
                        El worker de P2 solo dispara las Activas. *@
@@ -261,6 +288,29 @@
                     }
                 </div>
 
+                @* Bitacora de ejecucion (ola P2): la pieza que el origen dejo como placeholder. *@
+                @if (_editId is not null)
+                {
+                    <label class="pa-caps pa-runs-caps">ULTIMAS EJECUCIONES</label>
+                    @if (_runs.Count == 0)
+                    {
+                        <div class="pa-runs-empty">Todavia no se ha disparado.</div>
+                    }
+                    else
+                    {
+                        <div class="pa-runs">
+                            @foreach (var run in _runs)
+                            {
+                                <div class="pa-run">
+                                    <span class="pa-tag" style="@RunTagStyle(run.Result)">@RunLabel(run.Result)</span>
+                                    <span class="pa-run-when">@run.FiredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                    <span class="pa-run-detail">@run.Detail</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
                 @if (_error is not null)
                 {
                     <div class="pa-error">@_error</div>
@@ -283,6 +333,8 @@
     private IReadOnlyList<ScheduledJobCategoryDto> _catalog = Array.Empty<ScheduledJobCategoryDto>();
     private IReadOnlyList<TenantUserDto> _users = Array.Empty<TenantUserDto>();
     private Guid? _assigneeId;
+    private ScheduledJobKpisDto? _kpis;
+    private IReadOnlyList<ScheduledJobRunDto> _runs = Array.Empty<ScheduledJobRunDto>();
 
     private bool _modalOpen;
     private bool _busy;
@@ -310,7 +362,22 @@
     private async Task ReloadAsync()
     {
         _items = await JobsSvc.ListAsync();
+        _kpis = await JobsSvc.GetKpisAsync();
     }
+
+    private static string RunLabel(ScheduledJobRunResult r) => r switch
+    {
+        ScheduledJobRunResult.Ok => "OK",
+        ScheduledJobRunResult.Error => "Error",
+        _ => "Omitido",
+    };
+
+    private static string RunTagStyle(ScheduledJobRunResult r) => r switch
+    {
+        ScheduledJobRunResult.Ok => "color:var(--t-green);background:var(--t-green-bg)",
+        ScheduledJobRunResult.Error => "color:var(--danger);background:var(--t-rose-bg)",
+        _ => "color:var(--ink-3);background:var(--surface-3)",
+    };
 
     /// <summary>Alterna Activa/Pausada desde la fila (el worker de P2 solo dispara las Activas).</summary>
     private async Task ToggleStatusAsync(Guid id)
@@ -334,6 +401,7 @@
         _rules.Add(RuleEdit.Default());
         _channels.Clear();
         _channels.Add(ScheduledJobChannelType.Email);
+        _runs = Array.Empty<ScheduledJobRunDto>();
         _error = null;
         _modalOpen = true;
     }
@@ -354,6 +422,7 @@
         if (_rules.Count == 0) { _rules.Add(RuleEdit.Default()); }
         _channels.Clear();
         foreach (var c in dto.Channels) { _channels.Add(c); }
+        _runs = await JobsSvc.ListRunsAsync(dto.Id); // bitacora (ola P2)
         _error = null;
         _modalOpen = true;
     }

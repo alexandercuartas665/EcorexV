@@ -146,6 +146,8 @@ public static class DependencyInjection
         // Motor de programaciones (modulo 000889 "Programar actividad"): CRUD de programaciones
         // (cabecera + reglas + canales). El worker de disparo + bitacora llega en P2.
         services.AddScoped<Scheduling.IScheduledJobService, Scheduling.ScheduledJobService>();
+        // Runner del motor (ola P2): dispara las ventanas vencidas, escribe la bitacora y avanza NextRunAt.
+        services.AddScoped<Scheduling.IScheduledJobDispatcher, Scheduling.ScheduledJobDispatcher>();
         // Configuracion de la entidad (000615): agencias/areas/sucursales del tenant + campos dinamicos.
         services.AddScoped<Entidades.IEntidadService, Entidades.EntidadService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de

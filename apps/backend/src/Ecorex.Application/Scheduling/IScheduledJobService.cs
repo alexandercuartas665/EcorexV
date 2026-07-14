@@ -25,4 +25,10 @@ public interface IScheduledJobService
 
     /// <summary>Catalogo de Conceptos (000270) para los selects Categoria/Sub-categoria del tipo Actividad.</summary>
     Task<IReadOnlyList<ScheduledJobCategoryDto>> GetConceptCatalogAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Bitacora de ejecucion de una programacion (ola P2), de la mas reciente a la mas antigua.</summary>
+    Task<IReadOnlyList<ScheduledJobRunDto>> ListRunsAsync(Guid jobId, int take = 10, CancellationToken cancellationToken = default);
+
+    /// <summary>KPIs del tenant: ejecutados hoy, errores y programaciones activas (ola P2).</summary>
+    Task<ScheduledJobKpisDto> GetKpisAsync(CancellationToken cancellationToken = default);
 }

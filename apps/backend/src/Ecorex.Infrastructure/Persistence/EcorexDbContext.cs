@@ -357,6 +357,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.LegalName).HasMaxLength(250);
             b.Property(x => x.TaxId).HasMaxLength(80);
             b.Property(x => x.Country).HasMaxLength(80);
+            // Zona horaria IANA del tenant (regla 9): la usa el motor de programaciones (000889).
+            b.Property(x => x.TimeZoneId).HasMaxLength(60);
             b.Property(x => x.Currency).HasMaxLength(10);
             b.Property(x => x.City).HasMaxLength(120);
             b.Property(x => x.Address).HasMaxLength(300);
@@ -1355,6 +1357,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.Job).WithMany()
                 .HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.JobId, x.FiredAt });
+            // IDEMPOTENCIA (ola P2, doc D5): una VENTANA = un disparo. Si dos instancias del worker
+            // corren a la vez, la segunda choca contra este indice y su insercion se descarta.
+            b.HasIndex(x => new { x.TenantId, x.JobId, x.RuleId, x.FiredAt }).IsUnique();
         });
 
         modelBuilder.Entity<FormToken>(b =>

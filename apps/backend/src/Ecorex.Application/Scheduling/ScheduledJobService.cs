@@ -13,11 +13,43 @@ public sealed class ScheduledJobService : IScheduledJobService
 
     private readonly IApplicationDbContext _db;
     private readonly ISequenceService _sequences;
+    private readonly ITenantContext _tenantContext;
+    private readonly TimeProvider _timeProvider;
 
-    public ScheduledJobService(IApplicationDbContext db, ISequenceService sequences)
+    public ScheduledJobService(
+        IApplicationDbContext db, ISequenceService sequences,
+        ITenantContext tenantContext, TimeProvider timeProvider)
     {
         _db = db;
         _sequences = sequences;
+        _tenantContext = tenantContext;
+        _timeProvider = timeProvider;
+    }
+
+    /// <summary>Zona horaria del tenant (regla 9): el calculo de la proxima ejecucion se hace en su hora local.</summary>
+    private async Task<TimeZoneInfo> ResolveTimeZoneAsync(CancellationToken cancellationToken)
+    {
+        string? tzId = null;
+        if (_tenantContext.TenantId is Guid tenantId)
+        {
+            tzId = await _db.Tenants
+                .Where(t => t.Id == tenantId)
+                .Select(t => t.TimeZoneId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        return ScheduledJobRecurrence.ResolveTimeZone(tzId);
+    }
+
+    /// <summary>
+    /// Programa las reglas: fija <c>NextRunAt</c> de cada una (ola P2). Sin esto el worker nunca
+    /// encontraria nada vencido y la programacion jamas dispararia.
+    /// </summary>
+    private void ScheduleRules(IEnumerable<ScheduledJobRule> rules, DateTimeOffset nowUtc, TimeZoneInfo tz)
+    {
+        foreach (var rule in rules)
+        {
+            rule.NextRunAt = ScheduledJobRecurrence.ComputeNextRun(rule, nowUtc, tz);
+        }
     }
 
     public async Task<IReadOnlyList<ScheduledJobListItemDto>> ListAsync(CancellationToken cancellationToken = default)
@@ -43,7 +75,35 @@ public sealed class ScheduledJobService : IScheduledJobService
                 : null,
             RuleSummary: ListSummary(j.Rules),
             Channels: j.Channels.Select(c => ChannelLabel(c.Channel)).ToList(),
-            Status: j.Status)).ToList();
+            Status: j.Status,
+            // Proxima ejecucion = la mas cercana entre sus reglas (ola P2).
+            NextRunAt: j.Rules.Where(r => r.NextRunAt != null).Select(r => r.NextRunAt).Min())).ToList();
+    }
+
+    public async Task<IReadOnlyList<ScheduledJobRunDto>> ListRunsAsync(
+        Guid jobId, int take = 10, CancellationToken cancellationToken = default)
+        => await _db.ScheduledJobRuns
+            .Where(r => r.JobId == jobId)
+            .OrderByDescending(r => r.FiredAt)
+            .Take(take < 1 ? 10 : take)
+            .Select(r => new ScheduledJobRunDto(r.Id, r.FiredAt, r.Result, r.Detail, r.CreatedEntityRef))
+            .ToListAsync(cancellationToken);
+
+    public async Task<ScheduledJobKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
+    {
+        // "Hoy" en la hora del TENANT (regla 9), no en la del servidor.
+        var tz = await ResolveTimeZoneAsync(cancellationToken);
+        var nowLocal = TimeZoneInfo.ConvertTime(_timeProvider.GetUtcNow(), tz);
+        var startLocal = new DateTimeOffset(nowLocal.Date, nowLocal.Offset);
+        var startUtc = startLocal.ToUniversalTime();
+
+        var executedToday = await _db.ScheduledJobRuns
+            .CountAsync(r => r.FiredAt >= startUtc && r.Result == ScheduledJobRunResult.Ok, cancellationToken);
+        var errors = await _db.ScheduledJobRuns
+            .CountAsync(r => r.Result == ScheduledJobRunResult.Error, cancellationToken);
+        var activeJobs = await _db.ScheduledJobs
+            .CountAsync(j => j.Status == ScheduledJobStatus.Active, cancellationToken);
+        return new ScheduledJobKpisDto(executedToday, errors, activeJobs);
     }
 
     public async Task<ScheduledJobDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
@@ -74,6 +134,8 @@ public sealed class ScheduledJobService : IScheduledJobService
 
         var catId = request.Type == ScheduledJobType.Activity ? request.CategoryId : null;
         var subId = request.Type == ScheduledJobType.Activity ? request.SubcategoryId : null;
+        var nowUtc = _timeProvider.GetUtcNow();
+        var tz = await ResolveTimeZoneAsync(cancellationToken);
 
         if (id is null)
         {
@@ -94,6 +156,7 @@ public sealed class ScheduledJobService : IScheduledJobService
             };
             ApplyRules(job, request.Rules);
             ApplyChannels(job, request.Channels);
+            ScheduleRules(job.Rules, nowUtc, tz); // fija NextRunAt (ola P2)
             _db.ScheduledJobs.Add(job);
             await _db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
@@ -122,10 +185,14 @@ public sealed class ScheduledJobService : IScheduledJobService
         _db.ScheduledJobRules.RemoveRange(existing.Rules.ToList());
         _db.ScheduledJobChannels.RemoveRange(existing.Channels.ToList());
         var order = 0;
+        var newRules = new List<ScheduledJobRule>();
         foreach (var r in request.Rules)
         {
-            _db.ScheduledJobRules.Add(NewRule(existing.Id, r, order++));
+            var entity = NewRule(existing.Id, r, order++);
+            newRules.Add(entity);
+            _db.ScheduledJobRules.Add(entity);
         }
+        ScheduleRules(newRules, nowUtc, tz); // reprograma NextRunAt de las reglas nuevas (ola P2)
         foreach (var ch in request.Channels.Distinct())
         {
             _db.ScheduledJobChannels.Add(new ScheduledJobChannel { JobId = existing.Id, Channel = ch });

@@ -3824,3 +3824,10 @@ rapido. `TaskWizard.OpenAsync` gana `presetBoardId`/`presetColumnId` y los pasa 
 El modal rapido (`ab-quick-modal`, `OpenQuickCreate`) queda SIN USO -> limpieza pendiente. Ademas se
 integro el merge de Formularios avanzados (7 migraciones) y la solucion compila unida (0 errores).
 Validado en el Chrome del usuario: +Actividad abre el wizard, el modal pequeno no aparece.
+
+**Menu (2026-07-14): reorganizar "Mis Procesos".** (A) Las categorias-proceso dinamicas (IsProcessGroup)
+ahora se agrupan bajo un nodo colapsable "Procesos" en NavMenu (antes iban sueltas arriba del cuerpo).
+(B) El item del formulario-modulo "Formulario nuevo" (/m/FRM-021) se movio a una carpeta nueva "Documentos"
+bajo misproc (via SQL local, TEMPORAL -> no esta en el seed). Validado en el Chrome del usuario.
+Pendiente de decision: quitar/ocultar "Crear una actividad" (000038, redundante con el wizard) y el
+subgrupo estatico "Comercial" (sg-comercial) que no estan en el target del usuario.

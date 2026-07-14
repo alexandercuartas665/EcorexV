@@ -2623,7 +2623,8 @@ public sealed class DatabaseSeeder
         // La verdadera configuracion de la entidad (agencias/areas/sucursales) es el modulo nuevo.
         Item(gen.Id, "Mi cuenta", "mi-cuenta", "000615");
         Item(gen.Id, "Configuracion de la entidad", "configuracion-entidad", "000616");
-        Item(gen.Id, "Actividades", "actividades", "000270");
+        // "Actividades" (indice de tableros) retirado de Sistema.General: es redundante con
+        // "Mis Procesos > Administrar actividades". Los tableros se referencian desde Conceptos.
         Item(gen.Id, "Extraccion de datos", "extraccion-datos", "000730");
         Item(gen.Id, "Plantillas", "plantillas", "000893");
         Item(gen.Id, "Dependencias", "dependencias", "000850");
@@ -2797,6 +2798,9 @@ public sealed class DatabaseSeeder
         // los tenants. El grupo "Procesos" (categorias con flujo) lo despliega NavMenu por IsProcessGroup.
         await RemoveMenuItemByRouteAsync(tenantId, route: "crear-actividad", cancellationToken);
         await RemoveMenuSubtreeByRouteAsync(tenantId, route: "sg-comercial", cancellationToken);
+        // "Actividades" (route=actividades) redundante en Sistema.General (gen); se conserva la de
+        // "Mis Procesos" (misproc). Scopeado por seccion para no borrar la buena.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "gen", route: "actividades", cancellationToken);
 
         // Alta idempotente del item "Contenedor de datos" (modelos dinamicos + importacion) en la
         // seccion "Sistema . General" (slug gen) de cada vista ya sembrada que aun no lo tenga.
@@ -2913,6 +2917,28 @@ public sealed class DatabaseSeeder
         _logger.LogInformation(
             "Reconciliacion del menu para el tenant {Tenant}: subarbol '{Route}' RETIRADO ({Count} nodos).",
             tenantId, route, nodes.Count);
+    }
+
+    /// <summary>
+    /// Retiro idempotente de un item por ruta PERO solo bajo una seccion concreta (por su slug), para
+    /// no borrar otros items con la misma ruta en otras secciones (p.ej. "actividades" existe en
+    /// Sistema.General y en Mis Procesos; aqui solo se quita el de Sistema.General).
+    /// </summary>
+    private async Task RemoveMenuItemFromSectionAsync(
+        Guid tenantId, string sectionSlug, string route, CancellationToken cancellationToken)
+    {
+        var stale = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.Route == route && n.Kind == MenuNodeKind.Item
+                && n.ParentId != null
+                && _db.MenuNodes.Any(s => s.Id == n.ParentId && s.Route == sectionSlug))
+            .ToListAsync(cancellationToken);
+        if (stale.Count == 0) { return; }
+
+        _db.MenuNodes.RemoveRange(stale);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Reconciliacion del menu para el tenant {Tenant}: item '{Route}' de la seccion '{Sec}' RETIRADO ({Count}).",
+            tenantId, route, sectionSlug, stale.Count);
     }
 
     private async Task EnsureMenuDemoUserAsync(

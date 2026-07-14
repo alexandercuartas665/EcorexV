@@ -3882,3 +3882,20 @@ Antes de arrancar P2 se cerraron los pendientes de P1:
   cross-tenant y el consecutivo PAC por tenant.
 
 **P1 CERRADA.** Siguiente: P2 (motor de recurrencia + worker + bitacora + KPIs).
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P2: el motor ya dispara
+
+- **Motor de recurrencia** (puro, unit-testeable): proxima ejecucion en la **zona del tenant** (regla 9),
+  devuelta en UTC. 4 frecuencias del prototipo + intervalos + dias + ordinal mensual + intradia + vigencia.
+- **Worker** hosted service **dentro de SuperAdmin** (NO en Ecorex.Workers): el compose de prod solo levanta
+  `ecorex-app`, asi que un worker en Ecorex.Workers **nunca correria en prod** (hallazgo importante).
+- **Dispatcher**: barrido cross-tenant (unico IgnoreQueryFilters, solo ids) + ejecucion acotada con
+  AmbientTenantContext. Solo dispara las Activas; bitacora con la VENTANA como fired_at; avanza NextRunAt.
+  Notification -> in-app al encargado; Activity -> Skipped hasta P3.
+- **Idempotencia** por indice unico (tenant, job, rule, fired_at) + **auto-reparacion** de reglas sin
+  NextRunAt (quedarian muertas). Migracion dual aditiva `AddSchedulerEngine` (tenants.time_zone_id + indice).
+- **UI**: KPIs (ejecutados hoy/errores/activas), "Proxima: dd/MM HH:mm" en la lista y bitacora en el modal.
+- **34 tests verde** (12 unitarios + 22 integracion dual). En vivo: el worker disparo solo, dejo bitacora Ok
+  y reprogramo a las 08:00 de Bogota.
+
+**Siguiente**: P3 (tipo Actividad crea la TaskItem via ITaskItemService.CreateAsync con el SubcategoriaId).

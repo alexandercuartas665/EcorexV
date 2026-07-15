@@ -4254,3 +4254,24 @@ stub (modulo/sql-admin) sin modulo detras. Se desarrollo respetando el diseno de
 
 **Verificado**: build sln verde, unit 379/379. Commit b3004e5 en main + fase-0/clon-backbone.
 **Pendiente**: deploy a prod (aplica migracion AddSqlConsoleLogs al arrancar + reconcile repunta el menu).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Gestion de cuenta/planes: YA EXISTIA + catalogo demo
+
+**Peticion**: traer de "cubot.crm" la gestion de cuenta donde el tenant selecciona plan y el super
+admin define planes. **Hallazgo (3a vez el mismo patron)**: es backbone compartido de la familia
+cubotcrm y ECOREX YA lo tiene a paridad total: entidades SaasPlan/SaasPlanLimit/TenantSubscription,
+servicios PlanAdminService/SubscriptionAdminService/RecurringBillingService/WompiCheckoutService,
+pagina /plans (super admin define planes, policy PlatformOperator) y /mi-cuenta (tenant: plan, limites,
+"Cambiar de plan", checkout Wompi). No existe carpeta cubot.crm; los tamanos de Cuenta/Plans son casi
+identicos a los hermanos (mismo codigo del backbone). No habia nada que portar.
+
+**Lo unico que faltaba (operativo)**: solo habia 1 plan sembrado, asi que la SELECCION no tenia
+opciones. Se agrego `EnsureDemoPlansAsync` (idempotente por nombre): catalogo Free (\$0) / Pro (\$49k) /
+Empresa (\$99k) con limites; global; enganchado al bloque demo de Program.cs (NO corre en prod bajo
+SkipDemoSeed, donde el super admin define sus planes reales). Commit `5b3fee0`, sin migracion.
+
+**Validado en Chrome** (demo SKY SYSTEM, Owner): /mi-cuenta "Cambiar de plan" lista los 3 planes;
+cambio Empresa->Pro aplica y actualiza limites (25 usuarios / 500k IA / 5 lineas). BD: 3 filas en
+saas_plans. No desplegado (cambio solo-demo; prod define planes por /plans).

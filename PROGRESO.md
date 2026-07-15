@@ -4291,3 +4291,27 @@ parecia que la funcion no existia.
   (Clientes/Productos/Pedidos) + 2 relaciones (Pedidos.Cliente->Clientes N:1; Pedidos.Productos<->Productos
   N:N). Idempotente, solo Development. Validado en Chrome: el lienzo ER dibuja la linea morada (N:1) y la
   naranja punteada (N:N). Sin migracion. No desplegado (solo-demo).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Contenedor de datos: relaciones como ENTIDAD (aristas del ER)
+
+**Feedback del dueno**: el 'tipo' de un campo mezclaba dos propiedades ortogonales (tipo de dato vs.
+relacion). Se separo: una relacion es ahora una entidad de primera clase.
+
+- **Dominio**: `DataModelRelation` (ModelId, FromTableId->ToTableId, Kind N:1/N:N, Name) + enum
+  `DataModelRelationKind`. Se elimina `ReferencedContainerId` de la columna; Reference/RelationMany
+  quedan deprecados en el enum (solo para el backfill). Submodel (anidamiento) intacto.
+- **Servicios**: DataModelService deriva relaciones de la entidad; AddRelation/DeleteRelationAsync;
+  DeleteTableAsync limpia aristas primero. DataContainerService: columnas solo escalares.
+- **UI**: se quitan Referencia/Relacion del dropdown de tipo; nuevo panel 'Relaciones' (lista +
+  form origen/destino/cardinalidad + eliminar). El lienzo dibuja las lineas desde la entidad.
+- **Migracion DUAL RelationsAsEntity + BACKFILL**: convierte relaciones-columna en aristas y neutraliza
+  las columnas. Orden: crear tabla -> backfill -> borrar columnas -> drop referenced_container_id.
+- **Fase 2 diferida**: re-cablear el vinculo dato-a-dato (fila-a-fila) contra la relacion-entidad; el
+  backfill descarta esos links (el esquema de relacion si se preserva). Riesgo marcado para prod.
+
+**Verificado**: build sln 0/0; unit 379/379; backfill aplicado en local (2 aristas Pedidos->Clientes N:1
+/ Pedidos->Productos N:N, 0 columnas de relacion restantes). Commit `8b980e9` en main + fase-0. NO
+desplegado. La verificacion visual en Chrome quedo pendiente por inestabilidad del dev server (se cae al
+arrancar); la capa de datos si se verifico por psql.

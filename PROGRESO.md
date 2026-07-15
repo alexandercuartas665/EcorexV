@@ -4159,3 +4159,24 @@ dispara el puente Concepto->Tarea (titulo auto, tablero del concepto, flujo, des
 
 **MODULO 000889 COMPLETO (P1..P4).** Pendiente de configuracion (no de codigo): SMTP para que el correo
 entregue; linea de WhatsApp asignada al encargado. Slack/SMS requeririan integrarse desde cero.
+
+---
+
+## Sesion 2026-07-15 - Dos pendientes menores (post-deploy 0bf057d)
+
+**Agentes**: Claude (Opus 4.8). Contexto: ya en prod el arranque de tareas-proceso (olas A-D) +
+tareasprogramadas (000889) + IMenuProvisioning. Cierre de los dos pendientes menores que quedaban.
+
+- **Item 1 - config demo COT-COM (SQL, local)**: los 4 nodos del flujo de cotizacion/comercial ya
+  tenian cargo salvo Facturacion y Entrega (sin `WorkflowNodePolicy`); ademas el concepto no tenia
+  columna de cierre. Se insertaron 2 policies (Facturacion->Aprobador/admin; Entrega->Asesor
+  Comercial/operator, `ON CONFLICT DO NOTHING`) y se fijo `task_board_column_id` = Completado.
+  Verificado: los 4 nodos con cargo + columna de cierre = Completado.
+- **Item 2 - guardia form-first vs form-por-nodo (`9a7982b`)**: en Conceptos (000270), aviso ambar no
+  bloqueante cuando el formulario de ADMISION del concepto coincide con el del PRIMER nodo del flujo
+  (se pediria dos veces). Se resuelve sobre el flujo GUARDADO
+  (`ResolveFirstStepAsync`->NodeId->`GetWorkflowNodeFormAsync`); al cambiar el flujo en vivo se limpia
+  la cache para no avisar en falso. Build SuperAdmin verde (0 errores). Push a main + fase-0/clon-backbone.
+
+**Nota**: cambio solo-codigo/UI; prod sigue en 0bf057d (no requiere redeploy). El aviso viajara a prod
+en el proximo despliegue rutinario.

@@ -134,8 +134,22 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
   al auto-tablero 388e895). Anotados en el backlog del capitulo para cerrarlos por configuracion.
 - **Nota**: el clic visual "Completar paso" no se re-ejercito por inestabilidad del circuito Blazor
   Server tras reinicios; cubierto por los tests duales y la corrida previa (tarea #67).
-- **Siguiente**: Ola D (formulario por nodo del flujo, comprometida en D1) + deploy a prod del
-  acumulado.
+- **Ola D - YA EXISTIA (verificada, sin codigo nuevo)**: al ir a construir "formulario por nodo" se
+  hallo que YA esta completo desde FASE 4 (ADR-0015, migracion AddDynamicForms 2026-07-03), con un
+  mecanismo mejor que el propuesto: entidad join `WorkflowNodeForm` (indice unico por nodo), no
+  `WorkflowNodePolicy.FormDefinitionId`. D1 (dominio+migracion dual), D2 (selector en FlowEditor
+  Acordeon 2 -> WorkflowDesignService.SetNodeFormAsync) y D3 (runtime GetTaskStepFormsAsync +
+  seccion "Formularios del paso" en TaskDetailModal) existen y estan cableados. Verificado:
+  `DynamicFormsTests` 16/16 dual, incluido el ciclo completo (asignar form al nodo Cotizacion ->
+  avanzar -> el paso pide su form con gateway adelante -> enviar con "Aprobada" -> completa y avanza
+  a Facturacion). No se construyo nada: habria sido redundante.
+- **Unico punto abierto de la Ola D (decision de producto)**: la precedencia form-first (formulario
+  del CONCEPTO, admision) vs form-por-nodo (formulario del PASO) NO existe; son fases ortogonales.
+  La D1 original ("gana el del nodo") se penso creyendo que el form-por-nodo no existia. Recomendacion:
+  dejarlos ortogonales; a decidir con el usuario.
+- **Deuda menor**: dos APIs escriben WorkflowNodeForms (FormDefinitionService.AssignToWorkflowNodeAsync
+  sin UI + WorkflowDesignService.SetNodeFormAsync del editor); unificar cual es canonica.
+- **Siguiente**: cerrar la decision de precedencia + DEPLOY a prod del acumulado (A/B/C + previo).
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

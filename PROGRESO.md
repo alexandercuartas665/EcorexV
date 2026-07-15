@@ -4180,3 +4180,37 @@ tareasprogramadas (000889) + IMenuProvisioning. Cierre de los dos pendientes men
 
 **Nota**: cambio solo-codigo/UI; prod sigue en 0bf057d (no requiere redeploy). El aviso viajara a prod
 en el proximo despliegue rutinario.
+
+---
+
+## Sesion 2026-07-15 (cont.) - "Traer" de CUBOT.travels: mirada + backport selectivo
+
+**Agentes**: Claude (Opus 4.8) + 6 subagentes (4 de reconocimiento + 2 de planificacion).
+
+**Contexto**: el usuario pidio "traer todo" del proyecto hermano CUBOT.travels. Reconocimiento con
+agentes revelo que travels NO es un modulo ajeno: es otro fork del MISMO backbone (cubotcrm), y
+ECOREX ya tiene esos modulos. Veredicto por area:
+- **Spine** (billing/Wompi, auth, Google, superadmin, Mi cuenta, API leads): YA en ECOREX 1:1
+  (ancestros compartidos). Nada que traer.
+- **Agentes IA + MCP**: ECOREX va POR DELANTE (function-calling/tools reales; travels usa el motor
+  viejo de marcadores de texto). Duplicar/cupos/lista negra/dispatcher ya existen. MCP destinos = viajes.
+- **WhatsApp/conversaciones/chat**: a la par o mas evolucionado (Emulator, dual-provider). Unico
+  faltante real: proveedor **YCloud**.
+- **Pipeline CRM**: dos CRMs ya (Pipeline heredado + Gestor 000740). Avances de travels = menores
+  (asignar asesor inline, gestor de columnas). Decision estrategica pendiente (no se toco).
+- **Destinos/Planes de Viaje**: especifico de viajes, descartado.
+
+**Mecanica**: cherry-pick cross-repo NO viable (namespaces CubotTravels->Ecorex, net9->net10, dual
+migrations). Port manual, archivo por archivo.
+
+**Lo que se trajo (eleccion del usuario):**
+1. **Robustez del runtime del agente** (`9c3de08`): candado de asesor humano (se calla si el lead esta
+   asignado y activo; retoma si esta archivado), retry con backoff 503 en las 2 rutas de
+   function-calling, pausa entre adjuntos. Sin migraciones. NO se porto el modelo de marcadores.
+2. **Proveedor YCloud** (`92eb858`): 3er BSP de linea (par de Evolution/Cloud). Cliente HTTP portado
+   1:1, enum+entidad+DTOs+servicios+UI, migracion DUAL AddYCloudProvider (3 cols + indice). El canal
+   WhatsApp del 000889 lo hereda sin tocarse. Fuera de alcance: sometimiento real de HSM a Meta via
+   YCloud y webhook entrante YCloud (el proveedor es saliente).
+
+**Verificado**: build sln verde (0 errores), unit 379+35 verdes, migraciones duales simetricas.
+Ambos commits en main + fase-0/clon-backbone. **No desplegado** (prod sigue en 0bf057d).

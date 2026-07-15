@@ -547,10 +547,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.CloudPhoneNumberId).HasMaxLength(60);
             b.Property(x => x.CloudBusinessAccountId).HasMaxLength(60);
             b.Property(x => x.CloudAccessTokenEncrypted).HasColumnType(longTextColumnType);
+            b.Property(x => x.YCloudApiKeyEncrypted).HasColumnType(longTextColumnType);
+            b.Property(x => x.YCloudPhoneNumberId).HasMaxLength(40);
+            b.Property(x => x.YCloudWabaId).HasMaxLength(60);
             b.HasIndex(x => new { x.TenantId, x.InstanceName }).IsUnique();
             b.HasIndex(x => x.AssignedToTenantUserId);
             // El webhook entrante de Meta resuelve la linea por phone_number_id.
             b.HasIndex(x => x.CloudPhoneNumberId);
+            // El emisor YCloud tambien enruta el webhook entrante (paridad con Meta Cloud).
+            b.HasIndex(x => x.YCloudPhoneNumberId);
         });
 
         modelBuilder.Entity<PipelineStage>(b =>

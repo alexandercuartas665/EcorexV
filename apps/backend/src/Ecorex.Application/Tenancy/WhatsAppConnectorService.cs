@@ -13,6 +13,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     private readonly ISecretProtector _secretProtector;
     private readonly IEvolutionApiClient _client;
     private readonly IWhatsAppCloudClient _cloud;
+    private readonly IYCloudApiClient _ycloud;
     private readonly IAuditWriter _audit;
     private readonly TimeProvider _timeProvider;
 
@@ -22,6 +23,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         ISecretProtector secretProtector,
         IEvolutionApiClient client,
         IWhatsAppCloudClient cloud,
+        IYCloudApiClient ycloud,
         IAuditWriter audit,
         TimeProvider timeProvider)
     {
@@ -30,6 +32,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         _secretProtector = secretProtector;
         _client = client;
         _cloud = cloud;
+        _ycloud = ycloud;
         _audit = audit;
         _timeProvider = timeProvider;
     }
@@ -124,6 +127,31 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             return new LineConnectResult(true, null, null); // sin QR
         }
 
+        // Linea YCloud (BSP oficial): no hay QR. Validar la API key contra la cuenta y marcar conectada.
+        if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            var ycloudKey = YCloudApiKey(line);
+            if (ycloudKey is null) { return new LineConnectResult(false, null, "Falta la API key de la linea YCloud."); }
+            var check = await _ycloud.CheckAsync(ycloudKey, line.YCloudPhoneNumberId, cancellationToken);
+            var nowY = _timeProvider.GetUtcNow();
+            if (!check.IsValid)
+            {
+                line.Status = WhatsAppLineStatus.Failed;
+                line.LastStatusAt = nowY;
+                await _db.SaveChangesAsync(cancellationToken);
+                return new LineConnectResult(false, null, check.Error ?? "No se pudo validar la linea con YCloud.");
+            }
+            line.Status = WhatsAppLineStatus.Connected;
+            line.LastStatusAt = nowY;
+            line.LastConnectedAt = nowY;
+            if (string.IsNullOrWhiteSpace(line.PhoneNumber) && !string.IsNullOrWhiteSpace(check.VerifiedPhone)) { line.PhoneNumber = check.VerifiedPhone; }
+            if (string.IsNullOrWhiteSpace(line.YCloudWabaId) && !string.IsNullOrWhiteSpace(check.WabaId)) { line.YCloudWabaId = check.WabaId; }
+            _audit.Write(actorUserId, "whatsapp-line.connect", nameof(WhatsAppLine), line.Id,
+                previousValue: null, newValue: new { provider = "YCloud", phone = line.YCloudPhoneNumberId }, tenantId: line.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+            return new LineConnectResult(true, null, null); // sin QR
+        }
+
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null)
         {
@@ -187,6 +215,23 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
                 line.Status = mappedCloud;
                 line.LastStatusAt = now;
                 if (mappedCloud == WhatsAppLineStatus.Connected) { line.LastConnectedAt = now; }
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            return Map(line);
+        }
+
+        if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            var key = YCloudApiKey(line);
+            if (key is null) { return Map(line); }
+            var check = await _ycloud.CheckAsync(key, line.YCloudPhoneNumberId, cancellationToken);
+            var mappedY = check.IsValid ? WhatsAppLineStatus.Connected : WhatsAppLineStatus.Failed;
+            if (mappedY != line.Status)
+            {
+                var now = _timeProvider.GetUtcNow();
+                line.Status = mappedY;
+                line.LastStatusAt = now;
+                if (mappedY == WhatsAppLineStatus.Connected) { line.LastConnectedAt = now; }
                 await _db.SaveChangesAsync(cancellationToken);
             }
             return Map(line);
@@ -306,6 +351,13 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             var r = await _cloud.SendTextAsync(creds.Value.phoneNumberId, creds.Value.token, digits, text.Trim(), cancellationToken);
             (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
         }
+        else if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            var key = YCloudApiKey(line);
+            if (key is null || string.IsNullOrWhiteSpace(line.YCloudPhoneNumberId)) { return new LineSendResult(false, "Faltan la API key o el emisor de la linea YCloud."); }
+            var r = await _ycloud.SendTextAsync(key, line.YCloudPhoneNumberId!, digits, text.Trim(), cancellationToken);
+            (ok, error, messageId) = (r.IsSuccess, r.Error, r.MessageId);
+        }
         else
         {
             var server = await ResolveServerAsync(cancellationToken);
@@ -351,6 +403,12 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             return new LineSendResult(r.Ok, r.Error, r.MessageId);
         }
 
+        if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            // YCloud envia media por URL publica; el runtime de ECOREX entrega en base64. Fuera de alcance por ahora.
+            return new LineSendResult(false, "YCloud envia media por URL publica; el envio por archivo (base64) no esta soportado en este corte.");
+        }
+
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
@@ -377,6 +435,11 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             if (creds is null) { return new LineSendResult(false, "Faltan credenciales Cloud en la linea."); }
             var rc = await _cloud.SendLocationAsync(creds.Value.phoneNumberId, creds.Value.token, digits, latitude, longitude, name, null, cancellationToken);
             return new LineSendResult(rc.Ok, rc.Error, rc.MessageId);
+        }
+
+        if (line.Provider == WhatsAppProvider.YCloud)
+        {
+            return new LineSendResult(false, "YCloud no soporta el envio de ubicacion en este corte.");
         }
 
         var server = await ResolveServerAsync(cancellationToken);
@@ -432,6 +495,14 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     {
         if (string.IsNullOrWhiteSpace(line.CloudPhoneNumberId) || string.IsNullOrWhiteSpace(line.CloudAccessTokenEncrypted)) { return null; }
         try { return (line.CloudPhoneNumberId!, _secretProtector.Unprotect(line.CloudAccessTokenEncrypted!)); }
+        catch { return null; }
+    }
+
+    // API key YCloud de la linea, descifrada, o null si falta / no se puede descifrar.
+    private string? YCloudApiKey(WhatsAppLine line)
+    {
+        if (string.IsNullOrWhiteSpace(line.YCloudApiKeyEncrypted)) { return null; }
+        try { return _secretProtector.Unprotect(line.YCloudApiKeyEncrypted!); }
         catch { return null; }
     }
 
@@ -501,5 +572,6 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
 
     private static WhatsAppLineDto Map(WhatsAppLine l) =>
         new(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt,
-            l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, !string.IsNullOrEmpty(l.CloudAccessTokenEncrypted));
+            l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, !string.IsNullOrEmpty(l.CloudAccessTokenEncrypted),
+            l.YCloudPhoneNumberId, l.YCloudWabaId, !string.IsNullOrEmpty(l.YCloudApiKeyEncrypted));
 }

@@ -13,7 +13,10 @@ public sealed record WhatsAppLineDto(
     WhatsAppProvider Provider = WhatsAppProvider.Evolution,
     string? CloudPhoneNumberId = null,
     string? CloudBusinessAccountId = null,
-    bool HasCloudToken = false);
+    bool HasCloudToken = false,
+    string? YCloudPhoneNumberId = null,
+    string? YCloudWabaId = null,
+    bool HasYCloudApiKey = false);
 
 public sealed record CreateWhatsAppLineRequest(
     string InstanceName,
@@ -21,7 +24,10 @@ public sealed record CreateWhatsAppLineRequest(
     WhatsAppProvider Provider = WhatsAppProvider.Evolution,
     string? CloudPhoneNumberId = null,
     string? CloudAccessToken = null,
-    string? CloudBusinessAccountId = null);
+    string? CloudBusinessAccountId = null,
+    string? YCloudApiKey = null,
+    string? YCloudPhoneNumberId = null,
+    string? YCloudWabaId = null);
 
 public sealed record ChangeLineStatusRequest(WhatsAppLineStatus Status);
 

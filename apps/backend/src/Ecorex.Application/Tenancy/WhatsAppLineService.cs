@@ -28,7 +28,8 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
             .AsNoTracking()
             .OrderBy(l => l.InstanceName)
             .Select(l => new WhatsAppLineDto(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt,
-                l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, l.CloudAccessTokenEncrypted != null))
+                l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, l.CloudAccessTokenEncrypted != null,
+                l.YCloudPhoneNumberId, l.YCloudWabaId, l.YCloudApiKeyEncrypted != null))
             .ToListAsync(cancellationToken);
     }
 
@@ -51,6 +52,11 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
             CloudBusinessAccountId = request.Provider == WhatsAppProvider.Cloud ? Clean(request.CloudBusinessAccountId) : null,
             CloudAccessTokenEncrypted = request.Provider == WhatsAppProvider.Cloud && !string.IsNullOrWhiteSpace(request.CloudAccessToken)
                 ? _secretProtector.Protect(request.CloudAccessToken.Trim())
+                : null,
+            YCloudPhoneNumberId = request.Provider == WhatsAppProvider.YCloud ? Clean(request.YCloudPhoneNumberId) : null,
+            YCloudWabaId = request.Provider == WhatsAppProvider.YCloud ? Clean(request.YCloudWabaId) : null,
+            YCloudApiKeyEncrypted = request.Provider == WhatsAppProvider.YCloud && !string.IsNullOrWhiteSpace(request.YCloudApiKey)
+                ? _secretProtector.Protect(request.YCloudApiKey.Trim())
                 : null
         };
         _db.WhatsAppLines.Add(line);
@@ -124,7 +130,8 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
 
     private static WhatsAppLineDto Map(WhatsAppLine l) =>
         new(l.Id, l.InstanceName, l.PhoneNumber, l.Status, l.AssignedToTenantUserId, l.LastConnectedAt, l.LastStatusAt,
-            l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, !string.IsNullOrEmpty(l.CloudAccessTokenEncrypted));
+            l.Provider, l.CloudPhoneNumberId, l.CloudBusinessAccountId, !string.IsNullOrEmpty(l.CloudAccessTokenEncrypted),
+            l.YCloudPhoneNumberId, l.YCloudWabaId, !string.IsNullOrEmpty(l.YCloudApiKeyEncrypted));
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 }

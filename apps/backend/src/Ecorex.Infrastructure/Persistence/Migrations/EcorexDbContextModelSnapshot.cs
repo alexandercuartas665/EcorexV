@@ -9529,6 +9529,20 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<string>("YCloudApiKeyEncrypted")
+                        .HasColumnType("text")
+                        .HasColumnName("y_cloud_api_key_encrypted");
+
+                    b.Property<string>("YCloudPhoneNumberId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("y_cloud_phone_number_id");
+
+                    b.Property<string>("YCloudWabaId")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("y_cloud_waba_id");
+
                     b.HasKey("Id")
                         .HasName("pk_whats_app_lines");
 
@@ -9537,6 +9551,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CloudPhoneNumberId")
                         .HasDatabaseName("ix_whats_app_lines_cloud_phone_number_id");
+
+                    b.HasIndex("YCloudPhoneNumberId")
+                        .HasDatabaseName("ix_whats_app_lines_y_cloud_phone_number_id");
 
                     b.HasIndex("TenantId", "InstanceName")
                         .IsUnique()

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- GUI colmena del Agente Conector On-Prem (Ola A: cascara visual). WPF, Windows-first (D7).
+       UseWindowsForms se habilita SOLO para el NotifyIcon de la bandeja (System.Windows.Forms),
+       evitando una dependencia NuGet externa. La app referencia SOLO los contratos compartidos. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Ecorex.Agent.Gui</RootNamespace>
+    <AssemblyName>Ecorex.Agent.Gui</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

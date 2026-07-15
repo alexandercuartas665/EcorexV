@@ -1,0 +1,90 @@
+<Window x:Class="Ecorex.Agent.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ECOREX - Agente Conector"
+        Width="520" Height="560"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True">
+
+    <!-- Marco translucido oscuro con esquinas redondeadas y borde tenue. Todo el look es
+         MONOCROMO (sin color de marca); el panal va dentro en el siguiente paso. -->
+    <Border CornerRadius="18"
+            Background="{StaticResource HivePanel}"
+            BorderBrush="{StaticResource HiveStroke}"
+            BorderThickness="1"
+            MouseLeftButtonDown="OnDragBackground">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.55" Color="#000000" />
+        </Border.Effect>
+
+        <Grid Margin="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Barra superior: titulo + minimizar/cerrar propios. -->
+            <Grid Grid.Row="0" Margin="18,14,12,4">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="26" Height="26" CornerRadius="8" Background="{StaticResource HiveFill}">
+                        <TextBlock Text="E" FontWeight="Bold" FontSize="14" Foreground="#161618"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Agente Conector" Foreground="{StaticResource HiveInk}"
+                                   FontSize="13.5" FontWeight="SemiBold" />
+                        <TextBlock Text="ECOREX - colmena on-prem" Foreground="{StaticResource HiveInkDim}"
+                                   FontSize="10.5" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
+                    <Button x:Name="MinButton" Content="&#x2013;" Click="OnMinimize"
+                            Style="{DynamicResource ChromeButton}" />
+                    <Button x:Name="CloseButton" Content="&#x2715;" Click="OnClose"
+                            Style="{DynamicResource ChromeButton}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Area del panal (placeholder de este primer paso). -->
+            <Grid Grid.Row="1">
+                <TextBlock Text="Colmena"
+                           Foreground="{StaticResource HiveInkDim}"
+                           FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Grid>
+        </Grid>
+    </Border>
+
+    <Window.Resources>
+        <!-- Botones de la barra (minimizar/cerrar): planos, monocromos, hover tenue. -->
+        <Style x:Key="ChromeButton" TargetType="Button">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Foreground" Value="{StaticResource HiveInkDim}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" CornerRadius="8" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#1FFFFFFF" />
+                                <Setter Property="Foreground" Value="{StaticResource HiveInk}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+</Window>

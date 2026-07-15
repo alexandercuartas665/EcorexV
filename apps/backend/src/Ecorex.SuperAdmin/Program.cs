@@ -222,6 +222,8 @@ else
         // Catalogo de planes SaaS demo (Free/Pro/Empresa) para que /mi-cuenta ("Cambiar de plan")
         // tenga opciones y /plans muestre datos. Idempotente por nombre, solo Development.
         await seeder.EnsureDemoPlansAsync();
+        // Modelo de datos demo con 3 tablas relacionadas (Contenedor de datos). Idempotente, solo Development.
+        await seeder.EnsureDataModelDemoAsync();
         // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
         await seeder.EnsureTaskCoreDemoAsync();
         // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del

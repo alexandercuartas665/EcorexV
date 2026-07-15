@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- SIMULADOR del hub del backend (Ola B). Stand-in del futuro orquestador (doc 03) para probar
+       el cliente SignalR del agente END-TO-END SIN tocar apps/backend. Solo herramienta de dev/QA:
+       recibe AgentHello/FetchResult y empuja FetchRequest periodico. Referencia los contratos
+       compartidos (misma fuente de verdad del protocolo que usa el agente). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Ecorex.Agent.HubSim</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

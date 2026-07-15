@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Input;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Agent.Gui.ViewModels;
+using Ecorex.Contracts.Agent;
 using Forms = System.Windows.Forms;
 
 namespace Ecorex.Agent.Gui;
@@ -24,13 +25,27 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        // Ola A: MOCK. En la Ola B se cambia MockHiveConnection por el cliente SignalR real
-        // sin tocar esta ventana ni el ViewModel (misma interfaz IHiveConnection).
-        _vm = new HiveViewModel(new DpapiConfigStore(), new MockHiveConnection());
+        // Seam IHiveConnection: por defecto el cliente SignalR REAL (Ola B); en modo captura/QA
+        // (ECOREX_AGENT_CAPTURE) o forzado, el MOCK (Ola A) para demos deterministas. La ventana y
+        // el ViewModel son identicos en ambos casos.
+        var store = new DpapiConfigStore();
+        var cfg = store.Load();
+        var captureMode = Environment.GetEnvironmentVariable("ECOREX_AGENT_CAPTURE");
+        var forceMock = string.Equals(Environment.GetEnvironmentVariable("ECOREX_AGENT_FORCE_MOCK"), "1", StringComparison.Ordinal);
+        var useMock = !string.IsNullOrEmpty(captureMode) || forceMock;
+
+        IHiveConnection hive = useMock ? new MockHiveConnection() : new RealHiveConnection(cfg);
+        _vm = new HiveViewModel(store, hive);
         DataContext = _vm;
 
         InitTray();
         ApplyCaptureHook();
+
+        // En modo real, si ya hay config completa, conecta solo al arrancar.
+        if (!useMock && cfg.IsComplete)
+        {
+            Loaded += async (_, _) => await _vm.AutoConnectAsync();
+        }
     }
 
     /// <summary>

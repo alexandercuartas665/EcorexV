@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Ola B (canal SignalR real, lado agente)
+
+Rama `feat/agente-colmena-gui`. Se sustituye el mock por el cliente SignalR REAL detras del mismo
+seam `IHiveConnection`; la GUI y el ViewModel NO cambian.
+
+- **Protocolo compartido** (`libs/Ecorex.Contracts.Agent/AgentProtocol.cs`): `AgentProtocol`
+  (ruta `/hubs/agente`, version), `AgentHubMethods` (FetchRequest/Ping/Cancel; AgentHello/FetchResult/
+  FetchFailed/Heartbeat) y DTOs (`FetchRequestMsg`, `FetchResultMsg`, `FetchErrorMsg`, `AgentHelloMsg`,
+  `ConnectorSpec`, `QuerySpec`, `PagingSpec`) fieles a doc 02. Fuente de verdad para agente y futuro hub.
+- **`RealHiveConnection`** (`Services/`, Microsoft.AspNetCore.SignalR.Client 10.0.0): conexion saliente
+  WS, `AgentHello` al conectar, reconexion con backoff 0/2/5/10/30/60s (`HiveRetryPolicy`), lifecycle
+  -> `ConnectionChanged`, `On(FetchRequest)` -> `RequestStarted` (enciende capacidad + worker) -> acuse
+  `FetchResult` -> `RequestFinished`. La EJECUCION real de la consulta es Ola C (aqui solo acuse).
+- **Refactor al seam**: `HiveViewModel` depende de `IHiveConnection`; los comandos DEMO/seed solo
+  aplican si la impl es el mock. `MainWindow` usa Real por defecto y Mock en modo captura
+  (`ECOREX_AGENT_CAPTURE`) o `ECOREX_AGENT_FORCE_MOCK=1`. Auto-conecta al arrancar si hay config.
+- **Arranque headless** `--save-config <clientId> <hubUrl>` (DPAPI) para despliegue/servicio y pruebas.
+- **Simulador** `tools/Ecorex.Agent.HubSim` (ASP.NET Core minimal + `AgenteHub` + `FetchPump`): stand-in
+  del backend orquestador para probar E2E SIN tocar `apps/backend`. Empuja `FetchRequest` (Database/
+  RestApi) cada 3-4s y registra lo recibido.
+- **Verificado E2E**: sim en :5280 + agente real -> logs del hub muestran `Agente CONECTADO`,
+  `AgentHello client=cli_ola_b caps=[Database, RestApi]` y round-trip continuo `FetchRequest`->
+  `FetchResult`. Captura de la colmena "En linea" con Navegador encendido + worker "pagina" por una
+  orden RestApi real.
+- **Restriccion respetada**: el agente referencia solo `libs/Ecorex.Contracts.Agent` + el NuGet cliente
+  de SignalR; NO toca `apps/backend`. El hub de produccion (doc 03 / doc 05 Ola 1 lado servidor) queda
+  como tarea del backend, fuera de este worktree.
+- **Siguiente**: hub real en `apps/backend` (Authorize + token HMAC->JWT + registry), luego Ola C
+  (ejecucion real del sub-agente Gateway contra BD de la LAN, solo-lectura + whitelist).
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Ola A (cascara visual "colmena" WPF)
 
 Rama `feat/agente-colmena-gui` (worktree). Se construye SOLO lo que se ve: la cascara visual del

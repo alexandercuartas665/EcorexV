@@ -15,7 +15,8 @@ namespace Ecorex.Agent.Gui.ViewModels;
 public sealed class HiveViewModel : ObservableObject
 {
     private readonly IAgentConfigStore _store;
-    private readonly MockHiveConnection _hive;
+    private readonly IHiveConnection _hive;
+    private readonly MockHiveConnection? _mock;
     private readonly Dispatcher _dispatcher = System.Windows.Application.Current.Dispatcher;
 
     private string _clientId = "";
@@ -25,10 +26,11 @@ public sealed class HiveViewModel : ObservableObject
     private bool _busy;
     private bool _demoRunning;
 
-    public HiveViewModel(IAgentConfigStore store, MockHiveConnection hive)
+    public HiveViewModel(IAgentConfigStore store, IHiveConnection hive)
     {
         _store = store;
         _hive = hive;
+        _mock = hive as MockHiveConnection; // los comandos de DEMO solo aplican con el mock (Ola A)
 
         // Celdas fijas: Config es el ancla (siempre llena); las 3 capacidades nacen apagadas.
         ConfigCell = new HiveCellViewModel(SubAgentKind.Configuration, "Configuracion", "\u2699");
@@ -52,7 +54,7 @@ public sealed class HiveViewModel : ObservableObject
         TestConnectionCommand = new RelayCommand(async () => await TestConnectionAsync(), () => !_busy);
         SaveConfigCommand = new RelayCommand(SaveConfig, () => !_busy);
         ToggleConfigCommand = new RelayCommand(() => IsConfigOpen = !IsConfigOpen);
-        RunDemoCommand = new RelayCommand(async () => await RunDemoAsync(), () => !_demoRunning);
+        RunDemoCommand = new RelayCommand(async () => await RunDemoAsync(), () => _mock is not null && !_demoRunning);
     }
 
     public ObservableCollection<HiveCellViewModel> Cells { get; }
@@ -110,6 +112,9 @@ public sealed class HiveViewModel : ObservableObject
     {
         _store.Save(new AgentConfig(ClientId.Trim(), HubUrl.Trim()));
     }
+
+    /// <summary>Conexion automatica al arrancar (Ola B, cuando ya hay ClientId/URL guardados).</summary>
+    public Task AutoConnectAsync() => TestConnectionAsync();
 
     private async Task TestConnectionAsync()
     {
@@ -176,50 +181,51 @@ public sealed class HiveViewModel : ObservableObject
     /// </summary>
     public void SeedBusyState()
     {
-        _hive.DemoSetConnection(ConnectionState.Online);
-        _hive.DemoStartRequest(SubAgentKind.Gateway, "SELECT ...");
-        _hive.DemoStartRequest(SubAgentKind.Browser, "abrir portal");
-        _hive.DemoStartRequest(SubAgentKind.Files, "leer PDF");
-        _hive.DemoStartRequest(SubAgentKind.Gateway, "UPDATE ...");
+        if (_mock is null) { return; }
+        _mock.DemoSetConnection(ConnectionState.Online);
+        _mock.DemoStartRequest(SubAgentKind.Gateway, "SELECT ...");
+        _mock.DemoStartRequest(SubAgentKind.Browser, "abrir portal");
+        _mock.DemoStartRequest(SubAgentKind.Files, "leer PDF");
+        _mock.DemoStartRequest(SubAgentKind.Gateway, "UPDATE ...");
     }
 
     // ---- DEMO (Ola A): guion que muestra encender/atender/apagar y el crecimiento del panal ----
 
     private async Task RunDemoAsync()
     {
-        if (_demoRunning) { return; }
+        if (_mock is null || _demoRunning) { return; }
         _demoRunning = true;
         RunDemoCommand.RaiseCanExecuteChanged();
         try
         {
             if (_connection != ConnectionState.Online)
             {
-                _hive.DemoSetConnection(ConnectionState.Connecting);
+                _mock.DemoSetConnection(ConnectionState.Connecting);
                 await Task.Delay(500);
-                _hive.DemoSetConnection(ConnectionState.Online);
+                _mock.DemoSetConnection(ConnectionState.Online);
                 await Task.Delay(400);
             }
 
             // 1) Una consulta al Gateway: nace, atiende, termina ok.
-            var g1 = _hive.DemoStartRequest(SubAgentKind.Gateway, "SELECT ...");
+            var g1 = _mock.DemoStartRequest(SubAgentKind.Gateway, "SELECT ...");
             await Task.Delay(1100);
-            _hive.DemoFinishRequest(g1, ok: true);
+            _mock.DemoFinishRequest(g1, ok: true);
             await Task.Delay(600);
 
             // 2) Rafaga: Navegador + Archivos en paralelo (el panal crece).
-            var b1 = _hive.DemoStartRequest(SubAgentKind.Browser, "abrir portal");
+            var b1 = _mock.DemoStartRequest(SubAgentKind.Browser, "abrir portal");
             await Task.Delay(350);
-            var f1 = _hive.DemoStartRequest(SubAgentKind.Files, "leer PDF");
+            var f1 = _mock.DemoStartRequest(SubAgentKind.Files, "leer PDF");
             await Task.Delay(300);
-            var g2 = _hive.DemoStartRequest(SubAgentKind.Gateway, "UPDATE ...");
+            var g2 = _mock.DemoStartRequest(SubAgentKind.Gateway, "UPDATE ...");
             await Task.Delay(1000);
-            _hive.DemoFinishRequest(b1, ok: true);
+            _mock.DemoFinishRequest(b1, ok: true);
             await Task.Delay(500);
-            _hive.DemoFinishRequest(f1, ok: true);
+            _mock.DemoFinishRequest(f1, ok: true);
             await Task.Delay(500);
 
             // 3) Un fallo: termina en error (acento rojo) antes de retirarse.
-            _hive.DemoFinishRequest(g2, ok: false, detail: "timeout");
+            _mock.DemoFinishRequest(g2, ok: false, detail: "timeout");
             await Task.Delay(1600);
         }
         finally

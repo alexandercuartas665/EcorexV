@@ -14,10 +14,19 @@
     <RootNamespace>Ecorex.Agent.Gui</RootNamespace>
     <AssemblyName>Ecorex.Agent.Gui</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFO0003: WinForms sugiere configurar DPI por API; aqui el DPI lo gobierna el manifest para
+         WPF (no llamamos ApplicationConfiguration.Initialize). Warning benigno, se silencia. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+  </ItemGroup>
+
+  <!-- Ola B: cliente SignalR (canal con el servidor). Es una libreria CLIENTE de Microsoft,
+       no internals del backend; el agente sigue dependiendo solo de los contratos + este NuGet. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
   </ItemGroup>
 
 </Project>

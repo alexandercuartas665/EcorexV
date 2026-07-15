@@ -2650,7 +2650,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(dev.Id, "Reglas", "reglas", "000802");
         Item(dev.Id, "Reportes", "metricas", "000119");
         Item(dev.Id, "Servicios web", "modulo/servicios-web", "000053");
-        Item(dev.Id, "SQL Admin", "modulo/sql-admin", "000077");
+        // Consola SQL (000077): pagina real /sql-admin (antes stub modulo/...). Ready.
+        Item(dev.Id, "SQL Admin", "sql-admin", "000077");
         Item(dev.Id, "Tipos de documentos \u00b7 Consecutivos", "modulo/consecutivos", "000136");
 
         // ---- Seccion: Infraestructura IA (slug ia) ----
@@ -2772,6 +2773,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             // Motor de programaciones (P1): el nodo existia como stub "modulo/programar-actividad".
             // Los tenants YA sembrados (prod) se corrigen aqui al arrancar -> pagina real + Ready.
             ("000889", "programar-actividad", "Programar actividad"),
+            // Consola SQL (000077): antes stub "modulo/sql-admin" -> pagina real /sql-admin + Ready.
+            ("000077", "sql-admin", "SQL Admin"),
         };
 
         var codes = expected.Select(e => e.LegacyCode).ToArray();

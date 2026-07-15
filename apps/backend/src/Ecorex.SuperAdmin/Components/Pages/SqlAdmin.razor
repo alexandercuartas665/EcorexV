@@ -1,0 +1,458 @@
+@page "/sql-admin"
+@attribute [Authorize(Policy = "Perm:sql-admin:View")]
+@* Policy por modulo (ADR-0033): Owner/Admin acceden por poder organico; otros roles solo si se concede. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using System.Text
+@using Ecorex.Application.Admin
+@inject ISqlConsoleService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Consola SQL - ECOREX.tareas</PageTitle>
+
+<div class="sq-page">
+
+    <div class="sq-topbar">
+        <nav class="sq-crumb" aria-label="Ruta de navegacion">
+            <span>Home</span><span class="sep">/</span>
+            <span>Sistema</span><span class="sep">/</span>
+            <span class="last">Consola SQL</span>
+            <span class="sq-mod-code">MOD 000077</span>
+        </nav>
+    </div>
+
+    <div class="sq-hero">
+        <div class="sq-eyebrow">MODULO 000077 &middot; DESARROLLO</div>
+        <h1 class="sq-title">Consola SQL</h1>
+        <p class="sq-sub">Ejecuta SQL directo contra la base de datos del sistema. Cada instruccion queda registrada en auditoria.</p>
+    </div>
+
+    <div class="sq-warn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+        <span>Esta consola ejecuta SQL <strong>sin filtros de tenant y sin restricciones DDL</strong>. Una sentencia mal escrita puede borrar datos o romper integridad referencial. Toda instruccion queda registrada con tu usuario, tenant, query, resultado y fecha en <code>sql_console_logs</code>.</span>
+    </div>
+
+    @if (_error is not null) { <div class="sq-alert err">@_error</div> }
+    @if (_ok is not null) { <div class="sq-alert ok">@_ok</div> }
+
+    <div class="sq-grid">
+
+        @* ---------- Explorador de tablas ---------- *@
+        <aside class="sq-explorer">
+            <div class="sq-explorer-h">
+                <strong>Tablas</strong>
+                <span class="sq-count">@_tablas.Count</span>
+            </div>
+            <input class="sq-input" placeholder="Filtrar tablas..." @bind="_filtroTabla" @bind:event="oninput" />
+            <div class="sq-explorer-list">
+                @if (_tablas.Count == 0)
+                {
+                    <div class="sq-muted-center">@(_tablasCargadas ? "Explorador solo disponible en PostgreSQL." : "Cargando...")</div>
+                }
+                else
+                {
+                    @foreach (var grupo in TablasFiltradas().GroupBy(t => t.Grupo).OrderBy(g => OrdenGrupo(g.Key)))
+                    {
+                        var grupoKey = grupo.Key;
+                        var abierto = !_gruposCerrados.Contains(grupoKey);
+                        <div class="sq-group">
+                            <button class="sq-group-h" @onclick="() => ToggleGrupo(grupoKey)">
+                                <span class="sq-caret">@(abierto ? "▾" : "▸")</span>
+                                <span class="sq-group-name">@grupoKey</span>
+                                <span class="sq-group-count">@grupo.Count()</span>
+                            </button>
+                            @if (abierto)
+                            {
+                                <div class="sq-items">
+                                    @foreach (var t in grupo.OrderBy(x => x.Tabla))
+                                    {
+                                        <button class="sq-item" @onclick="() => UsarTabla(t.Tabla)" title="@t.Descripcion">
+                                            <span class="sq-item-name">@t.Tabla</span>
+                                            <span class="sq-item-count">@FormatearFilas(t.FilasEstimadas)</span>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </aside>
+
+        @* ---------- Editor + resultados ---------- *@
+        <div class="sq-center">
+            <div class="sq-card sq-editor-card">
+                <div class="sq-card-h">
+                    <label>Query SQL</label>
+                    <div class="sq-actions">
+                        <span class="sq-hint">Ctrl+Enter para ejecutar</span>
+                        <button class="sq-btn" @onclick="Limpiar" disabled="@_ejecutando">Limpiar</button>
+                        <button class="sq-btn primary" @onclick="Ejecutar" disabled="@(_ejecutando || string.IsNullOrWhiteSpace(_sql))">
+                            @(_ejecutando ? "Ejecutando..." : "Ejecutar")
+                        </button>
+                    </div>
+                </div>
+                <textarea class="sq-editor" placeholder="SELECT * FROM task_items LIMIT 20;"
+                          @bind="_sql" @bind:event="oninput" @onkeydown="OnKeyDown"></textarea>
+            </div>
+
+            <div class="sq-card sq-results-card">
+                <div class="sq-card-h">
+                    <strong>Resultados</strong>
+                    @if (_result is not null)
+                    {
+                        <div class="sq-result-meta">
+                            <span class="sq-pill @(_result.Success ? "ok" : "err")">@_result.QueryType</span>
+                            @if (_result.RowsReturned is int rr) { <span>@rr fila(s)</span> }
+                            @if (_result.RowsAffected is int ra) { <span>@ra afectada(s)</span> }
+                            <span>@_result.DurationMs ms</span>
+                            @if (_result.Success && _result.QueryType == "SELECT" && _result.Filas.Count > 0)
+                            {
+                                <button class="sq-btn sm" @onclick="DescargarCsv" title="Descargar resultado como CSV (UTF-8)">Exportar CSV</button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_result is null)
+                {
+                    <div class="sq-muted-center pad">Ejecuta una query para ver resultados.</div>
+                }
+                else if (!_result.Success)
+                {
+                    <div class="sq-results-error">
+                        <strong>Error de la BD:</strong>
+                        <pre>@_result.ErrorMessage</pre>
+                    </div>
+                }
+                else if (_result.QueryType == "SELECT")
+                {
+                    @if (_result.Filas.Count == 0)
+                    {
+                        <div class="sq-muted-center pad">La query no devolvio filas.</div>
+                    }
+                    else
+                    {
+                        <div class="sq-table-wrap">
+                            <table class="sq-table">
+                                <thead>
+                                    <tr>@foreach (var c in _result.Columnas) { <th>@c</th> }</tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var fila in _result.Filas)
+                                    {
+                                        <tr>
+                                            @foreach (var celda in fila)
+                                            {
+                                                <td>@(celda is null ? new MarkupString("<em class=\"sq-null\">NULL</em>") : (MarkupString)System.Net.WebUtility.HtmlEncode(celda))</td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="sq-results-ok"><strong>OK.</strong> @(_result.RowsAffected ?? 0) fila(s) afectada(s) en @_result.DurationMs ms.</div>
+                }
+            </div>
+        </div>
+
+        @* ---------- Historial ---------- *@
+        <div class="sq-right">
+            <div class="sq-card">
+                <div class="sq-card-h">
+                    <strong>Historial</strong>
+                    <button class="sq-btn sm" @onclick="CargarHistorial" disabled="@_cargandoHist">Refrescar</button>
+                </div>
+                @if (_historial.Count == 0)
+                {
+                    <div class="sq-muted-center pad">Sin queries ejecutadas todavia.</div>
+                }
+                else
+                {
+                    <div class="sq-hist-list">
+                        @foreach (var h in _historial)
+                        {
+                            <div class="sq-hist-item @(h.Success ? "" : "err")" @onclick="() => UsarQuery(h.Query)" title="Click para cargar esta query en el editor">
+                                <div class="sq-hist-top">
+                                    <span class="sq-pill @(h.Success ? "ok" : "err")">@(h.QueryType ?? "?")</span>
+                                    <span class="sq-hist-time">@h.ExecutedAt.ToLocalTime().ToString("dd/MM HH:mm:ss")</span>
+                                </div>
+                                <div class="sq-hist-q">@TruncateMid(h.Query, 90)</div>
+                                <div class="sq-hist-meta">
+                                    @if (h.UserName is not null) { <span>@h.UserName</span> }
+                                    @if (h.RowsReturned is int rr) { <span>&middot; @rr filas</span> }
+                                    @if (h.RowsAffected is int ra) { <span>&middot; @ra afect.</span> }
+                                    <span>&middot; @h.DurationMs ms</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .sq-page { display: flex; flex-direction: column; gap: 4px; }
+    .sq-topbar { display: flex; align-items: center; justify-content: space-between; }
+    .sq-crumb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3, #A2A2AC); }
+    .sq-crumb .sep { opacity: .5; }
+    .sq-crumb .last { color: var(--ink-2, #5C5C66); font-weight: 600; }
+    .sq-mod-code { margin-left: 8px; font-size: 10.5px; font-weight: 700; color: var(--ink-3, #A2A2AC); border: 1px solid var(--line, #e5e5e5); border-radius: 999px; padding: 1px 8px; }
+    .sq-hero { margin: 6px 0 10px; }
+    .sq-eyebrow { color: var(--ink-3, #A2A2AC); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; font-weight: 700; }
+    .sq-title { margin: 2px 0 2px; font-size: 22px; color: var(--ink, #1B1B1E); }
+    .sq-sub { margin: 0; color: var(--ink-2, #5C5C66); font-size: 13px; }
+
+    .sq-warn { display: flex; align-items: flex-start; gap: 10px; background: var(--t-rose-bg, rgba(244,63,94,.10)); border: 1px solid var(--t-rose, #f43f5e); color: var(--ink, #1B1B1E); border-radius: 12px; padding: 11px 14px; margin: 6px 0 12px; font-size: 12.5px; }
+    .sq-warn svg { color: var(--t-rose, #f43f5e); flex: none; margin-top: 1px; }
+    .sq-warn code { background: var(--t-rose-bg, rgba(244,63,94,.14)); padding: 1px 6px; border-radius: 5px; font-size: 11.5px; }
+    .sq-alert { border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; font-size: 12.5px; }
+    .sq-alert.err { background: var(--t-rose-bg, rgba(244,63,94,.10)); border: 1px solid var(--t-rose, #f43f5e); color: var(--ink, #1B1B1E); }
+    .sq-alert.ok { background: var(--t-green-bg, rgba(16,185,129,.12)); border: 1px solid var(--t-green, #10b981); color: var(--ink, #1B1B1E); }
+
+    .sq-grid { display: grid; grid-template-columns: 250px minmax(0,1fr) 320px; gap: 14px; align-items: start; }
+    @@media (max-width: 1300px) { .sq-grid { grid-template-columns: 220px minmax(0,1fr); } .sq-right { display: none; } }
+    @@media (max-width: 900px) { .sq-grid { grid-template-columns: minmax(0,1fr); } .sq-explorer { display: none; } }
+    .sq-center { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .sq-right { min-width: 0; }
+
+    .sq-card { background: var(--surface, #fff); border: 1px solid var(--line, #e5e5e5); border-radius: 12px; padding: 12px; }
+    .sq-results-card { min-width: 0; max-width: 100%; overflow: hidden; }
+    .sq-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line, #eee); }
+    .sq-card-h label, .sq-card-h strong { font-size: 12px; font-weight: 700; color: var(--ink, #1B1B1E); text-transform: uppercase; letter-spacing: .3px; }
+    .sq-actions { display: flex; align-items: center; gap: 8px; }
+    .sq-hint { font-size: 11px; color: var(--ink-3, #A2A2AC); }
+
+    .sq-btn { border: 1px solid var(--line-2, #d4d4d4); background: var(--surface, #fff); color: var(--ink, #1B1B1E); border-radius: 8px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+    .sq-btn:hover:not(:disabled) { background: var(--brand-soft, #f2f2f1); }
+    .sq-btn:disabled { opacity: .5; cursor: default; }
+    .sq-btn.primary { background: var(--brand, #1B1B1E); color: var(--on-brand, #fff); border-color: var(--brand, #1B1B1E); }
+    .sq-btn.sm { padding: 3px 10px; font-size: 11.5px; }
+
+    .sq-editor { width: 100%; min-height: 200px; font-family: 'JetBrains Mono','Consolas',monospace; font-size: 13px; padding: 10px 12px; border: 1px solid var(--line-2, #d4d4d4); border-radius: 8px; background: var(--brand-soft, #f7f7f6); color: var(--ink, #1B1B1E); line-height: 1.5; resize: vertical; }
+    .sq-editor:focus { outline: 0; border-color: var(--brand, #1B1B1E); box-shadow: 0 0 0 2px var(--glow, rgba(0,0,0,.12)); }
+
+    .sq-input { width: 100%; font-size: 12px; padding: 6px 10px; border: 1px solid var(--line-2, #d4d4d4); border-radius: 8px; background: var(--surface, #fff); color: var(--ink, #1B1B1E); margin-bottom: 8px; }
+
+    .sq-result-meta { display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-2, #5C5C66); align-items: center; flex-wrap: wrap; }
+    .sq-pill { padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+    .sq-pill.ok { background: var(--brand, #1B1B1E); color: var(--on-brand, #fff); }
+    .sq-pill.err { background: var(--t-rose, #f43f5e); color: #fff; }
+    .sq-muted-center { text-align: center; font-style: italic; color: var(--ink-3, #A2A2AC); font-size: 12.5px; }
+    .sq-muted-center.pad { padding: 26px; }
+    .sq-results-error { padding: 12px; background: var(--t-rose-bg, rgba(244,63,94,.10)); border-radius: 8px; color: var(--ink, #1B1B1E); font-size: 12.5px; }
+    .sq-results-error pre { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; }
+    .sq-results-ok { padding: 12px; background: var(--t-green-bg, rgba(16,185,129,.12)); border-radius: 8px; color: var(--ink, #1B1B1E); font-size: 12.5px; }
+
+    .sq-table-wrap { overflow: auto; max-height: 52vh; max-width: 100%; border: 1px solid var(--line, #eee); border-radius: 8px; }
+    .sq-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; }
+    .sq-table thead th { position: sticky; top: 0; background: var(--brand, #1B1B1E); color: var(--on-brand, #fff); padding: 6px 10px; text-align: left; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; }
+    .sq-table td { padding: 5px 10px; border-bottom: 1px solid var(--line, #f0f0f0); vertical-align: top; font-family: 'JetBrains Mono','Consolas',monospace; font-size: 11.5px; white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; color: var(--ink, #1B1B1E); }
+    .sq-table tr:hover td { background: var(--brand-soft, #f7f7f6); }
+    .sq-null { color: var(--ink-3, #A2A2AC); font-style: italic; }
+
+    .sq-explorer { background: var(--surface, #fff); border: 1px solid var(--line, #e5e5e5); border-radius: 12px; padding: 10px; position: sticky; top: 10px; max-height: calc(100vh - 30px); display: flex; flex-direction: column; }
+    .sq-explorer-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #eee); }
+    .sq-explorer-h strong { font-size: 12px; color: var(--ink, #1B1B1E); text-transform: uppercase; letter-spacing: .3px; flex: 1; }
+    .sq-count { font-size: 11px; color: var(--on-brand, #fff); background: var(--brand, #1B1B1E); padding: 1px 8px; border-radius: 999px; font-weight: 700; }
+    .sq-explorer-list { flex: 1; overflow-y: auto; }
+    .sq-group { margin-bottom: 4px; }
+    .sq-group-h { width: 100%; display: flex; align-items: center; gap: 6px; padding: 5px 4px; background: none; border: 0; cursor: pointer; text-align: left; border-radius: 6px; }
+    .sq-group-h:hover { background: var(--brand-soft, #f2f2f1); }
+    .sq-caret { color: var(--ink-3, #A2A2AC); font-size: 10px; width: 10px; flex-shrink: 0; }
+    .sq-group-name { flex: 1; font-size: 10.5px; font-weight: 700; color: var(--ink-2, #5C5C66); text-transform: uppercase; letter-spacing: .4px; }
+    .sq-group-count { font-size: 10px; color: var(--ink-3, #A2A2AC); background: var(--brand-soft, #f2f2f1); padding: 1px 6px; border-radius: 999px; font-weight: 700; }
+    .sq-items { display: flex; flex-direction: column; margin-left: 10px; border-left: 1px solid var(--line, #eee); padding-left: 6px; }
+    .sq-item { width: 100%; display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: none; border: 0; cursor: pointer; text-align: left; border-radius: 6px; }
+    .sq-item:hover { background: var(--brand-soft, #f2f2f1); }
+    .sq-item-name { flex: 1; font-family: 'JetBrains Mono','Consolas',monospace; font-size: 11.5px; color: var(--ink, #1B1B1E); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sq-item-count { font-size: 10px; color: var(--ink-3, #A2A2AC); flex-shrink: 0; }
+
+    .sq-hist-list { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow-y: auto; }
+    .sq-hist-item { border-left: 3px solid var(--brand, #1B1B1E); background: var(--brand-soft, #f7f7f6); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    .sq-hist-item.err { border-left-color: var(--t-rose, #f43f5e); background: var(--t-rose-bg, rgba(244,63,94,.08)); }
+    .sq-hist-item:hover { filter: brightness(0.98); }
+    .sq-hist-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .sq-hist-time { font-size: 10.5px; color: var(--ink-3, #A2A2AC); }
+    .sq-hist-q { font-family: 'JetBrains Mono','Consolas',monospace; font-size: 11px; color: var(--ink, #1B1B1E); word-break: break-all; line-height: 1.4; margin-bottom: 4px; }
+    .sq-hist-meta { font-size: 10.5px; color: var(--ink-3, #A2A2AC); display: flex; gap: 4px; flex-wrap: wrap; }
+</style>
+
+<script>
+    // Genera un Blob CSV (con BOM UTF-8 para que Excel respete tildes) y dispara la descarga.
+    window.ecorexSqlDownloadCsv = function (filename, content) {
+        var blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), content], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    };
+</script>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string _sql = "";
+    private bool _ejecutando;
+    private bool _cargandoHist;
+    private bool _tablasCargadas;
+    private SqlConsoleExecutionDto? _result;
+    private List<SqlConsoleLogDto> _historial = new();
+    private List<SqlTableInfoDto> _tablas = new();
+    private string _filtroTabla = "";
+    private readonly HashSet<string> _gruposCerrados = new(StringComparer.OrdinalIgnoreCase);
+    private string? _error;
+    private string? _ok;
+
+    private void ToggleGrupo(string grupo)
+    {
+        if (!_gruposCerrados.Add(grupo)) { _gruposCerrados.Remove(grupo); }
+    }
+
+    private IEnumerable<SqlTableInfoDto> TablasFiltradas()
+    {
+        if (string.IsNullOrWhiteSpace(_filtroTabla)) { return _tablas; }
+        var t = _filtroTabla.Trim();
+        return _tablas.Where(x =>
+            x.Tabla.Contains(t, StringComparison.OrdinalIgnoreCase) ||
+            x.Descripcion.Contains(t, StringComparison.OrdinalIgnoreCase) ||
+            x.Grupo.Contains(t, StringComparison.OrdinalIgnoreCase));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarHistorial();
+        await CargarTablas();
+    }
+
+    private async Task CargarTablas()
+    {
+        try { _tablas = (await Svc.ListarTablasAsync()).ToList(); }
+        catch (Exception ex) { _error = "No se pudo cargar el explorador de tablas: " + ex.Message; }
+        finally { _tablasCargadas = true; }
+    }
+
+    private void UsarTabla(string tabla)
+    {
+        _sql = $"SELECT * FROM {tabla} LIMIT 100;";
+        _ok = $"Plantilla cargada para {tabla}. Ajusta y ejecuta.";
+    }
+
+    private static string FormatearFilas(long n)
+    {
+        if (n <= 0) { return "vacia"; }
+        if (n < 1000) { return n.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+        if (n < 1_000_000) { return $"{n / 1000.0:0.#}k"; }
+        return $"{n / 1_000_000.0:0.#}M";
+    }
+
+    // Orden manual de grupos: primero el nucleo operativo, al final plataforma/otros.
+    private static int OrdenGrupo(string g) => g switch
+    {
+        "Tareas y Proyectos" => 1,
+        "Conceptos" => 2,
+        "Flujos" => 3,
+        "Formularios" => 4,
+        "Reglas" => 5,
+        "Organizacion" => 6,
+        "Programaciones" => 7,
+        "Menu y Roles" => 8,
+        "IA y WhatsApp" => 9,
+        "Billing" => 10,
+        "Plataforma" => 11,
+        "Otros" => 99,
+        _ => 50
+    };
+
+    private async Task Ejecutar()
+    {
+        _error = _ok = null;
+        _ejecutando = true;
+        try
+        {
+            var (userId, userName) = await ActorAsync();
+            _result = await Svc.EjecutarAsync(_sql, userId, userName);
+            if (_result.Success) { _ok = $"OK ({_result.QueryType}, {_result.DurationMs} ms)."; }
+            await CargarHistorial();
+        }
+        catch (Exception ex) { _error = "Error inesperado: " + ex.Message; }
+        finally { _ejecutando = false; }
+    }
+
+    private async Task CargarHistorial()
+    {
+        _cargandoHist = true;
+        try { _historial = (await Svc.ListarHistorialAsync(50)).ToList(); }
+        catch (Exception ex) { _error = "No se pudo cargar el historial: " + ex.Message; }
+        finally { _cargandoHist = false; }
+    }
+
+    private void Limpiar()
+    {
+        _sql = "";
+        _result = null;
+        _error = _ok = null;
+    }
+
+    private void UsarQuery(string q)
+    {
+        _sql = q;
+        _ok = "Query cargada en el editor.";
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey && (e.Key == "Enter" || e.Code == "Enter" || e.Code == "NumpadEnter"))
+        {
+            await Ejecutar();
+        }
+    }
+
+    private async Task<(Guid, string?)> ActorAsync()
+    {
+        if (AuthState is null) { return (Guid.Empty, null); }
+        var st = await AuthState;
+        Guid.TryParse(st.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id);
+        var name = st.User.Identity?.Name ?? st.User.FindFirst(ClaimTypes.Email)?.Value;
+        return (id, name);
+    }
+
+    private static string TruncateMid(string s, int maxLen)
+    {
+        if (string.IsNullOrEmpty(s) || s.Length <= maxLen) { return s ?? ""; }
+        return s[..(maxLen - 3)] + "...";
+    }
+
+    private async Task DescargarCsv()
+    {
+        if (_result is null || _result.Columnas.Count == 0) { return; }
+        var sb = new StringBuilder();
+        sb.AppendLine(string.Join(",", _result.Columnas.Select(EscapeCsv)));
+        foreach (var fila in _result.Filas)
+        {
+            sb.AppendLine(string.Join(",", fila.Select(c => EscapeCsv(c ?? ""))));
+        }
+        var nombre = $"consulta-sql-{DateTime.Now:yyyyMMdd-HHmmss}.csv";
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexSqlDownloadCsv", nombre, sb.ToString());
+            _ok = $"CSV generado: {nombre} ({_result.Filas.Count} filas).";
+        }
+        catch (Exception ex) { _error = "No se pudo descargar el CSV: " + ex.Message; }
+    }
+
+    private static string EscapeCsv(string s)
+    {
+        if (s.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0)
+        {
+            return "\"" + s.Replace("\"", "\"\"") + "\"";
+        }
+        return s;
+    }
+}

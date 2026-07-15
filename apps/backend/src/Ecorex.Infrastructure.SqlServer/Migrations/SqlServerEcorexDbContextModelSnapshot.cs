@@ -6944,6 +6944,72 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("scrape_sources", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.SqlConsoleLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("error_message");
+
+                    b.Property<DateTimeOffset>("ExecutedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("executed_at");
+
+                    b.Property<string>("Query")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("query");
+
+                    b.Property<string>("QueryType")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("query_type");
+
+                    b.Property<int?>("RowsAffected")
+                        .HasColumnType("int")
+                        .HasColumnName("rows_affected");
+
+                    b.Property<int?>("RowsReturned")
+                        .HasColumnType("int")
+                        .HasColumnName("rows_returned");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("bit")
+                        .HasColumnName("success");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)")
+                        .HasColumnName("user_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sql_console_logs");
+
+                    b.HasIndex("ExecutedAt")
+                        .HasDatabaseName("ix_sql_console_logs_executed_at");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("ix_sql_console_logs_tenant_id");
+
+                    b.ToTable("sql_console_logs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.SuperAdminAuditLog", b =>
                 {
                     b.Property<Guid>("Id")

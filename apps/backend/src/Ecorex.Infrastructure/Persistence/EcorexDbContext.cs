@@ -46,6 +46,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<AccountActivationCode> AccountActivationCodes => Set<AccountActivationCode>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
+    public DbSet<SqlConsoleLog> SqlConsoleLogs => Set<SqlConsoleLog>();
 
     // Llaves de Data Protection compartidas entre apps (Api, SuperAdmin, Workers) para
     // que los secretos cifrados (Wompi, Evolution) se descifren en cualquiera de ellas.
@@ -556,6 +557,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => x.CloudPhoneNumberId);
             // El emisor YCloud tambien enruta el webhook entrante (paridad con Meta Cloud).
             b.HasIndex(x => x.YCloudPhoneNumberId);
+        });
+
+        // Consola SQL admin (000077): auditoria append-only, NO tenant-scoped (evento cross-tenant
+        // que el Owner/Admin puede ejecutar; el tenant del actor se guarda como dato, no como filtro).
+        modelBuilder.Entity<SqlConsoleLog>(b =>
+        {
+            b.Property(x => x.Query).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.ErrorMessage).HasColumnType(longTextColumnType);
+            b.Property(x => x.QueryType).HasMaxLength(20);
+            b.Property(x => x.UserName).HasMaxLength(320);
+            b.HasIndex(x => x.ExecutedAt);
+            b.HasIndex(x => x.TenantId);
         });
 
         modelBuilder.Entity<PipelineStage>(b =>

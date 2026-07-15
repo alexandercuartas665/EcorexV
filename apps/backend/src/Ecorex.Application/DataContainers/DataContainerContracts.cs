@@ -16,8 +16,8 @@ public sealed record DataContainerDto(
     int RowCount,
     DateTimeOffset UpdatedAt);
 
-/// <summary>Columna (campo) de un contenedor. Submodel apunta al contenedor hijo (anidado);
-/// Reference/RelationMany apuntan a otra tabla independiente (ReferencedContainerId).</summary>
+/// <summary>Columna (campo) de un contenedor. Submodel apunta al contenedor hijo (anidado). Las
+/// relaciones inter-tabla ya NO son columnas: son la entidad DataModelRelation (arista del ER).</summary>
 public sealed record DataContainerColumnDto(
     Guid Id,
     string Name,
@@ -26,9 +26,7 @@ public sealed record DataContainerColumnDto(
     int SortOrder,
     bool IsRequired,
     Guid? ChildContainerId,
-    string? ChildContainerName,
-    Guid? ReferencedContainerId = null,
-    string? ReferencedContainerName = null);
+    string? ChildContainerName);
 
 /// <summary>Detalle de un contenedor con su esquema (columnas). SourceKind y anidamiento incluidos.</summary>
 public sealed record DataContainerDetailDto(
@@ -52,8 +50,7 @@ public sealed record DataContainerRowDto(
 /// <summary>Opcion para el selector de una relacion: un registro de la tabla destino con su etiqueta.</summary>
 public sealed record RowOptionDto(Guid Id, string Label);
 
-/// <summary>Input para upsert de columna (Id null = nueva). ChildContainerId solo para Submodel;
-/// ReferencedContainerId solo para Reference/RelationMany (tabla destino).</summary>
+/// <summary>Input para upsert de columna (Id null = nueva). ChildContainerId solo para Submodel.</summary>
 public sealed record SaveDataColumnInput(
     Guid? Id,
     string Name,
@@ -61,8 +58,7 @@ public sealed record SaveDataColumnInput(
     DataContainerColumnType Type,
     int SortOrder,
     bool IsRequired,
-    Guid? ChildContainerId = null,
-    Guid? ReferencedContainerId = null);
+    Guid? ChildContainerId = null);
 
 /// <summary>Crear/editar un contenedor. ParentContainerId/ParentFieldId != null = sub-contenedor (submodelo).</summary>
 public sealed record SaveDataContainerRequest(

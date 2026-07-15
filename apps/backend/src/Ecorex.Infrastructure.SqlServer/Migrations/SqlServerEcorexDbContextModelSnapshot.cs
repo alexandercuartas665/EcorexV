@@ -1956,10 +1956,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(150)")
                         .HasColumnName("name");
 
-                    b.Property<Guid?>("ReferencedContainerId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("referenced_container_id");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
@@ -1987,9 +1983,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("ChildContainerId")
                         .HasDatabaseName("ix_data_container_columns_child_container_id");
-
-                    b.HasIndex("ReferencedContainerId")
-                        .HasDatabaseName("ix_data_container_columns_referenced_container_id");
 
                     b.HasIndex("ContainerId", "Name")
                         .IsUnique()
@@ -2234,6 +2227,74 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_data_models_tenant_id_name");
 
                     b.ToTable("data_models", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DataModelRelation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromTableId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("from_table_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("ModelId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("model_id");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToTableId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("to_table_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_data_model_relations");
+
+                    b.HasIndex("FromTableId")
+                        .HasDatabaseName("ix_data_model_relations_from_table_id");
+
+                    b.HasIndex("ModelId")
+                        .HasDatabaseName("ix_data_model_relations_model_id");
+
+                    b.HasIndex("ToTableId")
+                        .HasDatabaseName("ix_data_model_relations_to_table_id");
+
+                    b.HasIndex("TenantId", "ModelId")
+                        .HasDatabaseName("ix_data_model_relations_tenant_id_model_id");
+
+                    b.ToTable("data_model_relations", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.EmailConfig", b =>
@@ -10798,17 +10859,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_data_container_columns_data_containers_container_id");
 
-                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "ReferencedContainer")
-                        .WithMany()
-                        .HasForeignKey("ReferencedContainerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_data_container_columns_data_containers_referenced_container_id");
-
                     b.Navigation("ChildContainer");
 
                     b.Navigation("Container");
-
-                    b.Navigation("ReferencedContainer");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainerLink", b =>
@@ -10871,6 +10924,36 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_data_destinations_data_models_model_id");
 
                     b.Navigation("Model");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DataModelRelation", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "FromTable")
+                        .WithMany()
+                        .HasForeignKey("FromTableId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_data_model_relations_data_containers_from_table_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.DataModel", "Model")
+                        .WithMany()
+                        .HasForeignKey("ModelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_data_model_relations_data_models_model_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "ToTable")
+                        .WithMany()
+                        .HasForeignKey("ToTableId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_data_model_relations_data_containers_to_table_id");
+
+                    b.Navigation("FromTable");
+
+                    b.Navigation("Model");
+
+                    b.Navigation("ToTable");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FollowUpTask", b =>

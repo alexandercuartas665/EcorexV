@@ -40,23 +40,14 @@ public sealed class DataModelService : IDataModelService
             .ToListAsync(ct);
 
         var tableCountByModel = tables.GroupBy(t => t.ModelId).ToDictionary(g => g.Key, g => g.Count());
-        var modelByTable = tables.ToDictionary(t => t.Id, t => t.ModelId);
 
-        var tableIds = tables.Select(t => t.Id).ToList();
-        var relationContainerIds = tableIds.Count == 0
-            ? new List<Guid>()
-            : await _db.DataContainerColumns.AsNoTracking()
-                .Where(c => tableIds.Contains(c.ContainerId) &&
-                    (c.Type == DataContainerColumnType.Reference || c.Type == DataContainerColumnType.RelationMany))
-                .Select(c => c.ContainerId)
-                .ToListAsync(ct);
-
-        var relationCountByModel = new Dictionary<Guid, int>();
-        foreach (var containerId in relationContainerIds)
-        {
-            if (!modelByTable.TryGetValue(containerId, out var mId)) { continue; }
-            relationCountByModel[mId] = relationCountByModel.TryGetValue(mId, out var n) ? n + 1 : 1;
-        }
+        // Relaciones = aristas del ER (entidad DataModelRelation), contadas por modelo.
+        var relationCountByModel = (await _db.DataModelRelations.AsNoTracking()
+                .Where(r => modelIds.Contains(r.ModelId))
+                .GroupBy(r => r.ModelId)
+                .Select(g => new { ModelId = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.ModelId, x => x.Count);
 
         return models.Select(m => new DataModelDto(
             m.Id,
@@ -86,22 +77,12 @@ public sealed class DataModelService : IDataModelService
             tableDtos.Add(new ModelTableDto(t.Id, t.Name, t.Description, t.CanvasX, t.CanvasY, columns));
         }
 
-        // Relaciones: por cada campo Reference/RelationMany de una tabla del modelo cuyo destino es
-        // OTRA tabla del mismo modelo, se emite una arista del lienzo.
-        var tableIdSet = tables.Select(t => t.Id).ToHashSet();
-        var tableIds = tableIdSet.ToList();
-        var relationCols = tableIds.Count == 0
-            ? new List<DataContainerColumn>()
-            : await _db.DataContainerColumns.AsNoTracking()
-                .Where(c => tableIds.Contains(c.ContainerId) &&
-                    (c.Type == DataContainerColumnType.Reference || c.Type == DataContainerColumnType.RelationMany) &&
-                    c.ReferencedContainerId != null)
-                .ToListAsync(ct);
-
-        var relations = relationCols
-            .Where(c => tableIdSet.Contains(c.ReferencedContainerId!.Value))
-            .Select(c => new ModelRelationDto(c.Id, c.ContainerId, c.Name, c.ReferencedContainerId!.Value, c.Type))
-            .ToList();
+        // Relaciones = aristas del ER (entidad DataModelRelation) del modelo.
+        var relations = await _db.DataModelRelations.AsNoTracking()
+            .Where(r => r.ModelId == id)
+            .OrderBy(r => r.Name)
+            .Select(r => new ModelRelationDto(r.Id, r.FromTableId, r.ToTableId, r.Kind, r.Name))
+            .ToListAsync(ct);
 
         return new DataModelDetailDto(model.Id, model.Name, model.Description, tableDtos, relations);
     }
@@ -164,27 +145,7 @@ public sealed class DataModelService : IDataModelService
 
         var columns = req.Columns ?? Array.Empty<SaveDataColumnInput>();
 
-        // Las relaciones (Reference/RelationMany) solo pueden apuntar a tablas del MISMO contenedor.
-        var referencedIds = columns
-            .Where(c => (c.Type == DataContainerColumnType.Reference || c.Type == DataContainerColumnType.RelationMany)
-                && c.ReferencedContainerId is not null)
-            .Select(c => c.ReferencedContainerId!.Value)
-            .Distinct()
-            .ToList();
-        if (referencedIds.Count > 0)
-        {
-            var validTargets = await _db.DataContainers.AsNoTracking()
-                .Where(t => t.ModelId == req.ModelId && referencedIds.Contains(t.Id))
-                .Select(t => t.Id)
-                .ToListAsync(ct);
-            var invalid = referencedIds.Except(validTargets).ToList();
-            if (invalid.Count > 0)
-            {
-                throw new InvalidOperationException(
-                    "Una relacion apunta a una tabla que no pertenece a este contenedor. Las relaciones solo pueden enlazar tablas del mismo contenedor.");
-            }
-        }
-
+        // Las relaciones ya NO viven en columnas (son DataModelRelation); la tabla solo lleva campos escalares/Submodel.
         // Delega el upsert de la tabla (columnas + ModelId + CanvasX/Y) al servicio de tablas.
         var detail = await _containers.SaveTableAsync(
             req.ModelId, req.TableId, req.Name, req.Description, req.CanvasX, req.CanvasY, columns, actorUserId, ct);
@@ -193,9 +154,67 @@ public sealed class DataModelService : IDataModelService
         return new ModelTableDto(detail.Id, detail.Name, detail.Description, req.CanvasX, req.CanvasY, detail.Columns);
     }
 
-    public Task<bool> DeleteTableAsync(Guid tableId, Guid actorUserId, CancellationToken ct = default)
-        // Reusa el borrado de tabla (guarda la FK Restrict de tablas referenciadas + cascada BD).
-        => _containers.DeleteAsync(tableId, actorUserId, ct);
+    public async Task<bool> DeleteTableAsync(Guid tableId, Guid actorUserId, CancellationToken ct = default)
+    {
+        // Primero limpia las relaciones (aristas) donde la tabla sea origen o destino (FK Restrict);
+        // luego delega el borrado de la tabla (cascada BD de columnas/filas/celdas).
+        var rels = await _db.DataModelRelations
+            .Where(r => r.FromTableId == tableId || r.ToTableId == tableId)
+            .ToListAsync(ct);
+        if (rels.Count > 0)
+        {
+            _db.DataModelRelations.RemoveRange(rels);
+            await _db.SaveChangesAsync(ct);
+        }
+        return await _containers.DeleteAsync(tableId, actorUserId, ct);
+    }
+
+    public async Task<ModelRelationDto?> AddRelationAsync(SaveModelRelationRequest req, Guid actorUserId, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return null; }
+        if (req.FromTableId == req.ToTableId)
+        {
+            throw new InvalidOperationException("Una relacion debe unir dos tablas distintas.");
+        }
+        // Ambas tablas deben pertenecer al MISMO contenedor (modelo).
+        var tablesOfModel = await _db.DataContainers.AsNoTracking()
+            .Where(t => t.ModelId == req.ModelId && (t.Id == req.FromTableId || t.Id == req.ToTableId))
+            .Select(t => t.Id)
+            .ToListAsync(ct);
+        if (tablesOfModel.Count != 2)
+        {
+            throw new InvalidOperationException("Las relaciones solo pueden enlazar dos tablas del mismo contenedor.");
+        }
+        // Evitar duplicar la misma arista (mismo origen/destino/cardinalidad).
+        var dup = await _db.DataModelRelations.AnyAsync(r => r.ModelId == req.ModelId
+            && r.FromTableId == req.FromTableId && r.ToTableId == req.ToTableId && r.Kind == req.Kind, ct);
+        if (dup)
+        {
+            throw new InvalidOperationException("Ya existe una relacion igual entre esas dos tablas.");
+        }
+
+        var rel = new DataModelRelation
+        {
+            TenantId = tenantId,
+            ModelId = req.ModelId,
+            FromTableId = req.FromTableId,
+            ToTableId = req.ToTableId,
+            Kind = req.Kind,
+            Name = string.IsNullOrWhiteSpace(req.Name) ? null : req.Name!.Trim()
+        };
+        _db.DataModelRelations.Add(rel);
+        await _db.SaveChangesAsync(ct);
+        return new ModelRelationDto(rel.Id, rel.FromTableId, rel.ToTableId, rel.Kind, rel.Name);
+    }
+
+    public async Task<bool> DeleteRelationAsync(Guid relationId, Guid actorUserId, CancellationToken ct = default)
+    {
+        var rel = await _db.DataModelRelations.FirstOrDefaultAsync(r => r.Id == relationId, ct);
+        if (rel is null) { return false; }
+        _db.DataModelRelations.Remove(rel);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
 
     public async Task<bool> UpdateTablePositionAsync(UpdateTablePositionRequest req, CancellationToken ct = default)
     {
@@ -214,17 +233,10 @@ public sealed class DataModelService : IDataModelService
         var model = await _db.DataModels.AsNoTracking().FirstOrDefaultAsync(m => m.Id == modelId, ct);
         if (model is null) { return null; }
 
-        var tableIds = await _db.DataContainers.AsNoTracking()
-            .Where(c => c.ModelId == modelId)
-            .Select(c => c.Id)
-            .ToListAsync(ct);
-        var relationCount = tableIds.Count == 0
-            ? 0
-            : await _db.DataContainerColumns.AsNoTracking()
-                .CountAsync(c => tableIds.Contains(c.ContainerId) &&
-                    (c.Type == DataContainerColumnType.Reference || c.Type == DataContainerColumnType.RelationMany), ct);
+        var tableCount = await _db.DataContainers.AsNoTracking().CountAsync(c => c.ModelId == modelId, ct);
+        var relationCount = await _db.DataModelRelations.AsNoTracking().CountAsync(r => r.ModelId == modelId, ct);
 
-        return new DataModelDto(model.Id, model.Name, model.Description, tableIds.Count, relationCount,
+        return new DataModelDto(model.Id, model.Name, model.Description, tableCount, relationCount,
             model.UpdatedAt ?? model.CreatedAt);
     }
 }

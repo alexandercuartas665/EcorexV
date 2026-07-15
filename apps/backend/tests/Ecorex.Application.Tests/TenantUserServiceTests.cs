@@ -169,6 +169,7 @@ public class TenantUserServiceTests
         public DbSet<DataContainerRow> DataContainerRows => throw new NotSupportedException();
         public DbSet<DataContainerCell> DataContainerCells => throw new NotSupportedException();
         public DbSet<DataContainerLink> DataContainerLinks => throw new NotSupportedException();
+        public DbSet<DataModelRelation> DataModelRelations => throw new NotSupportedException();
         public DbSet<DataConnector> DataConnectors => throw new NotSupportedException();
         public DbSet<DataClient> DataClients => throw new NotSupportedException();
         public DbSet<ImportProcess> ImportProcesses => throw new NotSupportedException();

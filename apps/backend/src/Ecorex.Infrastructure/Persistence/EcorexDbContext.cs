@@ -180,6 +180,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<DataContainerRow> DataContainerRows => Set<DataContainerRow>();
     public DbSet<DataContainerCell> DataContainerCells => Set<DataContainerCell>();
     public DbSet<DataContainerLink> DataContainerLinks => Set<DataContainerLink>();
+    public DbSet<DataModelRelation> DataModelRelations => Set<DataModelRelation>();
     public DbSet<DataConnector> DataConnectors => Set<DataConnector>();
     public DbSet<DataClient> DataClients => Set<DataClient>();
     public DbSet<ImportProcess> ImportProcesses => Set<ImportProcess>();
@@ -318,6 +319,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<EntidadKind>().HaveConversion<string>().HaveMaxLength(20);
         // Contenedor de datos: enums como texto.
         configurationBuilder.Properties<DataContainerColumnType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DataModelRelationKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DataSourceKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ConnectorAuthKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ImportScheduleKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -1919,6 +1921,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         });
 
+        // Relacion inter-tabla (arista del ER): entidad propia, ortogonal al tipo de columna.
+        modelBuilder.Entity<DataModelRelation>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150);
+            // Borrar el modelo borra sus relaciones.
+            b.HasOne(x => x.Model).WithMany()
+                .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);
+            // From/To -> tablas: Restrict (evita rutas de cascada multiple en SQL Server, error 1785;
+            // el borrado de una tabla limpia primero sus relaciones a nivel de aplicacion, regla #5).
+            b.HasOne(x => x.FromTable).WithMany()
+                .HasForeignKey(x => x.FromTableId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.ToTable).WithMany()
+                .HasForeignKey(x => x.ToTableId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.ModelId);
+            b.HasIndex(x => x.FromTableId);
+            b.HasIndex(x => x.ToTableId);
+            b.HasIndex(x => new { x.TenantId, x.ModelId });
+        });
+
         modelBuilder.Entity<DataDestination>(b =>
         {
             b.Property(x => x.Host).HasMaxLength(255);
@@ -1963,11 +1984,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ChildContainer).WithMany()
                 .HasForeignKey(x => x.ChildContainerId)
                 .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
-            // Campo Reference/RelationMany -> tabla destino independiente: NO ACTION (Restrict). No se
-            // borra la tabla destino al borrar el campo; y no se puede borrar una tabla referenciada
-            // mientras exista el campo (el servicio da un error claro).
-            b.HasOne(x => x.ReferencedContainer).WithMany()
-                .HasForeignKey(x => x.ReferencedContainerId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.ContainerId, x.Name }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.ContainerId, x.SortOrder });
         });

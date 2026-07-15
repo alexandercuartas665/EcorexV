@@ -146,13 +146,13 @@ else
                                         {
                                             @if (TryEdge(rel, out var x1, out var y1, out var x2, out var y2))
                                             {
-                                                var stroke = rel.Kind == DataContainerColumnType.RelationMany ? "#e08b2f" : "#7c5cff";
+                                                var stroke = rel.Kind == DataModelRelationKind.ManyToMany ? "#e08b2f" : "#7c5cff";
                                                 var mx = (x1 + x2) / 2;
                                                 var my = (y1 + y2) / 2;
                                                 <line x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)" stroke="@stroke" stroke-width="2"
-                                                      stroke-dasharray="@(rel.Kind == DataContainerColumnType.RelationMany ? "6 4" : "0")" />
+                                                      stroke-dasharray="@(rel.Kind == DataModelRelationKind.ManyToMany ? "6 4" : "0")" />
                                                 <circle cx="@F(x2)" cy="@F(y2)" r="4" fill="@stroke" />
-                                                @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.FromColumnName)}</text>")
+                                                @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.Name ?? "")}</text>")
                                             }
                                         }
                                     </svg>
@@ -184,7 +184,7 @@ else
                                                 {
                                                     @foreach (var col in t.Columns.OrderBy(c => c.SortOrder))
                                                     {
-                                                        <div class="dc-node-field @(IsRelationType(col.Type) ? "is-rel" : "")">
+                                                        <div class="dc-node-field">
                                                             <span class="dc-field-name">@col.Name</span>
                                                             <span class="dc-field-type">@TypeShort(col.Type)</span>
                                                         </div>
@@ -205,6 +205,54 @@ else
                                 <span><i class="dc-lg dc-lg-many"></i> Relacion (N:N)</span>
                                 <span class="text-muted">Arrastra el encabezado de una caja para moverla.</span>
                             </div>
+
+                            @* ----- Relaciones (aristas del ER): entidad propia, ortogonal al tipo de dato ----- *@
+                            <div class="dc-section-title" style="margin-top:14px;">Relaciones</div>
+                            @if (_detail.Relations.Count == 0)
+                            {
+                                <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin relaciones. Crea una uniendo dos tablas abajo.</div>
+                            }
+                            else
+                            {
+                                <div class="dc-rel-list">
+                                    @foreach (var rel in _detail.Relations)
+                                    {
+                                        <div class="dc-rel-item">
+                                            <span class="dc-rel-badge @(rel.Kind == DataModelRelationKind.ManyToMany ? "nn" : "n1")">@(rel.Kind == DataModelRelationKind.ManyToMany ? "N:N" : "N:1")</span>
+                                            <span class="dc-rel-text">@TableName(rel.FromTableId) &rarr; @TableName(rel.ToTableId)@(string.IsNullOrWhiteSpace(rel.Name) ? "" : $" ({rel.Name})")</span>
+                                            @if (_canDelete)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" title="Eliminar relacion" @onclick="() => DeleteRelationAsync(rel.Id)" disabled="@_busy">&times;</button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (_canEdit && _detail.Tables.Count >= 2)
+                            {
+                                <div class="dc-rel-add">
+                                    <select class="form-control" @bind="_relFrom">
+                                        <option value="">Tabla origen</option>
+                                        @foreach (var t in _detail.Tables) { <option value="@t.Id">@t.Name</option> }
+                                    </select>
+                                    <span class="text-muted">&rarr;</span>
+                                    <select class="form-control" @bind="_relTo">
+                                        <option value="">Tabla destino</option>
+                                        @foreach (var t in _detail.Tables) { <option value="@t.Id">@t.Name</option> }
+                                    </select>
+                                    <select class="form-control" @bind="_relKind" style="max-width:120px;">
+                                        <option value="@DataModelRelationKind.ManyToOne">N:1</option>
+                                        <option value="@DataModelRelationKind.ManyToMany">N:N</option>
+                                    </select>
+                                    <input class="form-control" placeholder="Etiqueta (opcional)" @bind="_relName" style="max-width:150px;" />
+                                    <button class="btn btn-sm btn-primary" @onclick="AddRelationAsync" disabled="@_busy">+ Relacion</button>
+                                </div>
+                            }
+                            else if (_canEdit)
+                            {
+                                <div class="text-muted" style="font-size:12px;">Crea al menos <strong>2 tablas</strong> para poder relacionarlas.</div>
+                            }
+                            @if (_relError is not null) { <div class="tk-field-error" style="margin-top:6px;">@_relError</div> }
                         </div>
 
                         @* ================= DERECHA: ALIMENTACION ================= *@
@@ -510,39 +558,10 @@ else
                                     <option value="@DataContainerColumnType.Date">Fecha</option>
                                     <option value="@DataContainerColumnType.Boolean">Booleano</option>
                                     <option value="@DataContainerColumnType.Submodel">Submodelo</option>
-                                    <option value="@DataContainerColumnType.Reference">Referencia (N:1)</option>
-                                    <option value="@DataContainerColumnType.RelationMany">Relacion (N:N)</option>
                                 </select>
                                 <label class="dc-req"><input type="checkbox" @bind="item.IsRequired" /> Oblig.</label>
                                 <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveColumn(idx)" title="Quitar campo">&times;</button>
                             </div>
-                            @if (IsRelationType(item.Type))
-                            {
-                                @if (OtherTables().Any())
-                                {
-                                    <div class="dc-rel-config">
-                                        <span class="text-muted" style="font-size:11.5px;white-space:nowrap;">Tabla destino</span>
-                                        <select class="form-control" value="@(item.ReferencedContainerId?.ToString() ?? "")"
-                                                @onchange="e => SetDraftReference(item, e.Value?.ToString())">
-                                            <option value="">(elige tabla destino)</option>
-                                            @foreach (var t in OtherTables())
-                                            {
-                                                <option value="@t.Id">@t.Name</option>
-                                            }
-                                        </select>
-                                    </div>
-                                }
-                                else
-                                {
-                                    @* Una relacion apunta a OTRA tabla del modelo. Si aun no existe, guiamos al usuario:
-                                       sin esto el selector "Tabla destino" salia vacio y parecia que la funcion no existia. *@
-                                    <div class="dc-rel-config">
-                                        <span class="text-muted" style="font-size:11.5px;">
-                                            Para relacionar necesitas <strong>otra tabla</strong> en este modelo. Crea y guarda una segunda tabla; luego vuelve a este campo y elige la tabla destino.
-                                        </span>
-                                    </div>
-                                }
-                            }
                         }
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddColumn" style="margin-top:6px;">+ Agregar campo</button>
@@ -654,29 +673,6 @@ else
                                 break;
                             case DataContainerColumnType.Date:
                                 <input class="form-control" type="date" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())" />
-                                break;
-                            case DataContainerColumnType.Reference:
-                                <select class="form-control" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())">
-                                    <option value="">(sin @col.Name)</option>
-                                    @foreach (var opt in RefOptions(col.Id))
-                                    {
-                                        <option value="@opt.Id">@opt.Label</option>
-                                    }
-                                </select>
-                                break;
-                            case DataContainerColumnType.RelationMany:
-                                <div class="dc-nn-box">
-                                    @foreach (var opt in RefOptions(col.Id))
-                                    {
-                                        <label class="dc-nn-chip">
-                                            <input type="checkbox" checked="@IsLinked(col.Id, opt.Id)" @onchange="e => ToggleLink(col.Id, opt.Id, e.Value is bool bb && bb)" /> @opt.Label
-                                        </label>
-                                    }
-                                    @if (!RefOptions(col.Id).Any())
-                                    {
-                                        <span class="text-muted" style="font-size:12px;">La tabla destino aun no tiene filas.</span>
-                                    }
-                                </div>
                                 break;
                             default:
                                 <input class="form-control" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())" />
@@ -870,6 +866,14 @@ else
     .dc-req { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); white-space: nowrap; }
     .dc-rel-config { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 8px; border-left: 2px dashed var(--line, var(--border)); margin: 2px 0 4px; }
     .dc-rel-config select { max-width: 260px; }
+    .dc-rel-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .dc-rel-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+    .dc-rel-text { flex: 1; color: var(--ink, var(--foreground)); }
+    .dc-rel-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; color: #fff; }
+    .dc-rel-badge.n1 { background: #7c5cff; }
+    .dc-rel-badge.nn { background: #e08b2f; }
+    .dc-rel-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .dc-rel-add select, .dc-rel-add input { max-width: 160px; }
 
     /* Alimentacion (columna derecha) */
     .dc-cfg-title { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, var(--muted-foreground)); margin-bottom: 10px; border-bottom: 1px solid var(--line, var(--border)); padding-bottom: 6px; }
@@ -1004,7 +1008,6 @@ else
         public string? Description { get; set; }
         public DataContainerColumnType Type { get; set; } = DataContainerColumnType.Text;
         public bool IsRequired { get; set; }
-        public Guid? ReferencedContainerId { get; set; }
         public Guid? ChildContainerId { get; set; }
     }
 
@@ -1219,7 +1222,6 @@ else
             Description = c.Description,
             Type = c.Type,
             IsRequired = c.IsRequired,
-            ReferencedContainerId = c.ReferencedContainerId,
             ChildContainerId = c.ChildContainerId
         }).ToList();
         if (_tblColumns.Count == 0) { _tblColumns.Add(new ColumnDraft()); }
@@ -1234,8 +1236,51 @@ else
         if (idx >= 0 && idx < _tblColumns.Count) { _tblColumns.RemoveAt(idx); }
     }
 
-    private void SetDraftReference(ColumnDraft item, string? value)
-        => item.ReferencedContainerId = Guid.TryParse(value, out var g) ? g : null;
+    // ---- Relaciones (aristas del ER) ----
+    private string _relFrom = "";
+    private string _relTo = "";
+    private DataModelRelationKind _relKind = DataModelRelationKind.ManyToOne;
+    private string _relName = "";
+    private string? _relError;
+
+    private string TableName(Guid id) => _detail?.Tables.FirstOrDefault(t => t.Id == id)?.Name ?? "?";
+
+    private Task AddRelationAsync() => GuardAsync(async () =>
+    {
+        _relError = null;
+        if (_mId is not Guid modelId) { return; }
+        if (!Guid.TryParse(_relFrom, out var from) || !Guid.TryParse(_relTo, out var to))
+        {
+            _relError = "Elige la tabla origen y la tabla destino.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var req = new SaveModelRelationRequest(modelId, from, to, _relKind,
+                string.IsNullOrWhiteSpace(_relName) ? null : _relName.Trim());
+            var rel = await ModelSvc.AddRelationAsync(req, _actor);
+            if (rel is null) { _relError = "No se pudo crear la relacion."; return; }
+            _relFrom = _relTo = _relName = "";
+            _relKind = DataModelRelationKind.ManyToOne;
+            await LoadDetailCoreAsync(modelId);
+        }
+        catch (Exception ex) { _relError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteRelationAsync(Guid relationId) => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _busy = true;
+        try
+        {
+            await ModelSvc.DeleteRelationAsync(relationId, _actor);
+            await LoadDetailCoreAsync(modelId);
+        }
+        catch (Exception ex) { _relError = ex.Message; }
+        finally { _busy = false; }
+    });
 
     private Task SaveTableAsync() => GuardAsync(async () =>
     {
@@ -1246,16 +1291,9 @@ else
             .Where(c => !string.IsNullOrWhiteSpace(c.Name))
             .Select((c, i) => new SaveDataColumnInput(
                 c.Id, c.Name.Trim(), c.Description, c.Type, i, c.IsRequired,
-                c.Type == DataContainerColumnType.Submodel ? c.ChildContainerId : null,
-                IsRelationType(c.Type) ? c.ReferencedContainerId : null))
+                c.Type == DataContainerColumnType.Submodel ? c.ChildContainerId : null))
             .ToList();
         if (cols.Count == 0) { _tblError = "Define al menos un campo."; return; }
-        // Reference/N:N deben tener tabla destino.
-        if (_tblColumns.Any(c => !string.IsNullOrWhiteSpace(c.Name) && IsRelationType(c.Type) && c.ReferencedContainerId is null))
-        {
-            _tblError = "Cada campo de referencia/relacion necesita una tabla destino.";
-            return;
-        }
         _busy = true;
         try
         {
@@ -1602,10 +1640,6 @@ else
         _rowEditOpen = false;
         _refOptions.Clear();
         _dataRows = (await ContainerSvc.ListRowsAsync(t.Id)).ToList();
-        foreach (var col in t.Columns.Where(c => IsRelationType(c.Type) && c.ReferencedContainerId is Guid))
-        {
-            _refOptions[col.Id] = await ContainerSvc.ListRowOptionsAsync(col.ReferencedContainerId!.Value);
-        }
         _dataOpen = true;
     });
 

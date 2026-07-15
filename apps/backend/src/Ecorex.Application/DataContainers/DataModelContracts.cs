@@ -22,14 +22,23 @@ public sealed record ModelTableDto(
     double CanvasY,
     IReadOnlyList<DataContainerColumnDto> Columns);
 
-/// <summary>Una relacion (arista del lienzo) entre dos tablas del contenedor. Nace de un campo
-/// Reference/RelationMany de la tabla origen que apunta a la tabla destino.</summary>
+/// <summary>Una relacion (arista del lienzo) entre dos tablas del contenedor. Es una entidad propia
+/// (DataModelRelation), ORTOGONAL al tipo de dato de las columnas: tabla origen -> tabla destino con
+/// una cardinalidad (N:1 / N:N) y una etiqueta opcional.</summary>
 public sealed record ModelRelationDto(
-    Guid ColumnId,
+    Guid Id,
     Guid FromTableId,
-    string FromColumnName,
     Guid ToTableId,
-    DataContainerColumnType Kind);
+    DataModelRelationKind Kind,
+    string? Name);
+
+/// <summary>Alta de una relacion entre dos tablas del mismo contenedor.</summary>
+public sealed record SaveModelRelationRequest(
+    Guid ModelId,
+    Guid FromTableId,
+    Guid ToTableId,
+    DataModelRelationKind Kind,
+    string? Name);
 
 /// <summary>Detalle completo del contenedor para el lienzo ER: sus tablas y las relaciones entre ellas.</summary>
 public sealed record DataModelDetailDto(
@@ -69,9 +78,14 @@ public interface IDataModelService
     Task<DataModelDto?> SaveModelAsync(SaveDataModelRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteModelAsync(Guid id, Guid actorUserId, CancellationToken ct = default);
 
-    /// <summary>Crea/edita una tabla del contenedor (campos + posicion). Las columnas Reference/
-    /// RelationMany deben apuntar a tablas del mismo modelo (se valida).</summary>
+    /// <summary>Crea/edita una tabla del contenedor (campos + posicion). Los campos son solo tipos de
+    /// dato escalares/Submodel; las relaciones se gestionan aparte (AddRelationAsync).</summary>
     Task<ModelTableDto?> SaveTableAsync(SaveModelTableRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteTableAsync(Guid tableId, Guid actorUserId, CancellationToken ct = default);
     Task<bool> UpdateTablePositionAsync(UpdateTablePositionRequest req, CancellationToken ct = default);
+
+    // ==== Relaciones inter-tabla (aristas del ER, entidad DataModelRelation) ====
+    /// <summary>Crea una relacion entre dos tablas del MISMO contenedor (se valida). Origen != destino.</summary>
+    Task<ModelRelationDto?> AddRelationAsync(SaveModelRelationRequest req, Guid actorUserId, CancellationToken ct = default);
+    Task<bool> DeleteRelationAsync(Guid relationId, Guid actorUserId, CancellationToken ct = default);
 }

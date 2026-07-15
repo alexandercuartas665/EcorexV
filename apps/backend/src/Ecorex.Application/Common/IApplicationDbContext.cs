@@ -137,6 +137,7 @@ public interface IApplicationDbContext
     DbSet<DataContainerRow> DataContainerRows { get; }
     DbSet<DataContainerCell> DataContainerCells { get; }
     DbSet<DataContainerLink> DataContainerLinks { get; }
+    DbSet<DataModelRelation> DataModelRelations { get; }
     DbSet<DataConnector> DataConnectors { get; }
     DbSet<DataClient> DataClients { get; }
     DbSet<ImportProcess> ImportProcesses { get; }

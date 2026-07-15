@@ -406,8 +406,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         var productos = new DataContainer { TenantId = tenant.Id, ModelId = model.Id, Name = "Productos", CanvasX = 60, CanvasY = 360 };
         var pedidos = new DataContainer { TenantId = tenant.Id, ModelId = model.Id, Name = "Pedidos", CanvasX = 440, CanvasY = 200 };
 
-        DataContainerColumn Col(DataContainer c, string name, DataContainerColumnType type, int order, Guid? refId = null, bool req = false)
-            => new() { TenantId = tenant.Id, ContainerId = c.Id, Name = name, Type = type, SortOrder = order, IsRequired = req, ReferencedContainerId = refId };
+        // Columnas: SOLO tipos de dato escalares. Las relaciones van aparte (DataModelRelation).
+        DataContainerColumn Col(DataContainer c, string name, DataContainerColumnType type, int order, bool req = false)
+            => new() { TenantId = tenant.Id, ContainerId = c.Id, Name = name, Type = type, SortOrder = order, IsRequired = req };
 
         clientes.Columns = new List<DataContainerColumn>
         {
@@ -424,17 +425,21 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         pedidos.Columns = new List<DataContainerColumn>
         {
             Col(pedidos, "Fecha", DataContainerColumnType.Date, 0, req: true),
-            // Relacion N:1 (morada): un pedido pertenece a un cliente.
-            Col(pedidos, "Cliente", DataContainerColumnType.Reference, 1, refId: clientes.Id, req: true),
-            // Relacion N:N (naranja punteada): un pedido lleva varios productos y un producto va en varios pedidos.
-            Col(pedidos, "Productos", DataContainerColumnType.RelationMany, 2, refId: productos.Id),
-            Col(pedidos, "Total", DataContainerColumnType.Decimal, 3)
+            Col(pedidos, "Total", DataContainerColumnType.Decimal, 1)
         };
 
         model.Tables = new List<DataContainer> { clientes, productos, pedidos };
         _db.DataModels.Add(model);
+
+        // Relaciones como aristas del ER (ortogonales a los tipos de dato):
+        _db.DataModelRelations.AddRange(
+            // N:1 (morada): un pedido pertenece a un cliente.
+            new DataModelRelation { TenantId = tenant.Id, ModelId = model.Id, FromTableId = pedidos.Id, ToTableId = clientes.Id, Kind = DataModelRelationKind.ManyToOne, Name = "Cliente" },
+            // N:N (naranja punteada): un pedido lleva varios productos y un producto va en varios pedidos.
+            new DataModelRelation { TenantId = tenant.Id, ModelId = model.Id, FromTableId = pedidos.Id, ToTableId = productos.Id, Kind = DataModelRelationKind.ManyToMany, Name = "Productos" });
+
         await _db.SaveChangesAsync(cancellationToken);
-        _logger.LogInformation("Modelo de datos demo 'Ventas (demo)' sembrado: 3 tablas (Clientes/Productos/Pedidos) + 2 relaciones ER.");
+        _logger.LogInformation("Modelo de datos demo 'Ventas (demo)' sembrado: 3 tablas + 2 relaciones (aristas ER).");
     }
 
     /// <summary>

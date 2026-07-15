@@ -199,16 +199,18 @@ public sealed class DataContainerService : IDataContainerService
     {
         var entity = await _db.DataContainers.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (entity is null) { return false; }
-        // Guard: no se puede borrar una tabla referenciada por un campo Reference/RelationMany de otra
-        // tabla (FK Restrict). Se avisa con un mensaje claro (que la UI muestra).
-        var referencedByName = await _db.DataContainerColumns.AsNoTracking()
-            .Where(cc => cc.ReferencedContainerId == id)
-            .Select(cc => _db.DataContainers.Where(o => o.Id == cc.ContainerId).Select(o => o.Name).FirstOrDefault())
+        // Guard: no se puede borrar una tabla que participa en una relacion (arista del ER, FK Restrict).
+        // Se avisa claro. El borrado desde el modelo limpia primero las relaciones (DeleteTableAsync).
+        var relatedTableName = await _db.DataModelRelations.AsNoTracking()
+            .Where(r => r.FromTableId == id || r.ToTableId == id)
+            .Select(r => _db.DataContainers
+                .Where(o => o.Id == (r.FromTableId == id ? r.ToTableId : r.FromTableId))
+                .Select(o => o.Name).FirstOrDefault())
             .FirstOrDefaultAsync(ct);
-        if (referencedByName is not null)
+        if (relatedTableName is not null)
         {
             throw new InvalidOperationException(
-                $"No se puede eliminar esta tabla: esta referenciada por la tabla '{referencedByName}'. Quita primero esa relacion.");
+                $"No se puede eliminar esta tabla: participa en una relacion con '{relatedTableName}'. Quita primero esa relacion.");
         }
         // La cascada de BD borra el arbol completo (sub-contenedores, columnas, filas, celdas,
         // conectores y procesos). No se borra a mano.
@@ -621,10 +623,6 @@ public sealed class DataContainerService : IDataContainerService
 
     // ---- Helpers ----
 
-    /// <summary>Tipos que apuntan a otra tabla independiente (guardan ReferencedContainerId).</summary>
-    private static bool IsRelation(DataContainerColumnType t)
-        => t is DataContainerColumnType.Reference or DataContainerColumnType.RelationMany;
-
     /// <summary>Replace-all de columnas por Id sobre una tabla (contenedor) ya materializada.
     /// Reusada por SaveAsync (nivel tabla clasico) y SaveTableAsync (nivel modelo). No permite
     /// borrar una columna que ya tiene celdas asociadas. No llama SaveChanges (lo hace el caller).</summary>
@@ -667,7 +665,6 @@ public sealed class DataContainerService : IDataContainerService
                 col.SortOrder = input.SortOrder;
                 col.IsRequired = input.IsRequired;
                 col.ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null;
-                col.ReferencedContainerId = IsRelation(input.Type) ? input.ReferencedContainerId : null;
             }
             else
             {
@@ -680,17 +677,17 @@ public sealed class DataContainerService : IDataContainerService
                     Type = input.Type,
                     SortOrder = input.SortOrder,
                     IsRequired = input.IsRequired,
-                    ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null,
-                    ReferencedContainerId = IsRelation(input.Type) ? input.ReferencedContainerId : null
+                    ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null
                 });
             }
         }
     }
 
-    /// <summary>Tipos que guardan su valor en una celda EAV (escalares + Reference, que guarda el id destino).</summary>
+    /// <summary>Tipos que guardan su valor en una celda EAV (escalares). Submodel se navega aparte;
+    /// las relaciones ya no son columnas (son DataModelRelation).</summary>
     private static bool IsCellColumn(DataContainerColumnType t)
         => t is DataContainerColumnType.Text or DataContainerColumnType.Number or DataContainerColumnType.Decimal
-            or DataContainerColumnType.Date or DataContainerColumnType.Boolean or DataContainerColumnType.Reference;
+            or DataContainerColumnType.Date or DataContainerColumnType.Boolean;
 
     /// <summary>Agrupa los vinculos N:N de una fila por columna -> lista de ids destino.</summary>
     private static IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> GroupLinks(List<DataContainerLink> links)
@@ -704,9 +701,8 @@ public sealed class DataContainerService : IDataContainerService
             .OrderBy(x => x.SortOrder).ThenBy(x => x.Name)
             .ToListAsync(ct);
 
-        // Resolver nombres de contenedores enlazados: hijo (Submodel) y tabla destino (Reference/N:N).
+        // Resolver nombres de contenedores enlazados: hijo (Submodel).
         var linkedIds = cols.Where(x => x.ChildContainerId is not null).Select(x => x.ChildContainerId!.Value)
-            .Concat(cols.Where(x => x.ReferencedContainerId is not null).Select(x => x.ReferencedContainerId!.Value))
             .Distinct().ToList();
         var linkedNames = linkedIds.Count == 0
             ? new Dictionary<Guid, string>()
@@ -722,9 +718,8 @@ public sealed class DataContainerService : IDataContainerService
     private static DataContainerColumnDto MapColumn(DataContainerColumn c, IReadOnlyDictionary<Guid, string> names)
     {
         string? childName = c.ChildContainerId is { } cid && names.TryGetValue(cid, out var n) ? n : null;
-        string? refName = c.ReferencedContainerId is { } rid && names.TryGetValue(rid, out var rn) ? rn : null;
         return new DataContainerColumnDto(c.Id, c.Name, c.Description, c.Type, c.SortOrder, c.IsRequired,
-            c.ChildContainerId, childName, c.ReferencedContainerId, refName);
+            c.ChildContainerId, childName);
     }
 
     private static string TrimSheetName(string name)

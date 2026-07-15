@@ -63,11 +63,9 @@ public class DataContainerColumn : TenantEntity
     public Guid? ChildContainerId { get; set; }
     public DataContainer? ChildContainer { get; set; }
 
-    /// <summary>Solo para Type == Reference o RelationMany: tabla (contenedor RAIZ) independiente a la
-    /// que apunta la relacion. A diferencia de ChildContainerId (composicion/anidado), aqui la tabla
-    /// destino existe por si sola y NO se borra en cascada (FK NO ACTION).</summary>
-    public Guid? ReferencedContainerId { get; set; }
-    public DataContainer? ReferencedContainer { get; set; }
+    // NOTA (2026-07-15): ReferencedContainerId se ELIMINO. Las relaciones inter-tabla ahora son la
+    // entidad DataModelRelation (arista del ER), ortogonal al tipo de dato de la columna. La
+    // composicion anidada (Submodel) sigue usando ChildContainerId de arriba.
 }
 
 /// <summary>

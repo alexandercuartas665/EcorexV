@@ -304,6 +304,78 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     }
 
     /// <summary>
+    /// Catalogo de planes SaaS demo (Free / Pro / Empresa) para que /mi-cuenta ("Cambiar de plan")
+    /// tenga opciones reales que seleccionar y /plans muestre un catalogo con datos. Los planes son
+    /// GLOBALES (no tenant-scoped: es el catalogo de la plataforma). Idempotente por Nombre: solo
+    /// agrega los que falten. Solo Development (en prod el super admin define sus planes reales via
+    /// /plans; este metodo NO corre bajo Ecorex:SkipDemoSeed).
+    /// </summary>
+    public async Task EnsureDemoPlansAsync(CancellationToken cancellationToken = default)
+    {
+        var existentes = await _db.SaasPlans.IgnoreQueryFilters()
+            .Select(p => p.Name)
+            .ToListAsync(cancellationToken);
+        var yaHay = new HashSet<string>(existentes, StringComparer.OrdinalIgnoreCase);
+
+        var catalogo = new[]
+        {
+            new SaasPlan
+            {
+                Name = "Plan Free",
+                Description = "Para empezar: lo esencial para un equipo pequeno.",
+                MonthlyPrice = 0m,
+                YearlyPrice = 0m,
+                Currency = "COP",
+                IsActive = true,
+                Limits =
+                [
+                    new SaasPlanLimit { LimitKey = "max_users", LimitValue = 3, LimitUnit = "users", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_whatsapp_lines", LimitValue = 1, LimitUnit = "lines", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_ai_tokens_monthly", LimitValue = 10000, LimitUnit = "tokens", EnforcementMode = LimitEnforcementMode.Soft }
+                ]
+            },
+            new SaasPlan
+            {
+                Name = "Plan Pro",
+                Description = "Para equipos en crecimiento: mas usuarios, lineas e IA.",
+                MonthlyPrice = 49000m,
+                YearlyPrice = 490000m,
+                Currency = "COP",
+                IsActive = true,
+                Limits =
+                [
+                    new SaasPlanLimit { LimitKey = "max_users", LimitValue = 25, LimitUnit = "users", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_whatsapp_lines", LimitValue = 5, LimitUnit = "lines", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_ai_tokens_monthly", LimitValue = 500000, LimitUnit = "tokens", EnforcementMode = LimitEnforcementMode.Soft }
+                ]
+            },
+            new SaasPlan
+            {
+                Name = "Plan Empresa",
+                Description = "Para operaciones exigentes: limites altos y soporte.",
+                MonthlyPrice = 99000m,
+                YearlyPrice = 990000m,
+                Currency = "COP",
+                IsActive = true,
+                Limits =
+                [
+                    new SaasPlanLimit { LimitKey = "max_users", LimitValue = 100, LimitUnit = "users", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_whatsapp_lines", LimitValue = 20, LimitUnit = "lines", EnforcementMode = LimitEnforcementMode.Hard },
+                    new SaasPlanLimit { LimitKey = "max_ai_tokens_monthly", LimitValue = 2000000, LimitUnit = "tokens", EnforcementMode = LimitEnforcementMode.Soft }
+                ]
+            }
+        };
+
+        var nuevos = catalogo.Where(p => !yaHay.Contains(p.Name)).ToList();
+        if (nuevos.Count == 0) { return; }
+
+        _db.SaasPlans.AddRange(nuevos);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Catalogo de planes demo: agregados {Count} planes ({Nombres}).",
+            nuevos.Count, string.Join(", ", nuevos.Select(p => p.Name)));
+    }
+
+    /// <summary>
     /// Datos demo del nucleo de tareas/proyectos (FASE 3, ADR-0013) para el tenant demo
     /// SKY SYSTEM: tipos de actividad, etiquetas por tenant, proyecto PRJ-001 y 5 tareas
     /// variadas (una con worklog y comentarios). Idempotente por tabla vacia (guard por

@@ -219,6 +219,9 @@ else
         // Perfil de contacto de la ficha de empresa demo (modulo 000072, ADR-0026). Idempotente:
         // rellena City/Address/Phone/Email del tenant demo si quedaron vacios tras la migracion.
         await seeder.EnsureTenantProfileDemoAsync();
+        // Catalogo de planes SaaS demo (Free/Pro/Empresa) para que /mi-cuenta ("Cambiar de plan")
+        // tenga opciones y /plans muestre datos. Idempotente por nombre, solo Development.
+        await seeder.EnsureDemoPlansAsync();
         // Nucleo de tareas/proyectos demo (FASE 3, ADR-0013). Idempotente, solo Development.
         await seeder.EnsureTaskCoreDemoAsync();
         // Flujo demo del WorkflowEngine (FASE 4, ADR-0014). El motor consulta a traves del

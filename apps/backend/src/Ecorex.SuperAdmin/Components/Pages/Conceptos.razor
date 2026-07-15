@@ -3,7 +3,11 @@
 @* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Actividades
+@using Ecorex.Application.Workflows
+@using Ecorex.Application.Forms
 @inject IActividadCatalogoService Svc
+@inject IWorkflowStartService WorkflowStart
+@inject IFormDefinitionService Forms
 
 <PageTitle>Conceptos de actividades - ECOREX.tareas</PageTitle>
 
@@ -340,6 +344,15 @@
                         </label>
                         @if (_mIniciaModulo)
                         {
+                            @* Guardia (form-first vs form-por-nodo): si el formulario de ADMISION del
+                               concepto es el MISMO que el del PRIMER nodo del flujo, se pediria dos veces. *@
+                            @if (FormularioDuplicado)
+                            {
+                                <div style="background:var(--t-amber-bg, rgba(245,158,11,.12));border:1px solid var(--t-amber, #f59e0b);border-radius:12px;padding:12px 14px;margin:6px 0 12px;font-size:12.5px;color:var(--ink-2);display:flex;align-items:flex-start;gap:10px">
+                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--t-amber, #f59e0b)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+                                    <span>Este formulario de admision es <strong>el mismo</strong> que el del <strong>primer paso del flujo</strong>: se pediria <strong>dos veces</strong> (una al crear, otra al atender el primer paso). Usa formularios distintos, o deja el del proceso solo en uno de los dos lugares.</span>
+                                </div>
+                            }
                             <div class="cn-field">
                                 <label>Titulo automatico</label>
                                 <input maxlength="300" placeholder="Ej. Requerimiento - @@cliente" value="@_mTituloAuto"
@@ -372,8 +385,7 @@
                     <div class="cn-acc-body">
                         <div class="cn-field">
                             <label>Flujo publicado</label>
-                            <select value="@(_mWorkflowId?.ToString() ?? "")"
-                                    @onchange="@(e => _mWorkflowId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null)">
+                            <select value="@(_mWorkflowId?.ToString() ?? "")" @onchange="OnWorkflowChanged">
                                 <option value="">-- Sin flujo --</option>
                                 @foreach (var w in _combos.Workflows)
                                 {
@@ -658,6 +670,7 @@
     private string _mDetalleAuto = "";
     private Guid? _mWorkflowId;
     private Guid? _mFormId;
+    private Guid? _mFirstNodeFormId; // form del primer nodo del flujo GUARDADO (para la guardia form-first)
     private Guid? _mBoardId;
     private Guid? _mColumnId;
     private readonly List<Guid> _mCargoIds = new();
@@ -677,6 +690,12 @@
     private string? _catModalError;
 
     // ---- Derivados ----
+
+    // Guardia form-first: el formulario de ADMISION del concepto coincide con el del PRIMER nodo del
+    // flujo -> se pediria dos veces. Se calcula sobre el flujo GUARDADO (caso principal: editar concepto).
+    private bool FormularioDuplicado
+        => _mIniciaModulo && _mFormId is not null && _mFirstNodeFormId is not null
+            && _mFirstNodeFormId == _mFormId;
 
     private List<ActividadCategoriaDto> FilteredCategories
         => string.IsNullOrWhiteSpace(_catSearch)
@@ -768,10 +787,11 @@
 
     // ---- Modal sub-categoria ----
 
-    private void OpenSubModal(ActividadSubcategoriaDto? sub)
+    private async Task OpenSubModal(ActividadSubcategoriaDto? sub)
     {
         _mError = null;
         _confirmDelete = false;
+        _mFirstNodeFormId = null;
         _acc1 = true; _acc2 = true; _acc3 = false; _acc4 = false; _acc5 = false; _acc6 = false; _acc7 = false; _acc8 = false; _acc9 = false;
         _mCargoIds.Clear();
         _mTerceroIds.Clear();
@@ -817,12 +837,30 @@
             _mSedes.AddRange(sub.Sedes);
         }
         _mOpen = true;
+
+        // Resolver el form del primer nodo del flujo GUARDADO (solo al editar un concepto con flujo).
+        if (_mId is Guid sid && _mWorkflowId is not null)
+        {
+            var first = await WorkflowStart.ResolveFirstStepAsync(sid);
+            if (first.NodeId is Guid nodeId)
+            {
+                _mFirstNodeFormId = await Forms.GetWorkflowNodeFormAsync(nodeId);
+            }
+        }
     }
 
     private void CloseSubModal()
     {
         if (_busy) { return; }
         _mOpen = false;
+    }
+
+    private void OnWorkflowChanged(ChangeEventArgs e)
+    {
+        _mWorkflowId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // El form del primer nodo se calculo sobre el flujo GUARDADO; al cambiar el flujo en vivo
+        // deja de ser confiable. Se limpia para no mostrar un aviso equivocado (se recalcula al reabrir).
+        _mFirstNodeFormId = null;
     }
 
     private void OnBoardChanged(ChangeEventArgs e)

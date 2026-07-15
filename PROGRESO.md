@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-15 - Cargador de contactos reusa EL MISMO modal de tercero (componente compartido)
+
+Feedback del dueno: en Cargador de contactos (000740) el boton "Nuevo contacto" saltaba a
+Directorio General (000232). Un primer intento abrio un modal propio (`_nc*`) dentro del Cargador;
+el dueno lo rechazo: "un contacto ES un cliente; ambos modulos se alimentan de los MISMOS
+registros de este modal, no debemos crear uno nuevo, la idea es reusarlo". Decision (AskUser):
+**componente compartido in-place** (no navegar, no duplicar).
+
+- **`TerceroModal.razor` (+ `.razor.css`) nuevo en `Components/Shared/`**: se EXTRAJO el modal grande
+  de tercero (pestanas Datos / Relaciones / Contacto Cliente / Actividades, perfiles, fichas
+  configurables por perfil) + el sub-modal de contacto de relacion desde `DirectorioGeneral.razor`.
+  API por `@ref`: `OpenCreate()`, `OpenEditAsync(id)`, `OpenContacto(parentId, c)`; parametro
+  `OnChanged` (EventCallback) para que el host refresque su lista/contadores. CSS scoped copiado de
+  `DirectorioGeneral.razor.css` para fidelidad milimetrica.
+- **`DirectorioGeneral.razor`**: dejo de tener el modal inline (se borraron ~825 lineas de markup +
+  code-behind movido); ahora renderiza `<TerceroModal @ref=...>` y sus botones (nuevo cliente,
+  editar tercero, agregar/editar contacto) lo invocan por `@ref`. Conserva lista/tabla/KPIs,
+  configurador de campos, asignar-a-empresa y borrar-contacto. Se retiro el `?crear=1` (ya no hay
+  salto que lo justifique).
+- **`GestorContactos.razor`**: se elimino el modal propio `_nc*`; "Nuevo contacto" ahora abre el
+  componente compartido in-place (`_terceroModal.OpenCreate()`), refresca con `OnChanged`.
+- **Bug de concurrencia corregido**: el `OnInitializedAsync` del componente y el de la pagina
+  compartian el mismo `EcorexDbContext` scoped y corrian en paralelo -> "A second operation was
+  started on this context". Fix: el componente NO hace BD en `OnInitializedAsync`; permisos +
+  `EnsureDefaults` + carga de campos se hacen PEREZOSAMENTE al abrir el modal (evento de usuario,
+  nunca concurrente con la init del host).
+- **Validado en Chrome (local 5253, Owner)**: Cargador "Nuevo contacto" abre el modal SIN salir de
+  `/cargador-contactos`; creado "Distribuidora Andina Test SAS" -> aparece en Directorio General
+  (mismos registros Tercero). Directorio General carga sin regresion y su "Nuevo cliente" abre el
+  mismo modal. Build SuperAdmin 0 errores.
+- **Pendiente**: (a) limpiar reglas CSS muertas del modal en `DirectorioGeneral.razor.css` (inocuas,
+  se dejaron por bajo riesgo). (b) NO desplegado a prod (espera confirmacion del usuario).
+
+---
+
 ## 2026-07-14 - Tareas de proceso: Ola 0 (decisiones) + Ola A1 (encargado del primer nodo)
 
 Capitulo nuevo en el vault: `01. Requerimiento/Capa 2 Tareas y Proyectos/Tareas de proceso -

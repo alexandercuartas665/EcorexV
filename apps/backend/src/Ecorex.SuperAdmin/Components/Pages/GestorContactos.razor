@@ -10,7 +10,6 @@
 @using Ecorex.Domain.Enums
 @inject IGestorContactosService GestorSvc
 @inject ITerceroService TerceroSvc
-@inject NavigationManager Nav
 
 <PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
 
@@ -166,7 +165,7 @@
                             <div class="gc-panel-sub"><b>@_prospectos.Count</b> contactos</div>
                         </div>
                         <div class="gc-panel-actions">
-                            <button class="gc-btn-brand" @onclick='() => Nav.NavigateTo("/directorio-general?crear=1")'>
+                            <button class="gc-btn-brand" @onclick="OpenNewContact">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                                 Nuevo contacto
                             </button>
@@ -242,7 +241,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
                                 Modificar estados
                             </button>
-                            <button class="gc-btn-brand" @onclick='() => Nav.NavigateTo("/directorio-general")'>
+                            <button class="gc-btn-brand" @onclick="OpenNewContact">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                                 Nuevo lead
                             </button>
@@ -935,8 +934,22 @@
     </div>
 }
 
+@* Nuevo contacto: reusa EL MISMO modal de tercero de Directorio General (un contacto ES un
+   cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
+<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" />
+
 @code {
     private enum Tab { Prospectos, Bolsa, Oportunidades, Agenda }
+
+    // ---- Nuevo contacto: reusa el MISMO modal de tercero de Directorio General (un contacto ES un
+    // cliente; ambos modulos se alimentan de los registros Tercero). El modal es el componente
+    // compartido TerceroModal; aqui solo lo abrimos por @ref y refrescamos al recibir OnChanged. ----
+    private TerceroModal? _terceroModal;
+
+    private async Task OpenNewContact()
+    {
+        if (_terceroModal is not null) { await _terceroModal.OpenCreate(); }
+    }
 
     private bool _loading = true;
     private bool _busy;

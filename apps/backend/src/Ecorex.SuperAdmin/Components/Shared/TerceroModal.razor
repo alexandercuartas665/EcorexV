@@ -1,0 +1,930 @@
+@* TerceroModal: editor compartido de Tercero (crear / editar) reusado por Directorio General
+   (000232) y Cargador de contactos (000740). Un contacto ES un cliente: ambos modulos se
+   alimentan de los MISMOS registros (Tercero). Contiene el modal grande (pestanas Datos /
+   Relaciones / Contacto Cliente / Actividades) y el sub-modal de contacto de relacion. El host
+   lo invoca por @@ref: OpenCreate() / OpenEditAsync(id) / OpenContacto(parentId, c) y refresca su
+   propia lista al recibir OnChanged. Estilos scoped en TerceroModal.razor.css (copia de los dg-*
+   del Directorio para fidelidad milimetrica). Solo ASCII. *@
+@using System.Text.Json
+@using Ecorex.Application.Directorio
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@inject ITerceroService TerceroSvc
+@inject ITerceroFieldService FieldSvc
+@inject ICurrentPermissions Perms
+
+@* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
+@if (_coOpen)
+{
+    <div class="dg-overlay sm" @onclick="CloseContacto">
+        <div class="dg-modal sm" @onclick:stopPropagation="true">
+            <div class="dg-as-head">
+                <div>
+                    <div class="dg-as-kicker">@(_coEditId is null ? "AGREGAR CONTACTO" : "EDITAR CONTACTO")</div>
+                    <div class="dg-as-title">@(string.IsNullOrWhiteSpace(_coNombre) ? "Nuevo contacto" : _coNombre)</div>
+                    <div class="dg-as-sub">Persona de contacto vinculada a este tercero.</div>
+                </div>
+                <button class="dg-close" @onclick="CloseContacto">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="dg-co-body">
+                <div style="min-width:0">
+                    <label class="dg-flabel">Nombre <span class="dg-req">*</span></label>
+                    <input class="dg-input" value="@_coNombre" @oninput="e => _coNombre = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Cargo</label>
+                    <input class="dg-input" value="@_coCargo" @oninput="e => _coCargo = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Correo</label>
+                    <input class="dg-input" value="@_coEmail" @oninput="e => _coEmail = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div style="min-width:0">
+                    <label class="dg-flabel">Telefono</label>
+                    <input class="dg-input" value="@_coTelefono" @oninput="e => _coTelefono = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                @if (_coError is not null)
+                {
+                    <div class="dg-note-err" style="grid-column:1/-1">@_coError</div>
+                }
+            </div>
+            <div class="dg-m-foot">
+                <span class="dg-foot-note"></span>
+                <div class="dg-foot-actions">
+                    <button class="dg-btn-ghost" @onclick="CloseContacto" disabled="@_busy">Cancelar</button>
+                    <button class="dg-btn-new" @onclick="SaveContactoAsync" disabled="@_busy">Guardar contacto</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL CREAR / EDITAR ===================== *@
+@if (_modalOpen)
+{
+    <div class="dg-overlay" @onclick="CloseModal">
+        <div class="dg-modal" @onclick:stopPropagation="true">
+            <div class="dg-m-head">
+                <span class="dg-m-av" style="background:@AvatarColor(string.IsNullOrWhiteSpace(_mNombre) ? "Nuevo" : _mNombre)">@Initials(string.IsNullOrWhiteSpace(_mNombre) ? "?" : _mNombre)</span>
+                <div style="flex:1;min-width:0">
+                    <div class="dg-m-kicker">@(_editingId is null ? "NUEVO CLIENTE" : "EDITAR TERCERO")</div>
+                    <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
+                </div>
+                <button class="dg-close" @onclick="CloseModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="dg-m-tabs">
+                <button class="dg-m-tab @(_mTab == "datos" ? "active" : "")" @onclick='() => _mTab = "datos"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>Datos
+                </button>
+                <button class="dg-m-tab @(_mTab == "rel" ? "active" : "")" @onclick='() => _mTab = "rel"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>Relaciones
+                </button>
+                <button class="dg-m-tab @(_mTab == "notas" ? "active" : "")" @onclick='() => _mTab = "notas"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>Contacto Cliente
+                </button>
+                <button class="dg-m-tab @(_mTab == "acts" ? "active" : "")" @onclick='() => _mTab = "acts"'>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>Actividades
+                </button>
+            </div>
+
+            <div class="dg-m-body">
+                <div class="dg-m-main">
+                    @if (_mTab == "datos")
+                    {
+                        <div class="dg-m-cols">
+                            @* ---- Aside: perfiles ---- *@
+                            <aside class="dg-aside">
+                                <label class="dg-aside-lbl">PERFILES DEL TERCERO</label>
+                                <div class="dg-chips-col">
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Cliente) ? "on-violet" : "")" disabled="@(!_canCrearCliente && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Cliente)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Cliente
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Sospechoso) ? "on-rose" : "")" disabled="@(!_canCrearSospechoso && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Sospechoso)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01" /></svg>Cliente sospechoso
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Proveedor) ? "on-amber" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Proveedor)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" /></svg>Proveedor
+                                    </button>
+                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Empleado) ? "on-blue" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Empleado)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>Empleado
+                                    </button>
+                                </div>
+                                <p class="dg-aside-note">Un tercero puede tener varios perfiles. Cada perfil activa su ficha de datos.</p>
+                            </aside>
+
+                            @* ---- Campos principales ---- *@
+                            <div class="dg-field-col">
+                                <label class="dg-sec-lbl">TIPO DE CONTACTO</label>
+                                <div class="dg-kind-row">
+                                    <button class="dg-kind @(_mTipo == TerceroTipo.Empresa ? "active" : "")" disabled="@(!_canCrearEmpresa && _editingId is null)" @onclick="() => SetTipoModal(TerceroTipo.Empresa)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>Empresa
+                                    </button>
+                                    <button class="dg-kind @(_mTipo == TerceroTipo.Persona ? "active" : "")" @onclick="() => SetTipoModal(TerceroTipo.Persona)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Contacto
+                                    </button>
+                                </div>
+
+                                <div class="dg-idbox">
+                                    <label class="dg-idbox-lbl">IDENTIFICAR POR</label>
+                                    <div class="dg-idchips">
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Nit ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Nit">NIT</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Identificacion ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Identificacion">Identificacion</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Correo ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Correo">Correo</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Telefono ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Telefono">Telefono</button>
+                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Ninguno ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Ninguno">No se identifica</button>
+                                    </div>
+                                    @if (_mIdTipo == TerceroIdTipo.Ninguno)
+                                    {
+                                        <div class="dg-idnote">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
+                                            Este tercero se registra sin documento de identificacion.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
+                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" value="@_mIdValor" @oninput="e => _mIdValor = e.Value?.ToString() ?? string.Empty" />
+                                    }
+                                </div>
+
+                                <label class="dg-sec-lbl">CAMPOS</label>
+                                <div class="dg-fields">
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
+                                        <input class="dg-input" value="@_mNombre" @oninput="e => _mNombre = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Ciudad</label>
+                                        <input class="dg-input" value="@_mCiudad" @oninput="e => _mCiudad = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    @if (_mTipo == TerceroTipo.Empresa)
+                                    {
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Sector / Industria</label>
+                                            <input class="dg-input" value="@_mSector" @oninput="e => _mSector = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Cargo</label>
+                                            <input class="dg-input" value="@_mCargo" @oninput="e => _mCargo = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Correo</label>
+                                            <input class="dg-input" value="@_mEmail" @oninput="e => _mEmail = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Telefono</label>
+                                            <input class="dg-input" value="@_mTelefono" @oninput="e => _mTelefono = e.Value?.ToString() ?? string.Empty" />
+                                        </div>
+                                    }
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Vendedor asignado</label>
+                                        <input class="dg-input" value="@_mVendedor" @oninput="e => _mVendedor = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Estado</label>
+                                        <select class="dg-input" value="@_mEstado" @onchange="e => _mEstado = Enum.Parse<TerceroEstado>(e.Value!.ToString()!)">
+                                            <option value="@TerceroEstado.Activo">Activo</option>
+                                            <option value="@TerceroEstado.Prospecto">Prospecto</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                        var fichas = VisibleFichas();
+                        if (fichas.Count > 0)
+                                {
+                                    <div class="dg-fichas">
+                                        @foreach (var fc in fichas)
+                                        {
+                                            var open = _fichaOpen.Contains(fc.Key);
+                                            var fcFields = FieldsFor(fc.Key);
+                                            <div class="dg-ficha">
+                                                <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.Key)">
+                                                    <span class="dg-ficha-ic" style="background:var(@fc.Bg);color:var(@fc.Color)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="@fc.IconPath" /></svg>
+                                                    </span>
+                                                    <div style="flex:1;min-width:0">
+                                                        <div class="dg-ficha-title">@fc.Title</div>
+                                                        <div class="dg-ficha-desc">@fc.Desc</div>
+                                                    </div>
+                                                    <span class="dg-ficha-count">@fcFields.Count campos</span>
+                                                    <span class="dg-ficha-chev" style="transform:rotate(@(open ? "90deg" : "0deg"))">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                                                    </span>
+                                                </div>
+                                                @if (open)
+                                                {
+                                                    <div class="dg-ficha-body">
+                                                        @if (fcFields.Count == 0)
+                                                        {
+                                                            <div class="dg-empty-note">Esta ficha no tiene campos. Configuralos con el boton "Configurar campos".</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="dg-fields">
+                                                                @foreach (var f in fcFields)
+                                                                {
+                                                                    <div style="min-width:0" class="@(f.Column >= 2 || f.FieldType == TerceroFieldType.Separator ? "dg-fld-full" : "")">
+                                                                        @if (f.FieldType == TerceroFieldType.Separator)
+                                                                        {
+                                                                            <div class="dg-fld-sep">@f.Label</div>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <label class="dg-flabel">@f.Label</label>
+                                                                            @switch (f.FieldType)
+                                                                            {
+                                                                                case TerceroFieldType.Select:
+                                                                                    <select class="dg-input" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())">
+                                                                                        <option value="">-</option>
+                                                                                        @foreach (var o in SplitOptions(f.Options))
+                                                                                        {
+                                                                                            <option value="@o">@o</option>
+                                                                                        }
+                                                                                    </select>
+                                                                                    break;
+                                                                                case TerceroFieldType.TextArea:
+                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                                                    break;
+                                                                                default:
+                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
+                                                                                    break;
+                                                                            }
+                                                                        }
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dg-empty-fichas">Selecciona un perfil (cliente, proveedor o empleado) en la columna izquierda para configurar sus datos.</div>
+                                }
+                    }
+                    else if (_mTab == "rel")
+                    {
+                        @if (_editingId is null)
+                        {
+                            <div class="dg-ph">
+                                <div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
+                                    <h4>Relaciones</h4>
+                                    <p>Guarda el tercero primero para vincularle contactos y relaciones.</p>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dg-rel">
+                                <div class="dg-rel-head">
+                                    <div>
+                                        <div class="dg-sec-lbl">CONTACTOS DE RELACION</div>
+                                        <p class="dg-rel-note">Personas de contacto vinculadas a este tercero (reportan, gestionan o representan).</p>
+                                    </div>
+                                    <button class="dg-kids-add" @onclick="() => OpenContacto(_editingId!.Value, null)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                        Agregar contacto
+                                    </button>
+                                </div>
+                                @if (_relContactos.Count == 0)
+                                {
+                                    <div class="dg-empty-note">Sin contactos de relacion todavia.</div>
+                                }
+                                else
+                                {
+                                    <div class="dg-rel-list">
+                                        @foreach (var k in _relContactos)
+                                        {
+                                            <div class="dg-kid">
+                                                <span class="dg-kid-av" style="background:@AvatarColor(k.Nombre)">@Initials(k.Nombre)</span>
+                                                <div style="flex:1;min-width:0">
+                                                    <div class="dg-kid-name">@k.Nombre</div>
+                                                    <div class="dg-kid-cargo">@(string.IsNullOrWhiteSpace(k.Cargo) ? "Contacto" : k.Cargo)</div>
+                                                </div>
+                                                @if (!string.IsNullOrWhiteSpace(k.Email))
+                                                {
+                                                    <span class="dg-kid-meta">@k.Email</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(k.Telefono))
+                                                {
+                                                    <span class="dg-kid-meta">@k.Telefono</span>
+                                                }
+                                                <div class="dg-kid-acts">
+                                                    <button class="dg-act edit" title="Editar contacto" @onclick="() => OpenContacto(_editingId!.Value, k)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                                    </button>
+                                                    <button class="dg-act del" title="Eliminar contacto" @onclick="() => DeleteContactoAsync(_editingId!.Value, k.Id)" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_mTab == "notas")
+                    {
+                        @if (_editingId is null)
+                        {
+                            <div class="dg-ph">
+                                <div>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                                    <h4>Contacto Cliente</h4>
+                                    <p>Guarda el tercero primero para registrar notas y gestiones.</p>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="dg-notas">
+                                @* --- Compositor de nueva gestion --- *@
+                                <div class="dg-note-new">
+                                    <div class="dg-sec-lbl">@("NUEVA " + _noteAccion.ToUpperInvariant())</div>
+                                    <div class="dg-note-chips">
+                                        @foreach (var a in NoteAcciones)
+                                        {
+                                            var ai = AccionInfo(a);
+                                            <button class="dg-note-chip @(_noteAccion == a ? "on" : "")"
+                                                    style="@(_noteAccion == a ? $"border-color:var({ai.Color});background:var({ai.Bg});color:var({ai.Color})" : "")"
+                                                    @onclick="() => _noteAccion = a">@ai.Label</button>
+                                        }
+                                    </div>
+                                    <div class="dg-note-meta">
+                                        <input class="dg-input" placeholder="Categoria (ej. Comercial)" value="@_noteCategoria" @oninput="e => _noteCategoria = e.Value?.ToString() ?? string.Empty" />
+                                        <input class="dg-input" placeholder="Sub-categoria (ej. Llamada)" value="@_noteSubcategoria" @oninput="e => _noteSubcategoria = e.Value?.ToString() ?? string.Empty" />
+                                    </div>
+                                    <textarea class="dg-input dg-textarea" placeholder="@AccionPlaceholder(_noteAccion)" value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
+                                    @if (_noteError is not null)
+                                    {
+                                        <div class="dg-note-err">@_noteError</div>
+                                    }
+                                    <div class="dg-note-actions">
+                                        <button class="dg-btn-new" @onclick="AddNotaAsync" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                            Registrar @_noteAccion
+                                        </button>
+                                    </div>
+                                </div>
+
+                                @* --- Timeline --- *@
+                                @if (_notas.Count == 0)
+                                {
+                                    <div class="dg-empty-note">Sin gestiones registradas todavia.</div>
+                                }
+                                else
+                                {
+                                    <div class="dg-note-list">
+                                        @foreach (var n in _notas)
+                                        {
+                                            var ni = AccionInfo(n.Accion);
+                                            <div class="dg-note-item">
+                                                <div class="dg-note-item-head">
+                                                    <span class="dg-note-tag" style="background:var(@ni.Bg);color:var(@ni.Color)">@ni.Label</span>
+                                                    @if (!string.IsNullOrWhiteSpace(n.Categoria))
+                                                    {
+                                                        <span class="dg-note-cat">@n.Categoria@(string.IsNullOrWhiteSpace(n.Subcategoria) ? "" : " / " + n.Subcategoria)</span>
+                                                    }
+                                                    <span class="dg-note-date">@n.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                                    <button class="dg-act del" title="Eliminar" @onclick="() => DeleteNotaAsync(n.Id)" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                                    </button>
+                                                </div>
+                                                <div class="dg-note-text">@n.Texto</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="dg-ph">
+                            <div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                                <h4>Actividades</h4>
+                                <p>Actividades ligadas a Tareas (000270). Disponible en una proxima iteracion.</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @if (_mTab == "datos")
+                {
+                    <aside class="dg-prosp">
+                        <div class="dg-prosp-head">
+                            <span class="dg-prosp-ic">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
+                            </span>
+                            <div>
+                                <div class="dg-prosp-t">Prospecto de cliente</div>
+                                <div class="dg-prosp-s">Oportunidad de negocio</div>
+                            </div>
+                        </div>
+                        <p class="dg-aside-note">El panel de prospecto / oportunidad (nivel de interes, etapa, probabilidad, presupuesto y proxima accion) se habilitara en una proxima iteracion. Los datos y las fichas del tercero se guardan con el boton Guardar.</p>
+                    </aside>
+                }
+            </div>
+
+            <div class="dg-m-foot">
+                @if (_modalError is not null)
+                {
+                    <span class="dg-m-error">@_modalError</span>
+                }
+                else
+                {
+                    <span class="dg-foot-note">Los campos y las fichas por perfil se guardan con el tercero.</span>
+                }
+                <div class="dg-foot-actions">
+                    <button class="dg-btn-ghost" @onclick="CloseModal" disabled="@_busy">Cancelar</button>
+                    <button class="dg-btn-save" @onclick="SaveAsync" disabled="@_busy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
+                        @(_editingId is null ? "Crear tercero" : "Guardar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Se dispara tras cualquier cambio persistente (crear/editar tercero, alta/baja de
+    /// contacto de relacion) para que el host refresque su lista/contadores.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _busy;
+
+    // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
+    private bool _canCrearEmpresa = true;
+    private bool _canCrearCliente = true;
+    private bool _canCrearSospechoso = true;
+
+    // ---- Modal crear / editar ----
+    private bool _modalOpen;
+    private Guid? _editingId;
+    private string _mTab = "datos";
+    private TerceroTipo _mTipo = TerceroTipo.Empresa;
+    private TerceroPerfil _mPerfiles = TerceroPerfil.Ninguno;
+    private TerceroEstado _mEstado = TerceroEstado.Activo;
+    private TerceroIdTipo _mIdTipo = TerceroIdTipo.Nit;
+    private string _mIdValor = "";
+    private string _mNombre = "";
+    private string _mVendedor = "";
+    private string _mCiudad = "";
+    private string _mSector = "";
+    private string _mCargo = "";
+    private string _mEmail = "";
+    private string _mTelefono = "";
+    private readonly Dictionary<string, Dictionary<string, string>> _fichaValues = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _fichaOpen = new(StringComparer.Ordinal);
+    private string? _modalError;
+
+    // ---- Tab Relaciones (contactos del tercero en edicion) ----
+    private IReadOnlyList<TerceroContactoDto> _relContactos = Array.Empty<TerceroContactoDto>();
+
+    // ---- Editor de contacto (sub-modal de la pestana Relaciones y de la tabla del host) ----
+    private bool _coOpen;
+    private Guid _coParentId;
+    private Guid? _coEditId;
+    private string _coNombre = "", _coCargo = "", _coEmail = "", _coTelefono = "";
+    private string? _coError;
+
+    // ---- Tab Contacto Cliente (notas / gestiones) ----
+    private static readonly string[] NoteAcciones = { "Nota", "Oportunidad", "Solicitud", "Actividad", "PQR", "Atencion" };
+    private IReadOnlyList<TerceroNotaDto> _notas = Array.Empty<TerceroNotaDto>();
+    private string _noteText = "";
+    private string _noteAccion = "Nota";
+    private string _noteCategoria = "";
+    private string _noteSubcategoria = "";
+    private string? _noteError;
+
+    // ---- Campos configurables por ficha (cache; se recarga al abrir el modal). ----
+    private readonly Dictionary<string, List<TerceroFieldDto>> _fichaFields = new(StringComparer.Ordinal);
+
+    private bool _permsLoaded;
+
+    // Permisos + defaults de campos se cargan PEREZOSAMENTE al abrir el modal (evento de usuario),
+    // NO en OnInitializedAsync: el host y este componente comparten el mismo DbContext scoped y sus
+    // OnInit corren en paralelo, lo que dispara "A second operation was started on this context".
+    private async Task EnsureReadyAsync()
+    {
+        if (!_permsLoaded)
+        {
+            var eff = await Perms.GetAsync();
+            _canCrearEmpresa = eff.Can(DirectorioSubPermisos.CrearEmpresa, PermissionAction.Create);
+            _canCrearCliente = eff.Can(DirectorioSubPermisos.CrearCliente, PermissionAction.Create);
+            _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
+            _permsLoaded = true;
+        }
+        await FieldSvc.EnsureDefaultsAsync();
+    }
+
+    private async Task LoadFichaFieldsAsync()
+    {
+        _fichaFields.Clear();
+        foreach (var m in FichaCatalog)
+        {
+            var list = await FieldSvc.ListByFichaAsync(m.Key);
+            _fichaFields[m.Key] = list.OrderBy(f => f.SortOrder).ToList();
+        }
+    }
+
+    private IReadOnlyList<TerceroFieldDto> FieldsFor(string ficha)
+        => _fichaFields.TryGetValue(ficha, out var l) ? l : (IReadOnlyList<TerceroFieldDto>)Array.Empty<TerceroFieldDto>();
+
+    private static IEnumerable<string> SplitOptions(string? options)
+        => string.IsNullOrWhiteSpace(options)
+            ? Array.Empty<string>()
+            : options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static string InputType(TerceroFieldType t) => t switch
+    {
+        TerceroFieldType.Number => "number",
+        TerceroFieldType.Currency => "number",
+        TerceroFieldType.Date => "date",
+        TerceroFieldType.Phone => "tel",
+        _ => "text"
+    };
+
+    // ---- Crear / editar ----
+    /// <summary>Abre el modal en modo "crear tercero" (nuevo cliente / nuevo contacto).</summary>
+    public async Task OpenCreate()
+    {
+        await EnsureReadyAsync();
+        _editingId = null;
+        _mTab = "datos";
+        _mTipo = _canCrearEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
+        _mPerfiles = TerceroPerfil.Ninguno;
+        _mEstado = TerceroEstado.Activo;
+        _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        _mIdValor = "";
+        _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _fichaValues.Clear();
+        _fichaOpen.Clear();
+        await LoadFichaFieldsAsync();
+        _relContactos = Array.Empty<TerceroContactoDto>();
+        _notas = Array.Empty<TerceroNotaDto>();
+        ResetNoteForm();
+        _modalError = null;
+        _modalOpen = true;
+        StateHasChanged();
+    }
+
+    /// <summary>Abre el modal en modo "editar tercero".</summary>
+    public async Task OpenEditAsync(Guid id)
+    {
+        await EnsureReadyAsync();
+        var d = await TerceroSvc.GetAsync(id);
+        if (d is null) { return; }
+        await LoadFichaFieldsAsync();
+        _editingId = id;
+        _mTab = "datos";
+        _mTipo = d.Tipo;
+        _mPerfiles = d.Perfiles;
+        _mEstado = d.Estado == TerceroEstado.Inactivo ? TerceroEstado.Activo : d.Estado;
+        _mIdTipo = d.IdTipo;
+        _mIdValor = d.IdValor ?? "";
+        _mNombre = d.Nombre;
+        _mVendedor = d.Vendedor ?? "";
+        _mCiudad = d.Ciudad ?? "";
+        _mSector = d.Sector ?? "";
+        _mCargo = d.Cargo ?? "";
+        _mEmail = d.Email ?? "";
+        _mTelefono = d.Telefono ?? "";
+        _fichaValues.Clear();
+        _fichaOpen.Clear();
+        foreach (var ficha in d.Fichas)
+        {
+            var campos = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var campo in ficha.Value)
+            {
+                campos[campo.Key] = campo.Value ?? "";
+            }
+            _fichaValues[ficha.Key] = campos;
+        }
+        _relContactos = await TerceroSvc.ListContactosAsync(id);
+        _notas = await TerceroSvc.ListNotasAsync(id);
+        ResetNoteForm();
+        _modalError = null;
+        _modalOpen = true;
+        StateHasChanged();
+    }
+
+    private void CloseModal()
+    {
+        _modalOpen = false;
+        _editingId = null;
+    }
+
+    private void SetTipoModal(TerceroTipo tipo)
+    {
+        _mTipo = tipo;
+        // Ajusta el documento por defecto solo si aun no hay valor capturado.
+        if (string.IsNullOrEmpty(_mIdValor))
+        {
+            _mIdTipo = tipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        }
+    }
+
+    private bool HasPerfil(TerceroPerfil p) => (_mPerfiles & p) == p;
+
+    private void TogglePerfil(TerceroPerfil p)
+    {
+        if (HasPerfil(p)) { _mPerfiles &= ~p; }
+        else { _mPerfiles |= p; }
+    }
+
+    private void ToggleFicha(string key)
+    {
+        if (!_fichaOpen.Add(key)) { _fichaOpen.Remove(key); }
+    }
+
+    private string GetFicha(string ficha, string field)
+        => _fichaValues.TryGetValue(ficha, out var m) && m.TryGetValue(field, out var v) ? v : "";
+
+    private void SetFicha(string ficha, string field, string? val)
+    {
+        if (!_fichaValues.TryGetValue(ficha, out var m))
+        {
+            m = new Dictionary<string, string>(StringComparer.Ordinal);
+            _fichaValues[ficha] = m;
+        }
+        m[field] = val ?? "";
+    }
+
+    private string IdLabel() => _mIdTipo switch
+    {
+        TerceroIdTipo.Nit => "NIT",
+        TerceroIdTipo.Identificacion => "Numero de identificacion",
+        TerceroIdTipo.Correo => "Correo electronico",
+        TerceroIdTipo.Telefono => "Telefono",
+        _ => "Documento"
+    };
+
+    private string IdPlaceholder() => _mIdTipo switch
+    {
+        TerceroIdTipo.Nit => "900.123.456-7",
+        TerceroIdTipo.Identificacion => "1.234.567.890",
+        TerceroIdTipo.Correo => "correo@empresa.com",
+        TerceroIdTipo.Telefono => "300 000 0000",
+        _ => ""
+    };
+
+    private async Task SaveAsync()
+    {
+        _modalError = null;
+        var nombre = _mNombre.Trim();
+        if (nombre.Length == 0)
+        {
+            _modalError = "El nombre es obligatorio.";
+            return;
+        }
+        if (_mIdTipo != TerceroIdTipo.Ninguno && string.IsNullOrWhiteSpace(_mIdValor))
+        {
+            _modalError = $"{IdLabel()} es obligatorio (o elige 'No se identifica').";
+            return;
+        }
+
+        // Serializa solo las fichas visibles con al menos un campo con valor.
+        var fichas = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        foreach (var def in VisibleFichas())
+        {
+            if (!_fichaValues.TryGetValue(def.Key, out var vals)) { continue; }
+            var nonEmpty = vals
+                .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+            if (nonEmpty.Count > 0) { fichas[def.Key] = nonEmpty; }
+        }
+        var fichasJson = fichas.Count > 0 ? JsonSerializer.Serialize(fichas) : null;
+
+        var request = new SaveTerceroRequest(
+            Nombre: nombre,
+            Tipo: _mTipo,
+            Perfiles: _mPerfiles,
+            Estado: _mEstado,
+            Vendedor: Blank(_mVendedor),
+            Ciudad: Blank(_mCiudad),
+            IdTipo: _mIdTipo,
+            IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),
+            Sector: _mTipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
+            Cargo: _mTipo == TerceroTipo.Persona ? Blank(_mCargo) : null,
+            Email: _mTipo == TerceroTipo.Persona ? Blank(_mEmail) : null,
+            Telefono: _mTipo == TerceroTipo.Persona ? Blank(_mTelefono) : null,
+            EmpresaId: null,
+            FichasJson: fichasJson);
+
+        _busy = true;
+        var res = _editingId is null
+            ? await TerceroSvc.CreateAsync(request)
+            : await TerceroSvc.UpdateAsync(_editingId.Value, request);
+        _busy = false;
+
+        if (!res.IsOk)
+        {
+            _modalError = res.Error;
+            return;
+        }
+        CloseModal();
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    // ---- Contactos de relacion (sub-modal reusado por la tabla del host y por la pestana Relaciones) ----
+    /// <summary>Abre el sub-modal para agregar (c=null) o editar un contacto de relacion del tercero.</summary>
+    public void OpenContacto(Guid parentId, TerceroContactoDto? c)
+    {
+        _coParentId = parentId;
+        _coEditId = c?.Id;
+        _coNombre = c?.Nombre ?? "";
+        _coCargo = c?.Cargo ?? "";
+        _coEmail = c?.Email ?? "";
+        _coTelefono = c?.Telefono ?? "";
+        _coError = null;
+        _coOpen = true;
+        StateHasChanged();
+    }
+
+    private void CloseContacto() => _coOpen = false;
+
+    private async Task SaveContactoAsync()
+    {
+        _coError = null;
+        var nombre = _coNombre.Trim();
+        if (nombre.Length == 0)
+        {
+            _coError = "El nombre del contacto es obligatorio.";
+            return;
+        }
+        var req = new SaveContactoRequest(nombre, Blank(_coCargo), Blank(_coEmail), Blank(_coTelefono));
+        _busy = true;
+        var res = _coEditId is null
+            ? await TerceroSvc.AddContactoAsync(_coParentId, req)
+            : await TerceroSvc.UpdateContactoAsync(_coEditId.Value, req);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _coError = res.Error;
+            return;
+        }
+        await RefreshRelContactosAsync(_coParentId);
+        _coOpen = false;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task DeleteContactoAsync(Guid parentId, Guid contactoId)
+    {
+        _busy = true;
+        var res = await TerceroSvc.DeleteContactoAsync(contactoId);
+        _busy = false;
+        if (!res.IsOk) { return; }
+        await RefreshRelContactosAsync(parentId);
+        await OnChanged.InvokeAsync();
+    }
+
+    // Refresca la lista de contactos de la pestana Relaciones si el tercero abierto es ese padre.
+    private async Task RefreshRelContactosAsync(Guid parentId)
+    {
+        if (_editingId == parentId)
+        {
+            _relContactos = await TerceroSvc.ListContactosAsync(parentId);
+        }
+    }
+
+    // ---- Notas / gestiones "Contacto Cliente" ----
+    private void ResetNoteForm()
+    {
+        _noteText = "";
+        _noteAccion = "Nota";
+        _noteCategoria = "";
+        _noteSubcategoria = "";
+        _noteError = null;
+    }
+
+    private async Task AddNotaAsync()
+    {
+        _noteError = null;
+        if (_editingId is not Guid id) { return; }
+        var texto = _noteText.Trim();
+        if (texto.Length == 0)
+        {
+            _noteError = "Escribe la gestion antes de registrarla.";
+            return;
+        }
+        var req = new SaveNotaRequest(texto, _noteAccion, Blank(_noteCategoria), Blank(_noteSubcategoria));
+        _busy = true;
+        var res = await TerceroSvc.AddNotaAsync(id, req);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _noteError = res.Error;
+            return;
+        }
+        _noteText = "";
+        _notas = await TerceroSvc.ListNotasAsync(id);
+    }
+
+    private async Task DeleteNotaAsync(Guid notaId)
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        await TerceroSvc.DeleteNotaAsync(notaId);
+        _busy = false;
+        _notas = await TerceroSvc.ListNotasAsync(id);
+    }
+
+    private static TagInfo AccionInfo(string accion) => accion switch
+    {
+        "Oportunidad" => new("Oportunidad", "--t-violet", "--t-violet-bg"),
+        "Solicitud" => new("Solicitud", "--t-blue", "--t-blue-bg"),
+        "Actividad" => new("Actividad", "--t-green", "--t-green-bg"),
+        "PQR" => new("PQR", "--t-amber", "--t-amber-bg"),
+        "Atencion" => new("Proxima atencion", "--t-rose", "--t-rose-bg"),
+        _ => new("Nota", "--t-slate", "--t-slate-bg")
+    };
+
+    private static string AccionPlaceholder(string accion) => accion switch
+    {
+        "Oportunidad" => "Describe la oportunidad de negocio detectada...",
+        "Solicitud" => "Detalla la solicitud del cliente...",
+        "Actividad" => "Describe la actividad a realizar...",
+        "PQR" => "Registra la peticion, queja o reclamo...",
+        "Atencion" => "Programa la proxima atencion al cliente...",
+        _ => "Describe la gestion realizada con el contacto..."
+    };
+
+    // ---- Fichas dinamicas por perfil: metadatos visuales; los CAMPOS se leen del servicio. ----
+    private List<FichaMeta> VisibleFichas()
+    {
+        var list = new List<FichaMeta>();
+        var cliente = HasPerfil(TerceroPerfil.Cliente);
+        var sospechoso = HasPerfil(TerceroPerfil.Sospechoso);
+        var proveedor = HasPerfil(TerceroPerfil.Proveedor);
+        var empleado = HasPerfil(TerceroPerfil.Empleado);
+
+        if (cliente || proveedor) { list.Add(FichaCatalog[0]); }
+        if (cliente || sospechoso) { list.Add(FichaCatalog[1]); }
+        if (cliente) { list.Add(FichaCatalog[2]); }
+        if (proveedor) { list.Add(FichaCatalog[3]); }
+        if (empleado) { list.Add(FichaCatalog[4]); }
+        return list;
+    }
+
+    private sealed record FichaMeta(string Key, string Title, string Desc, string ConfigLabel, string Color, string Bg, string IconPath);
+
+    // Catalogo de fichas (mismas claves que ITerceroFieldService.FichaKeys). Solo metadatos de
+    // presentacion: los campos son 100% configurables via el servicio. Copia del catalogo del
+    // Directorio (que lo reusa en su configurador de campos); mantener ambos en sincronia.
+    private static readonly FichaMeta[] FichaCatalog =
+    {
+        new("fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "Datos fiscales", "--t-amber", "--t-amber-bg",
+            "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
+        new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
+            "m3 11 19-9-9 19-2-8-8-2z"),
+        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
+            "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
+        new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
+            "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
+        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
+            "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
+    };
+
+    // ---- Helpers de presentacion ----
+    private sealed record TagInfo(string Label, string Color, string Bg);
+
+    private static readonly string[] AvatarPalette =
+        { "--t-violet", "--t-blue", "--t-amber", "--t-green", "--t-rose", "--t-slate" };
+
+    private static string AvatarColor(string name)
+    {
+        var hash = 0;
+        foreach (var ch in name) { hash = (hash * 31 + ch) & 0x7fffffff; }
+        return $"var({AvatarPalette[hash % AvatarPalette.Length]})";
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) { return "?"; }
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant()
+            : (parts[0][..1] + parts[1][..1]).ToUpperInvariant();
+    }
+}

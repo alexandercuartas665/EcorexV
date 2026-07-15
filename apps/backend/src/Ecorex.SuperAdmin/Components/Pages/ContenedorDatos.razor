@@ -518,17 +518,30 @@ else
                             </div>
                             @if (IsRelationType(item.Type))
                             {
-                                <div class="dc-rel-config">
-                                    <span class="text-muted" style="font-size:11.5px;white-space:nowrap;">Tabla destino</span>
-                                    <select class="form-control" value="@(item.ReferencedContainerId?.ToString() ?? "")"
-                                            @onchange="e => SetDraftReference(item, e.Value?.ToString())">
-                                        <option value="">(elige tabla destino)</option>
-                                        @foreach (var t in OtherTables())
-                                        {
-                                            <option value="@t.Id">@t.Name</option>
-                                        }
-                                    </select>
-                                </div>
+                                @if (OtherTables().Any())
+                                {
+                                    <div class="dc-rel-config">
+                                        <span class="text-muted" style="font-size:11.5px;white-space:nowrap;">Tabla destino</span>
+                                        <select class="form-control" value="@(item.ReferencedContainerId?.ToString() ?? "")"
+                                                @onchange="e => SetDraftReference(item, e.Value?.ToString())">
+                                            <option value="">(elige tabla destino)</option>
+                                            @foreach (var t in OtherTables())
+                                            {
+                                                <option value="@t.Id">@t.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @* Una relacion apunta a OTRA tabla del modelo. Si aun no existe, guiamos al usuario:
+                                       sin esto el selector "Tabla destino" salia vacio y parecia que la funcion no existia. *@
+                                    <div class="dc-rel-config">
+                                        <span class="text-muted" style="font-size:11.5px;">
+                                            Para relacionar necesitas <strong>otra tabla</strong> en este modelo. Crea y guarda una segunda tabla; luego vuelve a este campo y elige la tabla destino.
+                                        </span>
+                                    </div>
+                                }
                             }
                         }
                     </div>

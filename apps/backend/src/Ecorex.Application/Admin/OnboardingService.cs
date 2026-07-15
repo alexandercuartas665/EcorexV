@@ -15,12 +15,18 @@ public sealed class OnboardingService : IOnboardingService
     private readonly IApplicationDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IAuditWriter _audit;
+    private readonly Ecorex.Application.MenuConfig.IMenuProvisioningService _menuProvisioning;
 
-    public OnboardingService(IApplicationDbContext db, IPasswordHasher passwordHasher, IAuditWriter audit)
+    public OnboardingService(
+        IApplicationDbContext db,
+        IPasswordHasher passwordHasher,
+        IAuditWriter audit,
+        Ecorex.Application.MenuConfig.IMenuProvisioningService menuProvisioning)
     {
         _db = db;
         _passwordHasher = passwordHasher;
         _audit = audit;
+        _menuProvisioning = menuProvisioning;
     }
 
     public async Task<OnboardingOutcome> OnboardAsync(OnboardTenantRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
@@ -48,7 +54,8 @@ public sealed class OnboardingService : IOnboardingService
 
         var tenant = new Tenant
         {
-            Name = request.TenantName.Trim(),
+            // Convencion del sistema: el NOMBRE de la empresa cliente va en MAYUSCULA.
+            Name = TenantAdminService.NormalizeName(request.TenantName),
             Country = request.Country?.Trim(),
             Currency = request.Currency?.Trim(),
             Status = TenantStatus.Active,
@@ -102,6 +109,10 @@ public sealed class OnboardingService : IOnboardingService
             tenantId: tenant.Id);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // El tenant nace CON menu: vista "Completo" (por defecto) con el arbol canonico. Sin esto el
+        // cliente quedaba sin ninguna vista y sus usuarios no veian nada (bug real detectado en prod).
+        await _menuProvisioning.EnsureDefaultMenuAsync(tenant.Id, cancellationToken);
 
         return new OnboardingOutcome(true,
             new OnboardingResult(tenant.Id, tenant.Name, admin.Id, admin.Email, subscriptionId),

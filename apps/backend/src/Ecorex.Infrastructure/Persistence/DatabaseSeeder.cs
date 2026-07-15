@@ -1,6 +1,7 @@
 using Ecorex.Application.Common.Auth;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
+using Ecorex.Application.MenuConfig;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ namespace Ecorex.Infrastructure.Persistence;
 /// con sus usuarios por rol y una suscripcion. Solo crea si la base esta vacia.
 /// Credenciales SOLO de Development (throwaway), segun el vault del proyecto.
 /// </summary>
-public sealed class DatabaseSeeder
+public sealed class DatabaseSeeder : IMenuProvisioningService
 {
     public const string SuperAdminEmail = "admin@ecorex.local";
     public const string SuperAdminPassword = "Admin123*";
@@ -2505,25 +2506,31 @@ public sealed class DatabaseSeeder
     /// "Simple" reducida, y 2 usuarios demo asignados a cada vista (completo@ y simple@). Idempotente:
     /// solo corre si el tenant demo aun no tiene vistas. Solo Development.
     /// </summary>
-    public async Task EnsureMenuConfigDemoAsync(CancellationToken cancellationToken = default)
-    {
-        var tenant = await _db.Tenants.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
-        if (tenant is null) { return; }
+    /// <summary>
+    /// Estado por ruta: los stubs modulo/... se marcan InDevelopment (metadata; no cambia el render).
+    /// La comparten el arbol canonico ("Completo") y la vista "Simple" del demo.
+    /// </summary>
+    private static MenuNodeState StateFor(string? route)
+        => route is not null && route.StartsWith("modulo/", StringComparison.Ordinal)
+            ? MenuNodeState.InDevelopment
+            : MenuNodeState.Ready;
 
-        if (await _db.MenuViews.IgnoreQueryFilters().AnyAsync(v => v.TenantId == tenant.Id, cancellationToken))
+    /// <summary>
+    /// Siembra la vista de menu "Completo" (por defecto, arbol canonico del workspace) para un tenant
+    /// que aun NO tiene ninguna vista. Idempotente. La usan el seeder del demo Y el ALTA DE TENANTS
+    /// (IMenuProvisioningService): asi ningun cliente nuevo nace sin menu.
+    /// </summary>
+    public async Task EnsureDefaultMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (await _db.MenuViews.IgnoreQueryFilters()
+                .AnyAsync(v => v.TenantId == tenantId, cancellationToken))
         {
-            // El seeder es idempotente por existencia de vistas: no re-siembra. Pero para que un
-            // demo YA sembrado refleje las paginas reales que se fueron implementando, reconcilia
-            // (sin recrear la vista) los nodos cuyo route/state/name cambiaron. Ver ADR-0031.
-            await ReconcileMenuNodesAsync(tenant.Id, cancellationToken);
             return;
         }
 
-        // 1) Vista "Completo" (por defecto): transcripcion 1:1 del menu actual.
         var completo = new MenuView
         {
-            TenantId = tenant.Id,
+            TenantId = tenantId,
             Name = MenuViewCompletoName,
             Description = "Menu completo del workspace (todas las secciones).",
             IsDefault = true,
@@ -2539,7 +2546,7 @@ public sealed class DatabaseSeeder
         {
             var node = new MenuNode
             {
-                TenantId = tenant.Id,
+                TenantId = tenantId,
                 MenuViewId = completo.Id,
                 ParentId = parentId,
                 Kind = kind,
@@ -2554,12 +2561,6 @@ public sealed class DatabaseSeeder
             nodes.Add(node);
             return node;
         }
-
-        // Estado por ruta: los stubs modulo/... se marcan InDevelopment (metadata; no cambia el render).
-        static MenuNodeState StateFor(string? route)
-            => route is not null && route.StartsWith("modulo/", StringComparison.Ordinal)
-                ? MenuNodeState.InDevelopment
-                : MenuNodeState.Ready;
 
         MenuNode Item(Guid parentId, string name, string route, string? legacyCode = null)
             => Add(MenuNodeKind.Item, name, parentId, route, legacyCode: legacyCode, state: StateFor(route));
@@ -2668,6 +2669,28 @@ public sealed class DatabaseSeeder
 
         _db.MenuNodes.AddRange(nodes);
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task EnsureMenuConfigDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.MenuViews.IgnoreQueryFilters().AnyAsync(v => v.TenantId == tenant.Id, cancellationToken))
+        {
+            // El seeder es idempotente por existencia de vistas: no re-siembra. Pero para que un
+            // demo YA sembrado refleje las paginas reales que se fueron implementando, reconcilia
+            // (sin recrear la vista) los nodos cuyo route/state/name cambiaron. Ver ADR-0031.
+            await ReconcileMenuNodesAsync(tenant.Id, cancellationToken);
+            return;
+        }
+
+        // 1) Vista "Completo" (por defecto): arbol canonico COMPARTIDO con el alta de tenants
+        //    (EnsureDefaultMenuAsync / IMenuProvisioningService), para no duplicarlo ni que derive.
+        await EnsureDefaultMenuAsync(tenant.Id, cancellationToken);
+        var completo = await _db.MenuViews.IgnoreQueryFilters()
+            .FirstAsync(v => v.TenantId == tenant.Id && v.Name == MenuViewCompletoName, cancellationToken);
 
         // 2) Vista "Simple": subconjunto pequeno (Inicio + Anuncios; Mis Procesos con 3 items;
         //    Inventarios con 1 item; Automatizacion con 1 item). Se construye directa.
@@ -2727,9 +2750,11 @@ public sealed class DatabaseSeeder
         await EnsureMenuDemoUserAsync(tenant.Id, MenuCompletoUserEmail, "Perfil Completo", completo.Id, cancellationToken);
         await EnsureMenuDemoUserAsync(tenant.Id, MenuSimpleUserEmail, "Perfil Simple", simple.Id, cancellationToken);
 
+        var completoNodes = await _db.MenuNodes.IgnoreQueryFilters()
+            .CountAsync(n => n.MenuViewId == completo.Id, cancellationToken);
         _logger.LogInformation(
             "Seed del menu configurable creado para {Tenant}: vista Completo ({CompletoNodes} nodos) + vista Simple ({SimpleNodes} nodos), usuarios {UserA}/{UserB}.",
-            tenant.Name, nodes.Count, simpleNodes.Count, MenuCompletoUserEmail, MenuSimpleUserEmail);
+            tenant.Name, completoNodes, simpleNodes.Count, MenuCompletoUserEmail, MenuSimpleUserEmail);
     }
 
     /// <summary>

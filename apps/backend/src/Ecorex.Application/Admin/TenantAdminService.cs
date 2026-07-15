@@ -9,18 +9,24 @@ public sealed class TenantAdminService : ITenantAdminService
 {
     private readonly IApplicationDbContext _db;
     private readonly IAuditWriter _audit;
+    private readonly Ecorex.Application.MenuConfig.IMenuProvisioningService _menuProvisioning;
 
-    public TenantAdminService(IApplicationDbContext db, IAuditWriter audit)
+    public TenantAdminService(
+        IApplicationDbContext db,
+        IAuditWriter audit,
+        Ecorex.Application.MenuConfig.IMenuProvisioningService menuProvisioning)
     {
         _db = db;
         _audit = audit;
+        _menuProvisioning = menuProvisioning;
     }
 
     public async Task<TenantDetail> CreateAsync(CreateTenantRequest request, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var tenant = new Tenant
         {
-            Name = request.Name.Trim(),
+            // Convencion del sistema: el NOMBRE de la empresa cliente va en MAYUSCULA.
+            Name = NormalizeName(request.Name),
             LegalName = request.LegalName?.Trim(),
             TaxId = request.TaxId?.Trim(),
             Country = request.Country?.Trim(),
@@ -36,8 +42,16 @@ public sealed class TenantAdminService : ITenantAdminService
             tenantId: tenant.Id);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // El tenant nace CON menu: vista "Completo" (por defecto) con el arbol canonico. Sin esto el
+        // cliente quedaba sin ninguna vista y sus usuarios no veian nada (bug real detectado en prod).
+        await _menuProvisioning.EnsureDefaultMenuAsync(tenant.Id, cancellationToken);
+
         return Map(tenant);
     }
+
+    /// <summary>Nombre de empresa normalizado a MAYUSCULA (convencion del sistema).</summary>
+    internal static string NormalizeName(string name) => name.Trim().ToUpperInvariant();
 
     public async Task<IReadOnlyList<TenantListItem>> ListAsync(TenantStatus? status = null, string? search = null, CancellationToken cancellationToken = default)
     {

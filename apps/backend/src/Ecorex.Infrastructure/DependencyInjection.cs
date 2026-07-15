@@ -112,6 +112,11 @@ public static class DependencyInjection
                 Credentials = null
             });
         services.AddScoped<DatabaseSeeder>();
+        // El seeder es el dueno del arbol canonico del menu: se expone como IMenuProvisioningService
+        // para que el ALTA DE TENANTS (PlatformAdmin y onboarding) siembre la vista "Completo" y
+        // ningun cliente nazca sin menu. Misma instancia scoped -> misma transaccion del alta.
+        services.AddScoped<Ecorex.Application.MenuConfig.IMenuProvisioningService>(
+            sp => sp.GetRequiredService<DatabaseSeeder>());
 
         // Comprobantes PDF (QuestPDF). Licencia Community: gratis para empresas con ingresos < USD 1M/ano.
         QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;

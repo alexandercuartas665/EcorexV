@@ -6,6 +6,7 @@ using Ecorex.Application.Common.Auth;
 using Ecorex.Domain.Enums;
 using Ecorex.Infrastructure;
 using Ecorex.Infrastructure.Persistence;
+using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.Components;
 using Microsoft.AspNetCore.Authentication;
@@ -127,6 +128,9 @@ builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantC
 
 // Chat en tiempo real (SignalR): reemplaza el broadcaster no-op por el real.
 builder.Services.AddSignalR();
+// Agente Conector On-Prem (doc 03): esquema bearer "Agent" (no-default), registro de presencia,
+// emisor de token y endpoints. No altera la auth de cookies existente.
+builder.Services.AddAgentChannel(builder.Configuration);
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRChatBroadcaster>();
 // Nucleo de tareas en tiempo real (FASE 3): reemplaza el broadcaster no-op por el real.
 builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
@@ -419,6 +423,9 @@ app.MapRazorComponents<App>()
 app.MapHub<Ecorex.SuperAdmin.RealTime.ChatHub>("/hubs/chat");
 app.MapHub<Ecorex.SuperAdmin.RealTime.TaskHub>("/hubs/tasks");
 app.MapHub<Ecorex.SuperAdmin.RealTime.NotificationHub>("/hubs/notifications");
+// Agente Conector On-Prem (doc 03): hub autenticado + endpoints token/push/status.
+app.MapHub<Ecorex.SuperAdmin.RealTime.AgenteHub>(AgentChannel.HubPath);
+app.MapAgentEndpoints();
 
 app.MapPost("/auth/login", async (
     HttpContext http,

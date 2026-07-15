@@ -21,7 +21,8 @@ public partial class App : System.Windows.Application
 
         if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--save-config", StringComparison.OrdinalIgnoreCase))
         {
-            new DpapiConfigStore().Save(new AgentConfig(e.Args[1].Trim(), e.Args[2].Trim()));
+            var secret = e.Args.Length >= 4 ? e.Args[3].Trim() : string.Empty;
+            new DpapiConfigStore().Save(new AgentConfig(e.Args[1].Trim(), e.Args[2].Trim(), secret));
             Shutdown(0);
             return;
         }

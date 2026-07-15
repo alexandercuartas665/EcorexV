@@ -98,6 +98,10 @@
                         <TextBox Text="{Binding HubUrl, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{DynamicResource InkTextBox}" />
 
+                        <TextBlock Text="Secreto del cliente (opcional)" Style="{DynamicResource FieldLabel}" Margin="0,12,0,0" />
+                        <TextBox Text="{Binding Secret, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{DynamicResource InkTextBox}" />
+
                         <!-- Estado de conexion. -->
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0" VerticalAlignment="Center">
                             <Ellipse Width="9" Height="9" VerticalAlignment="Center"

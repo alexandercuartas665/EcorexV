@@ -85,3 +85,28 @@ public sealed record FetchErrorMsg(
     string Code,
     string Message,
     bool Retryable);
+
+/// <summary>
+/// Handshake opcion A (doc 02 s2): el agente pide un token corto probando la posesion del secreto
+/// del <c>DataClient</c> con un HMAC de (clientId|ts|nonce). <c>Ts</c> = segundos unix UTC.
+/// </summary>
+public sealed record AgentTokenRequest(string ClientId, long Ts, string Nonce, string Hmac);
+
+/// <summary>Respuesta del endpoint de token: JWT corto para conectar al hub.</summary>
+public sealed record AgentTokenResponse(string AccessToken, DateTimeOffset ExpiresAt);
+
+/// <summary>
+/// HMAC compartido del handshake (misma implementacion en agente y servidor para no divergir):
+/// hex minusculas de HMAC-SHA256(secret, "clientId|ts|nonce").
+/// </summary>
+public static class AgentHmac
+{
+    public static string Canonical(string clientId, long ts, string nonce) => $"{clientId}|{ts}|{nonce}";
+
+    public static string Compute(string secret, string clientId, long ts, string nonce)
+    {
+        using var mac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        var hash = mac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(Canonical(clientId, ts, nonce)));
+        return System.Convert.ToHexString(hash).ToLowerInvariant();
+    }
+}

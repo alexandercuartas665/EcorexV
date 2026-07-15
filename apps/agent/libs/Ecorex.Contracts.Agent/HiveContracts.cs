@@ -54,11 +54,14 @@ public enum ConnectionState
 /// Configuracion local del agente (doc 06 s3.4): ata el equipo on-prem a un cliente/tenant por
 /// su ClientId. Se persiste cifrada con DPAPI (por-usuario Windows); NUNCA en el repo.
 /// </summary>
-public sealed record AgentConfig(string ClientId, string HubUrl)
+public sealed record AgentConfig(string ClientId, string HubUrl, string Secret = "")
 {
-    public static readonly AgentConfig Empty = new(string.Empty, string.Empty);
+    public static readonly AgentConfig Empty = new(string.Empty, string.Empty, string.Empty);
 
     public bool IsComplete => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(HubUrl);
+
+    /// <summary>Hay secreto para el handshake autenticado (opcion A). Sin el, se conecta anonimo.</summary>
+    public bool HasSecret => !string.IsNullOrWhiteSpace(Secret);
 }
 
 /// <summary>

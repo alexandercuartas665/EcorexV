@@ -1,3 +1,5 @@
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using Ecorex.Contracts.Agent;
 using Microsoft.AspNetCore.Http.Connections;
@@ -18,6 +20,8 @@ namespace Ecorex.Agent.Gui.Services;
 /// </summary>
 public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 {
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
@@ -80,11 +84,38 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
             {
                 // doc 02 s1: transporte forzado a WebSockets.
                 options.Transports = HttpTransportType.WebSockets;
-                // doc 02 s2 (opcion A): cuando exista secreto/JWT, aqui iria:
-                //   options.AccessTokenProvider = () => AcquireJwtAsync(config);
+                // doc 02 s2 (opcion A): si hay secreto, el hub exige JWT -> se adquiere un token corto
+                // por HMAC en /api/agente/token y se pasa por AccessTokenProvider. Sin secreto se
+                // conecta anonimo (util contra el simulador de dev).
+                if (config.HasSecret)
+                {
+                    options.AccessTokenProvider = () => AcquireTokenAsync(config);
+                }
             })
             .WithAutomaticReconnect(new HiveRetryPolicy())
             .Build();
+    }
+
+    /// <summary>Handshake opcion A (doc 02 s2): prueba el secreto con HMAC y obtiene un JWT corto.</summary>
+    private static async Task<string?> AcquireTokenAsync(AgentConfig config)
+    {
+        try
+        {
+            var hub = new Uri(config.HubUrl);
+            var tokenUrl = $"{hub.Scheme}://{hub.Authority}/api/agente/token";
+            var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var nonce = Guid.NewGuid().ToString("N");
+            var hmac = AgentHmac.Compute(config.Secret, config.ClientId, ts, nonce);
+
+            var resp = await Http.PostAsJsonAsync(tokenUrl, new AgentTokenRequest(config.ClientId, ts, nonce, hmac));
+            if (!resp.IsSuccessStatusCode) { return null; }
+            var body = await resp.Content.ReadFromJsonAsync<AgentTokenResponse>();
+            return body?.AccessToken;
+        }
+        catch
+        {
+            return null; // sin token -> el hub [Authorize] rechaza -> queda Offline.
+        }
     }
 
     private void WireHandlers(HubConnection conn)

@@ -21,6 +21,7 @@ public sealed class HiveViewModel : ObservableObject
 
     private string _clientId = "";
     private string _hubUrl = "";
+    private string _secret = "";
     private ConnectionState _connection = ConnectionState.Offline;
     private bool _isConfigOpen;
     private bool _busy;
@@ -46,6 +47,7 @@ public sealed class HiveViewModel : ObservableObject
         var cfg = _store.Load();
         _clientId = cfg.ClientId;
         _hubUrl = cfg.HubUrl;
+        _secret = cfg.Secret;
 
         _hive.ConnectionChanged += OnConnectionChanged;
         _hive.RequestStarted += OnRequestStarted;
@@ -76,6 +78,13 @@ public sealed class HiveViewModel : ObservableObject
     {
         get => _hubUrl;
         set => SetProperty(ref _hubUrl, value);
+    }
+
+    /// <summary>Secreto del cliente (opcion A). Se persiste cifrado con DPAPI; opcional (sin el, anonimo).</summary>
+    public string Secret
+    {
+        get => _secret;
+        set => SetProperty(ref _secret, value);
     }
 
     public bool IsConfigOpen
@@ -110,8 +119,10 @@ public sealed class HiveViewModel : ObservableObject
 
     private void SaveConfig()
     {
-        _store.Save(new AgentConfig(ClientId.Trim(), HubUrl.Trim()));
+        _store.Save(new AgentConfig(ClientId.Trim(), HubUrl.Trim(), Secret.Trim()));
     }
+
+    private AgentConfig CurrentConfig() => new(ClientId.Trim(), HubUrl.Trim(), Secret.Trim());
 
     /// <summary>Conexion automatica al arrancar (Ola B, cuando ya hay ClientId/URL guardados).</summary>
     public Task AutoConnectAsync() => TestConnectionAsync();
@@ -123,7 +134,7 @@ public sealed class HiveViewModel : ObservableObject
         try
         {
             SaveConfig(); // persiste lo tecleado antes de probar
-            await _hive.TestConnectionAsync(new AgentConfig(ClientId.Trim(), HubUrl.Trim()));
+            await _hive.TestConnectionAsync(CurrentConfig());
         }
         finally
         {

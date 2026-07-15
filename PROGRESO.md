@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Hub REAL de servidor (apps/backend, doc 03 / doc 05 Ola 1)
+
+Se construye el lado SERVIDOR del canal en `Ecorex.SuperAdmin` (host que ya tiene SignalR + auth).
+Autorizado explicitamente a tocar `apps/backend`; sin romper su build (Ecorex.sln verde).
+
+- **AgenteHub** (`RealTime/AgenteHub.cs`): `[Authorize(AuthenticationSchemes="Agent")]`, grupos
+  `client:{id}`/`tenant:{id}`, presencia; recibe AgentHello/FetchResult/FetchFailed/Heartbeat.
+- **Agents/** : `IAgentRegistry`+`InMemoryAgentRegistry` (en linea/offline), `AgentTokenIssuer`
+  (JWT corto client_id/tenant_id), `AgentNonceCache` (anti-replay), `AgentChannel` (esquema bearer
+  **"Agent" NO-default** -no altera la auth de cookies-, DI y endpoints).
+- **Endpoints**: `POST /api/agente/token` (anonimo; valida `DataClient` activo + ts +/-120s + nonce +
+  HMAC del secreto descifrado con `ISecretProtector` -> JWT 15m), `POST /api/agente/push/{clientId}`
+  (admin, via `IHubContext`), `GET /api/agente/status/{clientId}`. Dev-only: `dev/seed-client` y
+  `dev/push` (guardados por `IsDevelopment`).
+- **Identidad**: la entidad **`DataClient`** existente (ClientId + `ClientSecretEncrypted`), sin
+  entidades nuevas ni migracion. Query cross-tenant en el token via `IgnoreQueryFilters`.
+- **Contrato compartido**: SuperAdmin referencia el MISMO `Ecorex.Contracts.Agent` que el agente
+  (fuente unica del protocolo + `AgentHmac` identico en ambos lados). Paquete nuevo:
+  `Microsoft.AspNetCore.Authentication.JwtBearer` en SuperAdmin.
+- **Agente (lado cliente, opcion A)**: `RealHiveConnection` adquiere el JWT (HMAC -> `/api/agente/token`)
+  y lo pasa por `AccessTokenProvider`; sin secreto conecta anonimo (sim). `AgentConfig` +`Secret`;
+  campo "Secreto" en el flyout; `--save-config <id> <url> [secreto]`.
+- **Verificado E2E contra la BD dev** (SuperAdmin en :5237 + Postgres 5442): NEGATIVO -> token con
+  clientId inexistente 401, ts fuera de rango 401; POSITIVO -> seed de `DataClient`, el agente obtiene
+  token, `[AGENTE] En linea` + `AgentHello caps=[Database,RestApi]`, push del servidor -> `[AGENTE]
+  FetchResult corr=...`. Captura de la colmena "En linea" con Gateway + workers por ordenes reales.
+- **Siguiente**: `DataConnector.RunsViaAgent` + `IRowIngestService` (ingesta compartida) +
+  `IAgentImportService` + `ImportSchedulerService` (doc 03), y en el agente la Ola C (ejecucion real
+  de la consulta contra la BD de la LAN, solo-lectura + whitelist).
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Ola B (canal SignalR real, lado agente)
 
 Rama `feat/agente-colmena-gui`. Se sustituye el mock por el cliente SignalR REAL detras del mismo

@@ -129,6 +129,9 @@ public static class DependencyInjection
         // Contenedor de datos: modelos dinamicos EAV (arbol/submodelos) + import/export Excel, y
         // la configuracion de importacion (conectores con credenciales cifradas, clientes, procesos).
         services.AddScoped<DataContainers.IDataContainerService, DataContainers.DataContainerService>();
+        // Nucleo de ingesta EAV reutilizable (doc 03 s6): lo comparten el import REST y el
+        // importador via agente (Append/Replace/Upsert sobre fila+celdas).
+        services.AddScoped<DataContainers.IRowIngestService, DataContainers.RowIngestService>();
         // Contenedor (DataModel): agrupa varias tablas + relaciones internas (lienzo ER). Reusa el
         // nivel tabla via IDataContainerService.
         services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();

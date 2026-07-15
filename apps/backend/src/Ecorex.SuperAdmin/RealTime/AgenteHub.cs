@@ -15,11 +15,13 @@ namespace Ecorex.SuperAdmin.RealTime;
 public sealed class AgenteHub : Hub
 {
     private readonly IAgentRegistry _registry;
+    private readonly IAgentImportService _imports;
     private readonly ILogger<AgenteHub> _log;
 
-    public AgenteHub(IAgentRegistry registry, ILogger<AgenteHub> log)
+    public AgenteHub(IAgentRegistry registry, IAgentImportService imports, ILogger<AgenteHub> log)
     {
         _registry = registry;
+        _imports = imports;
         _log = log;
     }
 
@@ -56,25 +58,24 @@ public sealed class AgenteHub : Hub
         return Task.CompletedTask;
     }
 
-    public Task FetchResult(FetchResultMsg msg)
+    public async Task FetchResult(FetchResultMsg msg)
     {
         _registry.Touch(Context.ConnectionId);
-        // La ingesta real (Append/Replace/Upsert reusando el motor REST) es una ola posterior
-        // (doc 03 s6). Por ahora se registra el cierre del canal por correlationId + un vistazo a
-        // columnas y la primera fila (util para verificar la ejecucion real del Gateway en Ola C).
         var fields = msg.Fields is null ? string.Empty : string.Join(", ", msg.Fields);
         var sample = msg.Rows.Count > 0 ? string.Join(" | ", msg.Rows[0].Select(kv => $"{kv.Key}={kv.Value}")) : string.Empty;
         _log.LogInformation("[AGENTE] FetchResult: corr={Corr} rows={Rows} last={Last} cols=[{Cols}] row0={Sample}",
             msg.CorrelationId, msg.RowCount, msg.IsLast, fields, sample);
-        return Task.CompletedTask;
+        // Ola 3 (doc 03 s6): si el correlationId corresponde a una peticion de ingesta, acumula y en
+        // el ultimo chunk ingiere las filas al contenedor destino (reusando IRowIngestService).
+        await _imports.OnFetchResultAsync(msg);
     }
 
-    public Task FetchFailed(FetchErrorMsg msg)
+    public async Task FetchFailed(FetchErrorMsg msg)
     {
         _registry.Touch(Context.ConnectionId);
         _log.LogWarning("[AGENTE] FetchFailed: corr={Corr} code={Code} msg={Msg}",
             msg.CorrelationId, msg.Code, msg.Message);
-        return Task.CompletedTask;
+        await _imports.OnFetchFailedAsync(msg);
     }
 
     public Task Heartbeat()

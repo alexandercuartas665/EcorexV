@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Ola 3 (INGESTA en el servidor - FetchResult -> filas del contenedor)
+
+Las filas que trae el agente aterrizan en un contenedor de datos reusando el motor EAV (doc 03 s6 /
+doc 05 Ola 3). Autorizado a tocar apps/backend; Ecorex.sln sigue verde.
+
+- **`IRowIngestService`** (`Ecorex.Application/DataContainers/RowIngestService.cs`): nucleo de ingesta
+  EAV reutilizable, extraido de la logica de `ApiImportService` (Append/Replace/Upsert sobre
+  fila+celdas). Trabaja por SESION (`PrepareAsync` + `IngestChunkAsync` + counts) para ingesta por
+  chunk y conservar el dedup del Upsert. El origen se abstrae como filas campo->valor string (asi lo
+  comparten el import REST -JSON- y el agente -FetchResult-). Registrado scoped en `AddApplication`.
+- **`IAgentImportService`** (`Ecorex.SuperAdmin/Agents/AgentImportService.cs`, singleton): pending-fetch
+  por `correlationId` (contenedor/mapa/modo/clave/tenant/acumulador). `DispatchFetchAsync` arma y empuja
+  el `FetchRequest`; `OnFetchResultAsync` acumula chunks y en el ultimo ingiere via `IRowIngestService`
+  en un scope propio con el tenant fijado (`AmbientTenantContext.Begin`); `OnFetchFailedAsync`. Cableado
+  en `AgenteHub.FetchResult/FetchFailed`.
+- **Dev endpoints** (Development): `dev/ingest/{clientId}` (crea/reusa contenedor "Ciudades (agente)" +
+  columnas, dispara), `dev/ingest-status/{corr}`, `dev/container-count/{id}`.
+- **Verificado E2E** (SuperAdmin :5237 + agente + SQL Server real de la LAN): `SELECT ... FROM ciudades`
+  -> 20 filas -> contenedor. Replace `ins=20`; 2o Replace `del=20/ins=20`; Upsert por CODIGO_POSTAL
+  `upd=20` sin duplicar (queda en 20 filas). `firstRow=[TAIWAN, 110231, ...]`.
+- **Nota de entorno**: la BD dev tenia drift (faltaba `data_container_columns.referenced_container_id`
+  pese al historial de migraciones); se corrigio con un ALTER puntual. NO es bug del codigo (la
+  migracion existente la crea en una BD limpia).
+- **Pendiente**: migrar `ApiImportService` (REST) al nucleo compartido (follow-up mecanico, se dejo
+  intacto para no tocar el path REST sin sus tests de integracion Docker); `DataConnector.RunsViaAgent`
+  + `ImportSchedulerService` (Ola 4) + UI "Refrescar ahora"/estado en linea.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Ola C (Gateway EJECUTA real contra SQL Server de la LAN)
 
 El sub-agente Gateway pasa de acusar recibo a EJECUTAR de verdad (doc 05 Ola 2). C# (no VB.NET).

@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using Ecorex.Application.Common;
+using Ecorex.Application.DataContainers;
 using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Entities;
+using Ecorex.Domain.Enums;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.RealTime;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -41,6 +43,8 @@ public static class AgentChannel
         services.AddSingleton(new AgentTokenIssuer(key, issuer, audience, minutes: 15));
         services.AddSingleton<IAgentRegistry, InMemoryAgentRegistry>();
         services.AddSingleton<AgentNonceCache>();
+        // Ola 3: orquestador de ingesta via agente (pending-fetch + ingesta al contenedor).
+        services.AddSingleton<IAgentImportService, AgentImportService>();
 
         // Esquema bearer nombrado SOLO para el hub. AddAuthentication() sin argumentos no cambia el
         // esquema por defecto (cookie), solo agrega este.
@@ -239,6 +243,86 @@ public static class AgentChannel
                 await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.FetchRequest, req, ct);
                 return Results.Json(new { ok = true, correlationId = req.CorrelationId });
             }).AllowAnonymous().DisableAntiforgery();
+
+            // POST /api/agente/dev/ingest/{clientId}?mode=Replace&top=20 : E2E de INGESTA (doc 03 s6).
+            // Crea/reusa un contenedor "Ciudades (agente)" con columnas y dispara una consulta cuyo
+            // FetchResult ingiere el AgentImportService. SOLO Development.
+            app.MapPost("/api/agente/dev/ingest/{clientId}", async (
+                string clientId,
+                string? mode,
+                int? top,
+                IApplicationDbContext db,
+                IAgentRegistry registry,
+                IAgentImportService imports,
+                CancellationToken ct) =>
+            {
+                var presence = registry.Get(clientId);
+                if (presence is null)
+                {
+                    return Results.Json(new { ok = false, error = "Agente offline." }, statusCode: 409);
+                }
+                var tenantId = presence.TenantId;
+                var importMode = Enum.TryParse<ApiImportMode>(mode, ignoreCase: true, out var m) ? m : ApiImportMode.Replace;
+                var take = top is > 0 and <= 5000 ? top.Value : 20;
+
+                Guid containerId;
+                Dictionary<Guid, string> mapping;
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    var container = await db.DataContainers.IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == "Ciudades (agente)", ct);
+                    if (container is null)
+                    {
+                        container = new DataContainer { TenantId = tenantId, Name = "Ciudades (agente)" };
+                        db.DataContainers.Add(container);
+                        mapping = new Dictionary<Guid, string>();
+                        var i = 0;
+                        foreach (var field in new[] { "NOMBRE", "PAIS", "CODIGO_POSTAL" })
+                        {
+                            var col = new DataContainerColumn { TenantId = tenantId, ContainerId = container.Id, Name = field, Type = DataContainerColumnType.Text, SortOrder = i++ };
+                            db.DataContainerColumns.Add(col);
+                            mapping[col.Id] = field;
+                        }
+                        await db.SaveChangesAsync(ct);
+                    }
+                    else
+                    {
+                        var cols = await db.DataContainerColumns.IgnoreQueryFilters()
+                            .Where(c => c.ContainerId == container.Id).ToListAsync(ct);
+                        mapping = cols.ToDictionary(c => c.Id, c => c.Name);
+                    }
+                    containerId = container.Id;
+                }
+
+                Guid? keyCol = importMode == ApiImportMode.Upsert
+                    ? mapping.FirstOrDefault(kv => kv.Value == "CODIGO_POSTAL").Key
+                    : null;
+                var query = $"SELECT TOP {take} {string.Join(", ", mapping.Values)} FROM ciudades";
+
+                var corr = await imports.DispatchFetchAsync(clientId, tenantId, containerId, mapping, importMode, keyCol, query, ct);
+                return Results.Json(new { ok = true, correlationId = corr, containerId, mode = importMode.ToString(), query });
+            }).AllowAnonymous().DisableAntiforgery();
+
+            // GET /api/agente/dev/ingest-status/{correlationId} : resultado de la ingesta.
+            app.MapGet("/api/agente/dev/ingest-status/{correlationId}", (string correlationId, IAgentImportService imports) =>
+            {
+                return imports.TryGetOutcome(correlationId, out var outcome)
+                    ? Results.Json(new { done = true, outcome })
+                    : Results.Json(new { done = false });
+            }).AllowAnonymous();
+
+            // GET /api/agente/dev/container-count/{containerId} : filas ingeridas + celdas de la 1a fila.
+            app.MapGet("/api/agente/dev/container-count/{containerId:guid}", async (
+                Guid containerId, IApplicationDbContext db, CancellationToken ct) =>
+            {
+                var rowIds = await db.DataContainerRows.IgnoreQueryFilters()
+                    .Where(r => r.ContainerId == containerId).Select(r => r.Id).ToListAsync(ct);
+                var sample = rowIds.Count > 0
+                    ? await db.DataContainerCells.IgnoreQueryFilters()
+                        .Where(c => c.RowId == rowIds[0]).Select(c => c.Value).ToListAsync(ct)
+                    : new List<string?>();
+                return Results.Json(new { containerId, rowCount = rowIds.Count, firstRow = sample });
+            }).AllowAnonymous();
         }
 
         return app;

@@ -22,6 +22,8 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
+    private readonly SqlServerGatewayExecutor _sql = new();
+    private readonly GatewaySourceStore _sources = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
@@ -130,36 +132,78 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         conn.On(AgentHubMethods.Ping, () => SafeInvokeAsync(conn, AgentHubMethods.Heartbeat));
     }
 
-    /// <summary>Traduce una orden real en la animacion de la colmena y cierra el round-trip.</summary>
+    /// <summary>
+    /// Traduce una orden real en la animacion de la colmena y la EJECUTA (Ola C, Database -> SQL
+    /// Server de la LAN, solo-lectura + chunking). Otros conectores acusan recibo por ahora.
+    /// </summary>
     private async Task OnFetchRequestAsync(HubConnection conn, FetchRequestMsg req)
     {
         var kind = MapKind(req.Connector);
         var detail = Shorten(req.Query?.Text) ?? req.Connector?.Kind;
         RequestStarted?.Invoke(new HiveRequest(req.CorrelationId, kind, detail));
 
-        // Ola B: sin ejecucion (eso es Ola C). Se acusa recibo para cerrar el canal.
-        await Task.Delay(700);
+        var isDatabase = string.Equals(req.Connector?.Kind, "Database", StringComparison.OrdinalIgnoreCase);
         try
         {
-            var ack = new FetchResultMsg(
-                req.CorrelationId,
-                ChunkIndex: 0,
-                IsLast: true,
-                Fields: new[] { "_status" },
-                Rows: new List<Dictionary<string, string?>>
-                {
-                    new() { ["_status"] = "agent-online: ejecucion pendiente (Ola C)" },
-                },
-                RowCount: 0);
-            await conn.InvokeAsync(AgentHubMethods.FetchResult, ack);
-            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, "recibido"));
+            if (isDatabase)
+            {
+                await ExecuteDatabaseAsync(conn, req);
+            }
+            else
+            {
+                await AckAsync(conn, req);
+                RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, "recibido"));
+            }
+        }
+        catch (GatewayException gx)
+        {
+            await SafeInvokeAsync(conn, AgentHubMethods.FetchFailed,
+                new FetchErrorMsg(req.CorrelationId, gx.Code, gx.Message, gx.Retryable));
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: false, gx.Message));
         }
         catch (Exception ex)
         {
             await SafeInvokeAsync(conn, AgentHubMethods.FetchFailed,
-                new FetchErrorMsg(req.CorrelationId, "AGENT_ACK", ex.Message, Retryable: true));
+                new FetchErrorMsg(req.CorrelationId, "AGENT_ERROR", ex.Message, Retryable: true));
             RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: false, ex.Message));
         }
+    }
+
+    /// <summary>Ejecuta la consulta contra la fuente SQL Server local y envia los chunks de FetchResult.</summary>
+    private async Task ExecuteDatabaseAsync(HubConnection conn, FetchRequestMsg req)
+    {
+        var engine = req.Connector?.DbEngine ?? "SqlServer";
+        if (!string.Equals(engine, "SqlServer", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GatewayException("UNSUPPORTED_ENGINE", $"Motor no soportado en Ola C: {engine}.");
+        }
+
+        var connectionString = _sources.LoadSqlServer();
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new GatewayException("NO_SOURCE", "El agente no tiene una fuente SQL Server configurada.");
+        }
+
+        var query = req.Query ?? new QuerySpec(string.Empty);
+        var total = 0;
+        await foreach (var chunk in _sql.ExecuteAsync(connectionString, req.CorrelationId, query, req.Paging))
+        {
+            total += chunk.RowCount;
+            await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk);
+        }
+        RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, $"{total} filas"));
+    }
+
+    /// <summary>Acuse para conectores sin ejecutor propio (RestApi, etc.): cierra el canal.</summary>
+    private static async Task AckAsync(HubConnection conn, FetchRequestMsg req)
+    {
+        await Task.Delay(500);
+        var ack = new FetchResultMsg(
+            req.CorrelationId, ChunkIndex: 0, IsLast: true,
+            Fields: new[] { "_status" },
+            Rows: new List<Dictionary<string, string?>> { new() { ["_status"] = "agent-online: sin ejecutor para este conector" } },
+            RowCount: 0);
+        await conn.InvokeAsync(AgentHubMethods.FetchResult, ack);
     }
 
     private async Task SafeHelloAsync(HubConnection conn)

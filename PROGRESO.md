@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Ola C (Gateway EJECUTA real contra SQL Server de la LAN)
+
+El sub-agente Gateway pasa de acusar recibo a EJECUTAR de verdad (doc 05 Ola 2). C# (no VB.NET).
+
+- **`Services/SqlServerGatewayExecutor`** (Microsoft.Data.SqlClient 6.0.2): abre la conexion, ejecuta
+  la consulta parametrizada, lee por lotes (`pageSize`, tope `maxRows`) y produce `FetchResult` en
+  chunks (columnas en el chunk 0) como `IAsyncEnumerable`.
+- **`Services/QueryGuard`**: whitelist de SOLO lectura -un unico SELECT/CTE; bloquea insert/update/
+  delete/merge/drop/alter/create/truncate/exec/sp_/xp_/into/etc.- defensa en profundidad ademas del
+  usuario de BD de solo-lectura.
+- **`Services/GatewaySourceStore`**: la cadena de conexion (con credencial de la LAN) se guarda
+  LOCAL cifrada con DPAPI (`source.dat`), opcion b: la credencial NUNCA viaja por el canal ni se
+  versiona. Se carga en runtime con `--save-source "<cadena>"`.
+- **`RealHiveConnection`**: un `FetchRequest` Database resuelve la cadena local y ejecuta (stream de
+  `FetchResult`); `FetchFailed` con codigo (QUERY_REJECTED / NO_SOURCE / UNSUPPORTED_ENGINE /
+  AGENT_ERROR) en fallo. Otros conectores siguen acusando recibo.
+- **Backend (dev)**: `dev/push` acepta `?q=` para probar consultas; el log del hub muestra columnas +
+  primera fila del `FetchResult` (verificacion de datos reales).
+- **Verificado E2E contra SQL Server REAL de la LAN** (`M700_GEN`, via el hub en :5237):
+  `SELECT TOP 20 * FROM ciudades` -> `[AGENTE] FetchResult rows=20 cols=[DPTO,NOMBRE,PAIS,CODIGO_DIAN,
+  DANE_DEP,...]` con datos reales; `DELETE FROM ciudades` y `SELECT * INTO x ...` -> `FetchFailed
+  QUERY_REJECTED`. Credencial cargada en runtime (DPAPI), NUNCA en el repo.
+- **Siguiente**: ingesta en el servidor (doc 03 s6: `IRowIngestService` + `IAgentImportService` para
+  que el `FetchResult` termine como filas del contenedor), `RunsViaAgent`+scheduler, y sub-agentes
+  Archivos/Navegador.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Hub REAL de servidor (apps/backend, doc 03 / doc 05 Ola 1)
 
 Se construye el lado SERVIDOR del canal en `Ecorex.SuperAdmin` (host que ya tiene SignalR + auth).

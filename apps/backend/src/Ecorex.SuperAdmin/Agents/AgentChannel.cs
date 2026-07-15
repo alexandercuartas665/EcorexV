@@ -212,6 +212,7 @@ public static class AgentChannel
             // push real es admin-gated). SOLO en Development.
             app.MapPost("/api/agente/dev/push/{clientId}", async (
                 string clientId,
+                string? q,
                 IAgentRegistry registry,
                 IHubContext<AgenteHub> hub,
                 CancellationToken ct) =>
@@ -222,12 +223,17 @@ public static class AgentChannel
                     return Results.Json(new { ok = false, error = "Agente offline." }, statusCode: 409);
                 }
 
+                var custom = !string.IsNullOrWhiteSpace(q);
+                var query = custom
+                    ? new QuerySpec(q!)
+                    : new QuerySpec("SELECT id, name FROM items WHERE updated_at > @since",
+                        new Dictionary<string, string?> { ["since"] = "2026-07-01T00:00:00Z" });
+
                 var req = new FetchRequestMsg(
                     CorrelationId: Guid.NewGuid().ToString("N")[..8],
                     TenantId: presence.TenantId.ToString(),
-                    Connector: new ConnectorSpec("Database", DbEngine: "SqlServer", Host: "10.0.0.20", Port: 1433, Database: "db3dev", Username: "ecorex_ro"),
-                    Query: new QuerySpec("SELECT id, name FROM items WHERE updated_at > @since",
-                        new Dictionary<string, string?> { ["since"] = "2026-07-01T00:00:00Z" }),
+                    Connector: new ConnectorSpec("Database", DbEngine: "SqlServer", Host: "lan", Database: "M700_GEN"),
+                    Query: query,
                     Paging: new PagingSpec("Offset", 500, 100000));
 
                 await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.FetchRequest, req, ct);

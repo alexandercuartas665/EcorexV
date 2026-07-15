@@ -60,9 +60,12 @@ public sealed class AgenteHub : Hub
     {
         _registry.Touch(Context.ConnectionId);
         // La ingesta real (Append/Replace/Upsert reusando el motor REST) es una ola posterior
-        // (doc 03 s6). Por ahora se registra el cierre del canal por correlationId.
-        _log.LogInformation("[AGENTE] FetchResult: corr={Corr} rows={Rows} last={Last}",
-            msg.CorrelationId, msg.RowCount, msg.IsLast);
+        // (doc 03 s6). Por ahora se registra el cierre del canal por correlationId + un vistazo a
+        // columnas y la primera fila (util para verificar la ejecucion real del Gateway en Ola C).
+        var fields = msg.Fields is null ? string.Empty : string.Join(", ", msg.Fields);
+        var sample = msg.Rows.Count > 0 ? string.Join(" | ", msg.Rows[0].Select(kv => $"{kv.Key}={kv.Value}")) : string.Empty;
+        _log.LogInformation("[AGENTE] FetchResult: corr={Corr} rows={Rows} last={Last} cols=[{Cols}] row0={Sample}",
+            msg.CorrelationId, msg.RowCount, msg.IsLast, fields, sample);
         return Task.CompletedTask;
     }
 

@@ -27,6 +27,8 @@
        no internals del backend; el agente sigue dependiendo solo de los contratos + este NuGet. -->
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+    <!-- Ola C: ejecucion real del sub-agente Gateway contra SQL Server de la LAN. -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
   </ItemGroup>
 
 </Project>

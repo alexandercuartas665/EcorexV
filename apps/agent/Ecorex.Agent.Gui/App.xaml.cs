@@ -27,6 +27,15 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Fuente local del Gateway (Ola C): guarda la cadena de conexion SQL Server cifrada con DPAPI.
+        // La credencial se aporta en tiempo de ejecucion; NUNCA se versiona.
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--save-source", StringComparison.OrdinalIgnoreCase))
+        {
+            new Services.GatewaySourceStore().SaveSqlServer(e.Args[1].Trim());
+            Shutdown(0);
+            return;
+        }
+
         new MainWindow().Show();
     }
 }

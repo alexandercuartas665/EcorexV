@@ -4275,3 +4275,19 @@ SkipDemoSeed, donde el super admin define sus planes reales). Commit `5b3fee0`, 
 **Validado en Chrome** (demo SKY SYSTEM, Owner): /mi-cuenta "Cambiar de plan" lista los 3 planes;
 cambio Empresa->Pro aplica y actualiza limites (25 usuarios / 500k IA / 5 lineas). BD: 3 filas en
 saas_plans. No desplegado (cambio solo-demo; prod define planes por /plans).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Contenedor de datos: duda de relaciones + ejemplo demo
+
+**Duda del usuario**: "no veo como crear una relacion entre tablas". Diagnostico: la relacion NO se
+dibuja arrastrando; es un CAMPO de tipo Reference (N:1) o RelationMany (N:N) con tabla destino. El
+selector "Tabla destino" solo lista OTRAS tablas del modelo; con un modelo de 1 tabla salia vacio y
+parecia que la funcion no existia.
+
+- **Fix UX** (`f578b8f`): cuando se elige un tipo de relacion y no hay otra tabla, se muestra una guia
+  ("crea y guarda una segunda tabla, luego elige la tabla destino") en vez de un selector vacio.
+- **Ejemplo demo** (`f78d3e8`): EnsureDataModelDemoAsync siembra el modelo "Ventas (demo)" con 3 tablas
+  (Clientes/Productos/Pedidos) + 2 relaciones (Pedidos.Cliente->Clientes N:1; Pedidos.Productos<->Productos
+  N:N). Idempotente, solo Development. Validado en Chrome: el lienzo ER dibuja la linea morada (N:1) y la
+  naranja punteada (N:N). Sin migracion. No desplegado (solo-demo).

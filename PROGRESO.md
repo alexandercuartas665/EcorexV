@@ -123,7 +123,19 @@ Arranque y encargado del flujo/` (docs 00 indice, 01 arquitectura, 02 cinco hist
 - **Verificado**: test dual `Publish_FlowWithoutTaskNode_IsRejected` (PG + SQL Server 2/2); regresion
   45 workflow + 360 unitarios verdes. En Chrome real: despublicando COT-COM en local, la hoja mostro
   chip "borrador" y el wizard el banner "nacera sin proceso"; restaurado.
-- **Siguiente**: Ola C2 (QA end-to-end del ciclo completo) y despues Ola D + deploy a prod.
+- **Ola C2 - HECHA (verificacion, sin codigo)**: QA end-to-end del arranque de tareas-proceso.
+  Arranque E2E visual+BD (desde Mis Procesos se creo **T00219**, nace enrolada con el primer paso
+  "Requerimiento" asignado a operator; operator la ve en "Pendientes mios" sin reclamarla). El ciclo
+  runtime (atender -> avanzar -> gateway Aprobada/Rechazada -> reinicio) se apoya en
+  `WorkflowInboxTests` **6/6 en matriz dual** (invocan los mismos servicios que los botones del
+  detalle). Registrado en el vault (05. Pruebas/Historial de corridas, 2026-07-14).
+- **Gaps de config del demo hallados (no son bug de codigo)**: el flujo COT-COM v1 tiene Facturacion/
+  Entrega sin cargo, y el concepto "Cotizacion de equipos" no tiene columna de cierre (tablero previo
+  al auto-tablero 388e895). Anotados en el backlog del capitulo para cerrarlos por configuracion.
+- **Nota**: el clic visual "Completar paso" no se re-ejercito por inestabilidad del circuito Blazor
+  Server tras reinicios; cubierto por los tests duales y la corrida previa (tarea #67).
+- **Siguiente**: Ola D (formulario por nodo del flujo, comprometida en D1) + deploy a prod del
+  acumulado.
 
 ## 2026-07-14 - Fix menu: "Directorio General" (000232) desaparecido de "Negocio"
 

@@ -4230,3 +4230,27 @@ Ambos commits en main + fase-0/clon-backbone. **No desplegado** (prod sigue en 0
   y_cloud_api_key_encrypted / y_cloud_phone_number_id / y_cloud_waba_id presentes en whats_app_lines).
 - **Salud**: GET /login -> HTTP 200 al primer intento; "Now listening on http://0.0.0.0:8080".
 - Incluye robustez del runtime del agente (9c3de08) y proveedor YCloud (92eb858).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Consola SQL admin (000077), backport de VISAL
+
+**Agentes**: Claude (Opus 4.8). Otro proyecto hermano del backbone (C:\DesarrolloIA\Visal, VISAL.git)
+tenia una consola SQL para consultar el sistema. El menu de ECOREX ya listaba el item 000077 como
+stub (modulo/sql-admin) sin modulo detras. Se desarrollo respetando el diseno de ECOREX.
+
+- **Dominio**: SqlConsoleLog (append-only, NO tenant-scoped; el tenant del actor es dato, no filtro).
+- **Application**: ISqlConsoleService + DTOs en Ecorex.Application.Admin.
+- **Infrastructure/Sql**: SqlConsoleService ejecuta SQL crudo via DbConnection del EcorexDbContext
+  (proveedor activo por DI). SELECT -> filas (hasta 1000); DML/DDL -> ExecuteNonQuery. AUDITA SIEMPRE
+  en sql_console_logs. Explorador de tablas guardado por IsNpgsql() (pg_stat_user_tables) con mapa de
+  descripciones PROPIO de ECOREX (tareas/flujos/formularios/conceptos/...), no el clinico de VISAL.
+- **Migracion DUAL** AddSqlConsoleLogs (PG + SQL Server): tabla + indices.
+- **UI** /sql-admin con el sistema de diseno de ECOREX (tokens --brand/--surface/--line/--ink,
+  monocromo, theme-aware) NO el azul de VISAL: explorador arbol + editor Ctrl+Enter + resultados +
+  historial + export CSV. Policy Perm:sql-admin:View (Owner/Admin por gobierno).
+- **Menu**: item 000077 pasa de stub a pagina real 'sql-admin' + Ready; reconcile repunta el nodo ya
+  sembrado en prod al arrancar (patron 000889).
+
+**Verificado**: build sln verde, unit 379/379. Commit b3004e5 en main + fase-0/clon-backbone.
+**Pendiente**: deploy a prod (aplica migracion AddSqlConsoleLogs al arrancar + reconcile repunta el menu).

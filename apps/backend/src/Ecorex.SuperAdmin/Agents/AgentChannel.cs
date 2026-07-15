@@ -349,6 +349,38 @@ public static class AgentChannel
                 await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.BrowserRequest, req, ct);
                 return Results.Json(new { ok = true, correlationId = corr, url = target });
             }).AllowAnonymous().DisableAntiforgery();
+
+            // POST /api/agente/dev/files/{clientId}?op=list|read|write&path=...&content=... : ordena una
+            // accion tipada al sub-agente Archivos. SOLO Development.
+            app.MapPost("/api/agente/dev/files/{clientId}", async (
+                string clientId,
+                string? op,
+                string? path,
+                string? content,
+                IAgentRegistry registry,
+                IHubContext<AgenteHub> hub,
+                CancellationToken ct) =>
+            {
+                var presence = registry.Get(clientId);
+                if (presence is null)
+                {
+                    return Results.Json(new { ok = false, error = "Agente offline." }, statusCode: 409);
+                }
+                var kind = (op ?? "list").ToLowerInvariant() switch
+                {
+                    "read" => FileActionKind.Read,
+                    "write" => FileActionKind.Write,
+                    "delete" => FileActionKind.Delete,
+                    "exists" => FileActionKind.Exists,
+                    "mkdir" => FileActionKind.MakeDir,
+                    _ => FileActionKind.List,
+                };
+                var corr = Guid.NewGuid().ToString("N")[..8];
+                var req = new FileRequestMsg(corr, presence.TenantId.ToString(),
+                    new List<FileAction> { new(kind, Path: path, Content: content) });
+                await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.FileRequest, req, ct);
+                return Results.Json(new { ok = true, correlationId = corr, op = kind.ToString(), path });
+            }).AllowAnonymous().DisableAntiforgery();
         }
 
         return app;

@@ -44,6 +44,14 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Allow-list de rutas raiz del sub-agente Archivos (doc 06 s4). Coma-separada. DPAPI local.
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--save-file-allow", StringComparison.OrdinalIgnoreCase))
+        {
+            new Services.FileAllowList().Save(e.Args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            Shutdown(0);
+            return;
+        }
+
         new MainWindow().Show();
     }
 }

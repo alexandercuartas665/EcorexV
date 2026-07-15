@@ -112,6 +112,20 @@ public sealed class AgenteHub : Hub
         return Task.CompletedTask;
     }
 
+    /// <summary>Resultado del sub-agente Archivos (doc 06 s3.2).</summary>
+    public Task FileResult(FileResultMsg msg)
+    {
+        _registry.Touch(Context.ConnectionId);
+        foreach (var r in msg.Results)
+        {
+            var value = r.Value is null ? "" : (r.Value.Length > 200 ? r.Value[..200] + "..." : r.Value);
+            var entries = r.Entries is null ? "" : $" entries={r.Entries.Count}";
+            _log.LogInformation("[ARCHIVOS] corr={Corr} #{Idx} {Kind} ok={Ok} val={Val}{Entries} {Err}",
+                msg.CorrelationId, r.Index, r.Kind, r.Ok, value, entries, r.Ok ? "" : r.Error);
+        }
+        return Task.CompletedTask;
+    }
+
     public static string ClientGroup(string clientId) => $"client:{clientId}";
     public static string TenantGroup(Guid tenantId) => $"tenant:{tenantId}";
 }

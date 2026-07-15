@@ -8,19 +8,20 @@ using Ecorex.Contracts.Agent;
 namespace Ecorex.Agent.Gui.Services;
 
 /// <summary>
-/// Servidor MCP embebido del sub-agente Navegador (prior-art doc 07: `consumoweb_webserver`).
-/// Expone las 7 herramientas `browser.*` por JSON-RPC 2.0 sobre HTTP, escuchando SOLO en loopback
-/// (127.0.0.1) -defensa presente en el legacy-. Un cliente MCP local (o una IA local) puede llamar
-/// `initialize` / `tools/list` / `tools/call`. La ejecucion se marshala al hilo de UI (WebView2) y
-/// respeta la allow-list de dominios del sub-agente.
+/// Servidor MCP embebido del agente (prior-art doc 07: `consumoweb_webserver`). Expone las
+/// herramientas `browser.*` (7) y `file.*` (6) por JSON-RPC 2.0 sobre HTTP, escuchando SOLO en
+/// loopback (127.0.0.1) -defensa presente en el legacy-. Un cliente MCP local (o una IA local) puede
+/// llamar `initialize` / `tools/list` / `tools/call`. Las tools de navegador se marshalan al hilo de
+/// UI (WebView2); las de archivos corren directas. Ambas capacidades respetan su allow-list local.
 /// </summary>
-public sealed class BrowserMcpServer
+public sealed class AgentMcpServer
 {
     private readonly WebView2BrowserSubAgent _browser;
+    private readonly FileSubAgent _files = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
 
-    public BrowserMcpServer(WebView2BrowserSubAgent browser, int port = 8765)
+    public AgentMcpServer(WebView2BrowserSubAgent browser, int port = 8765)
     {
         _browser = browser;
         Port = port;
@@ -62,13 +63,16 @@ public sealed class BrowserMcpServer
                 var (method, _, body) = await ReadRequestAsync(stream, ct);
                 if (method == "POST" && !string.IsNullOrEmpty(body))
                 {
-                    var (json, isNotification) = await HandleRpcAsync(body);
+                    string json;
+                    bool isNotification;
+                    try { (json, isNotification) = await HandleRpcAsync(body); }
+                    catch (Exception ex) { await WriteAsync(stream, 200, $"{{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{{\"code\":-32000,\"message\":{JsonEncode(ex.Message)}}}}}", ct); return; }
                     if (isNotification) { await WriteAsync(stream, 202, null, ct); }
                     else { await WriteAsync(stream, 200, json, ct); }
                 }
                 else
                 {
-                    await WriteAsync(stream, 200, "{\"server\":\"ecorex-browser-mcp\",\"transport\":\"jsonrpc/http\"}", ct);
+                    await WriteAsync(stream, 200, "{\"server\":\"ecorex-agent-mcp\",\"transport\":\"jsonrpc/http\"}", ct);
                 }
             }
             catch { /* conexion caida: ignora */ }
@@ -115,51 +119,71 @@ public sealed class BrowserMcpServer
 
     private async Task<string> CallToolAsync(string id, string name, JsonElement args)
     {
-        var action = MapTool(name, args, out var mapError);
-        if (action is null)
-        {
-            return ToolContent(id, isError: true, text: mapError ?? $"Herramienta desconocida: {name}");
-        }
-
-        BrowserActionResult r;
         try
         {
-            var dispatcher = System.Windows.Application.Current.Dispatcher;
-            var req = new BrowserRequestMsg(Guid.NewGuid().ToString("N")[..8], "mcp", new[] { action });
-            var result = await dispatcher.InvokeAsync(() => _browser.ExecuteAsync(req)).Task.Unwrap();
-            r = result.Results.Count > 0 ? result.Results[0] : new BrowserActionResult(0, action.Kind, false, Error: "sin resultado");
+            if (name.StartsWith("browser.", StringComparison.Ordinal))
+            {
+                var action = MapBrowserTool(name, args);
+                if (action is null) { return ToolContent(id, true, $"Herramienta desconocida: {name}"); }
+                var dispatcher = System.Windows.Application.Current.Dispatcher;
+                var req = new BrowserRequestMsg(Guid.NewGuid().ToString("N")[..8], "mcp", new[] { action });
+                var result = await dispatcher.InvokeAsync(() => _browser.ExecuteAsync(req)).Task.Unwrap();
+                var r = result.Results.Count > 0 ? result.Results[0] : new BrowserActionResult(0, action.Kind, false, Error: "sin resultado");
+                return r.Ok
+                    ? ToolContent(id, false, r.Value ?? "ok", r.ScreenshotBase64)
+                    : ToolContent(id, true, r.Error ?? "error");
+            }
+
+            if (name.StartsWith("file.", StringComparison.Ordinal))
+            {
+                var action = MapFileTool(name, args);
+                if (action is null) { return ToolContent(id, true, $"Herramienta desconocida: {name}"); }
+                var result = await _files.ExecuteAsync(new FileRequestMsg(Guid.NewGuid().ToString("N")[..8], "mcp", new[] { action }));
+                var r = result.Results[0];
+                if (!r.Ok) { return ToolContent(id, true, r.Error ?? "error"); }
+                var text = r.Value ?? (r.Entries is not null ? JsonSerializer.Serialize(r.Entries) : "ok");
+                return ToolContent(id, false, text);
+            }
+
+            return ToolContent(id, true, $"Herramienta desconocida: {name}");
         }
         catch (Exception ex)
         {
-            return ToolContent(id, isError: true, text: ex.Message);
+            return ToolContent(id, true, ex.Message);
         }
-
-        if (!r.Ok)
-        {
-            return ToolContent(id, isError: true, text: r.Error ?? "error");
-        }
-        return ToolContent(id, isError: false, text: r.Value ?? "ok", screenshotB64: r.ScreenshotBase64);
     }
 
-    private static BrowserAction? MapTool(string name, JsonElement args, out string? error)
+    private static string? Str(JsonElement args, string k)
+        => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static BrowserAction? MapBrowserTool(string name, JsonElement args)
     {
-        error = null;
-        string? Str(string k) => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         int? Int(string k) => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
         bool Shot() => args.ValueKind == JsonValueKind.Object && args.TryGetProperty("screenshot", out var v) && v.ValueKind == JsonValueKind.True;
 
         return name switch
         {
-            "browser.navigate" => new BrowserAction(BrowserActionKind.Navigate, Url: Str("url"), Screenshot: Shot()),
-            "browser.eval" => new BrowserAction(BrowserActionKind.Eval, Script: Str("script"), Screenshot: Shot()),
-            "browser.wait" => new BrowserAction(BrowserActionKind.Wait, WaitMs: Int("waitMs"), ConditionScript: Str("conditionScript"), Screenshot: Shot()),
+            "browser.navigate" => new BrowserAction(BrowserActionKind.Navigate, Url: Str(args, "url"), Screenshot: Shot()),
+            "browser.eval" => new BrowserAction(BrowserActionKind.Eval, Script: Str(args, "script"), Screenshot: Shot()),
+            "browser.wait" => new BrowserAction(BrowserActionKind.Wait, WaitMs: Int("waitMs"), ConditionScript: Str(args, "conditionScript"), Screenshot: Shot()),
             "browser.screenshot" => new BrowserAction(BrowserActionKind.Screenshot),
-            "browser.html" => new BrowserAction(BrowserActionKind.Html, Selector: Str("selector"), Screenshot: Shot()),
-            "browser.mouse" => new BrowserAction(BrowserActionKind.Mouse, ScriptJson: Str("scriptJson"), Screenshot: Shot()),
+            "browser.html" => new BrowserAction(BrowserActionKind.Html, Selector: Str(args, "selector"), Screenshot: Shot()),
+            "browser.mouse" => new BrowserAction(BrowserActionKind.Mouse, ScriptJson: Str(args, "scriptJson"), Screenshot: Shot()),
             "browser.downloads" => new BrowserAction(BrowserActionKind.Downloads),
             _ => null,
         };
     }
+
+    private static FileAction? MapFileTool(string name, JsonElement args) => name switch
+    {
+        "file.list" => new FileAction(FileActionKind.List, Path: Str(args, "path")),
+        "file.read" => new FileAction(FileActionKind.Read, Path: Str(args, "path")),
+        "file.write" => new FileAction(FileActionKind.Write, Path: Str(args, "path"), Content: Str(args, "content")),
+        "file.delete" => new FileAction(FileActionKind.Delete, Path: Str(args, "path")),
+        "file.exists" => new FileAction(FileActionKind.Exists, Path: Str(args, "path")),
+        "file.mkdir" => new FileAction(FileActionKind.MakeDir, Path: Str(args, "path")),
+        _ => null,
+    };
 
     // ---- JSON-RPC helpers ----
 
@@ -202,6 +226,17 @@ public sealed class BrowserMcpServer
             Tool("browser.mouse", "Ejecuta un guion JSON de pasos (click/type por selector).",
                 "{\"scriptJson\":{\"type\":\"string\"},\"screenshot\":{\"type\":\"boolean\"}}", "\"scriptJson\""),
             Tool("browser.downloads", "Historial reciente de descargas.", "{}", ""),
+            // Sub-agente Archivos (acotado a la allow-list de rutas local).
+            Tool("file.list", "Lista un directorio (dentro de la allow-list de rutas).",
+                "{\"path\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.read", "Lee un archivo de texto (tope 1 MB).",
+                "{\"path\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.write", "Escribe (crea/reemplaza) un archivo.",
+                "{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.delete", "Borra un archivo.", "{\"path\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.exists", "Informa si una ruta existe (file/dir/none).",
+                "{\"path\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.mkdir", "Crea un directorio.", "{\"path\":{\"type\":\"string\"}}", "\"path\""),
         });
         return $"{{\"tools\":[{tools}]}}";
     }

@@ -25,6 +25,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     private readonly SqlServerGatewayExecutor _sql = new();
     private readonly GatewaySourceStore _sources = new();
     private readonly WebView2BrowserSubAgent _browser;
+    private readonly FileSubAgent _files = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
@@ -135,6 +136,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         // Servidor -> agente (doc 02 s4).
         conn.On<FetchRequestMsg>(AgentHubMethods.FetchRequest, req => OnFetchRequestAsync(conn, req));
         conn.On<BrowserRequestMsg>(AgentHubMethods.BrowserRequest, req => OnBrowserRequestAsync(conn, req));
+        conn.On<FileRequestMsg>(AgentHubMethods.FileRequest, req => OnFileRequestAsync(conn, req));
         conn.On(AgentHubMethods.Ping, () => SafeInvokeAsync(conn, AgentHubMethods.Heartbeat));
     }
 
@@ -221,6 +223,26 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         {
             await SafeInvokeAsync(conn, AgentHubMethods.BrowserResult,
                 new BrowserResultMsg(req.CorrelationId, false, Array.Empty<BrowserActionResult>(), ex.Message));
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, false, ex.Message));
+        }
+    }
+
+    /// <summary>Atiende una orden del sub-agente Archivos (doc 06 s3.2): acotada a la allow-list de rutas.</summary>
+    private async Task OnFileRequestAsync(HubConnection conn, FileRequestMsg req)
+    {
+        var detail = req.Actions.FirstOrDefault()?.Path ?? "archivos";
+        RequestStarted?.Invoke(new HiveRequest(req.CorrelationId, SubAgentKind.Files, Shorten(detail)));
+        try
+        {
+            var result = await _files.ExecuteAsync(req);
+            await conn.InvokeAsync(AgentHubMethods.FileResult, result);
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, result.Ok,
+                result.Ok ? $"{result.Results.Count} acciones" : result.Results.FirstOrDefault(r => !r.Ok)?.Error));
+        }
+        catch (Exception ex)
+        {
+            await SafeInvokeAsync(conn, AgentHubMethods.FileResult,
+                new FileResultMsg(req.CorrelationId, false, Array.Empty<FileActionResult>(), ex.Message));
             RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, false, ex.Message));
         }
     }

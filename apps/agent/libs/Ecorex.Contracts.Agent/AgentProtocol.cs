@@ -37,6 +37,10 @@ public static class AgentHubMethods
     // Agente -> servidor: BrowserResult.
     public const string BrowserRequest = "BrowserRequest";
     public const string BrowserResult = "BrowserResult";
+
+    // Sub-agente Archivos (doc 06 s3.2). Servidor -> agente: FileRequest. Agente -> servidor: FileResult.
+    public const string FileRequest = "FileRequest";
+    public const string FileResult = "FileResult";
 }
 
 /// <summary>Saludo del agente al conectar (doc 02 s5): version, host y capacidades.</summary>
@@ -177,4 +181,63 @@ public sealed record BrowserResultMsg(
     string CorrelationId,
     bool Ok,
     IReadOnlyList<BrowserActionResult> Results,
+    string? Error = null);
+
+// ---- Sub-agente Archivos (doc 06 s3.2) ----
+
+/// <summary>
+/// Accion TIPADA del sub-agente Archivos. Cada accion es acotada (doc 06 s4): opera SOLO dentro de
+/// las rutas raiz de la allow-list local; NO es un shell generico.
+/// </summary>
+public enum FileActionKind
+{
+    /// <summary>Lista el contenido de un directorio.</summary>
+    List,
+
+    /// <summary>Lee el contenido de un archivo (texto UTF-8, con tope de tamano).</summary>
+    Read,
+
+    /// <summary>Escribe (crea/reemplaza) un archivo con el contenido dado.</summary>
+    Write,
+
+    /// <summary>Borra un archivo.</summary>
+    Delete,
+
+    /// <summary>Informa si una ruta existe y si es archivo o directorio.</summary>
+    Exists,
+
+    /// <summary>Crea un directorio (y los intermedios).</summary>
+    MakeDir,
+}
+
+/// <summary>Entrada de un directorio (para <see cref="FileActionKind.List"/>).</summary>
+public sealed record FileEntry(string Name, bool IsDirectory, long Size);
+
+/// <summary>Una accion de archivos. Los campos aplicables dependen de <see cref="Kind"/>.</summary>
+public sealed record FileAction(
+    FileActionKind Kind,
+    string? Path = null,
+    string? Content = null,
+    bool Recursive = false);
+
+/// <summary>Orden del servidor: una secuencia de acciones tipadas de archivos.</summary>
+public sealed record FileRequestMsg(
+    string CorrelationId,
+    string TenantId,
+    IReadOnlyList<FileAction> Actions);
+
+/// <summary>Resultado de una accion individual de archivos.</summary>
+public sealed record FileActionResult(
+    int Index,
+    FileActionKind Kind,
+    bool Ok,
+    string? Value = null,
+    IReadOnlyList<FileEntry>? Entries = null,
+    string? Error = null);
+
+/// <summary>Resultado de la secuencia completa (agente -> servidor).</summary>
+public sealed record FileResultMsg(
+    string CorrelationId,
+    bool Ok,
+    IReadOnlyList<FileActionResult> Results,
     string? Error = null);

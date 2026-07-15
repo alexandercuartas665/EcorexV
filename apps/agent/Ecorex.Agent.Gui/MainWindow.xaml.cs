@@ -19,7 +19,7 @@ public partial class MainWindow : Window
 {
     private readonly HiveViewModel _vm;
     private Forms.NotifyIcon? _tray;
-    private Services.BrowserMcpServer? _mcp;
+    private Services.AgentMcpServer? _mcp;
     private bool _reallyExit;
 
     public MainWindow()
@@ -45,7 +45,7 @@ public partial class MainWindow : Window
             // Sub-agente Navegador (WebView2) compartido por el hub y el servidor MCP local.
             var browser = new WebView2BrowserSubAgent();
             hive = new RealHiveConnection(cfg, browser);
-            _mcp = new BrowserMcpServer(browser);
+            _mcp = new AgentMcpServer(browser);
             try { _mcp.Start(); }
             catch { _mcp = null; /* puerto ocupado / sin permiso: el MCP queda apagado */ }
         }

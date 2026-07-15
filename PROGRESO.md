@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Sub-agente ARCHIVOS (Files-1/2/3) + MCP file.*
+
+Tercera capacidad de la colmena (doc 06 s3.2). Todo en `feat/agente-colmena-gui`.
+
+- **Contrato (Files-1)**: en `Ecorex.Contracts.Agent` (aditivo): `FileActionKind` (List/Read/Write/
+  Delete/Exists/MakeDir), `FileEntry`, `FileAction`, `FileRequestMsg`, `FileActionResult`,
+  `FileResultMsg` + metodos `FileRequest`/`FileResult`.
+- **Motor (Files-2)**: `Services/FileSubAgent` ejecuta las acciones tipadas; `Read` con tope 1 MB.
+  `Services/FileAllowList`: rutas RAIZ permitidas cifradas con DPAPI, fail-closed si vacia. TODA ruta
+  se canonicaliza (`Path.GetFullPath`, impide traversal `..`) y debe caer DENTRO de una raiz. No es un
+  shell generico. `--save-file-allow` en runtime.
+- **Cableado + MCP (Files-3)**: `RealHiveConnection` atiende `FileRequest` -> celda Archivos ->
+  `FileResult`. Backend: `AgenteHub.FileResult` + endpoint dev `dev/files/{clientId}?op=&path=&content=`.
+  El servidor MCP se renombro `BrowserMcpServer` -> **`AgentMcpServer`** y ahora publica **13 tools**:
+  las 7 `browser.*` + las 6 `file.*` (list/read/write/delete/exists/mkdir). Mejora: ante un error el MCP
+  devuelve un error JSON-RPC en vez de cerrar la conexion.
+- **Verificado E2E** (SuperAdmin + agente + sandbox `%TEMP%\ecorex-files`): por el HUB -> Write "21 chars",
+  List entries=1, Read "Hola colmena archivos"; leer `C:\Windows\win.ini` -> bloqueado. Por MCP ->
+  `file.write`/`file.list`/`file.read` ok; leer fuera de la allow-list -> `isError:true`.
+- **Pendiente**: lectura de binarios (base64), UI de la allow-list en la colmena, permisos read-only vs
+  read-write por raiz.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Navegador Nav-4 (servidor MCP localhost + las 7 tools)
 
 Completa el catalogo `browser.*` del prior-art (doc 07) y lo expone por MCP para clientes/IA locales.

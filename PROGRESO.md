@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Ola A (cascara visual "colmena" WPF)
+
+Rama `feat/agente-colmena-gui` (worktree). Se construye SOLO lo que se ve: la cascara visual del
+agente de escritorio, sin SignalR real ni ejecucion de sub-agentes (olas siguientes).
+
+- **HexTile** (`Controls/HexTile.xaml`): celda hexagonal (pointy-top 92x106) con 4 estados por
+  `DataTrigger` sobre `HiveCellState`: Vacio (Idle, tenue), Lleno (Active, glow), Atendiendo
+  (Working, pulso via Storyboard sobre el Effect y la escala) y Error (acento rojo, unico color del
+  look monocromo). Nombre en ToolTip para que el panal interloque sin colision de texto.
+- **HoneycombPanel** (`Controls/HoneycombPanel.cs`): `Panel` de teselado en panal; filas impares
+  desplazadas media celda; columnas ~raiz(N) para un racimo compacto que crece/decrece con los
+  workers efimeros.
+- **HiveViewModel**: celdas fijas (Config ancla SIEMPRE llena + Gateway/Archivos/Navegador que nacen
+  apagadas) + workers EFIMEROS que aparecen (Working) al llegar una peticion y se retiran al terminar
+  (el panal crece y decrece). Config/estado de conexion; comandos Probar/Guardar/ToggleConfig/RunDemo.
+- **Seam Ola A<->B**: `IHiveConnection` (en `libs/Ecorex.Contracts.Agent`) con `MockHiveConnection`
+  como implementacion Ola A. La Ola B cambia el mock por el cliente SignalR real SIN tocar GUI ni VM.
+- **Config**: flyout con Client ID / URL del Hub / Estado / "Probar conexion" (stub) y persistencia
+  local **DPAPI** (`Services/DpapiConfigStore.cs`, P/Invoke a crypt32, sin NuGet; nunca en repo/plano).
+- **Tray icon** (`System.Windows.Forms.NotifyIcon`, sin NuGet): Mostrar / Demo / Salir; cerrar oculta
+  a la bandeja, solo "Salir" termina.
+- **DEMO/mock**: atajo Ctrl+D (guion encender->atender->apagar + crecimiento) y Ctrl+K abre config.
+  Hook de captura por env `ECOREX_AGENT_CAPTURE` (config|demo|busy), inerte en produccion.
+- **DPI-aware** (app.manifest PerMonitorV2): nitidez correcta en pantallas escaladas (el equipo esta
+  al 125%).
+- **Verificado**: compila (`Ecorex.Agent.slnx`, 0 errores) y CORRE en Windows. Capturas de los 3
+  estados: (a) colmena idle -> Config lleno, resto vacio, Offline; (b) panel de configuracion abierto;
+  (c) colmena "atendiendo" -> capacidades encendidas + workers efimeros + En linea.
+- **Restriccion respetada**: el agente referencia SOLO `libs/Ecorex.Contracts.Agent`; NO toca
+  `apps/backend`. Solucion separada; el build del backend no se altera.
+- **Siguiente**: Ola B (cliente SignalR real detras de `IHiveConnection`), luego ejecucion de
+  sub-agentes (Gateway/Navegador/Archivos), allow-list de seguridad e instalador/servicio.
+
+---
+
 ## 2026-07-14 - Tareas de proceso: Ola 0 (decisiones) + Ola A1 (encargado del primer nodo)
 
 Capitulo nuevo en el vault: `01. Requerimiento/Capa 2 Tareas y Proyectos/Tareas de proceso -

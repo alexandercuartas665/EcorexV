@@ -947,6 +947,11 @@
     private int CountEmpresas => _allRows.Count(r => r.EsEmpresa);
     private int CountContactos => _allRows.Count(r => r.EsPersona);
 
+    /// <summary>Abrir directo en modo "crear tercero" cuando se llega con ?crear=1 (p. ej. desde el
+    /// boton "Nuevo contacto" del Gestor de Contactos, que antes solo dejaba en el listado).</summary>
+    [SupplyParameterFromQuery(Name = "crear")]
+    public string? Crear { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         var eff = await Perms.GetAsync();
@@ -958,6 +963,8 @@
         await FieldSvc.EnsureDefaultsAsync();
         await ReloadAsync();
         _loading = false;
+        // Llegada con ?crear=1: abre el modal de creacion de contacto de una vez.
+        if (Crear == "1" && CanCreateAny) { await OpenCreate(); }
     }
 
     // ---- Campos configurables por ficha (cache; se recarga al abrir el modal de tercero

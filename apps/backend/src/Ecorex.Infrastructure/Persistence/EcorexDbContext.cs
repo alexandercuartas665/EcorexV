@@ -215,6 +215,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
     public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => Set<ActividadSubcategoriaNotificacion>();
 
+    // Motor de programaciones (modulo 000889 "Programar actividad"): "cron de negocio" gobernado.
+    // Cabecera + reglas de recurrencia 1:N + canales N + bitacora de ejecucion (KPIs/idempotencia).
+    public DbSet<ScheduledJob> ScheduledJobs => Set<ScheduledJob>();
+    public DbSet<ScheduledJobRule> ScheduledJobRules => Set<ScheduledJobRule>();
+    public DbSet<ScheduledJobChannel> ScheduledJobChannels => Set<ScheduledJobChannel>();
+    public DbSet<ScheduledJobRun> ScheduledJobRuns => Set<ScheduledJobRun>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -316,6 +323,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ConnectorKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DbEngine>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DestinationKind>().HaveConversion<string>().HaveMaxLength(40);
+        // Motor de programaciones (000889 "Programar actividad"): enums como texto legible.
+        configurationBuilder.Properties<ScheduledJobType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScheduledJobStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScheduledJobPriority>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScheduledJobFrequency>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScheduledJobChannelType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScheduledJobRunResult>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -343,6 +357,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.LegalName).HasMaxLength(250);
             b.Property(x => x.TaxId).HasMaxLength(80);
             b.Property(x => x.Country).HasMaxLength(80);
+            // Zona horaria IANA del tenant (regla 9): la usa el motor de programaciones (000889).
+            b.Property(x => x.TimeZoneId).HasMaxLength(60);
             b.Property(x => x.Currency).HasMaxLength(10);
             b.Property(x => x.City).HasMaxLength(120);
             b.Property(x => x.Address).HasMaxLength(300);
@@ -1116,6 +1132,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // para filas preexistentes (el seeder les aplica auto-layout).
             b.Property(x => x.X).HasDefaultValue(0);
             b.Property(x => x.Y).HasDefaultValue(0);
+            // Apariencia del nodo en el graficador (color de paleta + nota post-it). Aditivas, nullable.
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Note).HasMaxLength(1000);
         });
 
         modelBuilder.Entity<WorkflowEdge>(b =>
@@ -1294,6 +1313,58 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ChildResponse).WithMany()
                 .HasForeignKey(x => x.ChildResponseId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.ParentResponseId, x.ParentFieldCode, x.ChildResponseId }).IsUnique();
+        });
+
+        // Motor de programaciones (000889): cabecera + reglas 1:N + canales N + bitacora.
+        modelBuilder.Entity<ScheduledJob>(b =>
+        {
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            // Concurrencia optimista portable (ADR-0013), igual que FormDefinition/TaskItem.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Status });
+        });
+
+        modelBuilder.Entity<ScheduledJobRule>(b =>
+        {
+            b.Property(x => x.IntervalNum).HasDefaultValue(1);
+            b.Property(x => x.Weekdays).HasMaxLength(40);
+            b.Property(x => x.MonthOrdinal).HasMaxLength(20);
+            b.Property(x => x.MonthWeekday).HasMaxLength(20);
+            b.Property(x => x.AtTime).HasMaxLength(8);
+            b.Property(x => x.RepeatFrom).HasMaxLength(8);
+            b.Property(x => x.RepeatTo).HasMaxLength(8);
+            b.Property(x => x.Description).HasMaxLength(300);
+            // Las reglas cuelgan de la programacion: cascada al borrar la cabecera.
+            b.HasOne(x => x.Job).WithMany(x => x.Rules)
+                .HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.JobId, x.SortOrder });
+            // Barrido del worker (P2): reglas con proxima ejecucion vencida.
+            b.HasIndex(x => x.NextRunAt);
+        });
+
+        modelBuilder.Entity<ScheduledJobChannel>(b =>
+        {
+            b.HasOne(x => x.Job).WithMany(x => x.Channels)
+                .HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+            // Un canal no se repite dentro de la misma programacion.
+            b.HasIndex(x => new { x.JobId, x.Channel }).IsUnique();
+        });
+
+        modelBuilder.Entity<ScheduledJobRun>(b =>
+        {
+            b.Property(x => x.Detail).HasMaxLength(600);
+            b.Property(x => x.CreatedEntityRef).HasMaxLength(100);
+            // La bitacora sobrevive a la cabecera para conservar historia: NO ACTION.
+            b.HasOne(x => x.Job).WithMany()
+                .HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.JobId, x.FiredAt });
+            b.Property(x => x.Attempt).HasDefaultValue(1);
+            // IDEMPOTENCIA (olas P2/P4, doc D5): una VENTANA + INTENTO = un disparo. Si dos instancias del
+            // worker corren a la vez, la segunda choca contra este indice y su insercion se descarta. El
+            // Attempt entra en la clave para que los REINTENTOS de una ventana fallida dejen su propia fila.
+            b.HasIndex(x => new { x.TenantId, x.JobId, x.RuleId, x.FiredAt, x.Attempt }).IsUnique();
         });
 
         modelBuilder.Entity<FormToken>(b =>

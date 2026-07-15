@@ -3,6 +3,7 @@ using System;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    partial class EcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260714171257_AddSchedulerEngine")]
+    partial class AddSchedulerEngine
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6610,10 +6613,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(8)")
                         .HasColumnName("at_time");
 
-                    b.Property<int>("Attempt")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -6660,10 +6659,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("NextRunAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_run_at");
-
-                    b.Property<DateTimeOffset?>("PendingWindowAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("pending_window_at");
 
                     b.Property<int?>("RepeatEveryHours")
                         .HasColumnType("integer")
@@ -6731,12 +6726,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<int>("Attempt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1)
-                        .HasColumnName("attempt");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -6794,9 +6783,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "JobId", "FiredAt")
                         .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_fired_at");
 
-                    b.HasIndex("TenantId", "JobId", "RuleId", "FiredAt", "Attempt")
+                    b.HasIndex("TenantId", "JobId", "RuleId", "FiredAt")
                         .IsUnique()
-                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_rule_id_fired_at_attempt");
+                        .HasDatabaseName("ix_scheduled_job_runs_tenant_id_job_id_rule_id_fired_at");
 
                     b.ToTable("scheduled_job_runs", (string)null);
                 });
@@ -10078,11 +10067,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("bpmn_element_id");
 
-                    b.Property<string>("Color")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("color");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -10109,11 +10093,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("node_type");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("note");
 
                     b.Property<Guid?>("RestartNodeId")
                         .HasColumnType("uuid")

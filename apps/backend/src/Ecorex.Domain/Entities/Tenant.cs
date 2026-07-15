@@ -10,6 +10,13 @@ public class Tenant : BaseEntity
     public string? LegalName { get; set; }
     public string? TaxId { get; set; }
     public string? Country { get; set; }
+
+    /// <summary>
+    /// Zona horaria del tenant en formato IANA (ej. "America/Bogota"). Regla 9 del proyecto: toda fecha
+    /// se calcula en la hora del tenant y se persiste en UTC. La usa el motor de programaciones (000889)
+    /// para que "todos los lunes a las 08:00" signifique 08:00 EN EL TENANT. Null = default del sistema.
+    /// </summary>
+    public string? TimeZoneId { get; set; }
     public string? Currency { get; set; }
 
     // --- Perfil de contacto/domicilio de la empresa (migracion AddTenantProfile, ADR-0026) ---

@@ -52,4 +52,16 @@ public class WorkflowNode : TenantEntity
 
     /// <summary>Alto en px (null = alto por defecto segun el tipo de nodo).</summary>
     public int? H { get; set; }
+
+    // ---- Apariencia del nodo en el graficador (restaurado del canvas propio previo a bpmn-js) ----
+
+    /// <summary>
+    /// Clave de color de la paleta del editor (violet/blue/green/amber/rose/slate). Null = sin color.
+    /// NO viaja en el XML BPMN (el bundle de bpmn-js no soporta color): es metadato del nodo y el editor
+    /// lo repinta sobre el SVG tras cada import. Fuente de verdad = esta columna.
+    /// </summary>
+    public string? Color { get; set; }
+
+    /// <summary>Nota libre del nodo, visible como post-it en el lienzo (overlay). Metadato, no viaja en el XML.</summary>
+    public string? Note { get; set; }
 }

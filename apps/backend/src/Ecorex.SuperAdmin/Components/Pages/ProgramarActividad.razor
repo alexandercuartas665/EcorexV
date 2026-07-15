@@ -1,0 +1,621 @@
+@page "/programar-actividad"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Scheduling
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@inject IScheduledJobService JobsSvc
+@inject ITenantUserService TenantUsersSvc
+
+@* ============================================================
+   PROGRAMAR ACTIVIDAD (modulo 000889) - pantalla 'isProgramar'
+   del Prototipo Final ECOREX (ECOREX.dc.html, lineas ~2532-2616).
+   Ola P1: lista + modal "Nueva programacion" (tabs Notificacion/
+   Actividad, nombre, categoria/subcat, N reglas de recurrencia,
+   canales). Fiel al layout/tokens del prototipo; texto en ASCII
+   (convencion del proyecto). El disparo real (worker) llega en P2.
+   ============================================================ *@
+
+<PageTitle>Programar actividad - ECOREX.tareas</PageTitle>
+
+<div class="pa-page">
+    <div class="pa-head">
+        <div>
+            <div class="pa-eyebrow">MODULO 000889 &middot; TAREAS</div>
+            <h1 class="pa-title">Programar actividad</h1>
+            <p class="pa-subtitle">Programa notificaciones/alertas o la creacion automatica de actividades con reglas de repeticion.</p>
+            @* KPIs de la bitacora (ola P2): sucesores de ContarEjecutadosHoy/ContarErrores, que en el
+               sistema origen siempre devolvian 0 por falta de log de ejecuciones. *@
+            @if (_kpis is not null)
+            {
+                <div class="pa-kpis">
+                    <span><strong>@_kpis.ExecutedToday</strong> ejecutados hoy</span>
+                    <span class="@(_kpis.Errors > 0 ? "err" : "")"><strong>@_kpis.Errors</strong> errores</span>
+                    <span><strong>@_kpis.ActiveJobs</strong> activas</span>
+                </div>
+            }
+        </div>
+        <button class="pa-btn-new" @onclick="OpenNew">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Nueva programacion
+        </button>
+    </div>
+
+    <div class="pa-card">
+        <div class="pa-grid pa-grid-head">
+            <div class="pa-th">TIPO</div>
+            <div class="pa-th">NOMBRE</div>
+            <div class="pa-th">REGLA</div>
+            <div class="pa-th">CANALES</div>
+            <div class="pa-th">ESTADO</div>
+            <div></div>
+        </div>
+        @if (_items is null)
+        {
+            <div class="pa-empty">Cargando...</div>
+        }
+        else if (_items.Count == 0)
+        {
+            <div class="pa-empty">Aun no hay programaciones. Crea la primera con "Nueva programacion".</div>
+        }
+        else
+        {
+            @foreach (var p in _items)
+            {
+                var row = p;
+                <div class="pa-grid pa-row" @onclick="@(() => OpenEditAsync(row.Id))">
+                    <div class="pa-cell"><span class="pa-tag" style="@TipoTagStyle(row.Type)">@TipoLabel(row.Type)</span></div>
+                    <div class="pa-cell pa-cell-name">
+                        <div class="pa-name">@row.Name</div>
+                        <div class="pa-sub">@(string.IsNullOrWhiteSpace(row.SubLabel) ? "-" : row.SubLabel)</div>
+                    </div>
+                    <div class="pa-cell pa-rule">
+                        <div>@row.RuleSummary</div>
+                        @* Proxima ejecucion calculada por el motor (ola P2), en la hora del navegador. *@
+                        <div class="pa-next">
+                            @if (row.Status == ScheduledJobStatus.Paused)
+                            {
+                                <text>En pausa</text>
+                            }
+                            else if (row.NextRunAt is DateTimeOffset next)
+                            {
+                                <text>Proxima: @next.ToLocalTime().ToString("dd/MM HH:mm")</text>
+                            }
+                            else
+                            {
+                                <text>Sin proxima ejecucion</text>
+                            }
+                        </div>
+                    </div>
+                    <div class="pa-cell pa-chan">@(row.Channels.Count == 0 ? "-" : string.Join(" · ", row.Channels))</div>
+                    @* El chip de ESTADO alterna Activa/Pausada sin abrir el modal (stopPropagation).
+                       El worker de P2 solo dispara las Activas. *@
+                    <div class="pa-cell">
+                        <button type="button" class="pa-tag pa-tag-btn" style="@EstadoTagStyle(row.Status)"
+                                title="@(row.Status == ScheduledJobStatus.Active ? "Pausar programacion" : "Activar programacion")"
+                                @onclick="@(() => ToggleStatusAsync(row.Id))" @onclick:stopPropagation="true">
+                            @EstadoLabel(row.Status)
+                        </button>
+                    </div>
+                    <div class="pa-cell pa-edit">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@if (_modalOpen)
+{
+    <div class="pa-modal-back" @onclick="Close">
+        <div class="pa-modal" @onclick:stopPropagation="true">
+            <div class="pa-modal-head">
+                <div>
+                    <div class="pa-eyebrow">PROGRAMACION</div>
+                    <div class="pa-modal-title">@(_editId is null ? "Nueva programacion" : "Editar programacion")</div>
+                </div>
+                <button class="pa-x" @onclick="Close" title="Cerrar">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="pa-modal-body">
+                <label class="pa-caps">QUE DESEAS PROGRAMAR?</label>
+                <div class="pa-tabs">
+                    <button class="pa-tab @(_type == ScheduledJobType.Notification ? "on" : "")" @onclick="@(() => _type = ScheduledJobType.Notification)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"></path></svg>
+                        Notificacion / Alerta
+                    </button>
+                    <button class="pa-tab @(_type == ScheduledJobType.Activity ? "on" : "")" @onclick="@(() => _type = ScheduledJobType.Activity)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                        Crear actividad
+                    </button>
+                </div>
+
+                <label class="pa-label">Nombre</label>
+                <input class="pa-input" @bind="_name" @bind:event="oninput" placeholder="Ej. Recordatorio pago proveedores" />
+
+                @* Encargado OPCIONAL: en tipo Actividad se pasa como AssigneeTenantUserId al crear la
+                   tarea (vacio -> nace sin asignar); en Notificacion es el destinatario in-app. *@
+                <label class="pa-label">Encargado <span class="pa-opt">(opcional)</span></label>
+                <select class="pa-select pa-assignee" @onchange="OnAssigneeChanged">
+                    <option value="" selected="@(_assigneeId is null)">Sin asignar</option>
+                    @foreach (var u in _users)
+                    {
+                        <option value="@u.Id" selected="@(u.Id == _assigneeId)">@TaskUi.UserLabel(u)</option>
+                    }
+                </select>
+                <div class="pa-hint pa-assignee-hint">
+                    @(_type == ScheduledJobType.Activity
+                        ? "Si lo dejas vacio, la actividad nace sin asignar (Pendiente) en el tablero del concepto."
+                        : "Recibira el aviso in-app cuando se dispare la programacion.")
+                </div>
+
+                @if (_type == ScheduledJobType.Activity)
+                {
+                    <div class="pa-act-box">
+                        <div>
+                            <label class="pa-label sm">Categoria de la actividad</label>
+                            <select class="pa-select" @onchange="OnCategoryChanged">
+                                <option value="" selected="@(_catId is null)">-- Selecciona --</option>
+                                @foreach (var c in _catalog)
+                                {
+                                    <option value="@c.Id" selected="@(c.Id == _catId)">@c.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="pa-label sm">Sub-categoria</label>
+                            <select class="pa-select" @onchange="OnSubcategoryChanged">
+                                <option value="" selected="@(_subId is null)">-- Selecciona --</option>
+                                @foreach (var s in SubcategoriesOf(_catId))
+                                {
+                                    <option value="@s.Id" selected="@(s.Id == _subId)">@s.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+
+                <div class="pa-rules-head">
+                    <label class="pa-caps">CONJUNTOS DE REGLAS DE EJECUCION</label>
+                    <button class="pa-add-rule" @onclick="AddRule">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+                        Agregar regla
+                    </button>
+                </div>
+
+                <div class="pa-rules">
+                    @for (var i = 0; i < _rules.Count; i++)
+                    {
+                        var idx = i;
+                        var r = _rules[idx];
+                        <div class="pa-rule-card">
+                            <div class="pa-rule-cardhead">
+                                <span class="pa-rule-idx">@(idx + 1)</span>
+                                <span class="pa-rule-resumen">@SummarizeRule(r)</span>
+                                <button class="pa-rule-del" title="Quitar" @onclick="@(() => RemoveRule(idx))">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+                                </button>
+                            </div>
+                            <div class="pa-rule-body">
+                                <div class="pa-rule-line">
+                                    <span class="pa-rule-lbl">Frecuencia</span>
+                                    <select class="pa-select sm" @onchange="@(e => OnFreqChanged(idx, e.Value?.ToString()))">
+                                        @foreach (var f in Frequencies)
+                                        {
+                                            <option value="@f.Value" selected="@(f.Value == r.Frequency)">@f.Label</option>
+                                        }
+                                    </select>
+                                    @if (r.Frequency != ScheduledJobFrequency.Once)
+                                    {
+                                        <span class="pa-muted">cada</span>
+                                        <input class="pa-num" value="@r.IntervalNum" @onchange="@(e => SetInterval(idx, e.Value?.ToString()))" />
+                                        <span class="pa-muted">@FreqUnit(r.Frequency)</span>
+                                    }
+                                </div>
+
+                                @if (r.Frequency == ScheduledJobFrequency.Weekly)
+                                {
+                                    <div class="pa-rule-line">
+                                        <span class="pa-rule-lbl">Dias</span>
+                                        @foreach (var d in Weekdays)
+                                        {
+                                            var day = d;
+                                            <button class="pa-day @(r.Weekdays.Contains(day) ? "on" : "")" @onclick="@(() => ToggleDay(idx, day))">@day</button>
+                                        }
+                                    </div>
+                                }
+                                @if (r.Frequency == ScheduledJobFrequency.Monthly)
+                                {
+                                    <div class="pa-rule-line">
+                                        <span class="pa-rule-lbl">El</span>
+                                        <select class="pa-select sm" @onchange="@(e => r.MonthOrdinal = e.Value?.ToString() ?? r.MonthOrdinal)">
+                                            @foreach (var o in Ordinals)
+                                            {
+                                                <option value="@o" selected="@(o == r.MonthOrdinal)">@o</option>
+                                            }
+                                        </select>
+                                        <select class="pa-select sm" @onchange="@(e => r.MonthWeekday = e.Value?.ToString() ?? r.MonthWeekday)">
+                                            @foreach (var w in MonthWeekdays)
+                                            {
+                                                <option value="@w" selected="@(w == r.MonthWeekday)">@w</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+
+                                <div class="pa-rule-line pa-rule-rep">
+                                    <span class="pa-rule-lbl">Repetir</span>
+                                    <button class="pa-switch @(r.RepeatIntraday ? "on" : "")" @onclick="@(() => r.RepeatIntraday = !r.RepeatIntraday)"><span class="pa-knob"></span></button>
+                                    @if (r.RepeatIntraday)
+                                    {
+                                        <span class="pa-muted">cada</span>
+                                        <input class="pa-num sm" value="@r.RepeatEveryHours" @onchange="@(e => SetRepeatHours(idx, e.Value?.ToString()))" />
+                                        <span class="pa-muted">h, de</span>
+                                        <input type="time" class="pa-time" value="@r.RepeatFrom" @onchange="@(e => r.RepeatFrom = e.Value?.ToString() ?? "")" />
+                                        <span class="pa-muted">a</span>
+                                        <input type="time" class="pa-time" value="@r.RepeatTo" @onchange="@(e => r.RepeatTo = e.Value?.ToString() ?? "")" />
+                                    }
+                                    else
+                                    {
+                                        <span class="pa-muted">a las</span>
+                                        <input type="time" class="pa-time" value="@r.AtTime" @onchange="@(e => r.AtTime = e.Value?.ToString() ?? "")" />
+                                    }
+                                </div>
+
+                                <div class="pa-rule-line">
+                                    <span class="pa-rule-lbl">Vigencia</span>
+                                    <span class="pa-muted">desde</span>
+                                    <input type="date" class="pa-date" value="@r.ValidFrom" @onchange="@(e => r.ValidFrom = e.Value?.ToString() ?? "")" />
+                                    <span class="pa-muted">hasta</span>
+                                    <input type="date" class="pa-date" value="@r.ValidTo" @onchange="@(e => r.ValidTo = e.Value?.ToString() ?? "")" />
+                                    <span class="pa-hint">(sin fin si vacio)</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <label class="pa-caps">CANALES DE TRANSMISION</label>
+                <div class="pa-chans">
+                    @foreach (var ch in Channels)
+                    {
+                        var chan = ch;
+                        <button class="pa-chan-chip @(_channels.Contains(chan.Value) ? "on" : "")" @onclick="@(() => ToggleChannel(chan.Value))">@chan.Label</button>
+                    }
+                </div>
+
+                @* Bitacora de ejecucion (ola P2): la pieza que el origen dejo como placeholder. *@
+                @if (_editId is not null)
+                {
+                    <label class="pa-caps pa-runs-caps">ULTIMAS EJECUCIONES</label>
+                    @if (_runs.Count == 0)
+                    {
+                        <div class="pa-runs-empty">Todavia no se ha disparado.</div>
+                    }
+                    else
+                    {
+                        <div class="pa-runs">
+                            @foreach (var run in _runs)
+                            {
+                                <div class="pa-run">
+                                    <span class="pa-tag" style="@RunTagStyle(run.Result)">@RunLabel(run.Result)</span>
+                                    <span class="pa-run-when">@run.FiredAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                    <span class="pa-run-detail">@run.Detail</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+
+                @if (_error is not null)
+                {
+                    <div class="pa-error">@_error</div>
+                }
+            </div>
+
+            <div class="pa-modal-foot">
+                <button class="pa-btn-cancel" @onclick="Close" disabled="@_busy">Cancelar</button>
+                <button class="pa-btn-save" @onclick="SaveAsync" disabled="@_busy">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+                    Guardar programacion
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<ScheduledJobListItemDto>? _items;
+    private IReadOnlyList<ScheduledJobCategoryDto> _catalog = Array.Empty<ScheduledJobCategoryDto>();
+    private IReadOnlyList<TenantUserDto> _users = Array.Empty<TenantUserDto>();
+    private Guid? _assigneeId;
+    private ScheduledJobKpisDto? _kpis;
+    private IReadOnlyList<ScheduledJobRunDto> _runs = Array.Empty<ScheduledJobRunDto>();
+
+    private bool _modalOpen;
+    private bool _busy;
+    private string? _error;
+    private Guid? _editId;
+    private long _version;
+    private string _name = "";
+    private ScheduledJobType _type = ScheduledJobType.Notification;
+    private Guid? _catId;
+    private Guid? _subId;
+    private readonly List<RuleEdit> _rules = new();
+    private readonly HashSet<ScheduledJobChannelType> _channels = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalog = await JobsSvc.GetConceptCatalogAsync();
+        // Mismo origen que el wizard de actividades (ITenantUserService) para el select de encargado.
+        _users = (await TenantUsersSvc.ListAsync()).ToList();
+        await ReloadAsync();
+    }
+
+    private void OnAssigneeChanged(ChangeEventArgs e)
+        => _assigneeId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+
+    private async Task ReloadAsync()
+    {
+        _items = await JobsSvc.ListAsync();
+        _kpis = await JobsSvc.GetKpisAsync();
+    }
+
+    private static string RunLabel(ScheduledJobRunResult r) => r switch
+    {
+        ScheduledJobRunResult.Ok => "OK",
+        ScheduledJobRunResult.Error => "Error",
+        _ => "Omitido",
+    };
+
+    private static string RunTagStyle(ScheduledJobRunResult r) => r switch
+    {
+        ScheduledJobRunResult.Ok => "color:var(--t-green);background:var(--t-green-bg)",
+        ScheduledJobRunResult.Error => "color:var(--danger);background:var(--t-rose-bg)",
+        _ => "color:var(--ink-3);background:var(--surface-3)",
+    };
+
+    /// <summary>Alterna Activa/Pausada desde la fila (el worker de P2 solo dispara las Activas).</summary>
+    private async Task ToggleStatusAsync(Guid id)
+    {
+        await JobsSvc.ToggleStatusAsync(id);
+        await ReloadAsync();
+    }
+
+    // ---- Modal ----
+
+    private void OpenNew()
+    {
+        _editId = null;
+        _version = 0;
+        _name = "";
+        _type = ScheduledJobType.Notification;
+        _catId = null;
+        _subId = null;
+        _assigneeId = null;
+        _rules.Clear();
+        _rules.Add(RuleEdit.Default());
+        _channels.Clear();
+        _channels.Add(ScheduledJobChannelType.Email);
+        _runs = Array.Empty<ScheduledJobRunDto>();
+        _error = null;
+        _modalOpen = true;
+    }
+
+    private async Task OpenEditAsync(Guid id)
+    {
+        var dto = await JobsSvc.GetAsync(id);
+        if (dto is null) { return; }
+        _editId = dto.Id;
+        _version = dto.Version;
+        _name = dto.Name;
+        _type = dto.Type;
+        _catId = dto.CategoryId;
+        _subId = dto.SubcategoryId;
+        _assigneeId = dto.AssigneeTenantUserId;
+        _rules.Clear();
+        foreach (var r in dto.Rules) { _rules.Add(RuleEdit.From(r)); }
+        if (_rules.Count == 0) { _rules.Add(RuleEdit.Default()); }
+        _channels.Clear();
+        foreach (var c in dto.Channels) { _channels.Add(c); }
+        _runs = await JobsSvc.ListRunsAsync(dto.Id); // bitacora (ola P2)
+        _error = null;
+        _modalOpen = true;
+    }
+
+    private void Close() => _modalOpen = false;
+
+    private void OnCategoryChanged(ChangeEventArgs e)
+    {
+        _catId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _subId = null; // al cambiar categoria, resetea la subcategoria
+    }
+
+    private void OnSubcategoryChanged(ChangeEventArgs e)
+        => _subId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+
+    private IReadOnlyList<ScheduledJobSubcategoryDto> SubcategoriesOf(Guid? catId)
+        => catId is Guid g ? (_catalog.FirstOrDefault(c => c.Id == g)?.Subcategories ?? Array.Empty<ScheduledJobSubcategoryDto>()) : Array.Empty<ScheduledJobSubcategoryDto>();
+
+    // ---- Reglas ----
+
+    private void AddRule() => _rules.Add(RuleEdit.DefaultMonthly());
+    private void RemoveRule(int idx)
+    {
+        if (idx >= 0 && idx < _rules.Count) { _rules.RemoveAt(idx); }
+        if (_rules.Count == 0) { _rules.Add(RuleEdit.Default()); }
+    }
+
+    private void OnFreqChanged(int idx, string? value)
+    {
+        if (Enum.TryParse<ScheduledJobFrequency>(value, out var f)) { _rules[idx].Frequency = f; }
+    }
+    private void SetInterval(int idx, string? value)
+        => _rules[idx].IntervalNum = int.TryParse(value, out var n) && n > 0 ? n : 1;
+    private void SetRepeatHours(int idx, string? value)
+        => _rules[idx].RepeatEveryHours = int.TryParse(value, out var n) && n > 0 ? n : 1;
+    private void ToggleDay(int idx, string day)
+    {
+        var set = _rules[idx].Weekdays;
+        if (!set.Remove(day)) { set.Add(day); }
+    }
+
+    private void ToggleChannel(ScheduledJobChannelType ch)
+    {
+        if (!_channels.Remove(ch)) { _channels.Add(ch); }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var req = new SaveScheduledJobRequest(
+                _name, _type, _catId, _subId,
+                _rules.Select(r => r.ToDto()).ToList(),
+                _channels.ToList(), _assigneeId, _version);
+            var result = await JobsSvc.SaveAsync(_editId, req);
+            if (!result.IsOk)
+            {
+                _error = result.Error;
+                return;
+            }
+            _modalOpen = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---- Opciones (ASCII, milimetrico al prototipo) ----
+
+    private static readonly (ScheduledJobFrequency Value, string Label)[] Frequencies =
+    {
+        (ScheduledJobFrequency.Once, "Una vez"),
+        (ScheduledJobFrequency.Daily, "Diaria"),
+        (ScheduledJobFrequency.Weekly, "Semanal"),
+        (ScheduledJobFrequency.Monthly, "Mensual"),
+    };
+    private static readonly string[] Weekdays = { "Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom" };
+    private static readonly string[] Ordinals = { "Primer", "Segundo", "Tercer", "Cuarto", "Ultimo" };
+    private static readonly string[] MonthWeekdays = { "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo", "dia" };
+    // Solo se ofrecen los canales con ENTREGA REAL (ola P4). Slack y SMS no tienen integracion en el
+    // sistema: ofrecerlos seria prometer un envio que nunca ocurre. El enum los conserva para no romper
+    // las programaciones que ya los tuvieran guardados (la bitacora dice "canal sin integracion").
+    private static readonly (ScheduledJobChannelType Value, string Label)[] Channels =
+    {
+        (ScheduledJobChannelType.Email, "Correo"),
+        (ScheduledJobChannelType.WhatsApp, "WhatsApp"),
+    };
+
+    private static string FreqUnit(ScheduledJobFrequency f) => f switch
+    {
+        ScheduledJobFrequency.Daily => "dia(s)",
+        ScheduledJobFrequency.Weekly => "semana(s)",
+        ScheduledJobFrequency.Monthly => "mes(es)",
+        _ => "",
+    };
+
+    private static string SummarizeRule(RuleEdit r)
+    {
+        string b = r.Frequency switch
+        {
+            ScheduledJobFrequency.Once => $"Una vez el {(string.IsNullOrEmpty(r.ValidFrom) ? "-" : r.ValidFrom)} a las {r.AtTime}",
+            ScheduledJobFrequency.Daily => $"Cada {r.IntervalNum} dia(s)",
+            ScheduledJobFrequency.Weekly => $"Cada {r.IntervalNum} sem. los {string.Join(", ", r.Weekdays)}",
+            ScheduledJobFrequency.Monthly => $"El {r.MonthOrdinal.ToLowerInvariant()} {r.MonthWeekday} cada {r.IntervalNum} mes(es)",
+            _ => "",
+        };
+        if (r.Frequency != ScheduledJobFrequency.Once)
+        {
+            b += r.RepeatIntraday ? $" · cada {r.RepeatEveryHours}h de {r.RepeatFrom} a {r.RepeatTo}" : $" a las {r.AtTime}";
+        }
+        return b;
+    }
+
+    private static string TipoLabel(ScheduledJobType t) => t == ScheduledJobType.Activity ? "Actividad" : "Notificacion";
+    private static string TipoTagStyle(ScheduledJobType t) => t == ScheduledJobType.Activity
+        ? "color:var(--t-violet);background:var(--t-violet-bg)"
+        : "color:var(--t-blue);background:var(--t-blue-bg)";
+    private static string EstadoLabel(ScheduledJobStatus s) => s == ScheduledJobStatus.Active ? "Activa" : "Pausada";
+    private static string EstadoTagStyle(ScheduledJobStatus s) => s == ScheduledJobStatus.Active
+        ? "color:var(--t-green);background:var(--t-green-bg)"
+        : "color:var(--t-amber);background:var(--t-amber-bg)";
+
+    /// <summary>Modelo mutable de una regla en el editor (strings para fechas/horas, como el prototipo).</summary>
+    private sealed class RuleEdit
+    {
+        public ScheduledJobFrequency Frequency { get; set; } = ScheduledJobFrequency.Weekly;
+        public int IntervalNum { get; set; } = 1;
+        public HashSet<string> Weekdays { get; set; } = new(StringComparer.Ordinal);
+        public string MonthOrdinal { get; set; } = "Primer";
+        public string MonthWeekday { get; set; } = "Lunes";
+        public string AtTime { get; set; } = "08:00";
+        public bool RepeatIntraday { get; set; }
+        public int RepeatEveryHours { get; set; } = 2;
+        public string RepeatFrom { get; set; } = "08:00";
+        public string RepeatTo { get; set; } = "17:00";
+        public string ValidFrom { get; set; } = "";
+        public string ValidTo { get; set; } = "";
+
+        public static RuleEdit Default()
+        {
+            var r = new RuleEdit();
+            r.Weekdays.Add("Lun");
+            return r;
+        }
+        public static RuleEdit DefaultMonthly()
+        {
+            var r = new RuleEdit { Frequency = ScheduledJobFrequency.Monthly, AtTime = "09:00" };
+            return r;
+        }
+        public static RuleEdit From(ScheduledJobRuleDto d)
+        {
+            var r = new RuleEdit
+            {
+                Frequency = d.Frequency,
+                IntervalNum = d.IntervalNum < 1 ? 1 : d.IntervalNum,
+                MonthOrdinal = string.IsNullOrEmpty(d.MonthOrdinal) ? "Primer" : d.MonthOrdinal,
+                MonthWeekday = string.IsNullOrEmpty(d.MonthWeekday) ? "Lunes" : d.MonthWeekday,
+                AtTime = d.AtTime ?? "08:00",
+                RepeatIntraday = d.RepeatIntraday,
+                RepeatEveryHours = d.RepeatEveryHours ?? 2,
+                RepeatFrom = d.RepeatFrom ?? "08:00",
+                RepeatTo = d.RepeatTo ?? "17:00",
+                ValidFrom = d.ValidFrom?.ToString("yyyy-MM-dd") ?? "",
+                ValidTo = d.ValidTo?.ToString("yyyy-MM-dd") ?? "",
+            };
+            foreach (var day in (d.Weekdays ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                r.Weekdays.Add(day);
+            }
+            return r;
+        }
+
+        public ScheduledJobRuleDto ToDto() => new(
+            Frequency,
+            IntervalNum,
+            Weekdays.Count == 0 ? null : string.Join(",", Weekdays),
+            MonthOrdinal,
+            MonthWeekday,
+            null,
+            AtTime,
+            RepeatIntraday,
+            RepeatEveryHours,
+            RepeatFrom,
+            RepeatTo,
+            ParseDate(ValidFrom),
+            ParseDate(ValidTo),
+            null);
+
+        private static DateOnly? ParseDate(string s)
+            => DateOnly.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d) ? d : null;
+    }
+}

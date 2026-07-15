@@ -4067,3 +4067,95 @@ inactivos y filas de prueba): correo = login, clave = `ID_USUARIO` (cedula), rol
 > autorizada). El mecanismo auditado equivalente es `LegacyOnboardingSeeder` (ECOREX_RUN_ONBOARDING), que hoy
 > solo cubre sucursales '01' y '00136'; si se quiere repetir por la via auditada, extenderlo a '02'.
 > VALLEJO.ALEXANDER (real, comparte `almacen@soldarco.com`) quedo sin cuenta: necesita un correo propio.
+
+---
+
+## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)
+
+**Agentes**: Claude (Opus 4.8), worktree `funny-bell-3f8562`, rama nueva `tareasprogramadas` (basada en el
+main con Formularios ya integrado). **Modo**: agent codea todo incl. migracion dual, valida en la BD local
+`ecorex_forms`, documenta el esquema en el vault para la sesion principal; **sin deploy a prod** hasta orden.
+
+Modulo NUEVO desde cero, fiel al prototipo (pantalla `isProgramar`, ECOREX.dc.html). **Ola P1 HECHA**:
+- **Dominio** (4 entidades tenant-scoped + 6 enums texto): `ScheduledJob` (cabecera, consecutivo PAC,
+  concurrencia optimista) + `ScheduledJobRule` (recurrencia 1:N) + `ScheduledJobChannel` (N) +
+  `ScheduledJobRun` (bitacora, la llena P2).
+- **Migracion DUAL** `AddScheduledJobs` (PG + SQL Server), 4 tablas nuevas, aplicada SOLO a `ecorex_forms`.
+  Registro de esquema para prod en el vault (doc del modulo, seccion "Esquema para PROD").
+- **Servicio** `ScheduledJobService` (EF parametrizado, sin el SQL concatenado del legacy): List/Get/Save
+  (crear-actualizar con reglas+canales, PAC via ISequenceService)/ToggleStatus/Delete + catalogo Conceptos.
+- **UI** `/programar-actividad` (`ProgramarActividad.razor` + `.razor.css`): lista + modal "Nueva
+  programacion" (tabs Notificacion/Actividad, nombre, categoria/subcat, N reglas, canales). ASCII en texto,
+  milimetrico en layout/tokens. Nodo de menu 000889 corregido a la pagina real (antes stub modulo/...).
+
+**Verificado E2E en Chrome** (`ecorex_forms`): Notificacion (Semanal Lun/Mie, Correo+WhatsApp) -> PAC-000001;
+Actividad (Operaciones/Visita tecnica, Mensual primer Lunes) -> PAC-000002; editar recarga; enlace de menu
+visible para Owner (filtrado por permisos para roles sin acceso, por diseno). Solucion completa en verde.
+
+**Siguiente**: P2 (motor de recurrencia + worker + bitacora + KPIs). Commit: rama `tareasprogramadas`.
+
+### Cierre de P1 (000889) - pausar/activar + tests duales + bug de edicion
+
+Antes de arrancar P2 se cerraron los pendientes de P1:
+- **Pausar/activar** desde la fila (chip de ESTADO como boton). Sin esto no habia forma de pausar, y el
+  worker de P2 (que solo dispara las Activas) no seria verificable.
+- **Nodo de menu en PROD**: 000889 agregado a `expected` de `ReconcileMenuNodesAsync` -> los tenants ya
+  sembrados se auto-corrigen al arrancar (antes el modulo habria quedado inalcanzable desde el menu en prod).
+- **BUG REAL cazado por los tests** (la prueba manual no lo vio porque nunca se llego a GUARDAR una
+  edicion): al editar se hacia RemoveRange(hijos) + vaciar las navs del padre; con relacion en CASCADA eso
+  marca huerfanos y EF emite un SEGUNDO DELETE sobre filas ya borradas -> DbUpdateConcurrencyException
+  espuria -> **ninguna edicion se podia guardar**. Arreglado (reemplazo total via DbSet, sin tocar navs).
+- **Tests de integracion DUALES** (PG + SQL Server): 10/10 verde, incluido el BLOQUEANTE de aislamiento
+  cross-tenant y el consecutivo PAC por tenant.
+
+**P1 CERRADA.** Siguiente: P2 (motor de recurrencia + worker + bitacora + KPIs).
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P2: el motor ya dispara
+
+- **Motor de recurrencia** (puro, unit-testeable): proxima ejecucion en la **zona del tenant** (regla 9),
+  devuelta en UTC. 4 frecuencias del prototipo + intervalos + dias + ordinal mensual + intradia + vigencia.
+- **Worker** hosted service **dentro de SuperAdmin** (NO en Ecorex.Workers): el compose de prod solo levanta
+  `ecorex-app`, asi que un worker en Ecorex.Workers **nunca correria en prod** (hallazgo importante).
+- **Dispatcher**: barrido cross-tenant (unico IgnoreQueryFilters, solo ids) + ejecucion acotada con
+  AmbientTenantContext. Solo dispara las Activas; bitacora con la VENTANA como fired_at; avanza NextRunAt.
+  Notification -> in-app al encargado; Activity -> Skipped hasta P3.
+- **Idempotencia** por indice unico (tenant, job, rule, fired_at) + **auto-reparacion** de reglas sin
+  NextRunAt (quedarian muertas). Migracion dual aditiva `AddSchedulerEngine` (tenants.time_zone_id + indice).
+- **UI**: KPIs (ejecutados hoy/errores/activas), "Proxima: dd/MM HH:mm" en la lista y bitacora en el modal.
+- **34 tests verde** (12 unitarios + 22 integracion dual). En vivo: el worker disparo solo, dejo bitacora Ok
+  y reprogramo a las 08:00 de Bogota.
+
+**Siguiente**: P3 (tipo Actividad crea la TaskItem via ITaskItemService.CreateAsync con el SubcategoriaId).
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P3: crea la ACTIVIDAD real
+
+Aplica la regla de dominio **tarea == actividad == TaskItem** (la misma del wizard de 4 pasos): el motor NO
+duplica logica, llama al MISMO `ITaskItemService.CreateAsync` con el `SubcategoriaId` del concepto, que
+dispara el puente Concepto->Tarea (titulo auto, tablero del concepto, flujo, destinatarios).
+
+- Titulo: manda el TituloAuto del concepto; si no lo define, cae al nombre de la programacion.
+- Encargado opcional -> AssigneeTenantUserId (vacio = nace Pendiente/sin asignar).
+- Trazabilidad: el numero de la tarea queda en `scheduled_job_runs.created_entity_ref`.
+- Sin concepto -> Error en la bitacora (no revienta el motor).
+
+**26/26 tests DUAL verde.** En vivo: ventana vencida de PAC-000003 -> el worker creo la tarea REAL **T00215**
+(Operaciones/Visita tecnica, encargado operator@); la UI muestra "2 ejecutados hoy". Sin cambios de esquema.
+
+**Pendiente (P4)**: canales externos reales (Correo/WhatsApp/Slack; hoy solo in-app) + reintento/dead-letter.
+
+## Sesion 2026-07-14 (cont.) - Programar actividad (000889) ola P4: canales reales + reintento. MODULO COMPLETO
+
+- **BUG DE HONESTIDAD corregido**: la bitacora decia "Ok - Canales configurados: Email, Slack, WhatsApp"
+  cuando solo se habia entregado la notificacion in-app. Ahora se entrega de verdad y se reporta canal por
+  canal; un canal que falla vuelve la ejecucion un Error (antes fingia exito).
+- **Canales** (allow-list tipada por DI, sin reflexion): **Correo REAL** (SMTP) al correo del encargado y
+  **WhatsApp REAL** por las lineas del tenant (el numero del encargado = PhoneNumber de la linea que tiene
+  asignada). **Slack/SMS no tienen integracion**: se retiran de los chips y la bitacora lo dice.
+- **Reintento + dead-letter** (migracion dual aditiva `AddSchedulerRetry`): la ventana conserva su identidad
+  y se reintenta la MISMA con backoff 5/10/15 min; a los 3 intentos -> dead-letter y la regla vuelve a su
+  cadencia. Indice unico ahora incluye el intento (cada intento deja fila, ninguno se duplica).
+- **32/32 tests DUAL verde.** En vivo: la bitacora reporto la verdad y el reintento corrio solo (2 filas
+  Error con el mismo fired_at, backoff 5 -> 10 min).
+
+**MODULO 000889 COMPLETO (P1..P4).** Pendiente de configuracion (no de codigo): SMTP para que el correo
+entregue; linea de WhatsApp asignada al encargado. Slack/SMS requeririan integrarse desde cero.

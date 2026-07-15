@@ -161,17 +161,40 @@ public static class BpmnProcessParser
         }
 
         // Toda arista apunta a nodos existentes del subconjunto soportado.
+        //
+        // Las figuras de DOCUMENTACION (objeto de datos, almacen, grupo, subproceso, evento intermedio,
+        // pool...) se pueden dibujar y se conservan en el XML, pero el motor NO las ejecuta: no pueden ir
+        // DENTRO del camino del flujo. Si el usuario las cablea con una flecha, se le dice exactamente eso
+        // en vez del criptico "nodo inexistente".
         var nodeIds = nodes.Select(n => n.BpmnElementId).ToHashSet(StringComparer.Ordinal);
+        var decorativeById = process.Elements()
+            .Where(e => e.Name.Namespace == Bpmn
+                && (string?)e.Attribute("id") is string id && id.Length > 0
+                && !nodeIds.Contains(id)
+                && e.Name.LocalName != "sequenceFlow")
+            .ToDictionary(e => (string)e.Attribute("id")!, e => e.Name.LocalName, StringComparer.Ordinal);
+
+        void CheckEnd(ParsedBpmnEdge edge, string elementId, string direction)
+        {
+            if (nodeIds.Contains(elementId))
+            {
+                return;
+            }
+            if (decorativeById.TryGetValue(elementId, out var localName))
+            {
+                errors.Add(
+                    $"La flecha '{edge.BpmnElementId}' {direction} '{elementId}' ({localName}), que es una figura " +
+                    "de documentacion: el motor no la ejecuta y no puede ir dentro del camino del flujo. " +
+                    "Conectala con una asociacion, o usa solo inicio, tarea, compuerta y fin en el camino.");
+                return;
+            }
+            errors.Add($"El sequenceFlow '{edge.BpmnElementId}' {direction} un nodo inexistente: '{elementId}'.");
+        }
+
         foreach (var edge in edges)
         {
-            if (!nodeIds.Contains(edge.SourceRef))
-            {
-                errors.Add($"El sequenceFlow '{edge.BpmnElementId}' sale de un nodo inexistente: '{edge.SourceRef}'.");
-            }
-            if (!nodeIds.Contains(edge.TargetRef))
-            {
-                errors.Add($"El sequenceFlow '{edge.BpmnElementId}' llega a un nodo inexistente: '{edge.TargetRef}'.");
-            }
+            CheckEnd(edge, edge.SourceRef, "sale de");
+            CheckEnd(edge, edge.TargetRef, "llega a");
         }
 
         return new ParsedBpmnProcess(nodes, edges, errors);

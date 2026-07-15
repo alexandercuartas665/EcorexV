@@ -78,6 +78,12 @@ public interface IApplicationDbContext
     DbSet<FormToken> FormTokens { get; }
     DbSet<FormRecordLink> FormRecordLinks { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
+
+    // Motor de programaciones (000889 "Programar actividad"): cabecera + reglas + canales + bitacora.
+    DbSet<ScheduledJob> ScheduledJobs { get; }
+    DbSet<ScheduledJobRule> ScheduledJobRules { get; }
+    DbSet<ScheduledJobChannel> ScheduledJobChannels { get; }
+    DbSet<ScheduledJobRun> ScheduledJobRuns { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }

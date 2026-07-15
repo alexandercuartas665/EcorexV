@@ -658,6 +658,38 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    /// <summary>Paleta de colores permitida para el nodo (la conoce el JS del editor). Null = sin color.</summary>
+    private static readonly HashSet<string> NodeColorPalette = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "violet", "blue", "green", "amber", "rose", "slate"
+    };
+
+    public async Task<WorkflowResult<bool>> SetNodeAppearanceAsync(
+        Guid nodeId, string? color, string? note, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // Color/nota SI se pueden editar sobre una definicion publicada (son metadatos, como el
+        // formulario/regla por nodo): no cambian la topologia ni el XML. No requieren borrador.
+        var key = string.IsNullOrWhiteSpace(color) ? null : color.Trim().ToLowerInvariant();
+        if (key is not null && !NodeColorPalette.Contains(key))
+        {
+            return WorkflowResult<bool>.Invalid($"Color de nodo no valido: '{color}'.");
+        }
+        var trimmedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (trimmedNote is { Length: > 1000 })
+        {
+            trimmedNote = trimmedNote[..1000];
+        }
+        node.Color = key;
+        node.Note = trimmedNote;
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     // ---- Propiedades y ciclo de vida ----
 
     public async Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(
@@ -1184,7 +1216,10 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             .Where(e => e.DefinitionId == definition.Id)
             .OrderBy(e => e.CreatedAt).ThenBy(e => e.BpmnElementId, StringComparer.Ordinal)
             .ToList();
-        definition.BpmnXml = WriteXml(definition.ProcessCode, nodes, edges);
+        // MERGE, no reescritura: se sincroniza SOLO el grafo del motor dentro del XML existente. Antes esto
+        // regeneraba el documento entero y borraba todo lo que el motor no modela (objeto de datos, almacen,
+        // grupo, subproceso, pool, anotaciones...), que el graficador ahora ofrece para DOCUMENTAR.
+        definition.BpmnXml = MergeXml(definition.BpmnXml, definition.ProcessCode, nodes, edges);
     }
 
     /// <summary>
@@ -1193,6 +1228,27 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
     /// definiciones anteriores al layout).
     /// </summary>
     public static string WriteXml(string processCode, IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
+    {
+        var (writerNodes, writerEdges) = ToWriterGraph(nodes, edges);
+        return BpmnXmlWriter.Write(processCode, writerNodes, writerEdges);
+    }
+
+    /// <summary>
+    /// Sincroniza el grafo del motor DENTRO del XML existente en vez de regenerarlo: preserva las figuras
+    /// que el motor no modela (objeto de datos, almacen, grupo, subproceso, pool, anotaciones), que el
+    /// graficador ofrece para DOCUMENTAR el proceso. Cae a <see cref="WriteXml"/> si no hay XML utilizable.
+    /// </summary>
+    public static string MergeXml(
+        string? existingXml, string processCode,
+        IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
+    {
+        var (writerNodes, writerEdges) = ToWriterGraph(nodes, edges);
+        return BpmnXmlMerger.Merge(existingXml, processCode, writerNodes, writerEdges);
+    }
+
+    /// <summary>Convierte el grafo materializado (entidades) al modelo del serializador BPMN.</summary>
+    private static (List<BpmnWriterNode> Nodes, List<BpmnWriterEdge> Edges) ToWriterGraph(
+        IReadOnlyList<WorkflowNode> nodes, IReadOnlyList<WorkflowEdge> edges)
     {
         var byId = nodes.ToDictionary(n => n.Id);
         var used = new HashSet<string>(StringComparer.Ordinal);
@@ -1218,7 +1274,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 edge.BpmnElementId, byId[edge.SourceNodeId].BpmnElementId,
                 byId[edge.TargetNodeId].BpmnElementId, edge.Name, edge.ConditionExpression));
         }
-        return BpmnXmlWriter.Write(processCode, writerNodes, writerEdges);
+        return (writerNodes, writerEdges);
     }
 
     private async Task<FlowCanvasDto?> BuildCanvasAsync(WorkflowDefinition definition, CancellationToken cancellationToken)
@@ -1259,7 +1315,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.Id, n.BpmnElementId, n.Name, n.NodeType, n.X, n.Y, n.W ?? dw, n.H ?? dh,
                 n.AllowsAssignment, n.RestartNodeId,
                 form?.Id, form?.Code, form?.Title,
-                rulesByNode.GetValueOrDefault(n.Id) ?? []);
+                rulesByNode.GetValueOrDefault(n.Id) ?? [],
+                n.Color, n.Note);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

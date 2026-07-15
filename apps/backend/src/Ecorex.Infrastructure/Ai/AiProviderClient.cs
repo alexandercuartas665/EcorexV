@@ -203,6 +203,28 @@ public sealed class AiProviderClient : IAiProviderClient
         new(JsonSerializer.Serialize(body, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }),
             Encoding.UTF8, "application/json");
 
+    // Backoff ante saturacion transitoria del proveedor (Gemini/OpenAI suelen devolver 503 bajo carga).
+    // 4 intentos en total: inmediato + esperas de 1.2s / 3s / 6s. Solo reintenta codigos transitorios.
+    private static readonly int[] RetryDelaysMs = { 1200, 3000, 6000 };
+    private static bool IsTransientStatus(int status) => status is 429 or 500 or 502 or 503 or 504;
+
+    // El HttpRequestMessage (y su contenido) no se puede reenviar; la fabrica lo reconstruye por intento.
+    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var req = requestFactory();
+            var resp = await _http.SendAsync(req, ct);
+            req.Dispose();
+            if (resp.IsSuccessStatusCode || !IsTransientStatus((int)resp.StatusCode) || attempt >= RetryDelaysMs.Length)
+            {
+                return resp;
+            }
+            resp.Dispose(); // respuesta transitoria: la descartamos y reintentamos tras el backoff
+            await Task.Delay(RetryDelaysMs[attempt], ct);
+        }
+    }
+
     private static AiChatResult Fail(int status, string raw)
     {
         var snippet = raw.Length > 300 ? raw[..300] : raw;
@@ -277,9 +299,12 @@ public sealed class AiProviderClient : IAiProviderClient
             ? new { model, messages = msgs, tools = toolDefs, tool_choice = "auto" }
             : new { model, messages = msgs };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            return req;
+        }, ct);
         var raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode) { return FailTools((int)resp.StatusCode, raw); }
 
@@ -355,10 +380,13 @@ public sealed class AiProviderClient : IAiProviderClient
             ? new { model, max_tokens = 1024, system = string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt, messages = msgs, tools = toolDefs }
             : new { model, max_tokens = 1024, system = string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt, messages = msgs };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
-        req.Headers.Add("x-api-key", apiKey);
-        req.Headers.Add("anthropic-version", "2023-06-01");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
+            req.Headers.Add("x-api-key", apiKey);
+            req.Headers.Add("anthropic-version", "2023-06-01");
+            return req;
+        }, ct);
         var raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode) { return FailTools((int)resp.StatusCode, raw); }
 

@@ -27,6 +27,11 @@ public sealed class AgentConversationService : IAgentConversationService
     // Cuantos mensajes recientes se reconstruyen como contexto del agente.
     private const int MaxTurns = 30;
 
+    // Pausa breve entre adjuntos consecutivos para preservar el ORDEN de llegada en WhatsApp
+    // (el proveedor puede reordenar envios muy seguidos). Modesta a proposito: el despachador
+    // procesa las conversaciones en un bucle secuencial, asi que un delay grande frenaria a las demas.
+    private const int InterAttachmentDelayMs = 1500;
+
     public AgentConversationService(IApplicationDbContext db, IAiInferenceService inference, IChatService chat, IAgentAssetReader assets)
     {
         _db = db;
@@ -53,6 +58,18 @@ public sealed class AgentConversationService : IAgentConversationService
         var blockedPhones = await _db.TenantBlockedNumbers.AsNoTracking()
             .Select(b => b.Phone).ToListAsync(cancellationToken);
         if (AgentControlCommands.IsBlocked(conv.ContactPhone, blockedPhones)) { return; }
+
+        // ASESOR HUMANO: si el lead de esta conversacion esta asignado a una persona y sigue ACTIVO
+        // (no archivado), el agente se calla y deja que el asesor humano atienda. Si el lead esta
+        // archivado, el silencio NO aplica: el agente RETOMA la conversacion al entrar un mensaje nuevo.
+        if (conv.LeadId is Guid leadId)
+        {
+            var lead = await _db.Leads.AsNoTracking()
+                .Where(l => l.Id == leadId)
+                .Select(l => new { l.AssignedToTenantUserId, l.ArchivedAt })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (lead is { AssignedToTenantUserId: not null, ArchivedAt: null }) { return; }
+        }
 
         // Reconstruimos la conversacion como turnos (lo mas reciente al final).
         var messages = await _db.Messages.AsNoTracking()
@@ -117,9 +134,11 @@ public sealed class AgentConversationService : IAgentConversationService
         {
             // Los adjuntos que no se pudieron entregar se registran en la bitacora (antes fallaban en silencio).
             var failures = new List<string>();
-            foreach (var a in result.Attachments)
+            for (var i = 0; i < result.Attachments.Count; i++)
             {
-                var err = await SendAttachmentAsync(conversationId, lineId, a, actor, cancellationToken);
+                // Pausa breve entre adjuntos consecutivos para preservar el orden de llegada en WhatsApp.
+                if (i > 0) { await Task.Delay(InterAttachmentDelayMs, cancellationToken); }
+                var err = await SendAttachmentAsync(conversationId, lineId, result.Attachments[i], actor, cancellationToken);
                 if (err is not null) { failures.Add(err); }
             }
             if (failures.Count > 0)

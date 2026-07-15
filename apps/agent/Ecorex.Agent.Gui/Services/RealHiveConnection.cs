@@ -24,6 +24,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     private readonly SqlServerGatewayExecutor _sql = new();
     private readonly GatewaySourceStore _sources = new();
+    private readonly WebView2BrowserSubAgent _browser = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
@@ -129,6 +130,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
         // Servidor -> agente (doc 02 s4).
         conn.On<FetchRequestMsg>(AgentHubMethods.FetchRequest, req => OnFetchRequestAsync(conn, req));
+        conn.On<BrowserRequestMsg>(AgentHubMethods.BrowserRequest, req => OnBrowserRequestAsync(conn, req));
         conn.On(AgentHubMethods.Ping, () => SafeInvokeAsync(conn, AgentHubMethods.Heartbeat));
     }
 
@@ -192,6 +194,31 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
             await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk);
         }
         RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, $"{total} filas"));
+    }
+
+    /// <summary>
+    /// Atiende una orden del sub-agente Navegador (doc 06 s3.2): enciende la celda, ejecuta la
+    /// secuencia en el hilo de UI (WebView2) con allow-list, y devuelve BrowserResult.
+    /// </summary>
+    private async Task OnBrowserRequestAsync(HubConnection conn, BrowserRequestMsg req)
+    {
+        var detail = req.Actions.FirstOrDefault(a => a.Kind == BrowserActionKind.Navigate)?.Url ?? "navegador";
+        RequestStarted?.Invoke(new HiveRequest(req.CorrelationId, SubAgentKind.Browser, Shorten(detail)));
+        try
+        {
+            // WebView2 es un control de UI: se ejecuta en el Dispatcher.
+            var dispatcher = System.Windows.Application.Current.Dispatcher;
+            var result = await dispatcher.InvokeAsync(() => _browser.ExecuteAsync(req)).Task.Unwrap();
+            await conn.InvokeAsync(AgentHubMethods.BrowserResult, result);
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, result.Ok,
+                result.Ok ? $"{result.Results.Count} acciones" : result.Results.FirstOrDefault(r => !r.Ok)?.Error));
+        }
+        catch (Exception ex)
+        {
+            await SafeInvokeAsync(conn, AgentHubMethods.BrowserResult,
+                new BrowserResultMsg(req.CorrelationId, false, Array.Empty<BrowserActionResult>(), ex.Message));
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, false, ex.Message));
+        }
     }
 
     /// <summary>Acuse para conectores sin ejecutor propio (RestApi, etc.): cierra el canal.</summary>

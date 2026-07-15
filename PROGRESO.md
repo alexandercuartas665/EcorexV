@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Sub-agente NAVEGADOR (WebView2 + allow-list) - Nav-1/2/3
+
+Segunda capacidad de la colmena (doc 06 s3.2, prior-art doc 07 Doom). Todo en `feat/agente-colmena-gui`.
+
+- **Contrato (Nav-1)**: en `Ecorex.Contracts.Agent` (aditivo, no toca Gateway): `BrowserActionKind`
+  (Navigate/Eval/Wait/Screenshot/Html), `BrowserAction`, `BrowserRequestMsg`, `BrowserActionResult`,
+  `BrowserResultMsg` + metodos `BrowserRequest`/`BrowserResult` en `AgentHubMethods`.
+- **Motor WebView2 (Nav-2)**: `Services/WebView2BrowserSubAgent` (Microsoft.Web.WebView2) hospeda un
+  WebView2 en ventana visible y ejecuta la secuencia de acciones tipadas (catalogo browser.* de doc
+  07). `Services/BrowserAllowList`: dominios permitidos LOCALES cifrados con DPAPI, fail-closed si
+  vacia; `Navigate`/`Eval`/`Html` se rechazan fuera de la lista (doc 06 s4: nada fuera de lista, ni
+  aunque la nube lo pida; solo acciones tipadas, no shell). `--save-browser-allow` en runtime.
+- **Cableado (Nav-3)**: `RealHiveConnection` atiende `BrowserRequest` marshalando al hilo de UI ->
+  enciende la celda Navegador -> ejecuta -> `BrowserResult`. Backend: `AgenteHub.BrowserResult`
+  (loguea + guarda screenshots en temp) + endpoint dev `dev/browse/{clientId}?url=`.
+- **Verificado E2E**: el servidor ordena navegar a example.com -> el agente abre WebView2, `Eval`
+  `document.title` = "Example Domain", captura el PNG real de la pagina; navegar a `google.com`
+  (fuera de la allow-list) -> `Navigate ok=False` (bloqueado), el `Eval` sigue en la pagina permitida.
+- **Pendiente**: servidor MCP localhost (las 7 tools `browser.*` para herramientas locales/IA),
+  `browser.mouse`/`browser.downloads`, JS firmado/versionado por el servidor, UI de la allow-list en la
+  colmena; y el sub-agente Archivos.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Ola 3 (INGESTA en el servidor - FetchResult -> filas del contenedor)
 
 Las filas que trae el agente aterrizan en un contenedor de datos reusando el motor EAV (doc 03 s6 /

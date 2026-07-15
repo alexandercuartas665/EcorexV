@@ -323,6 +323,32 @@ public static class AgentChannel
                     : new List<string?>();
                 return Results.Json(new { containerId, rowCount = rowIds.Count, firstRow = sample });
             }).AllowAnonymous();
+
+            // POST /api/agente/dev/browse/{clientId}?url=... : ordena al sub-agente Navegador navegar,
+            // leer el titulo (eval) y capturar. SOLO Development.
+            app.MapPost("/api/agente/dev/browse/{clientId}", async (
+                string clientId,
+                string? url,
+                IAgentRegistry registry,
+                IHubContext<AgenteHub> hub,
+                CancellationToken ct) =>
+            {
+                var presence = registry.Get(clientId);
+                if (presence is null)
+                {
+                    return Results.Json(new { ok = false, error = "Agente offline." }, statusCode: 409);
+                }
+                var target = string.IsNullOrWhiteSpace(url) ? "https://example.com" : url;
+                var corr = Guid.NewGuid().ToString("N")[..8];
+                var req = new BrowserRequestMsg(corr, presence.TenantId.ToString(), new List<BrowserAction>
+                {
+                    new(BrowserActionKind.Navigate, Url: target),
+                    new(BrowserActionKind.Eval, Script: "document.title"),
+                    new(BrowserActionKind.Screenshot),
+                });
+                await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.BrowserRequest, req, ct);
+                return Results.Json(new { ok = true, correlationId = corr, url = target });
+            }).AllowAnonymous().DisableAntiforgery();
         }
 
         return app;

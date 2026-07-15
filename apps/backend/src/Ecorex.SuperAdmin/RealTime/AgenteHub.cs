@@ -84,6 +84,34 @@ public sealed class AgenteHub : Hub
         return Task.CompletedTask;
     }
 
+    /// <summary>Resultado del sub-agente Navegador (doc 06 s3.2). Loguea y guarda screenshots en temp.</summary>
+    public Task BrowserResult(BrowserResultMsg msg)
+    {
+        _registry.Touch(Context.ConnectionId);
+        foreach (var r in msg.Results)
+        {
+            var value = r.Value is null ? "" : (r.Value.Length > 120 ? r.Value[..120] + "..." : r.Value);
+            string shot = "";
+            if (!string.IsNullOrEmpty(r.ScreenshotBase64))
+            {
+                try
+                {
+                    var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ecorex-browse-{msg.CorrelationId}-{r.Index}.png");
+                    System.IO.File.WriteAllBytes(path, Convert.FromBase64String(r.ScreenshotBase64));
+                    shot = $" [shot -> {path}]";
+                }
+                catch { shot = " [shot: error al guardar]"; }
+            }
+            _log.LogInformation("[NAVEGADOR] corr={Corr} #{Idx} {Kind} ok={Ok} val={Val}{Shot}",
+                msg.CorrelationId, r.Index, r.Kind, r.Ok, value, shot);
+        }
+        if (!msg.Ok)
+        {
+            _log.LogWarning("[NAVEGADOR] corr={Corr} secuencia con error: {Err}", msg.CorrelationId, msg.Error);
+        }
+        return Task.CompletedTask;
+    }
+
     public static string ClientGroup(string clientId) => $"client:{clientId}";
     public static string TenantGroup(Guid tenantId) => $"tenant:{tenantId}";
 }

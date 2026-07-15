@@ -32,6 +32,11 @@ public static class AgentHubMethods
     public const string FetchResult = "FetchResult";
     public const string FetchFailed = "FetchFailed";
     public const string Heartbeat = "Heartbeat";
+
+    // Sub-agente Navegador (doc 06 s3.2 + prior-art doc 07). Servidor -> agente: BrowserRequest.
+    // Agente -> servidor: BrowserResult.
+    public const string BrowserRequest = "BrowserRequest";
+    public const string BrowserResult = "BrowserResult";
 }
 
 /// <summary>Saludo del agente al conectar (doc 02 s5): version, host y capacidades.</summary>
@@ -110,3 +115,59 @@ public static class AgentHmac
         return System.Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
+
+// ---- Sub-agente Navegador (doc 06 s3.2 + prior-art doc 07: catalogo browser.*) ----
+
+/// <summary>
+/// Accion TIPADA del sub-agente Navegador. NO es "ejecuta lo que sea": cada accion es acotada
+/// (doc 06 s4). Segun <see cref="Kind"/> se usan unos campos u otros.
+/// </summary>
+public enum BrowserActionKind
+{
+    /// <summary>Abre una URL http/https (sujeta a la allow-list de dominios LOCAL del agente).</summary>
+    Navigate,
+
+    /// <summary>Ejecuta JavaScript en la pagina actual y devuelve el resultado (acotado por dominio).</summary>
+    Eval,
+
+    /// <summary>Espera unos ms, o hasta que una condicion JS sea truthy.</summary>
+    Wait,
+
+    /// <summary>Captura el navegador (PNG en base64).</summary>
+    Screenshot,
+
+    /// <summary>Devuelve el HTML de la pagina o de un selector CSS.</summary>
+    Html,
+}
+
+/// <summary>Una accion del navegador. Los campos aplicables dependen de <see cref="Kind"/>.</summary>
+public sealed record BrowserAction(
+    BrowserActionKind Kind,
+    string? Url = null,
+    string? Script = null,
+    int? WaitMs = null,
+    string? ConditionScript = null,
+    string? Selector = null,
+    bool Screenshot = false);
+
+/// <summary>Orden del servidor: una secuencia de acciones tipadas para el sub-agente Navegador.</summary>
+public sealed record BrowserRequestMsg(
+    string CorrelationId,
+    string TenantId,
+    IReadOnlyList<BrowserAction> Actions);
+
+/// <summary>Resultado de una accion individual del navegador.</summary>
+public sealed record BrowserActionResult(
+    int Index,
+    BrowserActionKind Kind,
+    bool Ok,
+    string? Value = null,
+    string? ScreenshotBase64 = null,
+    string? Error = null);
+
+/// <summary>Resultado de la secuencia completa (agente -> servidor).</summary>
+public sealed record BrowserResultMsg(
+    string CorrelationId,
+    bool Ok,
+    IReadOnlyList<BrowserActionResult> Results,
+    string? Error = null);

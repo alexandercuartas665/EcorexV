@@ -4214,3 +4214,19 @@ migrations). Port manual, archivo por archivo.
 
 **Verificado**: build sln verde (0 errores), unit 379+35 verdes, migraciones duales simetricas.
 Ambos commits en main + fase-0/clon-backbone. **No desplegado** (prod sigue en 0bf057d).
+
+---
+
+## Sesion 2026-07-15 (cont.) - DEPLOY a produccion (robustez agente + YCloud)
+
+**Accion**: despliegue a prod (root@10.0.0.3, /opt/ecorex, build-from-git de fase-0/clon-backbone @ 50f46ec).
+
+- **Verificacion previa**: main == origin/main == origin/fase-0/clon-backbone == 50f46ec; worktrees de
+  agente (focused-joliot, funny-bell) limpios y ya en main; worktree de preview solo con scratch
+  obsoleto (version vieja de ecorex-bpmn.js que main ya supera + HTMLs de prototipo) -> nada que traer.
+- **Backup previo**: backups/ecorex-2026-07-15-0542.sql.gz.
+- **Rebuild**: docker compose -f docker-compose.from-git.yml build --no-cache (BUILD_OK ~6 min) + up -d.
+- **Migracion aplicada al arranque**: 20260715102503_AddYCloudProvider (log EF + columnas
+  y_cloud_api_key_encrypted / y_cloud_phone_number_id / y_cloud_waba_id presentes en whats_app_lines).
+- **Salud**: GET /login -> HTTP 200 al primer intento; "Now listening on http://0.0.0.0:8080".
+- Incluye robustez del runtime del agente (9c3de08) y proveedor YCloud (92eb858).

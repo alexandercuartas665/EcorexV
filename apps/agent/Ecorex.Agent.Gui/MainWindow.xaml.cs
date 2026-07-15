@@ -19,6 +19,7 @@ public partial class MainWindow : Window
 {
     private readonly HiveViewModel _vm;
     private Forms.NotifyIcon? _tray;
+    private Services.BrowserMcpServer? _mcp;
     private bool _reallyExit;
 
     public MainWindow()
@@ -34,7 +35,20 @@ public partial class MainWindow : Window
         var forceMock = string.Equals(Environment.GetEnvironmentVariable("ECOREX_AGENT_FORCE_MOCK"), "1", StringComparison.Ordinal);
         var useMock = !string.IsNullOrEmpty(captureMode) || forceMock;
 
-        IHiveConnection hive = useMock ? new MockHiveConnection() : new RealHiveConnection(cfg);
+        IHiveConnection hive;
+        if (useMock)
+        {
+            hive = new MockHiveConnection();
+        }
+        else
+        {
+            // Sub-agente Navegador (WebView2) compartido por el hub y el servidor MCP local.
+            var browser = new WebView2BrowserSubAgent();
+            hive = new RealHiveConnection(cfg, browser);
+            _mcp = new BrowserMcpServer(browser);
+            try { _mcp.Start(); }
+            catch { _mcp = null; /* puerto ocupado / sin permiso: el MCP queda apagado */ }
+        }
         _vm = new HiveViewModel(store, hive);
         DataContext = _vm;
 
@@ -143,6 +157,7 @@ public partial class MainWindow : Window
             HideToTray();
             return;
         }
+        _mcp?.Stop();
         if (_tray is not null)
         {
             _tray.Visible = false;

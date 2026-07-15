@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using Ecorex.Contracts.Agent;
 using Microsoft.Web.WebView2.Core;
@@ -16,8 +17,11 @@ namespace Ecorex.Agent.Gui.Services;
 public sealed class WebView2BrowserSubAgent
 {
     private readonly BrowserAllowList _allow = new();
+    private readonly List<DownloadRecord> _downloads = new();
     private Window? _window;
     private WpfWebView2? _web;
+
+    private sealed record DownloadRecord(string Uri, string? Path, DateTimeOffset At);
 
     public bool IsAllowed(string? host) => _allow.IsAllowed(host);
 
@@ -110,6 +114,34 @@ public sealed class WebView2BrowserSubAgent
                 return new BrowserActionResult(index, a.Kind, Ok: true, ScreenshotBase64: shot);
             }
 
+            case BrowserActionKind.Mouse:
+            {
+                if (!CurrentHostAllowed(out var host))
+                {
+                    return Fail(index, a, $"Acciones de mouse no permitidas en este dominio: {host}");
+                }
+                var steps = ParseMouseSteps(a.ScriptJson);
+                var done = 0;
+                foreach (var (mAction, selector, text) in steps)
+                {
+                    var js = mAction switch
+                    {
+                        "click" => $"(function(){{var e=document.querySelector({JsString(selector)});if(e){{e.click();return true}}return false}})()",
+                        "type" => $"(function(){{var e=document.querySelector({JsString(selector)});if(e){{e.focus();e.value={JsString(text ?? string.Empty)};e.dispatchEvent(new Event('input',{{bubbles:true}}));return true}}return false}})()",
+                        _ => "false",
+                    };
+                    if (await web.CoreWebView2.ExecuteScriptAsync(js) == "true") { done++; }
+                    await Task.Delay(120);
+                }
+                return await MaybeShot(index, a, $"{done}/{steps.Count} pasos");
+            }
+
+            case BrowserActionKind.Downloads:
+            {
+                var json = JsonSerializer.Serialize(_downloads);
+                return await MaybeShot(index, a, json);
+            }
+
             default:
                 return Fail(index, a, "Accion no soportada.");
         }
@@ -177,6 +209,33 @@ public sealed class WebView2BrowserSubAgent
         Directory.CreateDirectory(userData);
         var env = await CoreWebView2Environment.CreateAsync(null, userData, null);
         await _web.EnsureCoreWebView2Async(env);
+
+        // Historial de descargas (browser.downloads).
+        _web.CoreWebView2.DownloadStarting += (_, e) =>
+        {
+            _downloads.Add(new DownloadRecord(e.DownloadOperation.Uri, e.ResultFilePath, DateTimeOffset.UtcNow));
+            if (_downloads.Count > 50) { _downloads.RemoveAt(0); }
+        };
+    }
+
+    private static List<(string Action, string Selector, string? Text)> ParseMouseSteps(string? json)
+    {
+        var steps = new List<(string, string, string?)>();
+        if (string.IsNullOrWhiteSpace(json)) { return steps; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return steps; }
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var action = el.TryGetProperty("action", out var a) ? a.GetString() ?? string.Empty : string.Empty;
+                var selector = el.TryGetProperty("selector", out var s) ? s.GetString() ?? string.Empty : string.Empty;
+                var text = el.TryGetProperty("text", out var t) ? t.GetString() : null;
+                steps.Add((action, selector, text));
+            }
+        }
+        catch { /* JSON invalido -> sin pasos */ }
+        return steps;
     }
 
     private static string JsString(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";

@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Navegador Nav-4 (servidor MCP localhost + las 7 tools)
+
+Completa el catalogo `browser.*` del prior-art (doc 07) y lo expone por MCP para clientes/IA locales.
+
+- **2 tools faltantes**: `browser.mouse` (MouseBot: guion JSON de pasos click/type por selector, via JS
+  acotado al dominio permitido) y `browser.downloads` (historial de descargas, tracker de
+  `CoreWebView2.DownloadStarting`). Contrato extendido (`BrowserActionKind.Mouse/Downloads` +
+  `BrowserAction.ScriptJson`).
+- **`Services/BrowserMcpServer`**: servidor MCP embebido sobre TcpListener **solo 127.0.0.1** (loopback,
+  como el legacy), JSON-RPC 2.0: `initialize` / `tools/list` / `tools/call`. Expone las 7 herramientas
+  con su input schema; ejecuta via la MISMA instancia `WebView2BrowserSubAgent` que el hub (marshala al
+  Dispatcher), respeta la allow-list, y devuelve contenido MCP (texto + imagen PNG). Se comparte el
+  navegador creando una sola instancia en `MainWindow` y pasandola a `RealHiveConnection` + al MCP;
+  arranca en modo real y se detiene al salir.
+- **Verificado E2E por JSON-RPC** (curl a 127.0.0.1:8765): `tools/list` -> las 7 tools; `tools/call`
+  `browser.navigate` example.com -> ok, `browser.eval` `document.title` -> "Example Domain",
+  `browser.screenshot` -> contenido imagen PNG base64; navegar a un dominio NO permitido ->
+  `isError:true` "Dominio no permitido por la allow-list local".
+- **Pendiente**: JS firmado/versionado por el servidor (doc 06 s4), UI de la allow-list en la colmena,
+  y el sub-agente Archivos.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Sub-agente NAVEGADOR (WebView2 + allow-list) - Nav-1/2/3
 
 Segunda capacidad de la colmena (doc 06 s3.2, prior-art doc 07 Doom). Todo en `feat/agente-colmena-gui`.

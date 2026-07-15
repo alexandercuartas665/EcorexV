@@ -24,13 +24,17 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     private readonly SqlServerGatewayExecutor _sql = new();
     private readonly GatewaySourceStore _sources = new();
-    private readonly WebView2BrowserSubAgent _browser = new();
+    private readonly WebView2BrowserSubAgent _browser;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
     private ConnectionState _state = ConnectionState.Offline;
 
-    public RealHiveConnection(AgentConfig config) => _config = config;
+    public RealHiveConnection(AgentConfig config, WebView2BrowserSubAgent browser)
+    {
+        _config = config;
+        _browser = browser;
+    }
 
     public ConnectionState State => _state;
 

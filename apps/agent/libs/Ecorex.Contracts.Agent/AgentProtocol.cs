@@ -138,6 +138,12 @@ public enum BrowserActionKind
 
     /// <summary>Devuelve el HTML de la pagina o de un selector CSS.</summary>
     Html,
+
+    /// <summary>Ejecuta un guion "MouseBot" (JSON de pasos: click/type por selector) acotado al dominio.</summary>
+    Mouse,
+
+    /// <summary>Devuelve el historial reciente de descargas del navegador.</summary>
+    Downloads,
 }
 
 /// <summary>Una accion del navegador. Los campos aplicables dependen de <see cref="Kind"/>.</summary>
@@ -148,6 +154,7 @@ public sealed record BrowserAction(
     int? WaitMs = null,
     string? ConditionScript = null,
     string? Selector = null,
+    string? ScriptJson = null,
     bool Screenshot = false);
 
 /// <summary>Orden del servidor: una secuencia de acciones tipadas para el sub-agente Navegador.</summary>

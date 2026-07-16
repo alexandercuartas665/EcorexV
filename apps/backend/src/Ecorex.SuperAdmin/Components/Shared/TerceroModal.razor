@@ -204,48 +204,6 @@
                                 </div>
 
                             </div>
-
-                            @* ---- Tercera columna: formularios dinamicos asociados al tercero ----
-                                 Las respuestas se anclan por Reference = "TERCERO:{id}" (el mismo
-                                 patron del arranque form-first), asi que cada tercero tiene su propia
-                                 respuesta por formulario. Se configuran en "Configurar campos". *@
-                            <div class="dg-forms-col">
-                                <label class="dg-sec-lbl">FORMULARIOS</label>
-                                @if (_editingId is null)
-                                {
-                                    <p class="dg-aside-note">Guarda el tercero primero para llenar sus formularios asociados.</p>
-                                }
-                                else if (_forms.Count == 0)
-                                {
-                                    <p class="dg-aside-note">Sin formularios asociados. Se eligen con el boton "Configurar campos" del Directorio General.</p>
-                                }
-                                else
-                                {
-                                    <div class="dg-form-chips">
-                                        @foreach (var f in _forms)
-                                        {
-                                            var ff = f;
-                                            <button class="dg-form-chip @(_formSel == ff.FormDefinitionId ? "on" : "")"
-                                                    @onclick="() => _formSel = _formSel == ff.FormDefinitionId ? null : ff.FormDefinitionId">
-                                                @ff.Title
-                                            </button>
-                                        }
-                                    </div>
-                                    @if (_formSel is Guid defId)
-                                    {
-                                        <div class="dg-form-host" @key="defId">
-                                            <DynamicFormRenderer DefinitionId="@defId"
-                                                                 Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
-                                                                 Mode="FormRenderMode.Fill"
-                                                                 ShowHeader="false" />
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <p class="dg-aside-note">Elige un formulario para llenarlo con los datos de este tercero.</p>
-                                    }
-                                }
-                            </div>
                         </div>
                         var fichas = VisibleFichas();
                         if (fichas.Count > 0)
@@ -480,10 +438,60 @@
 
                 @if (_mTab == "datos")
                 {
+                    @* ===== Tercera columna. En el prototipo era el panel de muestra "Prospecto de
+                         cliente"; su destino real son los FORMULARIOS dinamicos del tercero. Las
+                         respuestas se anclan por Reference = "TERCERO:{id}" (mismo patron que el
+                         arranque form-first), asi que cada tercero tiene la suya por formulario.
+                         Debajo, solo en el Cargador (CrmWiring), van sus oportunidades. ===== *@
                     <aside class="dg-prosp">
+                        <div class="dg-prosp-head">
+                            <span class="dg-prosp-ic">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>
+                            </span>
+                            <div style="flex:1;min-width:0">
+                                <div class="dg-prosp-t">Formularios</div>
+                                <div class="dg-prosp-s">Datos adicionales del tercero</div>
+                            </div>
+                        </div>
+                        @if (_editingId is null)
+                        {
+                            <p class="dg-aside-note">Guarda el tercero primero para llenar sus formularios asociados.</p>
+                        }
+                        else if (_forms.Count == 0)
+                        {
+                            <p class="dg-aside-note">Sin formularios asociados. Se eligen con el boton "Configurar campos" del Directorio General.</p>
+                        }
+                        else
+                        {
+                            <div class="dg-form-chips">
+                                @foreach (var f in _forms)
+                                {
+                                    var ff = f;
+                                    <button class="dg-form-chip @(_formSel == ff.FormDefinitionId ? "on" : "")"
+                                            @onclick="() => _formSel = _formSel == ff.FormDefinitionId ? null : ff.FormDefinitionId">
+                                        @ff.Title
+                                    </button>
+                                }
+                            </div>
+                            @if (_formSel is Guid defId)
+                            {
+                                <div class="dg-form-host" @key="defId">
+                                    <DynamicFormRenderer DefinitionId="@defId"
+                                                         Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
+                                                         Mode="FormRenderMode.Fill"
+                                                         ShowHeader="false" />
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="dg-aside-note">Elige un formulario para llenarlo con los datos de este tercero.</p>
+                            }
+                        }
+
                         @if (CrmWiring && _editingId is not null)
                         {
                             @* ---- Oportunidades del tercero (Cargador de contactos 000740) ---- *@
+                            <div class="dg-prosp-sep"></div>
                             <div class="dg-prosp-head">
                                 <span class="dg-prosp-ic">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
@@ -517,19 +525,6 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                                 Agregar oportunidad
                             </button>
-                        }
-                        else
-                        {
-                            <div class="dg-prosp-head">
-                                <span class="dg-prosp-ic">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
-                                </span>
-                                <div>
-                                    <div class="dg-prosp-t">Prospecto de cliente</div>
-                                    <div class="dg-prosp-s">Oportunidad de negocio</div>
-                                </div>
-                            </div>
-                            <p class="dg-aside-note">Las oportunidades del tercero se muestran aqui cuando se abre un cliente desde el Cargador de contactos (000740). Los datos y las fichas del tercero se guardan con el boton Guardar.</p>
                         }
                     </aside>
                 }

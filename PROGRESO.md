@@ -69,6 +69,12 @@ asociados al tercero id". Decision del usuario (AskUser): **"varios formularios 
   `reference=TERCERO:019f4bd3-9679-7abf-b420-02c805b0a010` (= id de ANDINA); llenados 5 campos, el
   `data` jsonb los persiste contra ese tercero. La validacion server-side corre (pidio el lookup
   obligatorio "Cantidad estimada" del formulario demo). Build solucion 0 errores; 379/379 tests.
+- **Correccion del dueno (misma sesion)**: la 3a columna NO era una columna nueva. El panel derecho
+  del prototipo ("Prospecto de cliente / Oportunidad de negocio", `aside.dg-prosp`) **era justamente
+  el espacio pensado para los formularios**; su contenido era solo una MUESTRA. Se retiro la 4a
+  columna que se habia agregado (`dg-forms-col`) y los formularios pasaron a ese aside, con las
+  oportunidades debajo (separador) solo bajo `CrmWiring`. Revalidado: el form renderiza dentro del
+  aside sin desborde horizontal y RECUPERA los valores guardados del tercero.
 - **Pendiente**: (a) migracion SQL Server sin aplicar/probar (no hay instancia levantada; PG si).
   (b) `SubmittedByTenantUserId` no se pasa al renderer (la respuesta no estampa el usuario).
   (c) reordenar formularios (SortOrder existe, sin UI). (d) NO desplegado a prod (espera confirmacion).

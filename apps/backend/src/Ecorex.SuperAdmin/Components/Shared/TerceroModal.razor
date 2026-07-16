@@ -452,6 +452,9 @@
                                 <div class="dg-prosp-t">Formularios</div>
                                 <div class="dg-prosp-s">Datos adicionales del tercero</div>
                             </div>
+                            @* Badge: cuantos formularios tiene asignados este tercero. *@
+                            <span class="dg-form-badge @(_forms.Count == 0 ? "zero" : "")"
+                                  title="@_forms.Count formulario(s) asignado(s)">@_forms.Count</span>
                         </div>
                         @if (_editingId is null)
                         {
@@ -463,28 +466,42 @@
                         }
                         else
                         {
-                            <div class="dg-form-chips">
+                            @* Lista para elegir cual formulario llenar; el elegido se despliega debajo. *@
+                            <div class="dg-form-list">
                                 @foreach (var f in _forms)
                                 {
                                     var ff = f;
-                                    <button class="dg-form-chip @(_formSel == ff.FormDefinitionId ? "on" : "")"
-                                            @onclick="() => _formSel = _formSel == ff.FormDefinitionId ? null : ff.FormDefinitionId">
-                                        @ff.Title
+                                    var on = _formSel == ff.FormDefinitionId;
+                                    <button class="dg-form-item @(on ? "on" : "")"
+                                            @onclick="() => _formSel = on ? null : ff.FormDefinitionId">
+                                        <span class="dg-form-item-ic">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>
+                                        </span>
+                                        <span class="dg-form-item-txt">
+                                            <span class="dg-form-item-name">@ff.Title</span>
+                                            @if (!string.IsNullOrWhiteSpace(ff.Code))
+                                            {
+                                                <span class="dg-form-item-code">@ff.Code</span>
+                                            }
+                                        </span>
+                                        <span class="dg-form-item-chev" style="transform:rotate(@(on ? "90deg" : "0deg"))">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                                        </span>
                                     </button>
+                                    @if (on)
+                                    {
+                                        <div class="dg-form-host" @key="ff.FormDefinitionId">
+                                            <DynamicFormRenderer DefinitionId="@ff.FormDefinitionId"
+                                                                 Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
+                                                                 Mode="FormRenderMode.Fill"
+                                                                 ShowHeader="false" />
+                                        </div>
+                                    }
                                 }
                             </div>
-                            @if (_formSel is Guid defId)
+                            @if (_formSel is null)
                             {
-                                <div class="dg-form-host" @key="defId">
-                                    <DynamicFormRenderer DefinitionId="@defId"
-                                                         Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
-                                                         Mode="FormRenderMode.Fill"
-                                                         ShowHeader="false" />
-                                </div>
-                            }
-                            else
-                            {
-                                <p class="dg-aside-note">Elige un formulario para llenarlo con los datos de este tercero.</p>
+                                <p class="dg-aside-note">Elige un formulario de la lista para llenarlo con los datos de este tercero.</p>
                             }
                         }
 

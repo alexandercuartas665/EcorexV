@@ -50,8 +50,16 @@ recien publicado se agrega SOLO a los roles existentes con `can_view=true` (acce
   PED con Fecha+Total, ACME SAS y Teclado; los DOS vinculos quedaron en `data_model_relation_links`
   contra el Id de la fila nueva, y al reabrirla el picker los recupera.
 
+**DESPLEGADO a prod 2026-07-16** (`fase-0/clon-backbone` @ `ff31b4e`, autorizado por el dueno):
+backup `ecorex-2026-07-16-1201.sql.gz` -> `build --no-cache` -> `up -d`. Aplico 1 migracion
+(`DataContainerModuleAndRelationLinks`, aditiva). Sano: /login 200, logs sin errores, las 5 columnas
+de publicacion y la tabla `data_model_relation_links` creadas. OJO: este deploy incluye el fix de
+permisos, asi que el gateado en pagina ahora SI se aplica en toda la consola (antes era fail-open).
+Antes de desplegar se limpio el residuo de las pruebas en el dev local (se despublico "Perfil
+Clientes", se borraron las filas del modelo demo y el permiso auto-agregado al rol).
+
 **Pendiente:** (a) el orden por columna sigue siendo alfabetico (EAV como string); (b) decidir si la
-relacion se muestra como columna en la grilla (hoy solo escalares); (c) desplegar (espera OK).
+relacion se muestra como columna en la grilla (hoy solo escalares).
 
 ---
 

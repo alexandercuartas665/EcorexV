@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-07-16 - Agente Conector On-Prem: el import REST comparte el nucleo de ingesta (cierra Ola 3)
+
+Ultimo pendiente de la Ola 3, desbloqueado por el usuario (su ajuste en el modulo de contenedores
+resulto ser visual y ya termino). Solo `Ecorex.Application/DataContainers`, sin migracion.
+
+- **Un solo camino de escritura**: `ApiImportService` (REST) ya no inserta filas por su cuenta. Recibe
+  `IRowIngestService` por constructor, abre una sesion (`CreateSession` + `PrepareAsync`, que hace el
+  vaciado de Replace y la precarga de clave de Upsert) y manda **cada pagina como un chunk**. Se
+  borraron sus privados `InsertRow` y `DeleteAllRowsAsync`; los contadores (ins/upd/del) salen de la
+  sesion. Antes esa logica EAV estaba DUPLICADA entre REST y agente: dos copias que podian divergir.
+- **Comportamiento conservado a proposito**: un SaveChanges por pagina (no por fila), el tope de 5000
+  filas se evalua con los contadores de la sesion mas lo que lleva la pagina, y el outcome mantiene su
+  regla (`success` si escribio algo o no hubo fallidos). El contrato publico no cambio.
+- **Tests (lo que faltaba)**: `ApiImportService` no tenia NINGUN test. Se agrego
+  `tests/Ecorex.Application.Tests/RowIngestServiceTests.cs` (5, EF InMemory) sobre el nucleo, que ahora
+  gobierna los dos caminos: Append (fila + celdas + TenantId), Append en 2 chunks (acumula sin borrar),
+  Replace (`del=1, ins=1`), Upsert por clave (`upd=1, ins=1`, sin duplicar) y Upsert con la misma clave
+  repetida en una corrida (gana la ultima). Patron `InnerDb` + `FakeAppDb : IApplicationDbContext`.
+- **Verificacion**: `dotnet build Ecorex.sln` 0 errores; `Ecorex.Application.Tests` **384/384** verde.
+  El camino del agente ya estaba verificado E2E contra SQL Server real (`ciudades`). El camino REST
+  **no se re-probo en vivo**: descansa en los tests nuevos + en que es el mismo codigo del nucleo.
+- **Vault**: doc 03 s9 (nucleo compartido + tests), doc 05 Ola 3 `[CONSTRUIDO 2026-07-16]`, indice.
+
+**Siguiente**: Ola 4 (`ImportSchedulerService` + `DataConnector.RunsViaAgent` + UI "Refrescar ahora"),
+en pausa a peticion del usuario.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Archivos - binarios (base64) + permisos ro/rw por raiz
 
 Ajustes menores del sub-agente Archivos (backlog). Solo lado agente.

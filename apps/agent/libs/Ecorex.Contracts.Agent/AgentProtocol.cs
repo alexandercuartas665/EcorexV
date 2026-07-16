@@ -120,6 +120,30 @@ public static class AgentHmac
     }
 }
 
+/// <summary>
+/// Firma del JS que el servidor inyecta en el navegador (doc 06 s4). HMAC-SHA256 del secreto del
+/// cliente sobre "correlationId|payload" (hex minusculas). Ligar al correlationId evita reusar una
+/// firma en otra orden (versionado/anti-replay ligero). Misma implementacion en agente y servidor.
+/// </summary>
+public static class AgentSign
+{
+    public static string SignJs(string secret, string correlationId, string payload)
+    {
+        using var mac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        var hash = mac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(correlationId + "|" + payload));
+        return System.Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>Verifica en tiempo constante que <paramref name="signature"/> corresponda al payload.</summary>
+    public static bool Verify(string secret, string correlationId, string payload, string? signature)
+    {
+        if (string.IsNullOrEmpty(signature)) { return false; }
+        var expected = SignJs(secret, correlationId, payload);
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(expected), System.Text.Encoding.UTF8.GetBytes(signature));
+    }
+}
+
 // ---- Sub-agente Navegador (doc 06 s3.2 + prior-art doc 07: catalogo browser.*) ----
 
 /// <summary>
@@ -150,7 +174,12 @@ public enum BrowserActionKind
     Downloads,
 }
 
-/// <summary>Una accion del navegador. Los campos aplicables dependen de <see cref="Kind"/>.</summary>
+/// <summary>
+/// Una accion del navegador. Los campos aplicables dependen de <see cref="Kind"/>. Las acciones que
+/// inyectan JS del SERVIDOR (Eval, Mouse, Wait con condicion) deben venir FIRMADAS en
+/// <see cref="Signature"/> (doc 06 s4: JS firmado por el servidor); el agente las rechaza si la firma
+/// no cuadra. Las ordenes por MCP local (loopback) van sin firma (confianza local).
+/// </summary>
 public sealed record BrowserAction(
     BrowserActionKind Kind,
     string? Url = null,
@@ -159,7 +188,8 @@ public sealed record BrowserAction(
     string? ConditionScript = null,
     string? Selector = null,
     string? ScriptJson = null,
-    bool Screenshot = false);
+    bool Screenshot = false,
+    string? Signature = null);
 
 /// <summary>Orden del servidor: una secuencia de acciones tipadas para el sub-agente Navegador.</summary>
 public sealed record BrowserRequestMsg(

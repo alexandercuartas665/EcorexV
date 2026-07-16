@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Endurecimiento del Navegador (JS firmado por el servidor)
+
+Guardrail de doc 06 s4: el JS que el servidor inyecta no puede ser arbitrario; debe ir FIRMADO.
+
+- **Contrato**: `BrowserAction.Signature` + `AgentSign` (en `Ecorex.Contracts.Agent`): HMAC-SHA256 del
+  secreto del cliente sobre `correlationId|payload`, hex, con `Verify` en tiempo constante. Ligar al
+  correlationId da anti-replay/versionado ligero.
+- **Agente**: `RealHiveConnection` verifica la firma de las acciones que inyectan JS del HUB (`Eval`,
+  `Mouse`, `Wait` con condicion) ANTES de ejecutar; **fail-closed**: sin firma valida o sin secreto
+  local, rechaza toda la orden. El JS por **MCP local** (loopback) NO requiere firma (confianza local).
+- **Servidor**: el endpoint dev `dev/browse` firma el `eval` con el secreto del `DataClient`
+  (`ISecretProtector` + `AgentSign`); `?nosign=true` omite la firma para probar el rechazo.
+- **Fix colateral**: se subio el `MaximumReceiveMessageSize` del `AgenteHub` a 32 MB (los
+  `BrowserResult` con screenshot base64 y los `FetchResult` grandes superaban el default de 32 KB de
+  SignalR y el hub los rechazaba en silencio). Solo para ese hub, sin tocar los demas.
+- **Verificado E2E**: firmado -> Navigate/Eval("Example Domain")/Screenshot ok; `nosign=true` ->
+  "Firma de JS invalida o ausente para la accion Eval" (rechazado). MCP eval local sigue funcionando.
+- **Pendiente**: UI de la allow-list en la colmena; consentimiento local explicito para capacidades
+  sensibles (doc 06 s4).
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Sub-agente ARCHIVOS (Files-1/2/3) + MCP file.*
 
 Tercera capacidad de la colmena (doc 06 s3.2). Todo en `feat/agente-colmena-gui`.

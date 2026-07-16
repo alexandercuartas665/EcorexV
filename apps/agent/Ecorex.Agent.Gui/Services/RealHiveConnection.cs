@@ -210,6 +210,18 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     {
         var detail = req.Actions.FirstOrDefault(a => a.Kind == BrowserActionKind.Navigate)?.Url ?? "navegador";
         RequestStarted?.Invoke(new HiveRequest(req.CorrelationId, SubAgentKind.Browser, Shorten(detail)));
+
+        // Endurecimiento (doc 06 s4): el JS empujado por el servidor (Eval/Mouse/Wait-condicion) debe
+        // venir FIRMADO por el secreto del cliente. Fail-closed: sin firma valida no se ejecuta nada.
+        var (signed, reason) = VerifyBrowserSignatures(req);
+        if (!signed)
+        {
+            await SafeInvokeAsync(conn, AgentHubMethods.BrowserResult,
+                new BrowserResultMsg(req.CorrelationId, false, Array.Empty<BrowserActionResult>(), reason));
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, false, reason));
+            return;
+        }
+
         try
         {
             // WebView2 es un control de UI: se ejecuta en el Dispatcher.
@@ -225,6 +237,35 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
                 new BrowserResultMsg(req.CorrelationId, false, Array.Empty<BrowserActionResult>(), ex.Message));
             RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, false, ex.Message));
         }
+    }
+
+    /// <summary>
+    /// Verifica que las acciones que inyectan JS del servidor lleven una firma HMAC valida (doc 06 s4).
+    /// El JS por MCP local NO pasa por aqui (confianza loopback). Fail-closed si no hay secreto local.
+    /// </summary>
+    private (bool Ok, string? Reason) VerifyBrowserSignatures(BrowserRequestMsg req)
+    {
+        foreach (var a in req.Actions)
+        {
+            var payload = a.Kind switch
+            {
+                BrowserActionKind.Eval => a.Script,
+                BrowserActionKind.Mouse => a.ScriptJson,
+                BrowserActionKind.Wait when !string.IsNullOrWhiteSpace(a.ConditionScript) => a.ConditionScript,
+                _ => null,
+            };
+            if (payload is null) { continue; } // accion sin JS del servidor (navigate/screenshot/html/...)
+
+            if (string.IsNullOrEmpty(_config.Secret))
+            {
+                return (false, "Sin secreto local: no se puede verificar la firma del JS del servidor.");
+            }
+            if (!AgentSign.Verify(_config.Secret, req.CorrelationId, payload, a.Signature))
+            {
+                return (false, $"Firma de JS invalida o ausente para la accion {a.Kind}.");
+            }
+        }
+        return (true, null);
     }
 
     /// <summary>Atiende una orden del sub-agente Archivos (doc 06 s3.2): acotada a la allow-list de rutas.</summary>

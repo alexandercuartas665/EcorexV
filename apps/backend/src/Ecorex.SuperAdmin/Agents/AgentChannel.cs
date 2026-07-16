@@ -43,6 +43,10 @@ public static class AgentChannel
         services.AddSingleton(new AgentTokenIssuer(key, issuer, audience, minutes: 15));
         services.AddSingleton<IAgentRegistry, InMemoryAgentRegistry>();
         services.AddSingleton<AgentNonceCache>();
+
+        // El AgenteHub recibe FetchResult (datos) y BrowserResult (screenshots base64) que superan el
+        // limite por defecto de SignalR (32 KB). Se sube solo para este hub (32 MB), sin tocar los demas.
+        services.AddSignalR().AddHubOptions<AgenteHub>(o => o.MaximumReceiveMessageSize = 32L * 1024 * 1024);
         // Ola 3: orquestador de ingesta via agente (pending-fetch + ingesta al contenedor).
         services.AddSingleton<IAgentImportService, AgentImportService>();
 
@@ -329,8 +333,11 @@ public static class AgentChannel
             app.MapPost("/api/agente/dev/browse/{clientId}", async (
                 string clientId,
                 string? url,
+                bool? nosign,
                 IAgentRegistry registry,
                 IHubContext<AgenteHub> hub,
+                IApplicationDbContext db,
+                ISecretProtector protector,
                 CancellationToken ct) =>
             {
                 var presence = registry.Get(clientId);
@@ -338,16 +345,30 @@ public static class AgentChannel
                 {
                     return Results.Json(new { ok = false, error = "Agente offline." }, statusCode: 409);
                 }
+
+                // Firma del JS con el secreto del DataClient (doc 06 s4). nosign=true la omite (para
+                // verificar que el agente rechaza JS sin firmar).
+                string? secret = null;
+                var client = await db.DataClients.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(c => c.ClientId == clientId && c.IsActive, ct);
+                if (client?.ClientSecretEncrypted is not null)
+                {
+                    try { secret = protector.Unprotect(client.ClientSecretEncrypted); } catch { /* ilegible */ }
+                }
+
                 var target = string.IsNullOrWhiteSpace(url) ? "https://example.com" : url;
                 var corr = Guid.NewGuid().ToString("N")[..8];
+                const string evalScript = "document.title";
+                var evalSig = (nosign == true || secret is null) ? null : AgentSign.SignJs(secret, corr, evalScript);
+
                 var req = new BrowserRequestMsg(corr, presence.TenantId.ToString(), new List<BrowserAction>
                 {
                     new(BrowserActionKind.Navigate, Url: target),
-                    new(BrowserActionKind.Eval, Script: "document.title"),
+                    new(BrowserActionKind.Eval, Script: evalScript, Signature: evalSig),
                     new(BrowserActionKind.Screenshot),
                 });
                 await hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.BrowserRequest, req, ct);
-                return Results.Json(new { ok = true, correlationId = corr, url = target });
+                return Results.Json(new { ok = true, correlationId = corr, url = target, signed = evalSig is not null });
             }).AllowAnonymous().DisableAntiforgery();
 
             // POST /api/agente/dev/files/{clientId}?op=list|read|write&path=...&content=... : ordena una

@@ -5,6 +5,68 @@
 
 ---
 
+## 2026-07-16 - Agente Conector On-Prem: Ola 5c - canal local (named pipe) servicio <-> colmena
+
+Cierra el acoplamiento que 5b dejo al aire: la colmena ya no puede abrir la boveda, asi que sin este
+canal no habia forma de configurar el agente. **Tambien cierra el pendiente de 5b**: el servicio
+CONECTA al hub de punta a punta leyendo su identidad de la boveda de maquina (verificado).
+
+**Lo elegante**: 5c no fue cirugia porque los dos seams ya existian. Son dos implementaciones nuevas:
+- `PipeHiveConnection : IHiveConnection` -> la colmena habla con el servicio en vez del hub. **El
+  ViewModel y el panal no cambiaron**: mismo seam de la Ola B.
+- `DelegatedBrowserSubAgent : IBrowserSubAgent` -> el servicio pide prestado el escritorio de la
+  colmena. El canal y el MCP siguen llamando `ExecuteAsync` sin enterarse.
+
+**Seguridad (decidida aqui)**: el servicio corre como LocalSystem, asi que el pipe es superficie
+privilegiada: quien ensanche la allow-list de Archivos le abre a la nube el disco entero como SYSTEM.
+Por eso **leer estado y prestar escritorio = cualquier usuario interactivo; MUTAR (identidad,
+allow-lists, consentimiento) = solo Administradores**, comprobado impersonando al cliente del pipe.
+El **secreto nunca viaja al cliente**: se escribe, jamas se lee (la colmena ve un marcador `********`
+y "vacio = no lo cambies").
+
+**Tres bugs REALES encontrados al probar en la maquina** (ninguno teorico):
+1. **ACL sin `Synchronize`**: la colmena no podia conectar. El sintoma enganya: `Connect` reintenta
+   ante ACCESS_DENIED hasta agotar el plazo, asi que un ACL corto se presenta como **timeout**, no
+   como acceso denegado.
+2. **Buffers del pipe en 0** (`inBufferSize: 0, outBufferSize: 0`): con buffer cero cada escritura
+   espera a que el otro lea -> el saludo se abrazaba a si mismo (servidor escribiendo `state`,
+   cliente escribiendo `hello`, ninguno leyendo). Conexion viva y canal mudo. Ahora 64 KB.
+3. **Falta `CreateNewInstance` en el ACL**: para anadir instancias a un pipe EXISTENTE, Windows exige
+   ese derecho sobre el DACL ya puesto; la primera instancia se crea sin consultar nada. Resultado:
+   el canal servia a UNA colmena y la siguiente quedaba fuera con ACCESS_DENIED. Se concede
+   FullControl a LocalSystem (produccion) y Administradores (diagnostico).
+Los tres estaban TAPADOS por `catch` mudos - el mismo pecado que se corrigio en 5b y que yo repeti
+aqui. Ahora el bucle de aceptacion, el canal y el cliente registran su motivo.
+
+**Politica del Navegador EMPUJADA** (`BrowserPolicy` en Contracts): `WebView2BrowserSubAgent` leia el
+consentimiento y la allow-list de la boveda, pero vive en la colmena, que no puede abrirla -> fallaba
+cerrado SIEMPRE. Ahora la politica viaja con el `state` desde el servicio (que si es dueno de la
+boveda) y caduca sola si la colmena se queda sin servicio.
+
+**Verificado E2E (hub real :5232 + Postgres local en Docker, NO prod)**:
+- Servicio conectado al hub leyendo la boveda de maquina: `Conectado a .../hubs/agente como
+  cli_dev_agent`. (Cierra el pendiente de 5b.)
+- Colmena SIN elevar conecta al pipe: `Colmena conectada (administrador: no)` -> la impersonacion
+  identifica bien al no-admin; `Colmena lista (presta escritorio al Navegador: si)`.
+- Estado publicado al conectar (JSON `state` recibido; con el servicio sin elevar llega vacio, que es
+  lo coherente: no puede leer la boveda).
+- **Delegacion del Navegador probada por el cambio de mensaje**: sin colmena, "El Navegador exige una
+  sesion interactiva"; con colmena, "Navegador no habilitado por el operador" -> esa respuesta la
+  produjo el WebView2 DE LA COLMENA y volvio por el pipe. El circuito hub -> servicio -> pipe ->
+  colmena -> WebView2 -> vuelta esta cerrado.
+- Sin colmena: falla con motivo accionable, no se cuelga (escenario "servidor sin sesion").
+
+**NO verificado**: una navegacion EXITOSA de punta a punta (la corrige el empuje de politica recien
+escrito) y el rechazo por no-administrador en vivo. `Ecorex.Agent.Core`, `Contracts` y la colmena
+compilan 0 errores / 0 advertencias; el proyecto del servicio no pudo enlazarse porque el .exe
+elevado tiene tomados los DLL y una shell sin elevar no puede matarlo (su codigo no cambio en esta
+ronda). Falta cerrar esas dos pruebas.
+
+**Siguiente**: 5d (instalador; recordar que **debe crear el la boveda**, ver hallazgo de propiedad
+del directorio en ADR-0039).
+
+---
+
 ## 2026-07-16 - Agente Conector On-Prem: Ola 5b - boveda de maquina + Worker Service (PARCIAL)
 
 Sigue ADR-0039 (D8: despliegue = estacion Y servidor sin sesion). **Cuenta del servicio: LocalSystem**

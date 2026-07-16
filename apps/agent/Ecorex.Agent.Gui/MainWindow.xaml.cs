@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using Ecorex.Agent.Core.Ipc;
 using Ecorex.Agent.Core.Services;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Agent.Gui.ViewModels;
@@ -27,11 +28,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        // Seam IHiveConnection: por defecto el cliente SignalR REAL (Ola B); en modo captura/QA
-        // (ECOREX_AGENT_CAPTURE) o forzado, el MOCK (Ola A) para demos deterministas. La ventana y
-        // el ViewModel son identicos en ambos casos.
+        // Seam IHiveConnection: por defecto, el canal LOCAL contra el Servicio (Ola 5c, ADR-0039);
+        // en modo captura/QA (ECOREX_AGENT_CAPTURE) o forzado, el MOCK (Ola A) para demos
+        // deterministas. La ventana y el ViewModel son identicos en ambos casos.
+        //
+        // Cambio de fondo respecto a la Ola B: la colmena ya NO conecta al hub ni abre la boveda. El
+        // dueno de la identidad, del canal y del store es el Servicio; ella es su cara y le presta el
+        // escritorio para el Navegador (WebView2 no vive en la sesion 0 de un servicio).
         var store = new DpapiConfigStore();
-        var cfg = store.Load();
         var captureMode = Environment.GetEnvironmentVariable("ECOREX_AGENT_CAPTURE");
         var forceMock = string.Equals(Environment.GetEnvironmentVariable("ECOREX_AGENT_FORCE_MOCK"), "1", StringComparison.Ordinal);
         var useMock = !string.IsNullOrEmpty(captureMode) || forceMock;
@@ -43,9 +47,13 @@ public partial class MainWindow : Window
         }
         else
         {
-            // Sub-agente Navegador (WebView2) compartido por el hub y el servidor MCP local.
+            // El Navegador (WebView2) lo sirven dos frentes: el servicio, que lo delega por el pipe,
+            // y el MCP local, que lo llama directo (confianza loopback).
             var browser = new WebView2BrowserSubAgent();
-            hive = new RealHiveConnection(cfg, browser);
+            var pipe = new PipeHiveConnection(browser);
+            pipe.Start();
+            hive = pipe;
+
             _mcp = new AgentMcpServer(browser);
             try { _mcp.Start(); }
             catch { _mcp = null; /* puerto ocupado / sin permiso: el MCP queda apagado */ }
@@ -55,12 +63,6 @@ public partial class MainWindow : Window
 
         InitTray();
         ApplyCaptureHook();
-
-        // En modo real, si ya hay config completa, conecta solo al arrancar.
-        if (!useMock && cfg.IsComplete)
-        {
-            Loaded += async (_, _) => await _vm.AutoConnectAsync();
-        }
     }
 
     /// <summary>

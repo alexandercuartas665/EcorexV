@@ -20,15 +20,22 @@ namespace Ecorex.Agent.Gui.Services;
 /// </summary>
 public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
 {
-    private readonly BrowserAllowList _allow = new();
-    private readonly CapabilityConsent _consent = new();
     private readonly List<DownloadRecord> _downloads = new();
     private Window? _window;
     private WpfWebView2? _web;
 
     private sealed record DownloadRecord(string Uri, string? Path, DateTimeOffset At);
 
-    public bool IsAllowed(string? host) => _allow.IsAllowed(host);
+    /// <summary>
+    /// Permiso vigente, EMPUJADO por el servicio (ADR-0039): esta clase corre en la colmena, que no
+    /// puede abrir la boveda. Arranca denegando todo y se abre solo cuando el servicio publica su
+    /// estado; si la colmena se queda sin servicio, vuelve a cerrarse.
+    /// </summary>
+    private volatile BrowserPolicy _policy = BrowserPolicy.Denied;
+
+    public void ApplyPolicy(BrowserPolicy policy) => _policy = policy;
+
+    public bool IsAllowed(string? host) => _policy.IsAllowed(host);
 
     /// <summary>
     /// Ejecuta la secuencia. Seguro desde cualquier hilo: si no estamos en el de UI, salta a el
@@ -44,7 +51,7 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
     private async Task<BrowserResultMsg> ExecuteOnUiThreadAsync(BrowserRequestMsg req)
     {
         // Consentimiento local (doc 06 s4): sin habilitar por el operador, no se abre el navegador.
-        if (!_consent.IsBrowserEnabled())
+        if (!_policy.Enabled)
         {
             var blocked = req.Actions
                 .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: "Navegador no habilitado por el operador en la colmena."))
@@ -81,7 +88,7 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                 {
                     return Fail(index, a, "URL invalida (solo http/https).");
                 }
-                if (!_allow.IsAllowed(uri.Host))
+                if (!_policy.IsAllowed(uri.Host))
                 {
                     return Fail(index, a, $"Dominio no permitido por la allow-list local: {uri.Host}");
                 }
@@ -187,7 +194,7 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         if (!string.IsNullOrEmpty(src) && Uri.TryCreate(src, UriKind.Absolute, out var uri))
         {
             host = uri.Host;
-            return _allow.IsAllowed(uri.Host);
+            return _policy.IsAllowed(uri.Host);
         }
         return false;
     }

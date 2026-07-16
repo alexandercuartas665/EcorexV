@@ -22,6 +22,9 @@ public sealed class UnavailableBrowserSubAgent : IBrowserSubAgent
 
     public bool IsAllowed(string? host) => false;
 
+    /// <summary>No hay navegador que gobernar: la politica no aplica aqui.</summary>
+    public void ApplyPolicy(BrowserPolicy policy) { }
+
     public Task<BrowserResultMsg> ExecuteAsync(BrowserRequestMsg request)
     {
         var results = request.Actions

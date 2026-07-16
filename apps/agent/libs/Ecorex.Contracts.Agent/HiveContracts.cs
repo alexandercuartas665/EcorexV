@@ -94,6 +94,37 @@ public interface IBrowserSubAgent
 
     /// <summary>El host (dominio) esta en la allow-list local. Lo usa el MCP para responder rapido.</summary>
     bool IsAllowed(string? host);
+
+    /// <summary>
+    /// El dueno de la boveda EMPUJA la politica vigente (ADR-0039). Existe porque el navegador vive
+    /// en la colmena, que corre sin elevar y NO puede leer la boveda: si se dejara que la consultara
+    /// sola, fallaria cerrado siempre. Quien la lee es el servicio, y la manda por el pipe.
+    /// </summary>
+    void ApplyPolicy(BrowserPolicy policy);
+}
+
+/// <summary>
+/// Permiso vigente del Navegador: si el operador lo habilito y a que dominios puede ir. Viaja del
+/// servicio (dueno de la boveda) a la colmena (dueno del escritorio). Fail-closed por defecto.
+/// </summary>
+public sealed record BrowserPolicy(bool Enabled, IReadOnlyList<string> Domains)
+{
+    /// <summary>Nada permitido: el estado inicial, hasta que el servicio diga otra cosa.</summary>
+    public static readonly BrowserPolicy Denied = new(false, Array.Empty<string>());
+
+    /// <summary>Coincidencia por sufijo de host ("example.com" permite "www.example.com").</summary>
+    public bool IsAllowed(string? host)
+    {
+        if (!Enabled || string.IsNullOrWhiteSpace(host)) { return false; }
+        host = host.ToLowerInvariant();
+        foreach (var d in Domains)
+        {
+            var domain = d.Trim().ToLowerInvariant();
+            if (domain.Length == 0) { continue; }
+            if (host == domain || host.EndsWith("." + domain, StringComparison.Ordinal)) { return true; }
+        }
+        return false;
+    }
 }
 
 /// <summary>

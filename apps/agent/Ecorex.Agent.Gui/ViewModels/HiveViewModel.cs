@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Threading;
 using Ecorex.Agent.Gui.Mvvm;
+using Ecorex.Agent.Core.Ipc;
 using Ecorex.Agent.Core.Services;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Contracts.Agent;
@@ -18,6 +19,18 @@ public sealed class HiveViewModel : ObservableObject
     private readonly IAgentConfigStore _store;
     private readonly IHiveConnection _hive;
     private readonly MockHiveConnection? _mock;
+
+    /// <summary>
+    /// El canal local con el Servicio, si estamos en modo real (ADR-0039). Cuando existe, TODO lo que
+    /// toca la boveda (identidad, allow-lists, consentimiento) va por el: la colmena corre sin elevar
+    /// y ya no puede abrir `%ProgramData%`. Es null en modo demo/captura, donde el mock se
+    /// autoabastece y los stores locales siguen sirviendo.
+    /// </summary>
+    private readonly PipeHiveConnection? _pipe;
+
+    /// <summary>Ultimo estado publicado por el servicio: alimenta los flyouts sin volver a preguntar.</summary>
+    private AgentIpc.StateMsg? _serviceState;
+
     private readonly BrowserAllowList _browserAllow = new();
     private readonly FileAllowList _fileAllow = new();
     private readonly CapabilityConsent _consent = new();
@@ -43,6 +56,7 @@ public sealed class HiveViewModel : ObservableObject
         _store = store;
         _hive = hive;
         _mock = hive as MockHiveConnection; // los comandos de DEMO solo aplican con el mock (Ola A)
+        _pipe = hive as PipeHiveConnection; // modo real: el dueno de la boveda es el Servicio
 
         // Celdas fijas: Config es el ancla (siempre llena); las 3 capacidades nacen apagadas.
         ConfigCell = new HiveCellViewModel(SubAgentKind.Configuration, "Configuracion", "\u2699");
@@ -54,11 +68,20 @@ public sealed class HiveViewModel : ObservableObject
             new(SubAgentKind.Browser, "Navegador", "WB"),
         };
 
-        // Carga la config persistida (DPAPI).
-        var cfg = _store.Load();
-        _clientId = cfg.ClientId;
-        _hubUrl = cfg.HubUrl;
-        _secret = cfg.Secret;
+        if (_pipe is null)
+        {
+            // Demo/captura: no hay servicio detras; la config sale del store local.
+            var cfg = _store.Load();
+            _clientId = cfg.ClientId;
+            _hubUrl = cfg.HubUrl;
+            _secret = cfg.Secret;
+        }
+        else
+        {
+            // Real: la identidad la publica el Servicio en cuanto el pipe conecta (no se lee aqui).
+            _pipe.ServiceStateChanged += OnServiceStateChanged;
+            _pipe.Acked += OnAcked;
+        }
 
         _hive.ConnectionChanged += OnConnectionChanged;
         _hive.RequestStarted += OnRequestStarted;
@@ -142,6 +165,35 @@ public sealed class HiveViewModel : ObservableObject
         set => SetProperty(ref _capAllowText, value);
     }
 
+    /// <summary>
+    /// El Servicio publico su estado: la colmena refleja lo REAL (identidad, allow-lists,
+    /// consentimiento), no lo que ella creia. Llega desde un hilo del pipe -> al de UI.
+    /// </summary>
+    private void OnServiceStateChanged(AgentIpc.StateMsg state) => _dispatcher.Invoke(() =>
+    {
+        _serviceState = state;
+        ClientId = state.ClientId;
+        HubUrl = state.HubUrl;
+        // El secreto NO viaja de vuelta (ADR-0039 s3): se muestra un marcador si hay uno guardado, y
+        // si el operador no teclea nada, el servicio conserva el que ya tenia.
+        Secret = state.HasSecret ? SecretPlaceholder : string.Empty;
+        StatusDetail = state.LastError;
+        OnPropertyChanged(nameof(StatusDetail));
+    });
+
+    private void OnAcked(AgentIpc.AckMsg ack) => _dispatcher.Invoke(() =>
+    {
+        // El rechazo tipico: cambiar la configuracion exige administrador (el servicio corre como
+        // LocalSystem y su boveda no la mueve cualquiera).
+        if (!ack.Ok) { StatusDetail = ack.Error; OnPropertyChanged(nameof(StatusDetail)); }
+    });
+
+    /// <summary>Marcador de "ya hay secreto guardado": nunca es el secreto real.</summary>
+    private const string SecretPlaceholder = "********";
+
+    /// <summary>Motivo del ultimo problema (fallo de conexion o rechazo del servicio), para la UI.</summary>
+    public string? StatusDetail { get; private set; }
+
     /// <summary>Abre el flyout de una capacidad sensible (Navegador/Archivos) con su estado actual.</summary>
     public void OpenCapabilityConfig(SubAgentKind kind)
     {
@@ -151,16 +203,19 @@ public sealed class HiveViewModel : ObservableObject
         {
             CapTitle = "Navegador";
             CapHint = "Dominios permitidos, uno por linea (ej. example.com). Vacio = todo bloqueado.";
-            CapEnabled = _consent.IsBrowserEnabled();
-            CapAllowText = string.Join(Environment.NewLine, _browserAllow.Load());
+            // En modo real la verdad la tiene el Servicio (la colmena ya no abre la boveda).
+            CapEnabled = _serviceState?.BrowserEnabled ?? (_pipe is null && _consent.IsBrowserEnabled());
+            CapAllowText = string.Join(Environment.NewLine,
+                _serviceState?.BrowserAllow ?? (_pipe is null ? _browserAllow.Load() : []));
         }
         else if (kind == SubAgentKind.Files)
         {
             CapTitle = "Archivos";
             CapHint = "Rutas raiz permitidas, una por linea. Solo lectura por defecto; anteponer 'rw:' "
                     + "para permitir escritura (ej. C:\\Datos  /  rw:C:\\Salida). Vacio = todo bloqueado.";
-            CapEnabled = _consent.IsFilesEnabled();
-            CapAllowText = string.Join(Environment.NewLine, _fileAllow.Load());
+            CapEnabled = _serviceState?.FilesEnabled ?? (_pipe is null && _consent.IsFilesEnabled());
+            CapAllowText = string.Join(Environment.NewLine,
+                _serviceState?.FileAllow ?? (_pipe is null ? _fileAllow.Load() : []));
         }
         else
         {
@@ -174,9 +229,23 @@ public sealed class HiveViewModel : ObservableObject
         var entries = CapAllowText
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(e => e.Trim())
-            .Where(e => e.Length > 0);
+            .Where(e => e.Length > 0)
+            .ToList();
 
-        if (_capKind == SubAgentKind.Browser)
+        if (_pipe is not null)
+        {
+            // Real: persiste el SERVICIO. Si el operador no es administrador, contesta que no y el
+            // motivo aparece en StatusDetail (via Acked). La allow-list es un control de seguridad:
+            // ensancharla con el servicio corriendo como LocalSystem no puede quedar al alcance de
+            // cualquier usuario del equipo.
+            var browser = _capKind == SubAgentKind.Browser ? CapEnabled : _serviceState?.BrowserEnabled ?? false;
+            var files = _capKind == SubAgentKind.Files ? CapEnabled : _serviceState?.FilesEnabled ?? false;
+            _ = _capKind == SubAgentKind.Browser
+                ? _pipe.SetBrowserAllowAsync(entries)
+                : _pipe.SetFileAllowAsync(entries);
+            _ = _pipe.SetConsentAsync(browser, files);
+        }
+        else if (_capKind == SubAgentKind.Browser)
         {
             _browserAllow.Save(entries);
             _consent.SetBrowser(CapEnabled);
@@ -215,10 +284,20 @@ public sealed class HiveViewModel : ObservableObject
 
     private void SaveConfig()
     {
-        _store.Save(new AgentConfig(ClientId.Trim(), HubUrl.Trim(), Secret.Trim()));
+        // Real: guarda el SERVICIO (la colmena no puede abrir la boveda). Va por el mismo camino que
+        // "Probar conexion", que es un `set-config` por el pipe.
+        if (_pipe is not null) { _ = _pipe.TestConnectionAsync(CurrentConfig()); return; }
+        _store.Save(CurrentConfig());
     }
 
-    private AgentConfig CurrentConfig() => new(ClientId.Trim(), HubUrl.Trim(), Secret.Trim());
+    private AgentConfig CurrentConfig()
+    {
+        var typed = Secret.Trim();
+        // El marcador significa "no lo toques": el secreto real nunca bajo al cliente, asi que
+        // reenviarlo tal cual lo destruiria. Vacio = el servicio conserva el que ya tiene.
+        var secret = typed == SecretPlaceholder ? string.Empty : typed;
+        return new AgentConfig(ClientId.Trim(), HubUrl.Trim(), secret);
+    }
 
     /// <summary>Conexion automatica al arrancar (Ola B, cuando ya hay ClientId/URL guardados).</summary>
     public Task AutoConnectAsync() => TestConnectionAsync();

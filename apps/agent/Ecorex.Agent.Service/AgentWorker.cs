@@ -1,3 +1,4 @@
+using Ecorex.Agent.Core.Ipc;
 using Ecorex.Agent.Core.Services;
 using Ecorex.Contracts.Agent;
 using Microsoft.Extensions.Hosting;
@@ -20,12 +21,28 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
     private static readonly TimeSpan WaitForConfig = TimeSpan.FromSeconds(30);
 
     private RealHiveConnection? _hive;
+    private AgentIpcServer? _ipc;
+
+    /// <summary>
+    /// Se dispara cuando la colmena manda una identidad nueva por el pipe: hay que soltar el canal
+    /// actual y rearmarlo con ella, sin esperar los 30s del reintento.
+    /// </summary>
+    private readonly SemaphoreSlim _configChanged = new(0);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Agente ECOREX: servicio iniciado. Boveda: {Dir}", AgentVault.Dir);
 
         var store = new DpapiConfigStore();
+
+        // Canal local con las colmenas (ADR-0039 s3): les publica el estado real, acepta cambios de
+        // configuracion (de administradores) y les delega el Navegador.
+        _ipc = new AgentIpcServer(
+            () => new AgentIpcServer.StateMsgSource(_hive?.State ?? ConnectionState.Offline, _hive?.LastError),
+            _ => _configChanged.Release(),
+            m => logger.LogInformation("{Mensaje}", m));
+        _ipc.Start();
+        logger.LogInformation("Canal local escuchando en \\\\.\\pipe\\{Pipe} (la colmena se conecta aqui).", AgentIpc.PipeName);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -35,36 +52,53 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
                 logger.LogWarning(
                     "Sin configuracion en la boveda (ClientId/URL). Configure el agente desde la colmena; se reintenta en {Segundos}s.",
                     WaitForConfig.TotalSeconds);
-                await DelayAsync(WaitForConfig, stoppingToken);
+                await WaitAsync(WaitForConfig, stoppingToken);
                 continue;
             }
 
             try
             {
-                // El Navegador exige escritorio: en el servicio no existe. Falla claro (Ola 5c lo
-                // reemplaza por la delegacion a la colmena). Gateway y Archivos si atienden aqui.
-                _hive = new RealHiveConnection(config, new UnavailableBrowserSubAgent());
-                _hive.ConnectionChanged += s => logger.LogInformation("Canal: {Estado}", s);
-                _hive.RequestStarted += r => logger.LogInformation("Orden {Id}: {Kind} {Detalle}", r.CorrelationId, r.Kind, r.Detail);
-                _hive.RequestFinished += r => logger.LogInformation("Orden {Id}: {Resultado} {Detalle}",
-                    r.CorrelationId, r.Ok ? "OK" : "ERROR", r.Detail);
+                // El Navegador exige escritorio y el servicio no lo tiene: se lo pide prestado a una
+                // colmena por el pipe. Sin colmena, responde NO explicito (no cuelga la peticion).
+                // Gateway y Archivos, headless, atienden aqui mismo.
+                _hive = new RealHiveConnection(config, new DelegatedBrowserSubAgent(_ipc));
+                _hive.ConnectionChanged += s =>
+                {
+                    logger.LogInformation("Canal: {Estado}", s);
+                    _ = _ipc.BroadcastStateAsync(); // el panal de la colmena se pinta solo
+                };
+                _hive.RequestStarted += r =>
+                {
+                    logger.LogInformation("Orden {Id}: {Kind} {Detalle}", r.CorrelationId, r.Kind, r.Detail);
+                    _ = _ipc.PublishRequestStartedAsync(r);
+                };
+                _hive.RequestFinished += r =>
+                {
+                    logger.LogInformation("Orden {Id}: {Resultado} {Detalle}",
+                        r.CorrelationId, r.Ok ? "OK" : "ERROR", r.Detail);
+                    _ = _ipc.PublishRequestFinishedAsync(r);
+                };
 
                 var ok = await _hive.TestConnectionAsync(config, stoppingToken);
+                await _ipc.BroadcastStateAsync();
                 if (!ok)
                 {
                     logger.LogWarning("No se pudo conectar a {Url} con ClientId {ClientId}. Motivo: {Motivo}. Se reintenta.",
                         config.HubUrl, config.ClientId, _hive.LastError ?? "desconocido");
                     await DisposeHiveAsync();
-                    await DelayAsync(WaitForConfig, stoppingToken);
+                    await WaitAsync(WaitForConfig, stoppingToken);
                     continue;
                 }
 
                 logger.LogInformation("Conectado a {Url} como {ClientId}. Atendiendo Gateway y Archivos.",
                     config.HubUrl, config.ClientId);
 
-                // Conectado: SignalR se encarga de reconectar con backoff. El worker solo espera el
-                // apagado del servicio.
-                await Task.Delay(Timeout.Infinite, stoppingToken);
+                // Conectado: SignalR reconecta con backoff por su cuenta. El worker solo despierta si
+                // se apaga el servicio o si una colmena manda una identidad nueva por el pipe (y
+                // entonces hay que rearmar el canal con ella, no seguir con la vieja).
+                await _configChanged.WaitAsync(stoppingToken);
+                logger.LogInformation("La identidad cambio desde la colmena: se rearma el canal.");
+                await DisposeHiveAsync();
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -74,18 +108,23 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
             {
                 logger.LogError(ex, "Fallo del canal; se reintenta en {Segundos}s.", WaitForConfig.TotalSeconds);
                 await DisposeHiveAsync();
-                await DelayAsync(WaitForConfig, stoppingToken);
+                await WaitAsync(WaitForConfig, stoppingToken);
             }
         }
 
         await DisposeHiveAsync();
+        if (_ipc is not null) { await _ipc.DisposeAsync(); }
         logger.LogInformation("Agente ECOREX: servicio detenido.");
     }
 
-    /// <summary>Espera que NO explota al apagar el servicio (el token cancela el delay a proposito).</summary>
-    private static async Task DelayAsync(TimeSpan delay, CancellationToken ct)
+    /// <summary>
+    /// Espera antes de reintentar, pero DESPIERTA de inmediato si la colmena manda una identidad
+    /// nueva: sin esto, configurar el agente y quedarse mirando hasta 30s a que "reaccione" seria una
+    /// mala experiencia. No explota al apagar el servicio (el token cancela a proposito).
+    /// </summary>
+    private async Task WaitAsync(TimeSpan delay, CancellationToken ct)
     {
-        try { await Task.Delay(delay, ct); }
+        try { await _configChanged.WaitAsync(delay, ct); }
         catch (OperationCanceledException) { /* apagado */ }
     }
 

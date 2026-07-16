@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Consentimiento local + UI de allow-lists en la colmena
+
+Cierra el ultimo guardrail de doc 06 s4 ("consentimiento local explicito"): el operador controla que
+capacidades sensibles se activan, desde la propia colmena.
+
+- **`CapabilityConsent`** (DPAPI, `consent.dat`): habilitacion por capacidad (browser/files),
+  **fail-closed por defecto** (sin archivo = todo deshabilitado). `SetBrowser/SetFiles/IsXEnabled`.
+- **Enforcement en los sub-agentes**: `WebView2BrowserSubAgent.ExecuteAsync` y `FileSubAgent.ExecuteAsync`
+  rechazan TODA la orden si la capacidad no esta habilitada -aplica al HUB Y al MCP local- ("Navegador/
+  Archivos no habilitado por el operador en la colmena").
+- **UI en la colmena**: clic en la celda Navegador/Archivos abre un flyout con: toggle "Habilitada por
+  mi (el operador)" + editor de la allow-list (una entrada por linea, monospace) + Guardar/Cerrar. En
+  el VM: `OpenCapabilityConfig(kind)` carga estado; `SaveCapability` persiste consentimiento + allow-list.
+- **Headless** `--enable <browser|files> <0|1>` (mismo efecto que el toggle) para despliegue/servicio.
+- **Verificado E2E**: fail-closed por defecto -> `browser.navigate`/`file.exists` por MCP rechazados;
+  al habilitar (UI o `--enable`) -> funcionan. Captura del flyout (toggle + allow-list example.com).
+- **Estado**: con esto, TODOS los guardrails de doc 06 s4 estan implementados (allow-list por capacidad,
+  acciones tipadas, JS firmado, handshake HMAC/tenant, consentimiento local). **Pendiente**: binarios
+  base64 en archivos, read-only vs read-write por raiz.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Endurecimiento del Navegador (JS firmado por el servidor)
 
 Guardrail de doc 06 s4: el JS que el servidor inyecta no puede ser arbitrario; debe ir FIRMADO.

@@ -17,7 +17,17 @@ public sealed class HiveViewModel : ObservableObject
     private readonly IAgentConfigStore _store;
     private readonly IHiveConnection _hive;
     private readonly MockHiveConnection? _mock;
+    private readonly BrowserAllowList _browserAllow = new();
+    private readonly FileAllowList _fileAllow = new();
+    private readonly CapabilityConsent _consent = new();
     private readonly Dispatcher _dispatcher = System.Windows.Application.Current.Dispatcher;
+
+    private bool _isCapConfigOpen;
+    private SubAgentKind _capKind;
+    private string _capTitle = "";
+    private string _capHint = "";
+    private bool _capEnabled;
+    private string _capAllowText = "";
 
     private string _clientId = "";
     private string _hubUrl = "";
@@ -57,6 +67,8 @@ public sealed class HiveViewModel : ObservableObject
         SaveConfigCommand = new RelayCommand(SaveConfig, () => !_busy);
         ToggleConfigCommand = new RelayCommand(() => IsConfigOpen = !IsConfigOpen);
         RunDemoCommand = new RelayCommand(async () => await RunDemoAsync(), () => _mock is not null && !_demoRunning);
+        SaveCapabilityCommand = new RelayCommand(SaveCapability);
+        CloseCapabilityCommand = new RelayCommand(() => IsCapConfigOpen = false);
     }
 
     public ObservableCollection<HiveCellViewModel> Cells { get; }
@@ -67,6 +79,8 @@ public sealed class HiveViewModel : ObservableObject
     public RelayCommand SaveConfigCommand { get; }
     public RelayCommand ToggleConfigCommand { get; }
     public RelayCommand RunDemoCommand { get; }
+    public RelayCommand SaveCapabilityCommand { get; }
+    public RelayCommand CloseCapabilityCommand { get; }
 
     public string ClientId
     {
@@ -91,6 +105,86 @@ public sealed class HiveViewModel : ObservableObject
     {
         get => _isConfigOpen;
         set => SetProperty(ref _isConfigOpen, value);
+    }
+
+    // ---- Flyout de configuracion POR capacidad (Navegador / Archivos): consentimiento + allow-list ----
+
+    public bool IsCapConfigOpen
+    {
+        get => _isCapConfigOpen;
+        set => SetProperty(ref _isCapConfigOpen, value);
+    }
+
+    public string CapTitle
+    {
+        get => _capTitle;
+        private set => SetProperty(ref _capTitle, value);
+    }
+
+    public string CapHint
+    {
+        get => _capHint;
+        private set => SetProperty(ref _capHint, value);
+    }
+
+    /// <summary>Consentimiento local: la capacidad esta habilitada por el operador.</summary>
+    public bool CapEnabled
+    {
+        get => _capEnabled;
+        set => SetProperty(ref _capEnabled, value);
+    }
+
+    /// <summary>Allow-list editable (una entrada por linea).</summary>
+    public string CapAllowText
+    {
+        get => _capAllowText;
+        set => SetProperty(ref _capAllowText, value);
+    }
+
+    /// <summary>Abre el flyout de una capacidad sensible (Navegador/Archivos) con su estado actual.</summary>
+    public void OpenCapabilityConfig(SubAgentKind kind)
+    {
+        _capKind = kind;
+        IsConfigOpen = false;
+        if (kind == SubAgentKind.Browser)
+        {
+            CapTitle = "Navegador";
+            CapHint = "Dominios permitidos, uno por linea (ej. example.com). Vacio = todo bloqueado.";
+            CapEnabled = _consent.IsBrowserEnabled();
+            CapAllowText = string.Join(Environment.NewLine, _browserAllow.Load());
+        }
+        else if (kind == SubAgentKind.Files)
+        {
+            CapTitle = "Archivos";
+            CapHint = "Rutas raiz permitidas, una por linea (ej. C:\\Datos). Vacio = todo bloqueado.";
+            CapEnabled = _consent.IsFilesEnabled();
+            CapAllowText = string.Join(Environment.NewLine, _fileAllow.Load());
+        }
+        else
+        {
+            return; // Config/Gateway no usan este flyout
+        }
+        IsCapConfigOpen = true;
+    }
+
+    private void SaveCapability()
+    {
+        var entries = CapAllowText
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(e => e.Trim())
+            .Where(e => e.Length > 0);
+
+        if (_capKind == SubAgentKind.Browser)
+        {
+            _browserAllow.Save(entries);
+            _consent.SetBrowser(CapEnabled);
+        }
+        else if (_capKind == SubAgentKind.Files)
+        {
+            _fileAllow.Save(entries);
+            _consent.SetFiles(CapEnabled);
+        }
+        IsCapConfigOpen = false;
     }
 
     public ConnectionState Connection

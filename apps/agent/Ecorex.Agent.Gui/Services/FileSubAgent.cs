@@ -14,11 +14,21 @@ public sealed class FileSubAgent
     private const long MaxReadBytes = 1_048_576; // 1 MB
 
     private readonly FileAllowList _allow = new();
+    private readonly CapabilityConsent _consent = new();
 
     public bool IsAllowed(string? path) => TryResolve(path, out _);
 
     public Task<FileResultMsg> ExecuteAsync(FileRequestMsg req)
     {
+        // Consentimiento local (doc 06 s4): sin habilitar por el operador, no se tocan archivos.
+        if (!_consent.IsFilesEnabled())
+        {
+            var blocked = req.Actions
+                .Select((a, i) => new FileActionResult(i, a.Kind, Ok: false, Error: "Archivos no habilitado por el operador en la colmena."))
+                .ToList();
+            return Task.FromResult(new FileResultMsg(req.CorrelationId, false, blocked, "Archivos no habilitado por el operador."));
+        }
+
         var results = new List<FileActionResult>(req.Actions.Count);
         for (var i = 0; i < req.Actions.Count; i++)
         {

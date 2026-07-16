@@ -17,6 +17,7 @@ namespace Ecorex.Agent.Gui.Services;
 public sealed class WebView2BrowserSubAgent
 {
     private readonly BrowserAllowList _allow = new();
+    private readonly CapabilityConsent _consent = new();
     private readonly List<DownloadRecord> _downloads = new();
     private Window? _window;
     private WpfWebView2? _web;
@@ -28,6 +29,15 @@ public sealed class WebView2BrowserSubAgent
     /// <summary>Ejecuta la secuencia. DEBE invocarse en el hilo de UI.</summary>
     public async Task<BrowserResultMsg> ExecuteAsync(BrowserRequestMsg req)
     {
+        // Consentimiento local (doc 06 s4): sin habilitar por el operador, no se abre el navegador.
+        if (!_consent.IsBrowserEnabled())
+        {
+            var blocked = req.Actions
+                .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: "Navegador no habilitado por el operador en la colmena."))
+                .ToList();
+            return new BrowserResultMsg(req.CorrelationId, false, blocked, "Navegador no habilitado por el operador.");
+        }
+
         await EnsureReadyAsync();
         var results = new List<BrowserActionResult>(req.Actions.Count);
         for (var i = 0; i < req.Actions.Count; i++)

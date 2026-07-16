@@ -120,6 +120,45 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
+
+                <!-- Flyout POR capacidad (Navegador/Archivos): consentimiento local + allow-list (doc 06 s4). -->
+                <Border Background="#F21B1B1E" CornerRadius="14" Margin="14"
+                        Width="472" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                        BorderBrush="{StaticResource HiveStroke}" BorderThickness="1"
+                        Visibility="{Binding IsCapConfigOpen, Converter={StaticResource BoolToVis}}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.6" Color="#000000" />
+                    </Border.Effect>
+                    <StackPanel Margin="20,18,20,18">
+                        <Grid>
+                            <TextBlock Text="{Binding CapTitle}" Foreground="{StaticResource HiveInk}"
+                                       FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Content="&#x2715;" Command="{Binding CloseCapabilityCommand}"
+                                    HorizontalAlignment="Right" Style="{DynamicResource ChromeButton}" />
+                        </Grid>
+
+                        <CheckBox Content="Habilitada por mi (el operador)" IsChecked="{Binding CapEnabled}"
+                                  Foreground="{StaticResource HiveInk}" FontSize="12.5" Margin="0,16,0,0" />
+                        <TextBlock Text="Sin habilitar, esta capacidad se rechaza aunque la nube la pida."
+                                   Foreground="{StaticResource HiveInkDim}" FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" />
+
+                        <TextBlock Text="Allow-list" Style="{DynamicResource FieldLabel}" Margin="0,14,0,0" />
+                        <TextBox Text="{Binding CapAllowText, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{DynamicResource InkTextBox}" AcceptsReturn="True" TextWrapping="NoWrap"
+                                 VerticalContentAlignment="Top" Height="110"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas" />
+                        <TextBlock Text="{Binding CapHint}" Foreground="{StaticResource HiveInkDim}"
+                                   FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,18,0,0" HorizontalAlignment="Right">
+                            <Button Content="Cerrar" Command="{Binding CloseCapabilityCommand}"
+                                    Style="{DynamicResource GhostButton}" />
+                            <Button Content="Guardar" Command="{Binding SaveCapabilityCommand}"
+                                    Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <!-- Barra de estado inferior: conexion global + pista de demo. -->

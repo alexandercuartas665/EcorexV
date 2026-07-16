@@ -83,6 +83,14 @@ public partial class MainWindow : Window
             // Frame estable "colmena atendiendo": siembra peticiones sin cerrarlas (para evidencia).
             Loaded += (_, _) => _vm.SeedBusyState();
         }
+        else if (string.Equals(mode, "capbrowser", StringComparison.OrdinalIgnoreCase))
+        {
+            Loaded += (_, _) => _vm.OpenCapabilityConfig(Ecorex.Contracts.Agent.SubAgentKind.Browser);
+        }
+        else if (string.Equals(mode, "capfiles", StringComparison.OrdinalIgnoreCase))
+        {
+            Loaded += (_, _) => _vm.OpenCapabilityConfig(Ecorex.Contracts.Agent.SubAgentKind.Files);
+        }
     }
 
     /// <summary>Arrastre de la ventana sin barra de titulo nativa (solo con boton izquierdo).</summary>
@@ -94,12 +102,22 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Clic sobre una celda: solo la de Configuracion abre/cierra el flyout.</summary>
+    /// <summary>
+    /// Clic sobre una celda: Configuracion abre su flyout; las capacidades sensibles (Navegador/
+    /// Archivos) abren su flyout de consentimiento + allow-list. Los workers efimeros no abren nada.
+    /// </summary>
     private void OnCellClick(object sender, MouseButtonEventArgs e)
     {
-        if (sender is FrameworkElement fe && fe.DataContext is HiveCellViewModel cell && cell.IsConfig)
+        if (sender is not FrameworkElement fe || fe.DataContext is not HiveCellViewModel cell) { return; }
+
+        if (cell.IsConfig)
         {
             _vm.IsConfigOpen = !_vm.IsConfigOpen;
+            e.Handled = true;
+        }
+        else if (!cell.IsEphemeral && cell.Kind is SubAgentKind.Browser or SubAgentKind.Files)
+        {
+            _vm.OpenCapabilityConfig(cell.Kind);
             e.Handled = true;
         }
     }

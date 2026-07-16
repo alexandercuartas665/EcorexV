@@ -52,6 +52,18 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Consentimiento local de una capacidad (doc 06 s4): --enable <browser|files> <0|1>. Lo mismo
+        // que hace el toggle de la colmena; util para despliegue/servicio y pruebas.
+        if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--enable", StringComparison.OrdinalIgnoreCase))
+        {
+            var on = e.Args[2] is "1" or "true";
+            var consent = new Services.CapabilityConsent();
+            if (string.Equals(e.Args[1], "browser", StringComparison.OrdinalIgnoreCase)) { consent.SetBrowser(on); }
+            else if (string.Equals(e.Args[1], "files", StringComparison.OrdinalIgnoreCase)) { consent.SetFiles(on); }
+            Shutdown(0);
+            return;
+        }
+
         new MainWindow().Show();
     }
 }

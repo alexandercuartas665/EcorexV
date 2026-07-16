@@ -191,9 +191,67 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         {
             return FormResult<bool>.NotFound("Formulario no encontrado.");
         }
+
+        // Archivar un formulario que alguien esta usando deja ese proceso sin su formulario: el
+        // concepto no encontraria que abrir, el nodo del flujo se quedaria sin paso que atender.
+        // Por eso se bloquea y se dice QUIEN lo usa, en vez de romperlo en silencio. Las respuestas
+        // NO bloquean: archivar no las toca y es reversible.
+        if (archived)
+        {
+            var usos = await DescribeUsagesAsync(definitionId, cancellationToken);
+            if (usos.Count > 0)
+            {
+                return FormResult<bool>.Invalid($"No se puede archivar: {string.Join("; ", usos)}.");
+            }
+        }
+
         definition.IsArchived = archived;
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<bool>.Ok(true);
+    }
+
+    /// <summary>
+    /// Enumera en lenguaje llano quien esta usando el formulario. Vacio = nadie lo usa. Cubre las
+    /// cuatro formas de referenciarlo que existen hoy; si aparece una quinta, va aqui.
+    /// </summary>
+    private async Task<List<string>> DescribeUsagesAsync(Guid definitionId, CancellationToken cancellationToken)
+    {
+        var usos = new List<string>();
+
+        var conceptos = await _db.ActividadSubcategorias
+            .Where(s => s.FormDefinitionId == definitionId)
+            .Select(s => s.Nombre)
+            .Take(4)
+            .ToListAsync(cancellationToken);
+        if (conceptos.Count > 0)
+        {
+            usos.Add($"lo usa el concepto de actividad {string.Join(", ", conceptos)}");
+        }
+
+        var nodos = await _db.WorkflowNodeForms.CountAsync(f => f.DefinitionId == definitionId, cancellationToken);
+        if (nodos > 0)
+        {
+            usos.Add($"esta asignado a {nodos} paso(s) de flujo");
+        }
+
+        var padres = await _db.FormQuestions
+            .Where(q => q.SubformDefinitionId == definitionId)
+            .Select(q => q.Definition!.Title)
+            .Distinct()
+            .Take(4)
+            .ToListAsync(cancellationToken);
+        if (padres.Count > 0)
+        {
+            usos.Add($"es subformulario de {string.Join(", ", padres)}");
+        }
+
+        var terceros = await _db.TerceroFormLinks.CountAsync(l => l.FormDefinitionId == definitionId, cancellationToken);
+        if (terceros > 0)
+        {
+            usos.Add("esta ofrecido en el modal de terceros");
+        }
+
+        return usos;
     }
 
     // ---- Contenedores ----

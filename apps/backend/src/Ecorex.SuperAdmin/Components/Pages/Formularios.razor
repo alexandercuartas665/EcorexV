@@ -88,12 +88,32 @@
         <div class="fx-cards">
             @foreach (var d in Filtered)
             {
-                <button class="fx-card" @onclick="@(() => OpenDesigner(d.Id))">
+                @* La tarjeta era un <button> y el de archivar va DENTRO: un boton no puede anidar
+                   otro boton (HTML invalido, y el navegador desarma el marcado). Por eso la tarjeta
+                   es un div con rol de boton, que conserva teclado (Enter/Espacio) y foco. *@
+                <div class="fx-card" role="button" tabindex="0"
+                     @onclick="@(() => OpenDesigner(d.Id))"
+                     @onkeydown="@(e => OnCardKeyAsync(e, d.Id))">
                     <div class="fx-card-top">
                         <span class="fx-card-ic">
                             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
                         </span>
                         <span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span>
+                        @* stopPropagation: sin esto el clic tambien abriria el disenador detras. *@
+                        <button class="fx-card-del @(d.IsArchived ? "on" : "")"
+                                title="@(d.IsArchived ? "Restaurar formulario" : "Archivar formulario")"
+                                aria-label="@(d.IsArchived ? "Restaurar" : "Archivar") @d.Title"
+                                disabled="@_busy" @onclick:stopPropagation="true"
+                                @onclick="@(() => AskArchiveAsync(d))">
+                            @if (d.IsArchived)
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>
+                            }
+                        </button>
                     </div>
                     <div class="fx-card-name">@d.Title</div>
                     <div class="fx-card-meta">
@@ -105,7 +125,7 @@
                         <div><div class="fx-stat-v">@N(d.ResponseCount)</div><div class="fx-stat-l">respuestas</div></div>
                         <div><div class="fx-stat-v amber">@d.RuleCount</div><div class="fx-stat-l">reglas</div></div>
                     </div>
-                </button>
+                </div>
             }
         </div>
     }
@@ -136,6 +156,36 @@
     }
 </div>
 
+@if (_confirming is not null)
+{
+    <div class="fx-overlay" @onclick="CloseConfirm">
+        <div class="fx-modal" @onclick:stopPropagation="true">
+            <div class="fx-m-body">
+                <div class="fx-m-title">Archivar formulario</div>
+                <p class="fx-m-text">
+                    <b>@_confirming.Title</b> se marcara como archivado y dejara de ofrecerse.
+                    Su definicion y sus respuestas se conservan, y puedes restaurarlo desde esta
+                    misma tarjeta.
+                </p>
+                @if (_confirming.ResponseCount > 0)
+                {
+                    <div class="fx-m-warn">
+                        Tiene @N(_confirming.ResponseCount) respuesta(s) guardada(s). No se borran.
+                    </div>
+                }
+                @if (_confirmError is not null)
+                {
+                    <div class="fx-m-err">@_confirmError</div>
+                }
+            </div>
+            <div class="fx-m-foot">
+                <button class="fx-mbtn" @onclick="CloseConfirm" disabled="@_busy">Cancelar</button>
+                <button class="fx-mbtn fx-mbtn-go" @onclick="ConfirmArchiveAsync" disabled="@_busy">Archivar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
@@ -143,6 +193,10 @@
     private string _query = "";
     private string? _error;
     private List<FormDefinitionListItemDto> _definitions = new();
+
+    /// <summary>Formulario cuyo archivado se esta confirmando (null = sin dialogo abierto).</summary>
+    private FormDefinitionListItemDto? _confirming;
+    private string? _confirmError;
 
     private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
 
@@ -162,6 +216,62 @@
 
     /// <summary>Separador de miles del prototipo (toLocaleString('es') -> "1.204").</summary>
     private static string N(int value) => value.ToString("N0", Es);
+
+    /// <summary>La tarjeta es un div con rol de boton: el teclado tiene que abrirla igual.</summary>
+    private Task OnCardKeyAsync(KeyboardEventArgs e, Guid id)
+    {
+        if (e.Key is "Enter" or " ") { OpenDesigner(id); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Restaurar es inocuo, asi que va directo. Archivar pide confirmacion: retira el formulario
+    /// de circulacion y conviene ver antes cuantas respuestas tiene.
+    /// </summary>
+    private async Task AskArchiveAsync(FormDefinitionListItemDto d)
+    {
+        if (d.IsArchived) { await SetArchivedAsync(d, false); return; }
+        _confirmError = null;
+        _confirming = d;
+    }
+
+    private void CloseConfirm()
+    {
+        _confirming = null;
+        _confirmError = null;
+    }
+
+    private async Task ConfirmArchiveAsync()
+    {
+        if (_confirming is null) { return; }
+        if (await SetArchivedAsync(_confirming, true)) { CloseConfirm(); }
+    }
+
+    /// <summary>
+    /// Devuelve false si el servicio lo rechazo (p.ej. el formulario esta en uso): el error se
+    /// muestra DENTRO del dialogo, que es donde esta mirando el usuario.
+    /// </summary>
+    private async Task<bool> SetArchivedAsync(FormDefinitionListItemDto d, bool archived)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await FormsSvc.SetArchivedAsync(d.Id, archived);
+            if (!result.IsOk)
+            {
+                var msg = result.Error ?? "No se pudo archivar el formulario.";
+                if (_confirming is not null) { _confirmError = msg; } else { _error = msg; }
+                return false;
+            }
+            _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
+            return true;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     // Estados del prototipo: Active=Publicado, Draft=Borrador, IsArchived=Archivado.
     // Inactive (retirado) usa el tono gris de Archivado con su propio rotulo.

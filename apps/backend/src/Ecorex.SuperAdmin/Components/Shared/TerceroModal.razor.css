@@ -290,9 +290,34 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-note-text { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
 @media (max-width: 720px) { .dg-co-body { grid-template-columns: 1fr; } .dg-note-meta { grid-template-columns: 1fr; } }
 
-/* ---- Formularios ofrecidos en el modal de tercero (3a columna) ---- */
-.dg-cfg-note { font-size: 12px; color: var(--ink-3); margin: 2px 0 10px; }
-.dg-cfg-forms { display: flex; flex-direction: column; gap: 8px; }
-.dg-cfg-form-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--surface); }
-.dg-cfg-form-add { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
-.dg-cfg-form-add .dg-input { flex: 1; min-width: 0; }
+/* ---- Oportunidades del tercero en el aside (Cargador de contactos 000740) ---- */
+.dg-money { font-size: 12px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tm-opp-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.tm-opp { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: var(--surface); }
+.tm-opp-name { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; line-height: 1.3; }
+.tm-opp-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tm-etapa { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .01em; }
+
+/* ---- Formularios dinamicos del tercero: viven en la 3a columna (aside .dg-prosp), que en el
+       prototipo era el panel de muestra "Prospecto de cliente". ---- */
+/* Badge con la cantidad de formularios asignados al tercero. */
+.dg-form-badge { flex: none; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--brand); color: #fff; font-size: 11.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.dg-form-badge.zero { background: var(--line); color: var(--ink-3); }
+
+/* Lista para elegir el formulario a llenar; el elegido despliega su render debajo. */
+.dg-form-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+.dg-form-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-2); cursor: pointer; transition: all .12s; }
+.dg-form-item:hover { border-color: var(--ink-3); color: var(--ink); }
+.dg-form-item.on { border-color: var(--brand); color: var(--ink); box-shadow: 0 0 0 1px var(--brand) inset; }
+.dg-form-item-ic { flex: none; width: 16px; height: 16px; color: var(--ink-3); }
+.dg-form-item-ic svg { width: 16px; height: 16px; }
+.dg-form-item.on .dg-form-item-ic { color: var(--brand); }
+.dg-form-item-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dg-form-item-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dg-form-item-code { font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dg-form-item-chev { flex: none; width: 14px; height: 14px; color: var(--ink-3); transition: transform .12s; }
+.dg-form-item-chev svg { width: 14px; height: 14px; }
+.dg-form-host { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--surface); margin: 2px 0 4px; }
+/* El formulario se adapta al ancho del panel: sin desbordes horizontales. */
+.dg-form-host :is(input, select, textarea) { max-width: 100%; }
+.dg-prosp-sep { height: 1px; background: var(--line); margin: 18px 0 14px; }

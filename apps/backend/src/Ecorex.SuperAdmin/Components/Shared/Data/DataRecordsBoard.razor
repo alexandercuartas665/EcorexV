@@ -1,0 +1,502 @@
+@* DataRecordsBoard: la gestion de registros de una tabla para el USUARIO FINAL (modulo publicado).
+   Sigue el lenguaje del prototipo (Modulos web 000109 / Dependencias 000850): KPIs con icono de
+   color, CTA oscuro, panel redondeado con buscador, tabla con cabecera propia y modal de alta.
+
+   Es un componente APARTE de DataRecordsGrid (decision del dueno, 2026-07-16): aquel es el panel
+   denso del configurador y este la superficie del usuario final, y cada uno evoluciona a su ritmo.
+   La duplicacion es solo VISUAL: toda la mecanica (consulta paginada, CRUD, Excel, relaciones) vive
+   en los servicios, asi que los dos leen y escriben por la misma via y no pueden desincronizarse en
+   el dato. Si algun dia el look converge, se colapsan en uno.
+
+   Solo ASCII. *@
+@using Ecorex.Application.DataContainers
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDataContainerService ContainerSvc
+@inject IDataRelationLinkService LinksSvc
+@inject IJSRuntime JS
+
+<div class="db-wrap">
+    @* ---- Cabecera: titulo + CTA oscuro (patron del prototipo) ---- *@
+    <div class="db-head">
+        <div>
+            <div class="db-eyebrow">@Eyebrow</div>
+            <h1 class="db-title">@Title</h1>
+            @if (!string.IsNullOrWhiteSpace(Description))
+            {
+                <p class="db-sub">@Description</p>
+            }
+        </div>
+        @if (CanCreate)
+        {
+            <div class="db-head-actions">
+                <button class="db-btn-new" @onclick="OpenNewRow" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                    Nuevo registro
+                </button>
+            </div>
+        }
+    </div>
+
+    @* ---- KPIs: esquema de la tabla (campos y relaciones) ---- *@
+    <div class="db-kpis">
+        <div class="db-kpi">
+            <div class="db-kpi-ic" style="background:var(--t-violet-bg);color:var(--t-violet)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5" /></svg>
+            </div>
+            <div style="min-width:0">
+                <div class="db-kpi-val">@ScalarColumns().Count()</div>
+                <div class="db-kpi-lbl">Campos</div>
+            </div>
+        </div>
+        <div class="db-kpi">
+            <div class="db-kpi-ic" style="background:var(--t-blue-bg);color:var(--t-blue)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
+            </div>
+            <div style="min-width:0">
+                <div class="db-kpi-val">@_relationCount</div>
+                <div class="db-kpi-lbl">Relacion@(_relationCount == 1 ? "" : "es")</div>
+            </div>
+        </div>
+    </div>
+
+    @* ---- Panel de registros ---- *@
+    <div class="db-panel">
+        <div class="db-panel-head">
+            <div>
+                <div class="db-panel-title">Registros</div>
+                <div class="db-panel-sub"><b>@_page.Total</b> en total</div>
+            </div>
+            <div class="db-panel-actions">
+                <div class="db-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                    <input placeholder="Buscar..." value="@_search" @onchange="OnSearchChangedAsync" />
+                </div>
+                @if (CanEdit)
+                {
+                    <label class="db-btn-line db-file">
+                        <InputFile OnChange="OnExcelAsync" accept=".xlsx" />
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+                        Importar
+                    </label>
+                }
+                <button class="db-btn-line" @onclick="ExportAsync" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 9l5-5 5 5M12 4v12" /></svg>
+                    Exportar
+                </button>
+            </div>
+        </div>
+
+        @if (FilterColumns().Any())
+        {
+            <div class="db-filters">
+                <span class="db-filters-lbl">FILTRAR:</span>
+                @foreach (var col in FilterColumns())
+                {
+                    var c = col;
+                    <input class="db-filter" placeholder="@c.Name"
+                           value="@(_filters.TryGetValue(c.Id, out var fv) ? fv : "")"
+                           @onchange="e => OnFilterChangedAsync(c.Id, e.Value?.ToString())" />
+                }
+            </div>
+        }
+
+        @if (_flash is not null) { <div class="db-flash">@_flash</div> }
+        @if (_error is not null) { <div class="db-error">@_error</div> }
+
+        <div class="db-tbl">
+            <div class="db-thead" style="grid-template-columns:@GridTemplate">
+                @foreach (var col in ListColumns())
+                {
+                    var c = col;
+                    var on = _sortColumnId == c.Id;
+                    <div class="db-th db-th-sort" @onclick="() => SortByAsync(c.Id)" title="Ordenar por @c.Name">
+                        @c.Name.ToUpperInvariant()
+                        @if (on)
+                        {
+                            <span class="db-th-arrow">@(_sortDescending ? "▼" : "▲")</span>
+                        }
+                    </div>
+                }
+                <div class="db-th"></div>
+            </div>
+
+            @if (_page.Rows.Count == 0)
+            {
+                <div class="db-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5" /></svg>
+                    <p>@(string.IsNullOrWhiteSpace(_search) && _filters.Count == 0
+                        ? "Todavia no hay registros en esta tabla."
+                        : "Ningun registro coincide con la busqueda.")</p>
+                    @if (CanCreate && string.IsNullOrWhiteSpace(_search) && _filters.Count == 0)
+                    {
+                        <button class="db-btn-line" @onclick="OpenNewRow">Crear el primero</button>
+                    }
+                </div>
+            }
+            else
+            {
+                @foreach (var row in _page.Rows)
+                {
+                    var r = row;
+                    <div class="db-row" style="grid-template-columns:@GridTemplate">
+                        @foreach (var col in ListColumns())
+                        {
+                            <div class="db-c">@CellDisplay(r, col)</div>
+                        }
+                        <div class="db-c db-acts">
+                            @if (CanEdit)
+                            {
+                                <button class="db-act" title="Editar" @onclick="() => OpenEditRow(r)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                            }
+                            @if (CanDelete)
+                            {
+                                <button class="db-act db-act-del" title="Eliminar" @onclick="() => DeleteRowAsync(r.Id)" disabled="@_busy">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        @if (TotalPages > 1)
+        {
+            <div class="db-pager">
+                <button class="db-btn-line" disabled="@(_pageNo <= 1 || _busy)" @onclick="() => GoToPageAsync(_pageNo - 1)">Anterior</button>
+                <span class="db-pager-txt">Pagina @_pageNo de @TotalPages</span>
+                <button class="db-btn-line" disabled="@(_pageNo >= TotalPages || _busy)" @onclick="() => GoToPageAsync(_pageNo + 1)">Siguiente</button>
+            </div>
+        }
+    </div>
+</div>
+
+@* ===== Modal: nuevo / editar registro ===== *@
+@if (_editOpen && _detail is not null)
+{
+    <div class="db-overlay" @onclick="() => _editOpen = false">
+        <div class="db-modal" @onclick:stopPropagation="true">
+            <div class="db-m-head">
+                <div>
+                    <div class="db-m-kicker">@(_rowEditId is null ? "NUEVO REGISTRO" : "EDITAR REGISTRO")</div>
+                    <div class="db-m-title">@_detail.Name</div>
+                </div>
+                <button class="db-close" @onclick="() => _editOpen = false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="db-m-body">
+                @if (_rowFlash is not null) { <div class="db-flash">@_rowFlash</div> }
+                <div class="db-fields">
+                    @foreach (var col in EditableColumns())
+                    {
+                        var c = col;
+                        <div style="min-width:0">
+                            <label class="db-flabel">@c.Name @(c.IsRequired ? "*" : "")</label>
+                            @switch (c.Type)
+                            {
+                                case DataContainerColumnType.Boolean:
+                                    <label class="db-chk"><input type="checkbox" checked='@(GetVal(c.Id) == "true")' @onchange="e => SetBoolVal(c.Id, e)" /> Si</label>
+                                    break;
+                                case DataContainerColumnType.Number:
+                                case DataContainerColumnType.Decimal:
+                                    <input class="db-input" type="number" step='@(c.Type == DataContainerColumnType.Decimal ? "any" : "1")' value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                    break;
+                                case DataContainerColumnType.Date:
+                                    <input class="db-input" type="date" value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                    break;
+                                default:
+                                    <input class="db-input" value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                    break;
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* Los vinculos de relacion: el mismo componente que usa el configurador. *@
+                <RowRelationPicker @ref="_relationPicker" ContainerId="@ContainerId" RowId="@_rowEditId" />
+
+                @if (_rowError is not null) { <div class="db-error">@_rowError</div> }
+            </div>
+            <div class="db-m-foot">
+                <span class="db-foot-note">Los campos marcados con * son obligatorios.</span>
+                <div class="db-foot-actions">
+                    <button class="db-btn-line" @onclick="() => _editOpen = false" disabled="@_busy">Cancelar</button>
+                    @if (CanCreate)
+                    {
+                        <button class="db-btn-line" @onclick="SaveAndNewAsync" disabled="@_busy" title="Guarda y deja el formulario listo para el siguiente">Guardar y nuevo</button>
+                    }
+                    <button class="db-btn-new" @onclick="SaveAsync" disabled="@_busy">
+                        @(_busy ? "Guardando..." : "Guardar")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+    [Parameter] public Guid ActorUserId { get; set; }
+    [Parameter] public string Eyebrow { get; set; } = "CONTENEDOR DE DATOS · REGISTROS";
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public bool CanCreate { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+    [Parameter] public IReadOnlyList<Guid>? ListColumnIds { get; set; }
+    [Parameter] public IReadOnlyList<Guid>? FilterColumnIds { get; set; }
+    [Parameter] public int PageSize { get; set; } = 25;
+
+    private DataContainerDetailDto? _detail;
+    private DataRowPageDto _page = new(Array.Empty<DataContainerRowDto>(), 0, 1, 25);
+    private int _relationCount;
+    private bool _busy;
+    private string? _error;
+    private string? _flash;
+
+    private string _search = "";
+    private readonly Dictionary<Guid, string> _filters = new();
+    private Guid? _sortColumnId;
+    private bool _sortDescending = true;
+    private int _pageNo = 1;
+
+    private bool _editOpen;
+    private Guid? _rowEditId;
+    private readonly Dictionary<Guid, string?> _rowValues = new();
+    private string? _rowError;
+    private string? _rowFlash;
+    private RowRelationPicker? _relationPicker;
+
+    private int TotalPages => _page.Total == 0 ? 1 : (int)Math.Ceiling(_page.Total / (double)PageSize);
+
+    /// <summary>Grid CSS: una columna por campo listado + la de acciones.</summary>
+    private string GridTemplate => string.Join(" ", ListColumns().Select(_ => "minmax(120px,1fr)")) + " 92px";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_detail is null || _detail.Id != ContainerId)
+        {
+            _detail = await ContainerSvc.GetAsync(ContainerId);
+            _relationCount = (await LinksSvc.ListForRowAsync(ContainerId, null)).Count;
+            _search = "";
+            _filters.Clear();
+            _sortColumnId = null;
+            _sortDescending = true;
+            _pageNo = 1;
+            _editOpen = false;
+            await ReloadAsync();
+        }
+    }
+
+    public async Task ReloadAsync()
+    {
+        if (_detail is null) { return; }
+        _page = await ContainerSvc.ListRowsPagedAsync(new DataRowQuery(
+            ContainerId: ContainerId,
+            Search: string.IsNullOrWhiteSpace(_search) ? null : _search,
+            Filters: _filters.Count == 0 ? null : new Dictionary<Guid, string>(_filters),
+            SortColumnId: _sortColumnId,
+            SortDescending: _sortDescending,
+            Page: _pageNo,
+            PageSize: PageSize));
+        StateHasChanged();
+    }
+
+    // ---- Columnas ----
+    private IEnumerable<DataContainerColumnDto> ScalarColumns()
+        => _detail is null
+            ? Enumerable.Empty<DataContainerColumnDto>()
+            : _detail.Columns.Where(c => c.Type != DataContainerColumnType.Submodel).OrderBy(c => c.SortOrder);
+
+    private IEnumerable<DataContainerColumnDto> ListColumns()
+    {
+        var all = ScalarColumns();
+        if (ListColumnIds is not { Count: > 0 }) { return all; }
+        var wanted = ListColumnIds.ToHashSet();
+        var picked = all.Where(c => wanted.Contains(c.Id)).ToList();
+        // Config obsoleta (columnas borradas): no dejar la grilla sin columnas.
+        return picked.Count > 0 ? picked : all;
+    }
+
+    private IEnumerable<DataContainerColumnDto> FilterColumns()
+    {
+        if (FilterColumnIds is not { Count: > 0 }) { return Enumerable.Empty<DataContainerColumnDto>(); }
+        var wanted = FilterColumnIds.ToHashSet();
+        return ScalarColumns().Where(c => wanted.Contains(c.Id));
+    }
+
+    private IEnumerable<DataContainerColumnDto> EditableColumns() => ScalarColumns();
+
+    // ---- Consulta ----
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task OnFilterChangedAsync(Guid columnId, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { _filters.Remove(columnId); }
+        else { _filters[columnId] = value.Trim(); }
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task SortByAsync(Guid columnId)
+    {
+        if (_sortColumnId == columnId) { _sortDescending = !_sortDescending; }
+        else { _sortColumnId = columnId; _sortDescending = false; }
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > TotalPages) { return; }
+        _pageNo = page;
+        await ReloadAsync();
+    }
+
+    private string CellDisplay(DataContainerRowDto row, DataContainerColumnDto col)
+    {
+        var raw = row.ValuesByColumnId.TryGetValue(col.Id, out var v) ? v : null;
+        if (string.IsNullOrWhiteSpace(raw)) { return "-"; }
+        return col.Type == DataContainerColumnType.Boolean ? (raw == "true" ? "Si" : "No") : raw;
+    }
+
+    // ---- Editor ----
+    private void OpenNewRow()
+    {
+        _rowEditId = null;
+        _rowValues.Clear();
+        _rowError = null;
+        _rowFlash = null;
+        _editOpen = true;
+    }
+
+    private void OpenEditRow(DataContainerRowDto row)
+    {
+        _rowEditId = row.Id;
+        _rowValues.Clear();
+        foreach (var kv in row.ValuesByColumnId) { _rowValues[kv.Key] = kv.Value; }
+        _rowError = null;
+        _rowFlash = null;
+        _editOpen = true;
+    }
+
+    private string? GetVal(Guid colId) => _rowValues.TryGetValue(colId, out var v) ? v : null;
+    private void SetVal(Guid colId, string? v) => _rowValues[colId] = string.IsNullOrWhiteSpace(v) ? null : v;
+    private void SetBoolVal(Guid colId, ChangeEventArgs e) => _rowValues[colId] = (e.Value is bool b && b) ? "true" : "false";
+
+    private Task SaveAsync() => SaveCoreAsync(keepOpen: false);
+    private Task SaveAndNewAsync() => SaveCoreAsync(keepOpen: true);
+
+    private async Task SaveCoreAsync(bool keepOpen)
+    {
+        if (_detail is null || _busy) { return; }
+        _rowError = null;
+        _rowFlash = null;
+        foreach (var col in EditableColumns())
+        {
+            if (col.IsRequired && string.IsNullOrWhiteSpace(GetVal(col.Id)))
+            {
+                _rowError = $"'{col.Name}' es obligatorio.";
+                return;
+            }
+        }
+        _busy = true;
+        try
+        {
+            var values = EditableColumns().ToDictionary(c => c.Id, c => GetVal(c.Id));
+            var saved = await ContainerSvc.SaveRowAsync(
+                new SaveDataRowRequest(ContainerId, _rowEditId, values), ActorUserId);
+            if (saved is null) { _rowError = "No se pudo guardar el registro."; return; }
+
+            // La fila ya tiene Id: es el momento de persistir sus vinculos de relacion.
+            if (_relationPicker is not null)
+            {
+                var linkError = await _relationPicker.FlushAsync(saved.Id);
+                if (linkError is not null) { _rowError = linkError; return; }
+            }
+
+            await ReloadAsync();
+            if (keepOpen)
+            {
+                _rowEditId = null;
+                _rowValues.Clear();
+                _rowFlash = $"Registro guardado. Van {_page.Total} en la tabla.";
+            }
+            else
+            {
+                _editOpen = false;
+            }
+        }
+        catch (Exception ex) { _rowError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteRowAsync(Guid rowId)
+    {
+        if (_busy) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Eliminar este registro?")) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ContainerSvc.DeleteRowAsync(rowId, ActorUserId);
+            if (_page.Rows.Count == 1 && _pageNo > 1) { _pageNo--; }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ---- Excel ----
+    private async Task OnExcelAsync(InputFileChangeEventArgs e)
+    {
+        if (_busy) { return; }
+        _error = _flash = null;
+        _busy = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await using (var rs = e.File.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024))
+            {
+                await rs.CopyToAsync(ms);
+            }
+            ms.Position = 0;
+            var res = await ContainerSvc.ImportFromExcelAsync(ContainerId, ms, ActorUserId);
+            if (res.Success)
+            {
+                _flash = $"Importados {res.RowsImported} registros" + (res.RowsFailed > 0 ? $" ({res.RowsFailed} con error)" : "") + ".";
+            }
+            if (res.Errors.Count > 0) { _error = string.Join(" | ", res.Errors.Take(4)); }
+            _pageNo = 1;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (_busy) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await ContainerSvc.ExportToExcelAsync(ContainerId);
+            if (res is null) { _error = "No se pudo exportar."; return; }
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", res.FileName,
+                Convert.ToBase64String(res.Bytes),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

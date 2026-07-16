@@ -137,6 +137,8 @@ public interface IApplicationDbContext
     DbSet<DataContainerRow> DataContainerRows { get; }
     DbSet<DataContainerCell> DataContainerCells { get; }
     DbSet<DataContainerLink> DataContainerLinks { get; }
+    DbSet<DataModelRelation> DataModelRelations { get; }
+    DbSet<DataModelRelationLink> DataModelRelationLinks { get; }
     DbSet<DataConnector> DataConnectors { get; }
     DbSet<DataClient> DataClients { get; }
     DbSet<ImportProcess> ImportProcesses { get; }
@@ -157,6 +159,7 @@ public interface IApplicationDbContext
     DbSet<Tercero> Terceros { get; }
     DbSet<TerceroContacto> TerceroContactos { get; }
     DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
+    DbSet<TerceroFormLink> TerceroFormLinks { get; }
     DbSet<TerceroNota> TerceroNotas { get; }
 
     // Gestor de Clientes (modulo 000740): bolsa (kanban de terceros por estado), oportunidades,

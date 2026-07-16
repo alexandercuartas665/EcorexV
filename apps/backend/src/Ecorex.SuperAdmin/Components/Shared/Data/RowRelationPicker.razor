@@ -1,0 +1,133 @@
+@* RowRelationPicker: los vinculos de RELACION de la fila que se esta editando (FASE 2).
+   Entra por el punto de extension RowEditorExtras que DataRecordsGrid dejo preparado, asi que ni la
+   grilla ni el editor tuvieron que cambiar para soportar relaciones.
+
+   Por cada arista donde la tabla es ORIGEN pinta un selector de filas de la tabla destino: uno solo
+   si es N:1, casillas si es N:N (la cardinalidad la valida ademas el servicio).
+
+   Fila NUEVA: no tiene Id hasta que se guarda, asi que aqui se retiene la seleccion y el host la
+   persiste al recibir OnRowSaved, ya con el Id definitivo (ver FlushAsync). Solo ASCII. *@
+@using Ecorex.Application.DataContainers
+@using Ecorex.Domain.Enums
+@inject IDataRelationLinkService LinksSvc
+
+@if (_relations.Count > 0)
+{
+    <div class="rp-block">
+        <div class="rp-title">RELACIONES</div>
+        @foreach (var rel in _relations)
+        {
+            var r = rel;
+            <div class="rp-rel">
+                <label class="form-label">
+                    @(string.IsNullOrWhiteSpace(r.Name) ? r.ToTableName : r.Name)
+                    <span class="rp-kind">@(r.Kind == DataModelRelationKind.ManyToOne ? "N:1" : "N:N")</span>
+                </label>
+
+                @if (r.Options.Count == 0)
+                {
+                    <div class="rp-empty">La tabla "@r.ToTableName" no tiene registros que vincular.</div>
+                }
+                else if (r.Kind == DataModelRelationKind.ManyToOne)
+                {
+                    <select class="form-control" value="@(Selected(r.RelationId).FirstOrDefault())"
+                            @onchange="e => SetSingle(r.RelationId, e.Value?.ToString())">
+                        <option value="">(sin vincular)</option>
+                        @foreach (var o in r.Options)
+                        {
+                            <option value="@o.Id">@o.Label</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <div class="rp-many">
+                        @foreach (var o in r.Options)
+                        {
+                            var oid = o.Id;
+                            <label class="rp-chk">
+                                <input type="checkbox" checked="@Selected(r.RelationId).Contains(oid)"
+                                       @onchange="e => ToggleMany(r.RelationId, oid, e)" /> @o.Label
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (_error is not null) { <div class="rp-error">@_error</div> }
+    </div>
+}
+
+@code {
+    /// <summary>Tabla cuya fila se edita (sus aristas SALIENTES son las que se pueden fijar).</summary>
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+
+    /// <summary>Fila en edicion; null = nueva (la seleccion se persiste al guardarla, via FlushAsync).</summary>
+    [Parameter] public Guid? RowId { get; set; }
+
+    private IReadOnlyList<RowRelationDto> _relations = Array.Empty<RowRelationDto>();
+    private readonly Dictionary<Guid, HashSet<Guid>> _selection = new();
+    private string? _error;
+    private Guid? _loadedFor;
+    private bool _loadedIsNew;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Recarga al cambiar de fila (incluye pasar de "nueva" a una fila concreta).
+        var isNew = RowId is null;
+        if (_loadedFor != RowId || _loadedIsNew != isNew || _relations.Count == 0)
+        {
+            await LoadAsync();
+            _loadedFor = RowId;
+            _loadedIsNew = isNew;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        _relations = await LinksSvc.ListForRowAsync(ContainerId, RowId);
+        _selection.Clear();
+        foreach (var r in _relations)
+        {
+            _selection[r.RelationId] = new HashSet<Guid>(r.LinkedRowIds);
+        }
+    }
+
+    private HashSet<Guid> Selected(Guid relationId)
+        => _selection.TryGetValue(relationId, out var s) ? s : new HashSet<Guid>();
+
+    private void SetSingle(Guid relationId, string? value)
+    {
+        var set = Selected(relationId);
+        set.Clear();
+        if (Guid.TryParse(value, out var id)) { set.Add(id); }
+        _selection[relationId] = set;
+    }
+
+    private void ToggleMany(Guid relationId, Guid targetId, ChangeEventArgs e)
+    {
+        var set = Selected(relationId);
+        if (e.Value is bool on && on) { set.Add(targetId); } else { set.Remove(targetId); }
+        _selection[relationId] = set;
+    }
+
+    /// <summary>
+    /// Persiste la seleccion contra la fila indicada. El host la llama al guardar (OnRowSaved), que
+    /// es cuando una fila NUEVA ya tiene Id. Devuelve el error de la primera relacion que falle.
+    /// </summary>
+    public async Task<string?> FlushAsync(Guid rowId)
+    {
+        foreach (var (relationId, targets) in _selection)
+        {
+            var res = await LinksSvc.SetLinksAsync(relationId, rowId, targets.ToList());
+            if (!res.IsOk)
+            {
+                _error = res.Error;
+                return res.Error;
+            }
+        }
+        _error = null;
+        return null;
+    }
+}

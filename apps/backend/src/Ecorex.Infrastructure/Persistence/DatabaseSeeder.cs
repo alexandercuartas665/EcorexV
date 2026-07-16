@@ -376,6 +376,73 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     }
 
     /// <summary>
+    /// Modelo de datos demo "Ventas (demo)" con 3 tablas RELACIONADAS para que el Contenedor de datos
+    /// muestre relaciones ER de entrada (sin esto el modelo demo tenia 1 tabla y el selector "Tabla
+    /// destino" salia vacio). Tablas: Clientes, Productos, Pedidos. Relaciones (derivadas de columnas de
+    /// tipo Reference/RelationMany): Pedidos.Cliente -> Clientes (N:1) y Pedidos.Productos <-> Productos
+    /// (N:N). Idempotente por nombre de modelo. Solo Development.
+    /// </summary>
+    public async Task EnsureDataModelDemoAsync(CancellationToken cancellationToken = default)
+    {
+        var tenant = await _db.Tenants.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(t => t.Kind == TenantKind.Demo, cancellationToken);
+        if (tenant is null) { return; }
+
+        if (await _db.DataModels.IgnoreQueryFilters()
+            .AnyAsync(m => m.TenantId == tenant.Id && m.Name == "Ventas (demo)", cancellationToken))
+        {
+            return;
+        }
+
+        var model = new DataModel
+        {
+            TenantId = tenant.Id,
+            Name = "Ventas (demo)",
+            Description = "Ejemplo de 3 tablas relacionadas (modelo ER)."
+        };
+
+        // Las 3 tablas, ya con posicion en el lienzo (Clientes/Productos a la izquierda, Pedidos al centro).
+        var clientes = new DataContainer { TenantId = tenant.Id, ModelId = model.Id, Name = "Clientes", CanvasX = 60, CanvasY = 60 };
+        var productos = new DataContainer { TenantId = tenant.Id, ModelId = model.Id, Name = "Productos", CanvasX = 60, CanvasY = 360 };
+        var pedidos = new DataContainer { TenantId = tenant.Id, ModelId = model.Id, Name = "Pedidos", CanvasX = 440, CanvasY = 200 };
+
+        // Columnas: SOLO tipos de dato escalares. Las relaciones van aparte (DataModelRelation).
+        DataContainerColumn Col(DataContainer c, string name, DataContainerColumnType type, int order, bool req = false)
+            => new() { TenantId = tenant.Id, ContainerId = c.Id, Name = name, Type = type, SortOrder = order, IsRequired = req };
+
+        clientes.Columns = new List<DataContainerColumn>
+        {
+            Col(clientes, "Nombre", DataContainerColumnType.Text, 0, req: true),
+            Col(clientes, "Email", DataContainerColumnType.Text, 1),
+            Col(clientes, "Ciudad", DataContainerColumnType.Text, 2)
+        };
+        productos.Columns = new List<DataContainerColumn>
+        {
+            Col(productos, "Nombre", DataContainerColumnType.Text, 0, req: true),
+            Col(productos, "Precio", DataContainerColumnType.Decimal, 1),
+            Col(productos, "Stock", DataContainerColumnType.Number, 2)
+        };
+        pedidos.Columns = new List<DataContainerColumn>
+        {
+            Col(pedidos, "Fecha", DataContainerColumnType.Date, 0, req: true),
+            Col(pedidos, "Total", DataContainerColumnType.Decimal, 1)
+        };
+
+        model.Tables = new List<DataContainer> { clientes, productos, pedidos };
+        _db.DataModels.Add(model);
+
+        // Relaciones como aristas del ER (ortogonales a los tipos de dato):
+        _db.DataModelRelations.AddRange(
+            // N:1 (morada): un pedido pertenece a un cliente.
+            new DataModelRelation { TenantId = tenant.Id, ModelId = model.Id, FromTableId = pedidos.Id, ToTableId = clientes.Id, Kind = DataModelRelationKind.ManyToOne, Name = "Cliente" },
+            // N:N (naranja punteada): un pedido lleva varios productos y un producto va en varios pedidos.
+            new DataModelRelation { TenantId = tenant.Id, ModelId = model.Id, FromTableId = pedidos.Id, ToTableId = productos.Id, Kind = DataModelRelationKind.ManyToMany, Name = "Productos" });
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Modelo de datos demo 'Ventas (demo)' sembrado: 3 tablas + 2 relaciones (aristas ER).");
+    }
+
+    /// <summary>
     /// Datos demo del nucleo de tareas/proyectos (FASE 3, ADR-0013) para el tenant demo
     /// SKY SYSTEM: tipos de actividad, etiquetas por tenant, proyecto PRJ-001 y 5 tareas
     /// variadas (una con worklog y comentarios). Idempotente por tabla vacia (guard por

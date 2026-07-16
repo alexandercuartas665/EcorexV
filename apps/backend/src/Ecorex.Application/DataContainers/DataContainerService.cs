@@ -199,16 +199,18 @@ public sealed class DataContainerService : IDataContainerService
     {
         var entity = await _db.DataContainers.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (entity is null) { return false; }
-        // Guard: no se puede borrar una tabla referenciada por un campo Reference/RelationMany de otra
-        // tabla (FK Restrict). Se avisa con un mensaje claro (que la UI muestra).
-        var referencedByName = await _db.DataContainerColumns.AsNoTracking()
-            .Where(cc => cc.ReferencedContainerId == id)
-            .Select(cc => _db.DataContainers.Where(o => o.Id == cc.ContainerId).Select(o => o.Name).FirstOrDefault())
+        // Guard: no se puede borrar una tabla que participa en una relacion (arista del ER, FK Restrict).
+        // Se avisa claro. El borrado desde el modelo limpia primero las relaciones (DeleteTableAsync).
+        var relatedTableName = await _db.DataModelRelations.AsNoTracking()
+            .Where(r => r.FromTableId == id || r.ToTableId == id)
+            .Select(r => _db.DataContainers
+                .Where(o => o.Id == (r.FromTableId == id ? r.ToTableId : r.FromTableId))
+                .Select(o => o.Name).FirstOrDefault())
             .FirstOrDefaultAsync(ct);
-        if (referencedByName is not null)
+        if (relatedTableName is not null)
         {
             throw new InvalidOperationException(
-                $"No se puede eliminar esta tabla: esta referenciada por la tabla '{referencedByName}'. Quita primero esa relacion.");
+                $"No se puede eliminar esta tabla: participa en una relacion con '{relatedTableName}'. Quita primero esa relacion.");
         }
         // La cascada de BD borra el arbol completo (sub-contenedores, columnas, filas, celdas,
         // conectores y procesos). No se borra a mano.
@@ -255,6 +257,104 @@ public sealed class DataContainerService : IDataContainerService
 
         return dtos;
     }
+
+    public async Task<DataRowPageDto> ListRowsPagedAsync(DataRowQuery query, CancellationToken ct = default)
+    {
+        var page = query.Page < 1 ? 1 : query.Page;
+        var size = query.PageSize is < 1 or > 200 ? 50 : query.PageSize;
+
+        // Base: filas de la tabla en el nivel pedido (raiz o dentro de una fila padre).
+        var rowsQ = _db.DataContainerRows.AsNoTracking()
+            .Where(r => r.ContainerId == query.ContainerId && r.ParentRowId == query.ParentRowId);
+
+        // Busqueda libre: la fila casa si ALGUNA de sus celdas contiene el texto. Se resuelve como
+        // EXISTS en el servidor. ToLower + Like para que funcione igual en PG y SQL Server (ILike es
+        // solo de Npgsql y la colacion por defecto de PG distingue mayusculas).
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var s = $"%{EscapeLike(query.Search.Trim().ToLowerInvariant())}%";
+            rowsQ = rowsQ.Where(r => _db.DataContainerCells
+                .Any(c => c.RowId == r.Id && c.Value != null && EF.Functions.Like(c.Value.ToLower(), s, LikeEscape)));
+        }
+
+        // Filtros por columna: AND entre columnas (cada uno es otro EXISTS).
+        if (query.Filters is { Count: > 0 })
+        {
+            foreach (var (columnId, raw) in query.Filters)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) { continue; }
+                var colId = columnId;
+                var f = $"%{EscapeLike(raw.Trim().ToLowerInvariant())}%";
+                rowsQ = rowsQ.Where(r => _db.DataContainerCells
+                    .Any(c => c.RowId == r.Id && c.ColumnId == colId && c.Value != null && EF.Functions.Like(c.Value.ToLower(), f, LikeEscape)));
+            }
+        }
+
+        var total = await rowsQ.CountAsync(ct);
+        if (total == 0)
+        {
+            return new DataRowPageDto(Array.Empty<DataContainerRowDto>(), 0, page, size);
+        }
+
+        // Orden: por el valor de una columna (alfabetico, ver nota del contrato) o por fecha de alta.
+        IOrderedQueryable<Domain.Entities.DataContainerRow> ordered;
+        if (query.SortColumnId is Guid sortCol)
+        {
+            ordered = query.SortDescending
+                ? rowsQ.OrderByDescending(r => _db.DataContainerCells
+                    .Where(c => c.RowId == r.Id && c.ColumnId == sortCol).Select(c => c.Value).FirstOrDefault())
+                    .ThenByDescending(r => r.CreatedAt)
+                : rowsQ.OrderBy(r => _db.DataContainerCells
+                    .Where(c => c.RowId == r.Id && c.ColumnId == sortCol).Select(c => c.Value).FirstOrDefault())
+                    .ThenBy(r => r.CreatedAt);
+        }
+        else
+        {
+            ordered = query.SortDescending
+                ? rowsQ.OrderByDescending(r => r.CreatedAt)
+                : rowsQ.OrderBy(r => r.CreatedAt);
+        }
+
+        // Desempate estable por Id: sin el, dos filas con el mismo valor pueden repetirse o perderse
+        // entre paginas (el orden de un OFFSET sin llave unica no es determinista).
+        var rows = await ordered.ThenBy(r => r.Id)
+            .Skip((page - 1) * size)
+            .Take(size)
+            .ToListAsync(ct);
+
+        var rowIds = rows.Select(r => r.Id).ToList();
+        var cells = await _db.DataContainerCells.AsNoTracking()
+            .Where(c => rowIds.Contains(c.RowId))
+            .ToListAsync(ct);
+        var links = await _db.DataContainerLinks.AsNoTracking()
+            .Where(l => rowIds.Contains(l.RowId))
+            .ToListAsync(ct);
+
+        var grouped = cells.GroupBy(c => c.RowId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.ColumnId, x => x.Value));
+        var linksByRow = links.GroupBy(l => l.RowId)
+            .ToDictionary(g => g.Key, g => GroupLinks(g.ToList()));
+
+        var dtos = rows.Select(r => new DataContainerRowDto(
+            r.Id,
+            r.CreatedAt,
+            grouped.TryGetValue(r.Id, out var d) ? d : new Dictionary<Guid, string?>(),
+            linksByRow.TryGetValue(r.Id, out var lk) ? lk : null
+        )).ToList();
+
+        return new DataRowPageDto(dtos, total, page, size);
+    }
+
+    /// <summary>Caracter de escape de los LIKE de la busqueda. Va SIEMPRE explicito: la sobrecarga de
+    /// dos argumentos de EF.Functions.Like emite "ESCAPE ''" (sin escape), con lo que un "\%" acabaria
+    /// buscando una barra literal y el comodin del usuario no se neutralizaria (verificado en la matriz
+    /// dual: fallaba igual en PostgreSQL y en SQL Server).</summary>
+    private const string LikeEscape = "\\";
+
+    /// <summary>Neutraliza los comodines de LIKE en el texto que teclea el usuario, para que un "%"
+    /// buscado sea un "%" literal y no "cualquier cosa". Se usa junto con <see cref="LikeEscape"/>.</summary>
+    private static string EscapeLike(string value)
+        => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     public async Task<IReadOnlyList<RowOptionDto>> ListRowOptionsAsync(Guid containerId, int take = 500, CancellationToken ct = default)
     {
@@ -400,6 +500,15 @@ public sealed class DataContainerService : IDataContainerService
         var relatedLinks = await _db.DataContainerLinks
             .Where(l => l.RowId == rowId || l.TargetRowId == rowId).ToListAsync(ct);
         if (relatedLinks.Count > 0) { _db.DataContainerLinks.RemoveRange(relatedLinks); }
+
+        // Idem con los vinculos de RELACION (FASE 2): sus FKs a filas son Restrict a proposito (una
+        // cascada por ambos extremos son rutas multiples y SQL Server la rechaza, error 1785). Sin
+        // esta limpieza, borrar una fila vinculada revienta por FK. Va en el mismo SaveChanges, asi
+        // que fila y vinculos caen en la MISMA transaccion (regla #4).
+        var relationLinks = await _db.DataModelRelationLinks
+            .Where(l => l.FromRowId == rowId || l.ToRowId == rowId).ToListAsync(ct);
+        if (relationLinks.Count > 0) { _db.DataModelRelationLinks.RemoveRange(relationLinks); }
+
         _db.DataContainerRows.Remove(row);
         await _db.SaveChangesAsync(ct);
         return true;
@@ -621,10 +730,6 @@ public sealed class DataContainerService : IDataContainerService
 
     // ---- Helpers ----
 
-    /// <summary>Tipos que apuntan a otra tabla independiente (guardan ReferencedContainerId).</summary>
-    private static bool IsRelation(DataContainerColumnType t)
-        => t is DataContainerColumnType.Reference or DataContainerColumnType.RelationMany;
-
     /// <summary>Replace-all de columnas por Id sobre una tabla (contenedor) ya materializada.
     /// Reusada por SaveAsync (nivel tabla clasico) y SaveTableAsync (nivel modelo). No permite
     /// borrar una columna que ya tiene celdas asociadas. No llama SaveChanges (lo hace el caller).</summary>
@@ -667,7 +772,6 @@ public sealed class DataContainerService : IDataContainerService
                 col.SortOrder = input.SortOrder;
                 col.IsRequired = input.IsRequired;
                 col.ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null;
-                col.ReferencedContainerId = IsRelation(input.Type) ? input.ReferencedContainerId : null;
             }
             else
             {
@@ -680,17 +784,17 @@ public sealed class DataContainerService : IDataContainerService
                     Type = input.Type,
                     SortOrder = input.SortOrder,
                     IsRequired = input.IsRequired,
-                    ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null,
-                    ReferencedContainerId = IsRelation(input.Type) ? input.ReferencedContainerId : null
+                    ChildContainerId = input.Type == DataContainerColumnType.Submodel ? input.ChildContainerId : null
                 });
             }
         }
     }
 
-    /// <summary>Tipos que guardan su valor en una celda EAV (escalares + Reference, que guarda el id destino).</summary>
+    /// <summary>Tipos que guardan su valor en una celda EAV (escalares). Submodel se navega aparte;
+    /// las relaciones ya no son columnas (son DataModelRelation).</summary>
     private static bool IsCellColumn(DataContainerColumnType t)
         => t is DataContainerColumnType.Text or DataContainerColumnType.Number or DataContainerColumnType.Decimal
-            or DataContainerColumnType.Date or DataContainerColumnType.Boolean or DataContainerColumnType.Reference;
+            or DataContainerColumnType.Date or DataContainerColumnType.Boolean;
 
     /// <summary>Agrupa los vinculos N:N de una fila por columna -> lista de ids destino.</summary>
     private static IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> GroupLinks(List<DataContainerLink> links)
@@ -704,9 +808,8 @@ public sealed class DataContainerService : IDataContainerService
             .OrderBy(x => x.SortOrder).ThenBy(x => x.Name)
             .ToListAsync(ct);
 
-        // Resolver nombres de contenedores enlazados: hijo (Submodel) y tabla destino (Reference/N:N).
+        // Resolver nombres de contenedores enlazados: hijo (Submodel).
         var linkedIds = cols.Where(x => x.ChildContainerId is not null).Select(x => x.ChildContainerId!.Value)
-            .Concat(cols.Where(x => x.ReferencedContainerId is not null).Select(x => x.ReferencedContainerId!.Value))
             .Distinct().ToList();
         var linkedNames = linkedIds.Count == 0
             ? new Dictionary<Guid, string>()
@@ -722,9 +825,8 @@ public sealed class DataContainerService : IDataContainerService
     private static DataContainerColumnDto MapColumn(DataContainerColumn c, IReadOnlyDictionary<Guid, string> names)
     {
         string? childName = c.ChildContainerId is { } cid && names.TryGetValue(cid, out var n) ? n : null;
-        string? refName = c.ReferencedContainerId is { } rid && names.TryGetValue(rid, out var rn) ? rn : null;
         return new DataContainerColumnDto(c.Id, c.Name, c.Description, c.Type, c.SortOrder, c.IsRequired,
-            c.ChildContainerId, childName, c.ReferencedContainerId, refName);
+            c.ChildContainerId, childName);
     }
 
     private static string TrimSheetName(string name)

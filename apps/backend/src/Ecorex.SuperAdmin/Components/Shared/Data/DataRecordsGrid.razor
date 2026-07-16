@@ -1,0 +1,464 @@
+@* DataRecordsGrid: grilla + editor de los REGISTROS de una tabla del Contenedor de datos.
+   Se extrajo de ContenedorDatos.razor para que el configurador y el modulo publicado (la tabla
+   colgada del menu) compartan UNA sola implementacion; duplicarla era justo el error que ya
+   costo dos correcciones en el modal de tercero.
+
+   El host pone el marco (el configurador la mete en su modal; el modulo publicado la pinta a
+   pagina completa) y decide los permisos; el componente resuelve datos y edicion.
+
+   Lee por ListRowsPagedAsync: busqueda, filtros, orden y paginado se resuelven EN EL SERVIDOR,
+   asi la tabla puede crecer sin degradarse.
+
+   Punto de extension: RowEditorExtras se pinta al final del editor de fila y recibe el Id de la
+   fila (null = nueva). Ahi enchufa la FASE 2 (los vinculos fila-a-fila contra DataModelRelation)
+   sin volver a tocar este componente. OnRowSaved avisa con el Id ya persistido, que es lo que esa
+   fase necesita para guardar los vinculos de una fila recien creada. Solo ASCII. *@
+@using Ecorex.Application.DataContainers
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDataContainerService ContainerSvc
+@inject IJSRuntime JS
+
+<div class="dg-wrap-records">
+    <div class="dr-toolbar">
+        @if (CanEdit && ShowImportExport)
+        {
+            <label class="btn btn-sm btn-outline-secondary dr-file-btn">
+                <InputFile OnChange="OnExcelAsync" accept=".xlsx" />
+                Importar Excel
+            </label>
+        }
+        @if (ShowImportExport)
+        {
+            <button class="btn btn-sm btn-outline-secondary" @onclick="ExportAsync" disabled="@_busy">Exportar Excel</button>
+        }
+        @if (CanCreate)
+        {
+            <button class="btn btn-sm btn-primary" @onclick="OpenNewRow" disabled="@_busy">+ Fila</button>
+        }
+        <input class="form-control form-control-sm dr-search" placeholder="Buscar..." value="@_search"
+               @onchange="OnSearchChangedAsync" />
+        <span class="dr-count">@_page.Total registro@(_page.Total == 1 ? "" : "s")</span>
+    </div>
+
+    @if (FilterColumns().Any())
+    {
+        <div class="dr-filters">
+            @foreach (var col in FilterColumns())
+            {
+                var c = col;
+                <input class="form-control form-control-sm dr-filter" placeholder="@c.Name"
+                       value="@(_filters.TryGetValue(c.Id, out var fv) ? fv : "")"
+                       @onchange="e => OnFilterChangedAsync(c.Id, e.Value?.ToString())" />
+            }
+        </div>
+    }
+
+    @if (_flash is not null) { <div class="dr-flash-ok">@_flash</div> }
+    @if (_error is not null) { <div class="dr-error">@_error</div> }
+
+    <div class="dr-scroll">
+        <table class="dr-table">
+            <thead>
+                <tr>
+                    @foreach (var col in ListColumns())
+                    {
+                        var c = col;
+                        var on = _sortColumnId == c.Id;
+                        <th class="dr-th-sort" @onclick="() => SortByAsync(c.Id)" title="Ordenar por @c.Name">
+                            @c.Name <span class="dr-th-type">@TypeShort(c.Type)</span>
+                            @if (on)
+                            {
+                                <span class="dr-th-arrow">@(_sortDescending ? "▼" : "▲")</span>
+                            }
+                        </th>
+                    }
+                    <th style="width:78px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_page.Rows.Count == 0)
+                {
+                    <tr><td colspan="@(ListColumns().Count() + 1)" class="dr-empty">@EmptyText</td></tr>
+                }
+                @foreach (var row in _page.Rows)
+                {
+                    var r = row;
+                    <tr>
+                        @foreach (var col in ListColumns())
+                        {
+                            <td>@CellDisplay(r, col)</td>
+                        }
+                        <td class="dr-actions">
+                            @if (CanEdit) { <button class="dr-ibtn" title="Editar" @onclick="() => OpenEditRow(r)">&#9998;</button> }
+                            @if (CanDelete) { <button class="dr-ibtn dr-ibtn-del" title="Eliminar" @onclick="() => DeleteRowAsync(r.Id)" disabled="@_busy">&times;</button> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (TotalPages > 1)
+    {
+        <div class="dr-pager">
+            <button class="btn btn-sm btn-outline-secondary" disabled="@(_pageNo <= 1 || _busy)" @onclick="() => GoToPageAsync(_pageNo - 1)">Anterior</button>
+            <span class="dr-pager-txt">Pagina @_pageNo de @TotalPages</span>
+            <button class="btn btn-sm btn-outline-secondary" disabled="@(_pageNo >= TotalPages || _busy)" @onclick="() => GoToPageAsync(_pageNo + 1)">Siguiente</button>
+        </div>
+    }
+</div>
+
+@* ===== Editor de una FILA ===== *@
+@if (_rowEditOpen && _detail is not null)
+{
+    <div class="modal-overlay" style="z-index:1080;">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_rowEditId is null ? "Nueva fila" : "Editar fila") &#183; @_detail.Name</h3>
+                <button class="modal-close" @onclick="() => _rowEditOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_rowFlash is not null) { <div class="dr-flash-ok">@_rowFlash</div> }
+                @foreach (var col in EditableColumns())
+                {
+                    var c = col;
+                    <div class="field">
+                        <label class="form-label">@c.Name @(c.IsRequired ? "*" : "") <span class="dr-th-type">@TypeShort(c.Type)</span></label>
+                        @switch (c.Type)
+                        {
+                            case DataContainerColumnType.Boolean:
+                                <label class="dr-req"><input type="checkbox" checked='@(GetVal(c.Id) == "true")' @onchange="e => SetBoolVal(c.Id, e)" /> Si</label>
+                                break;
+                            case DataContainerColumnType.Number:
+                            case DataContainerColumnType.Decimal:
+                                <input class="form-control" type="number" step='@(c.Type == DataContainerColumnType.Decimal ? "any" : "1")' value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                break;
+                            case DataContainerColumnType.Date:
+                                <input class="form-control" type="date" value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                break;
+                            default:
+                                <input class="form-control" value="@GetVal(c.Id)" @onchange="e => SetVal(c.Id, e.Value?.ToString())" />
+                                break;
+                        }
+                    </div>
+                }
+
+                @* Punto de extension: aqui entran los vinculos de relacion (FASE 2). *@
+                @if (RowEditorExtras is not null)
+                {
+                    @RowEditorExtras(_rowEditId)
+                }
+
+                @if (_rowError is not null) { <div class="dr-error">@_rowError</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _rowEditOpen = false" disabled="@_busy">Cerrar</button>
+                @if (CanCreate)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="SaveRowAndNewAsync" disabled="@_busy" title="Guarda esta fila y deja el formulario listo para la siguiente">@(_busy ? "..." : "+ Guardar y nueva")</button>
+                }
+                <button class="btn btn-primary" @onclick="SaveRowAsync" disabled="@_busy">@(_busy ? "Guardando..." : "Guardar y cerrar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Tabla (contenedor) cuyos registros se gestionan.</summary>
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+
+    /// <summary>Usuario que firma las escrituras (auditoria del servicio).</summary>
+    [Parameter] public Guid ActorUserId { get; set; }
+
+    [Parameter] public bool CanCreate { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+
+    /// <summary>Import/export de Excel (el configurador si; un modulo publicado puede no quererlo).</summary>
+    [Parameter] public bool ShowImportExport { get; set; } = true;
+
+    /// <summary>Columnas de la grilla; null/vacio = todas las escalares. (ListColumnsJson del modulo.)</summary>
+    [Parameter] public IReadOnlyList<Guid>? ListColumnIds { get; set; }
+
+    /// <summary>Columnas que ofrecen filtro propio; null/vacio = ninguno. (FilterColumnsJson del modulo.)</summary>
+    [Parameter] public IReadOnlyList<Guid>? FilterColumnIds { get; set; }
+
+    [Parameter] public int PageSize { get; set; } = 25;
+
+    /// <summary>Texto de la grilla vacia (el configurador invita a importar; un modulo, a crear).</summary>
+    [Parameter] public string EmptyText { get; set; } = "Sin registros todavia.";
+
+    /// <summary>Avisa al host de cualquier cambio persistente (alta/edicion/borrado/import).</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Se pinta al final del editor de fila; recibe el Id de la fila (null = nueva).
+    /// Es el enganche de la FASE 2 (vinculos de relacion) sin tocar este componente.</summary>
+    [Parameter] public RenderFragment<Guid?>? RowEditorExtras { get; set; }
+
+    /// <summary>Fila ya persistida (alta o edicion), con su Id definitivo.</summary>
+    [Parameter] public EventCallback<Guid> OnRowSaved { get; set; }
+
+    private DataContainerDetailDto? _detail;
+    private DataRowPageDto _page = new(Array.Empty<DataContainerRowDto>(), 0, 1, 25);
+    private bool _busy;
+    private string? _error;
+    private string? _flash;
+
+    // Consulta
+    private string _search = "";
+    private readonly Dictionary<Guid, string> _filters = new();
+    private Guid? _sortColumnId;
+    private bool _sortDescending = true;
+    private int _pageNo = 1;
+
+    // Editor de fila
+    private bool _rowEditOpen;
+    private Guid? _rowEditId;
+    private readonly Dictionary<Guid, string?> _rowValues = new();
+    private string? _rowError;
+    private string? _rowFlash;
+
+    private int TotalPages => _page.Total == 0 ? 1 : (int)Math.Ceiling(_page.Total / (double)PageSize);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Cambio de tabla: se recarga esquema y datos desde cero.
+        if (_detail is null || _detail.Id != ContainerId)
+        {
+            _detail = await ContainerSvc.GetAsync(ContainerId);
+            _search = "";
+            _filters.Clear();
+            _sortColumnId = null;
+            _sortDescending = true;
+            _pageNo = 1;
+            _rowEditOpen = false;
+            await ReloadAsync();
+        }
+    }
+
+    /// <summary>Recarga la pagina actual (el host puede llamarla tras un cambio externo).</summary>
+    public async Task ReloadAsync()
+    {
+        if (_detail is null) { return; }
+        _page = await ContainerSvc.ListRowsPagedAsync(new DataRowQuery(
+            ContainerId: ContainerId,
+            Search: string.IsNullOrWhiteSpace(_search) ? null : _search,
+            Filters: _filters.Count == 0 ? null : new Dictionary<Guid, string>(_filters),
+            SortColumnId: _sortColumnId,
+            SortDescending: _sortDescending,
+            Page: _pageNo,
+            PageSize: PageSize));
+        StateHasChanged();
+    }
+
+    // ---- Columnas ----
+    private IEnumerable<DataContainerColumnDto> ScalarColumns()
+        => _detail is null
+            ? Enumerable.Empty<DataContainerColumnDto>()
+            : _detail.Columns.Where(c => c.Type != DataContainerColumnType.Submodel).OrderBy(c => c.SortOrder);
+
+    private IEnumerable<DataContainerColumnDto> ListColumns()
+    {
+        var all = ScalarColumns();
+        if (ListColumnIds is not { Count: > 0 }) { return all; }
+        var wanted = ListColumnIds.ToHashSet();
+        var picked = all.Where(c => wanted.Contains(c.Id)).ToList();
+        // Si la config quedo obsoleta (columnas borradas), no dejar la grilla sin columnas.
+        return picked.Count > 0 ? picked : all;
+    }
+
+    private IEnumerable<DataContainerColumnDto> FilterColumns()
+    {
+        if (FilterColumnIds is not { Count: > 0 }) { return Enumerable.Empty<DataContainerColumnDto>(); }
+        var wanted = FilterColumnIds.ToHashSet();
+        return ScalarColumns().Where(c => wanted.Contains(c.Id));
+    }
+
+    private IEnumerable<DataContainerColumnDto> EditableColumns() => ScalarColumns();
+
+    // ---- Consulta ----
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task OnFilterChangedAsync(Guid columnId, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { _filters.Remove(columnId); }
+        else { _filters[columnId] = value.Trim(); }
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task SortByAsync(Guid columnId)
+    {
+        if (_sortColumnId == columnId) { _sortDescending = !_sortDescending; }
+        else { _sortColumnId = columnId; _sortDescending = false; }
+        _pageNo = 1;
+        await ReloadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > TotalPages) { return; }
+        _pageNo = page;
+        await ReloadAsync();
+    }
+
+    // ---- Presentacion de celda ----
+    private string CellDisplay(DataContainerRowDto row, DataContainerColumnDto col)
+    {
+        var raw = row.ValuesByColumnId.TryGetValue(col.Id, out var v) ? v : null;
+        if (string.IsNullOrWhiteSpace(raw)) { return "-"; }
+        return col.Type switch
+        {
+            DataContainerColumnType.Boolean => raw == "true" ? "Si" : "No",
+            _ => raw
+        };
+    }
+
+    private static string TypeShort(DataContainerColumnType t) => t switch
+    {
+        DataContainerColumnType.Text => "texto",
+        DataContainerColumnType.Number => "num",
+        DataContainerColumnType.Decimal => "dec",
+        DataContainerColumnType.Date => "fecha",
+        DataContainerColumnType.Boolean => "si/no",
+        DataContainerColumnType.Submodel => "sub",
+        _ => t.ToString().ToLowerInvariant()
+    };
+
+    // ---- Editor de fila ----
+    private void OpenNewRow()
+    {
+        _rowEditId = null;
+        _rowValues.Clear();
+        _rowError = null;
+        _rowFlash = null;
+        _rowEditOpen = true;
+    }
+
+    private void OpenEditRow(DataContainerRowDto row)
+    {
+        _rowEditId = row.Id;
+        _rowValues.Clear();
+        foreach (var kv in row.ValuesByColumnId) { _rowValues[kv.Key] = kv.Value; }
+        _rowError = null;
+        _rowFlash = null;
+        _rowEditOpen = true;
+    }
+
+    private string? GetVal(Guid colId) => _rowValues.TryGetValue(colId, out var v) ? v : null;
+    private void SetVal(Guid colId, string? v) => _rowValues[colId] = string.IsNullOrWhiteSpace(v) ? null : v;
+    private void SetBoolVal(Guid colId, ChangeEventArgs e) => _rowValues[colId] = (e.Value is bool b && b) ? "true" : "false";
+
+    private Task SaveRowAsync() => SaveRowCoreAsync(keepOpen: false);
+    private Task SaveRowAndNewAsync() => SaveRowCoreAsync(keepOpen: true);
+
+    private async Task SaveRowCoreAsync(bool keepOpen)
+    {
+        if (_detail is null || _busy) { return; }
+        _rowError = null;
+        _rowFlash = null;
+        foreach (var col in EditableColumns())
+        {
+            if (col.IsRequired && string.IsNullOrWhiteSpace(GetVal(col.Id)))
+            {
+                _rowError = $"'{col.Name}' es obligatorio.";
+                return;
+            }
+        }
+        _busy = true;
+        try
+        {
+            var values = EditableColumns().ToDictionary(c => c.Id, c => GetVal(c.Id));
+            var saved = await ContainerSvc.SaveRowAsync(
+                new SaveDataRowRequest(ContainerId, _rowEditId, values), ActorUserId);
+            if (saved is null) { _rowError = "No se pudo guardar la fila."; return; }
+
+            await OnRowSaved.InvokeAsync(saved.Id);
+            await ReloadAsync();
+            await OnChanged.InvokeAsync();
+
+            if (keepOpen)
+            {
+                // Deja el formulario limpio y en modo "nueva fila" para capturar la siguiente sin cerrar.
+                _rowEditId = null;
+                _rowValues.Clear();
+                _rowFlash = $"Fila guardada. Van {_page.Total} en la tabla.";
+            }
+            else
+            {
+                _rowEditOpen = false;
+            }
+        }
+        catch (Exception ex) { _rowError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteRowAsync(Guid rowId)
+    {
+        if (_busy) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Eliminar esta fila?")) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ContainerSvc.DeleteRowAsync(rowId, ActorUserId);
+            // Si la pagina se quedo vacia por el borrado, retrocede una.
+            if (_page.Rows.Count == 1 && _pageNo > 1) { _pageNo--; }
+            await ReloadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ---- Excel ----
+    private async Task OnExcelAsync(InputFileChangeEventArgs e)
+    {
+        if (_busy) { return; }
+        _error = _flash = null;
+        _busy = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await using (var rs = e.File.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024))
+            {
+                await rs.CopyToAsync(ms);
+            }
+            ms.Position = 0;
+            var res = await ContainerSvc.ImportFromExcelAsync(ContainerId, ms, ActorUserId);
+            if (res.Success)
+            {
+                _flash = $"Importadas {res.RowsImported} filas" + (res.RowsFailed > 0 ? $" ({res.RowsFailed} con error)" : "") + ".";
+            }
+            if (res.Errors.Count > 0) { _error = string.Join(" | ", res.Errors.Take(4)); }
+            _pageNo = 1;
+            await ReloadAsync();
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (_busy) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await ContainerSvc.ExportToExcelAsync(ContainerId);
+            if (res is null) { _error = "No se pudo exportar."; return; }
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", res.FileName,
+                Convert.ToBase64String(res.Bytes),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

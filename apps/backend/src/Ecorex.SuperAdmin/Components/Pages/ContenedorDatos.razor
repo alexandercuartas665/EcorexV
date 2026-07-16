@@ -4,6 +4,7 @@
 @using System.Globalization
 @using System.Security.Claims
 @using Ecorex.Application.DataContainers
+@using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
@@ -13,6 +14,8 @@
 @inject IDataContainerService ContainerSvc
 @inject IDataImportConfigService ConfigSvc
 @inject IApiImportService ApiSvc
+@inject IDataContainerModuleService ModuleSvc
+@inject IMenuConfigService MenuSvc
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
@@ -146,13 +149,13 @@ else
                                         {
                                             @if (TryEdge(rel, out var x1, out var y1, out var x2, out var y2))
                                             {
-                                                var stroke = rel.Kind == DataContainerColumnType.RelationMany ? "#e08b2f" : "#7c5cff";
+                                                var stroke = rel.Kind == DataModelRelationKind.ManyToMany ? "#e08b2f" : "#7c5cff";
                                                 var mx = (x1 + x2) / 2;
                                                 var my = (y1 + y2) / 2;
                                                 <line x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)" stroke="@stroke" stroke-width="2"
-                                                      stroke-dasharray="@(rel.Kind == DataContainerColumnType.RelationMany ? "6 4" : "0")" />
+                                                      stroke-dasharray="@(rel.Kind == DataModelRelationKind.ManyToMany ? "6 4" : "0")" />
                                                 <circle cx="@F(x2)" cy="@F(y2)" r="4" fill="@stroke" />
-                                                @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.FromColumnName)}</text>")
+                                                @((MarkupString)$"<text x=\"{F(mx)}\" y=\"{F(my - 4)}\" fill=\"{stroke}\" font-size=\"11\" text-anchor=\"middle\">{System.Net.WebUtility.HtmlEncode(rel.Name ?? "")}</text>")
                                             }
                                         }
                                     </svg>
@@ -164,9 +167,12 @@ else
                                             <div class="dc-node-head">
                                                 <span class="dc-node-title" title="@t.Name">@t.Name</span>
                                                 <span class="dc-node-tools">
-                                                    <button class="dc-node-btn" title="Ver datos / importar Excel" @onclick="() => OpenDataAsync(t)">&#9636;</button>
+                                                    <button class="dc-node-btn" title="Ver datos / importar Excel" @onclick="() => OpenData(t)">&#9636;</button>
                                                     @if (_canEdit)
                                                     {
+                                                        <button class="dc-node-btn @(IsPublished(t.Id) ? "dc-node-btn-pub" : "")"
+                                                                title="@(IsPublished(t.Id) ? "Publicada en el menu: configurar o quitar" : "Publicar esta tabla en el menu")"
+                                                                @onclick="() => OpenPublishAsync(t)">&#9873;</button>
                                                         <button class="dc-node-btn" title="Editar tabla" @onclick="() => OpenEditTable(t)">&#9998;</button>
                                                     }
                                                     @if (_canDelete)
@@ -184,7 +190,7 @@ else
                                                 {
                                                     @foreach (var col in t.Columns.OrderBy(c => c.SortOrder))
                                                     {
-                                                        <div class="dc-node-field @(IsRelationType(col.Type) ? "is-rel" : "")">
+                                                        <div class="dc-node-field">
                                                             <span class="dc-field-name">@col.Name</span>
                                                             <span class="dc-field-type">@TypeShort(col.Type)</span>
                                                         </div>
@@ -205,6 +211,54 @@ else
                                 <span><i class="dc-lg dc-lg-many"></i> Relacion (N:N)</span>
                                 <span class="text-muted">Arrastra el encabezado de una caja para moverla.</span>
                             </div>
+
+                            @* ----- Relaciones (aristas del ER): entidad propia, ortogonal al tipo de dato ----- *@
+                            <div class="dc-section-title" style="margin-top:14px;">Relaciones</div>
+                            @if (_detail.Relations.Count == 0)
+                            {
+                                <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin relaciones. Crea una uniendo dos tablas abajo.</div>
+                            }
+                            else
+                            {
+                                <div class="dc-rel-list">
+                                    @foreach (var rel in _detail.Relations)
+                                    {
+                                        <div class="dc-rel-item">
+                                            <span class="dc-rel-badge @(rel.Kind == DataModelRelationKind.ManyToMany ? "nn" : "n1")">@(rel.Kind == DataModelRelationKind.ManyToMany ? "N:N" : "N:1")</span>
+                                            <span class="dc-rel-text">@TableName(rel.FromTableId) &rarr; @TableName(rel.ToTableId)@(string.IsNullOrWhiteSpace(rel.Name) ? "" : $" ({rel.Name})")</span>
+                                            @if (_canDelete)
+                                            {
+                                                <button class="btn btn-sm btn-outline-danger" title="Eliminar relacion" @onclick="() => DeleteRelationAsync(rel.Id)" disabled="@_busy">&times;</button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            @if (_canEdit && _detail.Tables.Count >= 2)
+                            {
+                                <div class="dc-rel-add">
+                                    <select class="form-control" @bind="_relFrom">
+                                        <option value="">Tabla origen</option>
+                                        @foreach (var t in _detail.Tables) { <option value="@t.Id">@t.Name</option> }
+                                    </select>
+                                    <span class="text-muted">&rarr;</span>
+                                    <select class="form-control" @bind="_relTo">
+                                        <option value="">Tabla destino</option>
+                                        @foreach (var t in _detail.Tables) { <option value="@t.Id">@t.Name</option> }
+                                    </select>
+                                    <select class="form-control" @bind="_relKind" style="max-width:120px;">
+                                        <option value="@DataModelRelationKind.ManyToOne">N:1</option>
+                                        <option value="@DataModelRelationKind.ManyToMany">N:N</option>
+                                    </select>
+                                    <input class="form-control" placeholder="Etiqueta (opcional)" @bind="_relName" style="max-width:150px;" />
+                                    <button class="btn btn-sm btn-primary" @onclick="AddRelationAsync" disabled="@_busy">+ Relacion</button>
+                                </div>
+                            }
+                            else if (_canEdit)
+                            {
+                                <div class="text-muted" style="font-size:12px;">Crea al menos <strong>2 tablas</strong> para poder relacionarlas.</div>
+                            }
+                            @if (_relError is not null) { <div class="tk-field-error" style="margin-top:6px;">@_relError</div> }
                         </div>
 
                         @* ================= DERECHA: ALIMENTACION ================= *@
@@ -510,26 +564,10 @@ else
                                     <option value="@DataContainerColumnType.Date">Fecha</option>
                                     <option value="@DataContainerColumnType.Boolean">Booleano</option>
                                     <option value="@DataContainerColumnType.Submodel">Submodelo</option>
-                                    <option value="@DataContainerColumnType.Reference">Referencia (N:1)</option>
-                                    <option value="@DataContainerColumnType.RelationMany">Relacion (N:N)</option>
                                 </select>
                                 <label class="dc-req"><input type="checkbox" @bind="item.IsRequired" /> Oblig.</label>
                                 <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveColumn(idx)" title="Quitar campo">&times;</button>
                             </div>
-                            @if (IsRelationType(item.Type))
-                            {
-                                <div class="dc-rel-config">
-                                    <span class="text-muted" style="font-size:11.5px;white-space:nowrap;">Tabla destino</span>
-                                    <select class="form-control" value="@(item.ReferencedContainerId?.ToString() ?? "")"
-                                            @onchange="e => SetDraftReference(item, e.Value?.ToString())">
-                                        <option value="">(elige tabla destino)</option>
-                                        @foreach (var t in OtherTables())
-                                        {
-                                            <option value="@t.Id">@t.Name</option>
-                                        }
-                                    </select>
-                                </div>
-                            }
                         }
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddColumn" style="margin-top:6px;">+ Agregar campo</button>
@@ -547,7 +585,111 @@ else
     </div>
 }
 
-@* ===== Sub-modal: DATOS de una tabla (filas + import/export Excel + relaciones) ===== *@
+@* ===== Sub-modal: PUBLICAR la tabla como modulo del menu =====
+     Al publicar, el item aparece en el menu Y en la matriz de "Roles y permisos" por si solo (el
+     catalogo de modulos se deriva del menu, con la clave = la ruta). La ruta se congela al publicar:
+     renombrar la tabla cambia la etiqueta del item, nunca su ruta, para no dejar huerfanos los
+     permisos ya asignados. *@
+@if (_pubOpen && _pubTable is not null)
+{
+    <div class="modal-overlay" style="z-index:1075;">
+        <div class="modal-dialog" style="max-width:620px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Publicar en el menu &#183; @_pubTable.Name</h3>
+                <button class="modal-close" @onclick="() => _pubOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="dc-cfg-note">
+                    Publicar cuelga esta tabla del menu para que el usuario final gestione sus registros
+                    sin entrar aqui. El modulo aparece solo en <b>Roles y permisos</b>, donde decides
+                    quien puede ver, crear, editar o eliminar.
+                </p>
+
+                @if (_pubState?.IsPublished == true)
+                {
+                    <div class="dc-flash-ok">Publicada. Ruta: <b>/@_pubState.ModuleRoute</b></div>
+                }
+                else if (!string.IsNullOrWhiteSpace(_pubState?.ModuleRoute))
+                {
+                    <div class="dc-cfg-note">
+                        Estuvo publicada antes. Al publicar de nuevo se reusa su ruta
+                        (<b>/@_pubState.ModuleRoute</b>), asi los permisos que ya diste siguen valiendo.
+                    </div>
+                }
+
+                <div class="field">
+                    <label class="form-label">Vista de menu</label>
+                    <select class="form-control" @bind="_pubViewId">
+                        @foreach (var v in _pubViews)
+                        {
+                            <option value="@v.Id">@v.Name @(v.IsDefault ? "(por defecto)" : "")</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Grupo del menu (donde aparece)</label>
+                    <select class="form-control" @bind="_pubParentId">
+                        <option value="">Raiz del menu</option>
+                        @foreach (var g in _pubGroups)
+                        {
+                            <option value="@g.Id">@g.Label</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Icono del item (opcional)</label>
+                    @* Se elige, no se teclea: es el mismo selector del editor de menu, sobre el mismo
+                       catalogo que pinta el sidebar, asi que lo que se ve aqui es lo que saldra alla. *@
+                    <MenuIconPicker Value="@_pubIcon" ValueChanged="@(v => _pubIcon = v ?? "")" />
+                </div>
+
+                <div class="field">
+                    <label class="form-label">Columnas de la grilla</label>
+                    <div class="dc-pub-cols">
+                        @foreach (var c in PublishableColumns())
+                        {
+                            var cid = c.Id;
+                            <label class="dc-req">
+                                <input type="checkbox" checked="@_pubListCols.Contains(cid)"
+                                       @onchange="e => ToggleSet(_pubListCols, cid, e)" /> @c.Name
+                            </label>
+                        }
+                    </div>
+                    <span class="dc-cfg-note">Sin marcar ninguna se muestran todas.</span>
+                </div>
+                <div class="field">
+                    <label class="form-label">Columnas con filtro</label>
+                    <div class="dc-pub-cols">
+                        @foreach (var c in PublishableColumns())
+                        {
+                            var cid = c.Id;
+                            <label class="dc-req">
+                                <input type="checkbox" checked="@_pubFilterCols.Contains(cid)"
+                                       @onchange="e => ToggleSet(_pubFilterCols, cid, e)" /> @c.Name
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                @if (_pubError is not null) { <div class="tk-field-error">@_pubError</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _pubOpen = false" disabled="@_busy">Cerrar</button>
+                @if (_pubState?.IsPublished == true)
+                {
+                    <button class="btn btn-outline-danger" @onclick="UnpublishAsync" disabled="@_busy">Quitar del menu</button>
+                }
+                <button class="btn btn-primary" @onclick="PublishAsync" disabled="@_busy">
+                    @(_busy ? "Guardando..." : _pubState?.IsPublished == true ? "Guardar cambios" : "Publicar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Sub-modal: DATOS de una tabla. La grilla y el editor de filas viven en el componente
+     compartido DataRecordsGrid: aqui solo se pone el marco del modal. El mismo componente lo
+     reusara el modulo publicado (la tabla colgada del menu), asi no hay dos editores. ===== *@
 @if (_dataOpen && _dataTable is not null)
 {
     <div class="modal-overlay" style="z-index:1070;">
@@ -557,129 +699,25 @@ else
                 <button class="modal-close" @onclick="() => _dataOpen = false">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="dc-data-toolbar">
-                    @if (_canEdit)
-                    {
-                        <label class="btn btn-sm btn-outline-secondary dc-file-btn">
-                            <InputFile OnChange="OnDataExcelAsync" accept=".xlsx" />
-                            Importar Excel
-                        </label>
-                    }
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="ExportDataAsync" disabled="@_busy">Exportar Excel</button>
-                    @if (_canEdit)
-                    {
-                        <button class="btn btn-sm btn-primary" @onclick="OpenNewRow" disabled="@_busy">+ Fila</button>
-                    }
-                    <span class="text-muted" style="font-size:12px;margin-left:auto;">@_dataRows.Count filas</span>
-                </div>
-                @if (_dataFlash is not null) { <div class="dc-flash-ok">@_dataFlash</div> }
-                @if (_dataError is not null) { <div class="tk-field-error">@_dataError</div> }
-
-                <div class="dc-data-scroll">
-                    <table class="dc-data-table">
-                        <thead>
-                            <tr>
-                                @foreach (var col in DataColumns())
-                                {
-                                    <th>@col.Name <span class="dc-th-type">@TypeShort(col.Type)</span></th>
-                                }
-                                <th style="width:78px;"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @if (_dataRows.Count == 0)
-                            {
-                                <tr><td colspan="@(DataColumns().Count() + 1)" class="dc-data-empty">Sin filas. Importa un Excel o usa "+ Fila".</td></tr>
-                            }
-                            @foreach (var row in _dataRows)
-                            {
-                                <tr>
-                                    @foreach (var col in DataColumns())
-                                    {
-                                        <td>@((MarkupString)CellDisplay(row, col))</td>
-                                    }
-                                    <td class="dc-data-actions">
-                                        @if (_canEdit) { <button class="dc-node-btn dc-data-ibtn" title="Editar" @onclick="() => OpenEditRow(row)">&#9998;</button> }
-                                        @if (_canDelete) { <button class="dc-node-btn dc-node-btn-del dc-data-ibtn" title="Eliminar" @onclick="() => DeleteRowAsync(row.Id)">&times;</button> }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                <DataRecordsGrid @ref="_recordsGrid"
+                                 ContainerId="@_dataTable.Id"
+                                 ActorUserId="@_actor"
+                                 CanCreate="@_canEdit"
+                                 CanEdit="@_canEdit"
+                                 CanDelete="@_canDelete"
+                                 OnRowSaved="OnRowSavedAsync"
+                                 EmptyText="Sin filas. Importa un Excel o usa &quot;+ Fila&quot;.">
+                    @* Los vinculos de relacion entran por el punto de extension del editor: la fila
+                       nueva no tiene Id hasta guardarse, por eso se persisten en OnRowSaved. *@
+                    <RowEditorExtras>
+                        <RowRelationPicker @ref="_relationPicker"
+                                           ContainerId="@_dataTable.Id"
+                                           RowId="@context" />
+                    </RowEditorExtras>
+                </DataRecordsGrid>
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="() => _dataOpen = false" disabled="@_busy">Cerrar</button>
-            </div>
-        </div>
-    </div>
-}
-
-@* ===== Sub-modal: editor de una FILA ===== *@
-@if (_rowEditOpen && _dataTable is not null)
-{
-    <div class="modal-overlay" style="z-index:1080;">
-        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
-            <div class="modal-head">
-                <h3>@(_rowEditId is null ? "Nueva fila" : "Editar fila") &#183; @_dataTable.Name</h3>
-                <button class="modal-close" @onclick="() => _rowEditOpen = false">&times;</button>
-            </div>
-            <div class="modal-body">
-                @if (_rowFlash is not null) { <div class="dc-flash-ok">@_rowFlash</div> }
-                @foreach (var col in EditableColumns())
-                {
-                    <div class="field">
-                        <label class="form-label">@col.Name @(col.IsRequired ? "*" : "") <span class="dc-th-type">@TypeShort(col.Type)</span></label>
-                        @switch (col.Type)
-                        {
-                            case DataContainerColumnType.Boolean:
-                                <label class="dc-req"><input type="checkbox" checked='@(GetVal(col.Id) == "true")' @onchange="e => SetBoolVal(col.Id, e)" /> Si</label>
-                                break;
-                            case DataContainerColumnType.Number:
-                            case DataContainerColumnType.Decimal:
-                                <input class="form-control" type="number" step='@(col.Type == DataContainerColumnType.Decimal ? "any" : "1")' value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())" />
-                                break;
-                            case DataContainerColumnType.Date:
-                                <input class="form-control" type="date" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())" />
-                                break;
-                            case DataContainerColumnType.Reference:
-                                <select class="form-control" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())">
-                                    <option value="">(sin @col.Name)</option>
-                                    @foreach (var opt in RefOptions(col.Id))
-                                    {
-                                        <option value="@opt.Id">@opt.Label</option>
-                                    }
-                                </select>
-                                break;
-                            case DataContainerColumnType.RelationMany:
-                                <div class="dc-nn-box">
-                                    @foreach (var opt in RefOptions(col.Id))
-                                    {
-                                        <label class="dc-nn-chip">
-                                            <input type="checkbox" checked="@IsLinked(col.Id, opt.Id)" @onchange="e => ToggleLink(col.Id, opt.Id, e.Value is bool bb && bb)" /> @opt.Label
-                                        </label>
-                                    }
-                                    @if (!RefOptions(col.Id).Any())
-                                    {
-                                        <span class="text-muted" style="font-size:12px;">La tabla destino aun no tiene filas.</span>
-                                    }
-                                </div>
-                                break;
-                            default:
-                                <input class="form-control" value="@GetVal(col.Id)" @onchange="e => SetVal(col.Id, e.Value?.ToString())" />
-                                break;
-                        }
-                    </div>
-                }
-                @if (_rowError is not null) { <div class="tk-field-error">@_rowError</div> }
-            </div>
-            <div class="modal-foot">
-                <button class="btn btn-outline-secondary" @onclick="() => _rowEditOpen = false" disabled="@_busy">Cerrar</button>
-                @if (_canEdit)
-                {
-                    <button class="btn btn-outline-secondary" @onclick="SaveRowAndNewAsync" disabled="@_busy" title="Guarda esta fila y deja el formulario listo para la siguiente">@(_busy ? "..." : "+ Guardar y nueva")</button>
-                }
-                <button class="btn btn-primary" @onclick="SaveRowAsync" disabled="@_busy">@(_busy ? "Guardando..." : "Guardar y cerrar")</button>
             </div>
         </div>
     </div>
@@ -839,6 +877,9 @@ else
     .dc-node-tools { display: flex; gap: 2px; flex-shrink: 0; }
     .dc-node-btn { border: 0; background: rgba(255,255,255,.18); color: #fff; width: 20px; height: 20px; border-radius: 5px; font-size: 12px; line-height: 1; cursor: pointer; }
     .dc-node-btn-del { background: rgba(0,0,0,.18); }
+    /* Tabla ya publicada en el menu: el banderin queda encendido. */
+    .dc-node-btn-pub { background: rgba(90,200,120,.30); }
+    .dc-pub-cols { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 4px; }
     .dc-node-fields { padding: 4px 0; max-height: 220px; overflow: auto; }
     .dc-node-field { display: flex; justify-content: space-between; gap: 8px; padding: 3px 10px; font-size: 12px; }
     .dc-node-field.is-rel { color: var(--t-violet, var(--primary)); font-weight: 600; }
@@ -857,6 +898,14 @@ else
     .dc-req { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-3, var(--muted-foreground)); white-space: nowrap; }
     .dc-rel-config { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 8px; border-left: 2px dashed var(--line, var(--border)); margin: 2px 0 4px; }
     .dc-rel-config select { max-width: 260px; }
+    .dc-rel-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+    .dc-rel-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+    .dc-rel-text { flex: 1; color: var(--ink, var(--foreground)); }
+    .dc-rel-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; color: #fff; }
+    .dc-rel-badge.n1 { background: #7c5cff; }
+    .dc-rel-badge.nn { background: #e08b2f; }
+    .dc-rel-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .dc-rel-add select, .dc-rel-add input { max-width: 160px; }
 
     /* Alimentacion (columna derecha) */
     .dc-cfg-title { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, var(--muted-foreground)); margin-bottom: 10px; border-bottom: 1px solid var(--line, var(--border)); padding-bottom: 6px; }
@@ -991,7 +1040,6 @@ else
         public string? Description { get; set; }
         public DataContainerColumnType Type { get; set; } = DataContainerColumnType.Text;
         public bool IsRequired { get; set; }
-        public Guid? ReferencedContainerId { get; set; }
         public Guid? ChildContainerId { get; set; }
     }
 
@@ -1076,6 +1124,7 @@ else
         _mName = _detail.Name;
         _mDescription = _detail.Description ?? "";
         RebuildPositions();
+        await LoadPublishedFlagsAsync();
     }
 
     private void RebuildPositions()
@@ -1206,7 +1255,6 @@ else
             Description = c.Description,
             Type = c.Type,
             IsRequired = c.IsRequired,
-            ReferencedContainerId = c.ReferencedContainerId,
             ChildContainerId = c.ChildContainerId
         }).ToList();
         if (_tblColumns.Count == 0) { _tblColumns.Add(new ColumnDraft()); }
@@ -1221,8 +1269,51 @@ else
         if (idx >= 0 && idx < _tblColumns.Count) { _tblColumns.RemoveAt(idx); }
     }
 
-    private void SetDraftReference(ColumnDraft item, string? value)
-        => item.ReferencedContainerId = Guid.TryParse(value, out var g) ? g : null;
+    // ---- Relaciones (aristas del ER) ----
+    private string _relFrom = "";
+    private string _relTo = "";
+    private DataModelRelationKind _relKind = DataModelRelationKind.ManyToOne;
+    private string _relName = "";
+    private string? _relError;
+
+    private string TableName(Guid id) => _detail?.Tables.FirstOrDefault(t => t.Id == id)?.Name ?? "?";
+
+    private Task AddRelationAsync() => GuardAsync(async () =>
+    {
+        _relError = null;
+        if (_mId is not Guid modelId) { return; }
+        if (!Guid.TryParse(_relFrom, out var from) || !Guid.TryParse(_relTo, out var to))
+        {
+            _relError = "Elige la tabla origen y la tabla destino.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var req = new SaveModelRelationRequest(modelId, from, to, _relKind,
+                string.IsNullOrWhiteSpace(_relName) ? null : _relName.Trim());
+            var rel = await ModelSvc.AddRelationAsync(req, _actor);
+            if (rel is null) { _relError = "No se pudo crear la relacion."; return; }
+            _relFrom = _relTo = _relName = "";
+            _relKind = DataModelRelationKind.ManyToOne;
+            await LoadDetailCoreAsync(modelId);
+        }
+        catch (Exception ex) { _relError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task DeleteRelationAsync(Guid relationId) => GuardAsync(async () =>
+    {
+        if (_mId is not Guid modelId) { return; }
+        _busy = true;
+        try
+        {
+            await ModelSvc.DeleteRelationAsync(relationId, _actor);
+            await LoadDetailCoreAsync(modelId);
+        }
+        catch (Exception ex) { _relError = ex.Message; }
+        finally { _busy = false; }
+    });
 
     private Task SaveTableAsync() => GuardAsync(async () =>
     {
@@ -1233,16 +1324,9 @@ else
             .Where(c => !string.IsNullOrWhiteSpace(c.Name))
             .Select((c, i) => new SaveDataColumnInput(
                 c.Id, c.Name.Trim(), c.Description, c.Type, i, c.IsRequired,
-                c.Type == DataContainerColumnType.Submodel ? c.ChildContainerId : null,
-                IsRelationType(c.Type) ? c.ReferencedContainerId : null))
+                c.Type == DataContainerColumnType.Submodel ? c.ChildContainerId : null))
             .ToList();
         if (cols.Count == 0) { _tblError = "Define al menos un campo."; return; }
-        // Reference/N:N deben tener tabla destino.
-        if (_tblColumns.Any(c => !string.IsNullOrWhiteSpace(c.Name) && IsRelationType(c.Type) && c.ReferencedContainerId is null))
-        {
-            _tblError = "Cada campo de referencia/relacion necesita una tabla destino.";
-            return;
-        }
         _busy = true;
         try
         {
@@ -1261,6 +1345,9 @@ else
                 string.IsNullOrWhiteSpace(_tblDescription) ? null : _tblDescription.Trim(), x, y, cols);
             var saved = await ModelSvc.SaveTableAsync(req, _actor);
             if (saved is null) { _tblError = "No se pudo guardar la tabla."; return; }
+            // Si la tabla esta publicada, el item del menu sigue su nombre (la RUTA nunca cambia:
+            // es la clave del modulo en la matriz de roles).
+            await ModuleSvc.SyncNodeNameAsync(saved.Id);
             _tblOpen = false;
             await LoadDetailCoreAsync(modelId);
         }
@@ -1557,187 +1644,153 @@ else
         finally { _busy = false; }
     });
 
-    // ---------- Datos de una tabla (filas + Excel + relaciones) ----------
+
+    // ---------- Publicar la tabla como modulo del menu ----------
+    private bool _pubOpen;
+    private ModelTableDto? _pubTable;
+    private DataContainerModuleDto? _pubState;
+    private IReadOnlyList<MenuViewDto> _pubViews = Array.Empty<MenuViewDto>();
+    private List<(Guid Id, string Label)> _pubGroups = new();
+    private Guid _pubViewId;
+    private string _pubParentId = "";
+    private string _pubIcon = "";
+    private readonly HashSet<Guid> _pubListCols = new();
+    private readonly HashSet<Guid> _pubFilterCols = new();
+    private string? _pubError;
+
+    /// <summary>Estado de publicacion por tabla, para pintar el boton del lienzo.</summary>
+    private readonly Dictionary<Guid, bool> _publishedByTable = new();
+    private bool IsPublished(Guid tableId) => _publishedByTable.TryGetValue(tableId, out var p) && p;
+
+    /// <summary>Columnas ofrecibles en la grilla/filtros del modulo (los submodelos no son celdas).</summary>
+    private IEnumerable<DataContainerColumnDto> PublishableColumns()
+        => _pubTable is null
+            ? Enumerable.Empty<DataContainerColumnDto>()
+            : _pubTable.Columns.Where(c => c.Type != DataContainerColumnType.Submodel).OrderBy(c => c.SortOrder);
+
+    private Task OpenPublishAsync(ModelTableDto t) => GuardAsync(async () =>
+    {
+        _pubTable = t;
+        _pubError = null;
+        _pubState = await ModuleSvc.GetAsync(t.Id);
+
+        _pubViews = await MenuSvc.ListViewsAsync();
+        _pubViewId = _pubViews.FirstOrDefault(v => v.IsDefault)?.Id ?? _pubViews.FirstOrDefault()?.Id ?? Guid.Empty;
+        await LoadPublishGroupsAsync();
+
+        _pubIcon = _pubState?.ModuleIcon ?? "";
+        _pubListCols.Clear();
+        _pubFilterCols.Clear();
+        if (_pubState is not null)
+        {
+            foreach (var id in _pubState.ListColumnIds) { _pubListCols.Add(id); }
+            foreach (var id in _pubState.FilterColumnIds) { _pubFilterCols.Add(id); }
+        }
+        _pubOpen = true;
+    });
+
+    /// <summary>Grupos (Section/Subgroup) de la vista elegida, indentados por profundidad.</summary>
+    private async Task LoadPublishGroupsAsync()
+    {
+        _pubGroups.Clear();
+        if (_pubViewId == Guid.Empty) { return; }
+        var treeRes = await MenuSvc.GetViewTreeAsync(_pubViewId);
+        var tree = treeRes.IsOk ? treeRes.Value : null;
+        if (tree is null) { return; }
+
+        void Walk(IReadOnlyList<MenuEditorNodeDto> nodes, int depth)
+        {
+            foreach (var n in nodes)
+            {
+                if (n.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                {
+                    _pubGroups.Add((n.Id, new string('-', depth * 2) + (depth > 0 ? " " : "") + n.Name));
+                    Walk(n.Children, depth + 1);
+                }
+            }
+        }
+        Walk(tree.Roots, 0);
+    }
+
+    private static void ToggleSet(HashSet<Guid> set, Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is bool on && on) { set.Add(id); } else { set.Remove(id); }
+    }
+
+    private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    private Task PublishAsync() => GuardAsync(async () =>
+    {
+        if (_pubTable is null) { return; }
+        _pubError = null;
+        if (_pubViewId == Guid.Empty) { _pubError = "Elige la vista de menu donde publicar."; return; }
+        _busy = true;
+        try
+        {
+            Guid? parent = Guid.TryParse(_pubParentId, out var pid) ? pid : null;
+            var res = await ModuleSvc.PublishAsync(new PublishContainerRequest(
+                _pubTable.Id, _pubViewId, parent, Blank(_pubIcon),
+                _pubListCols.ToList(), _pubFilterCols.ToList()));
+            if (!res.IsOk) { _pubError = res.Error; return; }
+            _pubState = res.Value;
+            _publishedByTable[_pubTable.Id] = true;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task UnpublishAsync() => GuardAsync(async () =>
+    {
+        if (_pubTable is null) { return; }
+        _pubError = null;
+        _busy = true;
+        try
+        {
+            var res = await ModuleSvc.UnpublishAsync(_pubTable.Id);
+            if (!res.IsOk) { _pubError = res.Error; return; }
+            _pubState = await ModuleSvc.GetAsync(_pubTable.Id);
+            _publishedByTable[_pubTable.Id] = false;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    /// <summary>Marca que tablas del modelo abierto estan publicadas (para el boton del lienzo).</summary>
+    private async Task LoadPublishedFlagsAsync()
+    {
+        _publishedByTable.Clear();
+        if (_detail is null) { return; }
+        foreach (var t in _detail.Tables)
+        {
+            var st = await ModuleSvc.GetAsync(t.Id);
+            _publishedByTable[t.Id] = st?.IsPublished == true;
+        }
+    }
+
+    // ---------- Datos de una tabla ----------
+    // La grilla, el editor de filas y el import/export viven en el componente compartido
+    // DataRecordsGrid (Components/Shared/Data), que tambien usara el modulo publicado. Aqui solo
+    // queda abrir el modal que lo hospeda.
     private bool _dataOpen;
     private ModelTableDto? _dataTable;
-    private List<DataContainerRowDto> _dataRows = new();
-    private readonly Dictionary<Guid, IReadOnlyList<RowOptionDto>> _refOptions = new();
-    private string? _dataError;
-    private string? _dataFlash;
+    private DataRecordsGrid? _recordsGrid;
+    private RowRelationPicker? _relationPicker;
 
-    private bool _rowEditOpen;
-    private Guid? _rowEditId;
-    private readonly Dictionary<Guid, string?> _rowValues = new();
-    private readonly Dictionary<Guid, HashSet<Guid>> _rowLinks = new();
-    private string? _rowError;
-    private string? _rowFlash;
-
-    private IEnumerable<DataContainerColumnDto> DataColumns()
-        => _dataTable is null
-            ? Enumerable.Empty<DataContainerColumnDto>()
-            : _dataTable.Columns.Where(c => c.Type != DataContainerColumnType.Submodel).OrderBy(c => c.SortOrder);
-
-    private IEnumerable<DataContainerColumnDto> EditableColumns() => DataColumns();
-
-    private IReadOnlyList<RowOptionDto> RefOptions(Guid colId)
-        => _refOptions.TryGetValue(colId, out var o) ? o : Array.Empty<RowOptionDto>();
-
-    private Task OpenDataAsync(ModelTableDto t) => GuardAsync(async () =>
+    private void OpenData(ModelTableDto t)
     {
         _dataTable = t;
-        _dataError = _dataFlash = null;
-        _rowEditOpen = false;
-        _refOptions.Clear();
-        _dataRows = (await ContainerSvc.ListRowsAsync(t.Id)).ToList();
-        foreach (var col in t.Columns.Where(c => IsRelationType(c.Type) && c.ReferencedContainerId is Guid))
-        {
-            _refOptions[col.Id] = await ContainerSvc.ListRowOptionsAsync(col.ReferencedContainerId!.Value);
-        }
         _dataOpen = true;
-    });
-
-    private Task OnDataExcelAsync(InputFileChangeEventArgs e) => GuardAsync(async () =>
-    {
-        if (_dataTable is null) { return; }
-        _dataError = _dataFlash = null;
-        _busy = true;
-        try
-        {
-            using var ms = new MemoryStream();
-            await using (var rs = e.File.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024))
-            {
-                await rs.CopyToAsync(ms);
-            }
-            ms.Position = 0;
-            var res = await ContainerSvc.ImportFromExcelAsync(_dataTable.Id, ms, _actor);
-            if (res.Success)
-            {
-                _dataFlash = $"Importadas {res.RowsImported} filas" + (res.RowsFailed > 0 ? $" ({res.RowsFailed} con error)" : "") + ".";
-            }
-            if (res.Errors.Count > 0) { _dataError = string.Join(" | ", res.Errors.Take(4)); }
-            _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
-        }
-        catch (Exception ex) { _dataError = ex.Message; }
-        finally { _busy = false; }
-    });
-
-    private Task ExportDataAsync() => GuardAsync(async () =>
-    {
-        if (_dataTable is null) { return; }
-        _dataError = null;
-        _busy = true;
-        try
-        {
-            var res = await ContainerSvc.ExportToExcelAsync(_dataTable.Id);
-            if (res is null) { _dataError = "No se pudo exportar."; return; }
-            var b64 = Convert.ToBase64String(res.Bytes);
-            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", res.FileName, b64,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        }
-        catch (Exception ex) { _dataError = ex.Message; }
-        finally { _busy = false; }
-    });
-
-    private void OpenNewRow()
-    {
-        _rowEditId = null;
-        _rowValues.Clear();
-        _rowLinks.Clear();
-        _rowError = null;
-        _rowFlash = null;
-        _rowEditOpen = true;
     }
 
-    private void OpenEditRow(DataContainerRowDto row)
+    /// <summary>La fila ya tiene Id (recien creada o editada): es el momento de persistir sus
+    /// vinculos de relacion, que hasta aqui solo vivian en la seleccion del picker.</summary>
+    private async Task OnRowSavedAsync(Guid rowId)
     {
-        _rowEditId = row.Id;
-        _rowValues.Clear();
-        _rowLinks.Clear();
-        foreach (var kv in row.ValuesByColumnId) { _rowValues[kv.Key] = kv.Value; }
-        if (row.LinksByColumnId is not null)
+        if (_relationPicker is not null)
         {
-            foreach (var kv in row.LinksByColumnId) { _rowLinks[kv.Key] = new HashSet<Guid>(kv.Value); }
+            await _relationPicker.FlushAsync(rowId);
         }
-        _rowError = null;
-        _rowFlash = null;
-        _rowEditOpen = true;
     }
-
-    private string? GetVal(Guid colId) => _rowValues.TryGetValue(colId, out var v) ? v : null;
-    private void SetVal(Guid colId, string? v) => _rowValues[colId] = string.IsNullOrWhiteSpace(v) ? null : v;
-    private void SetBoolVal(Guid colId, ChangeEventArgs e) => _rowValues[colId] = (e.Value is bool b && b) ? "true" : "false";
-    private bool IsLinked(Guid colId, Guid targetId) => _rowLinks.TryGetValue(colId, out var s) && s.Contains(targetId);
-
-    private void ToggleLink(Guid colId, Guid targetId, bool on)
-    {
-        if (!_rowLinks.TryGetValue(colId, out var s)) { s = new HashSet<Guid>(); _rowLinks[colId] = s; }
-        if (on) { s.Add(targetId); } else { s.Remove(targetId); }
-    }
-
-    private Task SaveRowAsync() => SaveRowCoreAsync(keepOpen: false);
-    private Task SaveRowAndNewAsync() => SaveRowCoreAsync(keepOpen: true);
-
-    private Task SaveRowCoreAsync(bool keepOpen) => GuardAsync(async () =>
-    {
-        if (_dataTable is null) { return; }
-        _rowError = null;
-        _rowFlash = null;
-        foreach (var col in EditableColumns())
-        {
-            if (!col.IsRequired) { continue; }
-            if (col.Type == DataContainerColumnType.RelationMany)
-            {
-                if (!_rowLinks.TryGetValue(col.Id, out var s) || s.Count == 0) { _rowError = $"'{col.Name}' es obligatorio."; return; }
-            }
-            else if (string.IsNullOrWhiteSpace(GetVal(col.Id))) { _rowError = $"'{col.Name}' es obligatorio."; return; }
-        }
-        _busy = true;
-        try
-        {
-            var values = new Dictionary<Guid, string?>();
-            foreach (var col in EditableColumns())
-            {
-                if (col.Type == DataContainerColumnType.RelationMany) { continue; }
-                values[col.Id] = GetVal(col.Id);
-            }
-            IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>? links = _rowLinks.Count == 0
-                ? null
-                : _rowLinks.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<Guid>)kv.Value.ToList());
-            var req = new SaveDataRowRequest(_dataTable.Id, _rowEditId, values, null, null, links);
-            var saved = await ContainerSvc.SaveRowAsync(req, _actor);
-            if (saved is null) { _rowError = "No se pudo guardar la fila."; return; }
-            _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
-            if (keepOpen)
-            {
-                // Deja el formulario limpio y en modo "nueva fila" para capturar la siguiente sin cerrar.
-                _rowEditId = null;
-                _rowValues.Clear();
-                _rowLinks.Clear();
-                _rowFlash = $"Fila guardada. Van {_dataRows.Count} en la tabla.";
-            }
-            else
-            {
-                _rowEditOpen = false;
-            }
-        }
-        catch (Exception ex) { _rowError = ex.Message; }
-        finally { _busy = false; }
-    });
-
-    private Task DeleteRowAsync(Guid rowId) => GuardAsync(async () =>
-    {
-        if (_dataTable is null) { return; }
-        var ok = await JS.InvokeAsync<bool>("confirm", "Eliminar esta fila?");
-        if (!ok) { return; }
-        _busy = true;
-        try
-        {
-            await ContainerSvc.DeleteRowAsync(rowId, _actor);
-            _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
-        }
-        catch (Exception ex) { _dataError = ex.Message; }
-        finally { _busy = false; }
-    });
 
     // ---------- Importacion desde API REST (conector RestApi -> tabla) ----------
     private bool _apiOpen;
@@ -1904,37 +1957,14 @@ else
             }
             if (res.Errors.Count > 0) { _apiError = string.Join(" | ", res.Errors.Take(4)); }
             // Si el panel de datos de esa tabla esta abierto, refresca las filas visibles.
-            if (_dataTable is not null && _dataTable.Id == _apiTargetTableId)
+            if (_recordsGrid is not null && _dataTable is not null && _dataTable.Id == _apiTargetTableId)
             {
-                _dataRows = (await ContainerSvc.ListRowsAsync(_dataTable.Id)).ToList();
+                await _recordsGrid.ReloadAsync();
             }
         }
         catch (Exception ex) { _apiError = ex.Message; }
         finally { _busy = false; }
     });
-
-    private string CellDisplay(DataContainerRowDto row, DataContainerColumnDto col)
-    {
-        if (col.Type == DataContainerColumnType.RelationMany)
-        {
-            var ids = row.LinksByColumnId is not null && row.LinksByColumnId.TryGetValue(col.Id, out var l)
-                ? l : (IReadOnlyList<Guid>)Array.Empty<Guid>();
-            if (ids.Count == 0) { return "<span class=\"dc-cell-empty\">-</span>"; }
-            var opts = RefOptions(col.Id);
-            var labels = ids.Select(id => opts.FirstOrDefault(o => o.Id == id)?.Label ?? id.ToString()[..8]);
-            return string.Join(" ", labels.Select(x => $"<span class=\"dc-chip\">{System.Net.WebUtility.HtmlEncode(x)}</span>"));
-        }
-        var raw = row.ValuesByColumnId.TryGetValue(col.Id, out var v) ? v : null;
-        if (string.IsNullOrWhiteSpace(raw)) { return "<span class=\"dc-cell-empty\">-</span>"; }
-        if (col.Type == DataContainerColumnType.Reference)
-        {
-            var opts = RefOptions(col.Id);
-            var label = Guid.TryParse(raw, out var gid) ? (opts.FirstOrDefault(o => o.Id == gid)?.Label ?? raw) : raw;
-            return $"<span class=\"dc-chip dc-chip-ref\">{System.Net.WebUtility.HtmlEncode(label)}</span>";
-        }
-        if (col.Type == DataContainerColumnType.Boolean) { return raw == "true" ? "Si" : "No"; }
-        return System.Net.WebUtility.HtmlEncode(raw);
-    }
 
     // ---------- Helpers ----------
     private async Task CopyAsync(string text)

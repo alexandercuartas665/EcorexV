@@ -33,6 +33,13 @@ public class CurrentPermissionsTests
         return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
+    /// <summary>
+    /// Proveedor VACIO a proposito: <c>CurrentPermissions</c> solo lo usa para pedir un
+    /// <c>AuthenticationStateProvider</c> opcional (el caso del circuito Blazor), y sin el cae al
+    /// camino de HttpContext, que es justo lo que estas pruebas ejercitan.
+    /// </summary>
+    private static IServiceProvider NoCircuit() => new ServiceCollection().BuildServiceProvider();
+
     [Fact]
     public async Task Resolve_CachesResult_ResolvesOnce()
     {
@@ -41,7 +48,7 @@ public class CurrentPermissionsTests
             Guid.NewGuid(),
             new[] { new ModulePermissionDto("inventario-items", true, false, false, false) }));
 
-        var sut = new CurrentPermissions(AccessorFor(userId), ScopeFactoryWith(fake));
+        var sut = new CurrentPermissions(AccessorFor(userId), ScopeFactoryWith(fake), NoCircuit());
 
         var a = await sut.GetAsync();
         var b = await sut.GetAsync();
@@ -58,7 +65,7 @@ public class CurrentPermissionsTests
     public async Task Resolve_NoUser_IsUnrestricted_FailOpen()
     {
         var fake = new CountingRolService(EffectivePermissions.FromPermissions(Guid.NewGuid(), Array.Empty<ModulePermissionDto>()));
-        var sut = new CurrentPermissions(AccessorFor(null), ScopeFactoryWith(fake));
+        var sut = new CurrentPermissions(AccessorFor(null), ScopeFactoryWith(fake), NoCircuit());
 
         var eff = await sut.GetAsync();
 
@@ -69,7 +76,7 @@ public class CurrentPermissionsTests
     [Fact]
     public async Task Resolve_WhenServiceThrows_IsUnrestricted_FailOpen()
     {
-        var sut = new CurrentPermissions(AccessorFor(Guid.NewGuid()), ScopeFactoryWith(new ThrowingRolService()));
+        var sut = new CurrentPermissions(AccessorFor(Guid.NewGuid()), ScopeFactoryWith(new ThrowingRolService()), NoCircuit());
 
         var eff = await sut.GetAsync();
 

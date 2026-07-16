@@ -83,12 +83,7 @@
 .mc-props-empty p { font-size: 12.5px; max-width: 200px; }
 .mc-props .field { margin-bottom: 12px; }
 
-.mc-icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.mc-icon-opt { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; height: 34px; display: grid; place-items: center; color: var(--ink-2); cursor: pointer; }
-.mc-icon-opt:hover { border-color: var(--line-2); color: var(--ink); }
-.mc-icon-opt.active { border-color: var(--brand); color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
-.mc-icon-opt svg { width: 17px; height: 17px; }
-.mc-icon-none { font-size: 18px; font-weight: 700; }
+/* La grilla de iconos vive ahora en MenuIconPicker (compartida con la publicacion de tablas). */
 
 /* ---- Vista previa del sidebar ---- */
 .mc-preview { padding: 22px; overflow: auto; }

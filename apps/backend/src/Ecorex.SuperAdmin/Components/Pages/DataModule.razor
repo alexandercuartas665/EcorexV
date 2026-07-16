@@ -1,0 +1,96 @@
+@page "/dc/{Slug}"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.DataContainers
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDataContainerModuleService ModuleSvc
+@inject ICurrentPermissions Perms
+@inject AuthenticationStateProvider AuthProvider
+
+@* Modulo publicado de una tabla del Contenedor de datos: la gestion de sus REGISTROS para el
+   usuario final, sin entrar al configurador. Una sola pagina sirve a todas las tablas publicadas;
+   la ruta del menu ("dc/{slug}") la resuelve contra ModuleRoute.
+
+   Permisos: NO se pueden exigir por atributo, porque la clave del modulo es dinamica (es la propia
+   ruta) y [Authorize(Policy=...)] se fija en compilacion. Se verifica en runtime contra la MISMA
+   matriz que usa el sidebar (ICurrentPermissions -> Perm:{ruta}:{accion}), de modo que a quien el
+   rol le oculta el item tampoco le sirva teclear la URL. El modulo de formularios resuelve esto con
+   un chequeo casero mas debil (mira el menu por defecto, no el rol); aqui no se copia ese defecto.
+
+   La grilla y el editor son el componente compartido DataRecordsGrid: el mismo que usa el
+   configurador. Solo ASCII. *@
+
+<PageTitle>@(_module?.ContainerName ?? "Registros") - ECOREX.tareas</PageTitle>
+
+@if (_loading)
+{
+    <div class="dm-state">Cargando...</div>
+}
+else if (_module is null)
+{
+    <div class="dm-state">
+        <h3>Modulo no encontrado</h3>
+        <p>Esta tabla no existe o ya no esta publicada en el menu.</p>
+    </div>
+}
+else if (!_canView)
+{
+    <div class="dm-state">
+        <h3>Sin acceso</h3>
+        <p>Tu rol no tiene permiso para ver este modulo.</p>
+    </div>
+}
+else
+{
+    <nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+        <a href="/inicio">Workspace</a>
+        <span class="sep">/</span>
+        <span>Datos</span>
+        <span class="sep">/</span>
+        <span class="cur">@_module.ContainerName</span>
+    </nav>
+
+    @* El board trae su propia cabecera (titulo + CTA), KPIs, panel y modal: es la superficie de
+       usuario final, distinta del panel denso del configurador (DataRecordsGrid). *@
+    <DataRecordsBoard ContainerId="@_module.ContainerId"
+                      ActorUserId="@_actor"
+                      Title="@_module.ContainerName"
+                      CanCreate="@_canCreate"
+                      CanEdit="@_canEdit"
+                      CanDelete="@_canDelete"
+                      ListColumnIds="@_module.ListColumnIds"
+                      FilterColumnIds="@_module.FilterColumnIds" />
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    private DataContainerModuleDto? _module;
+    private bool _loading = true;
+    private Guid _actor;
+    private bool _canView, _canCreate, _canEdit, _canDelete;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        var route = IDataContainerModuleService.RoutePrefix + Slug;
+        _module = await ModuleSvc.ResolveByRouteAsync(route);
+
+        if (_module is not null)
+        {
+            // La clave del modulo ES su ruta (asi la lista RolService.GetModuleCatalogAsync desde el menu).
+            var eff = await Perms.GetAsync();
+            _canView = eff.Can(route, PermissionAction.View);
+            _canCreate = eff.Can(route, PermissionAction.Create);
+            _canEdit = eff.Can(route, PermissionAction.Edit);
+            _canDelete = eff.Can(route, PermissionAction.Delete);
+
+            var state = await AuthProvider.GetAuthenticationStateAsync();
+            _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+        }
+        _loading = false;
+    }
+}

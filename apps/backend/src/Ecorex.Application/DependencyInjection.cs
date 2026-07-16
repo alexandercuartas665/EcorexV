@@ -136,6 +136,10 @@ public static class DependencyInjection
         // nivel tabla via IDataContainerService.
         services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
+        // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
+        services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
+        // Vinculos dato-a-dato de las relaciones (FASE 2 del rediseno de relaciones).
+        services.AddScoped<DataContainers.IDataRelationLinkService, DataContainers.DataRelationLinkService>();
         // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
         services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
         // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant,
@@ -147,6 +151,7 @@ public static class DependencyInjection
         services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
+        services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();

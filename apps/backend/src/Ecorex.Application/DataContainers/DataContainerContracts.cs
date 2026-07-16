@@ -16,8 +16,8 @@ public sealed record DataContainerDto(
     int RowCount,
     DateTimeOffset UpdatedAt);
 
-/// <summary>Columna (campo) de un contenedor. Submodel apunta al contenedor hijo (anidado);
-/// Reference/RelationMany apuntan a otra tabla independiente (ReferencedContainerId).</summary>
+/// <summary>Columna (campo) de un contenedor. Submodel apunta al contenedor hijo (anidado). Las
+/// relaciones inter-tabla ya NO son columnas: son la entidad DataModelRelation (arista del ER).</summary>
 public sealed record DataContainerColumnDto(
     Guid Id,
     string Name,
@@ -26,9 +26,7 @@ public sealed record DataContainerColumnDto(
     int SortOrder,
     bool IsRequired,
     Guid? ChildContainerId,
-    string? ChildContainerName,
-    Guid? ReferencedContainerId = null,
-    string? ReferencedContainerName = null);
+    string? ChildContainerName);
 
 /// <summary>Detalle de un contenedor con su esquema (columnas). SourceKind y anidamiento incluidos.</summary>
 public sealed record DataContainerDetailDto(
@@ -52,8 +50,32 @@ public sealed record DataContainerRowDto(
 /// <summary>Opcion para el selector de una relacion: un registro de la tabla destino con su etiqueta.</summary>
 public sealed record RowOptionDto(Guid Id, string Label);
 
-/// <summary>Input para upsert de columna (Id null = nueva). ChildContainerId solo para Submodel;
-/// ReferencedContainerId solo para Reference/RelationMany (tabla destino).</summary>
+/// <summary>
+/// Consulta paginada de los registros de una tabla. A diferencia de ListRowsAsync (que trae un tope
+/// y filtra EN MEMORIA), esta se resuelve EN EL SERVIDOR: es la que consume el modulo publicado, donde
+/// la tabla puede crecer. <paramref name="Search"/> busca el texto en CUALQUIER celda de la fila;
+/// <paramref name="Filters"/> exige coincidencia por columna (AND entre columnas).
+/// </summary>
+/// <param name="SortColumnId">Columna por la que ordenar; null = por fecha de creacion.</param>
+public sealed record DataRowQuery(
+    Guid ContainerId,
+    Guid? ParentRowId = null,
+    string? Search = null,
+    IReadOnlyDictionary<Guid, string>? Filters = null,
+    Guid? SortColumnId = null,
+    bool SortDescending = true,
+    int Page = 1,
+    int PageSize = 50);
+
+/// <summary>Una pagina de registros. <paramref name="Total"/> es el total que casa con el filtro
+/// (no el de la pagina), para poder pintar el paginador.</summary>
+public sealed record DataRowPageDto(
+    IReadOnlyList<DataContainerRowDto> Rows,
+    int Total,
+    int Page,
+    int PageSize);
+
+/// <summary>Input para upsert de columna (Id null = nueva). ChildContainerId solo para Submodel.</summary>
 public sealed record SaveDataColumnInput(
     Guid? Id,
     string Name,
@@ -61,8 +83,7 @@ public sealed record SaveDataColumnInput(
     DataContainerColumnType Type,
     int SortOrder,
     bool IsRequired,
-    Guid? ChildContainerId = null,
-    Guid? ReferencedContainerId = null);
+    Guid? ChildContainerId = null);
 
 /// <summary>Crear/editar un contenedor. ParentContainerId/ParentFieldId != null = sub-contenedor (submodelo).</summary>
 public sealed record SaveDataContainerRequest(
@@ -119,6 +140,15 @@ public interface IDataContainerService
     Task<bool> DeleteAsync(Guid id, Guid actorUserId, CancellationToken ct = default);
 
     Task<IReadOnlyList<DataContainerRowDto>> ListRowsAsync(Guid containerId, string? search = null, Guid? parentRowId = null, int take = 500, CancellationToken ct = default);
+
+    /// <summary>
+    /// Pagina de registros resuelta EN EL SERVIDOR (busqueda, filtros por columna, orden y paginado).
+    /// Es la via del modulo publicado; <see cref="ListRowsAsync"/> se queda para el configurador y los
+    /// selectores, donde el tope en memoria basta. OJO: el orden por una columna es ALFABETICO, porque
+    /// el modelo EAV persiste todo valor como string (ver DataContainerCell); un campo numerico ordena
+    /// "10" antes que "9". Corregirlo pide una clave de orden tipada por celda (pendiente).
+    /// </summary>
+    Task<DataRowPageDto> ListRowsPagedAsync(DataRowQuery query, CancellationToken ct = default);
 
     /// <summary>Registros de una tabla (contenedor raiz) con una etiqueta legible, para poblar el
     /// selector de un campo Reference/RelationMany que apunta a esa tabla.</summary>

@@ -189,19 +189,7 @@ else
                             </div>
                             <div class="field">
                                 <label class="form-label">Icono</label>
-                                <div class="mc-icon-grid">
-                                    @foreach (var key in MenuIcons.Keys)
-                                    {
-                                        <button type="button" title="@MenuIcons.Label(key)"
-                                                class="mc-icon-opt @(_pIconKey == key ? "active" : "")"
-                                                @onclick="@(() => _pIconKey = key)">
-                                            @MenuIcons.Render(key)
-                                        </button>
-                                    }
-                                    <button type="button" title="Sin icono"
-                                            class="mc-icon-opt mc-icon-none @(string.IsNullOrEmpty(_pIconKey) ? "active" : "")"
-                                            @onclick="@(() => _pIconKey = null)">&times;</button>
-                                </div>
+                                <MenuIconPicker @bind-Value="_pIconKey" />
                             </div>
                             <div class="field">
                                 <label class="form-label">Codigo (legacy)</label>

@@ -1,0 +1,106 @@
+/* Gestion de registros para el usuario final. Calca el lenguaje del prototipo (Modulos web 000109 /
+   Dependencias 000850): eyebrow + titulo grande, CTA oscuro, KPIs con icono de color, panel
+   redondeado con buscador y tabla en grid. Tokens del tema: --brand, --surface, --line, --rad, --sh-sm. */
+
+.db-wrap { padding: var(--pad, 22px); }
+
+/* ---- Cabecera ---- */
+.db-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; justify-content: space-between; margin-bottom: 20px; }
+.db-eyebrow { font-size: 11px; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; margin-bottom: 5px; }
+.db-title { font-weight: 800; font-size: 28px; letter-spacing: -.03em; margin: 0; }
+.db-sub { color: var(--ink-2); font-size: 14px; margin: 6px 0 0; }
+.db-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.db-btn-new { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px; border: none; background: var(--brand); color: var(--on-brand); font: inherit; font-weight: 700; font-size: 13.5px; cursor: pointer; white-space: nowrap; }
+.db-btn-new:hover { opacity: .9; }
+.db-btn-new svg { width: 16px; height: 16px; flex: none; }
+.db-btn-new:disabled { opacity: .55; cursor: default; }
+
+.db-btn-line { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2, var(--line)); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.db-btn-line:hover { border-color: var(--ink-3); color: var(--ink); }
+.db-btn-line svg { width: 14px; height: 14px; flex: none; }
+.db-btn-line:disabled { opacity: .55; cursor: default; }
+/* El input nativo de archivo se oculta y el label queda como boton visible. Va con ::deep porque
+   lo renderiza el componente InputFile: su elemento NO lleva el scope de este componente, asi que
+   un selector normal no lo alcanza y el input se veria crudo ("Seleccionar archivo..."). */
+.db-file { position: relative; overflow: hidden; cursor: pointer; }
+.db-file ::deep input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+/* ---- KPIs ---- */
+.db-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 240px)); gap: 16px; margin-bottom: 18px; }
+.db-kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 14px); padding: 16px 18px; box-shadow: var(--sh-sm); display: flex; align-items: center; gap: 13px; }
+.db-kpi-ic { width: 42px; height: 42px; flex: none; border-radius: 11px; display: grid; place-items: center; }
+.db-kpi-ic svg { width: 20px; height: 20px; }
+.db-kpi-val { font-weight: 800; font-size: 18px; letter-spacing: -.02em; line-height: 1; }
+.db-kpi-lbl { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+
+/* ---- Panel ---- */
+.db-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad, 14px); box-shadow: var(--sh-sm); overflow: hidden; }
+.db-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 18px; flex-wrap: wrap; }
+.db-panel-title { font-weight: 700; font-size: 15px; }
+.db-panel-sub { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.db-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.db-search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--line-2, var(--line)); border-radius: 10px; background: var(--surface); }
+.db-search svg { width: 15px; height: 15px; flex: none; }
+.db-search input { border: none; background: none; outline: none; font: inherit; font-size: 13px; color: var(--ink); width: 170px; }
+
+.db-filters { display: flex; align-items: center; gap: 8px; padding: 0 18px 12px; flex-wrap: wrap; }
+.db-filters-lbl { font-size: 10.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .04em; }
+.db-filter { height: 32px; padding: 0 10px; border: 1px solid var(--line-2, var(--line)); border-radius: 9px; background: var(--surface); font: inherit; font-size: 12.5px; color: var(--ink); max-width: 160px; outline: none; }
+.db-filter:focus { border-color: var(--brand); }
+
+.db-flash { font-size: 12.5px; color: var(--t-green); background: var(--t-green-bg); border-radius: 9px; padding: 8px 12px; margin: 0 18px 10px; }
+.db-error { font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg); border-radius: 9px; padding: 8px 12px; margin: 0 18px 10px; }
+
+/* ---- Tabla (grid, como el resto del prototipo) ---- */
+.db-tbl { border-top: 1px solid var(--line); }
+.db-thead { display: grid; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.db-th { padding: 11px 18px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); letter-spacing: .03em; display: flex; align-items: center; gap: 5px; }
+.db-th-sort { cursor: pointer; user-select: none; }
+.db-th-sort:hover { color: var(--ink); }
+.db-th-arrow { font-size: 8px; }
+.db-row { display: grid; align-items: center; border-top: 1px solid var(--line); }
+.db-row:first-child { border-top: none; }
+.db-row:hover { background: var(--surface-2); }
+.db-c { padding: 12px 18px; font-size: 13px; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-acts { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 12px; }
+
+.db-act { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.db-act svg { width: 14px; height: 14px; }
+.db-act:hover { border-color: var(--ink-3); color: var(--ink); }
+.db-act-del:hover { border-color: var(--t-rose); color: var(--t-rose); }
+.db-act:disabled { opacity: .5; cursor: default; }
+
+.db-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 46px 18px; color: var(--ink-3); }
+.db-empty svg { width: 34px; height: 34px; opacity: .5; }
+.db-empty p { font-size: 13px; margin: 0; }
+
+.db-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border-top: 1px solid var(--line); }
+.db-pager-txt { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ---- Modal de registro ---- */
+.db-overlay { position: fixed; inset: 0; background: rgba(15, 18, 25, .48); display: grid; place-items: center; z-index: 1100; padding: 20px; }
+.db-modal { width: min(620px, 100%); max-height: 88vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.28); overflow: hidden; }
+.db-m-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.db-m-kicker { font-size: 10.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .05em; }
+.db-m-title { font-weight: 700; font-size: 16px; margin-top: 2px; }
+.db-close { margin-left: auto; width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.db-close svg { width: 15px; height: 15px; }
+.db-close:hover { border-color: var(--ink-3); color: var(--ink); }
+
+.db-m-body { padding: 16px 18px; overflow: auto; }
+.db-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.db-flabel { display: block; font-size: 11.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 5px; }
+.db-input { width: 100%; height: 38px; padding: 0 11px; border: 1px solid var(--line-2, var(--line)); border-radius: 10px; background: var(--surface); font: inherit; font-size: 13px; color: var(--ink); outline: none; }
+.db-input:focus { border-color: var(--brand); }
+.db-chk { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; height: 38px; }
+
+.db-m-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--surface-2); flex-wrap: wrap; }
+.db-foot-note { font-size: 11.5px; color: var(--ink-3); }
+.db-foot-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+@media (max-width: 720px) {
+    .db-kpis { grid-template-columns: 1fr; }
+    .db-fields { grid-template-columns: 1fr; }
+}

@@ -15,13 +15,25 @@ public enum DataContainerColumnType
     Boolean,
     /// <summary>Campo que contiene una sub-tabla/matriz (contenedor hijo). Habilita el modelo anidado.</summary>
     Submodel,
-    /// <summary>Referencia N:1 a un registro de OTRA tabla independiente (llave foranea/lookup).
-    /// La columna apunta a un contenedor raiz via ReferencedContainerId; la celda guarda el id del
-    /// registro destino.</summary>
+    /// <summary>DEPRECADO (2026-07-15): las relaciones inter-tabla ahora son una entidad propia
+    /// (<c>DataModelRelation</c>, arista del ER) y NO un tipo de columna. Se conserva el valor solo
+    /// para que EF pueda leer columnas historicas durante el backfill; ya NO se ofrece en la UI.</summary>
     Reference,
-    /// <summary>Relacion N:N con otra tabla independiente: un registro puede vincularse a varios
-    /// registros de la tabla destino. Los vinculos se guardan en <see cref="DataContainerLink"/>.</summary>
+    /// <summary>DEPRECADO (2026-07-15): ver <see cref="Reference"/>. Reemplazado por DataModelRelation N:N.</summary>
     RelationMany
+}
+
+/// <summary>
+/// Cardinalidad de una relacion inter-tabla del Contenedor de datos (arista del ER, entidad
+/// <c>DataModelRelation</c>). Reemplaza el modelado anterior donde la relacion era un TIPO de columna:
+/// una relacion es una propiedad ORTOGONAL al tipo de dato de los campos.
+/// </summary>
+public enum DataModelRelationKind
+{
+    /// <summary>N:1 — muchos registros de la tabla origen apuntan a uno de la destino (lookup).</summary>
+    ManyToOne,
+    /// <summary>N:N — cada registro puede vincularse a varios de la tabla destino.</summary>
+    ManyToMany
 }
 
 /// <summary>

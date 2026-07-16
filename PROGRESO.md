@@ -567,6 +567,236 @@ agente de escritorio, sin SignalR real ni ejecucion de sub-agentes (olas siguien
   `apps/backend`. Solucion separada; el build del backend no se altera.
 - **Siguiente**: Ola B (cliente SignalR real detras de `IHiveConnection`), luego ejecucion de
   sub-agentes (Gateway/Navegador/Archivos), allow-list de seguridad e instalador/servicio.
+## 2026-07-16 - Contenedor: publicar tablas al menu (Flujo B) + relaciones fila-a-fila (Flujo A)
+
+Sobre el cimiento de la Ola 0. **Nada de esto esta en prod.**
+
+**Flujo B - publicacion (HECHO):**
+- `IDataContainerModuleService` (`d24aa53`): publicar/despublicar una tabla raiz creando su nodo de
+  menu. Espeja el patron de los formularios, y de ahi salen GRATIS la matriz de roles (su catalogo se
+  deriva del menu, clave = Route) y el filtrado del sidebar. Corrige 3 defectos del original: ruta
+  INMUTABLE (renombrar no la toca; es la clave del modulo y cambiarla dejaria huerfanos los permisos
+  ya asignados), despublicar CONSERVA la ruta (al republicar los permisos siguen valiendo), y
+  renombrar RECONCILIA el nombre del nodo. Ruta `dc/{slug}` sin barra (los forms usan `/m/{code}` CON
+  barra: como la clave es el Route literal, hay que ser consistente). 12/12 tests duales.
+- UI + pagina (`2f59095`): banderin por tabla en el lienzo + modal de publicacion (vista, grupo,
+  icono, columnas de grilla y de filtro); `DataModule.razor` (`/dc/{Slug}`) sirve a TODAS las tablas
+  publicadas reusando `DataRecordsGrid`. Validado en Chrome: publicar "Perfil Clientes" -> ruta
+  `/dc/perfil-clientes` -> item en el menu -> pagina lista sus registros -> y el modulo aparece SOLO
+  en Roles y permisos.
+
+**B5 destapo un fallo de seguridad GENERAL (`5bc15b7`):** un usuario cuyo rol no tenia el permiso
+igual veia la pagina. La causa no era del modulo nuevo: `CurrentPermissions` solo leia de
+`IHttpContextAccessor`, y en un CIRCUITO Blazor (paginas con prerender:false) NO hay HttpContext, con
+lo que fallaban el claim del usuario Y el tenant (y sin tenant el filtro global no encuentra el
+TenantUser, que es tenant-scoped). Por cualquiera de las dos, `Perms.GetAsync()` devolvia SIEMPRE
+`Unrestricted` (fail-open): **todo el gateado en pagina no restringia a nadie**, en cualquier pagina
+que lo use; solo se salvaban las que tienen `[Authorize(Policy="Perm:...")]` (se evalua en la
+peticion). Fix: resolver usuario+tenant tambien del AuthenticationState del circuito y fijar el
+tenant ambiental. Validado: con ver=false -> "Sin acceso"; con ver=true -> entra.
+**Observacion no resuelta (decision del dueno: se deja asi):** al abrir Roles y permisos, un modulo
+recien publicado se agrega SOLO a los roles existentes con `can_view=true` (acceso por defecto).
+
+**Flujo A - relaciones fila-a-fila (HECHO):**
+- `IDataRelationLinkService` (`f59b17a`): ListForRowAsync / SetLinksAsync (reemplazo idempotente del
+  set). Valida lo que el esquema no puede: cardinalidad (N:1 y N:N comparten tabla) y que ambos
+  extremos pertenezcan a las tablas de la arista.
+- **FIX del bug latente**: `DeleteRowAsync` limpiaba los `DataContainerLinks` (entidad vieja) pero NO
+  los nuevos; como sus FKs a filas son Restrict (cascada por ambos extremos = rutas multiples, error
+  1785 en SQL Server), borrar una fila vinculada habria reventado en cuanto se escribiera el primer
+  vinculo. Se limpian en el mismo SaveChanges (una transaccion). 12/12 tests duales.
+- `RowRelationPicker`: entra por el punto de extension `RowEditorExtras` de la Ola 0 (ni la grilla ni
+  el editor cambiaron). N:1 -> select; N:N -> casillas. La fila NUEVA no tiene Id hasta guardarse, asi
+  que la seleccion se persiste en `OnRowSaved`, ya con el Id definitivo.
+- **Validado en Chrome** con el modelo demo (Pedidos->Clientes N:1, Pedidos->Productos N:N): se creo
+  PED con Fecha+Total, ACME SAS y Teclado; los DOS vinculos quedaron en `data_model_relation_links`
+  contra el Id de la fila nueva, y al reabrirla el picker los recupera.
+
+**DESPLEGADO a prod 2026-07-16** (`fase-0/clon-backbone` @ `ff31b4e`, autorizado por el dueno):
+backup `ecorex-2026-07-16-1201.sql.gz` -> `build --no-cache` -> `up -d`. Aplico 1 migracion
+(`DataContainerModuleAndRelationLinks`, aditiva). Sano: /login 200, logs sin errores, las 5 columnas
+de publicacion y la tabla `data_model_relation_links` creadas. OJO: este deploy incluye el fix de
+permisos, asi que el gateado en pagina ahora SI se aplica en toda la consola (antes era fail-open).
+Antes de desplegar se limpio el residuo de las pruebas en el dev local (se despublico "Perfil
+Clientes", se borraron las filas del modelo demo y el permiso auto-agregado al rol).
+
+**Pendiente:** (a) el orden por columna sigue siendo alfabetico (EAV como string); (b) decidir si la
+relacion se muestra como columna en la grilla (hoy solo escalares).
+
+---
+
+## 2026-07-16 - Contenedor de datos: Ola 0 (cimiento para publicar tablas al menu)
+
+Idea del dueno: que cada tabla dinamica del Contenedor se pueda **publicar al menu** para que el
+usuario final gestione sus registros. Antes de codear se investigo el terreno; dos hallazgos
+cambiaron el plan:
+
+1. **Ya existe el patron**: un `FormDefinition` se publica como modulo (`IsModule` +
+   `ModuleMenuNodeId` -> `SetModuleAsync` crea el MenuNode con ruta `/m/{code}` y `FormModule.razor`
+   pinta la bandeja con `ListColumnsJson`/`FilterFieldsJson`). Se ESPEJA, no se reinventa.
+2. **La cadena ya es data-driven**: `RolService.GetModuleCatalogAsync` deriva el catalogo de la
+   matriz de roles **del menu real** (clave del modulo = `Route`), `PermissionPolicyProvider` fabrica
+   `Perm:{ruta}:{accion}` al vuelo y `MenuPermissionFilter` poda el sidebar. O sea: publicar una
+   tabla = crear un nodo de menu; permisos y filtrado salen gratis.
+
+Decisiones (confirmadas con el dueno): **CRUD completo** en el modulo publicado; FASE 2 de
+relaciones y publicacion **en paralelo**. Ruta **inmutable** (la clave del modulo ES el Route:
+renombrar la tabla romperia los permisos ya asignados; es el bug que hoy tienen los formularios).
+Permiso verificado en runtime (no cabe `[Authorize(Policy)]` con clave dinamica). Solo tablas raiz.
+
+**Ola 0 (cimiento) - HECHA:**
+- **Una sola migracion dual** (`DataContainerModuleAndRelationLinks`, PG + SQL Server) con AMBOS
+  cambios, para que los dos flujos siguientes no vuelvan a tocar migraciones ni se peleen el
+  snapshot: campos de publicacion en `DataContainer` (`ModuleRoute` unico por tenant, `MenuNodeId`
+  SetNull, `ModuleIcon`, `ListColumnsJson`, `FilterColumnsJson`) + entidad `DataModelRelationLink`
+  (vinculo fila-a-fila colgado de la ARISTA, la FASE 2 diferida). Up() 100% aditivo.
+- **`ListRowsPagedAsync`**: busqueda, filtros por columna, orden y paginado EN EL SERVIDOR (antes:
+  tope de 500 filas y filtrado en memoria). `ListRowsAsync` se conserva para configurador/selectores.
+  Tests de integracion nuevos en **matriz dual (6/6 PG + SQL Server)**, que cazaron un bug real: el
+  escape de LIKE no funcionaba en NINGUN motor porque la sobrecarga de 2 args emite `ESCAPE ''`
+  (un usuario buscando "50%" no encontraba nada). Tambien: `ToLower+Like` en vez de `ILike`
+  (Npgsql-only) y desempate por Id para que el OFFSET no repita/pierda filas.
+  Limitacion documentada: el orden por columna es ALFABETICO (el EAV guarda todo como string).
+- **`DataRecordsGrid`** (Components/Shared/Data, + CSS scoped propio porque los `dc-*` eran un
+  `<style>` global de la pagina): grilla + editor de filas + import/export extraidos de
+  `ContenedorDatos.razor` (2046 -> ~1790 lineas). Punto de extension `RowEditorExtras` (recibe el Id
+  de fila; null = nueva) + `OnRowSaved`, que es donde enchufa la FASE 2 sin volver a tocarlo.
+  El configurador ya lo consume dentro de su modal; el modulo publicado usara el MISMO.
+- **Validado en Chrome**: el panel de Datos sigue funcionando con el componente (grilla, contador
+  desde la consulta paginada, busqueda server-side 0/1, alta y borrado de fila, CSS scoped aplicado).
+- **Pendiente**: Flujo A (servicio de vinculos + picker) y Flujo B (SetModuleAsync + UI de publicar +
+  pagina `/dc/{slug}` con permiso en runtime). NO desplegado a prod.
+
+---
+
+## 2026-07-16 - DEPLOY a prod: modal de tercero compartido + formularios por tercero
+
+Desplegado a prod (10.0.0.3, build-from-git de `fase-0/clon-backbone` @ `d76c5b3`) con autorizacion
+explicita del usuario. Ambas ramas remotas quedaron al dia (`main` y `fase-0/clon-backbone`).
+
+- **Backup previo**: `/opt/ecorex/backups/ecorex-2026-07-16-0547.sql.gz` (`./backup.sh`).
+- **3 migraciones aplicadas al arrancar** (prod venia de `AddYCloudProvider`): `AddSqlConsoleLogs`,
+  `RelationsAsEntity`, `AddTerceroFormLinks`.
+- **`RelationsAsEntity` es destructiva**: se midio el impacto en prod ANTES (1 columna de relacion,
+  3 celdas, 0 vinculos, 3 modelos, 6 tablas) -> asumible. Post-deploy verificado: la relacion
+  sobrevivio como **1 arista** en `data_model_relations`, 0 columnas Reference/RelationMany
+  restantes, `referenced_container_id` eliminada. Se perdieron 3 valores de celda (esperado; el
+  vinculo dato-a-dato se re-cableara en la FASE 2 diferida).
+- **Sano**: `ecorex-app` Up, `/login` HTTP 200, logs sin errores (solo el aviso benigno "Failed to
+  determine the https port for redirect", preexistente). Tablas nuevas creadas y vacias
+  (`tercero_form_links`, `sql_console_logs`).
+- **Nota**: en prod los formularios del modal arrancan sin asociar (`tercero_form_links` vacia); se
+  eligen con "Configurar campos" del Directorio General. Migracion SQL Server generada pero sin
+  aplicar/probar (no hay instancia; prod es PG).
+
+---
+
+## 2026-07-15 - Cargador de contactos reusa EL MISMO modal de tercero (componente compartido)
+
+Feedback del dueno: en Cargador de contactos (000740) el boton "Nuevo contacto" saltaba a
+Directorio General (000232). Un primer intento abrio un modal propio (`_nc*`) dentro del Cargador;
+el dueno lo rechazo: "un contacto ES un cliente; ambos modulos se alimentan de los MISMOS
+registros de este modal, no debemos crear uno nuevo, la idea es reusarlo". Decision (AskUser):
+**componente compartido in-place** (no navegar, no duplicar).
+
+- **`TerceroModal.razor` (+ `.razor.css`) nuevo en `Components/Shared/`**: se EXTRAJO el modal grande
+  de tercero (pestanas Datos / Relaciones / Contacto Cliente / Actividades, perfiles, fichas
+  configurables por perfil) + el sub-modal de contacto de relacion desde `DirectorioGeneral.razor`.
+  API por `@ref`: `OpenCreate()`, `OpenEditAsync(id)`, `OpenContacto(parentId, c)`; parametro
+  `OnChanged` (EventCallback) para que el host refresque su lista/contadores. CSS scoped copiado de
+  `DirectorioGeneral.razor.css` para fidelidad milimetrica.
+- **`DirectorioGeneral.razor`**: dejo de tener el modal inline (se borraron ~825 lineas de markup +
+  code-behind movido); ahora renderiza `<TerceroModal @ref=...>` y sus botones (nuevo cliente,
+  editar tercero, agregar/editar contacto) lo invocan por `@ref`. Conserva lista/tabla/KPIs,
+  configurador de campos, asignar-a-empresa y borrar-contacto. Se retiro el `?crear=1` (ya no hay
+  salto que lo justifique).
+- **`GestorContactos.razor`**: se elimino el modal propio `_nc*`; "Nuevo contacto" ahora abre el
+  componente compartido in-place (`_terceroModal.OpenCreate()`), refresca con `OnChanged`.
+- **Bug de concurrencia corregido**: el `OnInitializedAsync` del componente y el de la pagina
+  compartian el mismo `EcorexDbContext` scoped y corrian en paralelo -> "A second operation was
+  started on this context". Fix: el componente NO hace BD en `OnInitializedAsync`; permisos +
+  `EnsureDefaults` + carga de campos se hacen PEREZOSAMENTE al abrir el modal (evento de usuario,
+  nunca concurrente con la init del host).
+- **Validado en Chrome (local 5253, Owner)**: Cargador "Nuevo contacto" abre el modal SIN salir de
+  `/cargador-contactos`; creado "Distribuidora Andina Test SAS" -> aparece en Directorio General
+  (mismos registros Tercero). Directorio General carga sin regresion y su "Nuevo cliente" abre el
+  mismo modal. Build SuperAdmin 0 errores.
+- **Pendiente**: (a) limpiar reglas CSS muertas del modal en `DirectorioGeneral.razor.css` (inocuas,
+  se dejaron por bajo riesgo). (b) NO desplegado a prod (espera confirmacion del usuario).
+
+---
+
+## 2026-07-16 - Formularios elegibles por tercero en la 3a columna del modal
+
+Item 2 del usuario: "en la herramienta de configuracion de campos podamos configurar los formularios
+que se pueden cargar en el modal en la tercera columna; los datos del formulario deben quedar
+asociados al tercero id". Decision del usuario (AskUser): **"varios formularios elegibles"**.
+
+- **Hallazgo que ahorro una tabla**: NO existe FK response->tercero, pero el patron ya probado del
+  arranque form-first ancla la respuesta por `FormResponse.Reference` (ahi guarda el numero de la
+  tarea). Se reusa: `Reference = "TERCERO:{terceroId}"`, cubierto por el indice existente
+  `(TenantId, DefinitionId, Reference)`. **No se creo tabla de respuestas.**
+- **Dominio/EF**: `TerceroFormLink` (TenantEntity: FormDefinitionId + SortOrder) = solo CONFIG de que
+  formularios se ofrecen por tenant. FK a FormDefinition con **Restrict** (quitar del modal es
+  explicito, no efecto de borrar la definicion); indices `(TenantId, SortOrder)` y unico
+  `(TenantId, FormDefinitionId)`. **Migracion DUAL** `AddTerceroFormLinks` (PG 20260716093705 +
+  SQL Server), aditiva (solo CreateTable + indices; Down dropea).
+- **Servicio**: `ITerceroFormService`/`TerceroFormService` (Ecorex.Application/Directorio) con
+  `ListAsync` / `ListCandidatesAsync` (activos no archivados aun no ofrecidos) / `AddAsync`
+  (idempotente) / `RemoveAsync`, + `static ReferenceFor(terceroId)` como unica fuente del ancla.
+  Registrado en DI. Tenant-scoped por filtro global.
+- **UI**: (a) "Configurar campos" (Directorio General) gana la seccion **FORMULARIOS DEL TERCERO**
+  (lista + selector de candidatos + quitar); (b) `TerceroModal` gana la **3a columna** en la pestana
+  Datos (chips de formularios + `DynamicFormRenderer` con `DefinitionId` + `Reference` +
+  `Mode=Fill`), solo en modo edicion (un formulario necesita un tercero al cual anclarse).
+- **Validado en Chrome (local 5253, Owner)**: asociado "Solicitud de cotizacion" (FRM-001) -> fila en
+  `tercero_form_links`; al abrir ANDINA S.A.S aparece la 3a columna con el chip; al elegirlo se
+  renderiza el formulario real (9 controles) y se crea el borrador
+  `reference=TERCERO:019f4bd3-9679-7abf-b420-02c805b0a010` (= id de ANDINA); llenados 5 campos, el
+  `data` jsonb los persiste contra ese tercero. La validacion server-side corre (pidio el lookup
+  obligatorio "Cantidad estimada" del formulario demo). Build solucion 0 errores; 379/379 tests.
+- **Correccion del dueno (misma sesion)**: la 3a columna NO era una columna nueva. El panel derecho
+  del prototipo ("Prospecto de cliente / Oportunidad de negocio", `aside.dg-prosp`) **era justamente
+  el espacio pensado para los formularios**; su contenido era solo una MUESTRA. Se retiro la 4a
+  columna que se habia agregado (`dg-forms-col`) y los formularios pasaron a ese aside, con las
+  oportunidades debajo (separador) solo bajo `CrmWiring`. Revalidado: el form renderiza dentro del
+  aside sin desborde horizontal y RECUPERA los valores guardados del tercero.
+- **Pendiente**: (a) migracion SQL Server sin aplicar/probar (no hay instancia levantada; PG si).
+  (b) `SubmittedByTenantUserId` no se pasa al renderer (la respuesta no estampa el usuario).
+  (c) reordenar formularios (SortOrder existe, sin UI). (d) NO desplegado a prod (espera confirmacion).
+
+---
+
+## 2026-07-15 (2) - Cargador: filas abren el modal compartido + oportunidades por tercero
+
+Continuacion del reuso del modal de tercero. Feedback: en Cargador de contactos (000740) las filas
+abrian OTRO modal (la "FICHA DEL CLIENTE" propia `_cm*`, que duplicaba el TerceroModal). Se jubilo.
+
+- **TerceroModal** gana (parametros nuevos): `CrmWiring` (bool) y `OnAddOpportunity`
+  (EventCallback). Con `CrmWiring=true` (solo Cargador) el aside reservado muestra las
+  **oportunidades del tercero** (via `IGestorContactosService.ListOportunidadesByTerceroAsync`),
+  la pestana Contacto Cliente habilita la **fecha de "Proxima atencion"**, y al registrar una nota
+  "Oportunidad"/"Atencion" **crea la oportunidad/cita** (cableado CRM portado del `_cm`). Metodo
+  publico `ReloadOpportunitiesAsync()`. En Directorio General (`CrmWiring=false`) las notas son solo
+  bitacora (sin cambios). Estilos `tm-opp-*` en TerceroModal.razor.css.
+- **GestorContactos**: se elimino el modal `_cm*` (markup + estado + OpenCliente/CloseCliente +
+  AddNota/DeleteNota/ResetNoteForm). `OpenClienteAsync` ahora delega en
+  `_terceroModal.OpenEditAsync(id)`; el componente se cablea con `CrmWiring="true"
+  OnAddOpportunity="OnAddOpportunityFromModal"`; al crear una oportunidad se refresca el aside del
+  modal. Se retiro el kanban por etapa de la pestana Oportunidades (con su drag&drop).
+- **Pestana Oportunidades agrupada por tercero** (item del usuario): la vista "Por cliente" lista
+  un grupo por tercero (avatar, nombre, N oportunidades, valor total) con sus oportunidades y chips
+  de etapa; el encabezado del grupo abre el MISMO modal compartido. Toggle "Por cliente / Tabla".
+  Estilos `gc-opp-*` en GestorContactos.razor.css.
+- **Validado en Chrome (local 5253, Owner)**: pestana Oportunidades agrupa (ANDINA 4 opps $108.2M,
+  INGETEL, Produvarios, Maria Fernanda); abrir el grupo ANDINA abre "EDITAR TERCERO" in-place con el
+  aside "Oportunidades 4 abiertas $108,200,000" + "Agregar oportunidad". Build 0 errores.
+- **Pendiente (item 2, proxima ola)**: formularios elegibles en la 3a columna del modal. Diseno
+  confirmado por el usuario = **"varios formularios elegibles"**. Plan (segun mapeo del sistema de
+  formularios): reusar `DynamicFormRenderer` con `Reference="TERCERO:{id}"` (NO hay FK response->tercero;
+  el patron form-first ya ancla por `Reference`), + tabla pequena de CONFIG (que formularios se
+  ofrecen por tenant) + migracion dual PG/SQL Server + seccion en "Configurar campos" + render en el
+  modal. NO desplegado a prod (espera confirmacion).
 
 ---
 
@@ -4633,6 +4863,36 @@ inactivos y filas de prueba): correo = login, clave = `ID_USUARIO` (cedula), rol
 > solo cubre sucursales '01' y '00136'; si se quiere repetir por la via auditada, extenderlo a '02'.
 > VALLEJO.ALEXANDER (real, comparte `almacen@soldarco.com`) quedo sin cuenta: necesita un correo propio.
 
+**Altas adicionales en PRODUCCION (2026-07-14, por SQL directo, sin AdminAuditLog):**
+- **CHUZO DE IVAN**: 1er usuario `sml1144@hotmail.com` (Samantha Mora, clave = cedula 3244433514), Owner + menu Completo.
+- **EPRING** (tenant NUEVO, legacy sucursal `00004`): creado + menu Completo clonado + sus **7 usuarios** Owner.
+  Decisiones del usuario: (a) `agente@epring.com.co` es cuenta de AGENTE (no persona) y se creo con su
+  literal `EPRING888` como clave (no es cedula); (b) 2 usuarios que en el legacy tenian correo
+  `@equipelco.com` (Lady Johanna Perlaza, Juan Camilo Pineda) recibieron un login DERIVADO de su cedula
+  sobre el dominio de la casa: `<cedula>@epring.co`; la clave sigue siendo la cedula.
+- Se descarto INGETEL (el usuario se habia equivocado de empresa). Existe en el legacy como sucursal
+  `00079` con 534 usuarios, por si alguna vez se migra.
+- Nota de estado: el menu canonico "Completo" hoy tiene **64 nodos** (no 70): el seeder reconcilio y
+  retiro `crear-actividad`, el subgrupo `sg-comercial` y `Actividades` en TODOS los tenants. Verificado:
+  los 7 tenants tienen 64 nodos, consistentes.
+
+**CORRECCION IMPORTANTE - SOLDARCO NO sale de db3dev (2026-07-14):** el cargue de 25 usuarios desde
+db3dev sucursal 02 fue del **SERVIDOR EQUIVOCADO**. SOLDARCO tiene su propio servidor:
+`192.168.0.8` / BD **`M700_GEN`** / tabla `USUARIO` (alli SOLDARCO es la sucursal `01`). La cadena de
+conexion NO va al repo (dato del usuario, fuera de control de versiones).
+Se rehizo el padron en UNA transaccion (backup `ecorex-2026-07-16-0858.sql.gz` antes):
+1. Se verifico primero que los 25 usuarios viejos NO tenian datos asociados (0 filas en las 8 tablas
+   con FK a `tenant_users`: notifications, task_items, assignments, work_logs, projects, etc.).
+2. Se borraron sus 25 membresias + sus 25 `platform_users` **huerfanos** (solo los que no quedaban en
+   ninguna otra empresa y sin `platform_role`), para no tocar a nadie de otro tenant. Huerfanos = 0 al final.
+3. Se cargaron los **19** del padron correcto (Owner + menu Completo). De 25 filas origen: 19 creadas y
+   6 imposibles (sin correo NI cedula: no hay login ni clave). Decisiones del usuario: `almacen@` para
+   Vallejo (Wilson Mejia -> login por cedula); Hector F. Brinez tenia el correo invertido
+   (`soldarco@comercial6`) -> login por cedula; DTRUESTAR (externo, NIT) se creo igual.
+4. `acuartas@bitcode.com.co` YA existia (BITCODE): no se duplico, se **vinculo** el mismo platform_user
+   a SOLDARCO -> primer caso real de multi-tenant (1 usuario en 2 empresas). Conserva su clave.
+BITCODE quedo intacto (13 usuarios).
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)
@@ -4840,3 +5100,43 @@ SkipDemoSeed, donde el super admin define sus planes reales). Commit `5b3fee0`, 
 **Validado en Chrome** (demo SKY SYSTEM, Owner): /mi-cuenta "Cambiar de plan" lista los 3 planes;
 cambio Empresa->Pro aplica y actualiza limites (25 usuarios / 500k IA / 5 lineas). BD: 3 filas en
 saas_plans. No desplegado (cambio solo-demo; prod define planes por /plans).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Contenedor de datos: duda de relaciones + ejemplo demo
+
+**Duda del usuario**: "no veo como crear una relacion entre tablas". Diagnostico: la relacion NO se
+dibuja arrastrando; es un CAMPO de tipo Reference (N:1) o RelationMany (N:N) con tabla destino. El
+selector "Tabla destino" solo lista OTRAS tablas del modelo; con un modelo de 1 tabla salia vacio y
+parecia que la funcion no existia.
+
+- **Fix UX** (`f578b8f`): cuando se elige un tipo de relacion y no hay otra tabla, se muestra una guia
+  ("crea y guarda una segunda tabla, luego elige la tabla destino") en vez de un selector vacio.
+- **Ejemplo demo** (`f78d3e8`): EnsureDataModelDemoAsync siembra el modelo "Ventas (demo)" con 3 tablas
+  (Clientes/Productos/Pedidos) + 2 relaciones (Pedidos.Cliente->Clientes N:1; Pedidos.Productos<->Productos
+  N:N). Idempotente, solo Development. Validado en Chrome: el lienzo ER dibuja la linea morada (N:1) y la
+  naranja punteada (N:N). Sin migracion. No desplegado (solo-demo).
+
+---
+
+## Sesion 2026-07-15 (cont.) - Contenedor de datos: relaciones como ENTIDAD (aristas del ER)
+
+**Feedback del dueno**: el 'tipo' de un campo mezclaba dos propiedades ortogonales (tipo de dato vs.
+relacion). Se separo: una relacion es ahora una entidad de primera clase.
+
+- **Dominio**: `DataModelRelation` (ModelId, FromTableId->ToTableId, Kind N:1/N:N, Name) + enum
+  `DataModelRelationKind`. Se elimina `ReferencedContainerId` de la columna; Reference/RelationMany
+  quedan deprecados en el enum (solo para el backfill). Submodel (anidamiento) intacto.
+- **Servicios**: DataModelService deriva relaciones de la entidad; AddRelation/DeleteRelationAsync;
+  DeleteTableAsync limpia aristas primero. DataContainerService: columnas solo escalares.
+- **UI**: se quitan Referencia/Relacion del dropdown de tipo; nuevo panel 'Relaciones' (lista +
+  form origen/destino/cardinalidad + eliminar). El lienzo dibuja las lineas desde la entidad.
+- **Migracion DUAL RelationsAsEntity + BACKFILL**: convierte relaciones-columna en aristas y neutraliza
+  las columnas. Orden: crear tabla -> backfill -> borrar columnas -> drop referenced_container_id.
+- **Fase 2 diferida**: re-cablear el vinculo dato-a-dato (fila-a-fila) contra la relacion-entidad; el
+  backfill descarta esos links (el esquema de relacion si se preserva). Riesgo marcado para prod.
+
+**Verificado**: build sln 0/0; unit 379/379; backfill aplicado en local (2 aristas Pedidos->Clientes N:1
+/ Pedidos->Productos N:N, 0 columnas de relacion restantes). Commit `8b980e9` en main + fase-0. NO
+desplegado. La verificacion visual en Chrome quedo pendiente por inestabilidad del dev server (se cae al
+arrancar); la capa de datos si se verifico por psql.

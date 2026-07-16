@@ -144,10 +144,51 @@ public partial class MainWindow : Window
         {
             Text = "ECOREX - Agente Conector",
             Visible = true,
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = BuildHiveIcon(),
             ContextMenuStrip = menu,
         };
         _tray.DoubleClick += (_, _) => ShowFromTray();
+    }
+
+    /// <summary>
+    /// Icono de bandeja: un panal (tres hexagonos), dibujado en codigo. Antes era
+    /// `SystemIcons.Application`, el icono generico de Windows: la colmena quedaba indistinguible del
+    /// resto de la bandeja y no habia forma de encontrarla. Se dibuja en vez de incrustar un .ico para
+    /// no meter un binario al repo por 16x16 pixeles.
+    /// </summary>
+    private static System.Drawing.Icon BuildHiveIcon()
+    {
+        const int size = 32;
+        using var bmp = new System.Drawing.Bitmap(size, size);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(System.Drawing.Color.Transparent);
+
+            // Ambar del panal, el mismo lenguaje visual de las celdas.
+            using var fill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 193, 7));
+            using var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(40, 40, 40), 1.2f);
+
+            // Tres hexagonos: dos arriba y uno abajo al centro (silueta de panal, legible a 16x16).
+            DrawHex(g, fill, pen, 10.5f, 11f, 7f);
+            DrawHex(g, fill, pen, 21.5f, 11f, 7f);
+            DrawHex(g, fill, pen, 16f, 21f, 7f);
+        }
+        return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+    }
+
+    private static void DrawHex(System.Drawing.Graphics g, System.Drawing.Brush fill,
+                                System.Drawing.Pen pen, float cx, float cy, float r)
+    {
+        var pts = new System.Drawing.PointF[6];
+        for (var i = 0; i < 6; i++)
+        {
+            // -90 grados: hexagono con la punta arriba, como las celdas del panal.
+            var a = Math.PI / 180 * (60 * i - 90);
+            pts[i] = new System.Drawing.PointF(cx + r * (float)Math.Cos(a), cy + r * (float)Math.Sin(a));
+        }
+        g.FillPolygon(fill, pts);
+        g.DrawPolygon(pen, pts);
     }
 
     private void HideToTray()

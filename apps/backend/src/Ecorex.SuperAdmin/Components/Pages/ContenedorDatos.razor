@@ -4,6 +4,7 @@
 @using System.Globalization
 @using System.Security.Claims
 @using Ecorex.Application.DataContainers
+@using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
@@ -13,6 +14,8 @@
 @inject IDataContainerService ContainerSvc
 @inject IDataImportConfigService ConfigSvc
 @inject IApiImportService ApiSvc
+@inject IDataContainerModuleService ModuleSvc
+@inject IMenuConfigService MenuSvc
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
@@ -167,6 +170,9 @@ else
                                                     <button class="dc-node-btn" title="Ver datos / importar Excel" @onclick="() => OpenData(t)">&#9636;</button>
                                                     @if (_canEdit)
                                                     {
+                                                        <button class="dc-node-btn @(IsPublished(t.Id) ? "dc-node-btn-pub" : "")"
+                                                                title="@(IsPublished(t.Id) ? "Publicada en el menu: configurar o quitar" : "Publicar esta tabla en el menu")"
+                                                                @onclick="() => OpenPublishAsync(t)">&#9873;</button>
                                                         <button class="dc-node-btn" title="Editar tabla" @onclick="() => OpenEditTable(t)">&#9998;</button>
                                                     }
                                                     @if (_canDelete)
@@ -579,6 +585,106 @@ else
     </div>
 }
 
+@* ===== Sub-modal: PUBLICAR la tabla como modulo del menu =====
+     Al publicar, el item aparece en el menu Y en la matriz de "Roles y permisos" por si solo (el
+     catalogo de modulos se deriva del menu, con la clave = la ruta). La ruta se congela al publicar:
+     renombrar la tabla cambia la etiqueta del item, nunca su ruta, para no dejar huerfanos los
+     permisos ya asignados. *@
+@if (_pubOpen && _pubTable is not null)
+{
+    <div class="modal-overlay" style="z-index:1075;">
+        <div class="modal-dialog" style="max-width:620px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Publicar en el menu &#183; @_pubTable.Name</h3>
+                <button class="modal-close" @onclick="() => _pubOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="dc-cfg-note">
+                    Publicar cuelga esta tabla del menu para que el usuario final gestione sus registros
+                    sin entrar aqui. El modulo aparece solo en <b>Roles y permisos</b>, donde decides
+                    quien puede ver, crear, editar o eliminar.
+                </p>
+
+                @if (_pubState?.IsPublished == true)
+                {
+                    <div class="dc-flash-ok">Publicada. Ruta: <b>/@_pubState.ModuleRoute</b></div>
+                }
+                else if (!string.IsNullOrWhiteSpace(_pubState?.ModuleRoute))
+                {
+                    <div class="dc-cfg-note">
+                        Estuvo publicada antes. Al publicar de nuevo se reusa su ruta
+                        (<b>/@_pubState.ModuleRoute</b>), asi los permisos que ya diste siguen valiendo.
+                    </div>
+                }
+
+                <div class="field">
+                    <label class="form-label">Vista de menu</label>
+                    <select class="form-control" @bind="_pubViewId">
+                        @foreach (var v in _pubViews)
+                        {
+                            <option value="@v.Id">@v.Name @(v.IsDefault ? "(por defecto)" : "")</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Grupo del menu (donde aparece)</label>
+                    <select class="form-control" @bind="_pubParentId">
+                        <option value="">Raiz del menu</option>
+                        @foreach (var g in _pubGroups)
+                        {
+                            <option value="@g.Id">@g.Label</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label">Icono (clave, opcional)</label>
+                    <input class="form-control" @bind="_pubIcon" maxlength="60" placeholder="cube, list, chart..." />
+                </div>
+
+                <div class="field">
+                    <label class="form-label">Columnas de la grilla</label>
+                    <div class="dc-pub-cols">
+                        @foreach (var c in PublishableColumns())
+                        {
+                            var cid = c.Id;
+                            <label class="dc-req">
+                                <input type="checkbox" checked="@_pubListCols.Contains(cid)"
+                                       @onchange="e => ToggleSet(_pubListCols, cid, e)" /> @c.Name
+                            </label>
+                        }
+                    </div>
+                    <span class="dc-cfg-note">Sin marcar ninguna se muestran todas.</span>
+                </div>
+                <div class="field">
+                    <label class="form-label">Columnas con filtro</label>
+                    <div class="dc-pub-cols">
+                        @foreach (var c in PublishableColumns())
+                        {
+                            var cid = c.Id;
+                            <label class="dc-req">
+                                <input type="checkbox" checked="@_pubFilterCols.Contains(cid)"
+                                       @onchange="e => ToggleSet(_pubFilterCols, cid, e)" /> @c.Name
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                @if (_pubError is not null) { <div class="tk-field-error">@_pubError</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _pubOpen = false" disabled="@_busy">Cerrar</button>
+                @if (_pubState?.IsPublished == true)
+                {
+                    <button class="btn btn-outline-danger" @onclick="UnpublishAsync" disabled="@_busy">Quitar del menu</button>
+                }
+                <button class="btn btn-primary" @onclick="PublishAsync" disabled="@_busy">
+                    @(_busy ? "Guardando..." : _pubState?.IsPublished == true ? "Guardar cambios" : "Publicar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @* ===== Sub-modal: DATOS de una tabla. La grilla y el editor de filas viven en el componente
      compartido DataRecordsGrid: aqui solo se pone el marco del modal. El mismo componente lo
      reusara el modulo publicado (la tabla colgada del menu), asi no hay dos editores. ===== *@
@@ -760,6 +866,9 @@ else
     .dc-node-tools { display: flex; gap: 2px; flex-shrink: 0; }
     .dc-node-btn { border: 0; background: rgba(255,255,255,.18); color: #fff; width: 20px; height: 20px; border-radius: 5px; font-size: 12px; line-height: 1; cursor: pointer; }
     .dc-node-btn-del { background: rgba(0,0,0,.18); }
+    /* Tabla ya publicada en el menu: el banderin queda encendido. */
+    .dc-node-btn-pub { background: rgba(90,200,120,.30); }
+    .dc-pub-cols { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 4px; }
     .dc-node-fields { padding: 4px 0; max-height: 220px; overflow: auto; }
     .dc-node-field { display: flex; justify-content: space-between; gap: 8px; padding: 3px 10px; font-size: 12px; }
     .dc-node-field.is-rel { color: var(--t-violet, var(--primary)); font-weight: 600; }
@@ -1004,6 +1113,7 @@ else
         _mName = _detail.Name;
         _mDescription = _detail.Description ?? "";
         RebuildPositions();
+        await LoadPublishedFlagsAsync();
     }
 
     private void RebuildPositions()
@@ -1224,6 +1334,9 @@ else
                 string.IsNullOrWhiteSpace(_tblDescription) ? null : _tblDescription.Trim(), x, y, cols);
             var saved = await ModelSvc.SaveTableAsync(req, _actor);
             if (saved is null) { _tblError = "No se pudo guardar la tabla."; return; }
+            // Si la tabla esta publicada, el item del menu sigue su nombre (la RUTA nunca cambia:
+            // es la clave del modulo en la matriz de roles).
+            await ModuleSvc.SyncNodeNameAsync(saved.Id);
             _tblOpen = false;
             await LoadDetailCoreAsync(modelId);
         }
@@ -1520,6 +1633,128 @@ else
         finally { _busy = false; }
     });
 
+
+    // ---------- Publicar la tabla como modulo del menu ----------
+    private bool _pubOpen;
+    private ModelTableDto? _pubTable;
+    private DataContainerModuleDto? _pubState;
+    private IReadOnlyList<MenuViewDto> _pubViews = Array.Empty<MenuViewDto>();
+    private List<(Guid Id, string Label)> _pubGroups = new();
+    private Guid _pubViewId;
+    private string _pubParentId = "";
+    private string _pubIcon = "";
+    private readonly HashSet<Guid> _pubListCols = new();
+    private readonly HashSet<Guid> _pubFilterCols = new();
+    private string? _pubError;
+
+    /// <summary>Estado de publicacion por tabla, para pintar el boton del lienzo.</summary>
+    private readonly Dictionary<Guid, bool> _publishedByTable = new();
+    private bool IsPublished(Guid tableId) => _publishedByTable.TryGetValue(tableId, out var p) && p;
+
+    /// <summary>Columnas ofrecibles en la grilla/filtros del modulo (los submodelos no son celdas).</summary>
+    private IEnumerable<DataContainerColumnDto> PublishableColumns()
+        => _pubTable is null
+            ? Enumerable.Empty<DataContainerColumnDto>()
+            : _pubTable.Columns.Where(c => c.Type != DataContainerColumnType.Submodel).OrderBy(c => c.SortOrder);
+
+    private Task OpenPublishAsync(ModelTableDto t) => GuardAsync(async () =>
+    {
+        _pubTable = t;
+        _pubError = null;
+        _pubState = await ModuleSvc.GetAsync(t.Id);
+
+        _pubViews = await MenuSvc.ListViewsAsync();
+        _pubViewId = _pubViews.FirstOrDefault(v => v.IsDefault)?.Id ?? _pubViews.FirstOrDefault()?.Id ?? Guid.Empty;
+        await LoadPublishGroupsAsync();
+
+        _pubIcon = _pubState?.ModuleIcon ?? "";
+        _pubListCols.Clear();
+        _pubFilterCols.Clear();
+        if (_pubState is not null)
+        {
+            foreach (var id in _pubState.ListColumnIds) { _pubListCols.Add(id); }
+            foreach (var id in _pubState.FilterColumnIds) { _pubFilterCols.Add(id); }
+        }
+        _pubOpen = true;
+    });
+
+    /// <summary>Grupos (Section/Subgroup) de la vista elegida, indentados por profundidad.</summary>
+    private async Task LoadPublishGroupsAsync()
+    {
+        _pubGroups.Clear();
+        if (_pubViewId == Guid.Empty) { return; }
+        var treeRes = await MenuSvc.GetViewTreeAsync(_pubViewId);
+        var tree = treeRes.IsOk ? treeRes.Value : null;
+        if (tree is null) { return; }
+
+        void Walk(IReadOnlyList<MenuEditorNodeDto> nodes, int depth)
+        {
+            foreach (var n in nodes)
+            {
+                if (n.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                {
+                    _pubGroups.Add((n.Id, new string('-', depth * 2) + (depth > 0 ? " " : "") + n.Name));
+                    Walk(n.Children, depth + 1);
+                }
+            }
+        }
+        Walk(tree.Roots, 0);
+    }
+
+    private static void ToggleSet(HashSet<Guid> set, Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is bool on && on) { set.Add(id); } else { set.Remove(id); }
+    }
+
+    private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    private Task PublishAsync() => GuardAsync(async () =>
+    {
+        if (_pubTable is null) { return; }
+        _pubError = null;
+        if (_pubViewId == Guid.Empty) { _pubError = "Elige la vista de menu donde publicar."; return; }
+        _busy = true;
+        try
+        {
+            Guid? parent = Guid.TryParse(_pubParentId, out var pid) ? pid : null;
+            var res = await ModuleSvc.PublishAsync(new PublishContainerRequest(
+                _pubTable.Id, _pubViewId, parent, Blank(_pubIcon),
+                _pubListCols.ToList(), _pubFilterCols.ToList()));
+            if (!res.IsOk) { _pubError = res.Error; return; }
+            _pubState = res.Value;
+            _publishedByTable[_pubTable.Id] = true;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    private Task UnpublishAsync() => GuardAsync(async () =>
+    {
+        if (_pubTable is null) { return; }
+        _pubError = null;
+        _busy = true;
+        try
+        {
+            var res = await ModuleSvc.UnpublishAsync(_pubTable.Id);
+            if (!res.IsOk) { _pubError = res.Error; return; }
+            _pubState = await ModuleSvc.GetAsync(_pubTable.Id);
+            _publishedByTable[_pubTable.Id] = false;
+        }
+        catch (Exception ex) { _pubError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    /// <summary>Marca que tablas del modelo abierto estan publicadas (para el boton del lienzo).</summary>
+    private async Task LoadPublishedFlagsAsync()
+    {
+        _publishedByTable.Clear();
+        if (_detail is null) { return; }
+        foreach (var t in _detail.Tables)
+        {
+            var st = await ModuleSvc.GetAsync(t.Id);
+            _publishedByTable[t.Id] = st?.IsPublished == true;
+        }
+    }
 
     // ---------- Datos de una tabla ----------
     // La grilla, el editor de filas y el import/export viven en el componente compartido

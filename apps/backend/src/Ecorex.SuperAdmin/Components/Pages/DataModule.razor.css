@@ -1,0 +1,9 @@
+/* Modulo publicado de una tabla del Contenedor de datos (pagina propia). */
+
+.dm-wrap { padding: 4px 2px 24px; }
+.dm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.dm-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--ink-3, var(--muted-foreground)); text-transform: uppercase; }
+.dm-title { font-size: 26px; font-weight: 800; color: var(--ink, inherit); margin: 4px 0 0; line-height: 1.15; }
+.dm-panel { border: 1px solid var(--line, var(--border)); border-radius: 14px; padding: 14px; background: var(--surface, #fff); }
+.dm-state { padding: 40px 8px; color: var(--ink-2, var(--muted-foreground)); font-size: 13.5px; }
+.dm-state h3 { font-size: 17px; font-weight: 700; color: var(--ink, inherit); margin: 0 0 6px; }

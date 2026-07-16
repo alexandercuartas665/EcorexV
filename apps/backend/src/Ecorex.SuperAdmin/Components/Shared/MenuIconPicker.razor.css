@@ -1,0 +1,13 @@
+/* Grilla del selector de iconos. Va scoped al componente para que funcione igual en
+   cualquier pagina que lo hospede (el editor de menu y el modal de publicacion del
+   Contenedor de datos no comparten hoja de estilos). */
+
+.mip-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.mip-opt { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; height: 34px; display: grid; place-items: center; color: var(--ink-2); cursor: pointer; }
+.mip-opt:hover { border-color: var(--line-2); color: var(--ink); }
+.mip-opt.active { border-color: var(--brand); color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+/* Los SVG los pinta MenuIcons.Render, otro componente: sus elementos NO llevan el scope de
+   este, asi que un ".mip-opt svg" plano no los alcanza y saldrian a tamano natural. Con ::deep
+   el scope queda en el boton (que si es de aqui) y la regla si baja al svg. */
+.mip-opt ::deep svg { width: 17px; height: 17px; }
+.mip-none { font-size: 18px; font-weight: 700; }

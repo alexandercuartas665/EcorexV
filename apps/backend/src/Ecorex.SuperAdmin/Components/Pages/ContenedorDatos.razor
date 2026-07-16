@@ -637,8 +637,10 @@ else
                     </select>
                 </div>
                 <div class="field">
-                    <label class="form-label">Icono (clave, opcional)</label>
-                    <input class="form-control" @bind="_pubIcon" maxlength="60" placeholder="cube, list, chart..." />
+                    <label class="form-label">Icono del item (opcional)</label>
+                    @* Se elige, no se teclea: es el mismo selector del editor de menu, sobre el mismo
+                       catalogo que pinta el sidebar, asi que lo que se ve aqui es lo que saldra alla. *@
+                    <MenuIconPicker Value="@_pubIcon" ValueChanged="@(v => _pubIcon = v ?? "")" />
                 </div>
 
                 <div class="field">

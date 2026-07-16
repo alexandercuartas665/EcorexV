@@ -1,0 +1,45 @@
+@* ===================================================================================
+   Selector visual de icono del menu. Pinta el catalogo de MenuIcons como una grilla de
+   botones, de modo que la clave nunca se teclea: un icono mal escrito no renderiza y el
+   item del menu queda con el trazo neutro sin que el usuario sepa por que.
+
+   Lo usan el editor de menu (ConfiguracionMenu) y la publicacion de tablas del
+   Contenedor de datos. Es un solo componente a proposito: la fuente de iconos ya es
+   compartida (MenuIcons), y el selector debe seguirla sin divergir.
+
+   Uso: <MenuIconPicker @bind-Value="_iconKey" />   (Value null/"" = sin icono)
+   Solo ASCII.
+   =================================================================================== *@
+
+<div class="mip-grid">
+    @foreach (var key in MenuIcons.Keys)
+    {
+        var k = key;
+        <button type="button" title="@MenuIcons.Label(k)"
+                class="mip-opt @(Value == k ? "active" : "")"
+                @onclick="() => PickAsync(k)">
+            @MenuIcons.Render(k)
+        </button>
+    }
+    @if (AllowNone)
+    {
+        <button type="button" title="Sin icono"
+                class="mip-opt mip-none @(string.IsNullOrEmpty(Value) ? "active" : "")"
+                @onclick="() => PickAsync(null)">&times;</button>
+    }
+</div>
+
+@code {
+    /// <summary>Clave de icono elegida. Null o vacio = sin icono.</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Ofrece la opcion "sin icono" (x). Apagalo donde el icono sea obligatorio.</summary>
+    [Parameter] public bool AllowNone { get; set; } = true;
+
+    private async Task PickAsync(string? key)
+    {
+        Value = key;
+        await ValueChanged.InvokeAsync(key);
+    }
+}

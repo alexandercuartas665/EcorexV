@@ -158,6 +158,7 @@ public interface IApplicationDbContext
     DbSet<Tercero> Terceros { get; }
     DbSet<TerceroContacto> TerceroContactos { get; }
     DbSet<TerceroFieldDefinition> TerceroFieldDefinitions { get; }
+    DbSet<TerceroFormLink> TerceroFormLinks { get; }
     DbSet<TerceroNota> TerceroNotas { get; }
 
     // Gestor de Clientes (modulo 000740): bolsa (kanban de terceros por estado), oportunidades,

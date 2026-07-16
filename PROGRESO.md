@@ -40,6 +40,41 @@ registros de este modal, no debemos crear uno nuevo, la idea es reusarlo". Decis
 
 ---
 
+## 2026-07-16 - Formularios elegibles por tercero en la 3a columna del modal
+
+Item 2 del usuario: "en la herramienta de configuracion de campos podamos configurar los formularios
+que se pueden cargar en el modal en la tercera columna; los datos del formulario deben quedar
+asociados al tercero id". Decision del usuario (AskUser): **"varios formularios elegibles"**.
+
+- **Hallazgo que ahorro una tabla**: NO existe FK response->tercero, pero el patron ya probado del
+  arranque form-first ancla la respuesta por `FormResponse.Reference` (ahi guarda el numero de la
+  tarea). Se reusa: `Reference = "TERCERO:{terceroId}"`, cubierto por el indice existente
+  `(TenantId, DefinitionId, Reference)`. **No se creo tabla de respuestas.**
+- **Dominio/EF**: `TerceroFormLink` (TenantEntity: FormDefinitionId + SortOrder) = solo CONFIG de que
+  formularios se ofrecen por tenant. FK a FormDefinition con **Restrict** (quitar del modal es
+  explicito, no efecto de borrar la definicion); indices `(TenantId, SortOrder)` y unico
+  `(TenantId, FormDefinitionId)`. **Migracion DUAL** `AddTerceroFormLinks` (PG 20260716093705 +
+  SQL Server), aditiva (solo CreateTable + indices; Down dropea).
+- **Servicio**: `ITerceroFormService`/`TerceroFormService` (Ecorex.Application/Directorio) con
+  `ListAsync` / `ListCandidatesAsync` (activos no archivados aun no ofrecidos) / `AddAsync`
+  (idempotente) / `RemoveAsync`, + `static ReferenceFor(terceroId)` como unica fuente del ancla.
+  Registrado en DI. Tenant-scoped por filtro global.
+- **UI**: (a) "Configurar campos" (Directorio General) gana la seccion **FORMULARIOS DEL TERCERO**
+  (lista + selector de candidatos + quitar); (b) `TerceroModal` gana la **3a columna** en la pestana
+  Datos (chips de formularios + `DynamicFormRenderer` con `DefinitionId` + `Reference` +
+  `Mode=Fill`), solo en modo edicion (un formulario necesita un tercero al cual anclarse).
+- **Validado en Chrome (local 5253, Owner)**: asociado "Solicitud de cotizacion" (FRM-001) -> fila en
+  `tercero_form_links`; al abrir ANDINA S.A.S aparece la 3a columna con el chip; al elegirlo se
+  renderiza el formulario real (9 controles) y se crea el borrador
+  `reference=TERCERO:019f4bd3-9679-7abf-b420-02c805b0a010` (= id de ANDINA); llenados 5 campos, el
+  `data` jsonb los persiste contra ese tercero. La validacion server-side corre (pidio el lookup
+  obligatorio "Cantidad estimada" del formulario demo). Build solucion 0 errores; 379/379 tests.
+- **Pendiente**: (a) migracion SQL Server sin aplicar/probar (no hay instancia levantada; PG si).
+  (b) `SubmittedByTenantUserId` no se pasa al renderer (la respuesta no estampa el usuario).
+  (c) reordenar formularios (SortOrder existe, sin UI). (d) NO desplegado a prod (espera confirmacion).
+
+---
+
 ## 2026-07-15 (2) - Cargador: filas abren el modal compartido + oportunidades por tercero
 
 Continuacion del reuso del modal de tercero. Feedback: en Cargador de contactos (000740) las filas

@@ -12,8 +12,10 @@
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
+@inject ITerceroFormService FormsSvc
 @inject IGestorContactosService GestorSvc
 @inject ICurrentPermissions Perms
 
@@ -201,6 +203,48 @@
                                     </div>
                                 </div>
 
+                            </div>
+
+                            @* ---- Tercera columna: formularios dinamicos asociados al tercero ----
+                                 Las respuestas se anclan por Reference = "TERCERO:{id}" (el mismo
+                                 patron del arranque form-first), asi que cada tercero tiene su propia
+                                 respuesta por formulario. Se configuran en "Configurar campos". *@
+                            <div class="dg-forms-col">
+                                <label class="dg-sec-lbl">FORMULARIOS</label>
+                                @if (_editingId is null)
+                                {
+                                    <p class="dg-aside-note">Guarda el tercero primero para llenar sus formularios asociados.</p>
+                                }
+                                else if (_forms.Count == 0)
+                                {
+                                    <p class="dg-aside-note">Sin formularios asociados. Se eligen con el boton "Configurar campos" del Directorio General.</p>
+                                }
+                                else
+                                {
+                                    <div class="dg-form-chips">
+                                        @foreach (var f in _forms)
+                                        {
+                                            var ff = f;
+                                            <button class="dg-form-chip @(_formSel == ff.FormDefinitionId ? "on" : "")"
+                                                    @onclick="() => _formSel = _formSel == ff.FormDefinitionId ? null : ff.FormDefinitionId">
+                                                @ff.Title
+                                            </button>
+                                        }
+                                    </div>
+                                    @if (_formSel is Guid defId)
+                                    {
+                                        <div class="dg-form-host" @key="defId">
+                                            <DynamicFormRenderer DefinitionId="@defId"
+                                                                 Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
+                                                                 Mode="FormRenderMode.Fill"
+                                                                 ShowHeader="false" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <p class="dg-aside-note">Elige un formulario para llenarlo con los datos de este tercero.</p>
+                                    }
+                                }
                             </div>
                         </div>
                         var fichas = VisibleFichas();
@@ -530,6 +574,10 @@
     private DateTime _noteFecha = DateTime.Today.AddDays(1);
     private List<OportunidadDto> _opps = new();
 
+    // ---- Formularios asociados (3a columna). Respuestas ancladas por Reference = "TERCERO:{id}". ----
+    private List<TerceroFormLinkDto> _forms = new();
+    private Guid? _formSel;
+
     // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
     private bool _canCrearEmpresa = true;
     private bool _canCrearCliente = true;
@@ -641,6 +689,8 @@
         _relContactos = Array.Empty<TerceroContactoDto>();
         _notas = Array.Empty<TerceroNotaDto>();
         _opps = new();
+        _forms = new();
+        _formSel = null;
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
@@ -682,6 +732,8 @@
         _relContactos = await TerceroSvc.ListContactosAsync(id);
         _notas = await TerceroSvc.ListNotasAsync(id);
         _opps = CrmWiring ? (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList() : new();
+        _forms = (await FormsSvc.ListAsync()).ToList();
+        _formSel = null;
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;

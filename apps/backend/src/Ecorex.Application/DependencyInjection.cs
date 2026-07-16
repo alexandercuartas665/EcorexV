@@ -144,6 +144,7 @@ public static class DependencyInjection
         services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
+        services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();

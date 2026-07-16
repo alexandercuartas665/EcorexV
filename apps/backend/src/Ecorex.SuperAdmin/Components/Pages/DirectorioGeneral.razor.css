@@ -289,3 +289,10 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-note-date { font-size: 11px; color: var(--ink-3); margin-left: auto; font-variant-numeric: tabular-nums; }
 .dg-note-text { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
 @media (max-width: 720px) { .dg-co-body { grid-template-columns: 1fr; } .dg-note-meta { grid-template-columns: 1fr; } }
+
+/* ---- Formularios ofrecidos en el modal de tercero (3a columna) ---- */
+.dg-cfg-note { font-size: 12px; color: var(--ink-3); margin: 2px 0 10px; }
+.dg-cfg-forms { display: flex; flex-direction: column; gap: 8px; }
+.dg-cfg-form-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--surface); }
+.dg-cfg-form-add { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.dg-cfg-form-add .dg-input { flex: 1; min-width: 0; }

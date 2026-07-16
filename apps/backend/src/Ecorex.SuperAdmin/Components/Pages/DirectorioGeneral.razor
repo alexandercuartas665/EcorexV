@@ -12,6 +12,7 @@
 @using Ecorex.SuperAdmin.Auth
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
+@inject ITerceroFormService FormsSvc
 @inject ICurrentPermissions Perms
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
@@ -416,6 +417,53 @@
                     </div>
                 </div>
                 </div>
+
+                @* --- Formularios que se pueden llenar por tercero (3a columna del modal) --- *@
+                <label class="dg-sec-lbl" style="margin-top:18px">FORMULARIOS DEL TERCERO</label>
+                <p class="dg-cfg-note">Se ofrecen en la tercera columna del modal de tercero. Sus respuestas quedan asociadas a cada tercero.</p>
+                @if (_cfgForms.Count == 0)
+                {
+                    <div class="dg-empty-note" style="padding:10px 0">Ningun formulario asociado todavia.</div>
+                }
+                else
+                {
+                    <div class="dg-cfg-forms">
+                        @foreach (var lf in _cfgForms)
+                        {
+                            var lfv = lf;
+                            <div class="dg-cfg-form-row">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex:none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8" /></svg>
+                                <div style="flex:1;min-width:0">
+                                    <div class="dg-cfg-flabel">@lfv.Title</div>
+                                    @if (!string.IsNullOrWhiteSpace(lfv.Code))
+                                    {
+                                        <div class="dg-cfg-fmeta">@lfv.Code</div>
+                                    }
+                                </div>
+                                <button class="dg-cfg-dbtn" disabled="@_busy" @onclick="() => RemoveCfgFormAsync(lfv.Id)" title="Quitar del modal">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="dg-cfg-form-add">
+                    @if (_cfgFormCandidates.Count == 0)
+                    {
+                        <span class="dg-cfg-fmeta">No hay mas formularios activos para asociar.</span>
+                    }
+                    else
+                    {
+                        <select class="dg-input" value="@_cfgFormPick" @onchange="e => _cfgFormPick = e.Value?.ToString() ?? string.Empty">
+                            <option value="">Elige un formulario...</option>
+                            @foreach (var c in _cfgFormCandidates)
+                            {
+                                <option value="@c.FormDefinitionId">@c.Title</option>
+                            }
+                        </select>
+                        <button class="dg-btn-save" disabled="@(_busy || string.IsNullOrWhiteSpace(_cfgFormPick))" @onclick="AddCfgFormAsync">Asociar formulario</button>
+                    }
+                </div>
             </div>
 
             <div class="dg-m-foot">
@@ -630,12 +678,48 @@
     private string _cfgDescription = "";
     private string? _cfgError;
 
+    // ---- Formularios ofrecidos en el modal de tercero (3a columna) ----
+    private IReadOnlyList<TerceroFormLinkDto> _cfgForms = Array.Empty<TerceroFormLinkDto>();
+    private IReadOnlyList<TerceroFormCandidateDto> _cfgFormCandidates = Array.Empty<TerceroFormCandidateDto>();
+    private string _cfgFormPick = "";
+
+    private async Task LoadCfgFormsAsync()
+    {
+        _cfgForms = await FormsSvc.ListAsync();
+        _cfgFormCandidates = await FormsSvc.ListCandidatesAsync();
+        _cfgFormPick = "";
+    }
+
+    private async Task AddCfgFormAsync()
+    {
+        if (!Guid.TryParse(_cfgFormPick, out var defId)) { return; }
+        _busy = true;
+        try
+        {
+            await FormsSvc.AddAsync(defId);
+            await LoadCfgFormsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveCfgFormAsync(Guid linkId)
+    {
+        _busy = true;
+        try
+        {
+            await FormsSvc.RemoveAsync(linkId);
+            await LoadCfgFormsAsync();
+        }
+        finally { _busy = false; }
+    }
+
     private async Task OpenConfigAsync()
     {
         _cfgFicha = FichaCatalog[0].Key;
         ResetCfgForm();
         await FieldSvc.EnsureDefaultsAsync();
         await LoadCfgFieldsAsync();
+        await LoadCfgFormsAsync();
         _cfgOpen = true;
     }
 

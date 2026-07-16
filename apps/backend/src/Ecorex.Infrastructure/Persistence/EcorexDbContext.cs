@@ -201,6 +201,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Tercero> Terceros => Set<Tercero>();
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
+    public DbSet<TerceroFormLink> TerceroFormLinks => Set<TerceroFormLink>();
     public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
     // ---- Gestor de Clientes (000740) ----
     public DbSet<BolsaColumna> BolsaColumnas => Set<BolsaColumna>();
@@ -1585,6 +1586,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Description).HasMaxLength(600);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
+        });
+
+        // Formularios ofrecidos en el modal de tercero (config por tenant desde "Configurar campos").
+        // Solo la CONFIG: las respuestas son FormResponse ancladas por Reference = "TERCERO:{id}".
+        // Restrict: quitar un formulario del modal es una accion explicita, no un efecto de borrar
+        // la definicion del formulario.
+        modelBuilder.Entity<TerceroFormLink>(b =>
+        {
+            b.HasOne(x => x.FormDefinition).WithMany()
+                .HasForeignKey(x => x.FormDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.FormDefinitionId }).IsUnique();
         });
 
         // Notas / gestiones "Contacto cliente" del tercero. Viven y mueren con el tercero (cascade).

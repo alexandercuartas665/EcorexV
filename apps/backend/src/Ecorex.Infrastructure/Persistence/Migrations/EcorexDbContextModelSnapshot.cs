@@ -9435,6 +9435,57 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("tercero_filtros", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroFormLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FormDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_definition_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tercero_form_links");
+
+                    b.HasIndex("FormDefinitionId")
+                        .HasDatabaseName("ix_tercero_form_links_form_definition_id");
+
+                    b.HasIndex("TenantId", "FormDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tercero_form_links_tenant_id_form_definition_id");
+
+                    b.HasIndex("TenantId", "SortOrder")
+                        .HasDatabaseName("ix_tercero_form_links_tenant_id_sort_order");
+
+                    b.ToTable("tercero_form_links", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroNota", b =>
                 {
                     b.Property<Guid>("Id")
@@ -11943,6 +11994,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_tercero_contactos_terceros_tercero_id");
 
                     b.Navigation("Tercero");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TerceroFormLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "FormDefinition")
+                        .WithMany()
+                        .HasForeignKey("FormDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_tercero_form_links_form_definitions_form_definition_id");
+
+                    b.Navigation("FormDefinition");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroNota", b =>

@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-07-16 - Agente: prueba de punta a punta con identidad emitida por la WEB (no por un seeder)
+
+Test corto pedido por el usuario, con una intuicion que resulto correcta: **el modulo de contenedores
+YA emite identidades de agente; no habia nada que construir**.
+
+- `ContenedorDatos.razor` -> detalle del contenedor -> **"Clientes remotos" -> "+ Crear cliente"**: crea
+  el `DataClient` y **revela el secreto UNA sola vez** ("Guarda este secreto ahora: no se vuelve a
+  mostrar") con boton de copiar, mas rotacion y borrado. Es exactamente el flujo que el agente
+  necesita, y estaba hecho desde el modulo web.
+- **Probado de verdad, sin seeders ni endpoints dev de identidad**: en la app local (SKY SYSTEM, Owner
+  `owner@sky-system.local`) se creo el cliente **`cli_22e0790802bb`**; se le paso al agente con
+  `--save-config`; el servicio conecto: *"Conectado a http://localhost:5232/hubs/agente como
+  cli_22e0790802bb. Atendiendo Gateway y Archivos."*
+- **Verificado desde el lado del servidor** (independiente del log del agente): el hub **despacho** una
+  orden a ese ClientId -solo despacha a agentes en linea- y el agente respondio con el
+  `correlationId` correcto (`b2d0055f`). Sin colmena abierta, la respuesta fue el NO explicito del
+  Navegador, que es lo correcto.
+
+**Lo que esto significa para la Ola 4**: el onboarding del agente (emitir identidad desde la web) NO
+es trabajo pendiente. Lo que falta para cerrar el circuito de negocio es `DataConnector.RunsViaAgent`
++ el scheduler + el boton "Refrescar ahora".
+
+**Nota**: corrio contra el Postgres local de Docker (NO prod). Queda en esa BD de dev el cliente
+`cli_22e0790802bb` ("Colmena de prueba"), y su identidad en la boveda de la maquina.
+
+---
+
 ## 2026-07-16 - Agente Conector On-Prem: Ola 5d - instalador (CONSTRUIDO; instalacion sin verificar)
 
 Empaque del agente. **No hay Inno Setup ni WiX en la maquina**, asi que un `.iss` seria codigo que no

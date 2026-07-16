@@ -423,11 +423,12 @@ else
     private string TenantInitial => string.IsNullOrWhiteSpace(_tenantName) ? "E" : _tenantName.Trim()[..1].ToUpperInvariant();
 
     /// <summary>
-    /// Estado inicial (server-side) de cada acordeon de MODULOS: abierto si contiene la ruta
-    /// activa o si es uno de los grupos abiertos por defecto en el fuente (misproc/auto; el
-    /// subgrupo Comercial abre por defecto como en el prototipo). Las rutas de cada grupo se
-    /// derivan del arbol resuelto (Ola 1). El toggle del usuario se persiste en localStorage y
-    /// lo reaplica el script de MainLayout.
+    /// Estado inicial (server-side) de cada acordeon de MODULOS: abierto SOLO si contiene la
+    /// ruta activa, para que el menu arranque cerrado y se vea donde esta uno parado. Antes
+    /// tres grupos (misproc/auto/sg-comercial) abrian siempre, replicando el estado en que el
+    /// prototipo quedo capturado; eso no era una regla, y al entrar llenaba el sidebar de items
+    /// que nadie pidio. Las rutas de cada grupo se derivan del arbol resuelto (Ola 1). El toggle
+    /// del usuario se persiste en localStorage y lo reaplica el script de MainLayout.
     /// </summary>
     private bool IsGroupOpen(string key)
     {
@@ -436,8 +437,7 @@ else
             .TrimEnd('/')
             .ToLowerInvariant();
         var routes = RoutesForSlug(key);
-        var containsActive = routes.Any(r => rel == r || rel.StartsWith(r + "/", StringComparison.Ordinal));
-        return containsActive || key is "misproc" or "auto" or "sg-comercial";
+        return routes.Any(r => rel == r || rel.StartsWith(r + "/", StringComparison.Ordinal));
     }
 
     /// <summary>Rutas hoja bajo la seccion/subgrupo con ese slug (data-acc), derivadas del arbol resuelto.</summary>

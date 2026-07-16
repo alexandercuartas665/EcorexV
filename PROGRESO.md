@@ -40,6 +40,39 @@ registros de este modal, no debemos crear uno nuevo, la idea es reusarlo". Decis
 
 ---
 
+## 2026-07-15 (2) - Cargador: filas abren el modal compartido + oportunidades por tercero
+
+Continuacion del reuso del modal de tercero. Feedback: en Cargador de contactos (000740) las filas
+abrian OTRO modal (la "FICHA DEL CLIENTE" propia `_cm*`, que duplicaba el TerceroModal). Se jubilo.
+
+- **TerceroModal** gana (parametros nuevos): `CrmWiring` (bool) y `OnAddOpportunity`
+  (EventCallback). Con `CrmWiring=true` (solo Cargador) el aside reservado muestra las
+  **oportunidades del tercero** (via `IGestorContactosService.ListOportunidadesByTerceroAsync`),
+  la pestana Contacto Cliente habilita la **fecha de "Proxima atencion"**, y al registrar una nota
+  "Oportunidad"/"Atencion" **crea la oportunidad/cita** (cableado CRM portado del `_cm`). Metodo
+  publico `ReloadOpportunitiesAsync()`. En Directorio General (`CrmWiring=false`) las notas son solo
+  bitacora (sin cambios). Estilos `tm-opp-*` en TerceroModal.razor.css.
+- **GestorContactos**: se elimino el modal `_cm*` (markup + estado + OpenCliente/CloseCliente +
+  AddNota/DeleteNota/ResetNoteForm). `OpenClienteAsync` ahora delega en
+  `_terceroModal.OpenEditAsync(id)`; el componente se cablea con `CrmWiring="true"
+  OnAddOpportunity="OnAddOpportunityFromModal"`; al crear una oportunidad se refresca el aside del
+  modal. Se retiro el kanban por etapa de la pestana Oportunidades (con su drag&drop).
+- **Pestana Oportunidades agrupada por tercero** (item del usuario): la vista "Por cliente" lista
+  un grupo por tercero (avatar, nombre, N oportunidades, valor total) con sus oportunidades y chips
+  de etapa; el encabezado del grupo abre el MISMO modal compartido. Toggle "Por cliente / Tabla".
+  Estilos `gc-opp-*` en GestorContactos.razor.css.
+- **Validado en Chrome (local 5253, Owner)**: pestana Oportunidades agrupa (ANDINA 4 opps $108.2M,
+  INGETEL, Produvarios, Maria Fernanda); abrir el grupo ANDINA abre "EDITAR TERCERO" in-place con el
+  aside "Oportunidades 4 abiertas $108,200,000" + "Agregar oportunidad". Build 0 errores.
+- **Pendiente (item 2, proxima ola)**: formularios elegibles en la 3a columna del modal. Diseno
+  confirmado por el usuario = **"varios formularios elegibles"**. Plan (segun mapeo del sistema de
+  formularios): reusar `DynamicFormRenderer` con `Reference="TERCERO:{id}"` (NO hay FK response->tercero;
+  el patron form-first ya ancla por `Reference`), + tabla pequena de CONFIG (que formularios se
+  ofrecen por tenant) + migracion dual PG/SQL Server + seccion en "Configurar campos" + render en el
+  modal. NO desplegado a prod (espera confirmacion).
+
+---
+
 ## 2026-07-14 - Tareas de proceso: Ola 0 (decisiones) + Ola A1 (encargado del primer nodo)
 
 Capitulo nuevo en el vault: `01. Requerimiento/Capa 2 Tareas y Proyectos/Tareas de proceso -

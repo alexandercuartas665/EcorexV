@@ -323,11 +323,11 @@
                     <div class="gc-panel-head">
                         <div>
                             <div class="gc-panel-title">Pipeline de oportunidades</div>
-                            <div class="gc-panel-sub">Arrastra las oportunidades entre etapas &#183; <b style="color:var(--t-green)">@Money(NegociacionTotal)</b> en negociacion</div>
+                            <div class="gc-panel-sub">Agrupadas por cliente &#183; <b style="color:var(--t-green)">@Money(NegociacionTotal)</b> en negociacion</div>
                         </div>
                         <div class="gc-panel-actions">
                             <div class="gc-toggle">
-                                <button class="@(!_oppTabla ? "active" : "")" @onclick="() => _oppTabla = false" title="Tarjetas">Tarjetas</button>
+                                <button class="@(!_oppTabla ? "active" : "")" @onclick="() => _oppTabla = false" title="Por cliente">Por cliente</button>
                                 <button class="@(_oppTabla ? "active" : "")" @onclick="() => _oppTabla = true" title="Tabla">Tabla</button>
                             </div>
                             <button class="gc-btn-brand" @onclick="() => OpenOpp(null, null, null)">
@@ -383,51 +383,49 @@
                     }
                     else
                     {
-                        <div class="gc-board-scroll">
-                            <div class="gc-board wide">
-                                @foreach (var et in EtapasBoard)
+                        @* Agrupadas por tercero/contacto: cada grupo abre el MISMO modal de tercero
+                           compartido (TerceroModal) que muestra sus oportunidades en el aside. *@
+                        @if (_oportunidades.Count == 0)
+                        {
+                            <div class="gc-empty-note" style="padding:22px 18px">Sin oportunidades registradas.</div>
+                        }
+                        else
+                        {
+                            <div class="gc-opp-groups">
+                                @foreach (var g in _oportunidades.GroupBy(o => o.TerceroId).OrderByDescending(g => g.Sum(o => o.Valor)))
                                 {
-                                    var etv = et;
-                                    var oi = EtapaInfo(etv);
-                                    var cards = _oportunidades.Where(o => o.Etapa == etv).ToList();
-                                    <div class="gc-col" @ondragover:preventDefault="true" @ondrop="() => OnDropOppAsync(etv)">
-                                        <div class="gc-col-head">
-                                            <span class="gc-col-dot" style="background:@ColorVar(oi.Color)"></span>
-                                            <span class="gc-col-name">@EtapaLabel(etv)</span>
-                                            <span class="gc-col-count">@cards.Count</span>
+                                    var gg = g;
+                                    var nombre = gg.First().TerceroNombre;
+                                    var count = gg.Count();
+                                    <div class="gc-opp-group">
+                                        <div class="gc-opp-group-head" @onclick="() => OpenClienteAsync(gg.Key)" title="Abrir ficha del cliente">
+                                            <span class="gc-av" style="background:@AvatarColor(nombre)">@Initials(nombre)</span>
+                                            <div style="flex:1;min-width:0">
+                                                <div class="gc-opp-group-name">@nombre</div>
+                                                <div class="gc-opp-group-sub">@count oportunidad@(count == 1 ? "" : "es")</div>
+                                            </div>
+                                            <span class="gc-money">@Money(gg.Sum(o => o.Valor))</span>
+                                            <svg class="gc-opp-group-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
                                         </div>
-                                        @if (cards.Sum(c => c.Valor) > 0)
-                                        {
-                                            <div class="gc-col-sum">@Money(cards.Sum(c => c.Valor))</div>
-                                        }
-                                        <div class="gc-col-body">
-                                            @foreach (var c in cards)
+                                        <div class="gc-opp-group-body">
+                                            @foreach (var o in gg.OrderBy(o => o.Etapa))
                                             {
-                                                var cc = c;
-                                                <div class="gc-opp-card" draggable="true"
-                                                     style="border-left:3px solid @ColorVar(oi.Color)"
-                                                     @ondragstart="() => _dragOppId = cc.Id"
-                                                     @ondragend="() => _dragOppId = null">
-                                                    <div class="gc-cell-title">@cc.Nombre</div>
-                                                    <div class="gc-opp-cli">
-                                                        <span class="gc-av xs" style="background:@AvatarColor(cc.TerceroNombre)">@Initials(cc.TerceroNombre)</span>
-                                                        <span class="gc-cell-sub">@cc.TerceroNombre</span>
-                                                    </div>
-                                                    <div class="gc-opp-foot">
-                                                        <span class="gc-cell-sub">@(string.IsNullOrWhiteSpace(cc.Responsable) ? "-" : cc.Responsable)</span>
-                                                        @if (cc.Valor > 0)
-                                                        {
-                                                            <span class="gc-money">@Money(cc.Valor)</span>
-                                                        }
-                                                    </div>
+                                                var oo = o;
+                                                var oi = EtapaInfo(oo.Etapa);
+                                                <div class="gc-opp-line">
+                                                    <span class="gc-etapa" style="background:var(@oi.Bg);color:var(@oi.Color)">@EtapaLabel(oo.Etapa)</span>
+                                                    <span class="gc-opp-line-name">@oo.Nombre</span>
+                                                    @if (oo.Valor > 0) { <span class="gc-money">@Money(oo.Valor)</span> }
+                                                    <button class="gc-icon-btn del" title="Eliminar" @onclick="() => DeleteOportunidadAsync(oo.Id)" @onclick:stopPropagation="true" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                                    </button>
                                                 </div>
                                             }
                                         </div>
-                                        <button class="gc-add-row sm" @onclick="() => OpenOpp(null, null, etv)">+ Oportunidad</button>
                                     </div>
                                 }
                             </div>
-                        </div>
+                        }
                     }
                 </div>
             }
@@ -772,171 +770,10 @@
     </div>
 }
 
-@* ============ MODAL: ficha del cliente ============ *@
-@if (_cmOpen)
-{
-    <div class="gc-overlay" @onclick="CloseCliente">
-        <div class="gc-modal lg" @onclick:stopPropagation="true">
-            <div class="gc-m-head">
-                <span class="gc-m-av" style="background:@AvatarColor(_cmNombre)">@Initials(_cmNombre)</span>
-                <div style="flex:1;min-width:0">
-                    <div class="gc-m-kicker">FICHA DEL CLIENTE</div>
-                    <div class="gc-m-title">@_cmNombre</div>
-                </div>
-                <button class="gc-close" @onclick="CloseCliente">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-            </div>
-
-            <div class="gc-m-tabs">
-                <button class="gc-m-tab @(_cmTab == "datos" ? "active" : "")" @onclick='() => _cmTab = "datos"'>Datos</button>
-                <button class="gc-m-tab @(_cmTab == "rel" ? "active" : "")" @onclick='() => _cmTab = "rel"'>Relaciones</button>
-                <button class="gc-m-tab @(_cmTab == "notas" ? "active" : "")" @onclick='() => _cmTab = "notas"'>Contacto Cliente</button>
-                <button class="gc-m-tab @(_cmTab == "acts" ? "active" : "")" @onclick='() => _cmTab = "acts"'>Actividades</button>
-            </div>
-
-            <div class="gc-cm-body">
-                <div class="gc-cm-main">
-                    @if (_cmTab == "datos")
-                    {
-                        @if (_cmDetail is null)
-                        {
-                            <div class="gc-empty-note">No se pudo cargar la ficha.</div>
-                        }
-                        else
-                        {
-                            <div class="gc-data-grid">
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Tipo</span><span class="gc-data-val">@(_cmDetail.EsEmpresa ? "Empresa" : "Persona")</span></div>
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Identificacion</span><span class="gc-data-val">@_cmDetail.Identificacion</span></div>
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Ciudad</span><span class="gc-data-val">@(string.IsNullOrWhiteSpace(_cmDetail.Ciudad) ? "-" : _cmDetail.Ciudad)</span></div>
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Vendedor</span><span class="gc-data-val">@(string.IsNullOrWhiteSpace(_cmDetail.Vendedor) ? "-" : _cmDetail.Vendedor)</span></div>
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Correo</span><span class="gc-data-val">@(string.IsNullOrWhiteSpace(_cmDetail.Email) ? "-" : _cmDetail.Email)</span></div>
-                                <div class="gc-data-cell"><span class="gc-data-lbl">Telefono</span><span class="gc-data-val">@(string.IsNullOrWhiteSpace(_cmDetail.Telefono) ? "-" : _cmDetail.Telefono)</span></div>
-                            </div>
-                            <div class="gc-data-note">Los datos completos y la edicion se gestionan en el Directorio General (000232).</div>
-                        }
-                    }
-                    else if (_cmTab == "notas")
-                    {
-                        <div class="gc-notas">
-                            <div class="gc-note-new">
-                                <div class="gc-note-chips">
-                                    @foreach (var a in NoteAcciones)
-                                    {
-                                        var ai = AccionInfo(a);
-                                        var av = a;
-                                        <button class="gc-note-chip @(_noteAccion == av ? "on" : "")"
-                                                style="@(_noteAccion == av ? $"border-color:var({ai.Color});background:var({ai.Bg});color:var({ai.Color})" : "")"
-                                                @onclick="() => _noteAccion = av">@ai.Label</button>
-                                    }
-                                </div>
-                                <div class="gc-note-meta">
-                                    <input class="gc-input" placeholder="Categoria" value="@_noteCategoria" @oninput="e => _noteCategoria = e.Value?.ToString() ?? string.Empty" />
-                                    <input class="gc-input" placeholder="Sub-categoria" value="@_noteSubcategoria" @oninput="e => _noteSubcategoria = e.Value?.ToString() ?? string.Empty" />
-                                </div>
-                                @if (_noteAccion == "Atencion")
-                                {
-                                    <label class="gc-flabel mt">FECHA DE LA PROXIMA ATENCION</label>
-                                    <input class="gc-input" type="date" value="@_noteFecha.ToString("yyyy-MM-dd")" @onchange="e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) _noteFecha = d; }" />
-                                }
-                                <textarea class="gc-input gc-textarea" placeholder="@AccionPlaceholder(_noteAccion)" value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
-                                @if (_noteError is not null)
-                                {
-                                    <div class="gc-note-err">@_noteError</div>
-                                }
-                                <div class="gc-note-actions">
-                                    <button class="gc-btn-brand" @onclick="AddNotaAsync" disabled="@_busy">Registrar @(AccionInfo(_noteAccion).Label)</button>
-                                </div>
-                            </div>
-
-                            @if (_cmNotas.Count == 0)
-                            {
-                                <div class="gc-empty-note">Sin gestiones registradas todavia.</div>
-                            }
-                            else
-                            {
-                                <div class="gc-note-list">
-                                    @foreach (var n in _cmNotas)
-                                    {
-                                        var ni = AccionInfo(n.Accion);
-                                        <div class="gc-note-item">
-                                            <div class="gc-note-item-head">
-                                                <span class="gc-note-tag" style="background:var(@ni.Bg);color:var(@ni.Color)">@ni.Label</span>
-                                                @if (!string.IsNullOrWhiteSpace(n.Categoria))
-                                                {
-                                                    <span class="gc-note-cat">@n.Categoria@(string.IsNullOrWhiteSpace(n.Subcategoria) ? "" : " / " + n.Subcategoria)</span>
-                                                }
-                                                <span class="gc-note-date">@n.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
-                                                <button class="gc-icon-btn del" title="Eliminar" @onclick="() => DeleteNotaAsync(n.Id)" disabled="@_busy">
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                                                </button>
-                                            </div>
-                                            <div class="gc-note-text">@n.Texto</div>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="gc-ph">
-                            <div>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>
-                                <h4>@(_cmTab == "rel" ? "Relaciones" : "Actividades")</h4>
-                                <p>Gestiona en Directorio General (000232).</p>
-                            </div>
-                        </div>
-                    }
-                </div>
-
-                @* ---- Aside: oportunidades abiertas del tercero ---- *@
-                <aside class="gc-cm-aside">
-                    <div class="gc-aside-head">
-                        <span class="gc-aside-lbl">OPORTUNIDADES</span>
-                        <span class="gc-aside-count">@_cmOpps.Count</span>
-                    </div>
-                    <div class="gc-aside-total">
-                        <div class="gc-aside-total-lbl">VALOR TOTAL</div>
-                        <div class="gc-aside-total-val">@Money(_cmOpps.Sum(o => o.Valor))</div>
-                    </div>
-                    <div class="gc-aside-list">
-                        @if (_cmOpps.Count == 0)
-                        {
-                            <div class="gc-empty-note">Sin oportunidades abiertas.</div>
-                        }
-                        @foreach (var o in _cmOpps)
-                        {
-                            var oi = EtapaInfo(o.Etapa);
-                            <div class="gc-aside-opp">
-                                <div class="gc-aside-opp-name">@o.Nombre</div>
-                                <div class="gc-aside-opp-foot">
-                                    <span class="gc-etapa" style="background:var(@oi.Bg);color:var(@oi.Color)">@EtapaLabel(o.Etapa)</span>
-                                    <span class="gc-money">@Money(o.Valor)</span>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                    <button class="gc-add-row" @onclick="() => OpenOpp(_cmTerceroId, _cmNombre, null)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                        Agregar oportunidad
-                    </button>
-                </aside>
-            </div>
-
-            <div class="gc-m-foot">
-                <span class="gc-foot-note">Notas y oportunidades se guardan al registrarlas.</span>
-                <div class="gc-foot-actions">
-                    <button class="gc-btn-ghost" @onclick="CloseCliente">Cerrar</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
 
 @* Nuevo contacto: reusa EL MISMO modal de tercero de Directorio General (un contacto ES un
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
-<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" />
+<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" OnAddOpportunity="OnAddOpportunityFromModal" />
 
 @code {
     private enum Tab { Prospectos, Bolsa, Oportunidades, Agenda }
@@ -979,7 +816,6 @@
     private bool _oppTabla;
     private bool _oppShowResp = true;
     private bool _oppShowValor = true;
-    private Guid? _dragOppId;
 
     // Agenda
     private static readonly string[] Weekdays = { "Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom" };
@@ -1044,15 +880,6 @@
 
     // ================= OPORTUNIDADES =================
     private decimal NegociacionTotal => _oportunidades.Where(o => o.Etapa == OportunidadEtapa.Negociacion).Sum(o => o.Valor);
-
-    private async Task OnDropOppAsync(OportunidadEtapa etapa)
-    {
-        if (_dragOppId is not Guid oid) { return; }
-        _dragOppId = null;
-        var opp = _oportunidades.FirstOrDefault(o => o.Id == oid);
-        if (opp is null || opp.Etapa == etapa) { return; }
-        await MoverEtapaAsync(oid, etapa);
-    }
 
     private async Task MoverEtapaAsync(Guid id, OportunidadEtapa etapa)
     {
@@ -1288,11 +1115,13 @@
         _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
         _bolsa = (await GestorSvc.ListBolsaAsync()).ToList();
         _kpis = await GestorSvc.GetKpisAsync();
-        if (_cmOpen && _cmTerceroId == tid)
-        {
-            _cmOpps = (await GestorSvc.ListOportunidadesByTerceroAsync(tid)).ToList();
-        }
+        // Refresca las oportunidades dentro del modal de tercero compartido (si esta abierto en ese tercero).
+        if (_terceroModal is not null) { await _terceroModal.ReloadOpportunitiesAsync(); }
     }
+
+    // El aside del modal compartido pide "Agregar oportunidad" -> abre el compositor de oportunidad.
+    private void OnAddOpportunityFromModal((Guid TerceroId, string Nombre) req)
+        => OpenOpp(req.TerceroId, req.Nombre, null);
 
     // ================= CITA (alta) =================
     private bool _citaOpen;
@@ -1346,97 +1175,14 @@
         return new DateTimeOffset(dt, DateTimeOffset.Now.Offset).ToUniversalTime();
     }
 
-    // ================= FICHA DEL CLIENTE (modal) =================
-    private bool _cmOpen;
-    private Guid _cmTerceroId;
-    private string _cmNombre = "";
-    private string _cmTab = "datos";
-    private TerceroDetailDto? _cmDetail;
-    private List<OportunidadDto> _cmOpps = new();
-    private List<TerceroNotaDto> _cmNotas = new();
 
-    private static readonly string[] NoteAcciones = { "Nota", "Oportunidad", "Solicitud", "Actividad", "PQR", "Atencion" };
-    private string _noteText = "";
-    private string _noteAccion = "Nota";
-    private string _noteCategoria = "";
-    private string _noteSubcategoria = "";
-    private DateTime _noteFecha = DateTime.Today.AddDays(1);
-    private string? _noteError;
-
+    // ================= FICHA DEL CLIENTE =================
+    // Las filas del Cargador abren el MISMO modal de tercero compartido (TerceroModal) en modo
+    // edicion; un contacto ES un cliente. La ficha propia (_cm*) fue retirada para no duplicar
+    // (notas, oportunidades y cableado CRM viven ahora en TerceroModal con CrmWiring=true).
     private async Task OpenClienteAsync(Guid terceroId)
     {
-        _cmTerceroId = terceroId;
-        _cmDetail = await TerceroSvc.GetAsync(terceroId);
-        _cmNombre = _cmDetail?.Nombre ?? "Cliente";
-        _cmOpps = (await GestorSvc.ListOportunidadesByTerceroAsync(terceroId)).ToList();
-        _cmNotas = (await TerceroSvc.ListNotasAsync(terceroId)).ToList();
-        _cmTab = "datos";
-        ResetNoteForm();
-        _cmOpen = true;
-    }
-
-    private void CloseCliente()
-    {
-        _cmOpen = false;
-        _cmDetail = null;
-    }
-
-    private void ResetNoteForm()
-    {
-        _noteText = "";
-        _noteAccion = "Nota";
-        _noteCategoria = "";
-        _noteSubcategoria = "";
-        _noteFecha = DateTime.Today.AddDays(1);
-        _noteError = null;
-    }
-
-    private async Task AddNotaAsync()
-    {
-        _noteError = null;
-        var texto = _noteText.Trim();
-        if (texto.Length == 0)
-        {
-            _noteError = "Escribe la gestion antes de registrarla.";
-            return;
-        }
-        _busy = true;
-        // 1) Siempre guarda la nota en la bitacora del tercero.
-        var req = new SaveNotaRequest(texto, _noteAccion, Blank(_noteCategoria), Blank(_noteSubcategoria));
-        var res = await TerceroSvc.AddNotaAsync(_cmTerceroId, req);
-        if (!res.IsOk)
-        {
-            _busy = false;
-            _noteError = res.Error;
-            return;
-        }
-        // 2) Cableado extra segun la accion.
-        if (_noteAccion == "Oportunidad")
-        {
-            await GestorSvc.CreateOportunidadAsync(_cmTerceroId,
-                new SaveOportunidadRequest(texto, OportunidadEtapa.Nueva));
-            _cmOpps = (await GestorSvc.ListOportunidadesByTerceroAsync(_cmTerceroId)).ToList();
-            _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
-            _kpis = await GestorSvc.GetKpisAsync();
-        }
-        else if (_noteAccion == "Atencion")
-        {
-            var inicio = CombineInicio(_noteFecha, "09:00");
-            await GestorSvc.CreateCitaAsync(
-                new SaveCitaRequest(_cmTerceroId, null, texto, CitaTipo.Reunion, inicio, 60));
-            _citas = (await GestorSvc.ListCitasAsync(_agAnio, _agMes)).ToList();
-        }
-        _busy = false;
-        _noteText = "";
-        _cmNotas = (await TerceroSvc.ListNotasAsync(_cmTerceroId)).ToList();
-    }
-
-    private async Task DeleteNotaAsync(Guid notaId)
-    {
-        _busy = true;
-        await TerceroSvc.DeleteNotaAsync(notaId);
-        _busy = false;
-        _cmNotas = (await TerceroSvc.ListNotasAsync(_cmTerceroId)).ToList();
+        if (_terceroModal is not null) { await _terceroModal.OpenEditAsync(terceroId); }
     }
 
     // ================= HELPERS =================
@@ -1515,26 +1261,6 @@
         "calificado" => new("Calificado", "--t-green", "--t-green-bg"),
         "nuevo" => new("Nuevo", "--t-blue", "--t-blue-bg"),
         _ => new(badge ?? "", "--t-slate", "--t-slate-bg")
-    };
-
-    private static TagInfo AccionInfo(string accion) => accion switch
-    {
-        "Oportunidad" => new("Oportunidad", "--t-violet", "--t-violet-bg"),
-        "Solicitud" => new("Solicitud", "--t-blue", "--t-blue-bg"),
-        "Actividad" => new("Actividad", "--t-green", "--t-green-bg"),
-        "PQR" => new("PQR", "--t-amber", "--t-amber-bg"),
-        "Atencion" => new("Proxima atencion", "--t-rose", "--t-rose-bg"),
-        _ => new("Nota", "--t-slate", "--t-slate-bg")
-    };
-
-    private static string AccionPlaceholder(string accion) => accion switch
-    {
-        "Oportunidad" => "Describe la oportunidad de negocio detectada...",
-        "Solicitud" => "Detalla la solicitud del cliente...",
-        "Actividad" => "Describe la actividad a realizar...",
-        "PQR" => "Registra la peticion, queja o reclamo...",
-        "Atencion" => "Programa la proxima atencion al cliente...",
-        _ => "Describe la gestion realizada con el contacto..."
     };
 
     // Color de columna: acepta token CSS (--t-...) o hex; devuelve un valor css usable.

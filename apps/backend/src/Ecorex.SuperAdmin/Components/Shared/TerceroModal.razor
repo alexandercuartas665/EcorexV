@@ -6,12 +6,15 @@
    propia lista al recibir OnChanged. Estilos scoped en TerceroModal.razor.css (copia de los dg-*
    del Directorio para fidelidad milimetrica). Solo ASCII. *@
 @using System.Text.Json
+@using System.Globalization
 @using Ecorex.Application.Directorio
+@using Ecorex.Application.Gestor
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
+@inject IGestorContactosService GestorSvc
 @inject ICurrentPermissions Perms
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
@@ -370,6 +373,11 @@
                                         <input class="dg-input" placeholder="Categoria (ej. Comercial)" value="@_noteCategoria" @oninput="e => _noteCategoria = e.Value?.ToString() ?? string.Empty" />
                                         <input class="dg-input" placeholder="Sub-categoria (ej. Llamada)" value="@_noteSubcategoria" @oninput="e => _noteSubcategoria = e.Value?.ToString() ?? string.Empty" />
                                     </div>
+                                    @if (CrmWiring && _noteAccion == "Atencion")
+                                    {
+                                        <label class="dg-flabel">FECHA DE LA PROXIMA ATENCION</label>
+                                        <input class="dg-input" type="date" value="@_noteFecha.ToString("yyyy-MM-dd")" @onchange="e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { _noteFecha = d; } }" />
+                                    }
                                     <textarea class="dg-input dg-textarea" placeholder="@AccionPlaceholder(_noteAccion)" value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
                                     @if (_noteError is not null)
                                     {
@@ -429,16 +437,56 @@
                 @if (_mTab == "datos")
                 {
                     <aside class="dg-prosp">
-                        <div class="dg-prosp-head">
-                            <span class="dg-prosp-ic">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
-                            </span>
-                            <div>
-                                <div class="dg-prosp-t">Prospecto de cliente</div>
-                                <div class="dg-prosp-s">Oportunidad de negocio</div>
+                        @if (CrmWiring && _editingId is not null)
+                        {
+                            @* ---- Oportunidades del tercero (Cargador de contactos 000740) ---- *@
+                            <div class="dg-prosp-head">
+                                <span class="dg-prosp-ic">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
+                                </span>
+                                <div style="flex:1;min-width:0">
+                                    <div class="dg-prosp-t">Oportunidades</div>
+                                    <div class="dg-prosp-s">@_opps.Count abiertas &#183; @MoneyFmt(_opps.Sum(o => o.Valor))</div>
+                                </div>
                             </div>
-                        </div>
-                        <p class="dg-aside-note">El panel de prospecto / oportunidad (nivel de interes, etapa, probabilidad, presupuesto y proxima accion) se habilitara en una proxima iteracion. Los datos y las fichas del tercero se guardan con el boton Guardar.</p>
+                            @if (_opps.Count == 0)
+                            {
+                                <div class="dg-empty-note">Sin oportunidades abiertas.</div>
+                            }
+                            else
+                            {
+                                <div class="tm-opp-list">
+                                    @foreach (var o in _opps)
+                                    {
+                                        var oi = EtapaInfo(o.Etapa);
+                                        <div class="tm-opp">
+                                            <div class="tm-opp-name">@o.Nombre</div>
+                                            <div class="tm-opp-foot">
+                                                <span class="tm-etapa" style="background:var(@oi.Bg);color:var(@oi.Color)">@EtapaLabel(o.Etapa)</span>
+                                                <span class="dg-money">@MoneyFmt(o.Valor)</span>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            <button class="dg-kids-add" style="margin-top:10px;width:100%;justify-content:center" @onclick="RequestAddOpportunityAsync">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                Agregar oportunidad
+                            </button>
+                        }
+                        else
+                        {
+                            <div class="dg-prosp-head">
+                                <span class="dg-prosp-ic">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 19-9-9 19-2-8-8-2z" /></svg>
+                                </span>
+                                <div>
+                                    <div class="dg-prosp-t">Prospecto de cliente</div>
+                                    <div class="dg-prosp-s">Oportunidad de negocio</div>
+                                </div>
+                            </div>
+                            <p class="dg-aside-note">Las oportunidades del tercero se muestran aqui cuando se abre un cliente desde el Cargador de contactos (000740). Los datos y las fichas del tercero se guardan con el boton Guardar.</p>
+                        }
                     </aside>
                 }
             </div>
@@ -466,10 +514,21 @@
 
 @code {
     /// <summary>Se dispara tras cualquier cambio persistente (crear/editar tercero, alta/baja de
-    /// contacto de relacion) para que el host refresque su lista/contadores.</summary>
+    /// contacto de relacion, nota que crea cita/oportunidad) para que el host refresque su lista.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
 
+    /// <summary>Cuando true (Cargador de contactos 000740) habilita el cableado CRM: muestra las
+    /// oportunidades del tercero en el aside, la fecha de "Proxima atencion" y crea cita/oportunidad
+    /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
+    [Parameter] public bool CrmWiring { get; set; }
+
+    /// <summary>Se dispara cuando el usuario pide agregar una oportunidad desde el aside del modal;
+    /// el host abre su propio compositor. Entrega (terceroId, nombre del tercero).</summary>
+    [Parameter] public EventCallback<(Guid TerceroId, string Nombre)> OnAddOpportunity { get; set; }
+
     private bool _busy;
+    private DateTime _noteFecha = DateTime.Today.AddDays(1);
+    private List<OportunidadDto> _opps = new();
 
     // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
     private bool _canCrearEmpresa = true;
@@ -581,6 +640,7 @@
         await LoadFichaFieldsAsync();
         _relContactos = Array.Empty<TerceroContactoDto>();
         _notas = Array.Empty<TerceroNotaDto>();
+        _opps = new();
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
@@ -621,10 +681,26 @@
         }
         _relContactos = await TerceroSvc.ListContactosAsync(id);
         _notas = await TerceroSvc.ListNotasAsync(id);
+        _opps = CrmWiring ? (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList() : new();
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
         StateHasChanged();
+    }
+
+    /// <summary>Recarga las oportunidades del tercero en edicion (el host la llama tras crear una).</summary>
+    public async Task ReloadOpportunitiesAsync()
+    {
+        if (CrmWiring && _editingId is Guid id)
+        {
+            _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList();
+            StateHasChanged();
+        }
+    }
+
+    private async Task RequestAddOpportunityAsync()
+    {
+        if (_editingId is Guid id) { await OnAddOpportunity.InvokeAsync((id, _mNombre)); }
     }
 
     private void CloseModal()
@@ -815,7 +891,39 @@
         _noteAccion = "Nota";
         _noteCategoria = "";
         _noteSubcategoria = "";
+        _noteFecha = DateTime.Today.AddDays(1);
         _noteError = null;
+    }
+
+    // ---- Oportunidades (presentacion; el CRM es IGestorContactosService) ----
+    private static string MoneyFmt(decimal v)
+        => "$ " + v.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string EtapaLabel(OportunidadEtapa e) => e switch
+    {
+        OportunidadEtapa.Nueva => "Nueva",
+        OportunidadEtapa.Calificada => "Calificada",
+        OportunidadEtapa.Propuesta => "Propuesta",
+        OportunidadEtapa.Negociacion => "Negociacion",
+        OportunidadEtapa.Ganada => "Ganada",
+        _ => "Perdida"
+    };
+
+    private static TagInfo EtapaInfo(OportunidadEtapa e) => e switch
+    {
+        OportunidadEtapa.Nueva => new("Nueva", "--t-slate", "--t-slate-bg"),
+        OportunidadEtapa.Calificada => new("Calificada", "--t-blue", "--t-blue-bg"),
+        OportunidadEtapa.Propuesta => new("Propuesta", "--t-amber", "--t-amber-bg"),
+        OportunidadEtapa.Negociacion => new("Negociacion", "--t-violet", "--t-violet-bg"),
+        OportunidadEtapa.Ganada => new("Ganada", "--t-green", "--t-green-bg"),
+        _ => new("Perdida", "--t-rose", "--t-rose-bg")
+    };
+
+    private static DateTimeOffset CombineInicio(DateTime fecha, string hora)
+    {
+        var t = TimeSpan.TryParse(hora, out var ts) ? ts : new TimeSpan(9, 0, 0);
+        var dt = fecha.Date + t;
+        return new DateTimeOffset(dt, DateTimeOffset.Now.Offset).ToUniversalTime();
     }
 
     private async Task AddNotaAsync()
@@ -830,15 +938,28 @@
         }
         var req = new SaveNotaRequest(texto, _noteAccion, Blank(_noteCategoria), Blank(_noteSubcategoria));
         _busy = true;
+        // 1) Siempre guarda la nota en la bitacora del tercero.
         var res = await TerceroSvc.AddNotaAsync(id, req);
-        _busy = false;
         if (!res.IsOk)
         {
+            _busy = false;
             _noteError = res.Error;
             return;
         }
+        // 2) Cableado CRM (solo Cargador de contactos): la accion crea la entidad correspondiente.
+        if (CrmWiring && _noteAccion == "Oportunidad")
+        {
+            await GestorSvc.CreateOportunidadAsync(id, new SaveOportunidadRequest(texto, OportunidadEtapa.Nueva));
+            _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList();
+        }
+        else if (CrmWiring && _noteAccion == "Atencion")
+        {
+            await GestorSvc.CreateCitaAsync(new SaveCitaRequest(id, null, texto, CitaTipo.Reunion, CombineInicio(_noteFecha, "09:00"), 60));
+        }
+        _busy = false;
         _noteText = "";
         _notas = await TerceroSvc.ListNotasAsync(id);
+        if (CrmWiring) { await OnChanged.InvokeAsync(); }
     }
 
     private async Task DeleteNotaAsync(Guid notaId)

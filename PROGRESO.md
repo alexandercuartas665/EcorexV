@@ -4256,6 +4256,23 @@ inactivos y filas de prueba): correo = login, clave = `ID_USUARIO` (cedula), rol
   retiro `crear-actividad`, el subgrupo `sg-comercial` y `Actividades` en TODOS los tenants. Verificado:
   los 7 tenants tienen 64 nodos, consistentes.
 
+**CORRECCION IMPORTANTE - SOLDARCO NO sale de db3dev (2026-07-14):** el cargue de 25 usuarios desde
+db3dev sucursal 02 fue del **SERVIDOR EQUIVOCADO**. SOLDARCO tiene su propio servidor:
+`192.168.0.8` / BD **`M700_GEN`** / tabla `USUARIO` (alli SOLDARCO es la sucursal `01`). La cadena de
+conexion NO va al repo (dato del usuario, fuera de control de versiones).
+Se rehizo el padron en UNA transaccion (backup `ecorex-2026-07-16-0858.sql.gz` antes):
+1. Se verifico primero que los 25 usuarios viejos NO tenian datos asociados (0 filas en las 8 tablas
+   con FK a `tenant_users`: notifications, task_items, assignments, work_logs, projects, etc.).
+2. Se borraron sus 25 membresias + sus 25 `platform_users` **huerfanos** (solo los que no quedaban en
+   ninguna otra empresa y sin `platform_role`), para no tocar a nadie de otro tenant. Huerfanos = 0 al final.
+3. Se cargaron los **19** del padron correcto (Owner + menu Completo). De 25 filas origen: 19 creadas y
+   6 imposibles (sin correo NI cedula: no hay login ni clave). Decisiones del usuario: `almacen@` para
+   Vallejo (Wilson Mejia -> login por cedula); Hector F. Brinez tenia el correo invertido
+   (`soldarco@comercial6`) -> login por cedula; DTRUESTAR (externo, NIT) se creo igual.
+4. `acuartas@bitcode.com.co` YA existia (BITCODE): no se duplico, se **vinculo** el mismo platform_user
+   a SOLDARCO -> primer caso real de multi-tenant (1 usuario en 2 empresas). Conserva su clave.
+BITCODE quedo intacto (13 usuarios).
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)

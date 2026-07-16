@@ -38,6 +38,33 @@ public class DataContainer : TenantEntity
     /// <summary>Campo (tipo Submodel) del padre que ancla este sub-contenedor; null si es raiz.</summary>
     public Guid? ParentFieldId { get; set; }
 
+    // ---- Publicacion como modulo del menu (gestion de registros por el usuario final) ----
+    // Espeja el patron ya probado de FormDefinition.IsModule/ModuleMenuNodeId, con dos correcciones:
+    // (1) la RUTA es INMUTABLE una vez publicada (la clave del modulo en la matriz de roles ES el
+    // Route, ver RolService.GetModuleCatalogAsync: renombrar la tabla NO debe romper los permisos
+    // que los roles ya asignaron); (2) al renombrar se reconcilia el NOMBRE del nodo. Solo se
+    // publican tablas RAIZ (ParentContainerId == null): los submodelos se editan dentro de su fila
+    // padre. Publicada => ModuleRoute y MenuNodeId no nulos.
+
+    /// <summary>Ruta del modulo publicado (ej. "dc/clientes"). INMUTABLE: se congela al publicar y
+    /// sobrevive a los renombres de la tabla, porque es la clave del modulo en la matriz de roles.
+    /// Null = la tabla nunca se ha publicado. Unica por tenant.</summary>
+    public string? ModuleRoute { get; set; }
+
+    /// <summary>Nodo de menu creado al publicar; null si no esta publicada.</summary>
+    public Guid? MenuNodeId { get; set; }
+    public MenuNode? MenuNode { get; set; }
+
+    /// <summary>Clave del icono del item de menu (ej. "cube"); la UI la mapea al SVG. No es el SVG.</summary>
+    public string? ModuleIcon { get; set; }
+
+    /// <summary>JSON: array de Ids de columna a mostrar como columnas de la grilla del modulo.
+    /// Null/vacio = se muestran todas las columnas escalares.</summary>
+    public string? ListColumnsJson { get; set; }
+
+    /// <summary>JSON: array de Ids de columna que se ofrecen como filtro en el modulo.</summary>
+    public string? FilterColumnsJson { get; set; }
+
     public ICollection<DataContainerColumn> Columns { get; set; } = new List<DataContainerColumn>();
     public ICollection<DataContainerRow> Rows { get; set; } = new List<DataContainerRow>();
 }

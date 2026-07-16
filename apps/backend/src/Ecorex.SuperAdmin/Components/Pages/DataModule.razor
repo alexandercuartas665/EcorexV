@@ -53,25 +53,16 @@ else
         <span class="cur">@_module.ContainerName</span>
     </nav>
 
-    <div class="dm-wrap">
-        <div class="dm-head">
-            <div>
-                <div class="dm-eyebrow">CONTENEDOR DE DATOS &#183; REGISTROS</div>
-                <h1 class="dm-title">@_module.ContainerName</h1>
-            </div>
-        </div>
-
-        <div class="dm-panel">
-            <DataRecordsGrid ContainerId="@_module.ContainerId"
-                             ActorUserId="@_actor"
-                             CanCreate="@_canCreate"
-                             CanEdit="@_canEdit"
-                             CanDelete="@_canDelete"
-                             ListColumnIds="@_module.ListColumnIds"
-                             FilterColumnIds="@_module.FilterColumnIds"
-                             EmptyText="Sin registros todavia." />
-        </div>
-    </div>
+    @* El board trae su propia cabecera (titulo + CTA), KPIs, panel y modal: es la superficie de
+       usuario final, distinta del panel denso del configurador (DataRecordsGrid). *@
+    <DataRecordsBoard ContainerId="@_module.ContainerId"
+                      ActorUserId="@_actor"
+                      Title="@_module.ContainerName"
+                      CanCreate="@_canCreate"
+                      CanEdit="@_canEdit"
+                      CanDelete="@_canDelete"
+                      ListColumnIds="@_module.ListColumnIds"
+                      FilterColumnIds="@_module.FilterColumnIds" />
 }
 
 @code {

@@ -21,15 +21,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+    <!-- Ola 5a (ADR-0039): el canal, el Gateway, Archivos, los stores y el MCP se fueron al Core
+         (sin WPF), que comparte con el Worker Service. Aqui queda solo lo que pide escritorio. -->
+    <ProjectReference Include="..\Ecorex.Agent.Core\Ecorex.Agent.Core.csproj" />
   </ItemGroup>
 
-  <!-- Ola B: cliente SignalR (canal con el servidor). Es una libreria CLIENTE de Microsoft,
-       no internals del backend; el agente sigue dependiendo solo de los contratos + este NuGet. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
-    <!-- Ola C: ejecucion real del sub-agente Gateway contra SQL Server de la LAN. -->
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
-    <!-- Sub-agente Navegador (doc 06 s3.2 / prior-art doc 07): WebView2 (Edge/Chromium embebido). -->
+    <!-- Lo unico propio de esta capa: el navegador. WebView2 es un control visual y solo corre en
+         sesion interactiva; por eso no puede vivir en el servicio (ADR-0039 s4). -->
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
 

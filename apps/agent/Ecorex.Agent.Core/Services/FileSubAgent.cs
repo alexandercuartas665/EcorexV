@@ -1,7 +1,7 @@
 using System.IO;
 using Ecorex.Contracts.Agent;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Sub-agente Archivos (doc 06 s3.2): ejecuta acciones TIPADAS de archivos/directorios (List/Read/

@@ -2,7 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Allow-list LOCAL de dominios que el sub-agente Navegador puede visitar (doc 06 s4: nada fuera de

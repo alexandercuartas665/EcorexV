@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Whitelist de seguridad para las consultas que ejecuta el Gateway (Ola C / doc 05 Ola 2): SOLO

@@ -5,23 +5,24 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Contracts.Agent;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Servidor MCP embebido del agente (prior-art doc 07: `consumoweb_webserver`). Expone las
 /// herramientas `browser.*` (7) y `file.*` (6) por JSON-RPC 2.0 sobre HTTP, escuchando SOLO en
 /// loopback (127.0.0.1) -defensa presente en el legacy-. Un cliente MCP local (o una IA local) puede
-/// llamar `initialize` / `tools/list` / `tools/call`. Las tools de navegador se marshalan al hilo de
-/// UI (WebView2); las de archivos corren directas. Ambas capacidades respetan su allow-list local.
+/// llamar `initialize` / `tools/list` / `tools/call`. Habla con el navegador por el seam
+/// <see cref="IBrowserSubAgent"/> (ADR-0039): no sabe que hay WebView2 detras ni marshala hilos.
+/// Ambas capacidades respetan su allow-list local.
 /// </summary>
 public sealed class AgentMcpServer
 {
-    private readonly WebView2BrowserSubAgent _browser;
+    private readonly IBrowserSubAgent _browser;
     private readonly FileSubAgent _files = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
 
-    public AgentMcpServer(WebView2BrowserSubAgent browser, int port = 8765)
+    public AgentMcpServer(IBrowserSubAgent browser, int port = 8765)
     {
         _browser = browser;
         Port = port;
@@ -125,9 +126,8 @@ public sealed class AgentMcpServer
             {
                 var action = MapBrowserTool(name, args);
                 if (action is null) { return ToolContent(id, true, $"Herramienta desconocida: {name}"); }
-                var dispatcher = System.Windows.Application.Current.Dispatcher;
                 var req = new BrowserRequestMsg(Guid.NewGuid().ToString("N")[..8], "mcp", new[] { action });
-                var result = await dispatcher.InvokeAsync(() => _browser.ExecuteAsync(req)).Task.Unwrap();
+                var result = await _browser.ExecuteAsync(req);
                 var r = result.Results.Count > 0 ? result.Results[0] : new BrowserActionResult(0, action.Kind, false, Error: "sin resultado");
                 return r.Ok
                     ? ToolContent(id, false, r.Value ?? "ok", r.ScreenshotBase64)

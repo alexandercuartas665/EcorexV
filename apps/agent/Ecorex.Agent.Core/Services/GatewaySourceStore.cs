@@ -2,7 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Guarda LOCALMENTE (cifrada con DPAPI por-usuario) la cadena de conexion de la fuente SQL Server

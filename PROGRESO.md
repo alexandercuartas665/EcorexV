@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-07-16 - Agente Conector On-Prem: Ola 5a - seam del Navegador + nucleo Ecorex.Agent.Core
+
+Arranca la Ola 5 (empaque). Antes de empacar hubo que decidir COMO, porque la D4 original
+("Servicio Windows headless + WPF de config") se tomo ANTES de la expansion a colmena y choca con
+dos hechos: (1) `DpapiConfigStore` cifra con DPAPI **de usuario** en `%APPDATA%`, y un servicio corre
+con otro perfil/llave -> partido en dos procesos, el servicio no puede leer NADA de lo que escribio
+la WPF; (2) WebView2 necesita escritorio y no vive en la sesion 0 de un servicio. El usuario confirmo
+que el despliegue real es **ambos escenarios** (estaciones con sesion y servidores 24/7 sin sesion).
+
+**ADR-0039** (nuevo): el Servicio es el UNICO dueno de identidad, canal y store (que pasa a
+`ProgramData` + DPAPI de MAQUINA + ACL); la colmena WPF es su CLIENTE por named pipe (no descifra, no
+conecta al hub) y le PRESTA el escritorio al navegador. Sin colmena: gateway y archivos siguen
+atendiendo y el navegador falla con motivo claro, nunca cuelga. Se conserva WebView2; Playwright
+headless queda como add-on si algun dia hace falta navegador sin sesion.
+
+**Ola 5a (esta entrada)**: preparar el terreno, sin cambiar comportamiento.
+
+- **Seam `IBrowserSubAgent`** (en Contracts, junto a `IHiveConnection`): `RealHiveConnection` y
+  `AgentMcpServer` sostenian el `WebView2BrowserSubAgent` CONCRETO y hacian
+  `Application.Current.Dispatcher.InvokeAsync` a mano. Ahora dependen de la interfaz y el marshalling
+  al hilo de UI se escondio DENTRO de la impl WebView2 (`ExecuteAsync` es seguro desde cualquier
+  hilo). Mismo truco que ya funciono con `IHiveConnection` en la Ola B.
+- **`Ecorex.Agent.Core`** (net10.0-windows, `UseWPF=false`): 11 de los 12 servicios (~1400 de 1850
+  lineas) se movieron con `git mv` (historia conservada) + cambio de namespace: canal, Gateway,
+  Archivos, stores DPAPI, allow-lists, consentimiento, QueryGuard y MCP. En la Gui queda SOLO
+  `WebView2BrowserSubAgent` + la UI. net10.0-windows (no net10.0) porque el store es DPAPI/crypt32:
+  Windows por definicion, no por la GUI.
+- **Prueba estructural**: el Core compila con `UseWPF=false`. Si algun archivo movido hubiera
+  conservado una dependencia de WPF, no compilaria. Build de `Ecorex.Agent.slnx`: 0 errores, 0 warnings.
+- **Verificado E2E (runtime, no solo compilacion)**: colmena levantada; `tools/list` = 14 tools;
+  `browser.navigate https://example.com` -> OK, que recorre MCP (Core, sin WPF) -> seam -> WebView2 en
+  el hilo de UI: si el marshalling interno estuviera mal, reventaria. Archivos: `file.read` dentro de
+  una raiz permitida devuelve el contenido, y `C:\Windows\win.ini` sigue RECHAZADO (fail-closed intacto).
+
+**Nota de entorno**: para desambiguar el caso positivo de Archivos sobreescribi la allow-list de
+archivos de la maquina de dev (`file-allow.dat`) con una raiz de scratchpad. Era config dev que yo
+mismo habia creado en la ola de Archivos; se reconfigura desde el flyout de la colmena.
+
+**Siguiente**: 5b (`Ecorex.Agent.Service` + store de maquina), 5c (IPC named pipe), 5d (instalador).
+
+---
+
 ## 2026-07-16 - Agente Conector On-Prem: el import REST comparte el nucleo de ingesta (cierra Ola 3)
 
 Ultimo pendiente de la Ola 3, desbloqueado por el usuario (su ajuste en el modulo de contenedores

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Threading;
 using Ecorex.Agent.Gui.Mvvm;
+using Ecorex.Agent.Core.Services;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Contracts.Agent;
 

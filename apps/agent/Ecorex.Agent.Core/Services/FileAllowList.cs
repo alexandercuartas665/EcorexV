@@ -2,7 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Allow-list LOCAL de rutas raiz que el sub-agente Archivos puede tocar (doc 06 s4: least privilege;

@@ -81,6 +81,22 @@ public interface IAgentConfigStore
 }
 
 /// <summary>
+/// Sub-agente Navegador visto por quien lo NECESITA (el canal y el servidor MCP), sin saber con que
+/// esta hecho ni en que hilo vive (ADR-0039). La implementacion WebView2 es un control de UI y
+/// marshala al Dispatcher POR DENTRO; una implementacion headless (Playwright) o una que delegue por
+/// IPC a la colmena interactiva encajan igual. Este seam es lo que permite que el canal y el MCP no
+/// dependan de WPF y puedan vivir en un Worker Service sin escritorio.
+/// </summary>
+public interface IBrowserSubAgent
+{
+    /// <summary>Ejecuta la secuencia de acciones tipadas. Seguro de llamar desde cualquier hilo.</summary>
+    Task<BrowserResultMsg> ExecuteAsync(BrowserRequestMsg request);
+
+    /// <summary>El host (dominio) esta en la allow-list local. Lo usa el MCP para responder rapido.</summary>
+    bool IsAllowed(string? host);
+}
+
+/// <summary>
 /// Fuente de eventos de la colmena que la GUI observa. En la Ola A la implementa un MOCK (modo
 /// demo); en la Ola B la implementara el cliente SignalR real, sin cambiar la GUI ni el
 /// ViewModel. Es el punto de sutura entre "lo que se ve" (esta ola) y "los datos reales".

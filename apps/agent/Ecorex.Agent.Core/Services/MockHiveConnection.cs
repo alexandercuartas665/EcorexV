@@ -1,6 +1,6 @@
 using Ecorex.Contracts.Agent;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Implementacion MOCK de <see cref="IHiveConnection"/> para la Ola A (cascara visual). NO conecta

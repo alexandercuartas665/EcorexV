@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using Ecorex.Agent.Core.Services;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Agent.Gui.ViewModels;
 using Ecorex.Contracts.Agent;
@@ -19,7 +20,7 @@ public partial class MainWindow : Window
 {
     private readonly HiveViewModel _vm;
     private Forms.NotifyIcon? _tray;
-    private Services.AgentMcpServer? _mcp;
+    private AgentMcpServer? _mcp;
     private bool _reallyExit;
 
     public MainWindow()

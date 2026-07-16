@@ -5,7 +5,7 @@ using Ecorex.Contracts.Agent;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Ola B: implementacion REAL de <see cref="IHiveConnection"/> sobre SignalR (doc 02). El agente
@@ -24,14 +24,14 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     private readonly SqlServerGatewayExecutor _sql = new();
     private readonly GatewaySourceStore _sources = new();
-    private readonly WebView2BrowserSubAgent _browser;
+    private readonly IBrowserSubAgent _browser;
     private readonly FileSubAgent _files = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _conn;
     private AgentConfig _config;
     private ConnectionState _state = ConnectionState.Offline;
 
-    public RealHiveConnection(AgentConfig config, WebView2BrowserSubAgent browser)
+    public RealHiveConnection(AgentConfig config, IBrowserSubAgent browser)
     {
         _config = config;
         _browser = browser;
@@ -204,7 +204,8 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     /// <summary>
     /// Atiende una orden del sub-agente Navegador (doc 06 s3.2): enciende la celda, ejecuta la
-    /// secuencia en el hilo de UI (WebView2) con allow-list, y devuelve BrowserResult.
+    /// secuencia con allow-list, y devuelve BrowserResult. Que el navegador sea WebView2 y necesite
+    /// hilo de UI es asunto de la implementacion del seam (ADR-0039), no de este canal.
     /// </summary>
     private async Task OnBrowserRequestAsync(HubConnection conn, BrowserRequestMsg req)
     {
@@ -224,9 +225,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
         try
         {
-            // WebView2 es un control de UI: se ejecuta en el Dispatcher.
-            var dispatcher = System.Windows.Application.Current.Dispatcher;
-            var result = await dispatcher.InvokeAsync(() => _browser.ExecuteAsync(req)).Task.Unwrap();
+            var result = await _browser.ExecuteAsync(req);
             await conn.InvokeAsync(AgentHubMethods.BrowserResult, result);
             RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, result.Ok,
                 result.Ok ? $"{result.Results.Count} acciones" : result.Results.FirstOrDefault(r => !r.Ok)?.Error));

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using Ecorex.Agent.Core.Services;
 using Ecorex.Contracts.Agent;
 using Microsoft.Web.WebView2.Core;
 using WpfWebView2 = Microsoft.Web.WebView2.Wpf.WebView2;
@@ -11,10 +12,13 @@ namespace Ecorex.Agent.Gui.Services;
 /// Sub-agente Navegador (doc 06 s3.2 / prior-art doc 07): WebView2 (Edge/Chromium embebido) que
 /// ejecuta una secuencia de acciones TIPADAS (navigate/eval/wait/screenshot/html). Seguridad (doc 06
 /// s4): la <see cref="BrowserAllowList"/> LOCAL gobierna a que dominios se puede navegar y en cuales
-/// se permite inyectar JS; nada fuera de la lista, aunque la nube lo pida. Vive en el hilo de UI
-/// (WebView2 es un control visual): quien lo llame debe marshalar al Dispatcher.
+/// se permite inyectar JS; nada fuera de la lista, aunque la nube lo pida.
+///
+/// Implementa <see cref="IBrowserSubAgent"/> (ADR-0039). WebView2 es un control visual y solo vive en
+/// el hilo de UI, pero eso es asunto SUYO: <see cref="ExecuteAsync"/> marshala al Dispatcher por
+/// dentro, asi que sus llamadores (el canal, el MCP) no dependen de WPF ni saben de hilos.
 /// </summary>
-public sealed class WebView2BrowserSubAgent
+public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
 {
     private readonly BrowserAllowList _allow = new();
     private readonly CapabilityConsent _consent = new();
@@ -26,8 +30,18 @@ public sealed class WebView2BrowserSubAgent
 
     public bool IsAllowed(string? host) => _allow.IsAllowed(host);
 
-    /// <summary>Ejecuta la secuencia. DEBE invocarse en el hilo de UI.</summary>
-    public async Task<BrowserResultMsg> ExecuteAsync(BrowserRequestMsg req)
+    /// <summary>
+    /// Ejecuta la secuencia. Seguro desde cualquier hilo: si no estamos en el de UI, salta a el
+    /// (WebView2 es un control visual). Antes esto lo hacia cada llamador; ahora es asunto interno.
+    /// </summary>
+    public Task<BrowserResultMsg> ExecuteAsync(BrowserRequestMsg req)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess()) { return ExecuteOnUiThreadAsync(req); }
+        return dispatcher.InvokeAsync(() => ExecuteOnUiThreadAsync(req)).Task.Unwrap();
+    }
+
+    private async Task<BrowserResultMsg> ExecuteOnUiThreadAsync(BrowserRequestMsg req)
     {
         // Consentimiento local (doc 06 s4): sin habilitar por el operador, no se abre el navegador.
         if (!_consent.IsBrowserEnabled())

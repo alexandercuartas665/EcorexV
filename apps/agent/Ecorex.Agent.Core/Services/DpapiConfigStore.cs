@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Contracts.Agent;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
 /// Persistencia local del ClientId/URL cifrada con DPAPI (por-usuario Windows). Se usa P/Invoke a

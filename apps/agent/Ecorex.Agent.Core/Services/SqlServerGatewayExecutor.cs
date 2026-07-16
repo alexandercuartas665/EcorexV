@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using Ecorex.Contracts.Agent;
 using Microsoft.Data.SqlClient;
 
-namespace Ecorex.Agent.Gui.Services;
+namespace Ecorex.Agent.Core.Services;
 
 /// <summary>Fallo de ejecucion del Gateway con codigo estable para el FetchFailed.</summary>
 public sealed class GatewayException : Exception

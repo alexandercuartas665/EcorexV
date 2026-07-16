@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using Ecorex.Agent.Core.Services;
 using Ecorex.Agent.Gui.Services;
 using Ecorex.Contracts.Agent;
 
@@ -31,7 +32,7 @@ public partial class App : System.Windows.Application
         // La credencial se aporta en tiempo de ejecucion; NUNCA se versiona.
         if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--save-source", StringComparison.OrdinalIgnoreCase))
         {
-            new Services.GatewaySourceStore().SaveSqlServer(e.Args[1].Trim());
+            new GatewaySourceStore().SaveSqlServer(e.Args[1].Trim());
             Shutdown(0);
             return;
         }
@@ -39,7 +40,7 @@ public partial class App : System.Windows.Application
         // Allow-list de dominios del sub-agente Navegador (doc 06 s4). Coma-separada. DPAPI local.
         if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--save-browser-allow", StringComparison.OrdinalIgnoreCase))
         {
-            new Services.BrowserAllowList().Save(e.Args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            new BrowserAllowList().Save(e.Args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             Shutdown(0);
             return;
         }
@@ -47,7 +48,7 @@ public partial class App : System.Windows.Application
         // Allow-list de rutas raiz del sub-agente Archivos (doc 06 s4). Coma-separada. DPAPI local.
         if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--save-file-allow", StringComparison.OrdinalIgnoreCase))
         {
-            new Services.FileAllowList().Save(e.Args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            new FileAllowList().Save(e.Args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             Shutdown(0);
             return;
         }
@@ -57,7 +58,7 @@ public partial class App : System.Windows.Application
         if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--enable", StringComparison.OrdinalIgnoreCase))
         {
             var on = e.Args[2] is "1" or "true";
-            var consent = new Services.CapabilityConsent();
+            var consent = new CapabilityConsent();
             if (string.Equals(e.Args[1], "browser", StringComparison.OrdinalIgnoreCase)) { consent.SetBrowser(on); }
             else if (string.Equals(e.Args[1], "files", StringComparison.OrdinalIgnoreCase)) { consent.SetFiles(on); }
             Shutdown(0);

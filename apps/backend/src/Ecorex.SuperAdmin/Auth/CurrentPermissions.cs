@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Ecorex.Application.Roles;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Ecorex.SuperAdmin.Auth;
@@ -37,13 +38,15 @@ public sealed class CurrentPermissions : ICurrentPermissions
 {
     private readonly IHttpContextAccessor _accessor;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IServiceProvider _services;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private EffectivePermissions? _cached;
 
-    public CurrentPermissions(IHttpContextAccessor accessor, IServiceScopeFactory scopeFactory)
+    public CurrentPermissions(IHttpContextAccessor accessor, IServiceScopeFactory scopeFactory, IServiceProvider services)
     {
         _accessor = accessor;
         _scopeFactory = scopeFactory;
+        _services = services;
     }
 
     public async Task<EffectivePermissions> GetAsync(CancellationToken cancellationToken = default)
@@ -73,8 +76,8 @@ public sealed class CurrentPermissions : ICurrentPermissions
     {
         try
         {
-            var idClaim = _accessor.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!Guid.TryParse(idClaim, out var platformUserId))
+            var (tenantId, platformUserId) = await ResolveIdentityAsync();
+            if (platformUserId is not Guid userId)
             {
                 // Sin usuario resoluble (o no autenticado): no restringir (fail-open).
                 return EffectivePermissions.UnrestrictedAccess();
@@ -82,14 +85,62 @@ public sealed class CurrentPermissions : ICurrentPermissions
 
             // Scope propio: DbContext aislado del circuito Blazor (patron de NavMenu).
             await using var scope = _scopeFactory.CreateAsyncScope();
+
+            // El TenantUser es tenant-scoped: sin tenant en el contexto, el filtro global NO lo
+            // encuentra y la resolucion caeria en "sin TenantUser -> Unrestricted". En una peticion
+            // HTTP el tenant sale del claim; en un circuito Blazor no hay HttpContext, asi que se fija
+            // aqui de forma ambiental para que el filtro vea al usuario. Ver ResolveIdentityAsync.
+            using var ambient = tenantId is Guid tid ? AmbientTenantContext.Begin(tid, userId) : null;
+
             var roles = scope.ServiceProvider.GetRequiredService<IRolService>();
-            return await roles.ResolveEffectivePermissionsAsync(platformUserId, cancellationToken);
+            return await roles.ResolveEffectivePermissionsAsync(userId, cancellationToken);
         }
         catch
         {
             // Fail-OPEN documentado (ADR-0033): si la resolucion falla, no bloqueamos la consola.
             return EffectivePermissions.UnrestrictedAccess();
         }
+    }
+
+    /// <summary>
+    /// Tenant y usuario actuales, mirando las DOS realidades donde vive este servicio.
+    ///
+    /// OJO (bug corregido 2026-07-16): antes solo se leia de IHttpContextAccessor. En una peticion
+    /// HTTP eso funciona (es donde corre el handler de autorizacion), pero en un CIRCUITO Blazor
+    /// interactivo (las paginas con prerender:false) NO hay HttpContext, y fallaban DOS cosas: el
+    /// claim del usuario salia null, y el tenant tambien (con lo que el filtro global tampoco
+    /// encontraba el TenantUser). Por cualquiera de las dos, GetAsync caia en fail-open y devolvia
+    /// Unrestricted: el gateado en pagina (ocultar botones / negar acceso) NO restringia a nadie
+    /// aunque su rol lo prohibiera. Solo se salvaban las paginas con [Authorize(Policy="Perm:...")],
+    /// que se evalua en la peticion. En el circuito ambos claims viven en el AuthenticationState.
+    ///
+    /// El proveedor de autenticacion se pide por IServiceProvider (no por constructor) para no
+    /// exigirlo en scopes que no lo tengan (p. ej. trabajo de fondo).
+    /// </summary>
+    private async Task<(Guid? TenantId, Guid? UserId)> ResolveIdentityAsync()
+    {
+        var http = _accessor.HttpContext?.User;
+        if (http is not null)
+        {
+            var httpUser = http.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (Guid.TryParse(httpUser, out var uid))
+            {
+                Guid.TryParse(http.FindFirst("tenant_id")?.Value, out var htid);
+                return (htid == Guid.Empty ? null : htid, uid);
+            }
+        }
+
+        var authProvider = _services.GetService<AuthenticationStateProvider>();
+        if (authProvider is null) { return (null, null); }
+
+        var state = await authProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        if (!Guid.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var circuitUser))
+        {
+            return (null, null);
+        }
+        Guid.TryParse(user.FindFirst("tenant_id")?.Value, out var ctid);
+        return (ctid == Guid.Empty ? null : ctid, circuitUser);
     }
 
     public async Task<bool> IsUnrestrictedAsync(CancellationToken cancellationToken = default)

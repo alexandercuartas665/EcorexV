@@ -258,6 +258,104 @@ public sealed class DataContainerService : IDataContainerService
         return dtos;
     }
 
+    public async Task<DataRowPageDto> ListRowsPagedAsync(DataRowQuery query, CancellationToken ct = default)
+    {
+        var page = query.Page < 1 ? 1 : query.Page;
+        var size = query.PageSize is < 1 or > 200 ? 50 : query.PageSize;
+
+        // Base: filas de la tabla en el nivel pedido (raiz o dentro de una fila padre).
+        var rowsQ = _db.DataContainerRows.AsNoTracking()
+            .Where(r => r.ContainerId == query.ContainerId && r.ParentRowId == query.ParentRowId);
+
+        // Busqueda libre: la fila casa si ALGUNA de sus celdas contiene el texto. Se resuelve como
+        // EXISTS en el servidor. ToLower + Like para que funcione igual en PG y SQL Server (ILike es
+        // solo de Npgsql y la colacion por defecto de PG distingue mayusculas).
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var s = $"%{EscapeLike(query.Search.Trim().ToLowerInvariant())}%";
+            rowsQ = rowsQ.Where(r => _db.DataContainerCells
+                .Any(c => c.RowId == r.Id && c.Value != null && EF.Functions.Like(c.Value.ToLower(), s, LikeEscape)));
+        }
+
+        // Filtros por columna: AND entre columnas (cada uno es otro EXISTS).
+        if (query.Filters is { Count: > 0 })
+        {
+            foreach (var (columnId, raw) in query.Filters)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) { continue; }
+                var colId = columnId;
+                var f = $"%{EscapeLike(raw.Trim().ToLowerInvariant())}%";
+                rowsQ = rowsQ.Where(r => _db.DataContainerCells
+                    .Any(c => c.RowId == r.Id && c.ColumnId == colId && c.Value != null && EF.Functions.Like(c.Value.ToLower(), f, LikeEscape)));
+            }
+        }
+
+        var total = await rowsQ.CountAsync(ct);
+        if (total == 0)
+        {
+            return new DataRowPageDto(Array.Empty<DataContainerRowDto>(), 0, page, size);
+        }
+
+        // Orden: por el valor de una columna (alfabetico, ver nota del contrato) o por fecha de alta.
+        IOrderedQueryable<Domain.Entities.DataContainerRow> ordered;
+        if (query.SortColumnId is Guid sortCol)
+        {
+            ordered = query.SortDescending
+                ? rowsQ.OrderByDescending(r => _db.DataContainerCells
+                    .Where(c => c.RowId == r.Id && c.ColumnId == sortCol).Select(c => c.Value).FirstOrDefault())
+                    .ThenByDescending(r => r.CreatedAt)
+                : rowsQ.OrderBy(r => _db.DataContainerCells
+                    .Where(c => c.RowId == r.Id && c.ColumnId == sortCol).Select(c => c.Value).FirstOrDefault())
+                    .ThenBy(r => r.CreatedAt);
+        }
+        else
+        {
+            ordered = query.SortDescending
+                ? rowsQ.OrderByDescending(r => r.CreatedAt)
+                : rowsQ.OrderBy(r => r.CreatedAt);
+        }
+
+        // Desempate estable por Id: sin el, dos filas con el mismo valor pueden repetirse o perderse
+        // entre paginas (el orden de un OFFSET sin llave unica no es determinista).
+        var rows = await ordered.ThenBy(r => r.Id)
+            .Skip((page - 1) * size)
+            .Take(size)
+            .ToListAsync(ct);
+
+        var rowIds = rows.Select(r => r.Id).ToList();
+        var cells = await _db.DataContainerCells.AsNoTracking()
+            .Where(c => rowIds.Contains(c.RowId))
+            .ToListAsync(ct);
+        var links = await _db.DataContainerLinks.AsNoTracking()
+            .Where(l => rowIds.Contains(l.RowId))
+            .ToListAsync(ct);
+
+        var grouped = cells.GroupBy(c => c.RowId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.ColumnId, x => x.Value));
+        var linksByRow = links.GroupBy(l => l.RowId)
+            .ToDictionary(g => g.Key, g => GroupLinks(g.ToList()));
+
+        var dtos = rows.Select(r => new DataContainerRowDto(
+            r.Id,
+            r.CreatedAt,
+            grouped.TryGetValue(r.Id, out var d) ? d : new Dictionary<Guid, string?>(),
+            linksByRow.TryGetValue(r.Id, out var lk) ? lk : null
+        )).ToList();
+
+        return new DataRowPageDto(dtos, total, page, size);
+    }
+
+    /// <summary>Caracter de escape de los LIKE de la busqueda. Va SIEMPRE explicito: la sobrecarga de
+    /// dos argumentos de EF.Functions.Like emite "ESCAPE ''" (sin escape), con lo que un "\%" acabaria
+    /// buscando una barra literal y el comodin del usuario no se neutralizaria (verificado en la matriz
+    /// dual: fallaba igual en PostgreSQL y en SQL Server).</summary>
+    private const string LikeEscape = "\\";
+
+    /// <summary>Neutraliza los comodines de LIKE en el texto que teclea el usuario, para que un "%"
+    /// buscado sea un "%" literal y no "cualquier cosa". Se usa junto con <see cref="LikeEscape"/>.</summary>
+    private static string EscapeLike(string value)
+        => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
     public async Task<IReadOnlyList<RowOptionDto>> ListRowOptionsAsync(Guid containerId, int take = 500, CancellationToken ct = default)
     {
         // Columna etiqueta: la primera Text por orden; si no hay, la primera columna con celda.

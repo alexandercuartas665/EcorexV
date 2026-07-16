@@ -43,6 +43,21 @@ Como solo lo abre el servicio: `%ProgramData%\Ecorex\Agent` con DPAPI
 consecuencia de la decision 1, y de paso **mejora** la postura actual: hoy el secreto del tenant
 vive en el perfil del usuario que abrio la colmena.
 
+**Cuenta del servicio: LocalSystem** (decidido por el usuario, 2026-07-16). Consecuencia asumida: con
+DPAPI de maquina la llave no cuelga del usuario, asi que **el ACL del archivo es la unica puerta**;
+cualquier proceso que pueda LEER el archivo puede descifrarlo. Con LocalSystem eso significa que un
+administrador local puede llegar al secreto del tenant. Escalon siguiente si algun dia se quiere
+least-privilege: cuenta virtual `NT SERVICE\EcorexAgent`, que acota el ACL a la propia identidad del
+servicio; el codigo no cambia (solo el instalador).
+
+> **Hallazgo (2026-07-16, verificado en maquina real)**: **el instalador DEBE crear la boveda**; no se
+> puede dejar que la cree perezosamente el primer proceso que arranque. Quien crea el directorio es su
+> **propietario**, y un propietario siempre puede reescribir el DACL: si un usuario sin privilegios
+> abre la colmena antes de que exista la boveda, queda como dueno y podria re-otorgarse acceso, y con
+> eso leer el secreto del tenant que despues escriba el servicio. `AgentVault.EnsureDir()` sigue
+> creando+endureciendo como red de seguridad, pero la creacion autoritativa (owner = Administradores)
+> es responsabilidad de la Ola 5d.
+
 ### 3. La colmena WPF es CLIENTE del servicio (named pipe), no un peer
 
 La GUI deja de descifrar y de conectarse al hub. Por pipe local: lee estado real para pintar la
@@ -72,9 +87,17 @@ el seam permite ambos sin tocar el resto. **No se construye ahora** (mismo crite
   portables sin tocar logica. Habilita `Ecorex.Agent.Core` (net10.0, sin WPF).
 - El MCP local queda en el proceso que tenga el navegador (la colmena), porque su razon de ser son
   las tools `browser.*` para una IA local; las `file.*` se atienden igual.
-- Migracion del store: un usuario que ya configuro la colmena en `%APPDATA%` con DPAPI de usuario
-  **no puede** ser migrado automaticamente por el servicio (no puede descifrar ese archivo). Se
-  reconfigura desde la GUI una vez (hoy solo afecta la maquina de desarrollo).
+- Migracion del store: **no hay migracion automatica, y se comprobo que no puede haberla** (se
+  intento en la Ola 5b y se retiro el codigo). El unico que puede DESCIFRAR el `%APPDATA%` viejo es el
+  usuario que lo escribio (la colmena), y ese es justamente quien ya NO puede ESCRIBIR la boveda; el
+  servicio puede escribirla pero no descifrar el archivo del usuario. Quien ya tenia la colmena
+  configurada reconfigura una vez (hoy solo afecta la maquina de desarrollo).
+- **5b y 5c estan acoplados**: al mudar la boveda, la colmena (proceso sin elevar) deja de poder
+  leerla o escribirla -que es exactamente lo que esta ADR quiere-, y por tanto **no hay forma de
+  configurar el agente hasta que exista el pipe (5c)**. Entre 5b y 5c, la identidad se escribe con
+  `Ecorex.Agent.Service.exe --save-config` desde una consola de administrador (lo mismo que hara el
+  instalador). No es un rodeo de pruebas: es el modelo definitivo, porque el dueno del store es el
+  servicio.
 - El instalador debe: registrar el servicio, crear ProgramData con su ACL, y dejar la colmena con
   auto-arranque al inicio de sesion.
 

@@ -5,6 +5,59 @@
 
 ---
 
+## 2026-07-16 - Agente Conector On-Prem: Ola 5b - boveda de maquina + Worker Service (PARCIAL)
+
+Sigue ADR-0039 (D8: despliegue = estacion Y servidor sin sesion). **Cuenta del servicio: LocalSystem**
+(decidido por el usuario). Consecuencia asumida y anotada en el ADR: con DPAPI de maquina la llave no
+cuelga del usuario, asi que el ACL del archivo es la UNICA puerta, y con LocalSystem un administrador
+local puede llegar al secreto del tenant. Escalon futuro si se quiere least-privilege: cuenta virtual
+`NT SERVICE\EcorexAgent` (solo cambia el instalador).
+
+- **`AgentVault`** (nuevo): el P/Invoke a DPAPI y la ruta del store estaban **duplicados en los 5
+  stores** (config, source, browser-allow, file-allow, consent) - el mismo olor que se acaba de quitar
+  en `ApiImportService`. Ahora hay UN solo lugar que decide donde viven los secretos y como se cifran;
+  los 5 stores adelgazaron a su logica propia. Mover la boveda fue, gracias a eso, una linea.
+- **Boveda: `%ProgramData%\Ecorex\Agent` + DPAPI de MAQUINA + ACL** (rompe herencia; solo SYSTEM y
+  Administradores). Verificado en la maquina real: el ACL quedo exacto y una shell sin elevar NO puede
+  ni listar el directorio.
+- **`Ecorex.Agent.Service`** (nuevo, Worker Service, `UseWindowsService`): hospeda el Core headless
+  (canal + Gateway + Archivos). El mismo binario corre como servicio (log al Visor de eventos) o como
+  consola (diagnostico). Navegador = `UnavailableBrowserSubAgent`: responde NO con motivo explicito en
+  vez de colgar la peticion (la delegacion a la colmena llega en 5c).
+- **`--save-config` vive en el SERVICIO**, no en la colmena, porque el dueno del store es el servicio.
+  Normaliza la URL: la config guarda la URL COMPLETA del hub (el cliente SignalR se conecta a ella tal
+  cual) pero un operador escribe la BASE; ese desliz se manifestaba como un "no pude conectar" mudo.
+- **Diagnosticabilidad (bug real hallado al probar)**: `RealHiveConnection` se tragaba el motivo del
+  fallo (`catch { return false; }`) y `AcquireTokenAsync` tambien. En un equipo on-prem sin escritorio
+  eso es indepurable. Ahora hay `LastError` (con el motivo del handshake, que es el fallo mas probable
+  en campo: secreto cambiado, ClientId inexistente, reloj desfasado >120s) y el worker lo registra.
+- **Se RETIRO la migracion automatica del store heredado** que yo mismo habia escrito: se comprobo que
+  es imposible por construccion (el unico que puede descifrar el `%APPDATA%` viejo es el usuario, que
+  es justo quien ya no puede escribir la boveda; el servicio puede escribirla pero no descifrar lo del
+  usuario). El ADR ya lo decia; el codigo pretendia lo contrario. Se reconfigura una vez.
+- **Hallazgo de seguridad -> Ola 5d**: quien CREA el directorio es su propietario, y un propietario
+  siempre puede reescribir el DACL. Si un usuario sin privilegios abre la colmena antes de que exista
+  la boveda, queda de dueno y podria re-otorgarse acceso al secreto. **El instalador debe crear la
+  boveda** (owner = Administradores); `EnsureDir()` queda como red de seguridad, no como el mecanismo.
+
+**Verificado**: build 0 errores/0 warnings. Boveda con ACL correcto (SYSTEM+Admins, comprobado con
+Get-Acl). Servicio en consola: arranca, apunta a la boveda correcta y **sin config avisa y reintenta
+en vez de morirse**. Escritura y lectura de la boveda entre DOS procesos elevados distintos: OK (el
+DPAPI de maquina hace su trabajo). Handshake HMAC contra el hub real (:5232, Postgres local en Docker,
+NO prod): OK.
+
+**NO verificado (pendiente)**: que el servicio CONECTE al hub de punta a punta. El primer intento
+fallo por MI comando de prueba (pase la URL base en vez de la del hub; de ahi salio la normalizacion)
+y el segundo intento no llego a correr porque se cancelo el UAC. Falta repetir con:
+`Ecorex.Agent.Service.exe --save-config cli_dev_agent http://localhost:5232 dev-secret-ola-b` en
+consola de ADMINISTRADOR, y luego correr el exe. **No se instalo ningun Servicio Windows** en la
+maquina (eso es de la Ola 5d).
+
+**Siguiente**: 5c (IPC named pipe: sin el, y esto lo confirmo la prueba, NO hay forma de configurar el
+agente porque la colmena ya no puede tocar la boveda), luego 5d (instalador).
+
+---
+
 ## 2026-07-16 - Agente Conector On-Prem: Ola 5a - seam del Navegador + nucleo Ecorex.Agent.Core
 
 Arranca la Ola 5 (empaque). Antes de empacar hubo que decidir COMO, porque la D4 original

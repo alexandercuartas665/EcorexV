@@ -39,6 +39,13 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     public ConnectionState State => _state;
 
+    /// <summary>
+    /// Motivo del ultimo fallo de conexion (null si la ultima conexion fue bien). Existe porque el
+    /// servicio corre headless: sin esto, un fallo de handshake o una URL mal escrita se ven igual
+    /// ("Offline") y no hay forma de diagnosticar en la maquina del cliente.
+    /// </summary>
+    public string? LastError { get; private set; }
+
     public event Action<ConnectionState>? ConnectionChanged;
     public event Action<HiveRequest>? RequestStarted;
     public event Action<HiveRequestResult>? RequestFinished;
@@ -61,6 +68,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
                 return false;
             }
 
+            LastError = null; // cada intento cuenta su propia historia
             SetState(ConnectionState.Connecting);
             var conn = Build(config);
             WireHandlers(conn);
@@ -69,12 +77,18 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
             try
             {
                 await conn.StartAsync(cancellationToken);
+                LastError = null;
                 SetState(ConnectionState.Online);
                 await SafeHelloAsync(conn);
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                // El motivo NO se puede perder: en un equipo on-prem, sin escritorio y sin nadie
+                // mirando, "no pude conectar" a secas es indepurable. Quien hospeda (servicio o
+                // colmena) decide como mostrarlo. `??=`: si el handshake ya explico el porque, ese
+                // motivo es mas util que el "401" pelado con el que StartAsync se queja aqui.
+                LastError ??= ex.Message;
                 SetState(ConnectionState.Offline);
                 return false;
             }
@@ -105,7 +119,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     }
 
     /// <summary>Handshake opcion A (doc 02 s2): prueba el secreto con HMAC y obtiene un JWT corto.</summary>
-    private static async Task<string?> AcquireTokenAsync(AgentConfig config)
+    private async Task<string?> AcquireTokenAsync(AgentConfig config)
     {
         try
         {
@@ -116,13 +130,21 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
             var hmac = AgentHmac.Compute(config.Secret, config.ClientId, ts, nonce);
 
             var resp = await Http.PostAsJsonAsync(tokenUrl, new AgentTokenRequest(config.ClientId, ts, nonce, hmac));
-            if (!resp.IsSuccessStatusCode) { return null; }
+            if (!resp.IsSuccessStatusCode)
+            {
+                // Este es EL fallo mas probable en campo (secreto cambiado, ClientId que ya no existe,
+                // reloj del equipo desfasado >120s). Sin esto, arriba solo se ve un 401 pelado.
+                var detail = await resp.Content.ReadAsStringAsync();
+                LastError = $"El handshake fue rechazado ({(int)resp.StatusCode} {resp.StatusCode}) por {tokenUrl}: {detail.Trim()}";
+                return null;
+            }
             var body = await resp.Content.ReadFromJsonAsync<AgentTokenResponse>();
             return body?.AccessToken;
         }
-        catch
+        catch (Exception ex)
         {
-            return null; // sin token -> el hub [Authorize] rechaza -> queda Offline.
+            LastError = $"No se pudo pedir el token a {config.HubUrl}: {ex.Message}";
+            return null; // sin token -> el hub [Authorize] rechaza -> queda Offline
         }
     }
 

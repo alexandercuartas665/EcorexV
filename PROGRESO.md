@@ -5,6 +5,56 @@
 
 ---
 
+## 2026-07-16 - Contenedor: publicar tablas al menu (Flujo B) + relaciones fila-a-fila (Flujo A)
+
+Sobre el cimiento de la Ola 0. **Nada de esto esta en prod.**
+
+**Flujo B - publicacion (HECHO):**
+- `IDataContainerModuleService` (`d24aa53`): publicar/despublicar una tabla raiz creando su nodo de
+  menu. Espeja el patron de los formularios, y de ahi salen GRATIS la matriz de roles (su catalogo se
+  deriva del menu, clave = Route) y el filtrado del sidebar. Corrige 3 defectos del original: ruta
+  INMUTABLE (renombrar no la toca; es la clave del modulo y cambiarla dejaria huerfanos los permisos
+  ya asignados), despublicar CONSERVA la ruta (al republicar los permisos siguen valiendo), y
+  renombrar RECONCILIA el nombre del nodo. Ruta `dc/{slug}` sin barra (los forms usan `/m/{code}` CON
+  barra: como la clave es el Route literal, hay que ser consistente). 12/12 tests duales.
+- UI + pagina (`2f59095`): banderin por tabla en el lienzo + modal de publicacion (vista, grupo,
+  icono, columnas de grilla y de filtro); `DataModule.razor` (`/dc/{Slug}`) sirve a TODAS las tablas
+  publicadas reusando `DataRecordsGrid`. Validado en Chrome: publicar "Perfil Clientes" -> ruta
+  `/dc/perfil-clientes` -> item en el menu -> pagina lista sus registros -> y el modulo aparece SOLO
+  en Roles y permisos.
+
+**B5 destapo un fallo de seguridad GENERAL (`5bc15b7`):** un usuario cuyo rol no tenia el permiso
+igual veia la pagina. La causa no era del modulo nuevo: `CurrentPermissions` solo leia de
+`IHttpContextAccessor`, y en un CIRCUITO Blazor (paginas con prerender:false) NO hay HttpContext, con
+lo que fallaban el claim del usuario Y el tenant (y sin tenant el filtro global no encuentra el
+TenantUser, que es tenant-scoped). Por cualquiera de las dos, `Perms.GetAsync()` devolvia SIEMPRE
+`Unrestricted` (fail-open): **todo el gateado en pagina no restringia a nadie**, en cualquier pagina
+que lo use; solo se salvaban las que tienen `[Authorize(Policy="Perm:...")]` (se evalua en la
+peticion). Fix: resolver usuario+tenant tambien del AuthenticationState del circuito y fijar el
+tenant ambiental. Validado: con ver=false -> "Sin acceso"; con ver=true -> entra.
+**Observacion no resuelta (decision del dueno: se deja asi):** al abrir Roles y permisos, un modulo
+recien publicado se agrega SOLO a los roles existentes con `can_view=true` (acceso por defecto).
+
+**Flujo A - relaciones fila-a-fila (HECHO):**
+- `IDataRelationLinkService` (`f59b17a`): ListForRowAsync / SetLinksAsync (reemplazo idempotente del
+  set). Valida lo que el esquema no puede: cardinalidad (N:1 y N:N comparten tabla) y que ambos
+  extremos pertenezcan a las tablas de la arista.
+- **FIX del bug latente**: `DeleteRowAsync` limpiaba los `DataContainerLinks` (entidad vieja) pero NO
+  los nuevos; como sus FKs a filas son Restrict (cascada por ambos extremos = rutas multiples, error
+  1785 en SQL Server), borrar una fila vinculada habria reventado en cuanto se escribiera el primer
+  vinculo. Se limpian en el mismo SaveChanges (una transaccion). 12/12 tests duales.
+- `RowRelationPicker`: entra por el punto de extension `RowEditorExtras` de la Ola 0 (ni la grilla ni
+  el editor cambiaron). N:1 -> select; N:N -> casillas. La fila NUEVA no tiene Id hasta guardarse, asi
+  que la seleccion se persiste en `OnRowSaved`, ya con el Id definitivo.
+- **Validado en Chrome** con el modelo demo (Pedidos->Clientes N:1, Pedidos->Productos N:N): se creo
+  PED con Fecha+Total, ACME SAS y Teclado; los DOS vinculos quedaron en `data_model_relation_links`
+  contra el Id de la fila nueva, y al reabrirla el picker los recupera.
+
+**Pendiente:** (a) el orden por columna sigue siendo alfabetico (EAV como string); (b) decidir si la
+relacion se muestra como columna en la grilla (hoy solo escalares); (c) desplegar (espera OK).
+
+---
+
 ## 2026-07-16 - Contenedor de datos: Ola 0 (cimiento para publicar tablas al menu)
 
 Idea del dueno: que cada tabla dinamica del Contenedor se pueda **publicar al menu** para que el

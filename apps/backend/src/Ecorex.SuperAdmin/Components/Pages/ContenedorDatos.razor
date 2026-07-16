@@ -703,7 +703,16 @@ else
                                  CanCreate="@_canEdit"
                                  CanEdit="@_canEdit"
                                  CanDelete="@_canDelete"
-                                 EmptyText="Sin filas. Importa un Excel o usa &quot;+ Fila&quot;." />
+                                 OnRowSaved="OnRowSavedAsync"
+                                 EmptyText="Sin filas. Importa un Excel o usa &quot;+ Fila&quot;.">
+                    @* Los vinculos de relacion entran por el punto de extension del editor: la fila
+                       nueva no tiene Id hasta guardarse, por eso se persisten en OnRowSaved. *@
+                    <RowEditorExtras>
+                        <RowRelationPicker @ref="_relationPicker"
+                                           ContainerId="@_dataTable.Id"
+                                           RowId="@context" />
+                    </RowEditorExtras>
+                </DataRecordsGrid>
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="() => _dataOpen = false" disabled="@_busy">Cerrar</button>
@@ -1763,11 +1772,22 @@ else
     private bool _dataOpen;
     private ModelTableDto? _dataTable;
     private DataRecordsGrid? _recordsGrid;
+    private RowRelationPicker? _relationPicker;
 
     private void OpenData(ModelTableDto t)
     {
         _dataTable = t;
         _dataOpen = true;
+    }
+
+    /// <summary>La fila ya tiene Id (recien creada o editada): es el momento de persistir sus
+    /// vinculos de relacion, que hasta aqui solo vivian en la seleccion del picker.</summary>
+    private async Task OnRowSavedAsync(Guid rowId)
+    {
+        if (_relationPicker is not null)
+        {
+            await _relationPicker.FlushAsync(rowId);
+        }
     }
 
     // ---------- Importacion desde API REST (conector RestApi -> tabla) ----------

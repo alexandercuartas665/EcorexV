@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-16 - DEPLOY a prod: modal de tercero compartido + formularios por tercero
+
+Desplegado a prod (10.0.0.3, build-from-git de `fase-0/clon-backbone` @ `d76c5b3`) con autorizacion
+explicita del usuario. Ambas ramas remotas quedaron al dia (`main` y `fase-0/clon-backbone`).
+
+- **Backup previo**: `/opt/ecorex/backups/ecorex-2026-07-16-0547.sql.gz` (`./backup.sh`).
+- **3 migraciones aplicadas al arrancar** (prod venia de `AddYCloudProvider`): `AddSqlConsoleLogs`,
+  `RelationsAsEntity`, `AddTerceroFormLinks`.
+- **`RelationsAsEntity` es destructiva**: se midio el impacto en prod ANTES (1 columna de relacion,
+  3 celdas, 0 vinculos, 3 modelos, 6 tablas) -> asumible. Post-deploy verificado: la relacion
+  sobrevivio como **1 arista** en `data_model_relations`, 0 columnas Reference/RelationMany
+  restantes, `referenced_container_id` eliminada. Se perdieron 3 valores de celda (esperado; el
+  vinculo dato-a-dato se re-cableara en la FASE 2 diferida).
+- **Sano**: `ecorex-app` Up, `/login` HTTP 200, logs sin errores (solo el aviso benigno "Failed to
+  determine the https port for redirect", preexistente). Tablas nuevas creadas y vacias
+  (`tercero_form_links`, `sql_console_logs`).
+- **Nota**: en prod los formularios del modal arrancan sin asociar (`tercero_form_links` vacia); se
+  eligen con "Configurar campos" del Directorio General. Migracion SQL Server generada pero sin
+  aplicar/probar (no hay instancia; prod es PG).
+
+---
+
 ## 2026-07-15 - Cargador de contactos reusa EL MISMO modal de tercero (componente compartido)
 
 Feedback del dueno: en Cargador de contactos (000740) el boton "Nuevo contacto" saltaba a

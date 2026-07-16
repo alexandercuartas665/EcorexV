@@ -52,7 +52,16 @@ public sealed record AgentHelloMsg(
     string Os,
     string[] Capabilities);
 
-/// <summary>Fuente que el agente debe consultar (doc 02 s5). Kind: Database | RestApi.</summary>
+/// <summary>
+/// Fuente que el agente debe consultar (doc 02 s5). Kind: Database | RestApi.
+///
+/// <see cref="Secret"/> es la credencial de la FUENTE en claro dentro del mensaje: el servidor la
+/// descifra de `DataConnector.CredentialsEncrypted` y la manda (ADR-0040, opcion a). Si viene null,
+/// el agente cae a su cadena de conexion LOCAL (opcion b, como la Ola C; sigue disponible).
+///
+/// Que la credencial VIAJE es exactamente por lo que el canal debe ser wss/TLS estricto en
+/// produccion (Ola 6): por aqui pasa la contrasena de la base de datos del cliente.
+/// </summary>
 public sealed record ConnectorSpec(
     string Kind,
     string? DbEngine = null,
@@ -60,7 +69,8 @@ public sealed record ConnectorSpec(
     int? Port = null,
     string? Database = null,
     string? Username = null,
-    string? SecretRef = null);
+    string? SecretRef = null,
+    string? Secret = null);
 
 /// <summary>Consulta a ejecutar (doc 02 s5). En la Ola B NO se ejecuta (eso es Ola C).</summary>
 public sealed record QuerySpec(

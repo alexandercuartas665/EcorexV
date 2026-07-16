@@ -22,7 +22,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
-    private readonly SqlServerGatewayExecutor _sql = new();
+    private readonly GatewayExecutor _gateway = new();
     private readonly GatewaySourceStore _sources = new();
     private readonly IBrowserSubAgent _browser;
     private readonly FileSubAgent _files = new();
@@ -199,24 +199,33 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         }
     }
 
-    /// <summary>Ejecuta la consulta contra la fuente SQL Server local y envia los chunks de FetchResult.</summary>
+    /// <summary>
+    /// Ejecuta la consulta contra la fuente y envia los chunks de FetchResult.
+    ///
+    /// De donde sale la credencial (ADR-0040): si el `ConnectorSpec` trae `Secret`, manda el servidor
+    /// (opcion a, lo configurado en el modulo web). Si no, se usa la fuente LOCAL del agente (opcion
+    /// b, la de la Ola C): asi un agente ya configurado a mano sigue funcionando sin tocar nada.
+    /// </summary>
     private async Task ExecuteDatabaseAsync(HubConnection conn, FetchRequestMsg req)
     {
         var engine = req.Connector?.DbEngine ?? "SqlServer";
-        if (!string.Equals(engine, "SqlServer", StringComparison.OrdinalIgnoreCase))
+        if (!GatewayExecutor.IsSupported(engine))
         {
-            throw new GatewayException("UNSUPPORTED_ENGINE", $"Motor no soportado en Ola C: {engine}.");
+            throw new GatewayException("UNSUPPORTED_ENGINE",
+                $"El agente no sabe hablar con el motor '{engine}'. Soportados: SqlServer, PostgreSql.");
         }
 
-        var connectionString = _sources.LoadSqlServer();
+        var connectionString = GatewayExecutor.BuildConnectionString(req.Connector)
+                               ?? _sources.LoadSqlServer();
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            throw new GatewayException("NO_SOURCE", "El agente no tiene una fuente SQL Server configurada.");
+            throw new GatewayException("NO_SOURCE",
+                "No hay credencial: ni el servidor la mando en el conector, ni el agente tiene una fuente configurada.");
         }
 
         var query = req.Query ?? new QuerySpec(string.Empty);
         var total = 0;
-        await foreach (var chunk in _sql.ExecuteAsync(connectionString, req.CorrelationId, query, req.Paging))
+        await foreach (var chunk in _gateway.ExecuteAsync(engine, connectionString, req.CorrelationId, query, req.Paging))
         {
             total += chunk.RowCount;
             await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk);

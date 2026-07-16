@@ -24,8 +24,10 @@
   <ItemGroup>
     <!-- Canal con el servidor: libreria CLIENTE de Microsoft, no internals del backend. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
-    <!-- Sub-agente Gateway: ejecucion solo-lectura contra SQL Server de la LAN. -->
+    <!-- Sub-agente Gateway: ejecucion solo-lectura contra la fuente de la LAN. Un proveedor por
+         motor; ambos derivan de DbConnection, asi que el ejecutor es UNO solo (ver GatewayExecutor). -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
+    <PackageReference Include="Npgsql" Version="10.0.2" />
   </ItemGroup>
 
 </Project>

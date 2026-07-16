@@ -21,6 +21,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ServiceName = "EcorexAgent"
+$EventSource = "ECOREX Agente"
 $VaultDir    = "$env:ProgramData\Ecorex\Agent"
 $RunKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
 $RunValue    = "EcorexColmena"
@@ -47,10 +48,28 @@ Get-Process -Name "Ecorex.Agent.Gui" -ErrorAction SilentlyContinue | Stop-Proces
 Write-Host "  Quitando el auto-arranque..."
 Remove-ItemProperty -Path $RunKey -Name $RunValue -ErrorAction SilentlyContinue
 
+# El origen se quita, pero los eventos YA escritos se conservan: son el historial de lo que hizo el
+# agente y pueden hacer falta justo despues de desinstalar, que es cuando se investiga un problema.
+try {
+    if ([System.Diagnostics.EventLog]::SourceExists($EventSource)) {
+        Write-Host "  Quitando el origen del Visor de eventos (los eventos ya escritos se conservan)..."
+        Remove-EventLog -Source $EventSource
+    }
+} catch {
+    Write-Host "  Aviso: no se pudo quitar el origen del Visor de eventos ($($_.Exception.Message))."
+}
+
 if (Test-Path $InstallDir) {
     Write-Host "  Borrando binarios ($InstallDir)..."
     Start-Sleep -Seconds 2   # dar tiempo a que suelten los archivos
     Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# No dejar la carpeta padre huerfana: desinstalar debe no dejar rastro. Solo si quedo VACIA, por si
+# el sitio lo comparte con otro producto ECOREX.
+$parent = Split-Path $InstallDir -Parent
+if ((Test-Path $parent) -and -not (Get-ChildItem $parent -Force -ErrorAction SilentlyContinue)) {
+    Remove-Item $parent -Force -ErrorAction SilentlyContinue
 }
 
 if ($RemoveVault) {

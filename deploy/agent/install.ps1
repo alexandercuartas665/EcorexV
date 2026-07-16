@@ -49,6 +49,7 @@ $ErrorActionPreference = "Stop"
 if (-not $SourceDir) { $SourceDir = Join-Path $PSScriptRoot "out" }
 
 $ServiceName = "EcorexAgent"
+$EventSource = "ECOREX Agente"   # debe coincidir con Program.cs del servicio
 $VaultDir    = "$env:ProgramData\Ecorex\Agent"
 $RunKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
 $RunValue    = "EcorexColmena"
@@ -115,6 +116,14 @@ if ($ClientId -and $HubUrl) {
 }
 
 # ---- 5. Servicio Windows ----
+
+# El origen del Visor de eventos hay que CREARLO: si no existe, el proveedor de EventLog de .NET no
+# escribe nada y tampoco avisa, y el servicio se queda mudo justo donde el README manda a mirar
+# (verificado el 2026-07-16). Exige privilegio; por eso vive aqui y no en el arranque del servicio.
+if (-not [System.Diagnostics.EventLog]::SourceExists($EventSource)) {
+    Write-Host "  [5/6] Registrando el origen '$EventSource' en el Visor de eventos..."
+    New-EventLog -LogName Application -Source $EventSource
+}
 
 Write-Host "  [5/6] Registrando el servicio '$ServiceName' (LocalSystem, arranque automatico)..."
 $bin = "`"$InstallDir\service\Ecorex.Agent.Service.exe`""

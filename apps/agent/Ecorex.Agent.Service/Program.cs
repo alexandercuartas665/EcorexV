@@ -5,6 +5,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.EventLog;
+
+// Origen del Visor de eventos. Lo REGISTRA el instalador (crear un origen exige privilegio y hacerlo
+// al arrancar seria tarde y fragil). Si no existe, el proveedor de EventLog no escribe nada y no
+// avisa: por eso el instalador es quien se encarga.
+const string EventSourceName = "ECOREX Agente";
 
 // Servicio Windows del Agente Conector On-Prem (ADR-0039, Ola 5b).
 //
@@ -53,7 +59,12 @@ builder.Services.AddHostedService<AgentWorker>();
 // En servicio no hay consola donde mirar: el log va al Visor de eventos. En consola, a la consola.
 if (WindowsServiceHelpers.IsWindowsService())
 {
-    builder.Logging.AddEventLog(settings => settings.SourceName = "ECOREX Agente");
+    builder.Logging.AddEventLog(settings => settings.SourceName = EventSourceName);
+
+    // Sin esto el Visor de eventos queda MUDO (verificado el 2026-07-16): el proveedor de EventLog
+    // filtra en Warning por defecto, asi que "Conectado a X como Y" -la linea que mas sirve para
+    // soporte- se descartaba. Es la UNICA ventana al servicio en produccion; que cuente lo que hace.
+    builder.Logging.AddFilter<EventLogLoggerProvider>(level => level >= LogLevel.Information);
 }
 
 var host = builder.Build();

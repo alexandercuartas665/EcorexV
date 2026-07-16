@@ -34,22 +34,32 @@ herramienta y un certificado).
 parametro cuando el script se invoca con `-File` (la ruta quedaba en `\out` y el instalador no
 encontraba los binarios). Se resuelve en el cuerpo. Afectaba a `install.ps1` y `publish.ps1`.
 
-**Verificado**: `publish.ps1` genera los 271 MB correctamente; `install.ps1` valida que exige
-administrador y que existan binarios (ese camino de error se probo).
+**ACEPTACION CERRADA 2026-07-16 (instalado y desinstalado de verdad en la maquina)**:
+- `install.ps1` -> servicio **Running**, arranque **Auto**, cuenta **LocalSystem**, y **sin consola**
+  (headless de verdad; la consola que se veia antes era el exe corrido a mano para diagnosticar, no
+  el producto).
+- **Conectado**: el hub DESPACHO una orden al agente instalado (solo despacha a agentes en linea).
+- **Colmena instalada <-> servicio instalado**: `Colmena conectada (administrador: no)` + `Colmena
+  lista (presta escritorio al Navegador: si)`, y el panal muestra **"En linea"** con punto verde. Ese
+  estado no es suyo: se lo publica el servicio por el pipe.
+- `uninstall.ps1` -> servicio quitado, binarios borrados, auto-arranque quitado, origen de eventos
+  quitado, **boveda conservada**. La maquina quedo sin rastro.
 
-**NO verificado**: la instalacion en si. El usuario autorizo "instalar y luego desinstalar", pero el
-**UAC se cancelo** (tercera vez en la sesion), asi que NO se registro ningun servicio: `Get-Service
-EcorexAgent` -> no existe. Queda sin comprobar la aceptacion del doc 05 ("instalable en Windows
-limpio; el servicio reconecta tras reinicio; la colmena muestra el estado real"). Para cerrarlo, en
-consola de ADMINISTRADOR:
-```powershell
-cd C:\DesarrolloIA\ecorex-agent-gui\deploy\agent
-.\install.ps1 -ClientId cli_dev_agent -HubUrl http://localhost:5232 -Secret dev-secret-ola-b
-.\uninstall.ps1
-```
+**Dos bugs REALES corregidos aqui** (los dos rompian promesas del propio README):
+1. **El Visor de eventos estaba MUDO**. Dos causas encadenadas: el origen `"ECOREX Agente"` **no
+   existia** (crear un origen exige privilegio y nadie lo hacia, y el proveedor de EventLog no avisa:
+   simplemente no escribe), y ademas el proveedor **filtra en Warning por defecto**, asi que
+   `LogInformation` -incluido "Conectado a X como Y", la linea que mas sirve para soporte- se
+   descartaba igual. Ahora el instalador **registra el origen** y `Program.cs` baja el filtro a
+   Information. Verificado: el Visor ya cuenta arranque, canal Online, conexion y entrada/salida de
+   colmenas.
+2. **El desinstalador dejaba `C:\Program Files\ECOREX` huerfana** (borraba `Agente` y se olvidaba del
+   padre). Ahora la borra si quedo vacia.
 
-**Pendiente de la ola**: `.iss` (Inno) + firma del ejecutable; y evaluar el peso: 271 MB por cliente
-es mucho, se puede bajar con ReadyToRun/framework-dependent si se acepta exigir el runtime.
+**Pendiente de la ola**: `.iss` (Inno) + firma del ejecutable. El peso (271 MB) queda ASI por decision
+del usuario (2026-07-16): esta bien a cambio de no exigir el runtime en la maquina del cliente.
+**No verificado**: el arranque tras REINICIO real del equipo (exige reiniciar). Lo que si consta:
+`StartMode=Auto`, que es el mecanismo, y que el servicio arranca y conecta solo.
 
 ---
 

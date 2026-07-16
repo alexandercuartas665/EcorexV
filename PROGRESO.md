@@ -4331,6 +4331,26 @@ Se rehizo el padron en UNA transaccion (backup `ecorex-2026-07-16-0858.sql.gz` a
    a SOLDARCO -> primer caso real de multi-tenant (1 usuario en 2 empresas). Conserva su clave.
 BITCODE quedo intacto (13 usuarios).
 
+**Cabezotes de formularios de SOLDARCO migrados (2026-07-14, por SQL directo):** primer ETL de contenido
+(no solo usuarios) desde el sistema viejo de SOLDARCO. Origen: `M700_GEN.dbo.ENCUESTAS_MOV` (17 filas,
+solo encabezado: CODIGO/TITULO/DESCRIPCION/VERSION/TIPO_FORMATO/SUCURSAL). Destino: `form_definitions`
+del tenant SOLDARCO. Backup previo `ecorex-2026-07-16-1758.sql.gz`.
+- **14 de 17 migrados.** Omitidos por decision del usuario: `00004` (PRUEBA) y `00019` (PRUEBA 00014)
+  por ser pruebas, y `00009` por venir **anulado** en el origen.
+- `code` = **`FRM-<codigo legacy>`** (FRM-00001 ... FRM-00026): respeta la convencion de la casa Y
+  conserva el numero del sistema viejo, que es la clave por la que enlazan las preguntas
+  (`ENCUESTAS_MOV_PREGUNTAS.ENCUESTA` = `ENCUESTAS_MOV.CODIGO`). Sirve para el siguiente paso.
+- `title` = TAL CUAL del origen (decision del usuario), `status` = **Draft** para todos, revision 1.
+  OJO: los titulos del legacy traen el ESTADO embebido ("terminado/desarrollo/construccion"), que en el
+  modelo nuevo es el campo `status` aparte. Queda pendiente decidir si se limpian.
+- La `VERSION` del legacy es texto libre (V01/V0/0.0/v0/V2.0) y NO se migro: `revision` es numerico.
+- Idempotente por (tenant_id, code). Verificado: 14 filas con acentos correctos.
+
+**PENDIENTE de este ETL:** las **preguntas** (`ENCUESTAS_MOV_PREGUNTAS` -> `form_questions`), que es lo
+gordo (hasta 80 preguntas en FRM-00011) e implica mapear `TIPO_RESPUESTA` del legacy a `FormControlType`.
+Se migraron SOLO los cabezotes: hoy los 14 formularios estan vacios. El usuario hara un fork de la rama
+para trabajar el diseno.
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)

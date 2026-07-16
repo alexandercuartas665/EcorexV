@@ -4243,6 +4243,19 @@ inactivos y filas de prueba): correo = login, clave = `ID_USUARIO` (cedula), rol
 > solo cubre sucursales '01' y '00136'; si se quiere repetir por la via auditada, extenderlo a '02'.
 > VALLEJO.ALEXANDER (real, comparte `almacen@soldarco.com`) quedo sin cuenta: necesita un correo propio.
 
+**Altas adicionales en PRODUCCION (2026-07-14, por SQL directo, sin AdminAuditLog):**
+- **CHUZO DE IVAN**: 1er usuario `sml1144@hotmail.com` (Samantha Mora, clave = cedula 3244433514), Owner + menu Completo.
+- **EPRING** (tenant NUEVO, legacy sucursal `00004`): creado + menu Completo clonado + sus **7 usuarios** Owner.
+  Decisiones del usuario: (a) `agente@epring.com.co` es cuenta de AGENTE (no persona) y se creo con su
+  literal `EPRING888` como clave (no es cedula); (b) 2 usuarios que en el legacy tenian correo
+  `@equipelco.com` (Lady Johanna Perlaza, Juan Camilo Pineda) recibieron un login DERIVADO de su cedula
+  sobre el dominio de la casa: `<cedula>@epring.co`; la clave sigue siendo la cedula.
+- Se descarto INGETEL (el usuario se habia equivocado de empresa). Existe en el legacy como sucursal
+  `00079` con 534 usuarios, por si alguna vez se migra.
+- Nota de estado: el menu canonico "Completo" hoy tiene **64 nodos** (no 70): el seeder reconcilio y
+  retiro `crear-actividad`, el subgrupo `sg-comercial` y `Actividades` en TODOS los tenants. Verificado:
+  los 7 tenants tienen 64 nodos, consistentes.
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)

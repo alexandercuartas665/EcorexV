@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-07-16 - Agente Conector On-Prem: Ola 5d - instalador (CONSTRUIDO; instalacion sin verificar)
+
+Empaque del agente. **No hay Inno Setup ni WiX en la maquina**, asi que un `.iss` seria codigo que no
+se puede compilar ni probar: se entrega un instalador **PowerShell real y ejecutable**, que ademas es
+lo que un `.iss` acabaria invocando. Envolverlo en un `.exe` firmado queda pendiente (necesita la
+herramienta y un certificado).
+
+- **`deploy/agent/publish.ps1`**: publica AUTOCONTENIDO (`--self-contained`) servicio + colmena. Es a
+  proposito: el criterio de aceptacion dice "maquina Windows LIMPIA", y exigir el runtime de .NET no
+  es eso. Cuesta **271 MB** (dos apps con su runtime); el unico requisito que no se puede autocontener
+  es el Runtime de WebView2 (de serie en Win11), y si falta, el Navegador falla con motivo y Gateway y
+  Archivos siguen trabajando.
+- **`deploy/agent/install.ps1`** (administrador): **crea la boveda el**, con owner = Administradores y
+  ACL cerrada -esto NO es comodidad, es el hallazgo de ADR-0039: quien crea el directorio es su
+  propietario y un propietario puede reescribir el ACL-; copia binarios a `%ProgramFiles%\ECOREX\
+  Agente`; guarda la identidad cifrada; registra `EcorexAgent` (LocalSystem, arranque automatico) con
+  reintentos escalonados ante fallo (5s/30s/60s), para que una caida no deje al cliente sin agente
+  hasta el proximo reinicio; y deja la colmena en auto-arranque de sesion.
+- **`deploy/agent/uninstall.ps1`**: por defecto **CONSERVA la boveda** (reinstalar no deberia obligar
+  a reconfigurar; borrar secretos se pide con `-RemoveVault`, no es efecto colateral).
+- **`deploy/agent/README.md`**: que se instala y por que son dos piezas, requisitos, donde queda cada
+  cosa, seguridad (lo que hay que saber ANTES de aprobar un despliegue) y diagnostico.
+- **`.gitignore`**: `out/` fuera del repo (271 MB estaban a punto de entrar; se detecto al revisar
+  `git status` antes del commit).
+
+**Bug real corregido al probar**: `$PSScriptRoot` llega VACIO al evaluar el valor por defecto de un
+parametro cuando el script se invoca con `-File` (la ruta quedaba en `\out` y el instalador no
+encontraba los binarios). Se resuelve en el cuerpo. Afectaba a `install.ps1` y `publish.ps1`.
+
+**Verificado**: `publish.ps1` genera los 271 MB correctamente; `install.ps1` valida que exige
+administrador y que existan binarios (ese camino de error se probo).
+
+**NO verificado**: la instalacion en si. El usuario autorizo "instalar y luego desinstalar", pero el
+**UAC se cancelo** (tercera vez en la sesion), asi que NO se registro ningun servicio: `Get-Service
+EcorexAgent` -> no existe. Queda sin comprobar la aceptacion del doc 05 ("instalable en Windows
+limpio; el servicio reconecta tras reinicio; la colmena muestra el estado real"). Para cerrarlo, en
+consola de ADMINISTRADOR:
+```powershell
+cd C:\DesarrolloIA\ecorex-agent-gui\deploy\agent
+.\install.ps1 -ClientId cli_dev_agent -HubUrl http://localhost:5232 -Secret dev-secret-ola-b
+.\uninstall.ps1
+```
+
+**Pendiente de la ola**: `.iss` (Inno) + firma del ejecutable; y evaluar el peso: 271 MB por cliente
+es mucho, se puede bajar con ReadyToRun/framework-dependent si se acepta exigir el runtime.
+
+---
+
 ## 2026-07-16 - Agente Conector On-Prem: Ola 5c - canal local (named pipe) servicio <-> colmena
 
 Cierra el acoplamiento que 5b dejo al aire: la colmena ya no puede abrir la boveda, asi que sin este
@@ -56,11 +104,14 @@ boveda) y caduca sola si la colmena se queda sin servicio.
   colmena -> WebView2 -> vuelta esta cerrado.
 - Sin colmena: falla con motivo accionable, no se cuelga (escenario "servidor sin sesion").
 
-**NO verificado**: una navegacion EXITOSA de punta a punta (la corrige el empuje de politica recien
-escrito) y el rechazo por no-administrador en vivo. `Ecorex.Agent.Core`, `Contracts` y la colmena
-compilan 0 errores / 0 advertencias; el proyecto del servicio no pudo enlazarse porque el .exe
-elevado tiene tomados los DLL y una shell sin elevar no puede matarlo (su codigo no cambio en esta
-ronda). Falta cerrar esas dos pruebas.
+**CERRADO 2026-07-16 (las dos pruebas que faltaban)**: solucion completa 0 errores / 0 advertencias.
+- **Navegacion EXITOSA de punta a punta**: `Orden 17e19c3c: OK 3 acciones` (navigate + eval +
+  captura), con el consentimiento y la allow-list `example.com` puestos en la boveda y **empujados**
+  por el servicio a la colmena. Recorrido completo hub -> servicio -> pipe -> colmena -> WebView2 ->
+  vuelta.
+- **Reja de administrador verificada en vivo**: un `set-consent` mandado por el pipe desde un proceso
+  SIN elevar recibe `ok:false` + "Cambiar la configuracion del agente exige permisos de administrador
+  en este equipo.". El control de seguridad hace lo que dice.
 
 **Siguiente**: 5d (instalador; recordar que **debe crear el la boveda**, ver hallazgo de propiedad
 del directorio en ADR-0039).

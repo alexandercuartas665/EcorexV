@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-07-16 - Contenedor de datos: Ola 0 (cimiento para publicar tablas al menu)
+
+Idea del dueno: que cada tabla dinamica del Contenedor se pueda **publicar al menu** para que el
+usuario final gestione sus registros. Antes de codear se investigo el terreno; dos hallazgos
+cambiaron el plan:
+
+1. **Ya existe el patron**: un `FormDefinition` se publica como modulo (`IsModule` +
+   `ModuleMenuNodeId` -> `SetModuleAsync` crea el MenuNode con ruta `/m/{code}` y `FormModule.razor`
+   pinta la bandeja con `ListColumnsJson`/`FilterFieldsJson`). Se ESPEJA, no se reinventa.
+2. **La cadena ya es data-driven**: `RolService.GetModuleCatalogAsync` deriva el catalogo de la
+   matriz de roles **del menu real** (clave del modulo = `Route`), `PermissionPolicyProvider` fabrica
+   `Perm:{ruta}:{accion}` al vuelo y `MenuPermissionFilter` poda el sidebar. O sea: publicar una
+   tabla = crear un nodo de menu; permisos y filtrado salen gratis.
+
+Decisiones (confirmadas con el dueno): **CRUD completo** en el modulo publicado; FASE 2 de
+relaciones y publicacion **en paralelo**. Ruta **inmutable** (la clave del modulo ES el Route:
+renombrar la tabla romperia los permisos ya asignados; es el bug que hoy tienen los formularios).
+Permiso verificado en runtime (no cabe `[Authorize(Policy)]` con clave dinamica). Solo tablas raiz.
+
+**Ola 0 (cimiento) - HECHA:**
+- **Una sola migracion dual** (`DataContainerModuleAndRelationLinks`, PG + SQL Server) con AMBOS
+  cambios, para que los dos flujos siguientes no vuelvan a tocar migraciones ni se peleen el
+  snapshot: campos de publicacion en `DataContainer` (`ModuleRoute` unico por tenant, `MenuNodeId`
+  SetNull, `ModuleIcon`, `ListColumnsJson`, `FilterColumnsJson`) + entidad `DataModelRelationLink`
+  (vinculo fila-a-fila colgado de la ARISTA, la FASE 2 diferida). Up() 100% aditivo.
+- **`ListRowsPagedAsync`**: busqueda, filtros por columna, orden y paginado EN EL SERVIDOR (antes:
+  tope de 500 filas y filtrado en memoria). `ListRowsAsync` se conserva para configurador/selectores.
+  Tests de integracion nuevos en **matriz dual (6/6 PG + SQL Server)**, que cazaron un bug real: el
+  escape de LIKE no funcionaba en NINGUN motor porque la sobrecarga de 2 args emite `ESCAPE ''`
+  (un usuario buscando "50%" no encontraba nada). Tambien: `ToLower+Like` en vez de `ILike`
+  (Npgsql-only) y desempate por Id para que el OFFSET no repita/pierda filas.
+  Limitacion documentada: el orden por columna es ALFABETICO (el EAV guarda todo como string).
+- **`DataRecordsGrid`** (Components/Shared/Data, + CSS scoped propio porque los `dc-*` eran un
+  `<style>` global de la pagina): grilla + editor de filas + import/export extraidos de
+  `ContenedorDatos.razor` (2046 -> ~1790 lineas). Punto de extension `RowEditorExtras` (recibe el Id
+  de fila; null = nueva) + `OnRowSaved`, que es donde enchufa la FASE 2 sin volver a tocarlo.
+  El configurador ya lo consume dentro de su modal; el modulo publicado usara el MISMO.
+- **Validado en Chrome**: el panel de Datos sigue funcionando con el componente (grilla, contador
+  desde la consulta paginada, busqueda server-side 0/1, alta y borrado de fila, CSS scoped aplicado).
+- **Pendiente**: Flujo A (servicio de vinculos + picker) y Flujo B (SetModuleAsync + UI de publicar +
+  pagina `/dc/{slug}` con permiso en runtime). NO desplegado a prod.
+
+---
+
 ## 2026-07-16 - DEPLOY a prod: modal de tercero compartido + formularios por tercero
 
 Desplegado a prod (10.0.0.3, build-from-git de `fase-0/clon-backbone` @ `d76c5b3`) con autorizacion

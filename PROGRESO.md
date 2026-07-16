@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-15 - Agente Conector On-Prem: Archivos - binarios (base64) + permisos ro/rw por raiz
+
+Ajustes menores del sub-agente Archivos (backlog). Solo lado agente.
+
+- **Binarios**: `FileActionKind.ReadBytes` (aditivo) -> devuelve el archivo en **base64**, tope 5 MB
+  (el `Read` de texto UTF-8 mantiene su tope de 1 MB). Expuesto por MCP como **`file.readBytes`**
+  (el servidor MCP publica ahora 14 tools).
+- **Permisos POR RAIZ (least privilege, doc 06 s4)**: en la allow-list, una raiz es de **SOLO LECTURA**
+  por defecto; se antepone **`rw:`** para permitir escritura (`ro:` es opcional/explicito). Ejemplo:
+  `C:\Datos` (ro) / `rw:C:\Salida` (rw). `FileAllowList.LoadRoots()` parsea el prefijo;
+  `FileSubAgent.TryResolve` devuelve tambien si la raiz admite escritura y `Write`/`Delete`/`MakeDir`
+  la exigen. Si una ruta cae en varias raices, gana la que permita escritura.
+- **UI**: el hint del flyout de Archivos explica el prefijo `rw:`.
+- **Verificado E2E por MCP**: `file.readBytes` de un PNG -> base64 (`iVBORw0KGgo...`); `file.read` en
+  raiz ro -> ok; `file.write` en raiz ro -> RECHAZADO ("exige una raiz marcada 'rw:'"); `file.write`
+  en raiz rw -> ok.
+- **Nota**: el otro pendiente menor (migrar `ApiImportService` al nucleo `IRowIngestService`) NO se
+  toco: vive en `Ecorex.Application/DataContainers`, el modulo que el usuario esta ajustando.
+
+---
+
 ## 2026-07-15 - Agente Conector On-Prem: Consentimiento local + UI de allow-lists en la colmena
 
 Cierra el ultimo guardrail de doc 06 s4 ("consentimiento local explicito"): el operador controla que

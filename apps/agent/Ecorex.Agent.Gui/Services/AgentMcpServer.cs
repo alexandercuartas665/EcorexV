@@ -178,6 +178,7 @@ public sealed class AgentMcpServer
     {
         "file.list" => new FileAction(FileActionKind.List, Path: Str(args, "path")),
         "file.read" => new FileAction(FileActionKind.Read, Path: Str(args, "path")),
+        "file.readBytes" => new FileAction(FileActionKind.ReadBytes, Path: Str(args, "path")),
         "file.write" => new FileAction(FileActionKind.Write, Path: Str(args, "path"), Content: Str(args, "content")),
         "file.delete" => new FileAction(FileActionKind.Delete, Path: Str(args, "path")),
         "file.exists" => new FileAction(FileActionKind.Exists, Path: Str(args, "path")),
@@ -229,7 +230,9 @@ public sealed class AgentMcpServer
             // Sub-agente Archivos (acotado a la allow-list de rutas local).
             Tool("file.list", "Lista un directorio (dentro de la allow-list de rutas).",
                 "{\"path\":{\"type\":\"string\"}}", "\"path\""),
-            Tool("file.read", "Lee un archivo de texto (tope 1 MB).",
+            Tool("file.read", "Lee un archivo de texto UTF-8 (tope 1 MB).",
+                "{\"path\":{\"type\":\"string\"}}", "\"path\""),
+            Tool("file.readBytes", "Lee un archivo binario y lo devuelve en base64 (tope 5 MB).",
                 "{\"path\":{\"type\":\"string\"}}", "\"path\""),
             Tool("file.write", "Escribe (crea/reemplaza) un archivo.",
                 "{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"}}", "\"path\""),

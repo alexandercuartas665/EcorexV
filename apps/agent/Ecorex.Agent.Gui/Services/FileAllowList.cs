@@ -9,9 +9,42 @@ namespace Ecorex.Agent.Gui.Services;
 /// nada fuera de las rutas permitidas, aunque la nube lo pida). Se guarda cifrada con DPAPI en
 /// %APPDATA%\Ecorex\Agent\file-allow.dat (una ruta por linea). Fail-closed si esta vacia. La
 /// verificacion de "dentro de una raiz" (canonicalizando, sin traversal) la hace el motor.
+///
+/// PERMISOS POR RAIZ (least privilege): por defecto una raiz es de SOLO LECTURA. Para permitir
+/// escritura/borrado se antepone el prefijo <c>rw:</c>. Ejemplo:
+/// <code>
+/// C:\Datos            -> solo lectura (list/read)
+/// rw:C:\Salida        -> lectura y escritura (write/delete/mkdir)
+/// </code>
 /// </summary>
 public sealed class FileAllowList
 {
+    /// <summary>Una raiz permitida y si admite escritura.</summary>
+    public sealed record Root(string Path, bool CanWrite);
+
+    /// <summary>Raices parseadas (resuelve el prefijo <c>rw:</c>).</summary>
+    public IReadOnlyList<Root> LoadRoots()
+    {
+        var roots = new List<Root>();
+        foreach (var raw in Load())
+        {
+            var entry = raw.Trim();
+            if (entry.Length == 0) { continue; }
+            var canWrite = false;
+            if (entry.StartsWith("rw:", StringComparison.OrdinalIgnoreCase))
+            {
+                canWrite = true;
+                entry = entry[3..].Trim();
+            }
+            else if (entry.StartsWith("ro:", StringComparison.OrdinalIgnoreCase))
+            {
+                entry = entry[3..].Trim();
+            }
+            if (entry.Length > 0) { roots.Add(new Root(entry, canWrite)); }
+        }
+        return roots;
+    }
+
     private static readonly string Dir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ecorex", "Agent");
     private static readonly string FilePath = Path.Combine(Dir, "file-allow.dat");

@@ -227,6 +227,9 @@ public enum FileActionKind
     /// <summary>Lee el contenido de un archivo (texto UTF-8, con tope de tamano).</summary>
     Read,
 
+    /// <summary>Lee un archivo BINARIO y lo devuelve en base64 (con tope de tamano).</summary>
+    ReadBytes,
+
     /// <summary>Escribe (crea/reemplaza) un archivo con el contenido dado.</summary>
     Write,
 

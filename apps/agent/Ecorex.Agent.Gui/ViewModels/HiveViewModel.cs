@@ -156,7 +156,8 @@ public sealed class HiveViewModel : ObservableObject
         else if (kind == SubAgentKind.Files)
         {
             CapTitle = "Archivos";
-            CapHint = "Rutas raiz permitidas, una por linea (ej. C:\\Datos). Vacio = todo bloqueado.";
+            CapHint = "Rutas raiz permitidas, una por linea. Solo lectura por defecto; anteponer 'rw:' "
+                    + "para permitir escritura (ej. C:\\Datos  /  rw:C:\\Salida). Vacio = todo bloqueado.";
             CapEnabled = _consent.IsFilesEnabled();
             CapAllowText = string.Join(Environment.NewLine, _fileAllow.Load());
         }

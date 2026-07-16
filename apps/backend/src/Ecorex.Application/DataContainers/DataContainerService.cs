@@ -500,6 +500,15 @@ public sealed class DataContainerService : IDataContainerService
         var relatedLinks = await _db.DataContainerLinks
             .Where(l => l.RowId == rowId || l.TargetRowId == rowId).ToListAsync(ct);
         if (relatedLinks.Count > 0) { _db.DataContainerLinks.RemoveRange(relatedLinks); }
+
+        // Idem con los vinculos de RELACION (FASE 2): sus FKs a filas son Restrict a proposito (una
+        // cascada por ambos extremos son rutas multiples y SQL Server la rechaza, error 1785). Sin
+        // esta limpieza, borrar una fila vinculada revienta por FK. Va en el mismo SaveChanges, asi
+        // que fila y vinculos caen en la MISMA transaccion (regla #4).
+        var relationLinks = await _db.DataModelRelationLinks
+            .Where(l => l.FromRowId == rowId || l.ToRowId == rowId).ToListAsync(ct);
+        if (relationLinks.Count > 0) { _db.DataModelRelationLinks.RemoveRange(relationLinks); }
+
         _db.DataContainerRows.Remove(row);
         await _db.SaveChangesAsync(ct);
         return true;

@@ -133,6 +133,8 @@ public static class DependencyInjection
         // nivel tabla via IDataContainerService.
         services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
+        // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
+        services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
         // Menu configurable por perfil (Ola 1): vistas del menu por tenant + asignacion usuario->vista.
         services.AddScoped<MenuConfig.IMenuConfigService, MenuConfig.MenuConfigService>();
         // Roles de permisos dinamicos (Ola B1, ADR-0032): matriz Modulo x Accion por tenant,

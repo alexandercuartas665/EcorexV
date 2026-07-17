@@ -4737,3 +4737,39 @@ eliminado (0 defs, 0 filtrables, ficha de ANDINA como estaba). Sln 0 errores, 50
   probados a mano en Chrome.
 - QA extra del runtime de flujos (tarea #68): rechazo, reasignar, cross-tenant, notif, auditoria, movil.
 - Decision abierta: si las relaciones se ven como columna en el grid del board de registros.
+
+---
+
+## Sesion 2026-07-17 (cont.) - Necesidades del motor de formularios (D1-D4, sesion de diseno)
+
+**Agentes**: Claude (Opus 4.8). Modo de trabajo (regla del dueno): la sesion de DISENO arma
+formularios reales y anota lo que el motor no cubre en el vault (`04. Notas para desarrollador/
+Notas para el programador ECOREX.formularios.md`); ESTA sesion (desarrollo) implementa y marca el
+estado. Origen: formulario CONTACTO CLIENTE de SOLDARCO (FRM-00005).
+
+Antes de codear, un subagente + verificacion propia mapearon el estado REAL de las 4 (varias decian
+"confirmar/extender", no "crear"). Decisiones del dueno: las 4 de corrido; D2 = previsualizar.
+
+- **D1 (P2) Hora**: enum gana Time/DateTime (insertados ANTES de Literal: IsTier1 usa type<=Literal;
+  el enum se persiste como string, insertar en medio es seguro). Renderer input type=time; validacion
+  ValidateTime; paleta + lista de tipos.
+- **D2 (P2) Consecutivo en borrador**: PREVISUALIZAR (no reservar; sin huecos). Chip "N.o por asignar"
+  cuando es transaccional y no hay numero. Una linea en el renderer; el servicio de consecutivos no
+  se toca.
+- **D3 (P1, bloqueante) Columna Lista en GridDetail**: FormGridColumn gana Kind/Options/Required;
+  ParseColumns los lee; renderer pinta <select>; editor por columna en el disenador; validacion
+  requerido/opcion por celda. Serializador propio que NO ensucia las columnas viejas. Se unifico el
+  doble parseo (AddGridRow usaba ParseOptions -> ahora GridColumnsOf).
+- **D4 (P2) Regla condicional**: el runtime YA existia (FormRuleDispatcher/FormRuleUiState +
+  verbo BLOQUEAR_CAMPO_XCONDICION con accion inversa). Faltaba la AUTORIA -> CreateFieldConditionRuleAsync
+  (documento por formulario + crear regla + vincular en un paso) + editor inline en el tab Reglas.
+  FormFieldValidator.IsCapture marca campos origen/objetivo.
+
+**Verificado en Chrome de punta a punta** (diseñador + runtime): D3 columna Estado lista+obligatoria,
+JSON correcto, <select> solo en esa columna; D1 input type=time; D2 chip "N.o por asignar"; D4 crear
+la regla desde el diseñador y ver el campo ocultarse/mostrarse al vaiven del valor. Residuos
+eliminados (FRM-003 y FRM-021 restaurados; regla+doc+logs de prueba borrados). Sln 0 errores, 503
+tests verdes. Commit `54c4889`. Estados marcados [x] en la nota del vault.
+
+**Nota**: hallazgo clave de que D4 ya tenia runtime y verbo -> no habia que construir el motor, solo
+la UI de autoria. D1/D2 mas pequenos de lo que parecia; D3 (la P1) fue el grueso real.

@@ -6,6 +6,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY apps/backend/ ./
+# Ecorex.SuperAdmin referencia el contrato del Agente Conector On-Prem, que vive FUERA de
+# apps/backend (apps/agent/libs). La ProjectReference es ..\..\..\agent\libs\Ecorex.Contracts.Agent,
+# que desde /src/src/Ecorex.SuperAdmin resuelve a /agent/libs/... Hay que traer ese proyecto (hoja,
+# net10.0, sin dependencias) al contexto o el publish falla con CS0246 (tipos del protocolo ausentes).
+COPY apps/agent/libs/Ecorex.Contracts.Agent/ /agent/libs/Ecorex.Contracts.Agent/
 RUN dotnet publish src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj \
     -c Release -o /app/publish /p:UseAppHost=false
 

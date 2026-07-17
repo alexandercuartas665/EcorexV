@@ -18,6 +18,8 @@
 @inject IMenuConfigService MenuSvc
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
+@* "Probar conexion" de un cliente remoto: el registro sabe que agentes estan conectados al hub. *@
+@inject Ecorex.SuperAdmin.Agents.IAgentRegistry Agents
 @inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Contenedor de datos - ECOREX.tareas</PageTitle>
@@ -286,6 +288,15 @@ else
                                         <li>
                                             <div>
                                                 <strong>@c.Name</strong> <span class="dc-badge">@ConnectorKindLabel(c.Kind)</span>
+                                                @* A que TABLA alimenta: sin esto la ficha no decia a donde iban los datos. *@
+                                                @if (c.ContainerName is not null)
+                                                {
+                                                    <span class="dc-badge dc-badge-target">&#8594; @c.ContainerName</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="dc-badge dc-badge-warn" title="Este conector no tiene tabla destino: hay que elegirla en cada importacion, y no puede refrescarse solo.">&#8594; sin tabla</span>
+                                                }
                                                 <div class="text-muted" style="font-size:11px;">
                                                     @ConnectorSummary(c)@(c.HasCredentials ? " · con credenciales" : "")@(c.IsActive ? "" : " · inactivo")
                                                 </div>
@@ -317,6 +328,16 @@ else
                                         <option value="@ConnectorKind.Excel">Excel</option>
                                         <option value="@ConnectorKind.RestApi">API REST</option>
                                         <option value="@ConnectorKind.Database">Base de datos</option>
+                                    </select>
+
+                                    @* Tabla destino: sin esto el conector no sabe a donde alimenta, y
+                                       no puede refrescarse solo (habria que preguntarlo cada vez). *@
+                                    <select class="form-control" @bind="_conContainerId">
+                                        <option value="">Tabla destino: (elegir al importar)</option>
+                                        @foreach (var t in _detail!.Tables)
+                                        {
+                                            <option value="@t.Id">Alimenta: @t.Name</option>
+                                        }
                                     </select>
 
                                     @if (_conKind == ConnectorKind.RestApi)
@@ -880,6 +901,16 @@ else
     .dc-cfg-title { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, var(--muted-foreground)); margin-bottom: 10px; border-bottom: 1px solid var(--line, var(--border)); padding-bottom: 6px; }
     .dc-section-title { font-weight: 700; font-size: 12.5px; color: var(--ink-2, var(--muted-foreground)); margin: 8px 0 6px; }
 
+    /* A que tabla alimenta el conector. "sin tabla" en ambar: no es un error (se elige al importar),
+       pero si algo que conviene resolver para poder refrescar solo. */
+    .dc-badge-target { background: rgba(16,185,129,.14); color: #047857; }
+    .dc-badge-warn { background: rgba(245,158,11,.16); color: #92400e; }
+
+    /* Resultado de "Probar conexion". */
+    .dc-probe { font-size: 11px; margin-top: 3px; padding: 3px 7px; border-radius: 6px; display: inline-block; }
+    .dc-probe.on { background: rgba(16,185,129,.14); color: #047857; }
+    .dc-probe.off { background: rgba(245,158,11,.16); color: #92400e; }
+
     /* Acordeon de la columna Alimentacion (ver DcAccordion.razor). */
     .dc-acc { border: 1px solid var(--line, var(--border)); border-radius: 8px; margin-bottom: 8px; background: var(--surface, var(--card)); }
     .dc-acc-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; background: none; border: 0; cursor: pointer; text-align: left; }
@@ -975,8 +1006,20 @@ else
                         <div>
                             <strong>@c.Name</strong> @(c.IsActive ? "" : "(inactivo)")
                             <div class="text-muted" style="font-size:11px;">@c.ClientId @(c.HasSecret ? "· con secreto" : "")</div>
+                            @if (_probe.TryGetValue(c.ClientId, out var estado))
+                            {
+                                <div class="dc-probe @(estado.Online ? "on" : "off")">@estado.Texto</div>
+                            }
                         </div>
                         <div style="display:flex;gap:4px;">
+                            @* El servidor NO puede conectarse al agente: es el agente quien marca hacia
+                               afuera (por eso no hay que abrir puertos en la red del cliente). Lo que
+                               esto hace es preguntarle al registro del hub si ese ClientId tiene un
+                               agente conectado AHORA. El titulo lo dice para no prometer de mas. *@
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ProbeClientAsync(c.ClientId)" disabled="@_busy"
+                                    title="Consulta si este cliente tiene un agente conectado en este momento. El servidor no inicia la conexion: la abre el agente.">
+                                Probar conexion
+                            </button>
                             @if (_canEdit)
                             {
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => RotateSecretAsync(c.Id)" disabled="@_busy">Rotar</button>
@@ -1053,6 +1096,35 @@ else
     private string _conMapping = "";
     private bool _conActive = true;
     private string? _conError;
+
+    /// <summary>Tabla destino del conector (Guid como texto: el select lo maneja asi). "" = sin elegir.</summary>
+    private string _conContainerId = "";
+
+    // ---- "Probar conexion" de un cliente remoto ----
+    // Resultado por ClientId. No se consulta al pintar la lista a proposito: el estado cambia solo
+    // (el agente puede caerse en cualquier momento) y un dato viejo pintado como si fuera fresco
+    // engana mas que no mostrar nada. Se pregunta cuando el operador lo pide.
+
+    private readonly Dictionary<string, (bool Online, string Texto)> _probe = new(StringComparer.Ordinal);
+
+    private Task ProbeClientAsync(string clientId) => GuardAsync(() =>
+    {
+        var p = Agents.Get(clientId);
+        if (p is null)
+        {
+            // Que NO haya agente es lo normal si aun no lo instalaron: el texto lo explica en vez de
+            // dejar un "error" seco que parezca una averia.
+            _probe[clientId] = (false, "Sin agente conectado. Instala la colmena con este ClientId y su secreto.");
+        }
+        else
+        {
+            var desde = (DateTimeOffset.UtcNow - p.ConnectedAt).TotalMinutes;
+            var equipo = string.IsNullOrWhiteSpace(p.Host) ? "" : $" desde {p.Host}";
+            var version = string.IsNullOrWhiteSpace(p.Version) ? "" : $" (v{p.Version})";
+            _probe[clientId] = (true, $"En linea{equipo}{version} · conectado hace {Math.Max(0, (int)desde)} min");
+        }
+        return Task.CompletedTask;
+    });
 
     // Destino.
     private DestinationKind _destKind = DestinationKind.System;
@@ -1482,6 +1554,7 @@ else
         _conCreds = "";
         _conMapping = c.MappingJson ?? "";
         _conActive = c.IsActive;
+        _conContainerId = c.ContainerId?.ToString() ?? "";
         _conError = null;
     }
 
@@ -1501,6 +1574,7 @@ else
         _conCreds = "";
         _conMapping = "";
         _conActive = true;
+        _conContainerId = "";
         _conError = null;
     }
 
@@ -1526,7 +1600,8 @@ else
                 _conKind == ConnectorKind.Database ? NullIfBlank(_conUser) : null,
                 NullIfBlank(_conCreds),
                 _conKind == ConnectorKind.RestApi ? NullIfBlank(_conMapping) : null,
-                _conActive);
+                _conActive,
+                Guid.TryParse(_conContainerId, out var tgt) ? tgt : null);
             var saved = await ConfigSvc.SaveConnectorAsync(req, _actor);
             if (saved is null) { _conError = "No se pudo guardar el conector."; return; }
             _connectors = await ConfigSvc.ListConnectorsAsync(modelId);

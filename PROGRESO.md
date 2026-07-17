@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-17 - Merge del Agente Conector On-Prem al tronco + deploy a prod
+
+**Agentes**: Claude (Opus 4.8). **Accion**: fusionar `feat/agente-colmena-gui` (34 commits, backbone
+del Agente Conector On-Prem) al tronco `fase-0/clon-backbone`, y desplegar a produccion.
+
+**El merge** quedo como `65f88e2`, un merge no-fast-forward de 2 padres: `5fcc5bf` (motor de
+formularios D1-D4, ya en el tronco) y `4c9c1a8` (rama del agente). Divergencia real: 12 commits de
+formularios en el tronco / 34 del agente. Conflicto unico: `CurrentPermissionsTests.cs` (se conservo
+el superset del tronco, 4 tests). Los dos `ModelSnapshot` auto-fusionaron correctos (verificado con
+`has-pending-model-changes`: sin cambios pendientes en PG **y** SQL Server, no a ojo). Migraciones del
+agente (`AddConnectorQuery`, `AddImportRuns`, `AddImportPendingOffline`) en orden por timestamp encima
+de `CamposCalculadosYAnchos`, sin duplicados ni huecos; el agente NO traia CamposCalculadosYAnchos, asi
+que no hubo duplicado. Integridad: `apps/agent` identico a la rama del agente y `FormControlType`
+identico al tronco -> ambos conjuntos intactos. Verificado: build Debug+Release 0 errores;
+tests 457/30/35; **aislamiento cross-tenant 6/6 dual**; migraciones aplicadas en PG y SQL Server dev.
+
+**Fix de deploy** (`364450a`): el build-from-git de prod fallaba con CS0246 -`Ecorex.SuperAdmin` ahora
+referencia `apps/agent/libs/Ecorex.Contracts.Agent`, que vive FUERA de `apps/backend`, y
+`Dockerfile.superadmin` solo hacia `COPY apps/backend`-. Localmente compilaba (la sln incluye todo);
+el contexto Docker aislado no. Fix minimo: `COPY apps/agent/libs/Ecorex.Contracts.Agent/` (proyecto
+hoja net10.0) a la ruta que la ProjectReference espera. Validado con `docker build --target build`
+local antes de tocar prod.
+
+**Deploy a prod** (`root@10.0.0.3`, `/opt/ecorex`, build-from-git de `fase-0/clon-backbone` @
+`364450a`): backup previo (`backups/ecorex-2026-07-17-1638.sql.gz`), `build --no-cache` + `up -d`.
+Prod aplico las 3 migraciones del agente (de `CamposCalculadosYAnchos` a `AddImportPendingOffline`),
+arranco sin errores, `curl http://127.0.0.1:5480/login` -> **HTTP 200**. El backbone del Agente ya
+esta en produccion.
+
+**Esquema de ramas** respetado (sin reorganizar): tronco `fase-0/clon-backbone`, `origin/main` espejo,
+doble push. **Siguiente**: la GUI/servicio del agente (WPF, Windows) NO va en la imagen web; se
+instala aparte con `deploy/agent/`. Deuda viva: QA extra runtime de flujos (#68).
+
+---
+
 ## 2026-07-17 - Cancel: el protocolo deja de mentir
 
 `AgentHubMethods.Cancel` estaba declarado en el contrato pero **el agente no lo manejaba** (el

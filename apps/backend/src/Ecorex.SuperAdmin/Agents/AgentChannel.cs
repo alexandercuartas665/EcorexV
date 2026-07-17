@@ -49,6 +49,9 @@ public static class AgentChannel
         services.AddSignalR().AddHubOptions<AgenteHub>(o => o.MaximumReceiveMessageSize = 32L * 1024 * 1024);
         // Ola 3: orquestador de ingesta via agente (pending-fetch + ingesta al contenedor).
         services.AddSingleton<IAgentImportService, AgentImportService>();
+        // Ejecuta una programacion AHORA (boton "Actualizar datos"). Scoped: usa el DbContext y el
+        // tenant del request. Lo reusara el scheduler para que el horario y el boton hagan lo mismo.
+        services.AddScoped<IProcessRunner, ProcessRunner>();
 
         // Esquema bearer nombrado SOLO para el hub. AddAuthentication() sin argumentos no cambia el
         // esquema por defecto (cookie), solo agrega este.
@@ -303,7 +306,7 @@ public static class AgentChannel
                     : null;
                 var query = $"SELECT TOP {take} {string.Join(", ", mapping.Values)} FROM ciudades";
 
-                var corr = await imports.DispatchFetchAsync(clientId, tenantId, containerId, mapping, importMode, keyCol, query, ct);
+                var corr = await imports.DispatchFetchAsync(clientId, tenantId, containerId, mapping, importMode, keyCol, query, connector: null, ct);
                 return Results.Json(new { ok = true, correlationId = corr, containerId, mode = importMode.ToString(), query });
             }).AllowAnonymous().DisableAntiforgery();
 

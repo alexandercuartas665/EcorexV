@@ -18,10 +18,14 @@ public sealed record AgentIngestOutcome(bool Ok, int Inserted, int Updated, int 
 /// </summary>
 public interface IAgentImportService
 {
+    /// <param name="connector">
+    /// Fuente a consultar, con la credencial YA descifrada (ADR-0040). null = el agente usa su
+    /// cadena local (opcion b, la de la Ola C).
+    /// </param>
     Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, CancellationToken ct);
+        string query, ConnectorSpec? connector, CancellationToken ct);
 
     Task OnFetchResultAsync(FetchResultMsg chunk);
     Task OnFetchFailedAsync(FetchErrorMsg error);
@@ -48,7 +52,7 @@ public sealed class AgentImportService : IAgentImportService
     public async Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, CancellationToken ct)
+        string query, ConnectorSpec? connector, CancellationToken ct)
     {
         var correlationId = Guid.NewGuid().ToString("N")[..8];
         _pending[correlationId] = new Pending(tenantId, containerId, mapping, mode, keyColumnId);
@@ -56,7 +60,11 @@ public sealed class AgentImportService : IAgentImportService
         var req = new FetchRequestMsg(
             CorrelationId: correlationId,
             TenantId: tenantId.ToString(),
-            Connector: new ConnectorSpec("Database", DbEngine: "SqlServer"),
+            // La fuente la manda quien despacha (ADR-0040): host/base/usuario + la credencial
+            // descifrada del conector. Antes esto iba fijo a "SqlServer" sin credencial porque el
+            // agente usaba su cadena local (opcion b). Si llega null, el agente cae a esa cadena
+            // local: asi un agente configurado a mano sigue funcionando.
+            Connector: connector ?? new ConnectorSpec("Database", DbEngine: "SqlServer"),
             Query: new QuerySpec(query),
             Paging: new PagingSpec("Offset", 500, 100000));
 

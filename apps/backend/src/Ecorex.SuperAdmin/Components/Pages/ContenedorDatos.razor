@@ -20,6 +20,9 @@
 @inject IJSRuntime JS
 @* "Probar conexion" de un cliente remoto: el registro sabe que agentes estan conectados al hub. *@
 @inject Ecorex.SuperAdmin.Agents.IAgentRegistry Agents
+@* "Actualizar datos": ejecuta la programacion ahora y consulta su resultado. *@
+@inject Ecorex.SuperAdmin.Agents.IProcessRunner Runner
+@inject Ecorex.SuperAdmin.Agents.IAgentImportService Imports
 @inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Contenedor de datos - ECOREX.tareas</PageTitle>
@@ -447,8 +450,22 @@ else
                                                     @(p.ScheduleKind == ImportScheduleKind.Cron && !string.IsNullOrWhiteSpace(p.CronExpression) ? $" · {p.CronExpression}" : "")
                                                     @(p.IsActive ? "" : " · inactivo")
                                                 </div>
+                                                @if (_runResult.TryGetValue(p.Id, out var rr))
+                                                {
+                                                    <div class="dc-probe @(rr.Ok ? "on" : "off")">@rr.Message</div>
+                                                }
                                             </div>
                                             <div style="display:flex;gap:4px;">
+                                                @* "Actualizar datos": ejecuta ESTA programacion ahora.
+                                                   Solo tiene sentido si la ejecuta un agente (tiene
+                                                   cliente); sin cliente, no hay a quien pedirselo. *@
+                                                @if (_canEdit && p.ClientName is not null)
+                                                {
+                                                    <button class="btn btn-sm btn-primary" @onclick="() => RunProcessAsync(p.Id)" disabled="@_busy"
+                                                            title="Pide al agente que ejecute la consulta del conector y refresque la tabla destino.">
+                                                        Actualizar datos
+                                                    </button>
+                                                }
                                                 @if (_canEdit)
                                                 {
                                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditProcess(p)" disabled="@_busy">Editar</button>
@@ -1099,6 +1116,51 @@ else
 
     /// <summary>Tabla destino del conector (Guid como texto: el select lo maneja asi). "" = sin elegir.</summary>
     private string _conContainerId = "";
+
+    // ---- "Actualizar datos": ejecuta una programacion AHORA ----
+
+    private readonly Dictionary<Guid, (bool Ok, string Message)> _runResult = new();
+
+    /// <summary>
+    /// Pide al agente que traiga los datos. El despacho es INMEDIATO pero la ingesta NO: el agente
+    /// consulta su base y devuelve los chunks por el canal. Por eso aqui se espera el resultado real
+    /// (con tope) en vez de decir "listo" al enviar la orden: "enviado" no es "cargado", y anunciar
+    /// exito antes de tiempo es justo lo que hace que nadie confie en el boton.
+    /// </summary>
+    private Task RunProcessAsync(Guid processId) => GuardAsync(async () =>
+    {
+        _busy = true;
+        _runResult[processId] = (true, "Pidiendo datos al agente...");
+        try
+        {
+            var r = await Runner.RunNowAsync(processId);
+            if (!r.Ok || r.CorrelationId is null)
+            {
+                _runResult[processId] = (false, r.Message);
+                return;
+            }
+
+            // Espera del acuse. El tope evita quedarse colgado si el agente muere a mitad (la Ola 6
+            // debe poner este timeout tambien del lado servidor: hoy el pending fetch no caduca).
+            var limite = DateTime.UtcNow.AddSeconds(60);
+            while (DateTime.UtcNow < limite)
+            {
+                await Task.Delay(700);
+                if (Imports.TryGetOutcome(r.CorrelationId, out var o) && o is not null)
+                {
+                    _runResult[processId] = o.Ok
+                        ? (true, $"Listo: {o.Inserted} filas cargadas" + (o.Deleted > 0 ? $" (se reemplazaron {o.Deleted})" : ""))
+                        : (false, $"El agente no pudo: {o.Error}");
+                    if (o.Ok && _mId is Guid mid) { await LoadDetailCoreAsync(mid); }
+                    return;
+                }
+                StateHasChanged();
+            }
+            _runResult[processId] = (false, "El agente no respondio en 60s. Revisa su estado con 'Probar conexion'.");
+        }
+        catch (Exception ex) { _runResult[processId] = (false, ex.Message); }
+        finally { _busy = false; }
+    });
 
     // ---- "Probar conexion" de un cliente remoto ----
     // Resultado por ClientId. No se consulta al pintar la lista a proposito: el estado cambia solo

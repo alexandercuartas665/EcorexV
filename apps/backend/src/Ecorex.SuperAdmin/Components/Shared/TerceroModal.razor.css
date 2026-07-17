@@ -164,7 +164,30 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 /* Fichas dinamicas */
 .dg-fichas { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
 /* Las fichas ocupan todo el ancho del cuerpo (debajo de las columnas); sus campos fluyen en varias columnas. */
-.dg-ficha-body .dg-fields { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+/* Rejilla de 3 columnas SOLO para los campos de las fichas (ADR-0029): el ancho del campo
+   (pequena 1/3, media 2/3, grande completo) necesita pistas fijas, no auto-fill, porque
+   "span 2" no significa nada si la rejilla decide sola cuantas columnas hay. La .dg-fields
+   general se queda en 2: la usa tambien el formulario de configuracion. */
+.dg-ficha-body .dg-fields { grid-template-columns: repeat(3, 1fr); }
+.dg-ficha-body .dg-fld-med { grid-column: span 2; }
+@media (max-width: 980px) {
+    .dg-ficha-body .dg-fields { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 620px) {
+    .dg-ficha-body .dg-fields { grid-template-columns: 1fr; }
+    .dg-ficha-body .dg-fld-med { grid-column: 1 / -1; }
+}
+
+/* Calculado: readonly, con la marca fx que al pasar el raton muestra la formula. */
+.dg-calc { position: relative; }
+.dg-input-ro { background: var(--surface-2); color: var(--ink-2); cursor: default; }
+.dg-calc-ic {
+    position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px; font-style: italic; font-weight: 700; color: var(--t-violet);
+    background: var(--t-violet-bg); border-radius: 5px; padding: 1px 5px; cursor: help;
+}
+.dg-calc-warn { font-size: 11px; color: var(--t-amber); margin-top: 4px; }
 .dg-ficha { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .dg-ficha-head { display: flex; align-items: center; gap: 11px; padding: 13px 15px; cursor: pointer; background: var(--surface-2); }
 .dg-ficha-head:hover { background: var(--surface-3); }

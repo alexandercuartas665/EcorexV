@@ -8,6 +8,7 @@
 @using System.Text.Json
 @using System.Globalization
 @using Ecorex.Application.Directorio
+@using Ecorex.Application.Formulas
 @using Ecorex.Application.Gestor
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
@@ -239,7 +240,9 @@
                                                             <div class="dg-fields">
                                                                 @foreach (var f in fcFields)
                                                                 {
-                                                                    <div style="min-width:0" class="@(f.Column >= 2 || f.FieldType == TerceroFieldType.Separator ? "dg-fld-full" : "")">
+                                                                    @* El ancho sale de la rejilla de 3: 1 = 1/3, 2 = 2/3, 3 = fila entera.
+                                                                       Un separador siempre ocupa la fila (es un titulo, no un dato). *@
+                                                                    <div style="min-width:0" class="@WidthClass(f)">
                                                                         @if (f.FieldType == TerceroFieldType.Separator)
                                                                         {
                                                                             <div class="dg-fld-sep">@f.Label</div>
@@ -260,6 +263,20 @@
                                                                                     break;
                                                                                 case TerceroFieldType.TextArea:
                                                                                     <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                                                    break;
+                                                                                case TerceroFieldType.Calculated:
+                                                                                    @* No se captura: sale de la formula y se recalcula al escribir en sus
+                                                                                       origenes (ADR-0029). Vacio = no se pudo calcular (division por cero,
+                                                                                       formula rota o ciclo), y se dice, en vez de mostrar un cero enganoso. *@
+                                                                                    <div class="dg-calc">
+                                                                                        <input class="dg-input dg-input-ro" type="text" readonly
+                                                                                               value="@(_calculated.GetValueOrDefault(f.FieldKey) ?? "")" />
+                                                                                        <span class="dg-calc-ic" title="@($"Calculado: {f.Formula}")">fx</span>
+                                                                                    </div>
+                                                                                    @if (_calculated.TryGetValue(f.FieldKey, out var cv) && cv is null)
+                                                                                    {
+                                                                                        <div class="dg-calc-warn">No se puede calcular con los datos actuales.</div>
+                                                                                    }
                                                                                     break;
                                                                                 default:
                                                                                     <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
@@ -741,6 +758,7 @@
             }
             _fichaValues[ficha.Key] = campos;
         }
+        RecalcCalculated();   // al abrir: los calculados se muestran ya resueltos, sin tocar nada
         _relContactos = await TerceroSvc.ListContactosAsync(id);
         _notas = await TerceroSvc.ListNotasAsync(id);
         _opps = CrmWiring ? (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList() : new();
@@ -807,6 +825,58 @@
             _fichaValues[ficha] = m;
         }
         m[field] = val ?? "";
+
+        // Cualquier dato puede alimentar una formula, asi que los calculados se rehacen aqui. Es
+        // aritmetica en memoria sobre unas pocas claves: no toca la base ni el servicio.
+        RecalcCalculated();
+    }
+
+    /// <summary>Escribe un valor sin disparar el recalculo (para volcar el resultado ya calculado).</summary>
+    private void SetFichaRaw(string ficha, string field, string val)
+    {
+        if (!_fichaValues.TryGetValue(ficha, out var m))
+        {
+            m = new Dictionary<string, string>(StringComparer.Ordinal);
+            _fichaValues[ficha] = m;
+        }
+        m[field] = val;
+    }
+
+    /// <summary>Ancho del campo en la rejilla de 3 (ADR-0029). El separador siempre ocupa la fila.</summary>
+    private static string WidthClass(TerceroFieldDto f) => f.FieldType == TerceroFieldType.Separator || f.Column >= 3
+        ? "dg-fld-full"
+        : f.Column == 2 ? "dg-fld-med" : "";
+
+    /// <summary>
+    /// Resultado de cada campo calculado, por clave. Null = no se pudo calcular. Se aplanan los
+    /// valores de TODAS las fichas porque una formula puede cruzarlas (los valores del tercero viven
+    /// juntos en FichasJson); las claves repetidas entre fichas ya las rechaza el configurador.
+    /// </summary>
+    private Dictionary<string, string?> _calculated = new(StringComparer.Ordinal);
+
+    /// <summary>Definiciones de TODAS las fichas, aplanadas (los campos viven agrupados por ficha).</summary>
+    private IEnumerable<TerceroFieldDto> AllFieldDefs() => _fichaFields.SelectMany(kv => kv.Value);
+
+    private void RecalcCalculated()
+    {
+        var calculated = AllFieldDefs()
+            .Where(f => f.FieldType == TerceroFieldType.Calculated && !string.IsNullOrWhiteSpace(f.Formula))
+            .Select(f => new CalculatedField(f.FieldKey, f.Formula!))
+            .ToList();
+
+        if (calculated.Count == 0)
+        {
+            if (_calculated.Count > 0) { _calculated = new(StringComparer.Ordinal); }
+            return;
+        }
+
+        var flat = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var (_, campos) in _fichaValues)
+        {
+            foreach (var (key, value) in campos) { flat[key] = value; }
+        }
+
+        _calculated = FormulaCalculator.EvaluateAll(calculated, flat).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
     }
 
     private string IdLabel() => _mIdTipo switch
@@ -840,6 +910,15 @@
         {
             _modalError = $"{IdLabel()} es obligatorio (o elige 'No se identifica').";
             return;
+        }
+
+        // Los calculados se MATERIALIZAN al guardar (ADR-0029): asi reportes, exportaciones y API
+        // leen el numero sin reimplementar el motor. Se rehacen antes por si quedo algo sin recalcular.
+        RecalcCalculated();
+        foreach (var def in AllFieldDefs().Where(f => f.FieldType == TerceroFieldType.Calculated))
+        {
+            var value = _calculated.GetValueOrDefault(def.FieldKey);
+            SetFichaRaw(def.FichaKey, def.FieldKey, value ?? "");
         }
 
         // Serializa solo las fichas visibles con al menos un campo con valor.

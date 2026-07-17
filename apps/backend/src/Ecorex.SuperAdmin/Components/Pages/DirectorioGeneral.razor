@@ -350,10 +350,20 @@
                             </div>
                             <div class="dg-cfg-fmeta">@TypeLabel(f.FieldType) &#183; @f.FieldKey</div>
                         </div>
-                        <button class="dg-cfg-wbtn" disabled="@_busy" @onclick="() => ToggleCfgColumnAsync(f)" title="Ancho del campo. Clic para cambiar entre media y completa.">
+                        <button class="dg-cfg-wbtn" disabled="@_busy" @onclick="() => CycleCfgColumnAsync(f)" title="Ancho del campo. Clic para pasar de pequena a media a grande.">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4" /></svg>
-                            @(f.Column >= 2 ? "completa" : "media")
+                            @ColumnLabel(f.Column)
                         </button>
+                        @* Mover de ficha: hasta ahora un campo nacia atado a su ficha para siempre. *@
+                        <select class="dg-cfg-move-sel" disabled="@_busy" title="Mover el campo a otra ficha"
+                                value=""
+                                @onchange="e => MoveCfgFieldToFichaAsync(f, e.Value?.ToString())">
+                            <option value="">Mover a...</option>
+                            @foreach (var m in FichaCatalog.Where(x => x.Key != f.FichaKey))
+                            {
+                                <option value="@m.Key">@m.ConfigLabel</option>
+                            }
+                        </select>
                         <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgField(f)" title="Editar campo">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                         </button>
@@ -383,13 +393,15 @@
                                 <option value="@TerceroFieldType.Date">Fecha</option>
                                 <option value="@TerceroFieldType.Phone">Telefono</option>
                                 <option value="@TerceroFieldType.Separator">Separador</option>
+                                <option value="@TerceroFieldType.Calculated">Calculado</option>
                             </select>
                         </div>
                         <div style="min-width:0">
                             <label class="dg-flabel">Ancho</label>
                             <select class="dg-input" @bind="_cfgColumn">
-                                <option value="1">Media</option>
-                                <option value="2">Completa</option>
+                                <option value="1">Pequena (1/3)</option>
+                                <option value="2">Media (2/3)</option>
+                                <option value="3">Grande (completo)</option>
                             </select>
                         </div>
                         <div style="min-width:0">
@@ -401,6 +413,74 @@
                             <div style="min-width:0" class="dg-fld-full">
                                 <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
                                 <textarea class="dg-input dg-textarea" value="@_cfgOptions" @oninput="e => _cfgOptions = e.Value?.ToString() ?? string.Empty"></textarea>
+                            </div>
+                        }
+                        @if (_cfgType == TerceroFieldType.Calculated)
+                        {
+                            @* La formula se valida MIENTRAS se escribe: enterarse al guardar de que una
+                               llave esta mal escrita o de que hay un ciclo es tarde y frustrante. *@
+                            <div style="min-width:0" class="dg-fld-full">
+                                <label class="dg-flabel">Formula <span class="dg-req">*</span></label>
+                                <input class="dg-input dg-mono @(_cfgFormulaError is not null ? "dg-input-bad" : "")"
+                                       value="@_cfgFormula" placeholder="ROUND(({valor_base} + {flete}) * 1.19, 2)"
+                                       @oninput="OnFormulaInputAsync" />
+                                @if (_cfgFormulaError is not null)
+                                {
+                                    <div class="dg-cfg-err" style="margin-top:6px">@_cfgFormulaError</div>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(_cfgFormula))
+                                {
+                                    <div class="dg-cfg-ok">Formula valida.</div>
+                                }
+                                <div class="dg-cfg-note" style="margin-top:6px">
+                                    Operadores + - * / y parentesis. Funciones: ROUND, MIN, MAX, ABS, SUM.
+                                    Referencia otros campos con llaves.
+                                </div>
+                                @{
+                                    var usables = NumericFieldsForFormula();
+                                    var ambiguas = AmbiguousKeys();
+                                }
+                                @if (usables.Count > 0)
+                                {
+                                    <div class="dg-cfg-keys">
+                                        @foreach (var nf in usables)
+                                        {
+                                            var nfv = nf;
+                                            var esAmbigua = ambiguas.Contains(nfv.FieldKey);
+                                            @* Una clave repetida en dos fichas no se puede usar: {clave} no dice a cual
+                                               apunta. Se muestra deshabilitada y diciendo por que, en vez de dejar que
+                                               se pinche y que el servidor la rechace despues. *@
+                                            <button type="button" class="dg-cfg-key @(esAmbigua ? "dg-cfg-key-bad" : "")"
+                                                    disabled="@esAmbigua"
+                                                    title="@(esAmbigua
+                                                        ? $"Clave repetida en varias fichas: no se puede usar en un calculo hasta renombrar una."
+                                                        : $"{nfv.Label} ({FichaLabel(nfv.FichaKey)})")"
+                                                    @onclick="() => InsertFormulaKeyAsync(nfv.FieldKey)">@($"{{{nfv.FieldKey}}}")</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (_cfgType != TerceroFieldType.Separator && _cfgType != TerceroFieldType.Calculated)
+                        {
+                            <div style="min-width:0">
+                                <label class="dg-flabel">Repetir segun <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
+                                <select class="dg-input" @bind="_cfgRepeatWith">
+                                    <option value="">No se repite</option>
+                                    @foreach (var nf in NumericFieldsForFormula().Where(x => x.FieldType == TerceroFieldType.Number))
+                                    {
+                                        <option value="@nf.FieldKey">@nf.Label</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        @if (_cfgType != TerceroFieldType.Separator)
+                        {
+                            <div style="min-width:0" class="dg-fld-full">
+                                <label class="dg-req-chk">
+                                    <input type="checkbox" @bind="_cfgShowInFilter" />
+                                    Ofrecer como filtro en el listado
+                                </label>
                             </div>
                         }
                     </div>
@@ -678,6 +758,15 @@
     private string _cfgDescription = "";
     private string? _cfgError;
 
+    // Campos calculados y extras (ADR-0029).
+    private string _cfgFormula = "";
+    private string? _cfgFormulaError;
+    private bool _cfgShowInFilter;
+    private string _cfgRepeatWith = "";
+
+    /// <summary>Todos los campos del tenant: la formula puede referenciar cualquier ficha.</summary>
+    private List<TerceroFieldDto> _cfgAllFields = new();
+
     // ---- Formularios ofrecidos en el modal de tercero (3a columna) ----
     private IReadOnlyList<TerceroFormLinkDto> _cfgForms = Array.Empty<TerceroFormLinkDto>();
     private IReadOnlyList<TerceroFormCandidateDto> _cfgFormCandidates = Array.Empty<TerceroFormCandidateDto>();
@@ -734,6 +823,9 @@
     {
         var list = await FieldSvc.ListByFichaAsync(_cfgFicha);
         _cfgFields = list.OrderBy(f => f.SortOrder).ToList();
+        // Todas las fichas: una formula puede referenciar campos de cualquiera (los valores del
+        // tercero viven juntos), asi que el selector de claves los necesita todos.
+        _cfgAllFields = (await FieldSvc.ListFieldsAsync()).ToList();
     }
 
     private async Task SelectCfgFichaAsync(string ficha)
@@ -752,6 +844,10 @@
         _cfgOptions = "";
         _cfgDescription = "";
         _cfgError = null;
+        _cfgFormula = "";
+        _cfgFormulaError = null;
+        _cfgShowInFilter = false;
+        _cfgRepeatWith = "";
     }
 
     private void EditCfgField(TerceroFieldDto f)
@@ -759,10 +855,14 @@
         _cfgEditingId = f.Id;
         _cfgLabel = f.Label;
         _cfgType = f.FieldType;
-        _cfgColumn = f.Column >= 2 ? 2 : 1;
+        _cfgColumn = Math.Clamp(f.Column, 1, 3);
         _cfgOptions = f.Options ?? "";
         _cfgDescription = f.Description ?? "";
         _cfgError = null;
+        _cfgFormula = f.Formula ?? "";
+        _cfgFormulaError = null;
+        _cfgShowInFilter = f.ShowInFilter;
+        _cfgRepeatWith = f.RepeatWithFieldKey ?? "";
     }
 
     private void CancelEditCfgField() => ResetCfgForm();
@@ -781,12 +881,23 @@
             : null;
         var desc = string.IsNullOrWhiteSpace(_cfgDescription) ? null : _cfgDescription.Trim();
 
+        var formula = _cfgType == TerceroFieldType.Calculated ? _cfgFormula.Trim() : null;
+        if (_cfgType == TerceroFieldType.Calculated)
+        {
+            // Se revalida contra el servidor con la clave real: mientras se escribe se valida con la
+            // del campo en edicion, pero uno nuevo aun no tiene clave asignada.
+            _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(formula, _cfgEditingId, _cfgEditingId is null ? null : CfgEditingKey());
+            if (_cfgFormulaError is not null) { return; }
+        }
+        var repeat = string.IsNullOrWhiteSpace(_cfgRepeatWith) ? null : _cfgRepeatWith;
+
         _busy = true;
         try
         {
             if (_cfgEditingId is Guid editId)
             {
-                var upd = await FieldSvc.UpdateFieldAsync(editId, new UpdateTerceroFieldRequest(label, _cfgType, _cfgColumn, options, desc));
+                var upd = await FieldSvc.UpdateFieldAsync(editId, new UpdateTerceroFieldRequest(
+                    label, _cfgType, _cfgColumn, options, desc, false, formula, _cfgShowInFilter, repeat));
                 if (upd is null)
                 {
                     _cfgError = "No se pudo guardar el campo.";
@@ -795,7 +906,8 @@
             }
             else
             {
-                var created = await FieldSvc.CreateFieldAsync(new CreateTerceroFieldRequest(_cfgFicha, label, _cfgType, _cfgColumn, options, null, desc));
+                var created = await FieldSvc.CreateFieldAsync(new CreateTerceroFieldRequest(
+                    _cfgFicha, label, _cfgType, _cfgColumn, options, null, desc, false, formula, _cfgShowInFilter, repeat));
                 if (created is null)
                 {
                     _cfgError = "No se pudo crear el campo. Revisa la ficha seleccionada.";
@@ -804,6 +916,72 @@
             }
             ResetCfgForm();
             await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Clave del campo que se esta editando (para validar su formula sin autorreferencia).</summary>
+    private string? CfgEditingKey()
+        => _cfgFields.FirstOrDefault(f => f.Id == _cfgEditingId)?.FieldKey;
+
+    /// <summary>Valida la formula mientras se teclea, contra el servidor (que conoce los otros campos).</summary>
+    private async Task OnFormulaInputAsync(ChangeEventArgs e)
+    {
+        _cfgFormula = e.Value?.ToString() ?? string.Empty;
+        _cfgFormulaError = string.IsNullOrWhiteSpace(_cfgFormula)
+            ? null
+            : await FieldSvc.ValidateFormulaAsync(_cfgFormula, _cfgEditingId, CfgEditingKey());
+    }
+
+    /// <summary>Campos que una formula puede usar: los numericos y los ya calculados, de cualquier ficha.</summary>
+    private List<TerceroFieldDto> NumericFieldsForFormula()
+        => _cfgAllFields
+            .Where(f => f.Id != _cfgEditingId)
+            .Where(f => f.FieldType is TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)
+            .OrderBy(f => f.FichaKey).ThenBy(f => f.SortOrder)
+            .ToList();
+
+    /// <summary>
+    /// Claves que existen en mas de una ficha (la clave solo es unica DENTRO de la ficha). En una
+    /// formula {clave} no diria a cual apunta, asi que el servidor las rechaza; aqui se marcan para
+    /// no ofrecer algo que no se puede usar.
+    /// </summary>
+    private HashSet<string> AmbiguousKeys()
+        => _cfgAllFields
+            .GroupBy(f => f.FieldKey, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+    private async Task InsertFormulaKeyAsync(string key)
+    {
+        _cfgFormula = string.IsNullOrWhiteSpace(_cfgFormula) ? $"{{{key}}}" : $"{_cfgFormula} {{{key}}}";
+        _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, _cfgEditingId, CfgEditingKey());
+    }
+
+    private static string ColumnLabel(int column) => column switch
+    {
+        >= 3 => "grande",
+        2 => "media",
+        _ => "pequena"
+    };
+
+    private static string FichaLabel(string fichaKey)
+        => FichaCatalog.FirstOrDefault(f => f.Key == fichaKey).ConfigLabel ?? fichaKey;
+
+    private async Task MoveCfgFieldToFichaAsync(TerceroFieldDto f, string? targetFicha)
+    {
+        if (string.IsNullOrWhiteSpace(targetFicha)) { return; }
+        _busy = true;
+        _cfgError = null;
+        try
+        {
+            _cfgError = await FieldSvc.MoveFieldToFichaAsync(f.Id, targetFicha);
+            if (_cfgError is null)
+            {
+                if (_cfgEditingId == f.Id) { ResetCfgForm(); }
+                await LoadCfgFieldsAsync();
+            }
         }
         finally { _busy = false; }
     }
@@ -836,13 +1014,19 @@
         finally { _busy = false; }
     }
 
-    private async Task ToggleCfgColumnAsync(TerceroFieldDto f)
+    /// <summary>
+    /// Cicla el ancho pequena -> media -> grande -> pequena, sin abrir el editor. Antes solo alternaba
+    /// entre dos porque solo habia dos.
+    /// </summary>
+    private async Task CycleCfgColumnAsync(TerceroFieldDto f)
     {
-        var newCol = f.Column >= 2 ? 1 : 2;
+        var newCol = f.Column >= 3 ? 1 : f.Column + 1;
         _busy = true;
         try
         {
-            await FieldSvc.UpdateFieldAsync(f.Id, new UpdateTerceroFieldRequest(f.Label, f.FieldType, newCol, f.Options, f.Description, f.AllowMultiple));
+            await FieldSvc.UpdateFieldAsync(f.Id, new UpdateTerceroFieldRequest(
+                f.Label, f.FieldType, newCol, f.Options, f.Description, f.AllowMultiple,
+                f.Formula, f.ShowInFilter, f.RepeatWithFieldKey));
             await LoadCfgFieldsAsync();
         }
         finally { _busy = false; }

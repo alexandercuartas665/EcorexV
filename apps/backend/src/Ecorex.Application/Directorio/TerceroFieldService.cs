@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Ecorex.Application.Common;
+using Ecorex.Application.Formulas;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -123,22 +124,26 @@ public sealed class TerceroFieldService : ITerceroFieldService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    // Las listas materializan y luego mapean con Map: antes proyectaban a mano y cada propiedad nueva
+    // habia que acordarse de agregarla en tres sitios. Una sola forma de armar el DTO.
     public async Task<IReadOnlyList<TerceroFieldDto>> ListFieldsAsync(CancellationToken cancellationToken = default) =>
-        await _db.TerceroFieldDefinitions
+        (await _db.TerceroFieldDefinitions
             .AsNoTracking()
             .OrderBy(f => f.FichaKey).ThenBy(f => f.SortOrder)
-            .Select(f => new TerceroFieldDto(f.Id, f.FichaKey, f.FieldKey, f.Label, f.FieldType, f.Column, f.SortOrder, f.Options, f.Description, f.AllowMultiple, f.IsSystem))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken))
+            .Select(Map)
+            .ToList();
 
     public async Task<IReadOnlyList<TerceroFieldDto>> ListByFichaAsync(string fichaKey, CancellationToken cancellationToken = default)
     {
         var key = (fichaKey ?? string.Empty).Trim().ToLowerInvariant();
-        return await _db.TerceroFieldDefinitions
+        return (await _db.TerceroFieldDefinitions
             .AsNoTracking()
             .Where(f => f.FichaKey == key)
             .OrderBy(f => f.SortOrder)
-            .Select(f => new TerceroFieldDto(f.Id, f.FichaKey, f.FieldKey, f.Label, f.FieldType, f.Column, f.SortOrder, f.Options, f.Description, f.AllowMultiple, f.IsSystem))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken))
+            .Select(Map)
+            .ToList();
     }
 
     public async Task<TerceroFieldDto?> CreateFieldAsync(CreateTerceroFieldRequest request, CancellationToken cancellationToken = default)
@@ -159,8 +164,21 @@ public sealed class TerceroFieldService : ITerceroFieldService
         }
 
         var key = string.IsNullOrWhiteSpace(request.FieldKey) ? Slugify(label) : request.FieldKey.Trim();
-        var existingKeys = await _db.TerceroFieldDefinitions.Where(f => f.FichaKey == ficha).Select(f => f.FieldKey).ToListAsync(cancellationToken);
+        // La clave es unica por TENANT (no por ficha): una formula referencia {clave} sin decir de que
+        // ficha, y ademas un campo se puede mover de ficha. Dos claves iguales harian ambigua la
+        // referencia y el movimiento chocaria.
+        var existingKeys = await _db.TerceroFieldDefinitions.Select(f => f.FieldKey).ToListAsync(cancellationToken);
         key = EnsureUniqueKey(key, existingKeys);
+
+        var formula = Clean(request.Formula);
+        if (request.FieldType == TerceroFieldType.Calculated)
+        {
+            if (await ValidateFormulaAsync(formula, null, key, cancellationToken) is not null) { return null; }
+        }
+        else
+        {
+            formula = null;   // solo los calculados llevan formula: no dejar restos de un cambio de tipo
+        }
 
         var maxOrder = await _db.TerceroFieldDefinitions.Where(f => f.FichaKey == ficha).Select(f => (int?)f.SortOrder).MaxAsync(cancellationToken) ?? -1;
         var field = new TerceroFieldDefinition
@@ -170,11 +188,14 @@ public sealed class TerceroFieldService : ITerceroFieldService
             FieldKey = key,
             Label = label,
             FieldType = request.FieldType,
-            Column = Math.Clamp(request.Column, 1, 2),
+            Column = Math.Clamp(request.Column, MinColumn, MaxColumn),
             SortOrder = maxOrder + 1,
-            Options = string.IsNullOrWhiteSpace(request.Options) ? null : request.Options.Trim(),
-            Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
+            Options = Clean(request.Options),
+            Description = Clean(request.Description),
             AllowMultiple = request.AllowMultiple,
+            Formula = formula,
+            ShowInFilter = request.ShowInFilter,
+            RepeatWithFieldKey = Clean(request.RepeatWithFieldKey),
             IsSystem = false
         };
         _db.TerceroFieldDefinitions.Add(field);
@@ -194,14 +215,128 @@ public sealed class TerceroFieldService : ITerceroFieldService
         {
             return null;
         }
+        var formula = Clean(request.Formula);
+        if (request.FieldType == TerceroFieldType.Calculated)
+        {
+            if (await ValidateFormulaAsync(formula, fieldId, field.FieldKey, cancellationToken) is not null) { return null; }
+        }
+        else
+        {
+            formula = null;
+        }
+
         field.Label = label;
         field.FieldType = request.FieldType;
-        field.Column = Math.Clamp(request.Column, 1, 2);
-        field.Options = string.IsNullOrWhiteSpace(request.Options) ? null : request.Options.Trim();
-        field.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        field.Column = Math.Clamp(request.Column, MinColumn, MaxColumn);
+        field.Options = Clean(request.Options);
+        field.Description = Clean(request.Description);
         field.AllowMultiple = request.AllowMultiple;
+        field.Formula = formula;
+        field.ShowInFilter = request.ShowInFilter;
+        field.RepeatWithFieldKey = Clean(request.RepeatWithFieldKey);
         await _db.SaveChangesAsync(cancellationToken);
         return Map(field);
+    }
+
+    public async Task<string?> MoveFieldToFichaAsync(Guid fieldId, string targetFichaKey, CancellationToken cancellationToken = default)
+    {
+        var ficha = (targetFichaKey ?? string.Empty).Trim().ToLowerInvariant();
+        if (!FichaKeys.Contains(ficha)) { return "La ficha destino no existe."; }
+
+        var field = await _db.TerceroFieldDefinitions.FirstOrDefaultAsync(f => f.Id == fieldId, cancellationToken);
+        if (field is null) { return "El campo no existe."; }
+        if (field.FichaKey == ficha) { return null; }   // ya esta ahi: nada que hacer
+
+        // La clave es unica POR FICHA (indice de BD), asi que si el destino ya la tiene el movimiento
+        // reventaria contra el indice. Se avisa en vez de dejar que falle el SaveChanges.
+        var choca = await _db.TerceroFieldDefinitions
+            .AnyAsync(f => f.FichaKey == ficha && f.FieldKey == field.FieldKey, cancellationToken);
+        if (choca)
+        {
+            return $"La ficha destino ya tiene un campo con la clave '{field.FieldKey}'. Renombra uno de los dos.";
+        }
+
+        // Aterriza al final de la ficha destino. La clave NO cambia, asi que los valores ya
+        // capturados y las formulas que lo referencian siguen apuntando al mismo campo.
+        var maxOrder = await _db.TerceroFieldDefinitions
+            .Where(f => f.FichaKey == ficha)
+            .Select(f => (int?)f.SortOrder)
+            .MaxAsync(cancellationToken) ?? -1;
+
+        field.FichaKey = ficha;
+        field.SortOrder = maxOrder + 1;
+        await _db.SaveChangesAsync(cancellationToken);
+        return null;
+    }
+
+    public async Task<string?> ValidateFormulaAsync(
+        string? formula, Guid? fieldId, string? fieldKey, CancellationToken cancellationToken = default)
+    {
+        var parsed = FormulaEngine.Parse(formula);
+        if (!parsed.IsOk) { return parsed.Error; }
+
+        var all = await _db.TerceroFieldDefinitions.AsNoTracking().ToListAsync(cancellationToken);
+        var candidates = all.Where(f => f.Id != fieldId).ToList();
+        var self = (fieldKey ?? string.Empty).Trim();
+
+        foreach (var reference in parsed.References)
+        {
+            if (!string.IsNullOrEmpty(self) && string.Equals(reference, self, StringComparison.Ordinal))
+            {
+                return $"El campo no puede referenciarse a si mismo ({{{reference}}}).";
+            }
+
+            var matches = candidates.Where(f => string.Equals(f.FieldKey, reference, StringComparison.Ordinal)).ToList();
+            if (matches.Count == 0)
+            {
+                return $"No existe ningun campo con la clave {{{reference}}}.";
+            }
+
+            // La clave solo es unica POR FICHA, asi que puede haber la misma en dos fichas (p.ej.
+            // "dias_de_pago" en cliente y en proveedor). Ahi {clave} no dice a cual se refiere, y como
+            // los valores viven por ficha en FichasJson, elegir uno seria adivinar. Se rechaza.
+            if (matches.Count > 1)
+            {
+                var fichas = string.Join(" y ", matches.Select(m => m.FichaKey).OrderBy(x => x));
+                return $"{{{reference}}} es ambiguo: existe en las fichas {fichas}. Renombra uno de los dos.";
+            }
+
+            var target = matches[0];
+            if (target.FieldType is not (TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated))
+            {
+                return $"{{{reference}}} es de tipo {target.FieldType} y no se puede usar en un calculo.";
+            }
+        }
+
+        // Ciclos: se simula el conjunto YA con este campo dentro (con su formula nueva).
+        if (!string.IsNullOrEmpty(self))
+        {
+            var calculated = all
+                .Where(f => f.Id != fieldId && f.FieldType == TerceroFieldType.Calculated && !string.IsNullOrWhiteSpace(f.Formula))
+                .Select(f => new CalculatedField(f.FieldKey, f.Formula!))
+                .Append(new CalculatedField(self, formula!))
+                .ToList();
+
+            if (FormulaCalculator.FindCycle(calculated) is string cycle)
+            {
+                return $"La formula crea un ciclo: {cycle}.";
+            }
+        }
+
+        return null;
+    }
+
+    public async Task<IReadOnlyDictionary<string, string?>> ComputeCalculatedAsync(
+        IReadOnlyDictionary<string, string?> values, CancellationToken cancellationToken = default)
+    {
+        var calculated = (await _db.TerceroFieldDefinitions
+            .AsNoTracking()
+            .Where(f => f.FieldType == TerceroFieldType.Calculated && f.Formula != null)
+            .ToListAsync(cancellationToken))
+            .Select(f => new CalculatedField(f.FieldKey, f.Formula!))
+            .ToList();
+
+        return FormulaCalculator.EvaluateAll(calculated, values);
     }
 
     public async Task ReorderFieldsAsync(ReorderFieldsRequest request, CancellationToken cancellationToken = default)
@@ -228,8 +363,17 @@ public sealed class TerceroFieldService : ITerceroFieldService
         return true;
     }
 
+    /// <summary>Anchos validos en la rejilla de 3: pequena (1/3), media (2/3), completo.</summary>
+    private const int MinColumn = 1;
+    private const int MaxColumn = 3;
+
+    /// <summary>Texto opcional normalizado: vacio o espacios se guardan como null.</summary>
+    private static string? Clean(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static TerceroFieldDto Map(TerceroFieldDefinition f) =>
-        new(f.Id, f.FichaKey, f.FieldKey, f.Label, f.FieldType, f.Column, f.SortOrder, f.Options, f.Description, f.AllowMultiple, f.IsSystem);
+        new(f.Id, f.FichaKey, f.FieldKey, f.Label, f.FieldType, f.Column, f.SortOrder, f.Options, f.Description,
+            f.AllowMultiple, f.IsSystem, f.Formula, f.ShowInFilter, f.RepeatWithFieldKey);
 
     private static string EnsureUniqueKey(string key, IReadOnlyCollection<string> existing)
     {

@@ -296,3 +296,31 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-cfg-form-row { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--surface); }
 .dg-cfg-form-add { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .dg-cfg-form-add .dg-input { flex: 1; min-width: 0; }
+
+/* ---- Campos calculados y extras (ADR-0029) ---- */
+
+/* La formula es codigo: en monoespaciada se ven las llaves y los parentesis. */
+.dg-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.dg-input-bad { border-color: var(--danger); }
+.dg-cfg-ok { color: var(--t-green); font-size: 12px; font-weight: 600; margin-top: 6px; }
+
+/* Claves disponibles: se pinchan en vez de teclearlas, que es donde nacen las erratas. */
+.dg-cfg-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.dg-cfg-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+    padding: 3px 7px; border: 1px solid var(--line-2); border-radius: 7px;
+    background: var(--surface-2); color: var(--ink-2); cursor: pointer;
+}
+.dg-cfg-key:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+.dg-cfg-key-bad { opacity: .45; cursor: not-allowed; text-decoration: line-through; }
+
+/* Mover de ficha: select compacto, del alto de los otros botones de la fila. */
+.dg-cfg-move-sel {
+    height: 28px; flex: none; max-width: 118px; padding: 0 6px;
+    border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface);
+    color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.dg-cfg-move-sel:hover:not(:disabled) { border-color: var(--ink-3); }
+.dg-cfg-move-sel:disabled { opacity: .4; cursor: not-allowed; }
+
+.dg-req-chk { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }

@@ -1,16 +1,31 @@
 using System.Globalization;
 using System.Text.Json;
+using Ecorex.Application.Forms;
 using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Forms.Calc;
 
 /// <summary>
-/// Columna de un GridDetail con sus propiedades de calculo (ola F2, doc 01 D5): formula por fila
-/// (<see cref="Calc"/>), agregado de columna (<see cref="Agg"/>) y roll-up a un campo del
-/// encabezado (<see cref="Rollup"/>). Se parsea del OptionsJson de la pregunta; columnas viejas
-/// [{id,label}] siguen valiendo (calc/agg/rollup opcionales).
+/// Columna de un GridDetail. Ademas de las propiedades de calculo (ola F2, doc 01 D5): formula por
+/// fila (<see cref="Calc"/>), agregado de columna (<see cref="Agg"/>) y roll-up al encabezado
+/// (<see cref="Rollup"/>), una columna declara su tipo de captura (D3): <see cref="Kind"/> "text"
+/// (por defecto) o "select" con su lista <see cref="Options"/>, y si es <see cref="Required"/>. Se
+/// parsea del OptionsJson de la pregunta; columnas viejas [{id,label}] siguen valiendo (todo lo
+/// demas es opcional y cae a texto no-requerido).
 /// </summary>
-public sealed record FormGridColumn(string Id, string Label, string? Calc, FormAggregate Agg, string? Rollup);
+public sealed record FormGridColumn(
+    string Id,
+    string Label,
+    string? Calc,
+    FormAggregate Agg,
+    string? Rollup,
+    string Kind = "text",
+    IReadOnlyList<FormOption>? Options = null,
+    bool Required = false)
+{
+    /// <summary>La columna captura de una lista fija (Select).</summary>
+    public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// Calculo de tablas (GridDetail) compartido por el renderer (UX inmediata) y el servidor
@@ -37,7 +52,33 @@ public static class FormGridCalculator
                 var rollup = el.TryGetProperty("rollup", out var pr) ? pr.GetString() : null;
                 var agg = FormAggregate.None;
                 if (el.TryGetProperty("agg", out var pa) && Enum.TryParse<FormAggregate>(pa.GetString(), ignoreCase: true, out var parsed)) { agg = parsed; }
-                list.Add(new FormGridColumn(id!, label, string.IsNullOrWhiteSpace(calc) ? null : calc, agg, string.IsNullOrWhiteSpace(rollup) ? null : rollup));
+
+                // D3: tipo de captura y, si es lista, sus opciones. "type" en el JSON por consistencia
+                // con el campo (que usa control_type); aqui es solo "text" o "select".
+                var kind = el.TryGetProperty("type", out var pt) ? (pt.GetString() ?? "text") : "text";
+                var required = el.TryGetProperty("required", out var prq) && prq.ValueKind == JsonValueKind.True;
+                List<FormOption>? options = null;
+                if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
+                {
+                    options = new List<FormOption>();
+                    foreach (var oe in po.EnumerateArray())
+                    {
+                        if (oe.ValueKind != JsonValueKind.Object) { continue; }
+                        var oid = oe.TryGetProperty("id", out var poid) ? poid.GetString() : null;
+                        if (string.IsNullOrWhiteSpace(oid)) { continue; }
+                        var olabel = oe.TryGetProperty("label", out var pol) ? pol.GetString() ?? oid : oid;
+                        options.Add(new FormOption(oid!, olabel));
+                    }
+                }
+
+                list.Add(new FormGridColumn(
+                    id!, label,
+                    string.IsNullOrWhiteSpace(calc) ? null : calc,
+                    agg,
+                    string.IsNullOrWhiteSpace(rollup) ? null : rollup,
+                    string.IsNullOrWhiteSpace(kind) ? "text" : kind.Trim().ToLowerInvariant(),
+                    options,
+                    required));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

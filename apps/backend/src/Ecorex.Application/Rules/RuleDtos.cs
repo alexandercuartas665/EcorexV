@@ -214,6 +214,20 @@ public sealed record SaveRuleRequest(
     Guid? DocumentId = null);
 
 /// <summary>
+/// Autoria inline de una regla condicional de campo del constructor de formularios (D4). Los
+/// FieldCode son los codigos de captura; Operator es equals|notEquals|empty|notEmpty; Effect es
+/// hide|show|require|optional. El servicio arma el verbo BLOQUEAR_CAMPO_XCONDICION y lo vincula.
+/// </summary>
+public sealed record CreateFieldConditionRequest(
+    Guid DefinitionId,
+    Guid TriggerQuestionId,
+    string SourceFieldCode,
+    string Operator,
+    string? Value,
+    string TargetFieldCode,
+    string Effect);
+
+/// <summary>
 /// Regla en la LISTA PLANA del tenant (panel izquierdo del modulo, ADR-0023): trae el
 /// documento como categoria visible y el flag de archivado para filtrar.
 /// </summary>

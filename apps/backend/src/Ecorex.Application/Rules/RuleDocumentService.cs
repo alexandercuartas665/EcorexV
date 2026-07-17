@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
+using Ecorex.Application.Rules.Verbs;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -395,6 +396,83 @@ public sealed class RuleDocumentService : IRuleDocumentService
         _db.FormFieldRules.Remove(link);
         await _db.SaveChangesAsync(cancellationToken);
         return RuleResult<bool>.Ok(true);
+    }
+
+    public async Task<RuleResult<QuestionRuleLinkDto>> CreateFieldConditionRuleAsync(
+        CreateFieldConditionRequest request, CancellationToken cancellationToken = default)
+    {
+        // La pregunta disparadora y el campo fuente deben ser del mismo formulario: la regla se ejecuta
+        // en el renderer de ESE formulario y solo ve sus campos.
+        var trigger = await _db.FormQuestions.AsNoTracking()
+            .FirstOrDefaultAsync(q => q.Id == request.TriggerQuestionId && q.DefinitionId == request.DefinitionId, cancellationToken);
+        if (trigger is null)
+        {
+            return RuleResult<QuestionRuleLinkDto>.NotFound("La pregunta disparadora no existe en este formulario.");
+        }
+
+        var op = (request.Operator ?? "").Trim();
+        if (op is not ("equals" or "notEquals" or "empty" or "notEmpty"))
+        {
+            return RuleResult<QuestionRuleLinkDto>.Invalid("Operador invalido.");
+        }
+        var effect = (request.Effect ?? "").Trim();
+        if (effect is not ("hide" or "show" or "require" or "optional"))
+        {
+            return RuleResult<QuestionRuleLinkDto>.Invalid("Efecto invalido.");
+        }
+        if (string.IsNullOrWhiteSpace(request.SourceFieldCode) || string.IsNullOrWhiteSpace(request.TargetFieldCode))
+        {
+            return RuleResult<QuestionRuleLinkDto>.Invalid("Faltan el campo evaluado o el campo objetivo.");
+        }
+
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == request.DefinitionId, cancellationToken);
+        if (definition is null)
+        {
+            return RuleResult<QuestionRuleLinkDto>.NotFound("Formulario no encontrado.");
+        }
+
+        // Un documento por formulario reune sus reglas de campo, para que el disenador no salga al
+        // modulo de Reglas. Se crea la primera vez y se reutiliza despues.
+        var docCode = $"FRMRULES-{definition.Code}";
+        var docId = await _db.RuleDocuments.AsNoTracking()
+            .Where(d => d.DocumentCode == docCode)
+            .Select(d => (Guid?)d.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (docId is null)
+        {
+            var created = await CreateDocumentAsync(new SaveRuleDocumentRequest(
+                docCode, $"Reglas de campo - {definition.Title}", "Formularios",
+                "Reglas condicionales creadas desde el constructor de formularios.",
+                RuleStatus.Active), cancellationToken);
+            if (!created.IsOk || created.Value is null) { return RuleResult<QuestionRuleLinkDto>.Invalid(created.Error ?? "No se pudo crear el documento de reglas."); }
+            docId = created.Value.Id;
+        }
+
+        var paramsJson = JsonSerializer.Serialize(new
+        {
+            sourceField = request.SourceFieldCode,
+            @operator = op,
+            value = request.Value,
+            targetField = request.TargetFieldCode,
+            effect
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var opLabel = op switch { "equals" => "=", "notEquals" => "!=", "empty" => "vacio", _ => "con valor" };
+        var ruleName = $"Si {request.SourceFieldCode} {opLabel} {request.Value} -> {effect} {request.TargetFieldCode}";
+
+        var order = await _db.FormFieldRules.CountAsync(l => l.FormQuestionId == request.TriggerQuestionId, cancellationToken);
+        var ruleRes = await CreateRuleAsync(docId.Value, new SaveRuleRequest(
+            ruleName, BloquearCampoPorCondicionVerb.VerbName, ParamsJson: paramsJson,
+            Status: RuleStatus.Active), cancellationToken);
+        if (!ruleRes.IsOk || ruleRes.Value is null) { return RuleResult<QuestionRuleLinkDto>.Invalid(ruleRes.Error ?? "No se pudo crear la regla."); }
+
+        var linkRes = await LinkToQuestionAsync(ruleRes.Value.Id, request.TriggerQuestionId, order, cancellationToken);
+        if (!linkRes.IsOk || linkRes.Value is null) { return RuleResult<QuestionRuleLinkDto>.Invalid(linkRes.Error ?? "No se pudo vincular la regla."); }
+
+        return RuleResult<QuestionRuleLinkDto>.Ok(new QuestionRuleLinkDto(
+            linkRes.Value.Id, ruleRes.Value.Id, ruleName, BloquearCampoPorCondicionVerb.VerbName,
+            docCode, $"Reglas de campo - {definition.Title}", order));
     }
 
     public async Task<RuleResult<RuleNodeLinkDto>> LinkToNodeAsync(

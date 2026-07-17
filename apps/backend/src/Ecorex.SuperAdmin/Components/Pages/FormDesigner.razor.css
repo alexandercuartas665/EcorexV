@@ -475,3 +475,24 @@
 .fb-hint { font-size: 10.5px; color: var(--ink-3, #A2A2AC); margin-top: 5px; }
 .fb-chkgrid { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .fb-chkgrid .pl-toggle { font-size: 12px; }
+
+/* Editor de columnas del GridDetail (D3): cada columna con nombre, tipo, obligatoria y, si es
+   lista, sus opciones. */
+.fb-gridcols { display: flex; flex-direction: column; gap: 8px; }
+.fb-gridcol { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--surface-2); }
+.fb-gridcol-head { display: flex; align-items: center; gap: 6px; }
+.fb-gridcol-name { flex: 1; min-width: 0; }
+.fb-gridcol-kind { flex: none; width: 86px; }
+.fb-gridcol-req { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.fb-gridcol-calc { flex: none; font-family: ui-monospace, monospace; font-style: italic; font-weight: 700; font-size: 11px; color: var(--t-violet); background: var(--t-violet-bg); border-radius: 5px; padding: 2px 6px; }
+.fb-gridcol-del { flex: none; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink-3); cursor: pointer; line-height: 1; }
+.fb-gridcol-del:hover { border-color: var(--danger); color: var(--danger); }
+.fb-gridcol-opts { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.fb-gridcol-optslbl { flex: none; font-size: 11px; font-weight: 600; color: var(--ink-3); padding-top: 5px; }
+.fb-gridcol-add { margin-top: 8px; }
+
+/* Editor de condicion inline del tab Reglas (D4). */
+.fb-cond { display: flex; flex-direction: column; gap: 8px; }
+.fb-cond-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.fb-cond-line .fb-select, .fb-cond-line .fb-input { flex: 1; min-width: 90px; }
+.fb-cond-err { font-size: 11.5px; color: var(--danger); }

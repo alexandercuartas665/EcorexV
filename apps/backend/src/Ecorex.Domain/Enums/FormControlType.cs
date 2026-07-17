@@ -27,6 +27,10 @@ public enum FormControlType
     Number,
     /// <summary>Selector de fecha.</summary>
     Date,
+    /// <summary>Selector de hora (input type=time). El valor se guarda como texto "HH:mm".</summary>
+    Time,
+    /// <summary>Selector de fecha y hora (input type=datetime-local).</summary>
+    DateTime,
     /// <summary>Texto fijo informativo (no captura datos).</summary>
     Literal,
 

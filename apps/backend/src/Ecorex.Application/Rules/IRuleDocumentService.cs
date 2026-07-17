@@ -59,6 +59,15 @@ public interface IRuleDocumentService
     Task<IReadOnlyList<RuleNodeLinkDto>> ListNodeLinksAsync(Guid ruleId, CancellationToken cancellationToken = default);
     Task<RuleResult<RuleFormLinkDto>> LinkToQuestionAsync(Guid ruleId, Guid formQuestionId, int sortOrder = 0, CancellationToken cancellationToken = default);
     Task<RuleResult<bool>> UnlinkQuestionAsync(Guid formFieldRuleId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Crea una regla condicional de campo "si {sourceField} {op} {value} -&gt; {effect} {targetField}"
+    /// (verbo BLOQUEAR_CAMPO_XCONDICION) y la vincula a la pregunta disparadora, en un solo paso.
+    /// La regla se guarda en un documento propio del formulario (se crea si no existe), para que el
+    /// disenador no tenga que salir a crear reglas a mano. El runtime (FormRuleDispatcher) ya la aplica.
+    /// </summary>
+    Task<RuleResult<QuestionRuleLinkDto>> CreateFieldConditionRuleAsync(
+        CreateFieldConditionRequest request, CancellationToken cancellationToken = default);
     Task<RuleResult<RuleNodeLinkDto>> LinkToNodeAsync(Guid ruleId, Guid workflowNodeId, int sortOrder = 0, bool isAutonomous = true, CancellationToken cancellationToken = default);
     Task<RuleResult<bool>> UnlinkNodeAsync(Guid workflowNodeRuleId, CancellationToken cancellationToken = default);
 

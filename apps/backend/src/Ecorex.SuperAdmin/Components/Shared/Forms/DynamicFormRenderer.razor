@@ -55,6 +55,12 @@ else
                     {
                         <span class="dfr-chip dfr-chip-record">@_response!.RecordNumber</span>
                     }
+                    else if (_definition.IsTransactional)
+                    {
+                        @* D2: el consecutivo se emite al confirmar (no se reserva en borrador, para no
+                           dejar huecos). Se previsualiza para que se sepa que el numero llegara. *@
+                        <span class="dfr-chip dfr-chip-pending" title="El consecutivo se asigna al guardar">N.o por asignar</span>
+                    }
                     @if (_response?.RecordStatus == FormRecordStatus.Voided)
                     {
                         <span class="dfr-chip dfr-chip-void">Anulado</span>
@@ -556,6 +562,14 @@ else
                 break;
             case FormControlType.Date:
                 <input type="date" class="form-control" value="@value" disabled="@IsDisabled"
+                       @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
+                break;
+            case FormControlType.Time:
+                <input type="time" class="form-control" value="@value" disabled="@IsDisabled"
+                       @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
+                break;
+            case FormControlType.DateTime:
+                <input type="datetime-local" class="form-control" value="@value" disabled="@IsDisabled"
                        @onchange="@(e => SetValue(q, e.Value?.ToString()))" />
                 break;
             case FormControlType.Toggle:
@@ -1060,17 +1074,30 @@ else
                             @foreach (var col in columns)
                             {
                                 var colId = col.Id;
+                                var cell = rows[rowIndex].GetValueOrDefault(colId);
                                 <td>
                                     @if (col.Calc is not null)
                                     {
                                         @* Columna calculada por fila (ola F2): solo lectura. *@
                                         <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
-                                               value="@rows[rowIndex].GetValueOrDefault(colId)" />
+                                               value="@cell" />
+                                    }
+                                    else if (col.IsSelect)
+                                    {
+                                        @* D3: columna de lista. El valor guardado sigue siendo el id de la opcion. *@
+                                        <select class="form-control form-control-sm" disabled="@IsDisabled"
+                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))">
+                                            <option value="" selected="@string.IsNullOrEmpty(cell)">--</option>
+                                            @foreach (var opt in col.Options ?? Array.Empty<FormOption>())
+                                            {
+                                                <option value="@opt.Id" selected="@(opt.Id == cell)">@opt.Label</option>
+                                            }
+                                        </select>
                                     }
                                     else
                                     {
                                         <input class="form-control form-control-sm" disabled="@IsDisabled"
-                                               value="@rows[rowIndex].GetValueOrDefault(colId)"
+                                               value="@cell"
                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
                                     }
                                 </td>
@@ -1240,7 +1267,9 @@ else
     {
         var rows = GridRowsOf(q);
         var row = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var col in FormFieldValidator.ParseOptions(q.OptionsJson))
+        // Se parsea igual que el render (GridColumnsOf), no con ParseOptions: si una columna Select o
+        // calculada solo existiera en uno de los dos parseos, la fila nueva y la tabla se desincronizarian.
+        foreach (var col in GridColumnsOf(q))
         {
             row[col.Id] = null;
         }
@@ -1434,7 +1463,8 @@ else
             q.ControlType, _ruleUiState.IsRequired(q.FieldCode, q.Required),
             _values.GetValueOrDefault(q.FieldCode),
             FormFieldValidator.ParseOptions(q.OptionsJson),
-            FormFieldValidator.ParseRules(q.ValidationJson));
+            FormFieldValidator.ParseRules(q.ValidationJson),
+            q.OptionsJson);
         if (error is null)
         {
             _errors.Remove(q.FieldCode);

@@ -194,7 +194,8 @@ public sealed class FormResponseService : IFormResponseService
                 var error = FormFieldValidator.Validate(
                     question.ControlType, question.Required, field?.Value,
                     FormFieldValidator.ParseOptions(question.OptionsJson),
-                    FormFieldValidator.ParseRules(question.ValidationJson));
+                    FormFieldValidator.ParseRules(question.ValidationJson),
+                    question.OptionsJson);
                 if (error is not null)
                 {
                     errors[question.FieldCode] = error;

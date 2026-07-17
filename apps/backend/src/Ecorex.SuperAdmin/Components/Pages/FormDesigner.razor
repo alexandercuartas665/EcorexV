@@ -4,6 +4,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Calc
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Rules
@@ -545,6 +546,15 @@ else
     private Guid? _pickDocId;
     private Guid? _pickRuleId;
 
+    // Editor de condicion inline (D4).
+    private bool _condOpen;
+    private string _condSource = "";   // vacio = el propio campo disparador
+    private string _condOp = "equals";
+    private string _condValue = "";
+    private string _condEffect = "show";
+    private string _condTarget = "";
+    private string? _condError;
+
     private enum PaletteKey { Contenedor, Input, Parrafo, Divisor, Espacio }
 
     // ---- Registro de tipos del prototipo (fbTypeReg) ----
@@ -557,6 +567,8 @@ else
         [FormControlType.TextArea] = new("Area de texto", "Area", "<rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2.5\"/><path d=\"M9 8h6M9 12h6M9 16h3\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
         [FormControlType.Select] = new("Lista desplegable", "Lista", "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Date] = new("Fecha", "Fecha", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
+        [FormControlType.Time] = new("Hora", "Hora", "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
+        [FormControlType.DateTime] = new("Fecha y hora", "F+H", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18M12 14v2l1.5 1\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.Number] = new("Numerico", "Numero", "M4 9h16M4 15h16M10 3 8 21M16 3l-2 18", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
@@ -1330,6 +1342,38 @@ else
         }
     }
 
+    private async Task SaveConditionAsync(Node n)
+    {
+        _condError = null;
+        if (!n.IsQuestion || _def is null) { return; }
+        if (string.IsNullOrWhiteSpace(_condTarget)) { _condError = "Elige el campo objetivo."; return; }
+        // Origen vacio = el propio campo disparador (el mas comun: "si ESTE campo = X").
+        var source = string.IsNullOrWhiteSpace(_condSource) ? n.Q!.FieldCode : _condSource;
+        if (string.Equals(source, _condTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            _condError = "El campo evaluado y el objetivo no pueden ser el mismo.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            // La regla se dispara cuando cambia el CAMPO EVALUADO (source), no el nodo seleccionado en
+            // el arbol: hay que vincularla a la pregunta de ese campo.
+            var trigger = _def.Questions.FirstOrDefault(q => q.FieldCode == source) ?? n.Q!;
+            var res = await RulesSvc.CreateFieldConditionRuleAsync(new CreateFieldConditionRequest(
+                _def.Id, trigger.Id, source, _condOp,
+                _condOp is "equals" or "notEquals" ? _condValue : null,
+                _condTarget, _condEffect));
+            if (!res.IsOk) { _condError = res.Error ?? "No se pudo crear la regla."; return; }
+            _condOpen = false;
+            _condSource = ""; _condValue = ""; _condTarget = ""; _condOp = "equals"; _condEffect = "show";
+            _rulesLoadedFor = null;
+            await EnsureRulesLoadedAsync(n);
+        }
+        finally { _busy = false; }
+    }
+
     private async Task UnlinkRuleAsync(Node n, Guid linkId)
     {
         _busy = true;
@@ -1501,6 +1545,12 @@ else
             case FormControlType.Date:
                 <div class="fb-prev-input">dd / mm / aaaa</div>
                 break;
+            case FormControlType.Time:
+                <div class="fb-prev-input">hh : mm</div>
+                break;
+            case FormControlType.DateTime:
+                <div class="fb-prev-input">dd / mm / aaaa  hh : mm</div>
+                break;
             case FormControlType.Number:
                 <div class="fb-prev-input">0</div>
                 break;
@@ -1577,7 +1627,8 @@ else
                     : new[]
                     {
                         FormControlType.Text, FormControlType.TextArea, FormControlType.Select,
-                        FormControlType.Date, FormControlType.Number, FormControlType.Toggle,
+                        FormControlType.Date, FormControlType.Time, FormControlType.DateTime,
+                        FormControlType.Number, FormControlType.Toggle,
                         FormControlType.GridDetail, FormControlType.Subform, FormControlType.Signature,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode
                     };
@@ -1678,10 +1729,51 @@ else
         {
             <div class="fb-field">
                 <label>Columnas de la tabla</label>
-                @RenderChipList(OptionLabels(node.Q!), "var(--t-amber)",
-                    (i, v) => PatchOptionAsync(node.Q!, i, v),
-                    i => PatchOptionAsync(node.Q!, i, null),
-                    () => PatchOptionAsync(node.Q!, -1, $"Columna {OptionLabels(node.Q!).Count + 1}"))
+                @{
+                    var gcols = GridColumns(node.Q!);
+                }
+                <div class="fb-gridcols">
+                    @for (var ci = 0; ci < gcols.Count; ci++)
+                    {
+                        var idx = ci;
+                        var col = gcols[idx];
+                        <div class="fb-gridcol">
+                            <div class="fb-gridcol-head">
+                                <input class="fb-input fb-gridcol-name" value="@col.Label"
+                                       @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Label = e.Value?.ToString() ?? c.Label }))" />
+                                @if (col.Calc is null)
+                                {
+                                    <select class="fb-select fb-gridcol-kind"
+                                            @onchange="@(e => SetGridColumnKindAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
+                                        <option value="text" selected="@(!col.IsSelect)">Texto</option>
+                                        <option value="select" selected="@col.IsSelect">Lista</option>
+                                    </select>
+                                    <label class="fb-gridcol-req" title="Obligatoria">
+                                        <input type="checkbox" checked="@col.Required"
+                                               @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Required = (bool)e.Value! }))" /> Obl.
+                                    </label>
+                                }
+                                else
+                                {
+                                    <span class="fb-gridcol-calc" title="Columna calculada">fx</span>
+                                }
+                                <button type="button" class="fb-gridcol-del" title="Quitar columna"
+                                        @onclick="@(() => RemoveGridColumnAsync(node.Q!, idx))">&times;</button>
+                            </div>
+                            @if (col.IsSelect)
+                            {
+                                <div class="fb-gridcol-opts">
+                                    <span class="fb-gridcol-optslbl">Opciones:</span>
+                                    @RenderChipList((col.Options ?? new List<FormOption>()).Select(o => o.Label).ToList(), "var(--t-blue)",
+                                        (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
+                                        oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
+                                        () => PatchGridColumnOptionAsync(node.Q!, idx, -1, null))
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <button type="button" class="fb-btn-ghost fb-gridcol-add" @onclick="@(() => AddGridColumnAsync(node.Q!))">+ Columna</button>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.Subform })
@@ -2036,7 +2128,68 @@ else
         }
         else
         {
-            <button class="fb-rule-add" @onclick="OpenRulePickerAsync">+ Agregar regla</button>
+            <button class="fb-rule-add" @onclick="OpenRulePickerAsync">+ Vincular regla existente</button>
+        }
+
+        @* D4: autoria inline de una condicion "si campo = valor -> mostrar/ocultar/requerir otro".
+           Arma el verbo BLOQUEAR_CAMPO_XCONDICION sin salir del constructor; el runtime ya la aplica. *@
+        @if (_condOpen)
+        {
+            var captureFields = _def?.Questions
+                .Where(x => x.Id != node.Q!.Id && FormFieldValidator.IsCapture(x.ControlType))
+                .ToList() ?? new();
+            <div class="fb-rule-picker fb-cond">
+                <div class="fb-cond-line">
+                    <span>Si el campo</span>
+                    <select class="fb-select" value="@_condSource" @onchange="@(e => _condSource = e.Value?.ToString() ?? "")">
+                        <option value="">(este campo)</option>
+                        @foreach (var f in captureFields)
+                        {
+                            <option value="@f.FieldCode">@f.Label</option>
+                        }
+                    </select>
+                    <select class="fb-select" value="@_condOp" @onchange="@(e => _condOp = e.Value?.ToString() ?? "equals")">
+                        <option value="equals">es igual a</option>
+                        <option value="notEquals">es distinto de</option>
+                        <option value="empty">esta vacio</option>
+                        <option value="notEmpty">tiene valor</option>
+                    </select>
+                    @if (_condOp is "equals" or "notEquals")
+                    {
+                        <input class="fb-input" placeholder="valor" value="@_condValue"
+                               @onchange="@(e => _condValue = e.Value?.ToString() ?? "")" />
+                    }
+                </div>
+                <div class="fb-cond-line">
+                    <span>entonces</span>
+                    <select class="fb-select" value="@_condEffect" @onchange="@(e => _condEffect = e.Value?.ToString() ?? "show")">
+                        <option value="show">mostrar</option>
+                        <option value="hide">ocultar</option>
+                        <option value="require">hacer obligatorio</option>
+                        <option value="optional">hacer opcional</option>
+                    </select>
+                    <span>el campo</span>
+                    <select class="fb-select" value="@_condTarget" @onchange="@(e => _condTarget = e.Value?.ToString() ?? "")">
+                        <option value="">Selecciona...</option>
+                        @foreach (var f in captureFields)
+                        {
+                            <option value="@f.FieldCode">@f.Label</option>
+                        }
+                    </select>
+                </div>
+                @if (_condError is not null)
+                {
+                    <div class="fb-cond-err">@_condError</div>
+                }
+                <div style="display:flex;gap:8px;">
+                    <button class="fb-btn-ghost" style="flex:1;" @onclick="@(() => _condOpen = false)">Cancelar</button>
+                    <button class="fb-btn-primary" style="flex:1;" disabled="@_busy" @onclick="@(() => SaveConditionAsync(node))">Crear regla</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="fb-rule-add" @onclick="@(() => { _condOpen = true; _condError = null; })" style="margin-top:6px;">+ Condicion (mostrar/ocultar segun otro campo)</button>
         }
     };
 
@@ -2147,4 +2300,87 @@ else
         var json = JsonSerializer.Serialize(options, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         await PatchQuestionAsync(q, r => r with { OptionsJson = json });
     }
+
+    // ---- Editor de columnas del GridDetail (D3): una columna puede ser texto o lista, y requerida ----
+
+    private static List<FormGridColumn> GridColumns(FormQuestionDto q)
+        => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    /// <summary>
+    /// Serializa las columnas al formato exacto que lee <see cref="FormGridCalculator.ParseColumns"/>
+    /// ({id,label,type,required,options,calc,agg,rollup}). NO se serializa el record directo porque
+    /// el parser espera "type" (no "kind") y omite lo que este en su valor por defecto para no ensuciar
+    /// las columnas viejas [{id,label}].
+    /// </summary>
+    private async Task SaveGridColumnsAsync(FormQuestionDto q, IReadOnlyList<FormGridColumn> cols)
+    {
+        var shaped = cols.Select(c =>
+        {
+            var o = new Dictionary<string, object?> { ["id"] = c.Id, ["label"] = c.Label };
+            if (c.IsSelect)
+            {
+                o["type"] = "select";
+                o["options"] = (c.Options ?? new List<FormOption>()).Select(x => new { id = x.Id, label = x.Label }).ToList();
+            }
+            if (c.Required) { o["required"] = true; }
+            if (!string.IsNullOrWhiteSpace(c.Calc)) { o["calc"] = c.Calc; }
+            if (c.Agg != FormAggregate.None) { o["agg"] = c.Agg.ToString(); }
+            if (!string.IsNullOrWhiteSpace(c.Rollup)) { o["rollup"] = c.Rollup; }
+            return o;
+        }).ToList();
+        var json = JsonSerializer.Serialize(shaped, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await PatchQuestionAsync(q, r => r with { OptionsJson = json });
+    }
+
+    private Task AddGridColumnAsync(FormQuestionDto q)
+    {
+        var cols = GridColumns(q);
+        var n = cols.Count + 1;
+        cols.Add(new FormGridColumn($"col_{n}_{Guid.NewGuid().ToString("N")[..4]}", $"Columna {n}", null, FormAggregate.None, null));
+        return SaveGridColumnsAsync(q, cols);
+    }
+
+    private Task RemoveGridColumnAsync(FormQuestionDto q, int index)
+    {
+        var cols = GridColumns(q);
+        if (index >= 0 && index < cols.Count) { cols.RemoveAt(index); }
+        return SaveGridColumnsAsync(q, cols);
+    }
+
+    private Task PatchGridColumnAsync(FormQuestionDto q, int index, Func<FormGridColumn, FormGridColumn> patch)
+    {
+        var cols = GridColumns(q);
+        if (index < 0 || index >= cols.Count) { return Task.CompletedTask; }
+        cols[index] = patch(cols[index]);
+        return SaveGridColumnsAsync(q, cols);
+    }
+
+    private Task SetGridColumnKindAsync(FormQuestionDto q, int index, string kind)
+        => PatchGridColumnAsync(q, index, c => c with
+        {
+            Kind = kind,
+            // Al pasar a lista sin opciones aun, se siembra una para que el editor no quede vacio.
+            Options = kind == "select" ? (c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") }) : c.Options
+        });
+
+    /// <summary>Edita/agrega/quita una opcion de una columna Select.</summary>
+    private Task PatchGridColumnOptionAsync(FormQuestionDto q, int colIndex, int optIndex, string? value)
+        => PatchGridColumnAsync(q, colIndex, c =>
+        {
+            var opts = (c.Options ?? new List<FormOption>()).ToList();
+            if (optIndex < 0)
+            {
+                var n = opts.Count + 1;
+                opts.Add(new FormOption($"op_{n}_{Guid.NewGuid().ToString("N")[..4]}", value ?? $"Opcion {n}"));
+            }
+            else if (value is null)
+            {
+                if (optIndex < opts.Count) { opts.RemoveAt(optIndex); }
+            }
+            else if (optIndex < opts.Count)
+            {
+                opts[optIndex] = opts[optIndex] with { Label = value };
+            }
+            return c with { Options = opts };
+        });
 }

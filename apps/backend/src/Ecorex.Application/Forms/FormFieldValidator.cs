@@ -24,6 +24,14 @@ public static class FormFieldValidator
             // Subform (ola F5): los hijos son FormResponse propios (FormRecordLink), no un valor en el documento.
             or FormControlType.Subform;
 
+    /// <summary>
+    /// Campos que capturan un valor escalar y por tanto pueden ser origen/objetivo de una regla
+    /// condicional (D4): ni estructura (IsNonInput) ni multimedia placeholder ni el propio GridDetail
+    /// (su valor es un arreglo de filas, no un escalar comparable).
+    /// </summary>
+    public static bool IsCapture(FormControlType type)
+        => !IsNonInput(type) && !IsPlaceholderCapture(type) && type != FormControlType.GridDetail;
+
     /// <summary>Controles Tier 1 con componente en el DynamicFormRenderer.</summary>
     public static bool IsTier1(FormControlType type)
         => type <= FormControlType.Literal
@@ -99,7 +107,8 @@ public static class FormFieldValidator
     /// </summary>
     public static string? Validate(
         FormControlType type, bool required, string? value,
-        IReadOnlyList<FormOption>? options = null, FormValidationRules? rules = null)
+        IReadOnlyList<FormOption>? options = null, FormValidationRules? rules = null,
+        string? optionsJson = null)
     {
         if (IsNonInput(type))
         {
@@ -128,10 +137,12 @@ public static class FormFieldValidator
             FormControlType.Text or FormControlType.TextArea => ValidateText(value!, rules),
             FormControlType.Number => ValidateNumber(value!, rules),
             FormControlType.Date => ValidateDate(value!),
+            FormControlType.Time => ValidateTime(value!),
+            FormControlType.DateTime => ValidateDate(value!),
             FormControlType.Toggle => ValidateToggle(value!),
             FormControlType.Select or FormControlType.Radio => ValidateOption(value!, options),
             FormControlType.MultiCheck => ValidateMulti(value!, options),
-            FormControlType.GridDetail => ValidateGrid(value!),
+            FormControlType.GridDetail => ValidateGrid(value!, optionsJson),
             _ => null
         };
     }
@@ -156,19 +167,42 @@ public static class FormFieldValidator
         }
     }
 
-    private static string? ValidateGrid(string value)
+    private static string? ValidateGrid(string value, string? optionsJson)
     {
         // Si hay texto pero no parsea a filas, el documento esta corrupto (no deberia
         // pasar desde el renderer; protege imports externos).
+        List<Dictionary<string, string?>>? rows;
         try
         {
-            _ = JsonSerializer.Deserialize<List<Dictionary<string, string?>>>(value, JsonOptions);
-            return null;
+            rows = JsonSerializer.Deserialize<List<Dictionary<string, string?>>>(value, JsonOptions);
         }
         catch (JsonException)
         {
             return "Las filas de la tabla no tienen un formato valido.";
         }
+        if (rows is null || rows.Count == 0) { return null; }
+
+        // D3: requerido y opcion valida POR COLUMNA. Sin columnas (tabla vieja [{id,label}]) no hay
+        // nada que exigir mas alla del formato.
+        var columns = Calc.FormGridCalculator.ParseColumns(optionsJson);
+        foreach (var col in columns)
+        {
+            if (col.Calc is not null) { continue; }   // las calculadas no se capturan
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var cell = rows[i].GetValueOrDefault(col.Id);
+                if (col.Required && string.IsNullOrWhiteSpace(cell))
+                {
+                    return $"La columna '{col.Label}' es obligatoria (fila {i + 1}).";
+                }
+                if (col.IsSelect && !string.IsNullOrWhiteSpace(cell)
+                    && !(col.Options ?? []).Any(o => OptionMatches(o, cell!)))
+                {
+                    return $"El valor de '{col.Label}' en la fila {i + 1} no es una opcion valida.";
+                }
+            }
+        }
+        return null;
     }
 
     private static string? ValidateText(string value, FormValidationRules? rules)
@@ -228,6 +262,11 @@ public static class FormFieldValidator
             || DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
             ? null
             : "Ingresa una fecha valida.";
+
+    private static string? ValidateTime(string value)
+        => TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out _)
+            ? null
+            : "Ingresa una hora valida.";
 
     private static string? ValidateToggle(string value)
         => bool.TryParse(value, out _) ? null : "Valor de interruptor invalido.";

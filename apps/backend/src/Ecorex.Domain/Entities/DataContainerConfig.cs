@@ -46,6 +46,19 @@ public class DataConnector : TenantEntity
     /// <summary>Mapeo estructura-fuente -> tablas/campos del contenedor (jsonb). Soporta rutas anidadas.</summary>
     public string? MappingJson { get; set; }
 
+    /// <summary>
+    /// Consulta SOLO-LECTURA que trae los datos, para conectores de tipo Database (ej.
+    /// <c>SELECT id, nombre FROM ciudades</c>). Es el unico dato que faltaba para poder refrescar sin
+    /// preguntarle nada al operador.
+    ///
+    /// Vive en el CONECTOR y no en la programacion porque es parte de "de donde salen los datos",
+    /// igual que el host y la base: dos horarios sobre la misma fuente traen lo mismo.
+    ///
+    /// El agente la ejecuta parametrizada y su `QueryGuard` rechaza lo que no sea SELECT: aunque el
+    /// servidor estuviera comprometido, no podria escribir en la base del cliente.
+    /// </summary>
+    public string? Query { get; set; }
+
     public bool IsActive { get; set; } = true;
 }
 

@@ -1750,6 +1750,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("port");
 
+                    b.Property<string>("Query")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("query");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");

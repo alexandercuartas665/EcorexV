@@ -7,6 +7,10 @@ namespace Ecorex.Application.Directorio;
 /// personas individuales (una persona asignada a una empresa se oculta y cuenta como
 /// contacto de esa empresa).
 /// </summary>
+/// <param name="Filtrables">
+/// Valores de los campos marcados "ofrecer como filtro" (ADR-0029), por FieldKey. Solo esos: el
+/// listado no necesita cargar toda la ficha para filtrar. Vacio si el tenant no marco ninguno.
+/// </param>
 public sealed record TerceroListItemDto(
     Guid Id,
     string Nombre,
@@ -19,7 +23,8 @@ public sealed record TerceroListItemDto(
     string? Sub,
     int ContadorContactos,
     bool EsEmpresa,
-    bool EsPersona);
+    bool EsPersona,
+    IReadOnlyDictionary<string, string>? Filtrables = null);
 
 /// <summary>Detalle completo de un tercero: campos + fichas dinamicas + contactos.</summary>
 public sealed record TerceroDetailDto(

@@ -188,6 +188,16 @@ select.dg-input { cursor: pointer; font-weight: 600; }
     background: var(--t-violet-bg); border-radius: 5px; padding: 1px 5px; cursor: help;
 }
 .dg-calc-warn { font-size: 11px; color: var(--t-amber); margin-top: 4px; }
+
+/* Campo repetido: una fila numerada por repeticion. */
+.dg-rep-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.dg-rep-row .dg-input { flex: 1; min-width: 0; }
+.dg-rep-idx {
+    flex: none; width: 20px; height: 20px; display: grid; place-items: center;
+    border-radius: 6px; background: var(--surface-3, var(--surface-2)); color: var(--ink-3);
+    font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.dg-rep-hint { font-size: 11.5px; color: var(--ink-3); padding: 8px 0; }
 .dg-ficha { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .dg-ficha-head { display: flex; align-items: center; gap: 11px; padding: 13px 15px; cursor: pointer; background: var(--surface-2); }
 .dg-ficha-head:hover { background: var(--surface-3); }

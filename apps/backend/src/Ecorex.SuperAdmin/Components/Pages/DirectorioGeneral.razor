@@ -85,6 +85,29 @@
         <button class="dg-pill @(_tipo == TerceroTabTipo.Clientes ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Clientes)">Clientes</button>
         <button class="dg-pill @(_tipo == TerceroTabTipo.Proveedores ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Proveedores)">Proveedores</button>
         <button class="dg-pill @(_tipo == TerceroTabTipo.Empleados ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Empleados)">Empleados</button>
+
+        @* Filtros de los campos marcados "ofrecer como filtro" (ADR-0029). Antes la marca se
+           guardaba y nadie la usaba. Las opciones salen de los valores que existen de verdad, para
+           no ofrecer un filtro que no devuelve nada. *@
+        @foreach (var ff in FilterableFields())
+        {
+            var key = ff.FieldKey;
+            var opciones = FilterOptions(key);
+            if (opciones.Count == 0) { continue; }
+            <select class="dg-filter-sel" title="@ff.Label"
+                    value="@(_fieldFilters.GetValueOrDefault(key) ?? "")"
+                    @onchange="e => SetFieldFilter(key, e.Value?.ToString())">
+                <option value="">@ff.Label: todos</option>
+                @foreach (var o in opciones)
+                {
+                    <option value="@o">@o</option>
+                }
+            </select>
+        }
+        @if (_fieldFilters.Count > 0)
+        {
+            <button class="dg-pill" @onclick="ClearFieldFilters">Limpiar filtros</button>
+        }
     </div>
 
     @* ===== Tabs naturaleza + busqueda ===== *@
@@ -584,12 +607,53 @@
     // ---- Editor de tercero compartido (crear/editar/contacto). Invocado por @ref. ----
     private TerceroModal? _terceroModal;
 
-    private IEnumerable<TerceroListItemDto> Displayed => _naturaleza switch
+    /// <summary>Filtros activos por campo configurable: FieldKey -> valor exigido.</summary>
+    private readonly Dictionary<string, string> _fieldFilters = new(StringComparer.Ordinal);
+
+    private IEnumerable<TerceroListItemDto> Displayed
     {
-        TerceroTabNaturaleza.Empresas => _allRows.Where(r => r.EsEmpresa),
-        TerceroTabNaturaleza.Contactos => _allRows.Where(r => r.EsPersona),
-        _ => _allRows
-    };
+        get
+        {
+            var rows = _naturaleza switch
+            {
+                TerceroTabNaturaleza.Empresas => _allRows.Where(r => r.EsEmpresa),
+                TerceroTabNaturaleza.Contactos => _allRows.Where(r => r.EsPersona),
+                _ => _allRows
+            };
+
+            // Los filtros de campo se aplican en memoria: el listado ya trae solo los valores
+            // filtrables (el servicio no carga la ficha entera) y son pocas filas.
+            foreach (var (key, value) in _fieldFilters)
+            {
+                rows = rows.Where(r => r.Filtrables is not null
+                    && r.Filtrables.TryGetValue(key, out var v)
+                    && string.Equals(v, value, StringComparison.OrdinalIgnoreCase));
+            }
+            return rows;
+        }
+    }
+
+    /// <summary>Campos marcados como filtrables, en el orden en que se configuraron.</summary>
+    private List<TerceroFieldDto> FilterableFields()
+        => _cfgAllFields.Where(f => f.ShowInFilter).OrderBy(f => f.FichaKey).ThenBy(f => f.SortOrder).ToList();
+
+    /// <summary>Valores que existen de verdad para esa clave: ofrecer opciones vacias solo estorba.</summary>
+    private List<string> FilterOptions(string fieldKey)
+        => _allRows
+            .Select(r => r.Filtrables is not null && r.Filtrables.TryGetValue(fieldKey, out var v) ? v : null)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.CurrentCulture)
+            .ToList();
+
+    private void SetFieldFilter(string fieldKey, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { _fieldFilters.Remove(fieldKey); }
+        else { _fieldFilters[fieldKey] = value; }
+    }
+
+    private void ClearFieldFilters() => _fieldFilters.Clear();
 
     private int CountTodos => _allRows.Count;
     private int CountEmpresas => _allRows.Count(r => r.EsEmpresa);
@@ -604,6 +668,9 @@
         _canEdit = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Edit);
         _canDelete = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Delete);
         await FieldSvc.EnsureDefaultsAsync();
+        // Las definiciones se cargan de entrada (no solo al abrir el configurador): la barra de
+        // filtros necesita saber que campos estan marcados como filtrables.
+        _cfgAllFields = (await FieldSvc.ListFieldsAsync()).ToList();
         await ReloadAsync();
         _loading = false;
     }

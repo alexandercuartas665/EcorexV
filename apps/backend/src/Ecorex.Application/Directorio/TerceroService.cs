@@ -75,10 +75,18 @@ public sealed class TerceroService : ITerceroService
                 t.Ciudad,
                 t.Sector,
                 t.Cargo,
+                t.FichasJson,
                 // Contactos = contactos embebidos + personas reasignadas a esta empresa.
                 Contactos = _db.TerceroContactos.Count(c => c.TerceroId == t.Id)
                     + _db.Terceros.Count(p => p.EmpresaId == t.Id)
             })
+            .ToListAsync(cancellationToken);
+
+        // Claves marcadas "ofrecer como filtro" (ADR-0029). Se consultan una vez, no por fila.
+        var filterKeys = await _db.TerceroFieldDefinitions
+            .AsNoTracking()
+            .Where(f => f.ShowInFilter)
+            .Select(f => f.FieldKey)
             .ToListAsync(cancellationToken);
 
         return rows.Select(t => new TerceroListItemDto(
@@ -93,7 +101,39 @@ public sealed class TerceroService : ITerceroService
             t.Tipo == TerceroTipo.Empresa ? t.Sector : t.Cargo,
             t.Contactos,
             t.Tipo == TerceroTipo.Empresa,
-            t.Tipo == TerceroTipo.Persona)).ToList();
+            t.Tipo == TerceroTipo.Persona,
+            ExtractFilterables(t.FichasJson, filterKeys))).ToList();
+    }
+
+    /// <summary>
+    /// Saca del FichasJson solo los valores de las claves filtrables. Devuelve null si no hay ninguna
+    /// marcada, para no cargar el listado con un diccionario vacio por fila.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string>? ExtractFilterables(
+        string? fichasJson, IReadOnlyCollection<string> filterKeys)
+    {
+        if (filterKeys.Count == 0 || string.IsNullOrWhiteSpace(fichasJson)) { return null; }
+
+        try
+        {
+            var fichas = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(fichasJson);
+            if (fichas is null) { return null; }
+
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (_, campos) in fichas)
+            {
+                foreach (var (key, value) in campos)
+                {
+                    if (filterKeys.Contains(key) && !string.IsNullOrWhiteSpace(value)) { result[key] = value; }
+                }
+            }
+            return result.Count > 0 ? result : null;
+        }
+        catch (JsonException)
+        {
+            // Un tercero con el JSON corrupto no debe tumbar el listado entero.
+            return null;
+        }
     }
 
     public async Task<TerceroDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)

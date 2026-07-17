@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
@@ -66,6 +67,27 @@ public sealed class ItemService : IItemService
                 _db.ItemStocks.Any(s => s.ItemId == i.Id && s.WarehouseId == warehouseId && s.Stock > 0));
         }
 
+        // Filtros por campo configurable (ADR-0029). Se resuelven ANTES de paginar: hacerlo sobre la
+        // pagina ya cortada solo filtraria lo visible y el total mentiria.
+        //
+        // No se filtra con LIKE sobre el JSON: JsonSerializer escapa lo no-ASCII ("Algodon" con
+        // tilde queda "ón"), asi que el LIKE fallaria en silencio justo con los valores en
+        // espanol. Se traen las claves candidatas (id + json) y se resuelve en memoria; el catalogo
+        // de un tenant es de un tamano manejable y solo ocurre si hay filtros activos.
+        if (query.FieldFilters is { Count: > 0 })
+        {
+            var candidatos = await items
+                .Select(i => new { i.Id, i.FieldValuesJson })
+                .ToListAsync(cancellationToken);
+
+            var permitidos = candidatos
+                .Where(c => MatchesFieldFilters(c.FieldValuesJson, query.FieldFilters))
+                .Select(c => c.Id)
+                .ToHashSet();
+
+            items = items.Where(i => permitidos.Contains(i.Id));
+        }
+
         var total = await items.CountAsync(cancellationToken);
         var pageItems = await items
             .OrderBy(i => i.Name)
@@ -86,6 +108,7 @@ public sealed class ItemService : IItemService
                 i.ItemTypeId,
                 ItemTypeName = _db.ItemTypes.Where(t => t.Id == i.ItemTypeId).Select(t => t.Name).FirstOrDefault(),
                 i.IsActive,
+                i.FieldValuesJson,
                 // La miniatura prefiere la imagen principal; si ninguna esta marcada, la primera por orden.
                 ThumbnailUrl = _db.ItemImages.Where(im => im.ItemId == i.Id)
                     .OrderByDescending(im => im.EsPrincipal).ThenBy(im => im.SortOrder)
@@ -110,16 +133,66 @@ public sealed class ItemService : IItemService
                 .OrderBy(s => s.WarehouseName)
                 .Select(s => new ItemStockDto(s.WarehouseId, s.WarehouseName, s.Stock)).ToList());
 
+        // Claves marcadas "ofrecer como filtro": se consultan una vez, no por fila.
+        var filterKeys = await _db.ItemFieldDefinitions
+            .AsNoTracking()
+            .Where(f => f.ShowInFilter)
+            .Select(f => f.FieldKey)
+            .ToListAsync(cancellationToken);
+
         var rows = pageItems.Select(i =>
         {
             var byWarehouse = stockByItem.TryGetValue(i.Id, out var list) ? list : new List<ItemStockDto>();
             return new ItemListDto(
                 i.Id, i.Sku, i.Name, i.Price, i.BrandId, i.BrandName, i.GroupId, i.GroupName,
                 i.SubgroupId, i.SubgroupName, i.ItemTypeId, i.ItemTypeName, i.IsActive, i.ThumbnailUrl,
-                byWarehouse.Sum(s => s.Stock), byWarehouse);
+                byWarehouse.Sum(s => s.Stock), byWarehouse,
+                ExtractFilterables(i.FieldValuesJson, filterKeys));
         }).ToList();
 
         return new ItemPageDto(rows, total, page, pageSize);
+    }
+
+    /// <summary>Deserializa los valores del item. Vacio si no hay nada o el JSON esta corrupto.</summary>
+    private static Dictionary<string, string> ReadFieldValues(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return new(StringComparer.Ordinal); }
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new(StringComparer.Ordinal);
+        }
+        catch (JsonException)
+        {
+            // Un item con el JSON corrupto no debe tumbar el listado entero.
+            return new(StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>True si el item cumple TODOS los filtros de campo pedidos.</summary>
+    private static bool MatchesFieldFilters(string? json, IReadOnlyDictionary<string, string> filters)
+    {
+        var values = ReadFieldValues(json);
+        foreach (var (key, expected) in filters)
+        {
+            if (!values.TryGetValue(key, out var actual)) { return false; }
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)) { return false; }
+        }
+        return true;
+    }
+
+    /// <summary>Solo los valores de las claves filtrables. Null si el tenant no marco ninguna.</summary>
+    private static IReadOnlyDictionary<string, string>? ExtractFilterables(
+        string? json, IReadOnlyCollection<string> filterKeys)
+    {
+        if (filterKeys.Count == 0) { return null; }
+
+        var values = ReadFieldValues(json);
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var key in filterKeys)
+        {
+            if (values.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v)) { result[key] = v; }
+        }
+        return result.Count > 0 ? result : null;
     }
 
     public async Task<ItemDetailDto?> GetDetailAsync(Guid id, CancellationToken cancellationToken = default)

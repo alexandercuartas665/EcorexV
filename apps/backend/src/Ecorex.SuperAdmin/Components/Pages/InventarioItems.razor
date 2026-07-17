@@ -81,6 +81,21 @@
             <option value="@t.Id">@t.Name</option>
         }
     </select>
+    @* Filtros de los campos marcados "ofrecer como filtro" (ADR-0029). Se resuelven en el servidor
+       (el listado pagina), asi que cambiar uno recarga la pagina 1. *@
+    @foreach (var ff in FilterableFields())
+    {
+        var key = ff.FieldKey;
+        <select class="form-control inv-fld-filter" style="max-width:170px;" title="@ff.Label"
+                value="@(_fieldFilters.GetValueOrDefault(key) ?? "")"
+                @onchange="e => SetFieldFilterAsync(key, e.Value?.ToString())">
+            <option value="">@ff.Label: todos</option>
+            @foreach (var o in FilterOptions(key))
+            {
+                <option value="@o">@o</option>
+            }
+        </select>
+    }
     <label class="pl-toggle" style="margin-left:auto;">
         <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await ApplyFiltersAsync(); })" />
         Ver archivados
@@ -507,6 +522,17 @@ else
                                         <div class="inv-fld-help">@TypeLabel(f.FieldType) &#183; @ColumnLabel(f.Column) @(f.IsRequired ? "· obligatorio" : "") @(f.ShowInFilter ? "· filtrable" : "")</div>
                                     </div>
                                     <div style="display:flex;gap:6px;">
+                                        @* Mover a otro tipo: el servicio ya existia pero no habia por
+                                           donde llamarlo, asi que un campo nacia atado a su tipo. *@
+                                        <select class="form-control form-control-sm inv-move-sel" disabled="@_busy"
+                                                title="Mover el campo a otro tipo de item" value=""
+                                                @onchange="e => MoveCfgFieldToTypeAsync(f, e.Value?.ToString())">
+                                            <option value="">Mover a...</option>
+                                            @foreach (var t in _types.Where(t => t.Id != f.ItemTypeId))
+                                            {
+                                                <option value="@t.Id">@t.Name</option>
+                                            }
+                                        </select>
                                         <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditCfgField(f))" disabled="@_busy">Editar</button>
                                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteCfgFieldAsync(f.Id))" disabled="@_busy">&times;</button>
                                     </div>
@@ -808,6 +834,8 @@ else
         _groups = await CatalogSvc.ListAsync(CatalogKind.ItemGroup);
         _subgroups = await CatalogSvc.ListAsync(CatalogKind.ItemSubgroup);
         _types = await CatalogSvc.ListAsync(CatalogKind.ItemType);
+        // Definiciones de todos los tipos: la barra de filtros necesita saber cuales son filtrables.
+        _allFieldDefs = await FieldSvc.ListAllAsync();
         await ReloadAsync();
         _loading = false;
     }
@@ -820,7 +848,45 @@ else
         _search,
         _includeInactive,
         _currentPage,
-        20);
+        20,
+        _fieldFilters.Count > 0 ? new Dictionary<string, string>(_fieldFilters, StringComparer.Ordinal) : null);
+
+    // ---- Filtros por campo configurable (ADR-0029) ----
+
+    /// <summary>Filtros activos: FieldKey -> valor exigido.</summary>
+    private readonly Dictionary<string, string> _fieldFilters = new(StringComparer.Ordinal);
+
+    /// <summary>Definiciones de TODOS los tipos: la barra de filtros necesita las marcadas.</summary>
+    private IReadOnlyList<ItemFieldDto> _allFieldDefs = [];
+
+    /// <summary>
+    /// Campos filtrables. Si hay un tipo elegido en la barra, solo los suyos: los de otro tipo no
+    /// aplicarian a ningun item de la lista.
+    /// </summary>
+    private List<ItemFieldDto> FilterableFields()
+    {
+        var fields = _allFieldDefs.Where(f => f.ShowInFilter);
+        if (Guid.TryParse(_fltType, out var typeId)) { fields = fields.Where(f => f.ItemTypeId == typeId); }
+        return fields.OrderBy(f => f.SortOrder).ToList();
+    }
+
+    /// <summary>Valores que existen en la pagina actual. Ofrecer opciones vacias solo estorba.</summary>
+    private List<string> FilterOptions(string fieldKey)
+        => (_page?.Items ?? [])
+            .Select(r => r.Filtrables is not null && r.Filtrables.TryGetValue(fieldKey, out var v) ? v : null)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!)
+            .Concat(_fieldFilters.TryGetValue(fieldKey, out var actual) ? new[] { actual } : [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.CurrentCulture)
+            .ToList();
+
+    private async Task SetFieldFilterAsync(string fieldKey, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { _fieldFilters.Remove(fieldKey); }
+        else { _fieldFilters[fieldKey] = value; }
+        await ApplyFiltersAsync();
+    }
 
     private async Task ReloadAsync()
     {
@@ -1142,6 +1208,28 @@ else
 
     private string? CfgEditingKey() => _cfgFields.FirstOrDefault(f => f.Id == _cfgEditId)?.FieldKey;
 
+    /// <summary>
+    /// Mueve el campo a otro tipo de item. El servicio se niega si el destino ya tiene esa clave o si
+    /// alguna formula del tipo origen la usa; el motivo se muestra tal cual.
+    /// </summary>
+    private Task MoveCfgFieldToTypeAsync(ItemFieldDto f, string? targetTypeId) => GuardAsync(async () =>
+    {
+        if (!Guid.TryParse(targetTypeId, out var target)) { return; }
+        _cfgError = null;
+        _busy = true;
+        try
+        {
+            _cfgError = await FieldSvc.MoveFieldToTypeAsync(f.Id, target);
+            if (_cfgError is null)
+            {
+                if (_cfgEditId == f.Id) { ResetCfgForm(); }
+                if (Guid.TryParse(_cfgType, out var typeId)) { _cfgFields = await FieldSvc.ListByTypeAsync(typeId); }
+                await LoadTypeFieldsAsync();
+            }
+        }
+        finally { _busy = false; }
+    });
+
     private async Task InsertFormulaKeyAsync(string key)
     {
         _cfgFormula = string.IsNullOrWhiteSpace(_cfgFormula) ? $"{{{key}}}" : $"{_cfgFormula} {{{key}}}";
@@ -1199,6 +1287,9 @@ else
             }
             ResetCfgForm();
             _cfgFields = await FieldSvc.ListByTypeAsync(typeId);
+            // La barra de filtros vive de _allFieldDefs: si no se refresca, marcar "filtrable" no
+            // aparece hasta recargar la pagina.
+            _allFieldDefs = await FieldSvc.ListAllAsync();
             // Si el item abierto es de este tipo, refresca sus campos en vivo.
             if (_showEditor && _fType == _cfgType) { _typeFields = _cfgFields; }
         }

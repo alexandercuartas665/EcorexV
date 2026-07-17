@@ -306,6 +306,13 @@ public sealed class TerceroFieldService : ITerceroFieldService
             {
                 return $"{{{reference}}} es de tipo {target.FieldType} y no se puede usar en un calculo.";
             }
+
+            // Un campo repetido guarda VARIOS valores (un arreglo JSON en su celda), no un numero:
+            // el motor leeria "[\"12\",\"8\"]" como 0. Se rechaza en vez de dar un cero silencioso.
+            if (!string.IsNullOrWhiteSpace(target.RepeatWithFieldKey) || target.AllowMultiple)
+            {
+                return $"{{{reference}}} captura varios valores y no se puede usar en un calculo.";
+            }
         }
 
         // Ciclos: se simula el conjunto YA con este campo dentro (con su formula nueva).

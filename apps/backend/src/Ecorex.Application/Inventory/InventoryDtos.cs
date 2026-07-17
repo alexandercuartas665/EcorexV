@@ -64,6 +64,10 @@ public sealed record ItemStockDto(Guid WarehouseId, string WarehouseName, int St
 public sealed record ItemImageDto(Guid Id, string Url, string? FileName, int SortOrder, bool EsPrincipal = false, string? Texto = null);
 
 /// <summary>Fila del grid de items (con marca/grupo/tipo resueltos, stock total y por bodega).</summary>
+/// <param name="Filtrables">
+/// Valores de los campos marcados "ofrecer como filtro" (ADR-0029), por FieldKey. Null si el tenant
+/// no marco ninguno.
+/// </param>
 public sealed record ItemListDto(
     Guid Id,
     string? Sku,
@@ -80,7 +84,8 @@ public sealed record ItemListDto(
     bool IsActive,
     string? ThumbnailUrl,
     int TotalStock,
-    IReadOnlyList<ItemStockDto> StockByWarehouse);
+    IReadOnlyList<ItemStockDto> StockByWarehouse,
+    IReadOnlyDictionary<string, string>? Filtrables = null);
 
 /// <summary>Detalle completo de un item (edicion): datos, catalogos, imagenes y stock por bodega.</summary>
 public sealed record ItemDetailDto(
@@ -134,7 +139,9 @@ public sealed record ItemQuery(
     string? Search = null,
     bool IncludeInactive = false,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    // Filtros por campo configurable (FieldKey -> valor exigido). Ver ADR-0029.
+    IReadOnlyDictionary<string, string>? FieldFilters = null);
 
 /// <summary>Pagina del grid de items.</summary>
 public sealed record ItemPageDto(IReadOnlyList<ItemListDto> Items, int Total, int Page, int PageSize);

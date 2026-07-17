@@ -247,6 +247,29 @@
                                                                         {
                                                                             <div class="dg-fld-sep">@f.Label</div>
                                                                         }
+                                                                        else if (!string.IsNullOrWhiteSpace(f.RepeatWithFieldKey))
+                                                                        {
+                                                                            @* Se pide tantas veces como diga el campo que lo gobierna. *@
+                                                                            <label class="dg-flabel">@f.Label</label>
+                                                                            var rc = RepeatCount(fc.Key, f.RepeatWithFieldKey!);
+                                                                            if (rc <= 0)
+                                                                            {
+                                                                                <div class="dg-rep-hint">Indica "@FieldLabel(f.RepeatWithFieldKey!)" para capturar @f.Label.</div>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                var rvals = RepeatValues(fc.Key, f.FieldKey, rc);
+                                                                                for (var ri = 0; ri < rc; ri++)
+                                                                                {
+                                                                                    var idx = ri;
+                                                                                    <div class="dg-rep-row">
+                                                                                        <span class="dg-rep-idx">@(idx + 1)</span>
+                                                                                        <input class="dg-input" type="@InputType(f.FieldType)" value="@rvals[idx]"
+                                                                                               @onchange="e => SetRepeatValue(fc.Key, f.FieldKey, idx, rc, e.Value?.ToString())" />
+                                                                                    </div>
+                                                                                }
+                                                                            }
+                                                                        }
                                                                         else
                                                                         {
                                                                             <label class="dg-flabel">@f.Label</label>
@@ -840,6 +863,70 @@
             _fichaValues[ficha] = m;
         }
         m[field] = val;
+    }
+
+    // ---- Campos repetidos (RepeatWithFieldKey) ----
+    //
+    // Un campo repetido captura VARIAS veces el mismo dato: tantas como diga otro campo numerico
+    // (ej. "acompanantes" = 3 -> "nombre" se pide 3 veces). Los valores se guardan como un arreglo
+    // JSON dentro de la MISMA celda, asi que FichasJson sigue siendo ficha -> campo -> texto y el
+    // formato de datos no cambia. Es lo que hace el proyecto hermano.
+
+    /// <summary>Cuantas veces se repite el campo, segun el valor del campo que lo gobierna.</summary>
+    private int RepeatCount(string ficha, string repeatFieldKey)
+    {
+        var raw = GetFicha(ficha, repeatFieldKey);
+        // El gobernante puede vivir en otra ficha: si no esta aqui, se busca en todas.
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            foreach (var (_, campos) in _fichaValues)
+            {
+                if (campos.TryGetValue(repeatFieldKey, out var v) && !string.IsNullOrWhiteSpace(v)) { raw = v; break; }
+            }
+        }
+        // Tope de 20: evita que un cero de mas en el gobernante pinte mil inputs y cuelgue el circuito.
+        return int.TryParse(raw, out var n) ? Math.Clamp(n, 0, 20) : 0;
+    }
+
+    /// <summary>Etiqueta del campo que gobierna la repeticion, para poder nombrarlo al usuario.</summary>
+    private string FieldLabel(string fieldKey)
+        => AllFieldDefs().FirstOrDefault(f => f.FieldKey == fieldKey)?.Label ?? fieldKey;
+
+    /// <summary>Valores del campo repetido, ajustados a las filas pedidas.</summary>
+    private List<string> RepeatValues(string ficha, string field, int count)
+    {
+        var list = new List<string>();
+        var raw = GetFicha(ficha, field);
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            try
+            {
+                if (raw.TrimStart().StartsWith('['))
+                {
+                    list = JsonSerializer.Deserialize<List<string>>(raw) ?? new();
+                }
+                else
+                {
+                    list.Add(raw);   // venia de cuando el campo no se repetia: se conserva como el 1o
+                }
+            }
+            catch (JsonException)
+            {
+                list = new List<string> { raw };
+            }
+        }
+        while (list.Count < count) { list.Add(""); }
+        if (list.Count > count) { list = list.Take(count).ToList(); }
+        return list;
+    }
+
+    private void SetRepeatValue(string ficha, string field, int index, int count, string? value)
+    {
+        var list = RepeatValues(ficha, field, count);
+        if (index < 0 || index >= list.Count) { return; }
+        list[index] = value ?? "";
+        // Todo vacio -> se borra la celda, para no guardar ["","",""] .
+        SetFicha(ficha, field, list.Any(v => !string.IsNullOrWhiteSpace(v)) ? JsonSerializer.Serialize(list) : "");
     }
 
     /// <summary>Ancho del campo en la rejilla de 3 (ADR-0029). El separador siempre ocupa la fila.</summary>

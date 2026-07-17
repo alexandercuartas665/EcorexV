@@ -324,3 +324,11 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-cfg-move-sel:disabled { opacity: .4; cursor: not-allowed; }
 
 .dg-req-chk { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }
+
+/* Filtro por campo configurable, en la barra de TIPO. */
+.dg-filter-sel {
+    height: 30px; padding: 0 8px; border: 1px solid var(--line-2); border-radius: 999px;
+    background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12.5px;
+    font-weight: 600; cursor: pointer; max-width: 190px;
+}
+.dg-filter-sel:hover { border-color: var(--ink-3); }

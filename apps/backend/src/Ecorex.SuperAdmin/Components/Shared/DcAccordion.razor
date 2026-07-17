@@ -1,0 +1,41 @@
+@* Seccion plegable de la columna "Alimentacion" del contenedor de datos.
+
+   Existe porque esa columna mostraba Conectores + Destino + Clientes remotos + Procesos TODOS
+   abiertos a la vez: saturaba y obligaba a rodar la barra para encontrar cualquier cosa. Aqui cada
+   bloque se pliega y solo uno queda abierto.
+
+   Es un componente y no marcado repetido 4 veces para que el plegado se comporte igual en todos y no
+   haya que tocar cuatro sitios cada vez que cambie. *@
+
+<div class="dc-acc @(Open ? "open" : "")">
+    <button type="button" class="dc-acc-head" @onclick="ToggleAsync">
+        <span class="dc-acc-caret">@(Open ? "▾" : "▸")</span>
+        <span class="dc-acc-title">@Title</span>
+        @if (!string.IsNullOrWhiteSpace(Badge))
+        {
+            <span class="dc-acc-badge">@Badge</span>
+        }
+    </button>
+    @if (Open)
+    {
+        <div class="dc-acc-body">
+            @ChildContent
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>Resumen a la derecha del titulo (ej. "2 conectores"): se lee sin desplegar.</summary>
+    [Parameter] public string? Badge { get; set; }
+
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Lo gobierna el padre: asi solo una seccion queda abierta a la vez.</summary>
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private Task ToggleAsync() => OpenChanged.InvokeAsync(!Open);
+}

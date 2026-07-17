@@ -4694,3 +4694,46 @@ del modal e items quedan SIN desplegar.
 **Siguiente**: pendiente de antes, clave de orden tipada por celda en el Contenedor de datos (hoy
 "150000" ordena antes que "9"). Tests de servicio de campos (ambiguedad, mover, ciclo) en la matriz
 dual de integracion.
+
+---
+
+## Sesion 2026-07-17 (cont.) - Repaso de deudas: 3 cosas dadas por hechas que no lo estaban
+
+**Agentes**: Claude (Opus 4.8). Origen: el dueno pregunto que deudas habia. Al verificarlas (en vez
+de responder de memoria) apareció que TRES cosas declaradas como entregadas no cerraban el circuito:
+
+- **"Campo filtrable"**: el flag se guardaba y en items hasta se pintaba la etiqueta, pero NINGUN
+  listado lo usaba. Solo funcionaba en Pipeline, que ya lo traia.
+- **"Repetir N veces"**: el selector se configuraba y el modal lo ignoraba. Peor que no tenerlo: la
+  UI prometia algo que no ocurria.
+- **"Mover de grupo en items"**: `MoveFieldToTypeAsync` estaba hecho y protegido, sin nadie que lo
+  llamara.
+
+Leccion (se repitio 3 veces en la misma sesion): estimar por lo que se ve en la superficie sin
+comprobar el extremo final. Compilar no es funcionar.
+
+**Cerrado** (commit `334da38`):
+- **Multivalor en terceros**: no existia (AllowMultiple estaba en la entidad pero ni se configuraba
+  ni se renderizaba). El arreglo JSON va DENTRO de la misma celda -> FichasJson sigue siendo
+  ficha -> campo -> texto y el esquema no cambia. Tope de 20 filas (un cero de mas en el gobernante
+  colgaria el circuito). Tolera el valor viejo no-arreglo; borra la celda si queda todo vacio.
+- **Un repetido no entra en formulas**: su celda guarda ["12","8"], que el motor leeria como 0. Se
+  rechaza con mensaje propio.
+- **Filtros terceros**: el servicio extrae del FichasJson SOLO las claves marcadas y tolera JSON
+  corrupto; la barra ofrece solo valores existentes + limpiar.
+- **Filtros items**: el listado PAGINA en servidor -> se filtra ANTES de paginar (filtrar lo visible
+  haria mentir al total). **No se usa LIKE sobre el JSON a proposito**: JsonSerializer escapa lo
+  no-ASCII y el LIKE fallaria en silencio con los valores en espanol. Los filtrables se acotan al
+  tipo elegido.
+- **Mover en items**: el desplegable que faltaba.
+
+**Verificado en Chrome**: filtro tercero 8 -> 1 y limpiar -> 8; repetido 3 -> 3 filas, 1 -> 1, vacio
+-> aviso; BD con "sede_nombre": "[\"Sede Norte\",\"Sede Sur\"]"; filtro items 15 -> 1 -> 15. Residuo
+eliminado (0 defs, 0 filtrables, ficha de ANDINA como estaba). Sln 0 errores, 503 tests verdes.
+
+**Deuda REAL restante** (nada a medias, nada que prometa lo que no cumple):
+- Clave de orden tipada por celda (Contenedor de datos): hoy "150000" ordena antes que "9".
+- Tests de servicio de campos (ambiguedad, mover con choque, ciclo) en la matriz dual: hoy solo
+  probados a mano en Chrome.
+- QA extra del runtime de flujos (tarea #68): rechazo, reasignar, cross-tenant, notif, auditoria, movil.
+- Decision abierta: si las relaciones se ven como columna en el grid del board de registros.

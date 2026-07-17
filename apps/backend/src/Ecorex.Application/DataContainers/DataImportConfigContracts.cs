@@ -123,7 +123,23 @@ public sealed record ImportProcessDto(
     int? IntervalMinutes,
     string? CronExpression,
     bool IsActive,
-    DateTimeOffset? LastRunAt);
+    DateTimeOffset? LastRunAt,
+    /// <summary>Cuando corre la proxima vez (UTC). null = no programada.</summary>
+    DateTimeOffset? NextRunAt = null,
+    /// <summary>Por que se apago sola (ej. cron invalido).</summary>
+    string? DisabledReason = null);
+
+/// <summary>Una corrida de la bitacora, para pintarla.</summary>
+public sealed record ImportRunDto(
+    Guid Id,
+    DateTimeOffset FiredAt,
+    ImportRunTrigger Trigger,
+    ImportRunResult Result,
+    int Inserted,
+    int Updated,
+    int Deleted,
+    string? Detail,
+    DateTimeOffset? FinishedAt);
 
 public sealed record SaveImportProcessRequest(
     Guid? Id,
@@ -164,4 +180,7 @@ public interface IDataImportConfigService
     Task<IReadOnlyList<ImportProcessDto>> ListProcessesAsync(Guid modelId, CancellationToken ct = default);
     Task<ImportProcessDto?> SaveProcessAsync(SaveImportProcessRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteProcessAsync(Guid processId, Guid actorUserId, CancellationToken ct = default);
+
+    /// <summary>Ultimas corridas de una programacion, de la mas reciente a la mas vieja.</summary>
+    Task<IReadOnlyList<ImportRunDto>> ListRunsAsync(Guid processId, int take = 10, CancellationToken ct = default);
 }

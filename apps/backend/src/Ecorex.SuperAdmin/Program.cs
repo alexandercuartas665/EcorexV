@@ -148,6 +148,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.
 // Motor de programaciones (modulo 000889, ola P2): dispara las programaciones vencidas. Vive AQUI y no en
 // Ecorex.Workers porque el compose de prod solo levanta este servicio (ver deploy/docker-prod).
 builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>();
+// Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
+// las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
+builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).

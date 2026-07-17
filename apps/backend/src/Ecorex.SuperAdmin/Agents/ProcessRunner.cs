@@ -10,9 +10,9 @@ namespace Ecorex.SuperAdmin.Agents;
 public sealed record RunProcessResult(bool Ok, string? CorrelationId, string Message);
 
 /// <summary>
-/// Ejecuta AHORA una programacion (`ImportProcess`) que corre via agente. Es lo que hay detras del
-/// boton "Actualizar datos", y sera lo MISMO que llame el scheduler cuando exista (Ola 4): si el
-/// horario hiciera su propia version, las dos acabarian comportandose distinto.
+/// Ejecuta una programacion (`ImportProcess`) que corre via agente. Es lo que hay detras del boton
+/// "Actualizar datos" Y lo que llama el scheduler: si el horario tuviera su propia version, las dos
+/// acabarian comportandose distinto.
 ///
 /// El reparto del modelo (que ya existia, no se invento aqui):
 ///   - `DataConnector`  -> de donde salen los datos (host/base/credencial), la CONSULTA, y a que
@@ -22,7 +22,14 @@ public sealed record RunProcessResult(bool Ok, string? CorrelationId, string Mes
 /// </summary>
 public interface IProcessRunner
 {
-    Task<RunProcessResult> RunNowAsync(Guid processId, CancellationToken ct = default);
+    /// <param name="trigger">Quien dispara. Va a la bitacora: un fallo automatico de madrugada y un
+    /// fallo al pulsar el boton no se diagnostican igual.</param>
+    /// <param name="firedAt">
+    /// La VENTANA que se ejecuta. Para el scheduler es la hora a la que TOCABA (es la mitad de la
+    /// clave de idempotencia: dos workers en la misma ventana deben chocar). null = ahora.
+    /// </param>
+    Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
+        DateTimeOffset? firedAt = null, CancellationToken ct = default);
 }
 
 public sealed class ProcessRunner(
@@ -30,9 +37,11 @@ public sealed class ProcessRunner(
     ITenantContext tenantContext,
     ISecretProtector protector,
     IAgentRegistry registry,
-    IAgentImportService imports) : IProcessRunner
+    IAgentImportService imports,
+    IImportRunLog runLog) : IProcessRunner
 {
-    public async Task<RunProcessResult> RunNowAsync(Guid processId, CancellationToken ct = default)
+    public async Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
+        DateTimeOffset? firedAt = null, CancellationToken ct = default)
     {
         if (tenantContext.TenantId is not Guid tenantId)
         {
@@ -42,8 +51,10 @@ public sealed class ProcessRunner(
         var process = await db.ImportProcesses.AsNoTracking().FirstOrDefaultAsync(p => p.Id == processId, ct);
         if (process is null) { return new(false, null, "La programacion no existe."); }
 
-        // Cada "no" explica QUE falta y donde arreglarlo: este boton lo pulsa un operador, no un dev,
-        // y un "no se pudo" seco lo deja sin saber que hacer.
+        // Las precondiciones se comprueban ANTES de abrir la corrida: que falte la consulta no es una
+        // "ejecucion fallida", es una configuracion incompleta, y llenar la bitacora de eso taparia
+        // los fallos de verdad. Cada "no" explica QUE falta y donde arreglarlo: este boton lo pulsa un
+        // operador, no un dev, y un "no se pudo" seco lo deja sin saber que hacer.
         if (process.ClientId is not Guid clientRowId)
         {
             return new(false, null, "Esta programacion no tiene cliente remoto asignado: eligelo para que la ejecute un agente.");
@@ -71,13 +82,6 @@ public sealed class ProcessRunner(
             return new(false, null, "El conector no tiene consulta: escribe el SELECT que trae los datos.");
         }
 
-        // Se comprueba ANTES de despachar: si no hay agente, el mensaje del hub se perderia en el
-        // vacio y el operador se quedaria esperando sin saber por que.
-        if (!registry.IsOnline(client.ClientId))
-        {
-            return new(false, null, $"El agente '{client.Name}' no esta conectado. Abre la colmena en el equipo o revisa su configuracion.");
-        }
-
         // Mapeo por NOMBRE: cada columna de la tabla se llena con el campo del mismo nombre que
         // devuelva la consulta. Es predecible y no obliga a configurar un mapeo para el caso normal
         // (SELECT que ya trae los nombres correctos). Si sobran o faltan campos, esas columnas quedan
@@ -91,6 +95,29 @@ public sealed class ProcessRunner(
         }
         var mapping = columns.ToDictionary(c => c.Id, c => c.Name);
 
+        // El id de la orden se decide AQUI, no en el canal: la corrida tiene que quedar guardada con
+        // el antes de despachar. Si lo generara el canal, un agente rapido podria contestar antes de
+        // que la bitacora supiera a que corrida pertenece esa respuesta, y el resultado se perderia.
+        var correlationId = AgentImportService.NewCorrelationId();
+        var window = firedAt ?? DateTimeOffset.UtcNow;
+
+        var runId = await runLog.OpenAsync(processId, trigger, window, correlationId, ct);
+        if (runId is null)
+        {
+            // Otro worker ya tomo esta ventana. No es un fallo.
+            return new(false, null, "Esa ejecucion ya la tomo otro proceso.");
+        }
+
+        // Se comprueba DESPUES de abrir la corrida, a proposito: que el agente no este conectado a la
+        // hora a la que tocaba SI es una ejecucion fallida y tiene que quedar registrada. Es
+        // justamente el caso que el operador necesita ver al dia siguiente.
+        if (!registry.IsOnline(client.ClientId))
+        {
+            var detail = $"El agente '{client.Name}' no estaba conectado.";
+            await runLog.FailAsync(runId.Value, detail, ct);
+            return new(false, null, $"{detail} Abre la colmena en el equipo o revisa su configuracion.");
+        }
+
         var spec = new ConnectorSpec(
             Kind: "Database",
             DbEngine: connector.DbEngine?.ToString(),
@@ -102,13 +129,30 @@ public sealed class ProcessRunner(
             // tiene, se manda null y el agente usa su cadena local (opcion b).
             Secret: connector.CredentialsEncrypted is { } enc ? protector.Unprotect(enc) : null);
 
-        // "Actualizar datos" es un REFRESCO: la tabla queda igual a la fuente. Append acumularia
-        // duplicados en cada pulsacion, que no es lo que espera quien pulsa "actualizar".
-        var corr = await imports.DispatchFetchAsync(
-            client.ClientId, tenantId, targetTableId, mapping,
-            ApiImportMode.Replace, keyColumnId: null,
-            connector.Query!, spec, ct);
+        try
+        {
+            // "Actualizar datos" es un REFRESCO: la tabla queda igual a la fuente. Append acumularia
+            // duplicados en cada pulsacion, que no es lo que espera quien pulsa "actualizar".
+            await imports.DispatchFetchAsync(
+                client.ClientId, tenantId, targetTableId, mapping,
+                ApiImportMode.Replace, keyColumnId: null,
+                connector.Query!, spec, ct, correlationId);
+        }
+        catch (Exception ex)
+        {
+            await runLog.FailAsync(runId.Value, $"No se pudo enviar la orden: {ex.Message}", ct);
+            return new(false, null, $"No se pudo enviar la orden al agente: {ex.Message}");
+        }
 
-        return new(true, corr, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
+        // LastRunAt marca el DISPARO, no el resultado (que llega despues por el canal). El desenlace
+        // vive en la bitacora, que es donde hay que mirarlo.
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == processId, ct);
+        if (tracked is not null)
+        {
+            tracked.LastRunAt = window;
+            await db.SaveChangesAsync(ct);
+        }
+
+        return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
     }
 }

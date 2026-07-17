@@ -142,6 +142,8 @@ public interface IApplicationDbContext
     DbSet<DataConnector> DataConnectors { get; }
     DbSet<DataClient> DataClients { get; }
     DbSet<ImportProcess> ImportProcesses { get; }
+    /// <summary>Bitacora de corridas de importacion (manual y programada).</summary>
+    DbSet<ImportRun> ImportRuns { get; }
 
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }

@@ -50,8 +50,13 @@ public static class AgentChannel
         // Ola 3: orquestador de ingesta via agente (pending-fetch + ingesta al contenedor).
         services.AddSingleton<IAgentImportService, AgentImportService>();
         // Ejecuta una programacion AHORA (boton "Actualizar datos"). Scoped: usa el DbContext y el
-        // tenant del request. Lo reusara el scheduler para que el horario y el boton hagan lo mismo.
+        // tenant del request. Lo reusa el scheduler para que el horario y el boton hagan lo mismo.
         services.AddScoped<IProcessRunner, ProcessRunner>();
+        // Bitacora de corridas. Scoped (DbContext); el canal, que es singleton, la resuelve por scope.
+        services.AddScoped<IImportRunLog, ImportRunLog>();
+        // Motor de horarios: quien decide QUE toca disparar. El worker (hosted service) lo resuelve
+        // por scope y con el tenant fijado, igual que el de 000889.
+        services.AddScoped<IImportScheduleDispatcher, ImportScheduleDispatcher>();
 
         // Esquema bearer nombrado SOLO para el hub. AddAuthentication() sin argumentos no cambia el
         // esquema por defecto (cookie), solo agrega este.

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Ecorex.Application.Common;
+using Ecorex.Application.Scheduling;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -335,6 +336,20 @@ public sealed class DataImportConfigService : IDataImportConfigService
         entity.CronExpression = string.IsNullOrWhiteSpace(req.CronExpression) ? null : req.CronExpression!.Trim();
         entity.IsActive = req.IsActive;
 
+        // La proxima ventana se calcula AL GUARDAR y no se deja para el worker: si no, el operador
+        // guarda "cada 15 minutos" y la ficha no le dice cuando corre: tendria que esperar un ciclo
+        // para verlo. Ademas un cron invalido se rechaza AQUI, mientras esta mirando, en vez de
+        // desactivarse solo mas tarde.
+        var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
+            .Where(t => t.Id == tenantId).Select(t => t.TimeZoneId).FirstOrDefaultAsync(ct));
+        var next = ImportRecurrence.ComputeNextRun(entity, DateTimeOffset.UtcNow, tz);
+        if (next.Problem == ImportScheduleProblem.Invalid)
+        {
+            throw new InvalidOperationException(next.Reason ?? "El horario no es valido.");
+        }
+        entity.NextRunAt = next.NextRunAt;
+        entity.DisabledReason = null;
+
         await _db.SaveChangesAsync(ct);
 
         var connectorNames = new Dictionary<Guid, string>();
@@ -356,10 +371,23 @@ public sealed class DataImportConfigService : IDataImportConfigService
     {
         var entity = await _db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == processId, ct);
         if (entity is null) { return false; }
+        // La bitacora apunta al proceso con FK Restrict (su historia sobrevive al proceso). Borrar el
+        // proceso sin quitar sus corridas fallaria contra esa FK: primero la historia, luego el dueno.
+        var runs = await _db.ImportRuns.Where(r => r.ProcessId == processId).ToListAsync(ct);
+        if (runs.Count > 0) { _db.ImportRuns.RemoveRange(runs); }
         _db.ImportProcesses.Remove(entity);
         await _db.SaveChangesAsync(ct);
         return true;
     }
+
+    public async Task<IReadOnlyList<ImportRunDto>> ListRunsAsync(Guid processId, int take = 10, CancellationToken ct = default)
+        => await _db.ImportRuns.AsNoTracking()
+            .Where(r => r.ProcessId == processId)
+            .OrderByDescending(r => r.FiredAt)
+            .Take(take)
+            .Select(r => new ImportRunDto(r.Id, r.FiredAt, r.Trigger, r.Result,
+                r.Inserted, r.Updated, r.Deleted, r.Detail, r.FinishedAt))
+            .ToListAsync(ct);
 
     // ---- Helpers ----
 
@@ -393,7 +421,8 @@ public sealed class DataImportConfigService : IDataImportConfigService
         if (p.ClientId is { } cl && clientNames.TryGetValue(cl, out var cliNm)) { clientName = cliNm; }
         return new ImportProcessDto(
             p.Id, p.ModelId ?? Guid.Empty, p.ConnectorId, connectorName, p.ClientId, clientName,
-            p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.LastRunAt);
+            p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.LastRunAt,
+            p.NextRunAt, p.DisabledReason);
     }
 
     private async Task<string> GenerateUniqueClientIdAsync(CancellationToken ct)

@@ -450,10 +450,34 @@ else
                                                     @(p.ScheduleKind == ImportScheduleKind.Interval && p.IntervalMinutes is int m ? $" · cada {m} min" : "")
                                                     @(p.ScheduleKind == ImportScheduleKind.Cron && !string.IsNullOrWhiteSpace(p.CronExpression) ? $" · {p.CronExpression}" : "")
                                                     @(p.IsActive ? "" : " · inactivo")
+                                                    @* La proxima ventana es lo que responde "esto de verdad va a correr?". *@
+                                                    @(p.NextRunAt is DateTimeOffset nr ? $" · proxima: {nr.ToLocalTime():dd MMM HH:mm}" : "")
                                                 </div>
+                                                @* Una programacion que se apago sola tiene que DECIR por que. *@
+                                                @if (!string.IsNullOrWhiteSpace(p.DisabledReason))
+                                                {
+                                                    <div class="dc-probe off">Desactivada: @p.DisabledReason</div>
+                                                }
                                                 @if (_runResult.TryGetValue(p.Id, out var rr))
                                                 {
                                                     <div class="dc-probe @(rr.Ok ? "on" : "off")">@rr.Message</div>
+                                                }
+                                                @* Bitacora: sin esto, una corrida automatica que falla de
+                                                   madrugada es indistinguible de "no habia datos nuevos". *@
+                                                @if (_runs.TryGetValue(p.Id, out var runs) && runs.Count > 0)
+                                                {
+                                                    <div class="dc-section-sub" style="margin-top:8px;">Ultimas ejecuciones</div>
+                                                    <ul class="dc-runs">
+                                                        @foreach (var r in runs)
+                                                        {
+                                                            <li>
+                                                                <span class="dc-run-dot @RunDotClass(r.Result)"></span>
+                                                                <span class="dc-run-when">@r.FiredAt.ToLocalTime().ToString("dd MMM HH:mm")</span>
+                                                                <span class="dc-badge">@(r.Trigger == ImportRunTrigger.Scheduled ? "horario" : "manual")</span>
+                                                                <span class="dc-run-detail">@RunSummary(r)</span>
+                                                            </li>
+                                                        }
+                                                    </ul>
                                                 }
                                             </div>
                                             <div style="display:flex;gap:4px;">
@@ -929,6 +953,18 @@ else
     .dc-probe.on { background: rgba(16,185,129,.14); color: #047857; }
     .dc-probe.off { background: rgba(245,158,11,.16); color: #92400e; }
 
+    /* Bitacora de corridas. El punto de color permite ver "todo bien / algo fallo" de un vistazo,
+       sin leer: es lo primero que busca quien entra a revisar si el horario esta corriendo. */
+    .dc-runs { list-style: none; padding: 0; margin: 2px 0 0; }
+    .dc-runs li { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; color: var(--ink-2, var(--muted-foreground)); }
+    .dc-run-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .dc-run-dot.ok { background: #10b981; }
+    .dc-run-dot.err { background: #ef4444; }
+    .dc-run-dot.run { background: #f59e0b; }
+    .dc-run-dot.skip { background: var(--line, var(--border)); }
+    .dc-run-when { font-variant-numeric: tabular-nums; }
+    .dc-run-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* Acordeon de la columna Alimentacion (ver DcAccordion.razor). */
     .dc-acc { border: 1px solid var(--line, var(--border)); border-radius: 8px; margin-bottom: 8px; background: var(--surface, var(--card)); }
     .dc-acc-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; background: none; border: 0; cursor: pointer; text-align: left; }
@@ -1123,6 +1159,24 @@ else
 
     private readonly Dictionary<Guid, (bool Ok, string Message)> _runResult = new();
 
+    /// <summary>Ultimas corridas por programacion (la bitacora).</summary>
+    private readonly Dictionary<Guid, IReadOnlyList<ImportRunDto>> _runs = new();
+
+    private static string RunDotClass(ImportRunResult r) => r switch
+    {
+        ImportRunResult.Ok => "ok",
+        ImportRunResult.Error => "err",
+        ImportRunResult.Running => "run",
+        _ => "skip"
+    };
+
+    private static string RunSummary(ImportRunDto r) => r.Result switch
+    {
+        ImportRunResult.Ok => $"{r.Inserted} filas" + (r.Deleted > 0 ? $" (reemplazo {r.Deleted})" : ""),
+        ImportRunResult.Running => "ejecutando...",
+        _ => r.Detail ?? r.Result.ToString()
+    };
+
     /// <summary>
     /// Pide al agente que traiga los datos. El despacho es INMEDIATO pero la ingesta NO: el agente
     /// consulta su base y devuelve los chunks por el canal. Por eso aqui se espera el resultado real
@@ -1142,8 +1196,9 @@ else
                 return;
             }
 
-            // Espera del acuse. El tope evita quedarse colgado si el agente muere a mitad (la Ola 6
-            // debe poner este timeout tambien del lado servidor: hoy el pending fetch no caduca).
+            // Espera del acuse. Este tope es solo de la PANTALLA (no dejar al operador mirando una
+            // rueda): del lado servidor la peticion caduca aparte (AgentImportService.SweepAsync) y
+            // cierra la corrida en la bitacora, aunque nadie tenga la pagina abierta.
             var limite = DateTime.UtcNow.AddSeconds(60);
             while (DateTime.UtcNow < limite)
             {
@@ -1154,6 +1209,7 @@ else
                         ? (true, $"Listo: {o.Inserted} filas cargadas" + (o.Deleted > 0 ? $" (se reemplazaron {o.Deleted})" : ""))
                         : (false, $"El agente no pudo: {o.Error}");
                     if (o.Ok && _mId is Guid mid) { await LoadDetailCoreAsync(mid); }
+                    await LoadRunsAsync();
                     return;
                 }
                 StateHasChanged();
@@ -1583,6 +1639,18 @@ else
         _clients = await ConfigSvc.ListClientsAsync();
         var dest = await ConfigSvc.GetDestinationAsync(modelId);
         LoadDestination(dest);
+        await LoadRunsAsync();
+    }
+
+    /// <summary>Bitacora de cada programacion. Son pocas por contenedor y 5 corridas cada una: cabe
+    /// en la misma carga y evita que el operador tenga que abrir otra pantalla para ver si corrio.</summary>
+    private async Task LoadRunsAsync()
+    {
+        _runs.Clear();
+        foreach (var p in _processes)
+        {
+            _runs[p.Id] = await ConfigSvc.ListRunsAsync(p.Id, take: 5);
+        }
     }
 
     private void LoadDestination(DataDestinationDto? dest)

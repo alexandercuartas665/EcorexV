@@ -22,43 +22,70 @@ public interface IAgentImportService
     /// Fuente a consultar, con la credencial YA descifrada (ADR-0040). null = el agente usa su
     /// cadena local (opcion b, la de la Ola C).
     /// </param>
+    /// <param name="correlationId">
+    /// Identificador de la orden. Lo impone QUIEN DESPACHA cuando necesita conocerlo de antemano
+    /// (el runner lo guarda en la bitacora ANTES de despachar: si se generara aqui, un agente rapido
+    /// podria responder antes de que la corrida supiera su propio id y el resultado se perderia).
+    /// null = se genera uno.
+    /// </param>
     Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, ConnectorSpec? connector, CancellationToken ct);
+        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null);
 
     Task OnFetchResultAsync(FetchResultMsg chunk);
     Task OnFetchFailedAsync(FetchErrorMsg error);
 
     bool TryGetOutcome(string correlationId, out AgentIngestOutcome? outcome);
+
+    /// <summary>
+    /// Cierra las peticiones que llevan demasiado esperando y descarta resultados viejos. Lo llama el
+    /// worker en cada pasada. Sin esto, un agente que se cae a mitad de un fetch deja la peticion
+    /// -y todas sus filas acumuladas- en memoria PARA SIEMPRE, y su corrida se queda en "Ejecutando"
+    /// eternamente, que es justo la mentira que la bitacora debe evitar.
+    /// </summary>
+    Task SweepAsync(CancellationToken ct = default);
 }
 
 public sealed class AgentImportService : IAgentImportService
 {
+    /// <summary>Cuanto se espera a que el agente termine un fetch antes de darlo por perdido. Generoso
+    /// a proposito: una consulta grande con paginacion puede tardar minutos y matarla antes de tiempo
+    /// seria peor que esperar.</summary>
+    private static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(10);
+
+    /// <summary>Cuanto se conserva el resultado para que la UI lo lea. Solo lo consulta el que acaba
+    /// de pulsar el boton; pasado ese rato, la verdad duradera esta en la bitacora.</summary>
+    private static readonly TimeSpan OutcomeTtl = TimeSpan.FromMinutes(30);
+
     private readonly IHubContext<AgenteHub> _hub;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AgentImportService> _log;
+    private readonly TimeProvider _clock;
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new();
-    private readonly ConcurrentDictionary<string, AgentIngestOutcome> _outcomes = new();
+    private readonly ConcurrentDictionary<string, (AgentIngestOutcome Outcome, DateTimeOffset At)> _outcomes = new();
 
-    public AgentImportService(IHubContext<AgenteHub> hub, IServiceScopeFactory scopeFactory, ILogger<AgentImportService> log)
+    public AgentImportService(IHubContext<AgenteHub> hub, IServiceScopeFactory scopeFactory,
+        ILogger<AgentImportService> log, TimeProvider? clock = null)
     {
         _hub = hub;
         _scopeFactory = scopeFactory;
         _log = log;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, ConnectorSpec? connector, CancellationToken ct)
+        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null)
     {
-        var correlationId = Guid.NewGuid().ToString("N")[..8];
-        _pending[correlationId] = new Pending(tenantId, containerId, mapping, mode, keyColumnId);
+        var corr = correlationId ?? NewCorrelationId();
+        _pending[corr] = new Pending(tenantId, containerId, mapping, mode, keyColumnId,
+            _clock.GetUtcNow() + PendingTtl);
 
         var req = new FetchRequestMsg(
-            CorrelationId: correlationId,
+            CorrelationId: corr,
             TenantId: tenantId.ToString(),
             // La fuente la manda quien despacha (ADR-0040): host/base/usuario + la credencial
             // descifrada del conector. Antes esto iba fijo a "SqlServer" sin credencial porque el
@@ -70,9 +97,11 @@ public sealed class AgentImportService : IAgentImportService
 
         await _hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.FetchRequest, req, ct);
         _log.LogInformation("[INGESTA] dispatch corr={Corr} client={Client} container={Container} mode={Mode}",
-            correlationId, clientId, containerId, mode);
-        return correlationId;
+            corr, clientId, containerId, mode);
+        return corr;
     }
+
+    public static string NewCorrelationId() => Guid.NewGuid().ToString("N")[..8];
 
     public async Task OnFetchResultAsync(FetchResultMsg chunk)
     {
@@ -81,11 +110,27 @@ public sealed class AgentImportService : IAgentImportService
             return; // no es una peticion de ingesta (o ya cerrada).
         }
 
-        p.Rows.AddRange(chunk.Rows);
+        // Un chunk repetido (reintento del agente, reconexion del hub) duplicaria filas en silencio:
+        // la ingesta no puede distinguir "otra vez la fila 1" de "otra fila igual". Se descarta por
+        // indice, que es el unico dato que identifica al chunk dentro de su orden.
+        lock (p.Gate)
+        {
+            if (!p.SeenChunks.Add(chunk.ChunkIndex))
+            {
+                _log.LogWarning("[INGESTA] corr={Corr} chunk {Idx} repetido: se descarta",
+                    chunk.CorrelationId, chunk.ChunkIndex);
+                return;
+            }
+            p.Rows.AddRange(chunk.Rows);
+        }
 
         if (!chunk.IsLast) { return; }
 
-        _pending.TryRemove(chunk.CorrelationId, out _);
+        if (!_pending.TryRemove(chunk.CorrelationId, out _))
+        {
+            return; // otro hilo ya lo cerro (IsLast duplicado).
+        }
+
         try
         {
             using var scope = _scopeFactory.CreateScope();
@@ -96,43 +141,100 @@ public sealed class AgentImportService : IAgentImportService
                 await session.PrepareAsync(CancellationToken.None);
                 await session.IngestChunkAsync(p.Rows, CancellationToken.None);
                 var outcome = new AgentIngestOutcome(true, session.Inserted, session.Updated, session.Deleted, null);
-                _outcomes[chunk.CorrelationId] = outcome;
+                Remember(chunk.CorrelationId, outcome);
                 _log.LogInformation("[INGESTA] corr={Corr} OK ins={Ins} upd={Upd} del={Del}",
                     chunk.CorrelationId, outcome.Inserted, outcome.Updated, outcome.Deleted);
+
+                var runLog = scope.ServiceProvider.GetRequiredService<IImportRunLog>();
+                await runLog.CloseAsync(chunk.CorrelationId, true, outcome.Inserted, outcome.Updated,
+                    outcome.Deleted, $"{outcome.Inserted} insertadas, {outcome.Deleted} reemplazadas");
             }
         }
         catch (Exception ex)
         {
-            _outcomes[chunk.CorrelationId] = new AgentIngestOutcome(false, 0, 0, 0, ex.Message);
+            Remember(chunk.CorrelationId, new AgentIngestOutcome(false, 0, 0, 0, ex.Message));
             _log.LogError(ex, "[INGESTA] corr={Corr} fallo la ingesta", chunk.CorrelationId);
+            await CloseRunAsync(p.TenantId, chunk.CorrelationId, false, ex.Message);
         }
     }
 
-    public Task OnFetchFailedAsync(FetchErrorMsg error)
+    public async Task OnFetchFailedAsync(FetchErrorMsg error)
     {
-        _pending.TryRemove(error.CorrelationId, out _);
-        _outcomes[error.CorrelationId] = new AgentIngestOutcome(false, 0, 0, 0, $"{error.Code}: {error.Message}");
+        var tenantId = _pending.TryRemove(error.CorrelationId, out var p) ? p.TenantId : (Guid?)null;
+        Remember(error.CorrelationId, new AgentIngestOutcome(false, 0, 0, 0, $"{error.Code}: {error.Message}"));
         _log.LogWarning("[INGESTA] corr={Corr} el agente reporto fallo: {Code} {Msg}",
             error.CorrelationId, error.Code, error.Message);
-        return Task.CompletedTask;
+
+        if (tenantId is Guid t)
+        {
+            await CloseRunAsync(t, error.CorrelationId, false, $"{error.Code}: {error.Message}");
+        }
     }
 
     public bool TryGetOutcome(string correlationId, out AgentIngestOutcome? outcome)
     {
-        var ok = _outcomes.TryGetValue(correlationId, out var o);
-        outcome = o;
+        var ok = _outcomes.TryGetValue(correlationId, out var entry);
+        outcome = ok ? entry.Outcome : null;
         return ok;
+    }
+
+    public async Task SweepAsync(CancellationToken ct = default)
+    {
+        var now = _clock.GetUtcNow();
+
+        foreach (var (corr, p) in _pending)
+        {
+            if (p.DeadlineUtc > now) { continue; }
+            if (!_pending.TryRemove(corr, out _)) { continue; }
+
+            var detail = $"El agente no completo la consulta en {PendingTtl.TotalMinutes:0} minutos.";
+            Remember(corr, new AgentIngestOutcome(false, 0, 0, 0, detail));
+            _log.LogWarning("[INGESTA] corr={Corr} vencio el plazo; se descarta la peticion", corr);
+            await CloseRunAsync(p.TenantId, corr, false, detail);
+            if (ct.IsCancellationRequested) { return; }
+        }
+
+        foreach (var (corr, entry) in _outcomes)
+        {
+            if (now - entry.At > OutcomeTtl) { _outcomes.TryRemove(corr, out _); }
+        }
+    }
+
+    private void Remember(string correlationId, AgentIngestOutcome outcome) =>
+        _outcomes[correlationId] = (outcome, _clock.GetUtcNow());
+
+    /// <summary>Cierra la corrida en un scope propio: este servicio es singleton y la bitacora es
+    /// scoped (necesita DbContext), y ademas hay que fijar el tenant a mano porque aqui no hay
+    /// peticion HTTP de la que sacarlo.</summary>
+    private async Task CloseRunAsync(Guid tenantId, string correlationId, bool ok, string? detail)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            using (AmbientTenantContext.Begin(tenantId))
+            {
+                var runLog = scope.ServiceProvider.GetRequiredService<IImportRunLog>();
+                await runLog.CloseAsync(correlationId, ok, 0, 0, 0, detail);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Que falle la bitacora no debe tumbar el canal.
+            _log.LogError(ex, "[INGESTA] corr={Corr} no se pudo cerrar la corrida en la bitacora", correlationId);
+        }
     }
 
     private sealed class Pending
     {
-        public Pending(Guid tenantId, Guid containerId, IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId)
+        public Pending(Guid tenantId, Guid containerId, IReadOnlyDictionary<Guid, string> mapping,
+            ApiImportMode mode, Guid? keyColumnId, DateTimeOffset deadlineUtc)
         {
             TenantId = tenantId;
             ContainerId = containerId;
             Mapping = mapping;
             Mode = mode;
             KeyColumnId = keyColumnId;
+            DeadlineUtc = deadlineUtc;
         }
 
         public Guid TenantId { get; }
@@ -140,6 +242,16 @@ public sealed class AgentImportService : IAgentImportService
         public IReadOnlyDictionary<Guid, string> Mapping { get; }
         public ApiImportMode Mode { get; }
         public Guid? KeyColumnId { get; }
+
+        /// <summary>Cuando se da por perdida. Sin esto la entrada -y sus filas- viven para siempre.</summary>
+        public DateTimeOffset DeadlineUtc { get; }
+
+        /// <summary>Los chunks llegan por el hub y pueden repetirse; este es el filtro.</summary>
+        public HashSet<int> SeenChunks { get; } = new();
+
+        /// <summary>SeenChunks y Rows se tocan juntos desde varias invocaciones del hub.</summary>
+        public object Gate { get; } = new();
+
         public List<IReadOnlyDictionary<string, string?>> Rows { get; } = new();
     }
 }

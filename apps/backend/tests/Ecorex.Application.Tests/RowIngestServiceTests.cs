@@ -156,6 +156,7 @@ public class RowIngestServiceTests
         public DbSet<DataConnector> DataConnectors => throw new NotSupportedException();
         public DbSet<DataClient> DataClients => throw new NotSupportedException();
         public DbSet<ImportProcess> ImportProcesses => throw new NotSupportedException();
+        public DbSet<ImportRun> ImportRuns => throw new NotSupportedException();
         public DbSet<WhatsAppTemplate> WhatsAppTemplates => throw new NotSupportedException();
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();

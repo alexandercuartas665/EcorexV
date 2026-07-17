@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-07-17 - Programaciones que disparan SOLAS + bitacora de corridas (Ola 4)
+
+El horario ya ejecuta sin nadie delante, y cada corrida deja registro. **Verificado en vivo**: una
+programacion "cada 1 minuto" disparo dos veces seguidas sin tocar nada -agente *"Orden 038ed2e9: OK 4
+filas"*, servidor *"Importaciones programadas: 1 disparada(s)"*, y en la BD dos `import_runs` con
+`trigger=Scheduled`, `result=Ok`, separadas exactamente un minuto-. La UI lo muestra como
+*"17 Jul 06:46 · horario · 4 filas (reemplazo 4)"*.
+
+### Por que la bitacora
+
+Una programacion corre sin nadie mirando: sin registro, un fallo de madrugada es indistinguible de
+"no habia datos nuevos". `ImportRun` copia el patron de `ScheduledJobRun` (000889), **incluido el
+indice unico (TenantId, ProcessId, FiredAt)**, que es lo que da idempotencia: dos workers en la misma
+ventana chocan al guardar en vez de pedirle al agente el mismo refresco dos veces. Por eso `FiredAt`
+es la VENTANA y no "ahora".
+
+Una corrida nace en `Running` (el resultado llega despues, por el canal) y la cierra `IImportRunLog`
+contra el `correlationId`. Ese id lo genera **el runner**, no el canal: si lo generara el canal, un
+agente rapido podria responder antes de que la corrida supiera su propio id y el resultado se perderia.
+
+### Dedup y timeout: no eran un extra, eran la condicion
+
+Sin ellos la bitacora MIENTE. Se cerraron primero, a proposito:
+- **Dedup por ChunkIndex**: un chunk repetido (reintento, reconexion) duplicaba filas en silencio; la
+  ingesta no puede distinguir "otra vez la fila 1" de "otra fila igual".
+- **Timeout del pendiente** (10 min) + sweep en cada ciclo del worker: antes, un agente que se caia a
+  mitad dejaba la peticion -y todas sus filas- en memoria PARA SIEMPRE, y su corrida se habria quedado
+  en "Ejecutando" eternamente. `_outcomes` tampoco se limpiaba nunca.
+
+### Decisiones
+
+- **ADR-0041**: se agrega **Cronos** (MIT) para el cron, y se documenta por que NO se reusa el motor de
+  000889: aquel recibe un `ScheduledJobRule` concreto y razona en frecuencias de calendario, que no
+  contemplan ni "cada N minutos" ni cron. Se reusa lo que si es comun: `ResolveTimeZone`, el patron de
+  bitacora y el del worker.
+- El **cron se interpreta en hora del tenant** (probado: `0 3 * * *` en Bogota = 08:00 UTC).
+- **Tras una caida larga NO se dispara la rafaga atrasada**: se salta al futuro. A nadie le sirve
+  recibir los 12 refrescos que no ocurrieron anoche (probado).
+- **Un horario invalido desactiva la programacion CON MOTIVO a la vista**, en vez de dejarla "activa"
+  sin disparar nunca: ese silencio es justo lo que este modulo existe para evitar.
+
+460 pruebas verdes (12 nuevas del motor de recurrencia). Migracion dual `AddImportRuns`.
+
+---
+
 ## 2026-07-17 - Las TRES vias de alimentacion, probadas con datos reales (y un bug del lienzo)
 
 Contenedor "PRUEBA CARGAS" con 3 tablas, una por via. Todo verificado en la BD, no solo en pantalla:

@@ -67,6 +67,23 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" placeholder="Buscar formulario..." />
         </div>
+        @* Activos / Archivados: el indice mostraba todo mezclado y lo archivado solo se distinguia
+           por el badge, asi que archivar no despejaba nada. Ahora el principal son los activos y lo
+           archivado se consulta aparte. El contador solo aparece si hay algo que ver. *@
+        <div class="fx-viewtabs fx-statetabs">
+            <button class="fx-viewtab @(!_showArchived ? "on" : "")" @onclick="@(() => _showArchived = false)">
+                Activos
+                <span class="fx-tabn">@ActiveCount</span>
+            </button>
+            <button class="fx-viewtab @(_showArchived ? "on" : "")" @onclick="@(() => _showArchived = true)"
+                    disabled="@(ArchivedCount == 0 && !_showArchived)">
+                Archivados
+                @if (ArchivedCount > 0)
+                {
+                    <span class="fx-tabn">@ArchivedCount</span>
+                }
+            </button>
+        </div>
         <div class="fx-viewtabs">
             <button class="fx-viewtab @(!_listView ? "on" : "")" @onclick="@(() => _listView = false)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -82,6 +99,26 @@
     @if (_loading)
     {
         <p class="fx-loading"><em>Cargando formularios...</em></p>
+    }
+    else if (!Filtered.Any())
+    {
+        <div class="fx-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+            <p>
+                @if (!string.IsNullOrWhiteSpace(_query))
+                {
+                    @($"Ningun formulario coincide con \"{_query.Trim()}\".")
+                }
+                else if (_showArchived)
+                {
+                    @("No hay formularios archivados.")
+                }
+                else
+                {
+                    @("Aun no hay formularios. Crea el primero.")
+                }
+            </p>
+        </div>
     }
     else if (!_listView)
     {
@@ -190,6 +227,9 @@
     private bool _loading = true;
     private bool _busy;
     private bool _listView;
+
+    /// <summary>Pestana activa: false = activos (lo normal), true = el archivo.</summary>
+    private bool _showArchived;
     private string _query = "";
     private string? _error;
     private List<FormDefinitionListItemDto> _definitions = new();
@@ -207,12 +247,25 @@
         _loading = false;
     }
 
+    private int ActiveCount => _definitions.Count(d => !d.IsArchived);
+    private int ArchivedCount => _definitions.Count(d => d.IsArchived);
+
+    /// <summary>
+    /// La pestana manda: o activos o archivados, nunca mezclados. La busqueda se aplica dentro de
+    /// la pestana elegida.
+    /// </summary>
     private IEnumerable<FormDefinitionListItemDto> Filtered
-        => string.IsNullOrWhiteSpace(_query)
-            ? _definitions
-            : _definitions.Where(d =>
-                d.Title.Contains(_query.Trim(), StringComparison.OrdinalIgnoreCase)
-                || d.Code.Contains(_query.Trim(), StringComparison.OrdinalIgnoreCase));
+    {
+        get
+        {
+            var scope = _definitions.Where(d => d.IsArchived == _showArchived);
+            if (string.IsNullOrWhiteSpace(_query)) { return scope; }
+            var q = _query.Trim();
+            return scope.Where(d =>
+                d.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || d.Code.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+    }
 
     /// <summary>Separador de miles del prototipo (toLocaleString('es') -> "1.204").</summary>
     private static string N(int value) => value.ToString("N0", Es);
@@ -265,6 +318,9 @@
                 return false;
             }
             _definitions = (await FormsSvc.ListAsync(includeArchived: true)).ToList();
+            // Si se restauro el ultimo archivado, esta pestana quedo vacia: no dejar al usuario
+            // mirando una lista sin nada y con el tab deshabilitado.
+            if (_showArchived && ArchivedCount == 0) { _showArchived = false; }
             return true;
         }
         finally

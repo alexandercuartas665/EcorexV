@@ -76,8 +76,25 @@
     background: none; color: var(--ink-2);
 }
 .fx-viewtab.on { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }
+.fx-viewtab:disabled { opacity: .45; cursor: default; }
+
+/* Activos / Archivados: van pegados al buscador (filtran el contenido), no a la derecha
+   con los de vista (que solo cambian la forma de verlo). */
+.fx-statetabs { margin-left: 0; }
+.fx-tabn {
+    font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px;
+    background: var(--surface-3); color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.fx-viewtab.on .fx-tabn { background: var(--t-violet-bg); color: var(--t-violet); }
 
 .fx-loading { color: var(--ink-3); font-size: 13px; }
+
+.fx-empty {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 56px 18px; color: var(--ink-3);
+}
+.fx-empty svg { width: 34px; height: 34px; opacity: .5; }
+.fx-empty p { font-size: 13.5px; margin: 0; }
 
 /* ---- Vista tarjetas ---- */
 .fx-cards {

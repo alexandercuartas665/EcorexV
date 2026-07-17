@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-07-17 - Cancel: el protocolo deja de mentir
+
+`AgentHubMethods.Cancel` estaba declarado en el contrato pero **el agente no lo manejaba** (el
+protocolo anunciaba algo que no existia). Ya no.
+
+- **Contrato**: `CancelMsg(CorrelationId, Reason?)` tipado, junto a los demas mensajes.
+- **Agente** (`RealHiveConnection`): un `ConcurrentDictionary<correlationId, CancellationTokenSource>`
+  que se llena al empezar un `FetchRequest` y se vacia en el `finally`. `On(Cancel)` cancela el CTS del
+  correlationId. **El token viaja hasta el `GatewayExecutor`** (que YA lo honraba en
+  OpenAsync/ExecuteReaderAsync/ReadAsync pero nunca lo recibia): un Cancel aborta la consulta EN LA BD,
+  no solo el bucle de envio. Al cancelar, el agente manda `FetchFailed` con codigo `CANCELLED`
+  (retryable:false: no tiene sentido reintentar lo que se pidio abortar).
+- **Servidor** (`AgentImportService`): `Pending` gana `ClientId` (a que agente mandarle el Cancel);
+  `CancelAsync(correlationId, reason)` empuja `Cancel` al grupo del cliente y libera la peticion; y el
+  **timeout sweep ahora tambien manda Cancel** -antes soltaba la peticion pero el agente seguia
+  consultando y mandando chunks al vacio-. Endpoints dev para probar (`run-process/{id}`,
+  `cancel/{corr}`).
+
+**Verificado en vivo lo que de verdad tenia incertidumbre**: que Npgsql aborte una consulta EN CURSO al
+cancelar el token. Prueba directa contra el `GatewayExecutor` con `SELECT ... CROSS JOIN pg_sleep(25)` y
+el token cancelado a los 3s -> **CANCELADO en 3.1s, no 25s**. Eso es exactamente lo que hace
+`OnCancel`. El resto de la cadena (servidor -> hub -> `On(Cancel)` -> CTS) es el MISMO push de SignalR
+que ya usa `FetchRequest` (probado) mas 3 lineas de glue.
+
+**NO verificado E2E de cadena completa**: requeria el agente elevado (lee su boveda de maquina) y el UAC
+se cancelo (equipo desatendido), igual que paso con la prueba de instalacion. Lo incierto -la
+cancelacion real de la consulta- si esta probado, arriba.
+
+**Con esto, de la lista de pendientes de la Ola 6 solo quedan cosas de ESCALA** (limites por plan,
+backplane Redis) y el guardrail de TLS estricto (no bloqueante si prod es HTTPS). El nucleo del agente
+esta completo.
+
+---
+
 ## 2026-07-17 - Reintento del agente offline (UC3) + reencuadre honesto del TLS
 
 ### El TLS no era tan urgente: se corrigio la documentacion

@@ -39,6 +39,14 @@ public interface IAgentImportService
     bool TryGetOutcome(string correlationId, out AgentIngestOutcome? outcome);
 
     /// <summary>
+    /// Pide al agente ABORTAR el fetch en curso y libera la peticion en el servidor. Se usa cuando ya
+    /// no interesa el resultado (vencio el plazo, o alguien cancelo a mano): sin esto, el agente
+    /// seguiria consultando la BD y mandando chunks que se descartan. Best-effort: si el correlationId
+    /// ya no esta pendiente, no hace nada. Devuelve false si no habia nada que cancelar.
+    /// </summary>
+    Task<bool> CancelAsync(string correlationId, string reason, CancellationToken ct = default);
+
+    /// <summary>
     /// Cierra las peticiones que llevan demasiado esperando y descarta resultados viejos. Lo llama el
     /// worker en cada pasada. Sin esto, un agente que se cae a mitad de un fetch deja la peticion
     /// -y todas sus filas acumuladas- en memoria PARA SIEMPRE, y su corrida se queda en "Ejecutando"
@@ -81,7 +89,9 @@ public sealed class AgentImportService : IAgentImportService
         string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null)
     {
         var corr = correlationId ?? NewCorrelationId();
-        _pending[corr] = new Pending(tenantId, containerId, mapping, mode, keyColumnId,
+        // Se guarda el clientId: es a QUE agente hay que mandarle el Cancel si esta peticion se vence
+        // o se aborta. Sin esto, el servidor sabria que cancelar pero no a quien decirselo.
+        _pending[corr] = new Pending(clientId, tenantId, containerId, mapping, mode, keyColumnId,
             _clock.GetUtcNow() + PendingTtl);
 
         var req = new FetchRequestMsg(
@@ -190,6 +200,9 @@ public sealed class AgentImportService : IAgentImportService
             var detail = $"El agente no completo la consulta en {PendingTtl.TotalMinutes:0} minutos.";
             Remember(corr, new AgentIngestOutcome(false, 0, 0, 0, detail));
             _log.LogWarning("[INGESTA] corr={Corr} vencio el plazo; se descarta la peticion", corr);
+            // Ademas de soltar la peticion aqui, se le dice al AGENTE que pare: sin esto seguiria
+            // consultando la BD y mandando chunks que ya nadie acepta. Best-effort.
+            await PushCancelAsync(p.ClientId, corr, "timeout", ct);
             await CloseRunAsync(p.TenantId, corr, false, detail);
             if (ct.IsCancellationRequested) { return; }
         }
@@ -197,6 +210,36 @@ public sealed class AgentImportService : IAgentImportService
         foreach (var (corr, entry) in _outcomes)
         {
             if (now - entry.At > OutcomeTtl) { _outcomes.TryRemove(corr, out _); }
+        }
+    }
+
+    public async Task<bool> CancelAsync(string correlationId, string reason, CancellationToken ct = default)
+    {
+        if (!_pending.TryRemove(correlationId, out var p))
+        {
+            return false; // ya termino, ya se cancelo, o nunca existio: nada que hacer.
+        }
+
+        await PushCancelAsync(p.ClientId, correlationId, reason, ct);
+        var detail = $"Cancelado: {reason}";
+        Remember(correlationId, new AgentIngestOutcome(false, 0, 0, 0, detail));
+        await CloseRunAsync(p.TenantId, correlationId, false, detail);
+        _log.LogInformation("[INGESTA] corr={Corr} cancelado ({Reason})", correlationId, reason);
+        return true;
+    }
+
+    /// <summary>Empuja un <c>Cancel</c> al agente. Best-effort: si el agente ya no esta, no pasa nada
+    /// (la peticion ya se solto en el servidor de todos modos).</summary>
+    private async Task PushCancelAsync(string clientId, string correlationId, string? reason, CancellationToken ct)
+    {
+        try
+        {
+            await _hub.Clients.Group(AgenteHub.ClientGroup(clientId))
+                .SendAsync(AgentHubMethods.Cancel, new CancelMsg(correlationId, reason), ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[INGESTA] corr={Corr} no se pudo empujar el Cancel al agente", correlationId);
         }
     }
 
@@ -226,9 +269,10 @@ public sealed class AgentImportService : IAgentImportService
 
     private sealed class Pending
     {
-        public Pending(Guid tenantId, Guid containerId, IReadOnlyDictionary<Guid, string> mapping,
+        public Pending(string clientId, Guid tenantId, Guid containerId, IReadOnlyDictionary<Guid, string> mapping,
             ApiImportMode mode, Guid? keyColumnId, DateTimeOffset deadlineUtc)
         {
+            ClientId = clientId;
             TenantId = tenantId;
             ContainerId = containerId;
             Mapping = mapping;
@@ -237,6 +281,8 @@ public sealed class AgentImportService : IAgentImportService
             DeadlineUtc = deadlineUtc;
         }
 
+        /// <summary>A que agente se le mando la orden (para poder mandarle el Cancel).</summary>
+        public string ClientId { get; }
         public Guid TenantId { get; }
         public Guid ContainerId { get; }
         public IReadOnlyDictionary<Guid, string> Mapping { get; }

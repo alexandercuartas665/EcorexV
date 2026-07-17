@@ -323,6 +323,34 @@ public static class AgentChannel
                     : Results.Json(new { done = false });
             }).AllowAnonymous();
 
+            // POST /api/agente/dev/run-process/{processId} : dispara una programacion REAL (conector +
+            // consulta + credencial) via el mismo IProcessRunner del boton, y devuelve el correlationId
+            // para poder cancelarla. Sirve para probar Cancel con una consulta lenta. SOLO Development.
+            app.MapPost("/api/agente/dev/run-process/{processId:guid}", async (
+                Guid processId, ITenantContext tenant, IProcessRunner runner,
+                IApplicationDbContext db, CancellationToken ct) =>
+            {
+                // El runner necesita el tenant fijado (normalmente lo pone el request autenticado); en
+                // este endpoint anonimo se toma el del propio proceso.
+                var tenantId = await db.ImportProcesses.IgnoreQueryFilters()
+                    .Where(p => p.Id == processId).Select(p => (Guid?)p.TenantId).FirstOrDefaultAsync(ct);
+                if (tenantId is null) { return Results.NotFound(new { error = "proceso no existe" }); }
+                using (AmbientTenantContext.Begin(tenantId.Value))
+                {
+                    var r = await runner.RunNowAsync(processId, ct: ct);
+                    return Results.Json(new { r.Ok, r.CorrelationId, r.Message });
+                }
+            }).AllowAnonymous().DisableAntiforgery();
+
+            // POST /api/agente/dev/cancel/{correlationId} : pide al agente ABORTAR el fetch en curso.
+            // SOLO Development.
+            app.MapPost("/api/agente/dev/cancel/{correlationId}", async (
+                string correlationId, IAgentImportService imports, CancellationToken ct) =>
+            {
+                var cancelled = await imports.CancelAsync(correlationId, "prueba manual", ct);
+                return Results.Json(new { cancelled });
+            }).AllowAnonymous().DisableAntiforgery();
+
             // GET /api/agente/dev/container-count/{containerId} : filas ingeridas + celdas de la 1a fila.
             app.MapGet("/api/agente/dev/container-count/{containerId:guid}", async (
                 Guid containerId, IApplicationDbContext db, CancellationToken ct) =>

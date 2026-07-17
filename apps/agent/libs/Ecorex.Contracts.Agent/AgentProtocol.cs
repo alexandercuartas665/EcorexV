@@ -106,6 +106,16 @@ public sealed record FetchErrorMsg(
     bool Retryable);
 
 /// <summary>
+/// Servidor -> agente (doc 02 s4/s10): aborta el <c>FetchRequest</c> en curso con este
+/// <c>CorrelationId</c>. Lo manda el servidor cuando ya no le interesa el resultado (vencio el plazo,
+/// o alguien cancelo a mano): sin esto, el agente seguiria consultando la BD y enviando chunks al
+/// vacio. Es best-effort: si la consulta ya termino o el correlationId no esta en curso, no hace nada.
+/// </summary>
+public sealed record CancelMsg(
+    string CorrelationId,
+    string? Reason = null);
+
+/// <summary>
 /// Handshake opcion A (doc 02 s2): el agente pide un token corto probando la posesion del secreto
 /// del <c>DataClient</c> con un HMAC de (clientId|ts|nonce). <c>Ts</c> = segundos unix UTC.
 /// </summary>

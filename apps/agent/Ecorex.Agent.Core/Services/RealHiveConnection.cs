@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
@@ -27,6 +28,14 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     private readonly IBrowserSubAgent _browser;
     private readonly FileSubAgent _files = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>
+    /// Consultas en curso, por correlationId, para poder abortarlas cuando llega un <c>Cancel</c>. Sin
+    /// esto el agente no tiene forma de "encontrar" la consulta que el servidor quiere parar. Se llena
+    /// al empezar un FetchRequest y se vacia en el finally, pase lo que pase.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _inflight = new();
+
     private HubConnection? _conn;
     private AgentConfig _config;
     private ConnectionState _state = ConnectionState.Offline;
@@ -159,6 +168,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         conn.On<FetchRequestMsg>(AgentHubMethods.FetchRequest, req => OnFetchRequestAsync(conn, req));
         conn.On<BrowserRequestMsg>(AgentHubMethods.BrowserRequest, req => OnBrowserRequestAsync(conn, req));
         conn.On<FileRequestMsg>(AgentHubMethods.FileRequest, req => OnFileRequestAsync(conn, req));
+        conn.On<CancelMsg>(AgentHubMethods.Cancel, msg => OnCancel(msg));
         conn.On(AgentHubMethods.Ping, () => SafeInvokeAsync(conn, AgentHubMethods.Heartbeat));
     }
 
@@ -166,24 +176,47 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     /// Traduce una orden real en la animacion de la colmena y la EJECUTA (Ola C, Database -> SQL
     /// Server de la LAN, solo-lectura + chunking). Otros conectores acusan recibo por ahora.
     /// </summary>
+    /// <summary>Aborta la consulta en curso con este correlationId, si la hay. Best-effort: si ya
+    /// termino (o nunca existio), no pasa nada. Lo dispara un <c>Cancel</c> del servidor.</summary>
+    private void OnCancel(CancelMsg msg)
+    {
+        if (_inflight.TryGetValue(msg.CorrelationId, out var cts))
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { /* ya termino: nada que cancelar */ }
+        }
+    }
+
     private async Task OnFetchRequestAsync(HubConnection conn, FetchRequestMsg req)
     {
         var kind = MapKind(req.Connector);
         var detail = Shorten(req.Query?.Text) ?? req.Connector?.Kind;
         RequestStarted?.Invoke(new HiveRequest(req.CorrelationId, kind, detail));
 
+        // Un CTS por correlationId: es lo que el Cancel del servidor podra disparar. Se limpia en el
+        // finally pase lo que pase, para no dejar fugas ni cancelar una consulta futura por error.
+        var cts = new CancellationTokenSource();
+        _inflight[req.CorrelationId] = cts;
+
         var isDatabase = string.Equals(req.Connector?.Kind, "Database", StringComparison.OrdinalIgnoreCase);
         try
         {
             if (isDatabase)
             {
-                await ExecuteDatabaseAsync(conn, req);
+                await ExecuteDatabaseAsync(conn, req, cts.Token);
             }
             else
             {
                 await AckAsync(conn, req);
                 RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, "recibido"));
             }
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // Cancelacion PEDIDA por el servidor: no es un error del agente. Se avisa con un codigo
+            // propio y retryable:false (no tiene sentido reintentar algo que se pidio abortar).
+            await SafeInvokeAsync(conn, AgentHubMethods.FetchFailed,
+                new FetchErrorMsg(req.CorrelationId, "CANCELLED", "Cancelado por el servidor.", Retryable: false));
+            RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: false, "cancelado"));
         }
         catch (GatewayException gx)
         {
@@ -197,6 +230,11 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
                 new FetchErrorMsg(req.CorrelationId, "AGENT_ERROR", ex.Message, Retryable: true));
             RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: false, ex.Message));
         }
+        finally
+        {
+            _inflight.TryRemove(req.CorrelationId, out _);
+            cts.Dispose();
+        }
     }
 
     /// <summary>
@@ -206,7 +244,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     /// (opcion a, lo configurado en el modulo web). Si no, se usa la fuente LOCAL del agente (opcion
     /// b, la de la Ola C): asi un agente ya configurado a mano sigue funcionando sin tocar nada.
     /// </summary>
-    private async Task ExecuteDatabaseAsync(HubConnection conn, FetchRequestMsg req)
+    private async Task ExecuteDatabaseAsync(HubConnection conn, FetchRequestMsg req, CancellationToken ct)
     {
         var engine = req.Connector?.DbEngine ?? "SqlServer";
         if (!GatewayExecutor.IsSupported(engine))
@@ -225,10 +263,12 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
         var query = req.Query ?? new QuerySpec(string.Empty);
         var total = 0;
-        await foreach (var chunk in _gateway.ExecuteAsync(engine, connectionString, req.CorrelationId, query, req.Paging))
+        // El token viaja hasta OpenAsync/ExecuteReaderAsync/ReadAsync del GatewayExecutor (que ya lo
+        // honra): un Cancel del servidor aborta la consulta en la BD, no solo el bucle de envio.
+        await foreach (var chunk in _gateway.ExecuteAsync(engine, connectionString, req.CorrelationId, query, req.Paging, ct))
         {
             total += chunk.RowCount;
-            await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk);
+            await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk, ct);
         }
         RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, $"{total} filas"));
     }

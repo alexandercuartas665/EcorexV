@@ -24,10 +24,26 @@ public sealed record DataConnectorDto(
     int? Port,
     string? DatabaseName,
     string? Username,
+    /// <summary>
+    /// El SELECT que trae los datos. Va con la fuente (y no en el proceso) porque es parte de "de donde
+    /// salen los datos": el mismo conector siempre trae lo mismo, lo dispare el boton o el horario.
+    /// </summary>
+    string? Query,
     // Comun
     bool HasCredentials,
     string? MappingJson,
-    bool IsActive);
+    bool IsActive,
+
+    /// <summary>
+    /// TABLA que alimenta este conector (`DataContainer`), o null si aun no se eligio. Hasta ahora el
+    /// conector solo sabia de que CONTENEDOR era (<see cref="ModelId"/>) y la tabla se elegia al
+    /// pulsar "Importar": la ficha no podia decir a donde van los datos. Guardarla aqui es ademas lo
+    /// que permite refrescar sin preguntar (boton "Actualizar datos" y, mas adelante, el scheduler).
+    /// </summary>
+    Guid? ContainerId = null,
+
+    /// <summary>Nombre de esa tabla, para pintarlo sin otra consulta.</summary>
+    string? ContainerName = null);
 
 /// <summary>Alta/edicion de un conector. Credentials en claro (input); se cifra al persistir.
 /// Si Credentials es null en edicion, se conservan las existentes.</summary>
@@ -45,8 +61,12 @@ public sealed record SaveDataConnectorRequest(
     string? DatabaseName,
     string? Username,
     string? Credentials,
+    string? Query,
     string? MappingJson,
-    bool IsActive = true);
+    bool IsActive = true,
+
+    /// <summary>Tabla destino. La columna `container_id` ya existia en la BD sin usarse: no hay migracion.</summary>
+    Guid? ContainerId = null);
 
 // ---- Destino (a donde el cliente deja los datos): sistema o BD aliada ----
 
@@ -103,7 +123,25 @@ public sealed record ImportProcessDto(
     int? IntervalMinutes,
     string? CronExpression,
     bool IsActive,
-    DateTimeOffset? LastRunAt);
+    DateTimeOffset? LastRunAt,
+    /// <summary>Cuando corre la proxima vez (UTC). null = no programada.</summary>
+    DateTimeOffset? NextRunAt = null,
+    /// <summary>Por que se apago sola (ej. cron invalido).</summary>
+    string? DisabledReason = null,
+    /// <summary>Desde cuando espera a que su agente vuelva (UTC). null = no espera a nadie.</summary>
+    DateTimeOffset? PendingSince = null);
+
+/// <summary>Una corrida de la bitacora, para pintarla.</summary>
+public sealed record ImportRunDto(
+    Guid Id,
+    DateTimeOffset FiredAt,
+    ImportRunTrigger Trigger,
+    ImportRunResult Result,
+    int Inserted,
+    int Updated,
+    int Deleted,
+    string? Detail,
+    DateTimeOffset? FinishedAt);
 
 public sealed record SaveImportProcessRequest(
     Guid? Id,
@@ -144,4 +182,7 @@ public interface IDataImportConfigService
     Task<IReadOnlyList<ImportProcessDto>> ListProcessesAsync(Guid modelId, CancellationToken ct = default);
     Task<ImportProcessDto?> SaveProcessAsync(SaveImportProcessRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteProcessAsync(Guid processId, Guid actorUserId, CancellationToken ct = default);
+
+    /// <summary>Ultimas corridas de una programacion, de la mas reciente a la mas vieja.</summary>
+    Task<IReadOnlyList<ImportRunDto>> ListRunsAsync(Guid processId, int take = 10, CancellationToken ct = default);
 }

@@ -7,10 +7,15 @@
     <!-- Migraciones del proveedor SQL Server: necesarias en el output para MigrateAsync
          cuando Database:Provider=SqlServer (ADR-001). -->
     <ProjectReference Include="..\Ecorex.Infrastructure.SqlServer\Ecorex.Infrastructure.SqlServer.csproj" />
+    <!-- Agente Conector On-Prem: contrato compartido del canal SignalR (fuente unica del protocolo,
+         doc 02). El mismo proyecto que consume el agente WPF; aqui lo usa el AgenteHub del servidor. -->
+    <ProjectReference Include="..\..\..\agent\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <!-- Esquema bearer "Agent" (no-default) para autenticar el AgenteHub con el JWT corto del agente. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
   </ItemGroup>
 
   <PropertyGroup>

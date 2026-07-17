@@ -13,6 +13,10 @@ namespace Ecorex.Application.DataContainers;
 /// autenticacion configurada (credenciales descifradas en el servidor), interpreta el arreglo JSON
 /// y crea una fila por elemento mapeando campos->columnas. El HttpClient inyectado lo registra
 /// AddHttpClient en Infrastructure.
+///
+/// La ESCRITURA de filas/celdas (Append/Replace/Upsert) NO vive aqui: se delega en el nucleo
+/// compartido <see cref="IRowIngestService"/> (doc 03 s6), el mismo que usa el importador via
+/// agente. Este servicio solo aporta el origen (JSON del API) y la paginacion.
 /// </summary>
 public sealed class ApiImportService : IApiImportService
 {
@@ -20,17 +24,19 @@ public sealed class ApiImportService : IApiImportService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly ISecretProtector _protector;
+    private readonly IRowIngestService _ingest;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
     private const int MaxFieldScan = 50;
     private const int MaxImportRows = 5000;
 
-    public ApiImportService(HttpClient http, IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector)
+    public ApiImportService(HttpClient http, IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector, IRowIngestService ingest)
     {
         _http = http;
         _db = db;
         _tenantContext = tenantContext;
         _protector = protector;
+        _ingest = ingest;
     }
 
     public async Task<ApiProbeResult> ProbeAsync(Guid connectorId, string? arrayPath = null, CancellationToken ct = default)
@@ -98,12 +104,11 @@ public sealed class ApiImportService : IApiImportService
             return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Ningun mapeo apunta a una columna escalar de la tabla." });
         }
 
-        // Upsert: la columna clave debe estar mapeada a un campo del API.
+        // Upsert: la columna clave debe estar mapeada a un campo del API (el nucleo resuelve el resto).
         Guid keyColId = Guid.Empty;
-        string? keyField = null;
         if (req.Mode == ApiImportMode.Upsert)
         {
-            if (req.KeyColumnId is not Guid k || !mapping.TryGetValue(k, out keyField))
+            if (req.KeyColumnId is not Guid k || !mapping.TryGetValue(k, out _))
             {
                 return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { "Para Upsert elige una columna clave que este mapeada a un campo del API." });
             }
@@ -113,37 +118,15 @@ public sealed class ApiImportService : IApiImportService
         var (connector, baseUri, loadError) = await LoadConnectorAsync(req.ConnectorId, ct);
         if (connector is null || baseUri is null) { return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { loadError ?? "No se pudo leer el API." }); }
 
-        var inserted = 0;
-        var updated = 0;
-        var deleted = 0;
         var failed = 0;
         var errors = new List<string>();
 
-        // Reemplazar: vaciar la tabla antes de importar (borra filas + celdas + enlaces).
-        if (req.Mode == ApiImportMode.Replace)
-        {
-            deleted = await DeleteAllRowsAsync(req.TargetContainerId, ct);
-        }
-
-        // Upsert: precargar clave -> filaId y las celdas mapeadas (tracked) para poder actualizarlas.
-        Dictionary<string, Guid>? keyToRow = null;
-        Dictionary<Guid, List<DataContainerCell>>? cellsByRow = null;
-        if (req.Mode == ApiImportMode.Upsert)
-        {
-            var mappedColIds = mapping.Keys.ToList();
-            var rowIds = await _db.DataContainerRows
-                .Where(r => r.ContainerId == req.TargetContainerId).Select(r => r.Id).ToListAsync(ct);
-            var cells = rowIds.Count == 0
-                ? new List<DataContainerCell>()
-                : await _db.DataContainerCells
-                    .Where(c => rowIds.Contains(c.RowId) && mappedColIds.Contains(c.ColumnId)).ToListAsync(ct);
-            cellsByRow = cells.GroupBy(c => c.RowId).ToDictionary(g => g.Key, g => g.ToList());
-            keyToRow = new Dictionary<string, Guid>(StringComparer.Ordinal);
-            foreach (var kc in cells.Where(c => c.ColumnId == keyColId))
-            {
-                keyToRow[kc.Value ?? ""] = kc.RowId;
-            }
-        }
+        // Nucleo de ingesta COMPARTIDO con el importador via agente (doc 03 s6): la sesion hace el
+        // Replace (vaciar), la precarga del Upsert (clave->fila) y la escritura por chunk (una pagina
+        // = un chunk = un SaveChanges), igual que antes.
+        var session = _ingest.CreateSession(req.TargetContainerId, tenantId, mapping, req.Mode,
+            req.Mode == ApiImportMode.Upsert ? keyColId : null);
+        await session.PrepareAsync(ct);
 
         var paging = req.Paging;
         var paginated = paging is not null && paging.Mode != PagingMode.None && paging.PageSize > 0;
@@ -168,7 +151,7 @@ public sealed class ApiImportService : IApiImportService
             var (doc, error) = await FetchJsonAsync(connector, uri, ct);
             if (doc is null)
             {
-                if (inserted + updated == 0) { return new ApiImportOutcome(false, 0, 0, deleted, 0, new[] { error ?? "No se pudo leer el API." }); }
+                if (session.Inserted + session.Updated == 0) { return new ApiImportOutcome(false, 0, 0, session.Deleted, 0, new[] { error ?? "No se pudo leer el API." }); }
                 errors.Add($"Pagina {page + 1}: {error}");
                 break;
             }
@@ -176,14 +159,16 @@ public sealed class ApiImportService : IApiImportService
             {
                 if (!TryGetArray(doc.RootElement, req.ArrayPath, out var arr, out _))
                 {
-                    if (inserted + updated == 0) { return new ApiImportOutcome(false, 0, 0, deleted, 0, new[] { "La respuesta no contiene un arreglo JSON." }); }
+                    if (session.Inserted + session.Updated == 0) { return new ApiImportOutcome(false, 0, 0, session.Deleted, 0, new[] { "La respuesta no contiene un arreglo JSON." }); }
                     break;
                 }
 
+                // Convierte los elementos JSON de la pagina en filas (campo->valor) para el nucleo.
                 var pageCount = 0;
+                var rows = new List<IReadOnlyDictionary<string, string?>>();
                 foreach (var el in arr.EnumerateArray())
                 {
-                    if (inserted + updated >= MaxImportRows)
+                    if (session.Inserted + session.Updated + rows.Count >= MaxImportRows)
                     {
                         errors.Add($"Se alcanzo el limite de {MaxImportRows} filas por corrida; el resto no se importo.");
                         stop = true;
@@ -192,43 +177,16 @@ public sealed class ApiImportService : IApiImportService
                     pageCount++;
                     if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
 
-                    if (req.Mode == ApiImportMode.Upsert)
+                    var row = new Dictionary<string, string?>(mapping.Count);
+                    foreach (var field in mapping.Values.Distinct(StringComparer.Ordinal))
                     {
-                        var keyStr = (el.TryGetProperty(keyField!, out var kv) ? ScalarString(kv) : null) ?? "";
-                        if (keyToRow!.TryGetValue(keyStr, out var existingRowId))
-                        {
-                            cellsByRow!.TryGetValue(existingRowId, out var rowCells);
-                            rowCells ??= new List<DataContainerCell>();
-                            foreach (var (colId, field) in mapping)
-                            {
-                                var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
-                                var cell = rowCells.FirstOrDefault(c => c.ColumnId == colId);
-                                if (cell is not null) { cell.Value = value; }
-                                else
-                                {
-                                    var nc = new DataContainerCell { TenantId = tenantId, RowId = existingRowId, ColumnId = colId, Value = value };
-                                    _db.DataContainerCells.Add(nc);
-                                    rowCells.Add(nc);
-                                }
-                            }
-                            cellsByRow[existingRowId] = rowCells;
-                            updated++;
-                            continue;
-                        }
-                        // No existe la clave: insertar y registrar para posibles repetidos en la misma corrida.
-                        var newRow = InsertRow(el, mapping, tenantId, req.TargetContainerId, out var newCells);
-                        keyToRow[keyStr] = newRow.Id;
-                        cellsByRow![newRow.Id] = newCells;
-                        inserted++;
-                        continue;
+                        row[field] = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
                     }
-
-                    // Append / Replace: siempre inserta.
-                    InsertRow(el, mapping, tenantId, req.TargetContainerId, out _);
-                    inserted++;
+                    rows.Add(row);
                 }
 
-                await _db.SaveChangesAsync(ct);
+                // Una pagina = un chunk = un SaveChanges (mismo comportamiento que antes).
+                await session.IngestChunkAsync(rows, ct);
 
                 // Fin de la paginacion: sin paginacion es una sola pasada; con paginacion, una pagina
                 // vacia o mas corta que el tamano de pagina significa que ya no hay mas.
@@ -236,46 +194,12 @@ public sealed class ApiImportService : IApiImportService
             }
         }
 
-        var success = inserted + updated + deleted > 0 || failed == 0;
-        return new ApiImportOutcome(success, inserted, updated, deleted, failed, errors);
+        var success = session.Inserted + session.Updated + session.Deleted > 0 || failed == 0;
+        return new ApiImportOutcome(success, session.Inserted, session.Updated, session.Deleted, failed, errors);
     }
 
-    /// <summary>Inserta una fila con sus celdas mapeadas y devuelve la fila + las celdas creadas.</summary>
-    private DataContainerRow InsertRow(JsonElement el, IReadOnlyDictionary<Guid, string> mapping, Guid tenantId, Guid containerId, out List<DataContainerCell> cells)
-    {
-        var row = new DataContainerRow { TenantId = tenantId, ContainerId = containerId };
-        _db.DataContainerRows.Add(row);
-        cells = new List<DataContainerCell>();
-        foreach (var (colId, field) in mapping)
-        {
-            var value = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
-            var cell = new DataContainerCell { TenantId = tenantId, RowId = row.Id, ColumnId = colId, Value = value };
-            _db.DataContainerCells.Add(cell);
-            cells.Add(cell);
-        }
-        return row;
-    }
-
-    /// <summary>Borra TODAS las filas de una tabla (con sus celdas y enlaces). Devuelve cuantas filas borro.</summary>
-    private async Task<int> DeleteAllRowsAsync(Guid containerId, CancellationToken ct)
-    {
-        var rowIds = await _db.DataContainerRows
-            .Where(r => r.ContainerId == containerId).Select(r => r.Id).ToListAsync(ct);
-        if (rowIds.Count == 0) { return 0; }
-
-        var cells = await _db.DataContainerCells.Where(c => rowIds.Contains(c.RowId)).ToListAsync(ct);
-        if (cells.Count > 0) { _db.DataContainerCells.RemoveRange(cells); }
-
-        var links = await _db.DataContainerLinks
-            .Where(l => rowIds.Contains(l.RowId) || rowIds.Contains(l.TargetRowId)).ToListAsync(ct);
-        if (links.Count > 0) { _db.DataContainerLinks.RemoveRange(links); }
-
-        var rows = await _db.DataContainerRows.Where(r => rowIds.Contains(r.Id)).ToListAsync(ct);
-        _db.DataContainerRows.RemoveRange(rows);
-
-        await _db.SaveChangesAsync(ct);
-        return rowIds.Count;
-    }
+    // InsertRow / DeleteAllRowsAsync se movieron al nucleo compartido IRowIngestService (doc 03 s6):
+    // el import REST y el importador via agente escriben filas con la MISMA implementacion.
 
     // ---- Fetch + auth ----
 

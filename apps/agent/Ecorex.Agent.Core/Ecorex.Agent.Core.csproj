@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Nucleo del Agente Conector On-Prem (ADR-0039, Ola 5a). TODO lo que no necesita escritorio:
+       canal SignalR + identidad, sub-agentes Gateway y Archivos, stores DPAPI, allow-lists,
+       consentimiento y servidor MCP. Sin WPF: lo hospeda por igual la colmena WPF (sesion
+       interactiva) y el Worker Service headless (sin sesion).
+
+       net10.0-windows SIN UseWPF: no es una concesion a la GUI, es que el store cifra con DPAPI
+       (crypt32) y eso es Windows por definicion. Un Worker Service lo consume igual. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>false</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Ecorex.Agent.Core</RootNamespace>
+    <AssemblyName>Ecorex.Agent.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Canal con el servidor: libreria CLIENTE de Microsoft, no internals del backend. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+    <!-- Sub-agente Gateway: ejecucion solo-lectura contra la fuente de la LAN. Un proveedor por
+         motor; ambos derivan de DbConnection, asi que el ejecutor es UNO solo (ver GatewayExecutor). -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
+    <PackageReference Include="Npgsql" Version="10.0.2" />
+  </ItemGroup>
+
+</Project>

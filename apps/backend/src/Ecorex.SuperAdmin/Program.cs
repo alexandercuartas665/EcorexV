@@ -6,6 +6,7 @@ using Ecorex.Application.Common.Auth;
 using Ecorex.Domain.Enums;
 using Ecorex.Infrastructure;
 using Ecorex.Infrastructure.Persistence;
+using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.Components;
 using Microsoft.AspNetCore.Authentication;
@@ -127,6 +128,9 @@ builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantC
 
 // Chat en tiempo real (SignalR): reemplaza el broadcaster no-op por el real.
 builder.Services.AddSignalR();
+// Agente Conector On-Prem (doc 03): esquema bearer "Agent" (no-default), registro de presencia,
+// emisor de token y endpoints. No altera la auth de cookies existente.
+builder.Services.AddAgentChannel(builder.Configuration);
 builder.Services.AddScoped<Ecorex.Application.Tenancy.IChatBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRChatBroadcaster>();
 // Nucleo de tareas en tiempo real (FASE 3): reemplaza el broadcaster no-op por el real.
 builder.Services.AddScoped<Ecorex.Application.Tenancy.ITaskBroadcaster, Ecorex.SuperAdmin.RealTime.SignalRTaskBroadcaster>();
@@ -144,6 +148,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.
 // Motor de programaciones (modulo 000889, ola P2): dispara las programaciones vencidas. Vive AQUI y no en
 // Ecorex.Workers porque el compose de prod solo levanta este servicio (ver deploy/docker-prod).
 builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>();
+// Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
+// las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
+builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
@@ -421,6 +428,9 @@ app.MapRazorComponents<App>()
 app.MapHub<Ecorex.SuperAdmin.RealTime.ChatHub>("/hubs/chat");
 app.MapHub<Ecorex.SuperAdmin.RealTime.TaskHub>("/hubs/tasks");
 app.MapHub<Ecorex.SuperAdmin.RealTime.NotificationHub>("/hubs/notifications");
+// Agente Conector On-Prem (doc 03): hub autenticado + endpoints token/push/status.
+app.MapHub<Ecorex.SuperAdmin.RealTime.AgenteHub>(AgentChannel.HubPath);
+app.MapAgentEndpoints();
 
 app.MapPost("/auth/login", async (
     HttpContext http,

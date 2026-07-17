@@ -5,6 +5,778 @@
 
 ---
 
+## 2026-07-17 - Cancel: el protocolo deja de mentir
+
+`AgentHubMethods.Cancel` estaba declarado en el contrato pero **el agente no lo manejaba** (el
+protocolo anunciaba algo que no existia). Ya no.
+
+- **Contrato**: `CancelMsg(CorrelationId, Reason?)` tipado, junto a los demas mensajes.
+- **Agente** (`RealHiveConnection`): un `ConcurrentDictionary<correlationId, CancellationTokenSource>`
+  que se llena al empezar un `FetchRequest` y se vacia en el `finally`. `On(Cancel)` cancela el CTS del
+  correlationId. **El token viaja hasta el `GatewayExecutor`** (que YA lo honraba en
+  OpenAsync/ExecuteReaderAsync/ReadAsync pero nunca lo recibia): un Cancel aborta la consulta EN LA BD,
+  no solo el bucle de envio. Al cancelar, el agente manda `FetchFailed` con codigo `CANCELLED`
+  (retryable:false: no tiene sentido reintentar lo que se pidio abortar).
+- **Servidor** (`AgentImportService`): `Pending` gana `ClientId` (a que agente mandarle el Cancel);
+  `CancelAsync(correlationId, reason)` empuja `Cancel` al grupo del cliente y libera la peticion; y el
+  **timeout sweep ahora tambien manda Cancel** -antes soltaba la peticion pero el agente seguia
+  consultando y mandando chunks al vacio-. Endpoints dev para probar (`run-process/{id}`,
+  `cancel/{corr}`).
+
+**Verificado en vivo lo que de verdad tenia incertidumbre**: que Npgsql aborte una consulta EN CURSO al
+cancelar el token. Prueba directa contra el `GatewayExecutor` con `SELECT ... CROSS JOIN pg_sleep(25)` y
+el token cancelado a los 3s -> **CANCELADO en 3.1s, no 25s**. Eso es exactamente lo que hace
+`OnCancel`. El resto de la cadena (servidor -> hub -> `On(Cancel)` -> CTS) es el MISMO push de SignalR
+que ya usa `FetchRequest` (probado) mas 3 lineas de glue.
+
+**NO verificado E2E de cadena completa**: requeria el agente elevado (lee su boveda de maquina) y el UAC
+se cancelo (equipo desatendido), igual que paso con la prueba de instalacion. Lo incierto -la
+cancelacion real de la consulta- si esta probado, arriba.
+
+**Con esto, de la lista de pendientes de la Ola 6 solo quedan cosas de ESCALA** (limites por plan,
+backplane Redis) y el guardrail de TLS estricto (no bloqueante si prod es HTTPS). El nucleo del agente
+esta completo.
+
+---
+
+## 2026-07-17 - Reintento del agente offline (UC3) + reencuadre honesto del TLS
+
+### El TLS no era tan urgente: se corrigio la documentacion
+
+El usuario senalo, con razon, que si produccion va por HTTPS el canal ya va cifrado, asi que mi
+"la contrasena viaja en claro cada N minutos" era una exageracion (era cierto SOLO en dev, con el hub
+en `http://localhost`). Se separo lo que estaba mezclado y se corrigio ADR-0040 + los 4 docs del vault:
+
+- **Cifrado del canal = lo da el DESPLIEGUE** detras de HTTPS (agente conecta por `wss://`). Eso
+  resuelve el grueso, sin tocar el agente. La validacion de certificados de .NET ya esta activa (cert
+  invalido ya se rechaza).
+- **"TLS estricto" = que el AGENTE rechace una URL no-TLS.** Defensa contra config erronea/downgrade.
+  Guardrail barato, NO bloqueante si prod es HTTPS. Baja de prioridad.
+
+### Reintento del agente offline: construido y verificado en vivo
+
+Antes, si el horario disparaba con el agente caido, la corrida quedaba en `Error` y solo se
+reintentaba en la siguiente ventana natural (horas para un intervalo largo). Ahora:
+
+- **`ImportRunResult.PendingOffline`** (enum, sin migracion): un agente dormido NO es un `Error` -es un
+  "no llegue a intentarlo"-; se distingue para no ensuciar los KPIs.
+- **`ImportProcess.PendingSince`** (columna nullable + indice; migracion dual `AddImportPendingOffline`):
+  parquea la programacion "esperando a su agente". El runner la pone al fallar por offline y la limpia
+  al despachar (no al ingerir: "offline" es especificamente "no llegue al agente").
+- **Pase de reintento en el dispatcher**, gateado por `IsOnline`: reintenta las parqueadas SOLO cuando
+  su agente volvio. El gate es lo que evita el spam -sin el, reintentar con el agente aun caido
+  generaria una corrida PendingOffline cada minuto-. La discovery del worker se amplio (`FindTenants
+  WithWorkAsync` = vencidas O parqueadas) para no perderse un tenant con solo cargas pendientes.
+
+**Verificado E2E, con el reintento AISLADO del horario normal**: agente apagado -> el horario (cada 1
+min) dejo la corrida `PendingOffline` y parqueo el proceso; se empujo `next_run_at` a +1h (para que el
+horario normal NO pudiera dispararlo); se **encendio el agente** -> a los <70s el worker lo reintento
+solo (log: *"agente reconecto, carga pendiente reintentada"*), la bitacora paso a `Ok` (4 filas),
+`pending_since` se limpio y `next_run_at` **seguia a +1h** -prueba de que fue el reintento y no el
+horario-. 462 pruebas verdes.
+
+**Nota honesta**: mientras el agente esta caido, el horario normal genera un `PendingOffline` por
+ventana (cada minuto en la prueba). Es ruido en la bitacora pero es VERDAD (el horario intento cada
+minuto); no es un bucle de reintento (el pase de reintento esta gateado por IsOnline y no corre con el
+agente caido). Para intervalos reales (15+ min) es despreciable. Lo que NO se implemento: `Cancel`
+(sigue declarado sin manejar) y el TLS estricto (ahora un guardrail, no bloqueante).
+
+---
+
+## 2026-07-17 - Prueba de un CRON a 10 minutos: disparo exacto, y un bug que solo se ve corriendo
+
+Se programo "Refresco Perfil Clientes" (contenedor TABLAS CRM, fuente PostgreSQL) con cron
+`9 7 * * *` (07:09 Bogota) y se dejo correr sin tocar nada. **Disparo a las 12:09:00 UTC exactas** -la
+hora pedida, al segundo-, cargo las 2 filas en una tabla que se habia vaciado a proposito (`ins=2
+del=0`, antes 0 filas), dejo la bitacora *"17 Jul 07:09 · horario · 2 filas"* y reprogramo sola para
+**el 18 a la misma hora**. Con esto el disparo automatico queda probado en los DOS motores (SQL Server
+por intervalo, PostgreSQL por cron).
+
+### El bug: `Cannot write DateTimeOffset with Offset=-05:00 to PostgreSQL type 'timestamp with time zone'`
+
+Al guardar la programacion cron, reventaba. **Cronos devuelve el instante con el desfase de la ZONA
+PEDIDA** (-05:00 en Bogota), y Npgsql solo acepta desfase 0 para `timestamptz`. En la rama de
+`Interval` ya se normalizaba con `ToUniversalTime()`; en la de `Cron` faltaba.
+
+**Lo interesante es por que las 12 pruebas del motor no lo vieron**: `DateTimeOffset` compara
+INSTANTES, no representaciones, asi que `Assert.Equal(08:00Z, 03:00-05:00)` **pasa**. El motor estaba
+"bien" segun sus pruebas y aun asi era imposible guardar un cron. Solo aparecio al escribir de verdad
+en la BD.
+
+Arreglado (`.ToUniversalTime()` en la rama cron) + 2 pruebas de regresion que afirman sobre
+**`.Offset`**, que es lo unico que distingue el caso. Verificado que la prueba nueva FALLA sin el
+arreglo y pasa con el. 462 pruebas verdes.
+
+**Leccion para las proximas olas**: para fechas, un test de igualdad de `DateTimeOffset` no prueba que
+la representacion sea la correcta. Si el destino es Postgres, hay que afirmar sobre el desfase.
+
+---
+
+## 2026-07-17 - Programaciones que disparan SOLAS + bitacora de corridas (Ola 4)
+
+El horario ya ejecuta sin nadie delante, y cada corrida deja registro. **Verificado en vivo**: una
+programacion "cada 1 minuto" disparo dos veces seguidas sin tocar nada -agente *"Orden 038ed2e9: OK 4
+filas"*, servidor *"Importaciones programadas: 1 disparada(s)"*, y en la BD dos `import_runs` con
+`trigger=Scheduled`, `result=Ok`, separadas exactamente un minuto-. La UI lo muestra como
+*"17 Jul 06:46 · horario · 4 filas (reemplazo 4)"*.
+
+### Por que la bitacora
+
+Una programacion corre sin nadie mirando: sin registro, un fallo de madrugada es indistinguible de
+"no habia datos nuevos". `ImportRun` copia el patron de `ScheduledJobRun` (000889), **incluido el
+indice unico (TenantId, ProcessId, FiredAt)**, que es lo que da idempotencia: dos workers en la misma
+ventana chocan al guardar en vez de pedirle al agente el mismo refresco dos veces. Por eso `FiredAt`
+es la VENTANA y no "ahora".
+
+Una corrida nace en `Running` (el resultado llega despues, por el canal) y la cierra `IImportRunLog`
+contra el `correlationId`. Ese id lo genera **el runner**, no el canal: si lo generara el canal, un
+agente rapido podria responder antes de que la corrida supiera su propio id y el resultado se perderia.
+
+### Dedup y timeout: no eran un extra, eran la condicion
+
+Sin ellos la bitacora MIENTE. Se cerraron primero, a proposito:
+- **Dedup por ChunkIndex**: un chunk repetido (reintento, reconexion) duplicaba filas en silencio; la
+  ingesta no puede distinguir "otra vez la fila 1" de "otra fila igual".
+- **Timeout del pendiente** (10 min) + sweep en cada ciclo del worker: antes, un agente que se caia a
+  mitad dejaba la peticion -y todas sus filas- en memoria PARA SIEMPRE, y su corrida se habria quedado
+  en "Ejecutando" eternamente. `_outcomes` tampoco se limpiaba nunca.
+
+### Decisiones
+
+- **ADR-0041**: se agrega **Cronos** (MIT) para el cron, y se documenta por que NO se reusa el motor de
+  000889: aquel recibe un `ScheduledJobRule` concreto y razona en frecuencias de calendario, que no
+  contemplan ni "cada N minutos" ni cron. Se reusa lo que si es comun: `ResolveTimeZone`, el patron de
+  bitacora y el del worker.
+- El **cron se interpreta en hora del tenant** (probado: `0 3 * * *` en Bogota = 08:00 UTC).
+- **Tras una caida larga NO se dispara la rafaga atrasada**: se salta al futuro. A nadie le sirve
+  recibir los 12 refrescos que no ocurrieron anoche (probado).
+- **Un horario invalido desactiva la programacion CON MOTIVO a la vista**, en vez de dejarla "activa"
+  sin disparar nunca: ese silencio es justo lo que este modulo existe para evitar.
+
+460 pruebas verdes (12 nuevas del motor de recurrencia). Migracion dual `AddImportRuns`.
+
+---
+
+## 2026-07-17 - Las TRES vias de alimentacion, probadas con datos reales (y un bug del lienzo)
+
+Contenedor "PRUEBA CARGAS" con 3 tablas, una por via. Todo verificado en la BD, no solo en pantalla:
+
+| Via | Fuente | Resultado |
+|-----|--------|-----------|
+| Base de datos (via agente) | SQL Server de Docker (`localhost:1443`, `prueba_cargas.dbo.PRODUCTOS`) | 4 filas; decimales intactos (`95000.50`) |
+| API REST | `https://jsonplaceholder.typicode.com/users` (externa real) | 10 filas; mapeo CODIGO<-id, NOMBRE<-name, CORREO<-email |
+| Archivo | `sucursales.xlsx` (ClosedXML, fechas reales) | 3 filas; fechas normalizadas a `yyyy-MM-dd` |
+
+- **SQL Server cierra el DAL dual del Gateway**: el 16/07 se probo PostgreSQL; ahora el otro motor del
+  mismo `GatewayExecutor`, con la credencial viajando desde la web (ADR-0040).
+- **La API exige endpoint PUBLICO**: `ApiImportService.IsBlockedHost` rechaza localhost y rangos
+  privados (anti-SSRF). No es un estorbo: es la defensa que impide que un conector se use para sondear
+  la red interna del servidor. Por eso la prueba usa un servicio externo de verdad.
+
+### Bug encontrado al probar: las cajas del lienzo ER nacian ENCIMADAS
+
+Al ir a subir el Excel, el boton "Ver datos / importar Excel" de SUCURSALES **no respondia**. No era el
+navegador: `document.elementFromPoint` sobre el boton devolvia un `div` de OTRA tabla. Las cajas se
+repartian en cascada `40 + n*40` en AMBOS ejes, pero la caja mide **220 de ancho**: cada tabla nueva
+caia sobre el ENCABEZADO de la anterior y le tapaba los 4 botones, que quedaban imposibles de pulsar
+salvo que alguien arrastrara la caja. El comentario del codigo decia "para que no se apilen": la
+intencion era correcta, el paso era demasiado corto.
+
+Ademas el calculo estaba **duplicado**: `RebuildPositions` (pinta) y `SaveTableAsync` (PERSISTE). Por
+eso arreglar solo uno no servia de nada -de hecho el primer intento no cambio nada, porque la cascada
+ya estaba guardada en `canvas_x/canvas_y`-. Ahora hay un unico `SlotFor(index)` con una rejilla de 3
+por fila, y ambos sitios lo llaman. Verificado: las 3 cajas en su celda y los 4 botones alcanzables.
+
+---
+
+## 2026-07-17 - "Actualizar datos": el circuito de negocio COMPLETO, verificado con filas reales
+
+Primera vez que un dato de una base ajena aterriza en un contenedor **por el camino de produccion**:
+un operador pulsa un boton en la web y el agente de la LAN trae las filas.
+
+- **E2E real** (no simulado): conector `CLIENTES ALEGRA` -> Base de datos / PostgreSql /
+  `localhost:5442` / `ecorex_agente`, consulta `SELECT CAST(id AS text) AS "CODIGO", name AS "NOMBRE"
+  FROM tenants`; programacion "Refresco Perfil Clientes" con el cliente `cli_22e0790802bb`. Al pulsar
+  **"Actualizar datos"**: agente *"Orden ea2c2a87: OK 2 filas"*, servidor *"corr=ea2c2a87 OK ins=2
+  upd=0 del=8"*, UI *"Listo: 2 filas cargadas (se reemplazaron 8)"*, y las 2 filas verificadas en la
+  BD (Plataforma ECOREX / SKY SYSTEM). El `del=8` confirma que el refresco es Replace, no Append.
+- **Hueco encontrado al probar**: `DataConnector.Query` existia en la entidad y en la BD (migracion
+  `AddConnectorQuery`), pero **ni el DTO ni el servicio ni la UI la transportaban**. El boton exige la
+  consulta, asi que era inejecutable desde la web: solo se veia al intentar usarlo. Cableado de punta
+  a punta (DTO + `SaveConnectorAsync` + textarea en el formulario de Base de datos).
+- La credencial de la fuente se configura y se cifra desde la web (ADR-0040) y viaja en el
+  `FetchRequest`; el agente armo la cadena con Npgsql sin configuracion local.
+
+**Siguiente**: dedup de chunks por (correlationId, chunkIndex) y timeout del pending fetch, ANTES del
+scheduler (Ola 4), que llamara a este mismo `IProcessRunner`.
+
+**Recordatorio**: **TLS estricto sigue BLOQUEANTE para produccion** (ADR-0040) - hoy la contrasena de
+la BD del cliente viaja por `http://` en dev.
+
+---
+
+## 2026-07-16 - Agente: prueba de punta a punta con identidad emitida por la WEB (no por un seeder)
+
+Test corto pedido por el usuario, con una intuicion que resulto correcta: **el modulo de contenedores
+YA emite identidades de agente; no habia nada que construir**.
+
+- `ContenedorDatos.razor` -> detalle del contenedor -> **"Clientes remotos" -> "+ Crear cliente"**: crea
+  el `DataClient` y **revela el secreto UNA sola vez** ("Guarda este secreto ahora: no se vuelve a
+  mostrar") con boton de copiar, mas rotacion y borrado. Es exactamente el flujo que el agente
+  necesita, y estaba hecho desde el modulo web.
+- **Probado de verdad, sin seeders ni endpoints dev de identidad**: en la app local (SKY SYSTEM, Owner
+  `owner@sky-system.local`) se creo el cliente **`cli_22e0790802bb`**; se le paso al agente con
+  `--save-config`; el servicio conecto: *"Conectado a http://localhost:5232/hubs/agente como
+  cli_22e0790802bb. Atendiendo Gateway y Archivos."*
+- **Verificado desde el lado del servidor** (independiente del log del agente): el hub **despacho** una
+  orden a ese ClientId -solo despacha a agentes en linea- y el agente respondio con el
+  `correlationId` correcto (`b2d0055f`). Sin colmena abierta, la respuesta fue el NO explicito del
+  Navegador, que es lo correcto.
+
+**Lo que esto significa para la Ola 4**: el onboarding del agente (emitir identidad desde la web) NO
+es trabajo pendiente. Lo que falta para cerrar el circuito de negocio es `DataConnector.RunsViaAgent`
++ el scheduler + el boton "Refrescar ahora".
+
+**Nota**: corrio contra el Postgres local de Docker (NO prod). Queda en esa BD de dev el cliente
+`cli_22e0790802bb` ("Colmena de prueba"), y su identidad en la boveda de la maquina.
+
+---
+
+## 2026-07-16 - Agente Conector On-Prem: Ola 5d - instalador (CONSTRUIDO; instalacion sin verificar)
+
+Empaque del agente. **No hay Inno Setup ni WiX en la maquina**, asi que un `.iss` seria codigo que no
+se puede compilar ni probar: se entrega un instalador **PowerShell real y ejecutable**, que ademas es
+lo que un `.iss` acabaria invocando. Envolverlo en un `.exe` firmado queda pendiente (necesita la
+herramienta y un certificado).
+
+- **`deploy/agent/publish.ps1`**: publica AUTOCONTENIDO (`--self-contained`) servicio + colmena. Es a
+  proposito: el criterio de aceptacion dice "maquina Windows LIMPIA", y exigir el runtime de .NET no
+  es eso. Cuesta **271 MB** (dos apps con su runtime); el unico requisito que no se puede autocontener
+  es el Runtime de WebView2 (de serie en Win11), y si falta, el Navegador falla con motivo y Gateway y
+  Archivos siguen trabajando.
+- **`deploy/agent/install.ps1`** (administrador): **crea la boveda el**, con owner = Administradores y
+  ACL cerrada -esto NO es comodidad, es el hallazgo de ADR-0039: quien crea el directorio es su
+  propietario y un propietario puede reescribir el ACL-; copia binarios a `%ProgramFiles%\ECOREX\
+  Agente`; guarda la identidad cifrada; registra `EcorexAgent` (LocalSystem, arranque automatico) con
+  reintentos escalonados ante fallo (5s/30s/60s), para que una caida no deje al cliente sin agente
+  hasta el proximo reinicio; y deja la colmena en auto-arranque de sesion.
+- **`deploy/agent/uninstall.ps1`**: por defecto **CONSERVA la boveda** (reinstalar no deberia obligar
+  a reconfigurar; borrar secretos se pide con `-RemoveVault`, no es efecto colateral).
+- **`deploy/agent/README.md`**: que se instala y por que son dos piezas, requisitos, donde queda cada
+  cosa, seguridad (lo que hay que saber ANTES de aprobar un despliegue) y diagnostico.
+- **`.gitignore`**: `out/` fuera del repo (271 MB estaban a punto de entrar; se detecto al revisar
+  `git status` antes del commit).
+
+**Bug real corregido al probar**: `$PSScriptRoot` llega VACIO al evaluar el valor por defecto de un
+parametro cuando el script se invoca con `-File` (la ruta quedaba en `\out` y el instalador no
+encontraba los binarios). Se resuelve en el cuerpo. Afectaba a `install.ps1` y `publish.ps1`.
+
+**ACEPTACION CERRADA 2026-07-16 (instalado y desinstalado de verdad en la maquina)**:
+- `install.ps1` -> servicio **Running**, arranque **Auto**, cuenta **LocalSystem**, y **sin consola**
+  (headless de verdad; la consola que se veia antes era el exe corrido a mano para diagnosticar, no
+  el producto).
+- **Conectado**: el hub DESPACHO una orden al agente instalado (solo despacha a agentes en linea).
+- **Colmena instalada <-> servicio instalado**: `Colmena conectada (administrador: no)` + `Colmena
+  lista (presta escritorio al Navegador: si)`, y el panal muestra **"En linea"** con punto verde. Ese
+  estado no es suyo: se lo publica el servicio por el pipe.
+- `uninstall.ps1` -> servicio quitado, binarios borrados, auto-arranque quitado, origen de eventos
+  quitado, **boveda conservada**. La maquina quedo sin rastro.
+
+**Dos bugs REALES corregidos aqui** (los dos rompian promesas del propio README):
+1. **El Visor de eventos estaba MUDO**. Dos causas encadenadas: el origen `"ECOREX Agente"` **no
+   existia** (crear un origen exige privilegio y nadie lo hacia, y el proveedor de EventLog no avisa:
+   simplemente no escribe), y ademas el proveedor **filtra en Warning por defecto**, asi que
+   `LogInformation` -incluido "Conectado a X como Y", la linea que mas sirve para soporte- se
+   descartaba igual. Ahora el instalador **registra el origen** y `Program.cs` baja el filtro a
+   Information. Verificado: el Visor ya cuenta arranque, canal Online, conexion y entrada/salida de
+   colmenas.
+2. **El desinstalador dejaba `C:\Program Files\ECOREX` huerfana** (borraba `Agente` y se olvidaba del
+   padre). Ahora la borra si quedo vacia.
+
+**Pendiente de la ola**: `.iss` (Inno) + firma del ejecutable. El peso (271 MB) queda ASI por decision
+del usuario (2026-07-16): esta bien a cambio de no exigir el runtime en la maquina del cliente.
+**No verificado**: el arranque tras REINICIO real del equipo (exige reiniciar). Lo que si consta:
+`StartMode=Auto`, que es el mecanismo, y que el servicio arranca y conecta solo.
+
+---
+
+## 2026-07-16 - Agente Conector On-Prem: Ola 5c - canal local (named pipe) servicio <-> colmena
+
+Cierra el acoplamiento que 5b dejo al aire: la colmena ya no puede abrir la boveda, asi que sin este
+canal no habia forma de configurar el agente. **Tambien cierra el pendiente de 5b**: el servicio
+CONECTA al hub de punta a punta leyendo su identidad de la boveda de maquina (verificado).
+
+**Lo elegante**: 5c no fue cirugia porque los dos seams ya existian. Son dos implementaciones nuevas:
+- `PipeHiveConnection : IHiveConnection` -> la colmena habla con el servicio en vez del hub. **El
+  ViewModel y el panal no cambiaron**: mismo seam de la Ola B.
+- `DelegatedBrowserSubAgent : IBrowserSubAgent` -> el servicio pide prestado el escritorio de la
+  colmena. El canal y el MCP siguen llamando `ExecuteAsync` sin enterarse.
+
+**Seguridad (decidida aqui)**: el servicio corre como LocalSystem, asi que el pipe es superficie
+privilegiada: quien ensanche la allow-list de Archivos le abre a la nube el disco entero como SYSTEM.
+Por eso **leer estado y prestar escritorio = cualquier usuario interactivo; MUTAR (identidad,
+allow-lists, consentimiento) = solo Administradores**, comprobado impersonando al cliente del pipe.
+El **secreto nunca viaja al cliente**: se escribe, jamas se lee (la colmena ve un marcador `********`
+y "vacio = no lo cambies").
+
+**Tres bugs REALES encontrados al probar en la maquina** (ninguno teorico):
+1. **ACL sin `Synchronize`**: la colmena no podia conectar. El sintoma enganya: `Connect` reintenta
+   ante ACCESS_DENIED hasta agotar el plazo, asi que un ACL corto se presenta como **timeout**, no
+   como acceso denegado.
+2. **Buffers del pipe en 0** (`inBufferSize: 0, outBufferSize: 0`): con buffer cero cada escritura
+   espera a que el otro lea -> el saludo se abrazaba a si mismo (servidor escribiendo `state`,
+   cliente escribiendo `hello`, ninguno leyendo). Conexion viva y canal mudo. Ahora 64 KB.
+3. **Falta `CreateNewInstance` en el ACL**: para anadir instancias a un pipe EXISTENTE, Windows exige
+   ese derecho sobre el DACL ya puesto; la primera instancia se crea sin consultar nada. Resultado:
+   el canal servia a UNA colmena y la siguiente quedaba fuera con ACCESS_DENIED. Se concede
+   FullControl a LocalSystem (produccion) y Administradores (diagnostico).
+Los tres estaban TAPADOS por `catch` mudos - el mismo pecado que se corrigio en 5b y que yo repeti
+aqui. Ahora el bucle de aceptacion, el canal y el cliente registran su motivo.
+
+**Politica del Navegador EMPUJADA** (`BrowserPolicy` en Contracts): `WebView2BrowserSubAgent` leia el
+consentimiento y la allow-list de la boveda, pero vive en la colmena, que no puede abrirla -> fallaba
+cerrado SIEMPRE. Ahora la politica viaja con el `state` desde el servicio (que si es dueno de la
+boveda) y caduca sola si la colmena se queda sin servicio.
+
+**Verificado E2E (hub real :5232 + Postgres local en Docker, NO prod)**:
+- Servicio conectado al hub leyendo la boveda de maquina: `Conectado a .../hubs/agente como
+  cli_dev_agent`. (Cierra el pendiente de 5b.)
+- Colmena SIN elevar conecta al pipe: `Colmena conectada (administrador: no)` -> la impersonacion
+  identifica bien al no-admin; `Colmena lista (presta escritorio al Navegador: si)`.
+- Estado publicado al conectar (JSON `state` recibido; con el servicio sin elevar llega vacio, que es
+  lo coherente: no puede leer la boveda).
+- **Delegacion del Navegador probada por el cambio de mensaje**: sin colmena, "El Navegador exige una
+  sesion interactiva"; con colmena, "Navegador no habilitado por el operador" -> esa respuesta la
+  produjo el WebView2 DE LA COLMENA y volvio por el pipe. El circuito hub -> servicio -> pipe ->
+  colmena -> WebView2 -> vuelta esta cerrado.
+- Sin colmena: falla con motivo accionable, no se cuelga (escenario "servidor sin sesion").
+
+**CERRADO 2026-07-16 (las dos pruebas que faltaban)**: solucion completa 0 errores / 0 advertencias.
+- **Navegacion EXITOSA de punta a punta**: `Orden 17e19c3c: OK 3 acciones` (navigate + eval +
+  captura), con el consentimiento y la allow-list `example.com` puestos en la boveda y **empujados**
+  por el servicio a la colmena. Recorrido completo hub -> servicio -> pipe -> colmena -> WebView2 ->
+  vuelta.
+- **Reja de administrador verificada en vivo**: un `set-consent` mandado por el pipe desde un proceso
+  SIN elevar recibe `ok:false` + "Cambiar la configuracion del agente exige permisos de administrador
+  en este equipo.". El control de seguridad hace lo que dice.
+
+**Siguiente**: 5d (instalador; recordar que **debe crear el la boveda**, ver hallazgo de propiedad
+del directorio en ADR-0039).
+
+---
+
+## 2026-07-16 - Agente Conector On-Prem: Ola 5b - boveda de maquina + Worker Service (PARCIAL)
+
+Sigue ADR-0039 (D8: despliegue = estacion Y servidor sin sesion). **Cuenta del servicio: LocalSystem**
+(decidido por el usuario). Consecuencia asumida y anotada en el ADR: con DPAPI de maquina la llave no
+cuelga del usuario, asi que el ACL del archivo es la UNICA puerta, y con LocalSystem un administrador
+local puede llegar al secreto del tenant. Escalon futuro si se quiere least-privilege: cuenta virtual
+`NT SERVICE\EcorexAgent` (solo cambia el instalador).
+
+- **`AgentVault`** (nuevo): el P/Invoke a DPAPI y la ruta del store estaban **duplicados en los 5
+  stores** (config, source, browser-allow, file-allow, consent) - el mismo olor que se acaba de quitar
+  en `ApiImportService`. Ahora hay UN solo lugar que decide donde viven los secretos y como se cifran;
+  los 5 stores adelgazaron a su logica propia. Mover la boveda fue, gracias a eso, una linea.
+- **Boveda: `%ProgramData%\Ecorex\Agent` + DPAPI de MAQUINA + ACL** (rompe herencia; solo SYSTEM y
+  Administradores). Verificado en la maquina real: el ACL quedo exacto y una shell sin elevar NO puede
+  ni listar el directorio.
+- **`Ecorex.Agent.Service`** (nuevo, Worker Service, `UseWindowsService`): hospeda el Core headless
+  (canal + Gateway + Archivos). El mismo binario corre como servicio (log al Visor de eventos) o como
+  consola (diagnostico). Navegador = `UnavailableBrowserSubAgent`: responde NO con motivo explicito en
+  vez de colgar la peticion (la delegacion a la colmena llega en 5c).
+- **`--save-config` vive en el SERVICIO**, no en la colmena, porque el dueno del store es el servicio.
+  Normaliza la URL: la config guarda la URL COMPLETA del hub (el cliente SignalR se conecta a ella tal
+  cual) pero un operador escribe la BASE; ese desliz se manifestaba como un "no pude conectar" mudo.
+- **Diagnosticabilidad (bug real hallado al probar)**: `RealHiveConnection` se tragaba el motivo del
+  fallo (`catch { return false; }`) y `AcquireTokenAsync` tambien. En un equipo on-prem sin escritorio
+  eso es indepurable. Ahora hay `LastError` (con el motivo del handshake, que es el fallo mas probable
+  en campo: secreto cambiado, ClientId inexistente, reloj desfasado >120s) y el worker lo registra.
+- **Se RETIRO la migracion automatica del store heredado** que yo mismo habia escrito: se comprobo que
+  es imposible por construccion (el unico que puede descifrar el `%APPDATA%` viejo es el usuario, que
+  es justo quien ya no puede escribir la boveda; el servicio puede escribirla pero no descifrar lo del
+  usuario). El ADR ya lo decia; el codigo pretendia lo contrario. Se reconfigura una vez.
+- **Hallazgo de seguridad -> Ola 5d**: quien CREA el directorio es su propietario, y un propietario
+  siempre puede reescribir el DACL. Si un usuario sin privilegios abre la colmena antes de que exista
+  la boveda, queda de dueno y podria re-otorgarse acceso al secreto. **El instalador debe crear la
+  boveda** (owner = Administradores); `EnsureDir()` queda como red de seguridad, no como el mecanismo.
+
+**Verificado**: build 0 errores/0 warnings. Boveda con ACL correcto (SYSTEM+Admins, comprobado con
+Get-Acl). Servicio en consola: arranca, apunta a la boveda correcta y **sin config avisa y reintenta
+en vez de morirse**. Escritura y lectura de la boveda entre DOS procesos elevados distintos: OK (el
+DPAPI de maquina hace su trabajo). Handshake HMAC contra el hub real (:5232, Postgres local en Docker,
+NO prod): OK.
+
+**NO verificado (pendiente)**: que el servicio CONECTE al hub de punta a punta. El primer intento
+fallo por MI comando de prueba (pase la URL base en vez de la del hub; de ahi salio la normalizacion)
+y el segundo intento no llego a correr porque se cancelo el UAC. Falta repetir con:
+`Ecorex.Agent.Service.exe --save-config cli_dev_agent http://localhost:5232 dev-secret-ola-b` en
+consola de ADMINISTRADOR, y luego correr el exe. **No se instalo ningun Servicio Windows** en la
+maquina (eso es de la Ola 5d).
+
+**Siguiente**: 5c (IPC named pipe: sin el, y esto lo confirmo la prueba, NO hay forma de configurar el
+agente porque la colmena ya no puede tocar la boveda), luego 5d (instalador).
+
+---
+
+## 2026-07-16 - Agente Conector On-Prem: Ola 5a - seam del Navegador + nucleo Ecorex.Agent.Core
+
+Arranca la Ola 5 (empaque). Antes de empacar hubo que decidir COMO, porque la D4 original
+("Servicio Windows headless + WPF de config") se tomo ANTES de la expansion a colmena y choca con
+dos hechos: (1) `DpapiConfigStore` cifra con DPAPI **de usuario** en `%APPDATA%`, y un servicio corre
+con otro perfil/llave -> partido en dos procesos, el servicio no puede leer NADA de lo que escribio
+la WPF; (2) WebView2 necesita escritorio y no vive en la sesion 0 de un servicio. El usuario confirmo
+que el despliegue real es **ambos escenarios** (estaciones con sesion y servidores 24/7 sin sesion).
+
+**ADR-0039** (nuevo): el Servicio es el UNICO dueno de identidad, canal y store (que pasa a
+`ProgramData` + DPAPI de MAQUINA + ACL); la colmena WPF es su CLIENTE por named pipe (no descifra, no
+conecta al hub) y le PRESTA el escritorio al navegador. Sin colmena: gateway y archivos siguen
+atendiendo y el navegador falla con motivo claro, nunca cuelga. Se conserva WebView2; Playwright
+headless queda como add-on si algun dia hace falta navegador sin sesion.
+
+**Ola 5a (esta entrada)**: preparar el terreno, sin cambiar comportamiento.
+
+- **Seam `IBrowserSubAgent`** (en Contracts, junto a `IHiveConnection`): `RealHiveConnection` y
+  `AgentMcpServer` sostenian el `WebView2BrowserSubAgent` CONCRETO y hacian
+  `Application.Current.Dispatcher.InvokeAsync` a mano. Ahora dependen de la interfaz y el marshalling
+  al hilo de UI se escondio DENTRO de la impl WebView2 (`ExecuteAsync` es seguro desde cualquier
+  hilo). Mismo truco que ya funciono con `IHiveConnection` en la Ola B.
+- **`Ecorex.Agent.Core`** (net10.0-windows, `UseWPF=false`): 11 de los 12 servicios (~1400 de 1850
+  lineas) se movieron con `git mv` (historia conservada) + cambio de namespace: canal, Gateway,
+  Archivos, stores DPAPI, allow-lists, consentimiento, QueryGuard y MCP. En la Gui queda SOLO
+  `WebView2BrowserSubAgent` + la UI. net10.0-windows (no net10.0) porque el store es DPAPI/crypt32:
+  Windows por definicion, no por la GUI.
+- **Prueba estructural**: el Core compila con `UseWPF=false`. Si algun archivo movido hubiera
+  conservado una dependencia de WPF, no compilaria. Build de `Ecorex.Agent.slnx`: 0 errores, 0 warnings.
+- **Verificado E2E (runtime, no solo compilacion)**: colmena levantada; `tools/list` = 14 tools;
+  `browser.navigate https://example.com` -> OK, que recorre MCP (Core, sin WPF) -> seam -> WebView2 en
+  el hilo de UI: si el marshalling interno estuviera mal, reventaria. Archivos: `file.read` dentro de
+  una raiz permitida devuelve el contenido, y `C:\Windows\win.ini` sigue RECHAZADO (fail-closed intacto).
+
+**Nota de entorno**: para desambiguar el caso positivo de Archivos sobreescribi la allow-list de
+archivos de la maquina de dev (`file-allow.dat`) con una raiz de scratchpad. Era config dev que yo
+mismo habia creado en la ola de Archivos; se reconfigura desde el flyout de la colmena.
+
+**Siguiente**: 5b (`Ecorex.Agent.Service` + store de maquina), 5c (IPC named pipe), 5d (instalador).
+
+---
+
+## 2026-07-16 - Agente Conector On-Prem: el import REST comparte el nucleo de ingesta (cierra Ola 3)
+
+Ultimo pendiente de la Ola 3, desbloqueado por el usuario (su ajuste en el modulo de contenedores
+resulto ser visual y ya termino). Solo `Ecorex.Application/DataContainers`, sin migracion.
+
+- **Un solo camino de escritura**: `ApiImportService` (REST) ya no inserta filas por su cuenta. Recibe
+  `IRowIngestService` por constructor, abre una sesion (`CreateSession` + `PrepareAsync`, que hace el
+  vaciado de Replace y la precarga de clave de Upsert) y manda **cada pagina como un chunk**. Se
+  borraron sus privados `InsertRow` y `DeleteAllRowsAsync`; los contadores (ins/upd/del) salen de la
+  sesion. Antes esa logica EAV estaba DUPLICADA entre REST y agente: dos copias que podian divergir.
+- **Comportamiento conservado a proposito**: un SaveChanges por pagina (no por fila), el tope de 5000
+  filas se evalua con los contadores de la sesion mas lo que lleva la pagina, y el outcome mantiene su
+  regla (`success` si escribio algo o no hubo fallidos). El contrato publico no cambio.
+- **Tests (lo que faltaba)**: `ApiImportService` no tenia NINGUN test. Se agrego
+  `tests/Ecorex.Application.Tests/RowIngestServiceTests.cs` (5, EF InMemory) sobre el nucleo, que ahora
+  gobierna los dos caminos: Append (fila + celdas + TenantId), Append en 2 chunks (acumula sin borrar),
+  Replace (`del=1, ins=1`), Upsert por clave (`upd=1, ins=1`, sin duplicar) y Upsert con la misma clave
+  repetida en una corrida (gana la ultima). Patron `InnerDb` + `FakeAppDb : IApplicationDbContext`.
+- **Verificacion**: `dotnet build Ecorex.sln` 0 errores; `Ecorex.Application.Tests` **384/384** verde.
+  El camino del agente ya estaba verificado E2E contra SQL Server real (`ciudades`). El camino REST
+  **no se re-probo en vivo**: descansa en los tests nuevos + en que es el mismo codigo del nucleo.
+- **Vault**: doc 03 s9 (nucleo compartido + tests), doc 05 Ola 3 `[CONSTRUIDO 2026-07-16]`, indice.
+
+**Siguiente**: Ola 4 (`ImportSchedulerService` + `DataConnector.RunsViaAgent` + UI "Refrescar ahora"),
+en pausa a peticion del usuario.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Archivos - binarios (base64) + permisos ro/rw por raiz
+
+Ajustes menores del sub-agente Archivos (backlog). Solo lado agente.
+
+- **Binarios**: `FileActionKind.ReadBytes` (aditivo) -> devuelve el archivo en **base64**, tope 5 MB
+  (el `Read` de texto UTF-8 mantiene su tope de 1 MB). Expuesto por MCP como **`file.readBytes`**
+  (el servidor MCP publica ahora 14 tools).
+- **Permisos POR RAIZ (least privilege, doc 06 s4)**: en la allow-list, una raiz es de **SOLO LECTURA**
+  por defecto; se antepone **`rw:`** para permitir escritura (`ro:` es opcional/explicito). Ejemplo:
+  `C:\Datos` (ro) / `rw:C:\Salida` (rw). `FileAllowList.LoadRoots()` parsea el prefijo;
+  `FileSubAgent.TryResolve` devuelve tambien si la raiz admite escritura y `Write`/`Delete`/`MakeDir`
+  la exigen. Si una ruta cae en varias raices, gana la que permita escritura.
+- **UI**: el hint del flyout de Archivos explica el prefijo `rw:`.
+- **Verificado E2E por MCP**: `file.readBytes` de un PNG -> base64 (`iVBORw0KGgo...`); `file.read` en
+  raiz ro -> ok; `file.write` en raiz ro -> RECHAZADO ("exige una raiz marcada 'rw:'"); `file.write`
+  en raiz rw -> ok.
+- **Nota**: el otro pendiente menor (migrar `ApiImportService` al nucleo `IRowIngestService`) NO se
+  toco: vive en `Ecorex.Application/DataContainers`, el modulo que el usuario esta ajustando.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Consentimiento local + UI de allow-lists en la colmena
+
+Cierra el ultimo guardrail de doc 06 s4 ("consentimiento local explicito"): el operador controla que
+capacidades sensibles se activan, desde la propia colmena.
+
+- **`CapabilityConsent`** (DPAPI, `consent.dat`): habilitacion por capacidad (browser/files),
+  **fail-closed por defecto** (sin archivo = todo deshabilitado). `SetBrowser/SetFiles/IsXEnabled`.
+- **Enforcement en los sub-agentes**: `WebView2BrowserSubAgent.ExecuteAsync` y `FileSubAgent.ExecuteAsync`
+  rechazan TODA la orden si la capacidad no esta habilitada -aplica al HUB Y al MCP local- ("Navegador/
+  Archivos no habilitado por el operador en la colmena").
+- **UI en la colmena**: clic en la celda Navegador/Archivos abre un flyout con: toggle "Habilitada por
+  mi (el operador)" + editor de la allow-list (una entrada por linea, monospace) + Guardar/Cerrar. En
+  el VM: `OpenCapabilityConfig(kind)` carga estado; `SaveCapability` persiste consentimiento + allow-list.
+- **Headless** `--enable <browser|files> <0|1>` (mismo efecto que el toggle) para despliegue/servicio.
+- **Verificado E2E**: fail-closed por defecto -> `browser.navigate`/`file.exists` por MCP rechazados;
+  al habilitar (UI o `--enable`) -> funcionan. Captura del flyout (toggle + allow-list example.com).
+- **Estado**: con esto, TODOS los guardrails de doc 06 s4 estan implementados (allow-list por capacidad,
+  acciones tipadas, JS firmado, handshake HMAC/tenant, consentimiento local). **Pendiente**: binarios
+  base64 en archivos, read-only vs read-write por raiz.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Endurecimiento del Navegador (JS firmado por el servidor)
+
+Guardrail de doc 06 s4: el JS que el servidor inyecta no puede ser arbitrario; debe ir FIRMADO.
+
+- **Contrato**: `BrowserAction.Signature` + `AgentSign` (en `Ecorex.Contracts.Agent`): HMAC-SHA256 del
+  secreto del cliente sobre `correlationId|payload`, hex, con `Verify` en tiempo constante. Ligar al
+  correlationId da anti-replay/versionado ligero.
+- **Agente**: `RealHiveConnection` verifica la firma de las acciones que inyectan JS del HUB (`Eval`,
+  `Mouse`, `Wait` con condicion) ANTES de ejecutar; **fail-closed**: sin firma valida o sin secreto
+  local, rechaza toda la orden. El JS por **MCP local** (loopback) NO requiere firma (confianza local).
+- **Servidor**: el endpoint dev `dev/browse` firma el `eval` con el secreto del `DataClient`
+  (`ISecretProtector` + `AgentSign`); `?nosign=true` omite la firma para probar el rechazo.
+- **Fix colateral**: se subio el `MaximumReceiveMessageSize` del `AgenteHub` a 32 MB (los
+  `BrowserResult` con screenshot base64 y los `FetchResult` grandes superaban el default de 32 KB de
+  SignalR y el hub los rechazaba en silencio). Solo para ese hub, sin tocar los demas.
+- **Verificado E2E**: firmado -> Navigate/Eval("Example Domain")/Screenshot ok; `nosign=true` ->
+  "Firma de JS invalida o ausente para la accion Eval" (rechazado). MCP eval local sigue funcionando.
+- **Pendiente**: UI de la allow-list en la colmena; consentimiento local explicito para capacidades
+  sensibles (doc 06 s4).
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Sub-agente ARCHIVOS (Files-1/2/3) + MCP file.*
+
+Tercera capacidad de la colmena (doc 06 s3.2). Todo en `feat/agente-colmena-gui`.
+
+- **Contrato (Files-1)**: en `Ecorex.Contracts.Agent` (aditivo): `FileActionKind` (List/Read/Write/
+  Delete/Exists/MakeDir), `FileEntry`, `FileAction`, `FileRequestMsg`, `FileActionResult`,
+  `FileResultMsg` + metodos `FileRequest`/`FileResult`.
+- **Motor (Files-2)**: `Services/FileSubAgent` ejecuta las acciones tipadas; `Read` con tope 1 MB.
+  `Services/FileAllowList`: rutas RAIZ permitidas cifradas con DPAPI, fail-closed si vacia. TODA ruta
+  se canonicaliza (`Path.GetFullPath`, impide traversal `..`) y debe caer DENTRO de una raiz. No es un
+  shell generico. `--save-file-allow` en runtime.
+- **Cableado + MCP (Files-3)**: `RealHiveConnection` atiende `FileRequest` -> celda Archivos ->
+  `FileResult`. Backend: `AgenteHub.FileResult` + endpoint dev `dev/files/{clientId}?op=&path=&content=`.
+  El servidor MCP se renombro `BrowserMcpServer` -> **`AgentMcpServer`** y ahora publica **13 tools**:
+  las 7 `browser.*` + las 6 `file.*` (list/read/write/delete/exists/mkdir). Mejora: ante un error el MCP
+  devuelve un error JSON-RPC en vez de cerrar la conexion.
+- **Verificado E2E** (SuperAdmin + agente + sandbox `%TEMP%\ecorex-files`): por el HUB -> Write "21 chars",
+  List entries=1, Read "Hola colmena archivos"; leer `C:\Windows\win.ini` -> bloqueado. Por MCP ->
+  `file.write`/`file.list`/`file.read` ok; leer fuera de la allow-list -> `isError:true`.
+- **Pendiente**: lectura de binarios (base64), UI de la allow-list en la colmena, permisos read-only vs
+  read-write por raiz.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Navegador Nav-4 (servidor MCP localhost + las 7 tools)
+
+Completa el catalogo `browser.*` del prior-art (doc 07) y lo expone por MCP para clientes/IA locales.
+
+- **2 tools faltantes**: `browser.mouse` (MouseBot: guion JSON de pasos click/type por selector, via JS
+  acotado al dominio permitido) y `browser.downloads` (historial de descargas, tracker de
+  `CoreWebView2.DownloadStarting`). Contrato extendido (`BrowserActionKind.Mouse/Downloads` +
+  `BrowserAction.ScriptJson`).
+- **`Services/BrowserMcpServer`**: servidor MCP embebido sobre TcpListener **solo 127.0.0.1** (loopback,
+  como el legacy), JSON-RPC 2.0: `initialize` / `tools/list` / `tools/call`. Expone las 7 herramientas
+  con su input schema; ejecuta via la MISMA instancia `WebView2BrowserSubAgent` que el hub (marshala al
+  Dispatcher), respeta la allow-list, y devuelve contenido MCP (texto + imagen PNG). Se comparte el
+  navegador creando una sola instancia en `MainWindow` y pasandola a `RealHiveConnection` + al MCP;
+  arranca en modo real y se detiene al salir.
+- **Verificado E2E por JSON-RPC** (curl a 127.0.0.1:8765): `tools/list` -> las 7 tools; `tools/call`
+  `browser.navigate` example.com -> ok, `browser.eval` `document.title` -> "Example Domain",
+  `browser.screenshot` -> contenido imagen PNG base64; navegar a un dominio NO permitido ->
+  `isError:true` "Dominio no permitido por la allow-list local".
+- **Pendiente**: JS firmado/versionado por el servidor (doc 06 s4), UI de la allow-list en la colmena,
+  y el sub-agente Archivos.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Sub-agente NAVEGADOR (WebView2 + allow-list) - Nav-1/2/3
+
+Segunda capacidad de la colmena (doc 06 s3.2, prior-art doc 07 Doom). Todo en `feat/agente-colmena-gui`.
+
+- **Contrato (Nav-1)**: en `Ecorex.Contracts.Agent` (aditivo, no toca Gateway): `BrowserActionKind`
+  (Navigate/Eval/Wait/Screenshot/Html), `BrowserAction`, `BrowserRequestMsg`, `BrowserActionResult`,
+  `BrowserResultMsg` + metodos `BrowserRequest`/`BrowserResult` en `AgentHubMethods`.
+- **Motor WebView2 (Nav-2)**: `Services/WebView2BrowserSubAgent` (Microsoft.Web.WebView2) hospeda un
+  WebView2 en ventana visible y ejecuta la secuencia de acciones tipadas (catalogo browser.* de doc
+  07). `Services/BrowserAllowList`: dominios permitidos LOCALES cifrados con DPAPI, fail-closed si
+  vacia; `Navigate`/`Eval`/`Html` se rechazan fuera de la lista (doc 06 s4: nada fuera de lista, ni
+  aunque la nube lo pida; solo acciones tipadas, no shell). `--save-browser-allow` en runtime.
+- **Cableado (Nav-3)**: `RealHiveConnection` atiende `BrowserRequest` marshalando al hilo de UI ->
+  enciende la celda Navegador -> ejecuta -> `BrowserResult`. Backend: `AgenteHub.BrowserResult`
+  (loguea + guarda screenshots en temp) + endpoint dev `dev/browse/{clientId}?url=`.
+- **Verificado E2E**: el servidor ordena navegar a example.com -> el agente abre WebView2, `Eval`
+  `document.title` = "Example Domain", captura el PNG real de la pagina; navegar a `google.com`
+  (fuera de la allow-list) -> `Navigate ok=False` (bloqueado), el `Eval` sigue en la pagina permitida.
+- **Pendiente**: servidor MCP localhost (las 7 tools `browser.*` para herramientas locales/IA),
+  `browser.mouse`/`browser.downloads`, JS firmado/versionado por el servidor, UI de la allow-list en la
+  colmena; y el sub-agente Archivos.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Ola 3 (INGESTA en el servidor - FetchResult -> filas del contenedor)
+
+Las filas que trae el agente aterrizan en un contenedor de datos reusando el motor EAV (doc 03 s6 /
+doc 05 Ola 3). Autorizado a tocar apps/backend; Ecorex.sln sigue verde.
+
+- **`IRowIngestService`** (`Ecorex.Application/DataContainers/RowIngestService.cs`): nucleo de ingesta
+  EAV reutilizable, extraido de la logica de `ApiImportService` (Append/Replace/Upsert sobre
+  fila+celdas). Trabaja por SESION (`PrepareAsync` + `IngestChunkAsync` + counts) para ingesta por
+  chunk y conservar el dedup del Upsert. El origen se abstrae como filas campo->valor string (asi lo
+  comparten el import REST -JSON- y el agente -FetchResult-). Registrado scoped en `AddApplication`.
+- **`IAgentImportService`** (`Ecorex.SuperAdmin/Agents/AgentImportService.cs`, singleton): pending-fetch
+  por `correlationId` (contenedor/mapa/modo/clave/tenant/acumulador). `DispatchFetchAsync` arma y empuja
+  el `FetchRequest`; `OnFetchResultAsync` acumula chunks y en el ultimo ingiere via `IRowIngestService`
+  en un scope propio con el tenant fijado (`AmbientTenantContext.Begin`); `OnFetchFailedAsync`. Cableado
+  en `AgenteHub.FetchResult/FetchFailed`.
+- **Dev endpoints** (Development): `dev/ingest/{clientId}` (crea/reusa contenedor "Ciudades (agente)" +
+  columnas, dispara), `dev/ingest-status/{corr}`, `dev/container-count/{id}`.
+- **Verificado E2E** (SuperAdmin :5237 + agente + SQL Server real de la LAN): `SELECT ... FROM ciudades`
+  -> 20 filas -> contenedor. Replace `ins=20`; 2o Replace `del=20/ins=20`; Upsert por CODIGO_POSTAL
+  `upd=20` sin duplicar (queda en 20 filas). `firstRow=[TAIWAN, 110231, ...]`.
+- **Nota de entorno**: la BD dev tenia drift (faltaba `data_container_columns.referenced_container_id`
+  pese al historial de migraciones); se corrigio con un ALTER puntual. NO es bug del codigo (la
+  migracion existente la crea en una BD limpia).
+- **Pendiente**: migrar `ApiImportService` (REST) al nucleo compartido (follow-up mecanico, se dejo
+  intacto para no tocar el path REST sin sus tests de integracion Docker); `DataConnector.RunsViaAgent`
+  + `ImportSchedulerService` (Ola 4) + UI "Refrescar ahora"/estado en linea.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Ola C (Gateway EJECUTA real contra SQL Server de la LAN)
+
+El sub-agente Gateway pasa de acusar recibo a EJECUTAR de verdad (doc 05 Ola 2). C# (no VB.NET).
+
+- **`Services/SqlServerGatewayExecutor`** (Microsoft.Data.SqlClient 6.0.2): abre la conexion, ejecuta
+  la consulta parametrizada, lee por lotes (`pageSize`, tope `maxRows`) y produce `FetchResult` en
+  chunks (columnas en el chunk 0) como `IAsyncEnumerable`.
+- **`Services/QueryGuard`**: whitelist de SOLO lectura -un unico SELECT/CTE; bloquea insert/update/
+  delete/merge/drop/alter/create/truncate/exec/sp_/xp_/into/etc.- defensa en profundidad ademas del
+  usuario de BD de solo-lectura.
+- **`Services/GatewaySourceStore`**: la cadena de conexion (con credencial de la LAN) se guarda
+  LOCAL cifrada con DPAPI (`source.dat`), opcion b: la credencial NUNCA viaja por el canal ni se
+  versiona. Se carga en runtime con `--save-source "<cadena>"`.
+- **`RealHiveConnection`**: un `FetchRequest` Database resuelve la cadena local y ejecuta (stream de
+  `FetchResult`); `FetchFailed` con codigo (QUERY_REJECTED / NO_SOURCE / UNSUPPORTED_ENGINE /
+  AGENT_ERROR) en fallo. Otros conectores siguen acusando recibo.
+- **Backend (dev)**: `dev/push` acepta `?q=` para probar consultas; el log del hub muestra columnas +
+  primera fila del `FetchResult` (verificacion de datos reales).
+- **Verificado E2E contra SQL Server REAL de la LAN** (`M700_GEN`, via el hub en :5237):
+  `SELECT TOP 20 * FROM ciudades` -> `[AGENTE] FetchResult rows=20 cols=[DPTO,NOMBRE,PAIS,CODIGO_DIAN,
+  DANE_DEP,...]` con datos reales; `DELETE FROM ciudades` y `SELECT * INTO x ...` -> `FetchFailed
+  QUERY_REJECTED`. Credencial cargada en runtime (DPAPI), NUNCA en el repo.
+- **Siguiente**: ingesta en el servidor (doc 03 s6: `IRowIngestService` + `IAgentImportService` para
+  que el `FetchResult` termine como filas del contenedor), `RunsViaAgent`+scheduler, y sub-agentes
+  Archivos/Navegador.
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Hub REAL de servidor (apps/backend, doc 03 / doc 05 Ola 1)
+
+Se construye el lado SERVIDOR del canal en `Ecorex.SuperAdmin` (host que ya tiene SignalR + auth).
+Autorizado explicitamente a tocar `apps/backend`; sin romper su build (Ecorex.sln verde).
+
+- **AgenteHub** (`RealTime/AgenteHub.cs`): `[Authorize(AuthenticationSchemes="Agent")]`, grupos
+  `client:{id}`/`tenant:{id}`, presencia; recibe AgentHello/FetchResult/FetchFailed/Heartbeat.
+- **Agents/** : `IAgentRegistry`+`InMemoryAgentRegistry` (en linea/offline), `AgentTokenIssuer`
+  (JWT corto client_id/tenant_id), `AgentNonceCache` (anti-replay), `AgentChannel` (esquema bearer
+  **"Agent" NO-default** -no altera la auth de cookies-, DI y endpoints).
+- **Endpoints**: `POST /api/agente/token` (anonimo; valida `DataClient` activo + ts +/-120s + nonce +
+  HMAC del secreto descifrado con `ISecretProtector` -> JWT 15m), `POST /api/agente/push/{clientId}`
+  (admin, via `IHubContext`), `GET /api/agente/status/{clientId}`. Dev-only: `dev/seed-client` y
+  `dev/push` (guardados por `IsDevelopment`).
+- **Identidad**: la entidad **`DataClient`** existente (ClientId + `ClientSecretEncrypted`), sin
+  entidades nuevas ni migracion. Query cross-tenant en el token via `IgnoreQueryFilters`.
+- **Contrato compartido**: SuperAdmin referencia el MISMO `Ecorex.Contracts.Agent` que el agente
+  (fuente unica del protocolo + `AgentHmac` identico en ambos lados). Paquete nuevo:
+  `Microsoft.AspNetCore.Authentication.JwtBearer` en SuperAdmin.
+- **Agente (lado cliente, opcion A)**: `RealHiveConnection` adquiere el JWT (HMAC -> `/api/agente/token`)
+  y lo pasa por `AccessTokenProvider`; sin secreto conecta anonimo (sim). `AgentConfig` +`Secret`;
+  campo "Secreto" en el flyout; `--save-config <id> <url> [secreto]`.
+- **Verificado E2E contra la BD dev** (SuperAdmin en :5237 + Postgres 5442): NEGATIVO -> token con
+  clientId inexistente 401, ts fuera de rango 401; POSITIVO -> seed de `DataClient`, el agente obtiene
+  token, `[AGENTE] En linea` + `AgentHello caps=[Database,RestApi]`, push del servidor -> `[AGENTE]
+  FetchResult corr=...`. Captura de la colmena "En linea" con Gateway + workers por ordenes reales.
+- **Siguiente**: `DataConnector.RunsViaAgent` + `IRowIngestService` (ingesta compartida) +
+  `IAgentImportService` + `ImportSchedulerService` (doc 03), y en el agente la Ola C (ejecucion real
+  de la consulta contra la BD de la LAN, solo-lectura + whitelist).
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Ola B (canal SignalR real, lado agente)
+
+Rama `feat/agente-colmena-gui`. Se sustituye el mock por el cliente SignalR REAL detras del mismo
+seam `IHiveConnection`; la GUI y el ViewModel NO cambian.
+
+- **Protocolo compartido** (`libs/Ecorex.Contracts.Agent/AgentProtocol.cs`): `AgentProtocol`
+  (ruta `/hubs/agente`, version), `AgentHubMethods` (FetchRequest/Ping/Cancel; AgentHello/FetchResult/
+  FetchFailed/Heartbeat) y DTOs (`FetchRequestMsg`, `FetchResultMsg`, `FetchErrorMsg`, `AgentHelloMsg`,
+  `ConnectorSpec`, `QuerySpec`, `PagingSpec`) fieles a doc 02. Fuente de verdad para agente y futuro hub.
+- **`RealHiveConnection`** (`Services/`, Microsoft.AspNetCore.SignalR.Client 10.0.0): conexion saliente
+  WS, `AgentHello` al conectar, reconexion con backoff 0/2/5/10/30/60s (`HiveRetryPolicy`), lifecycle
+  -> `ConnectionChanged`, `On(FetchRequest)` -> `RequestStarted` (enciende capacidad + worker) -> acuse
+  `FetchResult` -> `RequestFinished`. La EJECUCION real de la consulta es Ola C (aqui solo acuse).
+- **Refactor al seam**: `HiveViewModel` depende de `IHiveConnection`; los comandos DEMO/seed solo
+  aplican si la impl es el mock. `MainWindow` usa Real por defecto y Mock en modo captura
+  (`ECOREX_AGENT_CAPTURE`) o `ECOREX_AGENT_FORCE_MOCK=1`. Auto-conecta al arrancar si hay config.
+- **Arranque headless** `--save-config <clientId> <hubUrl>` (DPAPI) para despliegue/servicio y pruebas.
+- **Simulador** `tools/Ecorex.Agent.HubSim` (ASP.NET Core minimal + `AgenteHub` + `FetchPump`): stand-in
+  del backend orquestador para probar E2E SIN tocar `apps/backend`. Empuja `FetchRequest` (Database/
+  RestApi) cada 3-4s y registra lo recibido.
+- **Verificado E2E**: sim en :5280 + agente real -> logs del hub muestran `Agente CONECTADO`,
+  `AgentHello client=cli_ola_b caps=[Database, RestApi]` y round-trip continuo `FetchRequest`->
+  `FetchResult`. Captura de la colmena "En linea" con Navegador encendido + worker "pagina" por una
+  orden RestApi real.
+- **Restriccion respetada**: el agente referencia solo `libs/Ecorex.Contracts.Agent` + el NuGet cliente
+  de SignalR; NO toca `apps/backend`. El hub de produccion (doc 03 / doc 05 Ola 1 lado servidor) queda
+  como tarea del backend, fuera de este worktree.
+- **Siguiente**: hub real en `apps/backend` (Authorize + token HMAC->JWT + registry), luego Ola C
+  (ejecucion real del sub-agente Gateway contra BD de la LAN, solo-lectura + whitelist).
+
+---
+
+## 2026-07-15 - Agente Conector On-Prem: Ola A (cascara visual "colmena" WPF)
+
+Rama `feat/agente-colmena-gui` (worktree). Se construye SOLO lo que se ve: la cascara visual del
+agente de escritorio, sin SignalR real ni ejecucion de sub-agentes (olas siguientes).
+
+- **HexTile** (`Controls/HexTile.xaml`): celda hexagonal (pointy-top 92x106) con 4 estados por
+  `DataTrigger` sobre `HiveCellState`: Vacio (Idle, tenue), Lleno (Active, glow), Atendiendo
+  (Working, pulso via Storyboard sobre el Effect y la escala) y Error (acento rojo, unico color del
+  look monocromo). Nombre en ToolTip para que el panal interloque sin colision de texto.
+- **HoneycombPanel** (`Controls/HoneycombPanel.cs`): `Panel` de teselado en panal; filas impares
+  desplazadas media celda; columnas ~raiz(N) para un racimo compacto que crece/decrece con los
+  workers efimeros.
+- **HiveViewModel**: celdas fijas (Config ancla SIEMPRE llena + Gateway/Archivos/Navegador que nacen
+  apagadas) + workers EFIMEROS que aparecen (Working) al llegar una peticion y se retiran al terminar
+  (el panal crece y decrece). Config/estado de conexion; comandos Probar/Guardar/ToggleConfig/RunDemo.
+- **Seam Ola A<->B**: `IHiveConnection` (en `libs/Ecorex.Contracts.Agent`) con `MockHiveConnection`
+  como implementacion Ola A. La Ola B cambia el mock por el cliente SignalR real SIN tocar GUI ni VM.
+- **Config**: flyout con Client ID / URL del Hub / Estado / "Probar conexion" (stub) y persistencia
+  local **DPAPI** (`Services/DpapiConfigStore.cs`, P/Invoke a crypt32, sin NuGet; nunca en repo/plano).
+- **Tray icon** (`System.Windows.Forms.NotifyIcon`, sin NuGet): Mostrar / Demo / Salir; cerrar oculta
+  a la bandeja, solo "Salir" termina.
+- **DEMO/mock**: atajo Ctrl+D (guion encender->atender->apagar + crecimiento) y Ctrl+K abre config.
+  Hook de captura por env `ECOREX_AGENT_CAPTURE` (config|demo|busy), inerte en produccion.
+- **DPI-aware** (app.manifest PerMonitorV2): nitidez correcta en pantallas escaladas (el equipo esta
+  al 125%).
+- **Verificado**: compila (`Ecorex.Agent.slnx`, 0 errores) y CORRE en Windows. Capturas de los 3
+  estados: (a) colmena idle -> Config lleno, resto vacio, Offline; (b) panel de configuracion abierto;
+  (c) colmena "atendiendo" -> capacidades encendidas + workers efimeros + En linea.
+- **Restriccion respetada**: el agente referencia SOLO `libs/Ecorex.Contracts.Agent`; NO toca
+  `apps/backend`. Solucion separada; el build del backend no se altera.
+- **Siguiente**: Ola B (cliente SignalR real detras de `IHiveConnection`), luego ejecucion de
+  sub-agentes (Gateway/Navegador/Archivos), allow-list de seguridad e instalador/servicio.
 ## 2026-07-16 - Contenedor: publicar tablas al menu (Flujo B) + relaciones fila-a-fila (Flujo A)
 
 Sobre el cimiento de la Ola 0. **Nada de esto esta en prod.**
@@ -4350,6 +5122,21 @@ del tenant SOLDARCO. Backup previo `ecorex-2026-07-16-1758.sql.gz`.
 gordo (hasta 80 preguntas en FRM-00011) e implica mapear `TIPO_RESPUESTA` del legacy a `FormControlType`.
 Se migraron SOLO los cabezotes: hoy los 14 formularios estan vacios. El usuario hara un fork de la rama
 para trabajar el diseno.
+
+**Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
+(1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
+consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.
+(2) Se detectaron 4 necesidades de desarrollo (D1-D4) y se anotaron en la nota nueva del vault
+`04. Notas para desarrollador/Notas para el programador ECOREX.formularios.md`. (3) OTRA sesion implemento
+D1-D4 (control Time/DateTime, consecutivo en borrador, columnas-lista en GridDetail, editor de reglas de
+campo) y las pusheo. (4) Se **redesplego prod** desde `fase-0/clon-backbone` (backup
+`ecorex-2026-07-17-1309.sql.gz`; se detecto que la imagen previa era ANTERIOR al commit D1-D4). (5) Se
+construyo FRM-00005 por SQL: 13 campos + transaccional (identity_mode=Sequence) + GridDetail tipado + regla
+condicional `BLOQUEAR_CAMPO_XCONDICION` (show valor si concreto_venta=si; 1er rule_document de SOLDARCO).
+Verificado en BD. Hallazgo D5 (P3): las reglas de campo no se evaluan al cargar el form (solo al cambiar) y
+la visibilidad es un OR, asi que "valor" nace visible; anotado para desarrollo. La verificacion VISUAL por
+Chrome quedo pendiente: el login por automatizacion no dispara (binding de Blazor Server; el login manual si
+funciona).
 
 ---
 

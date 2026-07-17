@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- GUI colmena del Agente Conector On-Prem (Ola A: cascara visual). WPF, Windows-first (D7).
+       UseWindowsForms se habilita SOLO para el NotifyIcon de la bandeja (System.Windows.Forms),
+       evitando una dependencia NuGet externa. La app referencia SOLO los contratos compartidos. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Ecorex.Agent.Gui</RootNamespace>
+    <AssemblyName>Ecorex.Agent.Gui</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- WFO0003: WinForms sugiere configurar DPI por API; aqui el DPI lo gobierna el manifest para
+         WPF (no llamamos ApplicationConfiguration.Initialize). Warning benigno, se silencia. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+    <!-- Ola 5a (ADR-0039): el canal, el Gateway, Archivos, los stores y el MCP se fueron al Core
+         (sin WPF), que comparte con el Worker Service. Aqui queda solo lo que pide escritorio. -->
+    <ProjectReference Include="..\Ecorex.Agent.Core\Ecorex.Agent.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lo unico propio de esta capa: el navegador. WebView2 es un control visual y solo corre en
+         sesion interactiva; por eso no puede vivir en el servicio (ADR-0039 s4). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+  </ItemGroup>
+
+</Project>

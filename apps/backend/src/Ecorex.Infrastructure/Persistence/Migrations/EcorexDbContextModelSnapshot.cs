@@ -1749,6 +1749,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("port");
 
+                    b.Property<string>("Query")
+                        .HasColumnType("text")
+                        .HasColumnName("query");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -3703,6 +3707,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("cron_expression");
 
+                    b.Property<string>("DisabledReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("disabled_reason");
+
                     b.Property<int?>("IntervalMinutes")
                         .HasColumnType("integer")
                         .HasColumnName("interval_minutes");
@@ -3724,6 +3733,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("NextRunAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_run_at");
+
+                    b.Property<DateTimeOffset?>("PendingSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("pending_since");
 
                     b.Property<string>("ScheduleKind")
                         .IsRequired()
@@ -3758,10 +3775,105 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasIndex("ModelId")
                         .HasDatabaseName("ix_import_processes_model_id");
 
+                    b.HasIndex("NextRunAt")
+                        .HasDatabaseName("ix_import_processes_next_run_at");
+
+                    b.HasIndex("PendingSince")
+                        .HasDatabaseName("ix_import_processes_pending_since");
+
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_import_processes_tenant_id_model_id");
 
                     b.ToTable("import_processes", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ImportRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Deleted")
+                        .HasColumnType("integer")
+                        .HasColumnName("deleted");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("detail");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<DateTimeOffset>("FiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fired_at");
+
+                    b.Property<int>("Inserted")
+                        .HasColumnType("integer")
+                        .HasColumnName("inserted");
+
+                    b.Property<Guid>("ProcessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("process_id");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("result");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("trigger");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_import_runs");
+
+                    b.HasIndex("ProcessId")
+                        .HasDatabaseName("ix_import_runs_process_id");
+
+                    b.HasIndex("TenantId", "CorrelationId")
+                        .HasDatabaseName("ix_import_runs_tenant_id_correlation_id");
+
+                    b.HasIndex("TenantId", "ProcessId", "FiredAt")
+                        .IsUnique()
+                        .HasDatabaseName("ix_import_runs_tenant_id_process_id_fired_at");
+
+                    b.ToTable("import_runs", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Item", b =>
@@ -11346,6 +11458,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Container");
 
                     b.Navigation("Model");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ImportRun", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ImportProcess", "Process")
+                        .WithMany()
+                        .HasForeignKey("ProcessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_runs_import_processes_process_id");
+
+                    b.Navigation("Process");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Item", b =>

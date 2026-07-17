@@ -65,15 +65,44 @@ public enum ConnectorAuthKind
     Basic
 }
 
-/// <summary>Como se programa la corrida de un proceso de importacion (solo config; sin ejecutor aun).</summary>
+/// <summary>Como se programa la corrida de un proceso de importacion.</summary>
 public enum ImportScheduleKind
 {
     /// <summary>Solo bajo demanda (no automatico).</summary>
     Manual,
     /// <summary>Cada N minutos.</summary>
     Interval,
-    /// <summary>Expresion cron.</summary>
+    /// <summary>Expresion cron (5 campos, hora del tenant). Motor: Cronos (ADR-0041).</summary>
     Cron
+}
+
+/// <summary>Quien disparo una corrida de importacion. Distinguirlo importa al leer la bitacora:
+/// "fallo a las 3am sola" y "fallo cuando le di al boton" no se diagnostican igual.</summary>
+public enum ImportRunTrigger
+{
+    /// <summary>Alguien pulso "Actualizar datos".</summary>
+    Manual,
+    /// <summary>La disparo el horario.</summary>
+    Scheduled
+}
+
+/// <summary>En que quedo una corrida de importacion.</summary>
+public enum ImportRunResult
+{
+    /// <summary>Orden enviada al agente; esperando que devuelva las filas. Estado NO terminal.</summary>
+    Running,
+    /// <summary>Las filas llegaron y se ingirieron.</summary>
+    Ok,
+    /// <summary>Fallo: no se pudo despachar, el agente reporto error, o vencio el plazo.</summary>
+    Error,
+    /// <summary>No habia nada que hacer o no se dispara (ej. ya corria otra igual).</summary>
+    Skipped,
+    /// <summary>
+    /// El agente no estaba conectado a la hora que tocaba. NO es un Error: es un "no llegue a
+    /// intentarlo"; la programacion queda esperando y se reintenta sola cuando el agente vuelve. Se
+    /// distingue de Error para no ensuciar los KPIs con "fallos" que en realidad son agentes dormidos.
+    /// </summary>
+    PendingOffline
 }
 
 /// <summary>Esquema de alimentacion de un conector: como llega la data al contenedor.</summary>

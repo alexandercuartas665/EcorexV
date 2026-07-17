@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <!-- Servicio Windows del Agente Conector On-Prem (ADR-0039, Ola 5b). Es el DUENO de la identidad,
+       del canal y de la boveda: corre 24/7 sin sesion iniciada y atiende Gateway y Archivos. El
+       Navegador NO puede vivir aqui (sesion 0): se delega a la colmena WPF (Ola 5c).
+       Corre como LocalSystem (decision del usuario 2026-07-16). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Ecorex.Agent.Service</RootNamespace>
+    <AssemblyName>Ecorex.Agent.Service</AssemblyName>
+    <UserSecretsId>ecorex-agent-service</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ecorex.Agent.Core\Ecorex.Agent.Core.csproj" />
+    <ProjectReference Include="..\libs\Ecorex.Contracts.Agent\Ecorex.Contracts.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UseWindowsService: mismo binario corre como servicio y como consola (para diagnostico). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

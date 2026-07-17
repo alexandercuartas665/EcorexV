@@ -1,0 +1,88 @@
+<UserControl x:Class="Ecorex.Agent.Gui.Controls.HexTile"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Ecorex.Contracts.Agent;assembly=Ecorex.Contracts.Agent">
+    <UserControl.Template>
+        <ControlTemplate TargetType="UserControl">
+            <!-- Hexagono pointy-top de 92x106 (regular). El estado gobierna relleno/borde/glow.
+                 El nombre va en ToolTip para que el panal interloque sin colisiones de texto. -->
+            <Grid Width="92" Height="106" ToolTip="{Binding Label}">
+                <Path x:Name="Hex"
+                      Data="M46,0 L92,26.5 L92,79.5 L46,106 L0,79.5 L0,26.5 Z"
+                      StrokeThickness="1.6"
+                      Stroke="{StaticResource HiveStrokeSoft}"
+                      Fill="{StaticResource HiveFillDim}"
+                      RenderTransformOrigin="0.5,0.5">
+                    <Path.RenderTransform>
+                        <ScaleTransform ScaleX="1" ScaleY="1" />
+                    </Path.RenderTransform>
+                    <Path.Effect>
+                        <DropShadowEffect Color="#FFFFFF" BlurRadius="0" ShadowDepth="0" Opacity="0" />
+                    </Path.Effect>
+                </Path>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock x:Name="GlyphText" Text="{Binding Glyph}"
+                               HorizontalAlignment="Center"
+                               FontSize="19" FontWeight="SemiBold"
+                               Foreground="{StaticResource HiveInkDim}" />
+                    <TextBlock x:Name="MiniLabel" Text="{Binding Label}"
+                               HorizontalAlignment="Center" Margin="0,1,0,0"
+                               FontSize="8.5" Foreground="{StaticResource HiveInkDim}"
+                               MaxWidth="78" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+
+            <ControlTemplate.Triggers>
+                <!-- ACTIVE: lleno, borde claro, glyph oscuro sobre relleno claro, glow suave. -->
+                <DataTrigger Binding="{Binding State}" Value="{x:Static c:HiveCellState.Active}">
+                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveFill}" />
+                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveInk}" />
+                    <Setter TargetName="GlyphText" Property="Foreground" Value="#161618" />
+                    <Setter TargetName="Hex" Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="#FFFFFF" BlurRadius="22" ShadowDepth="0" Opacity="0.35" />
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+                <!-- WORKING: lleno + pulso (glow y escala se animan sobre el propio Path). -->
+                <DataTrigger Binding="{Binding State}" Value="{x:Static c:HiveCellState.Working}">
+                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveFill}" />
+                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveInk}" />
+                    <Setter TargetName="GlyphText" Property="Foreground" Value="#161618" />
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="PulseSb">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetName="Hex"
+                                                 Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.Opacity)"
+                                                 From="0.25" To="0.85" Duration="0:0:0.7" />
+                                <DoubleAnimation Storyboard.TargetName="Hex"
+                                                 Storyboard.TargetProperty="(UIElement.Effect).(DropShadowEffect.BlurRadius)"
+                                                 From="14" To="30" Duration="0:0:0.7" />
+                                <DoubleAnimation Storyboard.TargetName="Hex"
+                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                 From="1" To="1.05" Duration="0:0:0.7" />
+                                <DoubleAnimation Storyboard.TargetName="Hex"
+                                                 Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                 From="1" To="1.05" Duration="0:0:0.7" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="PulseSb" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+                <!-- ERROR: acento rojo tenue (unico color en el look monocromo). -->
+                <DataTrigger Binding="{Binding State}" Value="{x:Static c:HiveCellState.Error}">
+                    <Setter TargetName="Hex" Property="Fill" Value="#33E5556B" />
+                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveError}" />
+                    <Setter TargetName="GlyphText" Property="Foreground" Value="{StaticResource HiveError}" />
+                    <Setter TargetName="Hex" Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="#E5556B" BlurRadius="20" ShadowDepth="0" Opacity="0.5" />
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+    </UserControl.Template>
+</UserControl>

@@ -1,0 +1,21 @@
+<Application x:Class="Ecorex.Agent.Gui.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:Ecorex.Agent.Gui.Converters">
+    <Application.Resources>
+        <conv:BoolToStatusBrushConverter x:Key="BoolToStatusBrush" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <!-- Paleta MONOCROMA de la colmena (translucida, oscura, sin color de marca). Los
+             hexagonos activos brillan en blanco/gris; el error es el unico acento (rojo tenue). -->
+        <Color x:Key="HiveBgColor">#161618</Color>
+        <SolidColorBrush x:Key="HivePanel" Color="#E6161618" />
+        <SolidColorBrush x:Key="HiveStroke" Color="#33FFFFFF" />
+        <SolidColorBrush x:Key="HiveStrokeSoft" Color="#1FFFFFFF" />
+        <SolidColorBrush x:Key="HiveInk" Color="#F4F4F5" />
+        <SolidColorBrush x:Key="HiveInkDim" Color="#8A8A93" />
+        <SolidColorBrush x:Key="HiveFill" Color="#F2F2F3" />
+        <SolidColorBrush x:Key="HiveFillDim" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="HiveError" Color="#E5556B" />
+        <SolidColorBrush x:Key="HiveOnline" Color="#8FE3A2" />
+    </Application.Resources>
+</Application>

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/libs/">
+    <Project Path="libs/Ecorex.Contracts.Agent/Ecorex.Contracts.Agent.csproj" />
+  </Folder>
+  <Folder Name="/sim/">
+    <Project Path="sim/Ecorex.Agent.HubSim/Ecorex.Agent.HubSim.csproj" />
+  </Folder>
+  <Project Path="Ecorex.Agent.Core/Ecorex.Agent.Core.csproj" />
+  <Project Path="Ecorex.Agent.Gui/Ecorex.Agent.Gui.csproj" />
+  <Project Path="Ecorex.Agent.Service/Ecorex.Agent.Service.csproj" />
+</Solution>

@@ -185,6 +185,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<DataConnector> DataConnectors => Set<DataConnector>();
     public DbSet<DataClient> DataClients => Set<DataClient>();
     public DbSet<ImportProcess> ImportProcesses => Set<ImportProcess>();
+    public DbSet<ImportRun> ImportRuns => Set<ImportRun>();
 
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
@@ -325,6 +326,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<DataSourceKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ConnectorAuthKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ImportScheduleKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ImportRunTrigger>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ImportRunResult>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ConnectorKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DbEngine>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DestinationKind>().HaveConversion<string>().HaveMaxLength(40);
@@ -2136,7 +2139,29 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Client no es alcanzado por cascada desde Model: su SetNull es ruta unica (valido en ambos).
             b.HasOne(x => x.Client).WithMany()
                 .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
+            b.Property(x => x.DisabledReason).HasMaxLength(300);
             b.HasIndex(x => new { x.TenantId, x.ModelId });
+            // El barrido del worker filtra por aqui en CADA pasada (cada minuto, cross-tenant).
+            b.HasIndex(x => x.NextRunAt);
+            // El worker tambien busca "quien esta esperando a su agente" en cada pasada.
+            b.HasIndex(x => x.PendingSince);
+        });
+
+        modelBuilder.Entity<ImportRun>(b =>
+        {
+            b.Property(x => x.CorrelationId).HasMaxLength(40);
+            b.Property(x => x.Detail).HasMaxLength(600);
+            // Restrict: la bitacora sobrevive al proceso (igual que ScheduledJobRun con su Job).
+            b.HasOne(x => x.Process).WithMany()
+                .HasForeignKey(x => x.ProcessId).OnDelete(DeleteBehavior.Restrict);
+            // Doble proposito, a proposito:
+            //  - IDEMPOTENCIA: dos workers en la misma ventana -> el segundo choca al guardar y se
+            //    descarta (misma defensa que ScheduledJobRun, y la razon de que FiredAt sea la
+            //    ventana y no "ahora").
+            //  - Sirve igual para el listado "ultimas ejecuciones de esta programacion".
+            b.HasIndex(x => new { x.TenantId, x.ProcessId, x.FiredAt }).IsUnique();
+            // Cierre de la corrida cuando el agente responde: se busca POR correlationId.
+            b.HasIndex(x => new { x.TenantId, x.CorrelationId });
         });
 
         modelBuilder.Entity<WhatsAppTemplate>(b =>

@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-17 - Las TRES vias de alimentacion, probadas con datos reales (y un bug del lienzo)
+
+Contenedor "PRUEBA CARGAS" con 3 tablas, una por via. Todo verificado en la BD, no solo en pantalla:
+
+| Via | Fuente | Resultado |
+|-----|--------|-----------|
+| Base de datos (via agente) | SQL Server de Docker (`localhost:1443`, `prueba_cargas.dbo.PRODUCTOS`) | 4 filas; decimales intactos (`95000.50`) |
+| API REST | `https://jsonplaceholder.typicode.com/users` (externa real) | 10 filas; mapeo CODIGO<-id, NOMBRE<-name, CORREO<-email |
+| Archivo | `sucursales.xlsx` (ClosedXML, fechas reales) | 3 filas; fechas normalizadas a `yyyy-MM-dd` |
+
+- **SQL Server cierra el DAL dual del Gateway**: el 16/07 se probo PostgreSQL; ahora el otro motor del
+  mismo `GatewayExecutor`, con la credencial viajando desde la web (ADR-0040).
+- **La API exige endpoint PUBLICO**: `ApiImportService.IsBlockedHost` rechaza localhost y rangos
+  privados (anti-SSRF). No es un estorbo: es la defensa que impide que un conector se use para sondear
+  la red interna del servidor. Por eso la prueba usa un servicio externo de verdad.
+
+### Bug encontrado al probar: las cajas del lienzo ER nacian ENCIMADAS
+
+Al ir a subir el Excel, el boton "Ver datos / importar Excel" de SUCURSALES **no respondia**. No era el
+navegador: `document.elementFromPoint` sobre el boton devolvia un `div` de OTRA tabla. Las cajas se
+repartian en cascada `40 + n*40` en AMBOS ejes, pero la caja mide **220 de ancho**: cada tabla nueva
+caia sobre el ENCABEZADO de la anterior y le tapaba los 4 botones, que quedaban imposibles de pulsar
+salvo que alguien arrastrara la caja. El comentario del codigo decia "para que no se apilen": la
+intencion era correcta, el paso era demasiado corto.
+
+Ademas el calculo estaba **duplicado**: `RebuildPositions` (pinta) y `SaveTableAsync` (PERSISTE). Por
+eso arreglar solo uno no servia de nada -de hecho el primer intento no cambio nada, porque la cascada
+ya estaba guardada en `canvas_x/canvas_y`-. Ahora hay un unico `SlotFor(index)` con una rejilla de 3
+por fila, y ambos sitios lo llaman. Verificado: las 3 cajas en su celda y los 4 botones alcanzables.
+
+---
+
 ## 2026-07-17 - "Actualizar datos": el circuito de negocio COMPLETO, verificado con filas reales
 
 Primera vez que un dato de una base ajena aterriza en un contenedor **por el camino de produccion**:

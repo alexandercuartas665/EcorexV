@@ -1329,9 +1329,7 @@ else
             var y = t.CanvasY;
             if (x == 0 && y == 0)
             {
-                // Posicion en cascada para que las tablas sin posicion no se apilen.
-                x = 40 + i * 40;
-                y = 40 + i * 40;
+                (x, y) = SlotFor(i);
             }
             _pos[t.Id] = (x, y);
             i++;
@@ -1385,6 +1383,23 @@ else
     private double GetY(Guid tableId) => _pos.TryGetValue(tableId, out var p) ? p.Y : 40;
 
     private const double NodeW = 220;
+
+    private const double NodeGap = 40;
+    private const double RowH = 230;
+    private const int NodesPerRow = 3;
+
+    /// <summary>
+    /// Donde nace la caja numero <paramref name="index"/> del lienzo: una REJILLA, no una cascada.
+    ///
+    /// Antes cada sitio calculaba `40 + n*40` en AMBOS ejes con intencion de "que no se apilen", pero
+    /// un paso de 40px no despeja una caja de 220 de ancho: la tabla nueva caia sobre el ENCABEZADO de
+    /// la anterior y le tapaba los botones (ver datos / publicar / editar / borrar), que quedaban
+    /// imposibles de pulsar hasta que alguien arrastrara la caja. Ademas el calculo estaba DUPLICADO
+    /// (aqui se pinta, en SaveTableAsync se persiste): por eso vive en un solo sitio.
+    /// </summary>
+    private static (double X, double Y) SlotFor(int index) =>
+        (40 + (index % NodesPerRow) * (NodeW + NodeGap),
+         40 + (index / NodesPerRow) * RowH);
 
     private double NodeH(Guid tableId)
     {
@@ -1528,9 +1543,9 @@ else
             }
             else
             {
-                var n = _detail?.Tables.Count ?? 0;
-                x = 40 + n * 40;
-                y = 40 + n * 40;
+                // Misma rejilla que RebuildPositions: aqui es donde la posicion se PERSISTE, asi que
+                // si los dos calculos no coinciden, el arreglo de uno no sirve de nada.
+                (x, y) = SlotFor(_detail?.Tables.Count ?? 0);
             }
             var req = new SaveModelTableRequest(modelId, _tblId, _tblName.Trim(),
                 string.IsNullOrWhiteSpace(_tblDescription) ? null : _tblDescription.Trim(), x, y, cols);

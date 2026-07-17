@@ -3,6 +3,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using System.Text.Json
+@using Ecorex.Application.Formulas
 @using Ecorex.Application.Inventory
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
@@ -332,7 +333,9 @@ else
                                 }
                                 else
                                 {
-                                    <div class="@(f.Column >= 2 ? "col-12" : "col-md-6") field">
+                                    @* Ancho sobre la rejilla de 12 de Bootstrap: 1 = 1/3 (col-4),
+                                       2 = 2/3 (col-8), 3 = fila entera. *@
+                                    <div class="@ColClass(f.Column) field">
                                         <label class="form-label">@f.Label</label>
                                         @if (f.FieldType == TerceroFieldType.Select)
                                         {
@@ -347,6 +350,19 @@ else
                                         else if (f.FieldType == TerceroFieldType.TextArea)
                                         {
                                             <textarea class="form-control" rows="2" value="@GetFieldValue(f.FieldKey)" @onchange="@(e => SetFieldValue(f.FieldKey, e.Value?.ToString()))"></textarea>
+                                        }
+                                        else if (f.FieldType == TerceroFieldType.Calculated)
+                                        {
+                                            @* No se captura: sale de la formula y se rehace al escribir (ADR-0029). *@
+                                            <div class="inv-calc">
+                                                <input class="form-control inv-calc-ro" type="text" readonly
+                                                       value="@(_calculated.GetValueOrDefault(f.FieldKey) ?? "")" />
+                                                <span class="inv-calc-ic" title="@($"Calculado: {f.Formula}")">fx</span>
+                                            </div>
+                                            @if (_calculated.TryGetValue(f.FieldKey, out var cv) && cv is null)
+                                            {
+                                                <small class="inv-calc-warn">No se puede calcular con los datos actuales.</small>
+                                            }
                                         }
                                         else
                                         {
@@ -488,7 +504,7 @@ else
                                 <li>
                                     <div>
                                         <strong>@f.Label</strong> <span class="inv-fld-help">(@f.FieldKey)</span>
-                                        <div class="inv-fld-help">@TypeLabel(f.FieldType) &#183; col @f.Column @(f.IsRequired ? "· obligatorio" : "")</div>
+                                        <div class="inv-fld-help">@TypeLabel(f.FieldType) &#183; @ColumnLabel(f.Column) @(f.IsRequired ? "· obligatorio" : "") @(f.ShowInFilter ? "· filtrable" : "")</div>
                                     </div>
                                     <div style="display:flex;gap:6px;">
                                         <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditCfgField(f))" disabled="@_busy">Editar</button>
@@ -517,6 +533,7 @@ else
                                     <option value="@TerceroFieldType.Date">Fecha</option>
                                     <option value="@TerceroFieldType.Phone">Telefono</option>
                                     <option value="@TerceroFieldType.Separator">Separador</option>
+                                    <option value="@TerceroFieldType.Calculated">Calculado</option>
                                 </select>
                             </div>
                         </div>
@@ -527,22 +544,63 @@ else
                                 <textarea class="form-control" rows="3" @bind="_cfgOptions"></textarea>
                             </div>
                         }
+                        @if (_cfgFieldType == TerceroFieldType.Calculated)
+                        {
+                            @* Se valida contra el servidor mientras se teclea: enterarse al guardar de
+                               que hay una llave mal escrita o un ciclo es tarde (ADR-0029). *@
+                            <div class="field">
+                                <label class="form-label">Formula *</label>
+                                <input class="form-control inv-mono @(_cfgFormulaError is not null ? "is-invalid" : "")"
+                                       value="@_cfgFormula" placeholder="{costo} * (1 + {margen} / 100)"
+                                       @oninput="OnFormulaInputAsync" />
+                                @if (_cfgFormulaError is not null)
+                                {
+                                    <div class="tk-field-error">@_cfgFormulaError</div>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(_cfgFormula))
+                                {
+                                    <div class="inv-fld-ok">Formula valida.</div>
+                                }
+                                <div class="inv-fld-help">
+                                    Operadores + - * / y parentesis. Funciones: ROUND, MIN, MAX, ABS, SUM.
+                                    Solo campos de este tipo de item.
+                                </div>
+                                @if (NumericFieldsForFormula().Count > 0)
+                                {
+                                    <div class="inv-keys">
+                                        @foreach (var nf in NumericFieldsForFormula())
+                                        {
+                                            var nfv = nf;
+                                            <button type="button" class="inv-key" title="@nfv.Label"
+                                                    @onclick="() => InsertFormulaKeyAsync(nfv.FieldKey)">@($"{{{nfv.FieldKey}}}")</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
                         <div class="row g-2">
                             <div class="col-md-6 field">
                                 <label class="form-label">Ayuda / descripcion</label>
                                 <input class="form-control" @bind="_cfgDescription" maxlength="600" />
                             </div>
                             <div class="col-md-3 field">
-                                <label class="form-label">Columna</label>
+                                <label class="form-label">Ancho</label>
                                 <select class="form-control" @bind="_cfgColumn">
-                                    <option value="1">1 (media)</option>
-                                    <option value="2">2 (completa)</option>
+                                    <option value="1">Pequena (1/3)</option>
+                                    <option value="2">Media (2/3)</option>
+                                    <option value="3">Grande (completo)</option>
                                 </select>
                             </div>
                             <div class="col-md-3 field" style="display:flex;align-items:flex-end;">
                                 <label class="pl-toggle"><input type="checkbox" @bind="_cfgRequired" /> Obligatorio</label>
                             </div>
                         </div>
+                        @if (_cfgFieldType != TerceroFieldType.Separator)
+                        {
+                            <div class="field">
+                                <label class="pl-toggle"><input type="checkbox" @bind="_cfgShowInFilter" /> Ofrecer como filtro en el listado</label>
+                            </div>
+                        }
                         @if (_cfgError is not null)
                         {
                             <div class="tk-field-error">@_cfgError</div>
@@ -869,6 +927,7 @@ else
         {
             _typeFields = [];
         }
+        RecalcCalculated();   // el item se abre con sus calculados ya resueltos
     }
 
     private void LoadFieldValues(string? json)
@@ -887,7 +946,11 @@ else
     }
 
     private string GetFieldValue(string key) => _fieldValues.TryGetValue(key, out var v) ? v ?? "" : "";
-    private void SetFieldValue(string key, string? value) => _fieldValues[key] = string.IsNullOrWhiteSpace(value) ? null : value;
+    private void SetFieldValue(string key, string? value)
+    {
+        _fieldValues[key] = string.IsNullOrWhiteSpace(value) ? null : value;
+        RecalcCalculated();   // cualquier campo puede alimentar una formula
+    }
 
     private static string[] SplitOptions(string? options)
         => string.IsNullOrWhiteSpace(options)
@@ -912,6 +975,7 @@ else
         TerceroFieldType.Date => "Fecha",
         TerceroFieldType.Phone => "Telefono",
         TerceroFieldType.Separator => "Separador",
+        TerceroFieldType.Calculated => "Calculado",
         _ => type.ToString()
     };
 
@@ -959,6 +1023,11 @@ else
     // huerfanas de un tipo anterior) y no vacios. Null si no hay ninguno.
     private string? BuildFieldValuesJson()
     {
+        // Los calculados se MATERIALIZAN (ADR-0029): asi reportes, exportaciones y API leen el numero
+        // sin reimplementar el motor. Se rehacen antes por si quedo algo sin recalcular.
+        RecalcCalculated();
+        foreach (var (key, value) in _calculated) { _fieldValues[key] = value; }
+
         var keys = _typeFields.Select(f => f.FieldKey).ToHashSet();
         var dict = _fieldValues
             .Where(kv => keys.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
@@ -1005,9 +1074,12 @@ else
         _cfgFieldType = f.FieldType;
         _cfgOptions = f.Options;
         _cfgDescription = f.Description;
-        _cfgColumn = f.Column;
+        _cfgColumn = Math.Clamp(f.Column, 1, 3);
         _cfgRequired = f.IsRequired;
         _cfgError = null;
+        _cfgFormula = f.Formula ?? "";
+        _cfgFormulaError = null;
+        _cfgShowInFilter = f.ShowInFilter;
     }
 
     private void ResetCfgForm()
@@ -1020,6 +1092,80 @@ else
         _cfgColumn = 1;
         _cfgRequired = false;
         _cfgError = null;
+        _cfgFormula = "";
+        _cfgFormulaError = null;
+        _cfgShowInFilter = false;
+    }
+
+    // ---- Campos calculados (ADR-0029) ----
+
+    private string _cfgFormula = "";
+    private string? _cfgFormulaError;
+    private bool _cfgShowInFilter;
+
+    /// <summary>Resultado de cada calculado del item abierto, por clave. Null = no se pudo calcular.</summary>
+    private Dictionary<string, string?> _calculated = new(StringComparer.Ordinal);
+
+    /// <summary>Ancho sobre la rejilla de 12: 1 = 1/3, 2 = 2/3, 3 = fila entera.</summary>
+    private static string ColClass(int column) => column switch
+    {
+        >= 3 => "col-12",
+        2 => "col-md-8",
+        _ => "col-md-4"
+    };
+
+    private static string ColumnLabel(int column) => column switch
+    {
+        >= 3 => "grande",
+        2 => "media",
+        _ => "pequena"
+    };
+
+    /// <summary>Campos que una formula puede usar: numericos y calculados del MISMO tipo de item.</summary>
+    private List<ItemFieldDto> NumericFieldsForFormula()
+        => _cfgFields
+            .Where(f => f.Id != _cfgEditId)
+            .Where(f => f.FieldType is TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)
+            .OrderBy(f => f.SortOrder)
+            .ToList();
+
+    private async Task OnFormulaInputAsync(ChangeEventArgs e)
+    {
+        _cfgFormula = e.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(_cfgFormula) || !Guid.TryParse(_cfgType, out var typeId))
+        {
+            _cfgFormulaError = null;
+            return;
+        }
+        _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, typeId, _cfgEditId, CfgEditingKey());
+    }
+
+    private string? CfgEditingKey() => _cfgFields.FirstOrDefault(f => f.Id == _cfgEditId)?.FieldKey;
+
+    private async Task InsertFormulaKeyAsync(string key)
+    {
+        _cfgFormula = string.IsNullOrWhiteSpace(_cfgFormula) ? $"{{{key}}}" : $"{_cfgFormula} {{{key}}}";
+        if (Guid.TryParse(_cfgType, out var typeId))
+        {
+            _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(_cfgFormula, typeId, _cfgEditId, CfgEditingKey());
+        }
+    }
+
+    /// <summary>
+    /// Rehace los calculados del item abierto. Es aritmetica en memoria sobre unas pocas claves: no
+    /// toca la base. Se llama al escribir cualquier campo (cualquiera puede alimentar una formula) y
+    /// al cargar el item.
+    /// </summary>
+    private void RecalcCalculated()
+    {
+        var calculated = _typeFields
+            .Where(f => f.FieldType == TerceroFieldType.Calculated && !string.IsNullOrWhiteSpace(f.Formula))
+            .Select(f => new CalculatedField(f.FieldKey, f.Formula!))
+            .ToList();
+
+        _calculated = calculated.Count == 0
+            ? new(StringComparer.Ordinal)
+            : FormulaCalculator.EvaluateAll(calculated, _fieldValues).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
     }
 
     private Task SaveCfgFieldAsync() => GuardAsync(async () =>
@@ -1030,15 +1176,24 @@ else
         _busy = true;
         try
         {
+            var formula = _cfgFieldType == TerceroFieldType.Calculated ? _cfgFormula.Trim() : null;
+            if (_cfgFieldType == TerceroFieldType.Calculated)
+            {
+                _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(formula, typeId, _cfgEditId, CfgEditingKey());
+                if (_cfgFormulaError is not null) { return; }
+            }
+
             if (_cfgEditId is Guid editId)
             {
-                var upd = new UpdateItemFieldRequest(_cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, _cfgDescription, _cfgRequired);
+                var upd = new UpdateItemFieldRequest(_cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, _cfgDescription,
+                    _cfgRequired, formula, _cfgShowInFilter);
                 var r = await FieldSvc.UpdateFieldAsync(editId, upd);
                 if (r is null) { _cfgError = "No se pudo guardar el campo."; return; }
             }
             else
             {
-                var req = new CreateItemFieldRequest(typeId, _cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, null, _cfgDescription, _cfgRequired);
+                var req = new CreateItemFieldRequest(typeId, _cfgLabel, _cfgFieldType, _cfgColumn, _cfgOptions, null,
+                    _cfgDescription, _cfgRequired, formula, _cfgShowInFilter);
                 var r = await FieldSvc.CreateFieldAsync(req);
                 if (r is null) { _cfgError = "No se pudo crear el campo."; return; }
             }

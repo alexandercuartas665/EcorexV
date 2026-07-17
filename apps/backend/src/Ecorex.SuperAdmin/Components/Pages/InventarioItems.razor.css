@@ -1,0 +1,31 @@
+/* Estilos de los campos configurables del item (000066). Las clases inv-* de esta pagina se venian
+   usando sin definir en ninguna hoja: heredaban el estilo del contenedor. Aqui se estiliza lo que
+   los campos calculados necesitan (ADR-0029); lo demas se deja como estaba para no cambiar de
+   aspecto lo que ya funcionaba. */
+
+.inv-fld-help { font-size: 11.5px; color: var(--ink-3, #8a8a8a); }
+
+/* La formula es codigo: en monoespaciada se ven las llaves y los parentesis. */
+.inv-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.inv-fld-ok { font-size: 11.5px; color: var(--t-green, #15803d); font-weight: 600; margin-top: 4px; }
+
+/* Claves disponibles: se pinchan en vez de teclearlas, que es donde nacen las erratas. */
+.inv-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.inv-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px;
+    padding: 3px 7px; border: 1px solid var(--line-2, #d8d8dc); border-radius: 7px;
+    background: var(--surface-2, #f7f7f8); color: var(--ink-2, #55555c); cursor: pointer;
+}
+.inv-key:hover { border-color: var(--brand, #6d28d9); color: var(--brand, #6d28d9); }
+
+/* Calculado: readonly, con la marca fx que al pasar el raton muestra la formula. */
+.inv-calc { position: relative; }
+.inv-calc-ro { background: var(--surface-2, #f7f7f8); color: var(--ink-2, #55555c); cursor: default; }
+.inv-calc-ic {
+    position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px; font-style: italic; font-weight: 700;
+    color: var(--t-violet, #7c3aed); background: var(--t-violet-bg, rgba(124, 58, 237, .1));
+    border-radius: 5px; padding: 1px 5px; cursor: help;
+}
+.inv-calc-warn { font-size: 11px; color: var(--t-amber, #b45309); }

@@ -91,9 +91,15 @@ public static class ImportRecurrence
                 // primavera la hora que no existe se corre, y en el de otono la que ocurre dos veces
                 // no dispara dos veces.
                 var next = parsed.GetNextOccurrence(afterUtc.ToUniversalTime(), timeZone, inclusive: false);
+
+                // ToUniversalTime() NO es adorno: Cronos devuelve el instante con el desfase de la
+                // ZONA PEDIDA (-05:00 en Bogota), y Npgsql rechaza guardar un `timestamptz` que no
+                // venga con desfase 0. Sin esto, guardar una programacion cron revienta al escribir.
+                // Ojo al probarlo: DateTimeOffset compara INSTANTES, asi que un test de igualdad pasa
+                // igual con -05:00 que con Z; hay que afirmar sobre .Offset (ver ImportRecurrenceTests).
                 return next is null
                     ? new(null, ImportScheduleProblem.Invalid, "El cron no vuelve a ocurrir.")
-                    : new(next.Value, ImportScheduleProblem.None, null);
+                    : new(next.Value.ToUniversalTime(), ImportScheduleProblem.None, null);
             }
 
             default:

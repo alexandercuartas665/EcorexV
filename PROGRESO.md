@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-07-17 - Prueba de un CRON a 10 minutos: disparo exacto, y un bug que solo se ve corriendo
+
+Se programo "Refresco Perfil Clientes" (contenedor TABLAS CRM, fuente PostgreSQL) con cron
+`9 7 * * *` (07:09 Bogota) y se dejo correr sin tocar nada. **Disparo a las 12:09:00 UTC exactas** -la
+hora pedida, al segundo-, cargo las 2 filas en una tabla que se habia vaciado a proposito (`ins=2
+del=0`, antes 0 filas), dejo la bitacora *"17 Jul 07:09 · horario · 2 filas"* y reprogramo sola para
+**el 18 a la misma hora**. Con esto el disparo automatico queda probado en los DOS motores (SQL Server
+por intervalo, PostgreSQL por cron).
+
+### El bug: `Cannot write DateTimeOffset with Offset=-05:00 to PostgreSQL type 'timestamp with time zone'`
+
+Al guardar la programacion cron, reventaba. **Cronos devuelve el instante con el desfase de la ZONA
+PEDIDA** (-05:00 en Bogota), y Npgsql solo acepta desfase 0 para `timestamptz`. En la rama de
+`Interval` ya se normalizaba con `ToUniversalTime()`; en la de `Cron` faltaba.
+
+**Lo interesante es por que las 12 pruebas del motor no lo vieron**: `DateTimeOffset` compara
+INSTANTES, no representaciones, asi que `Assert.Equal(08:00Z, 03:00-05:00)` **pasa**. El motor estaba
+"bien" segun sus pruebas y aun asi era imposible guardar un cron. Solo aparecio al escribir de verdad
+en la BD.
+
+Arreglado (`.ToUniversalTime()` en la rama cron) + 2 pruebas de regresion que afirman sobre
+**`.Offset`**, que es lo unico que distingue el caso. Verificado que la prueba nueva FALLA sin el
+arreglo y pasa con el. 462 pruebas verdes.
+
+**Leccion para las proximas olas**: para fechas, un test de igualdad de `DateTimeOffset` no prueba que
+la representacion sea la correcta. Si el destino es Postgres, hay que afirmar sobre el desfase.
+
+---
+
 ## 2026-07-17 - Programaciones que disparan SOLAS + bitacora de corridas (Ola 4)
 
 El horario ya ejecuta sin nadie delante, y cada corrida deja registro. **Verificado en vivo**: una

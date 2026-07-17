@@ -113,6 +113,38 @@ public class ImportRecurrenceTests
         Assert.Equal(Utc(2026, 7, 17, 8, 0), r.NextRunAt);
     }
 
+    /// <summary>
+    /// Regresion de un bug REAL que las demas pruebas no podian ver: Cronos devuelve el instante con
+    /// el desfase de la zona pedida (-05:00 en Bogota), y Npgsql RECHAZA guardar un `timestamptz` que
+    /// no venga con desfase 0 -> guardar una programacion cron reventaba al escribir en la BD.
+    ///
+    /// Los Assert.Equal de arriba pasaban igual, porque DateTimeOffset compara INSTANTES y
+    /// 03:00-05:00 == 08:00Z. Por eso esta prueba afirma sobre el .Offset, que es lo unico que
+    /// distingue el caso.
+    /// </summary>
+    [Fact]
+    public void Cron_devuelve_la_hora_en_UTC_puro_porque_la_BD_no_acepta_otro_desfase()
+    {
+        var r = ImportRecurrence.ComputeNextRun(
+            Proc(ImportScheduleKind.Cron, cron: "0 3 * * *"), Utc(2026, 7, 17, 0, 0), Bogota);
+
+        Assert.NotNull(r.NextRunAt);
+        Assert.Equal(TimeSpan.Zero, r.NextRunAt!.Value.Offset);
+    }
+
+    [Fact]
+    public void Intervalo_tambien_devuelve_UTC_puro()
+    {
+        // El ancla puede venir con cualquier desfase (aqui -05:00); la salida debe salir normalizada.
+        var last = new DateTimeOffset(2026, 7, 17, 5, 0, 0, TimeSpan.FromHours(-5));
+
+        var r = ImportRecurrence.ComputeNextRun(
+            Proc(ImportScheduleKind.Interval, interval: 15, lastRun: last), last.AddMinutes(1), Bogota);
+
+        Assert.NotNull(r.NextRunAt);
+        Assert.Equal(TimeSpan.Zero, r.NextRunAt!.Value.Offset);
+    }
+
     [Fact]
     public void Cron_cada_cinco_minutos_da_el_siguiente_multiplo()
     {

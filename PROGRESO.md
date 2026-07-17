@@ -4598,3 +4598,99 @@ relacion). Se separo: una relacion es ahora una entidad de primera clase.
 / Pedidos->Productos N:N, 0 columnas de relacion restantes). Commit `8b980e9` en main + fase-0. NO
 desplegado. La verificacion visual en Chrome quedo pendiente por inestabilidad del dev server (se cae al
 arrancar); la capa de datos si se verifico por psql.
+
+---
+
+## Sesion 2026-07-16 (cont.) - Board de registros, selector de iconos, menu cerrado, archivar formularios
+
+**Agentes**: Claude (Opus 4.8). Todo en `main` -> `fase-0/clon-backbone` + `main` remoto.
+
+- **DataRecordsBoard** (`Components/Shared/Data/`, commit `870179d`): el modulo publicado de una tabla
+  reusaba `DataRecordsGrid`, el panel denso del configurador. Se separan responsabilidades: el board es
+  la pagina de usuario final (eyebrow + titulo, CTA oscuro, KPIs Campos/Relaciones, panel con buscador,
+  Importar/Exportar, filtros, grid, pager y modal propio con `RowRelationPicker`); el grid se queda en el
+  modal de configuracion. **Decision del dueno**: publicacion por TABLA (no por contenedor).
+- **MenuIconPicker** (`Components/Shared/`, commit `92eb504`): el icono al publicar se tecleaba a mano
+  ("cube, list..."); una letra de mas y el item salia con el trazo neutro sin decir por que. Se EXTRAE el
+  selector que ya existia en ConfiguracionMenu a un componente compartido (no se duplica) y se usa en los
+  dos sitios. Verificado: persiste `icon_key=database`.
+- **Menu cerrado al entrar** (`NavMenu.razor`, commit `ce334fe`): `IsGroupOpen` abria misproc/auto/
+  sg-comercial SIEMPRE (replicaba el estado en que quedo capturado el prototipo). Ahora solo abre el grupo
+  que contiene la ruta activa. **Decision del dueno**: la memoria de localStorage se conserva.
+- **Archivar formulario desde la tarjeta** (commit `7891fc7`): las tarjetas solo abrian el disenador.
+  **Decision del dueno**: el boton ARCHIVA (no borra) y BLOQUEA si esta en uso. `SetArchivedAsync` existia
+  pero no lo llamaba nadie; se le agrega `DescribeUsagesAsync` (concepto de actividad, pasos de flujo,
+  subformulario, modal de terceros). Las respuestas NO bloquean (archivar no las toca y es reversible),
+  solo se avisan. La tarjeta pasa de `<button>` a div con rol de boton: un boton dentro de otro es HTML
+  invalido.
+
+**Trampa de CSS que aparecio 3 veces**: los elementos que renderiza OTRO componente (el `<input>` de
+`InputFile`, los `<svg>` de `MenuIcons`) NO llevan el scope del CSS del componente padre, asi que un
+selector normal no los alcanza (el file input se veia crudo; los iconos salian a tamano natural). Va con
+`::deep`.
+
+**Verificado en Chrome**: board con 8 filas + modal; selector 24 iconos a 17px en sus dos sitios; 14 grupos
+cerrados en /inicio y solo "gen" abierto en /dc/perfil-clientes; archivar -> badge Archivado + boton
+Restaurar; archivar "Solicitud de cotizacion" -> BLOQUEADO enumerando los 3 usos. Residuo de prueba
+restaurado.
+
+**Desplegado a prod** (`root@10.0.0.3`, build-from-git de `fase-0/clon-backbone`), con backup previo
+(`ecorex-2026-07-16-1724.sql.gz` y `-1820`). Sin migraciones: los 4 commits son de UI/servicio.
+
+**Siguiente**: campos configurables de Terceros e Items — 3 anchos (1/3, 2/3, completo), mover campo entre
+grupos, motor de formulas ([ADR-0029](docs/decisiones/ADR-0029-motor-de-formulas-campos-calculados.md),
+propuesto) y extras de travels (separador, filtrable, repetir N veces). Pendiente de antes: clave de orden
+tipada por celda (hoy "150000" ordena antes que "9").
+
+**Nota**: `TerceroFieldDefinition` dice "calcado de PipelineFieldDefinition (CUBOT.travels)" pero se calco
+a medias. Travels NO tiene motor de formulas: solo un tipo `Total` que suma claves listadas por coma.
+
+---
+
+## Sesion 2026-07-17 - Campos configurables: 3 anchos, mover de grupo y motor de formulas (ADR-0029)
+
+**Agentes**: Claude (Opus 4.8). Origen: el dueno noto que la configuracion de campos de terceros
+estaba peor que en el proyecto hermano CUBOT.travels.
+
+**Hallazgo**: `TerceroFieldDefinition` dice "calcado de PipelineFieldDefinition (CUBOT.travels)"
+pero se calco A MEDIAS: 2 anchos en vez de 3, sin mover de grupo, sin calculados. Un subagente
+mapeo travels y encontro que ALLA NO HAY motor de formulas: su unico calculado es un tipo `Total`
+que suma claves listadas por coma, evaluado dentro de la pagina Blazor. El dueno pidio formulas de
+verdad -> [ADR-0029](docs/decisiones/ADR-0029-motor-de-formulas-campos-calculados.md).
+
+- **Motor** (`Ecorex.Application/Formulas`, commit `5db1e92`): parser de descenso recursivo +
+  evaluador acotado (+ - * / parentesis, ROUND/MIN/MAX/ABS/SUM), sin dependencias externas, todo en
+  decimal. FormulaCalculator resuelve el CONJUNTO en orden de dependencia y DETECTA CICLOS
+  nombrando el recorrido; con ciclo no se publica ningun calculado. 59 tests nuevos.
+- **Datos**: enum gana `Calculated`; las 2 entidades ganan Formula, ShowInFilter y
+  RepeatWithFieldKey. Migracion DUAL aditiva (`CamposCalculadosYAnchos`).
+- **Servicios** (commit `a26ad5c`): Clamp(1,3), mover de ficha/tipo, validacion de formula.
+- **Modal de tercero** (commit `95cc867`): rejilla de 3 SOLO en `.dg-ficha-body .dg-fields` (la
+  `.dg-fields` general la comparte el form de configuracion), calculado readonly en vivo,
+  separador. Se materializa al guardar.
+- **Items**: configurador + ficha a la par (rejilla de 12: col-md-4 / col-md-8 / col-12).
+
+**Lo que los datos reales corrigieron del ADR** (ver Addendum): la clave solo es unica POR FICHA y
+existe `dias_de_pago` en cliente Y proveedor -> `{dias_de_pago}` es ambiguo y se rechaza nombrando
+las fichas; en la UI sale tachada. Mover avisa si el destino ya tiene la clave (indice unico) y, en
+items, si una formula del origen la usa.
+
+**Deuda propia saldada**: `CurrentPermissionsTests` no compilaba desde `5bc15b7` (el fix de
+seguridad del 16-jul le agrego un parametro al constructor y no se actualizo el test; solo se
+compilaba el proyecto, no la sln). El CI llevaba un dia en rojo. Corregido + test de regresion que
+ese fix nunca tuvo (sin HttpContext la identidad sale del AuthenticationState).
+
+**Verificado**: sln 0 errores; 503 tests unitarios verdes. En Chrome: 4 formulas de tercero
+(valida / falta un valor / clave inexistente / ambigua) al instante; rejilla de 3 medida (306 /
+625 / 944 px); 1000000 -> 1190000 y 2500000 -> 2975000 en vivo; al guardar la BD queda con
+"cupo_con_iva": "1190000". En items, campo creado DESDE LA UI: {material}+1 rechazado por no
+numerico, {garantia_meses}*30 valido, ficha abre en 720 y recalcula 360 / 1080 / 0. Residuos de
+prueba eliminados.
+
+**Desplegado a prod** (`a26ad5c`, backup `ecorex-2026-07-17-0525.sql.gz`): la migracion se aplico
+sola (MigrateAsync al arrancar) y se verificaron las 6 columnas en la BD de produccion. Los commits
+del modal e items quedan SIN desplegar.
+
+**Siguiente**: pendiente de antes, clave de orden tipada por celda en el Contenedor de datos (hoy
+"150000" ordena antes que "9"). Tests de servicio de campos (ambiguedad, mover, ciclo) en la matriz
+dual de integracion.

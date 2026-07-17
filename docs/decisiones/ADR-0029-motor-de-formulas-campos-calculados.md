@@ -1,6 +1,6 @@
 # ADR-0029 - Motor de formulas para campos calculados configurables
 
-- Estado: propuesto
+- Estado: aceptado (implementado 2026-07-17)
 - Fecha: 2026-07-16
 - Contexto: campos configurables de Terceros (000232) e Items de inventario (000066)
 
@@ -80,3 +80,25 @@ Al guardar la definicion del campo:
 - El motor es logica pura sin dependencia de EF, asi que se cubre con tests unitarios (sin Docker).
 - `TerceroFieldType` gana `Calculated`. `Separator` ya existia pero solo lo renderizaba
   Configuracion de entidad; pasa a estar disponible en Terceros e Items.
+
+## Addendum 2026-07-17 - lo que los datos reales obligaron a cambiar
+
+Al implementarlo aparecio un caso que este ADR no habia previsto: **la clave de un campo solo es
+unica DENTRO de su ficha**, y en los datos existe `dias_de_pago` en cliente Y en proveedor. La
+decision original ("en terceros una formula puede referenciar cualquier ficha") no se sostiene tal
+cual: `{dias_de_pago}` no dice a cual de los dos apunta, y como los valores viven por ficha en
+FichasJson, elegir uno seria adivinar.
+
+**Resolucion**: referenciar entre fichas SIGUE valiendo; lo que se rechaza es la clave ambigua,
+nombrando las fichas en conflicto para que se renombre una. En la UI esas claves se muestran
+tachadas y no se pueden pinchar, en vez de ofrecerlas y rechazarlas al guardar. Se descarto
+desambiguar con `{ficha.clave}`: complica la sintaxis para todos por un caso que el usuario puede
+resolver renombrando.
+
+Consecuencias derivadas:
+- **Mover un campo** avisa si la ficha/tipo destino ya tiene esa clave (reventaria contra el indice
+  unico), en vez de dejar que falle el SaveChanges.
+- En **items**, mover ademas se niega si alguna formula del tipo origen referencia el campo: se
+  quedaria sin ese dato al evaluar.
+- Las claves de campos NUEVOS de tercero se generan unicas por TENANT (no por ficha), para no
+  fabricar mas ambiguedad a futuro. Las que ya existen se quedan como estan.

@@ -3915,6 +3915,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("field_type");
 
+                    b.Property<string>("Formula")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("formula");
+
                     b.Property<bool>("IsRequired")
                         .HasColumnType("boolean")
                         .HasColumnName("is_required");
@@ -3937,6 +3942,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("options");
+
+                    b.Property<string>("RepeatWithFieldKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("repeat_with_field_key");
+
+                    b.Property<bool>("ShowInFilter")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_in_filter");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
@@ -9417,6 +9431,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("field_type");
 
+                    b.Property<string>("Formula")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("formula");
+
                     b.Property<bool>("IsSystem")
                         .HasColumnType("boolean")
                         .HasColumnName("is_system");
@@ -9431,6 +9450,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("options");
+
+                    b.Property<string>("RepeatWithFieldKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("repeat_with_field_key");
+
+                    b.Property<bool>("ShowInFilter")
+                        .HasColumnType("boolean")
+                        .HasColumnName("show_in_filter");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")

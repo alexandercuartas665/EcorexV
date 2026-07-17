@@ -28,7 +28,10 @@ public class ItemFieldDefinition : TenantEntity
     /// <summary>Opciones para el tipo Select, una por linea.</summary>
     public string? Options { get; set; }
 
-    /// <summary>Columna del layout en el modal (1 = angosta, 2 = ancha/full).</summary>
+    /// <summary>
+    /// Ancho del campo en la rejilla de 3 columnas del modal: 1 = pequena (1/3), 2 = media (2/3),
+    /// 3 = grande (ancho completo). El servicio lo acota a ese rango.
+    /// </summary>
     public int Column { get; set; } = 1;
     public int SortOrder { get; set; }
 
@@ -37,6 +40,23 @@ public class ItemFieldDefinition : TenantEntity
 
     /// <summary>Si el dato es obligatorio al guardar.</summary>
     public bool IsRequired { get; set; }
+
+    /// <summary>
+    /// Solo para <see cref="TerceroFieldType.Calculated"/>: expresion a evaluar, con los campos
+    /// referenciados entre llaves. Ej: <c>{costo} * (1 + {margen} / 100)</c>. En items solo puede
+    /// referenciar campos del MISMO tipo de item: un item tiene un unico tipo, asi que los de otro
+    /// tipo no existirian al evaluar. Ver ADR-0029.
+    /// </summary>
+    public string? Formula { get; set; }
+
+    /// <summary>El campo se ofrece como filtro en el listado de items.</summary>
+    public bool ShowInFilter { get; set; }
+
+    /// <summary>
+    /// FieldKey de un campo numerico del mismo tipo: este campo se repite tantas veces como diga su
+    /// valor. Null = no se repite.
+    /// </summary>
+    public string? RepeatWithFieldKey { get; set; }
 
     /// <summary>Marca los campos sembrados por defecto, para distinguirlos de los del tenant.</summary>
     public bool IsSystem { get; set; }

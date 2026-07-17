@@ -25,7 +25,10 @@ public class TerceroFieldDefinition : TenantEntity
     /// <summary>Opciones para tipo Select, separadas por salto de linea.</summary>
     public string? Options { get; set; }
 
-    /// <summary>Columna del layout en el modal (1 = angosta, 2 = ancha/full).</summary>
+    /// <summary>
+    /// Ancho del campo en la rejilla de 3 columnas del modal: 1 = pequena (1/3), 2 = media (2/3),
+    /// 3 = grande (ancho completo). El servicio lo acota a ese rango.
+    /// </summary>
     public int Column { get; set; } = 1;
     public int SortOrder { get; set; }
 
@@ -37,6 +40,23 @@ public class TerceroFieldDefinition : TenantEntity
 
     /// <summary>Permite capturar varios valores en este campo. Se guardan como arreglo JSON.</summary>
     public bool AllowMultiple { get; set; }
+
+    /// <summary>
+    /// Solo para <see cref="TerceroFieldType.Calculated"/>: expresion a evaluar, con los campos
+    /// referenciados entre llaves. Ej: <c>ROUND(({valor_base} + {flete}) * 1.19, 2)</c>. En terceros
+    /// puede referenciar campos de CUALQUIER ficha, porque todos los valores viven en el mismo
+    /// FichasJson del tercero. Ver ADR-0029.
+    /// </summary>
+    public string? Formula { get; set; }
+
+    /// <summary>El campo se ofrece como filtro en el listado.</summary>
+    public bool ShowInFilter { get; set; }
+
+    /// <summary>
+    /// FieldKey de un campo numerico de la misma ficha: este campo se repite tantas veces como diga
+    /// su valor (ej. "acompanantes" -> repetir "nombre"). Null = no se repite.
+    /// </summary>
+    public string? RepeatWithFieldKey { get; set; }
 
     /// <summary>
     /// Marca los campos sembrados por defecto (del spec del prototipo). Permite distinguir los

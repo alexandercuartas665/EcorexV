@@ -1585,6 +1585,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Label).HasMaxLength(150).IsRequired();
             b.Property(x => x.Options).HasMaxLength(2000);
             b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Formula).HasMaxLength(1000);
+            b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
         });
@@ -1859,6 +1861,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Label).HasMaxLength(150).IsRequired();
             b.Property(x => x.Options).HasMaxLength(2000);
             b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Formula).HasMaxLength(1000);
+            b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
             b.HasOne(x => x.ItemType).WithMany()
                 .HasForeignKey(x => x.ItemTypeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ItemTypeId, x.SortOrder });

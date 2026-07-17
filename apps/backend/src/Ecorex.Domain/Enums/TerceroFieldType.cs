@@ -15,5 +15,11 @@ public enum TerceroFieldType
     Date,
     Phone,
     /// <summary>Separador visual (linea divisoria con titulo). No captura ningun valor.</summary>
-    Separator
+    Separator,
+
+    /// <summary>
+    /// Campo de solo lectura cuyo valor sale de evaluar <c>Formula</c> (ver ADR-0029). No se captura:
+    /// se recalcula al escribir en los campos que referencia y se materializa al guardar.
+    /// </summary>
+    Calculated
 }

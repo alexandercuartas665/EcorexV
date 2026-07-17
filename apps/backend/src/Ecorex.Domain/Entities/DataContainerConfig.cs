@@ -134,6 +134,14 @@ public class ImportProcess : TenantEntity
     /// programacion que deja de disparar sin decir por que es peor que una que falla ruidosamente.
     /// </summary>
     public string? DisabledReason { get; set; }
+
+    /// <summary>
+    /// Desde cuando esta ESPERANDO a que su agente vuelva (UTC). Se pone cuando el horario dispara y el
+    /// agente esta caido, y se limpia en cuanto se le alcanza. Es lo que hace que el worker sepa "esta
+    /// programacion tiene una carga pendiente por reintentar cuando el agente reconecte", sin recorrer
+    /// la bitacora entera; por eso esta indexado. null = no esta esperando a nadie.
+    /// </summary>
+    public DateTimeOffset? PendingSince { get; set; }
 }
 
 /// <summary>

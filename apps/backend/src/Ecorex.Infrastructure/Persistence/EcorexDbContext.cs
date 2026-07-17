@@ -2139,6 +2139,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.ModelId });
             // El barrido del worker filtra por aqui en CADA pasada (cada minuto, cross-tenant).
             b.HasIndex(x => x.NextRunAt);
+            // El worker tambien busca "quien esta esperando a su agente" en cada pasada.
+            b.HasIndex(x => x.PendingSince);
         });
 
         modelBuilder.Entity<ImportRun>(b =>

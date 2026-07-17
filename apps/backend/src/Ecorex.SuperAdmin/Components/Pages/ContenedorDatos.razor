@@ -458,6 +458,11 @@ else
                                                 {
                                                     <div class="dc-probe off">Desactivada: @p.DisabledReason</div>
                                                 }
+                                                @* Parqueada esperando a que su agente vuelva: se reintenta sola al reconectar. *@
+                                                @if (p.PendingSince is DateTimeOffset ps)
+                                                {
+                                                    <div class="dc-probe off">Esperando al agente desde @ps.ToLocalTime().ToString("dd MMM HH:mm"); se reintentara al reconectar.</div>
+                                                }
                                                 @if (_runResult.TryGetValue(p.Id, out var rr))
                                                 {
                                                     <div class="dc-probe @(rr.Ok ? "on" : "off")">@rr.Message</div>
@@ -961,6 +966,7 @@ else
     .dc-run-dot.ok { background: #10b981; }
     .dc-run-dot.err { background: #ef4444; }
     .dc-run-dot.run { background: #f59e0b; }
+    .dc-run-dot.wait { background: #f59e0b; }
     .dc-run-dot.skip { background: var(--line, var(--border)); }
     .dc-run-when { font-variant-numeric: tabular-nums; }
     .dc-run-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1167,6 +1173,7 @@ else
         ImportRunResult.Ok => "ok",
         ImportRunResult.Error => "err",
         ImportRunResult.Running => "run",
+        ImportRunResult.PendingOffline => "wait",
         _ => "skip"
     };
 
@@ -1174,6 +1181,7 @@ else
     {
         ImportRunResult.Ok => $"{r.Inserted} filas" + (r.Deleted > 0 ? $" (reemplazo {r.Deleted})" : ""),
         ImportRunResult.Running => "ejecutando...",
+        ImportRunResult.PendingOffline => "agente offline; se reintentara",
         _ => r.Detail ?? r.Result.ToString()
     };
 

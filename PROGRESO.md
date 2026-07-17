@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-07-17 - Reintento del agente offline (UC3) + reencuadre honesto del TLS
+
+### El TLS no era tan urgente: se corrigio la documentacion
+
+El usuario senalo, con razon, que si produccion va por HTTPS el canal ya va cifrado, asi que mi
+"la contrasena viaja en claro cada N minutos" era una exageracion (era cierto SOLO en dev, con el hub
+en `http://localhost`). Se separo lo que estaba mezclado y se corrigio ADR-0040 + los 4 docs del vault:
+
+- **Cifrado del canal = lo da el DESPLIEGUE** detras de HTTPS (agente conecta por `wss://`). Eso
+  resuelve el grueso, sin tocar el agente. La validacion de certificados de .NET ya esta activa (cert
+  invalido ya se rechaza).
+- **"TLS estricto" = que el AGENTE rechace una URL no-TLS.** Defensa contra config erronea/downgrade.
+  Guardrail barato, NO bloqueante si prod es HTTPS. Baja de prioridad.
+
+### Reintento del agente offline: construido y verificado en vivo
+
+Antes, si el horario disparaba con el agente caido, la corrida quedaba en `Error` y solo se
+reintentaba en la siguiente ventana natural (horas para un intervalo largo). Ahora:
+
+- **`ImportRunResult.PendingOffline`** (enum, sin migracion): un agente dormido NO es un `Error` -es un
+  "no llegue a intentarlo"-; se distingue para no ensuciar los KPIs.
+- **`ImportProcess.PendingSince`** (columna nullable + indice; migracion dual `AddImportPendingOffline`):
+  parquea la programacion "esperando a su agente". El runner la pone al fallar por offline y la limpia
+  al despachar (no al ingerir: "offline" es especificamente "no llegue al agente").
+- **Pase de reintento en el dispatcher**, gateado por `IsOnline`: reintenta las parqueadas SOLO cuando
+  su agente volvio. El gate es lo que evita el spam -sin el, reintentar con el agente aun caido
+  generaria una corrida PendingOffline cada minuto-. La discovery del worker se amplio (`FindTenants
+  WithWorkAsync` = vencidas O parqueadas) para no perderse un tenant con solo cargas pendientes.
+
+**Verificado E2E, con el reintento AISLADO del horario normal**: agente apagado -> el horario (cada 1
+min) dejo la corrida `PendingOffline` y parqueo el proceso; se empujo `next_run_at` a +1h (para que el
+horario normal NO pudiera dispararlo); se **encendio el agente** -> a los <70s el worker lo reintento
+solo (log: *"agente reconecto, carga pendiente reintentada"*), la bitacora paso a `Ok` (4 filas),
+`pending_since` se limpio y `next_run_at` **seguia a +1h** -prueba de que fue el reintento y no el
+horario-. 462 pruebas verdes.
+
+**Nota honesta**: mientras el agente esta caido, el horario normal genera un `PendingOffline` por
+ventana (cada minuto en la prueba). Es ruido en la bitacora pero es VERDAD (el horario intento cada
+minuto); no es un bucle de reintento (el pase de reintento esta gateado por IsOnline y no corre con el
+agente caido). Para intervalos reales (15+ min) es despreciable. Lo que NO se implemento: `Cancel`
+(sigue declarado sin manejar) y el TLS estricto (ahora un guardrail, no bloqueante).
+
+---
+
 ## 2026-07-17 - Prueba de un CRON a 10 minutos: disparo exacto, y un bug que solo se ve corriendo
 
 Se programo "Refresco Perfil Clientes" (contenedor TABLAS CRM, fuente PostgreSQL) con cron

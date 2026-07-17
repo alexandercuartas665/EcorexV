@@ -3738,6 +3738,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_run_at");
 
+                    b.Property<DateTimeOffset?>("PendingSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("pending_since");
+
                     b.Property<string>("ScheduleKind")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -3773,6 +3777,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("NextRunAt")
                         .HasDatabaseName("ix_import_processes_next_run_at");
+
+                    b.HasIndex("PendingSince")
+                        .HasDatabaseName("ix_import_processes_pending_since");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_import_processes_tenant_id_model_id");

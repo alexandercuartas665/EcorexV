@@ -96,7 +96,13 @@ public enum ImportRunResult
     /// <summary>Fallo: no se pudo despachar, el agente reporto error, o vencio el plazo.</summary>
     Error,
     /// <summary>No habia nada que hacer o no se dispara (ej. ya corria otra igual).</summary>
-    Skipped
+    Skipped,
+    /// <summary>
+    /// El agente no estaba conectado a la hora que tocaba. NO es un Error: es un "no llegue a
+    /// intentarlo"; la programacion queda esperando y se reintenta sola cuando el agente vuelve. Se
+    /// distingue de Error para no ensuciar los KPIs con "fallos" que en realidad son agentes dormidos.
+    /// </summary>
+    PendingOffline
 }
 
 /// <summary>Esquema de alimentacion de un conector: como llega la data al contenedor.</summary>

@@ -127,7 +127,9 @@ public sealed record ImportProcessDto(
     /// <summary>Cuando corre la proxima vez (UTC). null = no programada.</summary>
     DateTimeOffset? NextRunAt = null,
     /// <summary>Por que se apago sola (ej. cron invalido).</summary>
-    string? DisabledReason = null);
+    string? DisabledReason = null,
+    /// <summary>Desde cuando espera a que su agente vuelva (UTC). null = no espera a nadie.</summary>
+    DateTimeOffset? PendingSince = null);
 
 /// <summary>Una corrida de la bitacora, para pintarla.</summary>
 public sealed record ImportRunDto(

@@ -70,12 +70,12 @@ public sealed class ImportSchedulerWorker(
         // 1) Cerrar lo que vencio (peticiones colgadas + resultados viejos). Va aparte del disparo.
         await imports.SweepAsync(ct);
 
-        // 2) Que tenants tienen algo vencido (solo ids, ningun dato de negocio).
+        // 2) Que tenants tienen algo que hacer -vencido o esperando a su agente- (solo ids).
         IReadOnlyList<Guid> tenants;
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
             var dispatcher = scope.ServiceProvider.GetRequiredService<IImportScheduleDispatcher>();
-            tenants = await dispatcher.FindTenantsWithDueProcessesAsync(nowUtc, ct);
+            tenants = await dispatcher.FindTenantsWithWorkAsync(nowUtc, ct);
         }
         if (tenants.Count == 0) { return; }
 

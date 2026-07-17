@@ -109,13 +109,15 @@ public sealed class ProcessRunner(
         }
 
         // Se comprueba DESPUES de abrir la corrida, a proposito: que el agente no este conectado a la
-        // hora a la que tocaba SI es una ejecucion fallida y tiene que quedar registrada. Es
-        // justamente el caso que el operador necesita ver al dia siguiente.
+        // hora a la que tocaba tiene que quedar registrado. Pero NO como fallo: se marca PendingOffline
+        // y se PARQUEA la programacion (`PendingSince`) para que el worker la reintente sola cuando el
+        // agente vuelva, en vez de esperar al siguiente horario natural (que puede ser dentro de horas).
         if (!registry.IsOnline(client.ClientId))
         {
-            var detail = $"El agente '{client.Name}' no estaba conectado.";
-            await runLog.FailAsync(runId.Value, detail, ct);
-            return new(false, null, $"{detail} Abre la colmena en el equipo o revisa su configuracion.");
+            var detail = $"El agente '{client.Name}' no estaba conectado; se reintentara cuando vuelva.";
+            await runLog.MarkOfflineAsync(runId.Value, detail, ct);
+            await SetPendingSinceAsync(processId, window, ct);
+            return new(false, null, detail);
         }
 
         var spec = new ConnectorSpec(
@@ -145,14 +147,30 @@ public sealed class ProcessRunner(
         }
 
         // LastRunAt marca el DISPARO, no el resultado (que llega despues por el canal). El desenlace
-        // vive en la bitacora, que es donde hay que mirarlo.
+        // vive en la bitacora, que es donde hay que mirarlo. Y se LIMPIA `PendingSince`: alcanzamos al
+        // agente, asi que ya no esta "esperando". Ojo: se limpia al DESPACHAR, no al ingerir; "esperar
+        // por agente offline" es especificamente "no llegue a el". Si luego el fetch falla, eso es otro
+        // problema (Error), no un offline que haya que reintentar al reconectar.
         var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == processId, ct);
         if (tracked is not null)
         {
             tracked.LastRunAt = window;
+            tracked.PendingSince = null;
             await db.SaveChangesAsync(ct);
         }
 
         return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
+    }
+
+    /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el
+    /// PendingSince mas viejo es el que interesa mostrar).</summary>
+    private async Task SetPendingSinceAsync(Guid processId, DateTimeOffset window, CancellationToken ct)
+    {
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == processId, ct);
+        if (tracked is not null && tracked.PendingSince is null)
+        {
+            tracked.PendingSince = window;
+            await db.SaveChangesAsync(ct);
+        }
     }
 }

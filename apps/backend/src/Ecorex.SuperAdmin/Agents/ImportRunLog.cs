@@ -34,6 +34,11 @@ public interface IImportRunLog
     /// <summary>Cierra una corrida que ni siquiera llego a despacharse (agente caido, conector sin
     /// consulta...). El motivo es el que ve el operador.</summary>
     Task FailAsync(Guid runId, string detail, CancellationToken ct = default);
+
+    /// <summary>Marca una corrida como <see cref="ImportRunResult.PendingOffline"/>: no se llego a
+    /// intentar porque el agente no estaba. Separado de <see cref="FailAsync"/> a proposito: un agente
+    /// dormido no es un fallo, es algo que se reintenta solo cuando vuelve.</summary>
+    Task MarkOfflineAsync(Guid runId, string detail, CancellationToken ct = default);
 }
 
 public sealed class ImportRunLog(IApplicationDbContext db, ILogger<ImportRunLog> log) : IImportRunLog
@@ -89,6 +94,16 @@ public sealed class ImportRunLog(IApplicationDbContext db, ILogger<ImportRunLog>
         var run = await db.ImportRuns.FirstOrDefaultAsync(r => r.Id == runId, ct);
         if (run is null || run.Result != ImportRunResult.Running) { return; }
         run.Result = ImportRunResult.Error;
+        run.Detail = Trim(detail);
+        run.FinishedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task MarkOfflineAsync(Guid runId, string detail, CancellationToken ct = default)
+    {
+        var run = await db.ImportRuns.FirstOrDefaultAsync(r => r.Id == runId, ct);
+        if (run is null || run.Result != ImportRunResult.Running) { return; }
+        run.Result = ImportRunResult.PendingOffline;
         run.Detail = Trim(detail);
         run.FinishedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

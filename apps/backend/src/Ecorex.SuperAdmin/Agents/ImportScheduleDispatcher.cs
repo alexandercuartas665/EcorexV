@@ -12,10 +12,12 @@ namespace Ecorex.SuperAdmin.Agents;
 /// </summary>
 public interface IImportScheduleDispatcher
 {
-    /// <summary>Barrido de PLATAFORMA: que tenants tienen algo vencido. Devuelve solo ids.</summary>
-    Task<IReadOnlyList<Guid>> FindTenantsWithDueProcessesAsync(DateTimeOffset nowUtc, CancellationToken ct = default);
+    /// <summary>Barrido de PLATAFORMA: que tenants tienen algo que hacer (vencido O esperando a su
+    /// agente). Devuelve solo ids.</summary>
+    Task<IReadOnlyList<Guid>> FindTenantsWithWorkAsync(DateTimeOffset nowUtc, CancellationToken ct = default);
 
-    /// <summary>Dispara lo vencido del tenant que este fijado en el contexto. Devuelve cuantas disparo.</summary>
+    /// <summary>Dispara lo vencido y reintenta lo que esperaba a su agente, del tenant fijado en el
+    /// contexto. Devuelve cuantas disparo.</summary>
     Task<int> RunDueForTenantAsync(DateTimeOffset nowUtc, CancellationToken ct = default);
 }
 
@@ -23,26 +25,34 @@ public sealed class ImportScheduleDispatcher(
     IApplicationDbContext db,
     ITenantContext tenantContext,
     IProcessRunner runner,
+    IAgentRegistry registry,
     ILogger<ImportScheduleDispatcher> log) : IImportScheduleDispatcher
 {
     /// <summary>Techo por pasada: un backlog gigante no debe monopolizar el ciclo.</summary>
     private const int MaxPerCycle = 200;
 
-    public async Task<IReadOnlyList<Guid>> FindTenantsWithDueProcessesAsync(
+    public async Task<IReadOnlyList<Guid>> FindTenantsWithWorkAsync(
         DateTimeOffset nowUtc, CancellationToken ct = default)
+    {
         // IgnoreQueryFilters: aqui todavia no hay tenant fijado. Es un barrido de PLATAFORMA y por eso
         // devuelve solo ids de tenant, ningun dato de negocio; lo que venga despues va acotado.
         //
-        // Incluye las que estan SIN PROGRAMAR (NextRunAt == null): son las que quedarian MUERTAS para
-        // siempre si nadie les calculo la proxima ventana (por ejemplo, las creadas antes de que este
-        // motor existiera - que son TODAS las de hoy). Al visitarlas, RunDueForTenantAsync las repara.
-        => await db.ImportProcesses.IgnoreQueryFilters()
+        // Vencidas: incluye las SIN PROGRAMAR (NextRunAt == null), que quedarian MUERTAS para siempre si
+        // nadie les calculo la proxima ventana; al visitarlas, RunDueForTenantAsync las repara.
+        var due = db.ImportProcesses.IgnoreQueryFilters()
             .Where(p => p.IsActive
                 && p.ScheduleKind != ImportScheduleKind.Manual
                 && (p.NextRunAt == null || p.NextRunAt <= nowUtc))
-            .Select(p => p.TenantId)
-            .Distinct()
-            .ToListAsync(ct);
+            .Select(p => p.TenantId);
+
+        // Esperando a su agente: las que fallaron por agente offline y aun no se han alcanzado. Sin
+        // esto, un tenant con SOLO cargas pendientes (nada vencido ahora) nunca se reintentaria.
+        var pending = db.ImportProcesses.IgnoreQueryFilters()
+            .Where(p => p.PendingSince != null)
+            .Select(p => p.TenantId);
+
+        return await due.Concat(pending).Distinct().ToListAsync(ct);
+    }
 
     public async Task<int> RunDueForTenantAsync(DateTimeOffset nowUtc, CancellationToken ct = default)
     {
@@ -62,9 +72,11 @@ public sealed class ImportScheduleDispatcher(
             .ToListAsync(ct);
 
         var fired = 0;
+        var processedIds = new HashSet<Guid>();
         foreach (var process in candidates)
         {
             if (ct.IsCancellationRequested) { break; }
+            processedIds.Add(process.Id);
 
             // AUTO-REPARACION: sin proxima ventana no habia nada que disparar todavia. Se le calcula
             // y se deja lista para el siguiente ciclo, en vez de disparar "ahora" una programacion
@@ -100,7 +112,50 @@ public sealed class ImportScheduleDispatcher(
         }
 
         await db.SaveChangesAsync(ct);
+
+        // Segundo pase: cargas que se quedaron esperando a su agente. Va DESPUES del pase de vencidas
+        // (que ya limpia PendingSince de las que ademas tocaban ahora) y solo intenta las que su agente
+        // ya volvio: reintentar con el agente aun caido solo generaria otra corrida PendingOffline cada
+        // minuto (spam). Por eso el gate por IsOnline es lo que hace que esto se dispare AL RECONECTAR.
+        fired += await RetryPendingAsync(processedIds, nowUtc, ct);
         return fired;
+    }
+
+    private async Task<int> RetryPendingAsync(HashSet<Guid> alreadyRun, DateTimeOffset nowUtc, CancellationToken ct)
+    {
+        var pending = await db.ImportProcesses
+            .Where(p => p.IsActive && p.ScheduleKind != ImportScheduleKind.Manual && p.PendingSince != null)
+            .Take(MaxPerCycle)
+            .ToListAsync(ct);
+
+        var retried = 0;
+        foreach (var process in pending)
+        {
+            if (ct.IsCancellationRequested) { break; }
+            if (alreadyRun.Contains(process.Id)) { continue; } // el pase de vencidas ya lo toco.
+            if (process.ClientId is not Guid clientRowId) { continue; }
+
+            var publicId = await db.DataClients.AsNoTracking()
+                .Where(c => c.Id == clientRowId).Select(c => c.ClientId).FirstOrDefaultAsync(ct);
+            if (publicId is null || !registry.IsOnline(publicId)) { continue; } // aun no ha vuelto.
+
+            try
+            {
+                // Ventana = ahora: es una corrida de PONERSE AL DIA, no la ventana perdida (que ya
+                // consta en la bitacora como PendingOffline). RunNow limpia PendingSince al despachar.
+                var result = await runner.RunNowAsync(process.Id, ImportRunTrigger.Scheduled, nowUtc, ct);
+                if (result.Ok)
+                {
+                    retried++;
+                    log.LogInformation("[HORARIO] proceso {Process}: agente reconecto, carga pendiente reintentada", process.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "[HORARIO] fallo el reintento del proceso {Process}", process.Id);
+            }
+        }
+        return retried;
     }
 
     private void Reschedule(Domain.Entities.ImportProcess process, DateTimeOffset nowUtc, TimeZoneInfo tz)

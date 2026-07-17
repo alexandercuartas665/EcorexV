@@ -422,7 +422,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
         return new ImportProcessDto(
             p.Id, p.ModelId ?? Guid.Empty, p.ConnectorId, connectorName, p.ClientId, clientName,
             p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.LastRunAt,
-            p.NextRunAt, p.DisabledReason);
+            p.NextRunAt, p.DisabledReason, p.PendingSince);
     }
 
     private async Task<string> GenerateUniqueClientIdAsync(CancellationToken ct)

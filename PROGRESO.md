@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-07-17 - "Actualizar datos": el circuito de negocio COMPLETO, verificado con filas reales
+
+Primera vez que un dato de una base ajena aterriza en un contenedor **por el camino de produccion**:
+un operador pulsa un boton en la web y el agente de la LAN trae las filas.
+
+- **E2E real** (no simulado): conector `CLIENTES ALEGRA` -> Base de datos / PostgreSql /
+  `localhost:5442` / `ecorex_agente`, consulta `SELECT CAST(id AS text) AS "CODIGO", name AS "NOMBRE"
+  FROM tenants`; programacion "Refresco Perfil Clientes" con el cliente `cli_22e0790802bb`. Al pulsar
+  **"Actualizar datos"**: agente *"Orden ea2c2a87: OK 2 filas"*, servidor *"corr=ea2c2a87 OK ins=2
+  upd=0 del=8"*, UI *"Listo: 2 filas cargadas (se reemplazaron 8)"*, y las 2 filas verificadas en la
+  BD (Plataforma ECOREX / SKY SYSTEM). El `del=8` confirma que el refresco es Replace, no Append.
+- **Hueco encontrado al probar**: `DataConnector.Query` existia en la entidad y en la BD (migracion
+  `AddConnectorQuery`), pero **ni el DTO ni el servicio ni la UI la transportaban**. El boton exige la
+  consulta, asi que era inejecutable desde la web: solo se veia al intentar usarlo. Cableado de punta
+  a punta (DTO + `SaveConnectorAsync` + textarea en el formulario de Base de datos).
+- La credencial de la fuente se configura y se cifra desde la web (ADR-0040) y viaja en el
+  `FetchRequest`; el agente armo la cadena con Npgsql sin configuracion local.
+
+**Siguiente**: dedup de chunks por (correlationId, chunkIndex) y timeout del pending fetch, ANTES del
+scheduler (Ola 4), que llamara a este mismo `IProcessRunner`.
+
+**Recordatorio**: **TLS estricto sigue BLOQUEANTE para produccion** (ADR-0040) - hoy la contrasena de
+la BD del cliente viaja por `http://` en dev.
+
+---
+
 ## 2026-07-16 - Agente: prueba de punta a punta con identidad emitida por la WEB (no por un seeder)
 
 Test corto pedido por el usuario, con una intuicion que resulto correcta: **el modulo de contenedores

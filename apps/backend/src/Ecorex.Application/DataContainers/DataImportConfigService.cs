@@ -101,6 +101,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.Port = null;
                 entity.DatabaseName = null;
                 entity.Username = null;
+                entity.Query = null;
                 break;
             case ConnectorKind.Database:
                 entity.DbEngine = req.DbEngine;
@@ -108,6 +109,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.Port = req.Port;
                 entity.DatabaseName = string.IsNullOrWhiteSpace(req.DatabaseName) ? null : req.DatabaseName!.Trim();
                 entity.Username = string.IsNullOrWhiteSpace(req.Username) ? null : req.Username!.Trim();
+                entity.Query = string.IsNullOrWhiteSpace(req.Query) ? null : req.Query!.Trim();
                 entity.EndpointUrl = null;
                 entity.HttpMethod = null;
                 entity.AuthKind = ConnectorAuthKind.None;
@@ -122,6 +124,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.Port = null;
                 entity.DatabaseName = null;
                 entity.Username = null;
+                entity.Query = null;
                 break;
         }
 
@@ -367,7 +370,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
     private static DataConnectorDto MapConnector(DataConnector c, IReadOnlyDictionary<Guid, string>? tableNames = null) =>
         new(c.Id, c.ModelId ?? Guid.Empty, c.Name, c.Kind,
             c.EndpointUrl, c.HttpMethod, c.AuthKind,
-            c.DbEngine, c.Host, c.Port, c.DatabaseName, c.Username,
+            c.DbEngine, c.Host, c.Port, c.DatabaseName, c.Username, c.Query,
             c.CredentialsEncrypted != null, c.MappingJson, c.IsActive,
             c.ContainerId,
             c.ContainerId is Guid t && tableNames is not null && tableNames.TryGetValue(t, out var n) ? n : null);

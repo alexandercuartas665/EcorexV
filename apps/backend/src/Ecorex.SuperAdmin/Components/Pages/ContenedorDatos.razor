@@ -374,6 +374,7 @@ else
                                         <input class="form-control" placeholder="Base de datos" @bind="_conDatabase" />
                                         <input class="form-control" placeholder="Usuario" @bind="_conUser" />
                                         <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
+                                        <textarea class="form-control" rows="3" placeholder="Consulta: SELECT que trae los datos" @bind="_conQuery"></textarea>
                                     }
 
                                     <label class="dc-req"><input type="checkbox" @bind="_conActive" /> Activo</label>
@@ -1110,6 +1111,7 @@ else
     private string _conDatabase = "";
     private string _conUser = "";
     private string _conCreds = "";
+    private string _conQuery = "";
     private string _conMapping = "";
     private bool _conActive = true;
     private string? _conError;
@@ -1614,6 +1616,7 @@ else
         _conDatabase = c.DatabaseName ?? "";
         _conUser = c.Username ?? "";
         _conCreds = "";
+        _conQuery = c.Query ?? "";
         _conMapping = c.MappingJson ?? "";
         _conActive = c.IsActive;
         _conContainerId = c.ContainerId?.ToString() ?? "";
@@ -1634,6 +1637,7 @@ else
         _conDatabase = "";
         _conUser = "";
         _conCreds = "";
+        _conQuery = "";
         _conMapping = "";
         _conActive = true;
         _conContainerId = "";
@@ -1661,6 +1665,7 @@ else
                 _conKind == ConnectorKind.Database ? NullIfBlank(_conDatabase) : null,
                 _conKind == ConnectorKind.Database ? NullIfBlank(_conUser) : null,
                 NullIfBlank(_conCreds),
+                _conKind == ConnectorKind.Database ? NullIfBlank(_conQuery) : null,
                 _conKind == ConnectorKind.RestApi ? NullIfBlank(_conMapping) : null,
                 _conActive,
                 Guid.TryParse(_conContainerId, out var tgt) ? tgt : null);

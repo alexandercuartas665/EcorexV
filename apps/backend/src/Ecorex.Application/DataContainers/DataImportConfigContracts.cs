@@ -24,6 +24,11 @@ public sealed record DataConnectorDto(
     int? Port,
     string? DatabaseName,
     string? Username,
+    /// <summary>
+    /// El SELECT que trae los datos. Va con la fuente (y no en el proceso) porque es parte de "de donde
+    /// salen los datos": el mismo conector siempre trae lo mismo, lo dispare el boton o el horario.
+    /// </summary>
+    string? Query,
     // Comun
     bool HasCredentials,
     string? MappingJson,
@@ -56,6 +61,7 @@ public sealed record SaveDataConnectorRequest(
     string? DatabaseName,
     string? Username,
     string? Credentials,
+    string? Query,
     string? MappingJson,
     bool IsActive = true,
 

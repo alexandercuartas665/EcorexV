@@ -5,6 +5,60 @@
 
 ---
 
+## 2026-07-18 - Bandeja de formularios usable + Asesores con doc/telefono + scroll del menu (3 deploys)
+
+**Agentes**: Claude (Opus 4.8). **Accion**: hacer usable el modulo de formulario (/m/{code}),
+extender Asesores como maestro de vendedores, y arreglar el scroll del editor de menu. Todo
+desplegado a prod (build-from-git de `fase-0/clon-backbone`).
+
+**Modulo de formulario (`0f8fc7a`)** - bandeja /m/{code} + motor de captura:
+- Bandeja: "Nuevo registro" (modal con el renderer en modo Fill), "Anular" por fila (VoidAsync,
+  motivo, soft-delete), menu de FILTROS con chips por campo (patron de Pipeline.razor de
+  CUBOT.travels) en vez de la fila plana que se esparramaba, pestanas Activos/Anulados (los
+  anulados no se mezclan), columna GridDetail como SUB-FILA expandible (mini-tabla con etiquetas
+  resueltas) en vez del JSON crudo, y tabla RESPONSIVE (scroll horizontal).
+- Publicar como modulo (FormDesigner): ACTIVA el formulario al publicarlo (un modulo del menu tiene
+  que poder capturar; antes quedaba en borrador y GetOrCreateDraft lo rechazaba), campo "Nombre en
+  el menu" (rotulo propio del nodo) y SELECTOR de icono (MenuIconPicker) en vez de caja de texto.
+- Renderer: footer "Enviar" FIJO (sticky) + alerta de validacion fija (en formularios largos el
+  boton quedaba bajo el fold y parecia que no se podia guardar); default "usuario actual" muestra
+  el NOMBRE (no el Guid); y **los campos ocultos por REGLA (D4) ya no bloquean el envio**: el
+  renderer avisa al servidor que campos oculto la regla (`_ruleUiState.HiddenFields`) y la
+  validacion server-side los salta -antes "Valor" oculto cuando "venta=No" rebotaba SIN marcar
+  nada (bug invisible)-. No se re-ejecuta el motor de reglas en el servidor a proposito: su
+  ExecuteForFormFieldAsync persiste un log de auditoria.
+- Dev: DataProtection persiste sus llaves a archivo local SOLO en Development (los reinicios ya no
+  cierran la sesion; el dev deja de escribir su keyring en la BD de prod). Carpeta gitignored.
+- QA en Chrome (prod): un registro real de CONTACTO CLIENTE (FRM-00005-000001, Confirmado) cae en
+  el gestor. Nota de tooling: los eventos sinteticos no registran las celdas del grid en Blazor;
+  el clic humano si.
+
+**Asesores = maestro de vendedores (`ca0bc8a`, con migracion)**: decision del usuario de REUSAR la
+pagina Asesores (el asesor ya ES un TenantUser con su cuenta de login, asi que el vinculo con el
+usuario del sistema es inherente). Se agregan `DocumentCode` (codigo/documento) y `Phone` a
+TenantUser + AdvisorDto/Create/Update + AdvisorService + config EF; UI en los modales Invitar/Editar
+y en la lista. Migracion DUAL `AddAdvisorDocumentAndPhone`: 2 columnas nullable en tenant_users
+(aditiva, no destructiva; el codigo viejo ignora columnas que no conoce). El maestro "Vendedores"
+(000124) sigue siendo stub; si se quiere, se re-apunta ese nodo del menu a /asesores (config por tenant).
+
+**Fix scroll editor de menu (`5a904cc`)**: el arbol de la vista (Configuracion Menu) crecia al alto de
+los 53 modulos y el modal lo recortaba; se constrine la fila del grid con `grid-template-rows:
+minmax(0,1fr)` y el arbol toma `flex:1 + min-height:0` para que su overflow scrollee de verdad.
+
+**Deploys a prod** (`root@10.0.0.3`, `/opt/ecorex`, build-from-git):
+- `ca0bc8a`: backup `ecorex-2026-07-18-0903.sql.gz`, build --no-cache + up -d. Aplico 1 migracion
+  `AddAdvisorDocumentAndPhone` (columnas document_code/phone creadas). Trajo tambien todo el modulo
+  de formularios (0f8fc7a no tenia migraciones). Sano (/login 200, sin errores).
+- `5a904cc`: build --no-cache + up -d (solo CSS, sin migracion). Sano (/login 200).
+
+**Verificacion**: build completo verde; tests Application 457, Domain 35, SuperAdmin 30, Integracion
+DynamicForms+RulesEngine 30 (dual), aislamiento cross-tenant 6/6 (dual). **Siguiente**: validacion
+visual del scroll del menu (usuario, en su sesion). **Bloqueo recurrente**: no puedo teclear
+contrasenas, y la pestana que controla el MCP no comparte sesion con el Chrome del usuario -> la
+validacion interactiva de paginas gated depende de que el usuario este logueado en la pestana correcta.
+
+---
+
 ## 2026-07-17 - Merge del Agente Conector On-Prem al tronco + deploy a prod
 
 **Agentes**: Claude (Opus 4.8). **Accion**: fusionar `feat/agente-colmena-gui` (34 commits, backbone

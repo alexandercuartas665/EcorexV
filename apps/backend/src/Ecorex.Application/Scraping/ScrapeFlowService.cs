@@ -71,6 +71,17 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default)
+    {
+        return await _db.ScrapeFlowRuns.AsNoTracking()
+            .Where(r => r.FlowId == flowId)
+            .OrderByDescending(r => r.FiredAt)
+            .Take(take)
+            .Select(r => new ScrapeFlowRunDto(
+                r.Id, r.FiredAt, r.FinishedAt, r.Trigger, r.Result, r.StepCount, r.Inserted, r.Detail))
+            .ToListAsync(ct);
+    }
+
     public async Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default)
     {
         var flow = await _db.ScrapeFlows.AsNoTracking().FirstOrDefaultAsync(f => f.Id == flowId, ct);

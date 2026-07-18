@@ -269,6 +269,7 @@
 }
 .xd-pill.ok { background: var(--t-green-bg); color: var(--t-green); }
 .xd-pill.err { background: var(--t-rose-bg); color: var(--t-rose); }
+.xd-pill.wait { background: var(--t-amber-bg); color: var(--t-amber); }
 .xd-pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
 /* ---- Editor JSON (proto .code-editor: fondo oscuro FIJO en claro y oscuro, ADR-0023) ---- */

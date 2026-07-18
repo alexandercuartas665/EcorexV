@@ -154,6 +154,7 @@ public class TenantUserServiceTests
         public DbSet<ScrapeFlow> ScrapeFlows => throw new NotSupportedException();
         public DbSet<ScrapeStep> ScrapeSteps => throw new NotSupportedException();
         public DbSet<ScrapeVariable> ScrapeVariables => throw new NotSupportedException();
+        public DbSet<ScrapeFlowRun> ScrapeFlowRuns => throw new NotSupportedException();
         public DbSet<Warehouse> Warehouses => throw new NotSupportedException();
         public DbSet<Brand> Brands => throw new NotSupportedException();
         public DbSet<ItemGroup> ItemGroups => throw new NotSupportedException();

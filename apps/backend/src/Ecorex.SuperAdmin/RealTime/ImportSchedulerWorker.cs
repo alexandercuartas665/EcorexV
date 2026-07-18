@@ -24,6 +24,7 @@ namespace Ecorex.SuperAdmin.RealTime;
 public sealed class ImportSchedulerWorker(
     IServiceScopeFactory scopeFactory,
     IAgentImportService imports,
+    IBrowserRunService browserRuns,
     TimeProvider timeProvider,
     ILogger<ImportSchedulerWorker> logger) : BackgroundService
 {
@@ -69,6 +70,8 @@ public sealed class ImportSchedulerWorker(
 
         // 1) Cerrar lo que vencio (peticiones colgadas + resultados viejos). Va aparte del disparo.
         await imports.SweepAsync(ct);
+        // Y las corridas de flujo de extraccion (Navegador) que colgaron sin respuesta (Ola 3).
+        await browserRuns.SweepAsync(ct);
 
         // 2) Que tenants tienen algo que hacer -vencido o esperando a su agente- (solo ids).
         IReadOnlyList<Guid> tenants;

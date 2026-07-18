@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos, Ola 3: runtime determinista (cablear al Navegador)
+
+Tercera ola: el flujo configurado ya se EJECUTA. Se cierra el lazo que faltaba (hasta ahora
+`AgenteHub.BrowserResult` solo logueaba el resultado del Navegador; ahora se correlaciona, se ingiere y
+se cierra la corrida, igual que ya hacia `FetchResult` con la ingesta). Alcance: el plano DETERMINISTA
+(doc 03 s1); el paso de IA (s2) es Ola 4.
+
+- **Compilador** (`ScrapeFlowCompiler`, funcion pura): traduce el flujo a `BrowserAction[]`. Sustituye
+  `{{VAR}}` con las variables descifradas y **FIRMA** el JS (Eval/Extract/condicion de Wait/Click) con
+  `AgentSign.SignJs(secret, corr, payload)` DESPUES de sustituir, para que la firma cubra el JS exacto.
+  Mapea Navigate->Navigate, InjectScript/Extract->Eval, Wait->Wait (condicion por selector), Click->
+  Mouse (guion MouseBot), Screenshot->Screenshot. Un paso Ai se rechaza con mensaje claro (es Ola 4).
+- **Runtime** (`IBrowserRunService`, singleton espejo de `AgentImportService`): `RunFlowNowAsync` abre
+  la corrida, valida agente asignado, compila, comprueba `IAgentRegistry.IsOnline` y despacha un
+  `BrowserRequest` o deja la corrida **PendingOffline** (reintento en Ola 5). `OnBrowserResultAsync`
+  (ruteado desde el hub) correlaciona por `correlationId`, parsea el Value de cada Extract (arreglo JSON
+  que WebView2 devuelve; desanida doble-codificacion), resuelve el mapeo campo->columna del contenedor
+  y **ingiere con `IRowIngestService`** (modo Append), y cierra la bitacora. Sweep de vencidos + Cancel.
+- **Bitacora** (`ScrapeFlowRun` + `IScrapeFlowRunLog`): dedicada, no reusa `ImportRun` (ver ADR-0042:
+  `ImportRun` cuelga de `ImportProcess`, que es la programacion; el disparo manual no tiene proceso).
+  Migracion DUAL `AddScrapeFlowRun` (PG + SQL Server), snapshot limpio en ambos contextos, FK unica en
+  cascada (sin doble camino -> sin error 1785). Reusa los enums `ImportRunTrigger`/`ImportRunResult`.
+- **UI**: boton "Ejecutar ahora" en el hero, KPIs reales (corridas/exitosas/filas), y tarjeta
+  "Historial de corridas" con estado (pildora), disparo, duracion y filas. Banda de runtime actualizada.
+
+**Pruebas**: 17 tests unitarios nuevos (SuperAdmin.Tests) del compilador (firma cubre el JS sustituido
+y ligado al corr; Extract ancla el indice del Eval; Wait/Click firmados; sin-secreto rechaza JS pero
+permite un flujo solo-Navigate; Ai rechazado) y de `ParseRows` (arreglo/objeto/doble-codificado/basura).
+Suite completa verde: SuperAdmin.Tests 47, Application.Tests 457; build de la solucion 0 errores.
+**Verificado en Chrome** (tenant demo, BD `ecorex_agente`, 5262): (1) "Ejecutar ahora" en un flujo sin
+agente -> corrida **Error** "El flujo no tiene un agente asignado" en el historial + KPIs + estado del
+flujo sellado a "con errores"; (2) con un `DataClient` sembrado (offline) asignado a un flujo Navigate-
+only -> corrida **"Esperando al agente"** (PendingOffline), el flujo sigue Activo. Sin errores de app en
+consola (el ruido de reconexion de blazor.web.js es de una ventana previa).
+
+**Limite honesto**: el E2E con filas REALES aterrizando en el contenedor exige la colmena on-prem
+(WebView2) conectada por el hub, que no corre en este entorno de dev; ese tramo queda cubierto por los
+tests del compilador + `ParseRows` y por el `IRowIngestService` (ya probado en el import). El disparo,
+la correlacion, el offline y la bitacora si se probaron en vivo.
+
+**Siguiente**: Ola 4 = paso de IA (orquestacion agente<->navegador por el MCP local, con topes y
+allow-list de tools). Luego Ola 5 = programacion (ImportProcess -> flujo) + paginacion + advertencias.
+
+---
+
 ## 2026-07-18 - Extraccion de Datos, Ola 2: UI del configurador de flujos
 
 Segunda ola: `ExtraccionDatos.razor` deja de ser el CRUD de `ScrapeSource` (scraper HTTP simple) y pasa

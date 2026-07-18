@@ -16,12 +16,15 @@ public sealed class AgenteHub : Hub
 {
     private readonly IAgentRegistry _registry;
     private readonly IAgentImportService _imports;
+    private readonly IBrowserRunService _browserRuns;
     private readonly ILogger<AgenteHub> _log;
 
-    public AgenteHub(IAgentRegistry registry, IAgentImportService imports, ILogger<AgenteHub> log)
+    public AgenteHub(IAgentRegistry registry, IAgentImportService imports,
+        IBrowserRunService browserRuns, ILogger<AgenteHub> log)
     {
         _registry = registry;
         _imports = imports;
+        _browserRuns = browserRuns;
         _log = log;
     }
 
@@ -84,8 +87,10 @@ public sealed class AgenteHub : Hub
         return Task.CompletedTask;
     }
 
-    /// <summary>Resultado del sub-agente Navegador (doc 06 s3.2). Loguea y guarda screenshots en temp.</summary>
-    public Task BrowserResult(BrowserResultMsg msg)
+    /// <summary>Resultado del sub-agente Navegador (doc 06 s3.2). Loguea, guarda screenshots en temp y
+    /// -Ola 3- entrega el resultado al runtime del flujo, que si el correlationId corresponde a una
+    /// corrida ingiere los pasos Extract y cierra la bitacora (igual que FetchResult con la ingesta).</summary>
+    public async Task BrowserResult(BrowserResultMsg msg)
     {
         _registry.Touch(Context.ConnectionId);
         foreach (var r in msg.Results)
@@ -109,7 +114,9 @@ public sealed class AgenteHub : Hub
         {
             _log.LogWarning("[NAVEGADOR] corr={Corr} secuencia con error: {Err}", msg.CorrelationId, msg.Error);
         }
-        return Task.CompletedTask;
+        // Si es una corrida de flujo (Ola 3), correlaciona, ingiere los Extract y cierra la bitacora.
+        // Si no lo es (ej. el endpoint dev /browse), no encuentra la peticion y no hace nada.
+        await _browserRuns.OnBrowserResultAsync(msg);
     }
 
     /// <summary>Resultado del sub-agente Archivos (doc 06 s3.2).</summary>

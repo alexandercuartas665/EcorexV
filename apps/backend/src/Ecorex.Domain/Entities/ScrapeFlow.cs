@@ -132,3 +132,45 @@ public class ScrapeVariable : TenantEntity
     /// <summary>Si es sensible: se pinta con candado y no se puede consultar (solo reescribir/rotar).</summary>
     public bool IsSecret { get; set; }
 }
+
+/// <summary>
+/// Bitacora de UNA corrida de un <see cref="ScrapeFlow"/> (runtime, Ola 3). Misma razon de ser que
+/// <c>ImportRun</c>: un flujo corre sin nadie mirando y sin registro un fallo es indistinguible de
+/// "no habia datos". Es DEDICADA (no se reusa ImportRun) porque ImportRun cuelga de un ImportProcess
+/// -que es la programacion, atada a conectores del Contenedor- y el disparo manual de un flujo no
+/// tiene proceso; cuando la Ola 5 cablee la programacion, un ImportProcess podra apuntar al flujo sin
+/// remodelar esto. El puente entre el despacho (Running) y el cierre (que llega por el hub, despues y
+/// por otro camino) es el <see cref="CorrelationId"/>. TENANT-SCOPED. Vive y muere con el flujo.
+/// </summary>
+public class ScrapeFlowRun : TenantEntity
+{
+    public Guid FlowId { get; set; }
+    public ScrapeFlow? Flow { get; set; }
+
+    /// <summary>Cuando se disparo (UTC).</summary>
+    public DateTimeOffset FiredAt { get; set; }
+
+    /// <summary>Quien la disparo (Manual = "Ejecutar ahora"; Scheduled = horario, Ola 5). Reusa el
+    /// enum de las corridas de importacion.</summary>
+    public ImportRunTrigger Trigger { get; set; }
+
+    /// <summary>En que quedo. Reusa el enum de las corridas de importacion (Running/Ok/Error/
+    /// PendingOffline).</summary>
+    public ImportRunResult Result { get; set; } = ImportRunResult.Running;
+
+    /// <summary>Id de la orden empujada al agente; puente entre el despacho y el cierre.</summary>
+    public string? CorrelationId { get; set; }
+
+    public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>Cuantos pasos tenia el flujo al compilarlo (para el resumen).</summary>
+    public int StepCount { get; set; }
+
+    /// <summary>Filas ingeridas por los pasos Extract (sumadas).</summary>
+    public int Inserted { get; set; }
+    public int Updated { get; set; }
+    public int Deleted { get; set; }
+
+    /// <summary>Mensaje humano del resultado o del fallo.</summary>
+    public string? Detail { get; set; }
+}

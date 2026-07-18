@@ -7165,6 +7165,98 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("scrape_flows", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlowRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Deleted")
+                        .HasColumnType("integer")
+                        .HasColumnName("deleted");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("detail");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<DateTimeOffset>("FiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fired_at");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<int>("Inserted")
+                        .HasColumnType("integer")
+                        .HasColumnName("inserted");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("result");
+
+                    b.Property<int>("StepCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("step_count");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("trigger");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("integer")
+                        .HasColumnName("updated");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_flow_runs");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_flow_runs_flow_id");
+
+                    b.HasIndex("TenantId", "CorrelationId")
+                        .HasDatabaseName("ix_scrape_flow_runs_tenant_id_correlation_id");
+
+                    b.HasIndex("TenantId", "FlowId", "FiredAt")
+                        .HasDatabaseName("ix_scrape_flow_runs_tenant_id_flow_id_fired_at");
+
+                    b.ToTable("scrape_flow_runs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -12136,6 +12228,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Client");
 
                     b.Navigation("Container");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlowRun", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany()
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_flow_runs_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>

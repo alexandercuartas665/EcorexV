@@ -149,6 +149,8 @@ public interface IApplicationDbContext
     DbSet<ScrapeFlow> ScrapeFlows { get; }
     DbSet<ScrapeStep> ScrapeSteps { get; }
     DbSet<ScrapeVariable> ScrapeVariables { get; }
+    /// <summary>Bitacora de corridas de un flujo de extraccion (runtime, Ola 3).</summary>
+    DbSet<ScrapeFlowRun> ScrapeFlowRuns { get; }
 
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }

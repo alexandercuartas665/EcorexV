@@ -49,6 +49,17 @@ public sealed record ScrapeVariableDto(
 /// <summary>Una tabla que un flujo puede usar como destino ("Modelo / Tabla"), para el selector.</summary>
 public sealed record ScrapeTargetDto(Guid Id, string Label);
 
+/// <summary>Una corrida en la bitacora del flujo (runtime, Ola 3).</summary>
+public sealed record ScrapeFlowRunDto(
+    Guid Id,
+    DateTimeOffset FiredAt,
+    DateTimeOffset? FinishedAt,
+    ImportRunTrigger Trigger,
+    ImportRunResult Result,
+    int StepCount,
+    int Inserted,
+    string? Detail);
+
 /// <summary>El flujo completo (cabecera + pasos ordenados + variables).</summary>
 public sealed record ScrapeFlowDto(
     Guid Id,
@@ -114,6 +125,8 @@ public interface IScrapeFlowService
     /// <summary>Tablas que un flujo puede usar como destino, etiquetadas "Modelo / Tabla".</summary>
     Task<IReadOnlyList<ScrapeTargetDto>> ListContainersAsync(CancellationToken ct = default);
     Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default);
+    /// <summary>Bitacora de corridas del flujo, mas recientes primero (runtime, Ola 3).</summary>
+    Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default);
     Task<ScrapeFlowDto?> SaveFlowAsync(SaveScrapeFlowRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteFlowAsync(Guid flowId, Guid actorUserId, CancellationToken ct = default);
 

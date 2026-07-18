@@ -72,6 +72,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScrapeFlow> ScrapeFlows => Set<ScrapeFlow>();
     public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
     public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
+    public DbSet<ScrapeFlowRun> ScrapeFlowRuns => Set<ScrapeFlowRun>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -726,6 +727,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);
             // Una variable por (flujo, nombre): {{Name}} tiene que ser univoco.
             b.HasIndex(x => new { x.TenantId, x.FlowId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ScrapeFlowRun>(b =>
+        {
+            b.Property(x => x.CorrelationId).HasMaxLength(40);
+            b.Property(x => x.Detail).HasMaxLength(600);
+            b.HasOne(x => x.Flow).WithMany()
+                .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);
+            // El cierre llega por el hub y busca la corrida por su correlationId; indexado para no
+            // recorrer la bitacora entera. La lista de la UI lee por flujo, mas recientes primero.
+            b.HasIndex(x => new { x.TenantId, x.CorrelationId });
+            b.HasIndex(x => new { x.TenantId, x.FlowId, x.FiredAt });
         });
 
         modelBuilder.Entity<FollowUpTask>(b =>

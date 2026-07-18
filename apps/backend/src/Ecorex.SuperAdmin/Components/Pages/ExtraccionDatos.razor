@@ -4,9 +4,13 @@
 @using System.Security.Claims
 @using Ecorex.Application.Scraping
 @using Ecorex.Application.DataContainers
+@using Ecorex.Application.Common
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Agents
 @inject IScrapeFlowService FlowSvc
 @inject IDataImportConfigService ConfigSvc
+@inject IBrowserRunService RunSvc
+@inject ITenantContext Tenant
 @inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Extraccion de datos - ECOREX.tareas</PageTitle>
@@ -108,23 +112,27 @@
                             <div class="xd-hero-url">@flow.StartUrl</div>
                         </div>
                         <div class="xd-hero-actions">
+                            <button class="xd-hero-btn" @onclick="RunFlowAsync" disabled="@(_busy || flow.Steps.Count == 0)">
+                                @(_busy ? "Ejecutando..." : "Ejecutar ahora")
+                            </button>
                             <button class="xd-hero-btn ghost" @onclick="ToggleHeaderEdit">@(_editHeader ? "Cerrar" : "Editar")</button>
                             <button class="xd-hero-btn ghost" @onclick="DeleteFlowAsync" disabled="@_busy">Eliminar</button>
                         </div>
                     </div>
                     <div class="xd-kpis">
-                        <div class="xd-kpi"><div class="lbl">Ejecuciones</div><div class="val">@(flow.LastRunAt is null ? "0" : "-")</div></div>
-                        <div class="xd-kpi"><div class="lbl">Exitosas 30d</div><div class="val">-</div></div>
-                        <div class="xd-kpi"><div class="lbl">Registros</div><div class="val">-</div></div>
+                        <div class="xd-kpi"><div class="lbl">Corridas</div><div class="val">@_runs.Count</div></div>
+                        <div class="xd-kpi"><div class="lbl">Exitosas</div><div class="val">@_runs.Count(r => r.Result == ImportRunResult.Ok)</div></div>
+                        <div class="xd-kpi"><div class="lbl">Filas (ult.)</div><div class="val">@(_runs.FirstOrDefault(r => r.Result == ImportRunResult.Ok)?.Inserted.ToString() ?? "-")</div></div>
                         <div class="xd-kpi"><div class="lbl">Ultima corrida</div><div class="val">@(flow.LastRunAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "nunca")</div></div>
                     </div>
                 </div>
 
                 @* ---- Banda: el runtime es la colmena, no esta pantalla ---- *@
                 <div class="xd-strip">
-                    <strong>Runtime:</strong>&nbsp; el motor de ejecucion es el <strong>sub-agente Navegador</strong> de la
-                    colmena (WebView2 + acciones tipadas + JS firmado por el servidor). Esta pantalla es el
-                    configurador. La ejecucion del flujo (disparar + traer datos) esta pendiente (Ola 3).
+                    <strong>Runtime:</strong>&nbsp; "Ejecutar ahora" compila el flujo y lo empuja al
+                    <strong>sub-agente Navegador</strong> del agente asignado (WebView2 + acciones tipadas + JS firmado).
+                    Si el agente no esta en linea, la corrida queda <strong>esperando</strong> y se reintenta cuando vuelva.
+                    El plano de IA (pasos de tipo IA) llega en la proxima ola.
                 </div>
 
                 @if (_editHeader)
@@ -315,6 +323,40 @@
                     </div>
 
                 </div>
+
+                @* ===== Historial de corridas (bitacora, Ola 3) ===== *@
+                <div class="xd-card">
+                    <div class="xd-card-head">
+                        <div class="xd-card-title">Historial de corridas <span class="xd-num-badge">@_runs.Count</span></div>
+                    </div>
+                    @if (_runs.Count == 0)
+                    {
+                        <div class="xd-card-empty">Aun no se ha ejecutado. Pulsa "Ejecutar ahora" para lanzar el flujo.</div>
+                    }
+                    else
+                    {
+                        <div class="xd-table-wrap">
+                            <table class="xd-exec-table">
+                                <thead>
+                                    <tr><th>Disparo</th><th>Estado</th><th>Cuando</th><th>Duracion</th><th class="num">Filas</th><th>Detalle</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var r in _runs)
+                                    {
+                                        <tr>
+                                            <td>@(r.Trigger == ImportRunTrigger.Manual ? "Manual" : "Horario")</td>
+                                            <td><span class="xd-pill @RunPillClass(r.Result)"><span class="d"></span>@RunLabel(r.Result)</span></td>
+                                            <td>@r.FiredAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
+                                            <td>@RunDuration(r)</td>
+                                            <td class="num">@(r.Result == ImportRunResult.Ok ? r.Inserted.ToString() : "-")</td>
+                                            <td title="@r.Detail">@Shorten(r.Detail, 80)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
             }
 
         </div>
@@ -325,6 +367,7 @@
     private IReadOnlyList<ScrapeFlowSummaryDto> _flows = Array.Empty<ScrapeFlowSummaryDto>();
     private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
     private IReadOnlyList<ScrapeTargetDto> _containers = Array.Empty<ScrapeTargetDto>();
+    private IReadOnlyList<ScrapeFlowRunDto> _runs = Array.Empty<ScrapeFlowRunDto>();
     private ScrapeFlowDto? _selected;
     private bool _isNew;
     private bool _busy;
@@ -395,7 +438,37 @@
         {
             _hClient = _selected.ClientId?.ToString() ?? "";
             _hContainer = _selected.ContainerId?.ToString() ?? "";
+            _runs = await FlowSvc.ListRunsAsync(id);
         }
+        else { _runs = Array.Empty<ScrapeFlowRunDto>(); }
+    }
+
+    private async Task RunFlowAsync()
+    {
+        if (_selected is null) { return; }
+        if (Tenant.TenantId is not Guid tenantId) { Flash("No se pudo resolver el tenant.", true); return; }
+        _busy = true;
+        try
+        {
+            var result = await RunSvc.RunFlowNowAsync(_selected.Id, tenantId, ImportRunTrigger.Manual);
+            if (result.Offline)
+            {
+                Flash("El agente asignado no esta en linea. La corrida quedo esperando a que vuelva.");
+            }
+            else if (!result.Dispatched)
+            {
+                Flash(result.Error ?? "No se pudo ejecutar el flujo.", true);
+            }
+            else
+            {
+                Flash("Flujo despachado al agente. El resultado aparecera en el historial al completarse.");
+            }
+            // Recarga la bitacora y el flujo (LastRunAt/estado pudieron cambiar).
+            await SelectFlowAsync(_selected.Id);
+            await ReloadFlowsAsync();
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
     }
 
     private void NewFlow()
@@ -624,6 +697,25 @@
     };
 
     private static string DotClass(ScrapeSourceStatus s) => s == ScrapeSourceStatus.Error ? "err" : "";
+
+    private static string RunLabel(ImportRunResult r) => r switch
+    {
+        ImportRunResult.Ok => "OK",
+        ImportRunResult.Running => "Ejecutando",
+        ImportRunResult.PendingOffline => "Esperando al agente",
+        ImportRunResult.Skipped => "Omitida",
+        _ => "Error"
+    };
+
+    private static string RunPillClass(ImportRunResult r) => r switch
+    {
+        ImportRunResult.Ok => "ok",
+        ImportRunResult.Running or ImportRunResult.PendingOffline => "wait",
+        _ => "err"
+    };
+
+    private static string RunDuration(ScrapeFlowRunDto r) =>
+        r.FinishedAt is DateTimeOffset f ? $"{(f - r.FiredAt).TotalSeconds:0.0} s" : "-";
 
     private static string KindLabel(ScrapeStepKind k) => k switch
     {

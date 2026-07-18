@@ -5,6 +5,39 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos, Ola 2: UI del configurador de flujos
+
+Segunda ola: `ExtraccionDatos.razor` deja de ser el CRUD de `ScrapeSource` (scraper HTTP simple) y pasa
+a ser el CONFIGURADOR DE FLUJOS sobre `IScrapeFlowService` (Ola 1), milimetrico a
+`proto_web_scraping.html` reusando el shell `xd-*` (topbar/breadcrumb + MOD 000730, sidebar de flujos,
+hero con KPIs, franja de runtime, columnas 1fr/380). El backend `ScrapeSource` queda intacto (coexiste;
+reversible por git).
+
+- **Servicio**: `IScrapeFlowService.ListContainersAsync` + `ScrapeTargetDto(Id, Label)` -> etiqueta
+  "Modelo / Tabla" (join `DataContainers` con `DataModels`) para el selector de tabla destino.
+- **Pagina**: lista lateral de flujos (con contador de pasos), alta rapida (nombre + URL), hero editable
+  (cabecera: nombre/descripcion/URL/estado), tarjeta "Pasos de ejecucion" con editor por-tipo
+  (Navegar: URL con {{VAR}}; Inyectar/Extraer: JS + mapeo + tabla; Esperar: selector/ms; Clic: selector;
+  **IA**: instruccion + tabla destino + allow-list de tools browser.* + tope pasos/segundos + modelo),
+  reorden por flechas, y panel "Cliente y variables" (agente + tabla que se guardan al vuelo, variables
+  {{VAR}} con secretas cifradas y enmascaradas). Franja recordando que el runtime (disparar + traer
+  datos) es del sub-agente Navegador y esta pendiente (Ola 3). CSS de pasos/tags/variables anadido.
+- **Fixes durante la verificacion**: (1) el enmascarado de la variable mostraba `&middot;` literal
+  (Razor codifica el string del `@()`) -> ahora `********` ASCII; (2) el contador de pasos del sidebar no
+  refrescaba al guardar/borrar paso -> `ReloadFlowsAsync()` tras cada cambio.
+
+**Verificado en Chrome** (tenant demo SKY SYSTEM, BD `ecorex_agente`, puerto 5262): flujo "Precios
+competencia Homecenter" creado; paso 1 Navegar (URL con `{{PAGINA}}`) y paso 2 IA (instruccion, tope
+25 pasos / 120 s, modelo claude-sonnet-5) guardados; variable secreta `PAGINA` cifrada y enmascarada
+con candado; reorden IA<->Navegar aplicado y renumerado; todo PERSISTIO tras reiniciar el server. Build
+de la solucion completa verde, 0 errores; sin errores de consola.
+
+**Siguiente**: Ola 3 = runtime (compilar el flujo -> BrowserAction[] + JS firmado + ingesta via
+IRowIngestService, orquestar el paso de IA, reusar ImportProcess/ImportRun para programar, y decidir
+absorber vs coexistir con ScrapeSource).
+
+---
+
 ## 2026-07-18 - Extraccion de Datos, Ola 1: dominio del flujo (config)
 
 Primera ola del capitulo "Extraccion de Datos" (000730): el modulo /extraccion-datos (hoy un scraper

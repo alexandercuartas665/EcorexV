@@ -53,6 +53,24 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             f.LastRunAt, f.LastResultSummary)).ToList();
     }
 
+    public async Task<IReadOnlyList<ScrapeTargetDto>> ListContainersAsync(CancellationToken ct = default)
+    {
+        // Tabla + su modelo, para etiquetar "Modelo / Tabla" sin que el operador tenga que adivinar de
+        // que contenedor es cada tabla. Join en memoria (son pocas por tenant).
+        var containers = await _db.DataContainers.AsNoTracking()
+            .Select(c => new { c.Id, c.Name, c.ModelId }).ToListAsync(ct);
+        if (containers.Count == 0) { return Array.Empty<ScrapeTargetDto>(); }
+        var modelIds = containers.Where(c => c.ModelId != null).Select(c => c.ModelId!.Value).Distinct().ToList();
+        var modelNames = modelIds.Count == 0 ? new Dictionary<Guid, string>()
+            : await _db.DataModels.AsNoTracking().Where(m => modelIds.Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+        return containers
+            .Select(c => new ScrapeTargetDto(c.Id,
+                (c.ModelId is Guid m && modelNames.TryGetValue(m, out var mn) ? mn + " / " : "") + c.Name))
+            .OrderBy(t => t.Label)
+            .ToList();
+    }
+
     public async Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default)
     {
         var flow = await _db.ScrapeFlows.AsNoTracking().FirstOrDefaultAsync(f => f.Id == flowId, ct);

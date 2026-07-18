@@ -1,27 +1,28 @@
 @page "/extraccion-datos"
 @attribute [Authorize(Policy = "ExtraccionDatos.Editar")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
-@using System.Text.Json
+@using System.Security.Claims
 @using Ecorex.Application.Scraping
+@using Ecorex.Application.DataContainers
 @using Ecorex.Domain.Enums
-@inject IScrapeService ScrapeSvc
+@inject IScrapeFlowService FlowSvc
+@inject IDataImportConfigService ConfigSvc
+@inject AuthenticationStateProvider AuthProvider
 
 <PageTitle>Extraccion de datos - ECOREX.tareas</PageTitle>
 
 <div class="xd-page">
 
-    @* ===== Topbar del modulo (proto: breadcrumb + MOD 000730 + acciones) ===== *@
+    @* ===== Topbar (proto: breadcrumb + MOD 000730 + acciones) ===== *@
     <div class="xd-topbar">
         <nav class="xd-crumb" aria-label="Ruta de navegacion">
-            <span>Home</span>
-            <span class="sep">/</span>
-            <span>Utilidades</span>
-            <span class="sep">/</span>
+            <span>Home</span><span class="sep">/</span>
+            <span>Utilidades</span><span class="sep">/</span>
             <span class="last">Extraccion de datos</span>
             <span class="xd-mod-code">MOD 000730</span>
         </nav>
         <div class="xd-top-actions">
-            <button class="xd-btn xd-new-btn primary" @onclick="NewSource">+ Nueva fuente</button>
+            <button class="xd-btn xd-new-btn primary" @onclick="NewFlow">+ Nueva configuracion</button>
         </div>
     </div>
 
@@ -35,28 +36,28 @@
 
     <div class="xd-layout">
 
-        @* ---- Sidebar (proto .side 300px sticky): lista de fuentes ---- *@
+        @* ---- Sidebar: lista de flujos ---- *@
         <aside class="xd-side">
             <div class="xd-side-head">
-                <div class="xd-side-title">Fuentes <span class="xd-side-count">@_sources.Count</span></div>
+                <div class="xd-side-title">Configuraciones <span class="xd-side-count">@_flows.Count</span></div>
             </div>
             <div class="xd-side-search">
                 <input placeholder="Buscar..." @bind="_search" @bind:event="oninput" />
             </div>
             <div class="xd-side-list">
-                @if (FilteredSources.Count == 0)
+                @if (FilteredFlows.Count == 0)
                 {
-                    <div class="xd-empty">@(_sources.Count == 0 ? "Aun no hay fuentes. Crea la primera con + Nueva fuente." : "Sin resultados para la busqueda.")</div>
+                    <div class="xd-empty">@(_flows.Count == 0 ? "Aun no hay flujos. Crea el primero con + Nueva configuracion." : "Sin resultados.")</div>
                 }
-                @foreach (var s in FilteredSources)
+                @foreach (var f in FilteredFlows)
                 {
-                    <div class="xd-item @(_selected?.Id == s.Id && !_isNew ? "active" : "")" @onclick="() => SelectSourceAsync(s.Id)">
-                        <div class="xd-item-icon">@Initial(s.Name)</div>
+                    <div class="xd-item @(_selected?.Id == f.Id && !_isNew ? "active" : "")" @onclick="() => SelectFlowAsync(f.Id)">
+                        <div class="xd-item-icon">@Initial(f.Name)</div>
                         <div class="xd-item-body">
-                            <div class="xd-item-name" title="@s.Name">@s.Name</div>
+                            <div class="xd-item-name" title="@f.Name">@f.Name</div>
                             <div class="xd-item-meta">
-                                <span class="xd-dot @DotClass(s)"></span>
-                                @StatusLabel(s.Status) &middot; @KindLabel(s.Kind)
+                                <span class="xd-dot @DotClass(f.Status)"></span>
+                                @StatusLabel(f.Status) &middot; @f.StepCount paso@(f.StepCount == 1 ? "" : "s")
                             </div>
                         </div>
                     </div>
@@ -64,482 +65,594 @@
             </div>
         </aside>
 
-        @* ---- Panel principal ---- *@
         <div class="xd-main">
 
-            @* Hero de la fuente seleccionada (proto .hero: gradiente + KPIs) *@
-            <div class="xd-hero">
-                <div class="xd-hero-head">
-                    <div class="xd-hero-id">
-                        <h1>
-                            <span class="xd-hero-name">@(_isNew ? "Nueva fuente" : _selected?.Name ?? "Extraccion de datos")</span>
-                            @if (!_isNew && _selected is not null)
-                            {
-                                <span class="xd-hero-badge">@KindLabel(_selected.Kind)</span>
-                                <span class="xd-hero-badge">@StatusLabel(_selected.Status)</span>
-                            }
-                        </h1>
-                        @if (!_isNew && _selected is not null)
-                        {
-                            <div class="xd-hero-url" title="@_selected.Url">@_selected.Url</div>
-                        }
-                        else
-                        {
-                            <div class="xd-hero-sub">Define nombre, URL y tipo en el panel de configuracion y guarda la fuente.</div>
-                        }
-                    </div>
-                    @if (!_isNew && _selected is not null)
-                    {
-                        <div class="xd-hero-actions">
-                            <button class="xd-btn xd-hero-btn xd-run" disabled="@_busy" @onclick="RunSelectedAsync">
-                                @(_busy ? "Ejecutando..." : "Ejecutar ahora")
-                            </button>
-                        </div>
-                    }
-                </div>
-                <div class="xd-kpis">
-                    <div class="xd-kpi"><div class="lbl">Ejecuciones</div><div class="val">@(_selected?.RunCount ?? 0)</div></div>
-                    <div class="xd-kpi"><div class="lbl">Exitosas 30d</div><div class="val">@SuccessRateLabel</div></div>
-                    <div class="xd-kpi"><div class="lbl">Registros extraidos</div><div class="val">@((_selected?.TotalItems ?? 0).ToString("N0"))</div></div>
-                    <div class="xd-kpi"><div class="lbl">Ultima corrida</div><div class="val">@RelativeShort(_selected?.LastRunAt)</div></div>
-                </div>
-            </div>
-
-            @* Franja de alcance (proto .warning-strip): limites seguros del ejecutor (ADR-0025) *@
-            <div class="xd-strip">
-                <strong>Ejecutor acotado:</strong>&nbsp;solo GET a URLs publicas http(s) con guard anti-SSRF
-                (rechaza IPs privadas, loopback y puertos no estandar), timeout de 15s y respuesta maxima de 2 MB.
-                HTML se extrae por selector CSS y JSON se cuenta y previsualiza; no se ejecuta ningun script.
-                Programacion automatica: pendiente (ADR-0025).
-            </div>
-
-            <div class="xd-cols">
-
-                @* ---- Preview del resultado (tabla / arbol JSON) ---- *@
+            @if (_isNew)
+            {
+                @* ---- Alta de un flujo nuevo (cabecera minima) ---- *@
                 <div class="xd-card">
-                    <div class="xd-card-head">
-                        <div class="xd-card-title">
-                            Resultado de la ultima ejecucion
-                            @if (_previewItemCount is int total)
-                            {
-                                <span class="xd-num-badge">@total items</span>
-                            }
-                        </div>
-                        @if (_lastRun is not null)
-                        {
-                            <span class="xd-pill @(_lastRun.Status == ScrapeRunStatus.Success ? "ok" : "err")">
-                                <span class="d"></span>@(_lastRun.Status == ScrapeRunStatus.Success ? "Exitosa" : "Fallida")
-                            </span>
-                        }
-                    </div>
-
-                    @if (_lastRun is null)
-                    {
-                        <div class="xd-card-empty">Sin ejecuciones todavia. Usa "Ejecutar ahora" para correr la fuente y ver el resultado aqui.</div>
-                    }
-                    else if (_lastRun.Status == ScrapeRunStatus.Failed)
-                    {
-                        <div class="xd-error-box">
-                            <strong>La corrida fallo:</strong> @_lastRun.ErrorMessage
-                        </div>
-                    }
-                    else if (_previewColumns.Count > 0)
-                    {
-                        <div class="xd-table-wrap">
-                            <table class="xd-preview-table">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        @foreach (var c in _previewColumns)
-                                        {
-                                            <th>@c</th>
-                                        }
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @for (var i = 0; i < _previewRows.Count; i++)
-                                    {
-                                        <tr>
-                                            <td class="idx">@(i + 1)</td>
-                                            @foreach (var cell in _previewRows[i])
-                                            {
-                                                <td title="@cell">@cell</td>
-                                            }
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                        @if (_previewItemCount is int count && count > _previewRows.Count)
-                        {
-                            <div class="xd-more">Mostrando @_previewRows.Count de @count items (preview acotada).</div>
-                        }
-                        <div class="xd-code" aria-label="Resultado JSON crudo">@_previewRawJson</div>
-                    }
-                </div>
-
-                @* ---- Configuracion de la fuente (proto .props-panel 380px) ---- *@
-                <div class="xd-card xd-props">
-                    <div class="xd-card-head">
-                        <div class="xd-card-title">Configuracion de la fuente</div>
-                    </div>
+                    <div class="xd-card-head"><div class="xd-card-title">Nueva configuracion</div></div>
                     <div class="xd-props-body">
                         <div class="xd-prop">
-                            <label for="xd-f-name">Nombre</label>
-                            <input id="xd-f-name" @bind="_editName" placeholder="Precios competencia..." maxlength="200" />
+                            <label>Nombre</label>
+                            <input class="xd-input" placeholder="Ej. Precios competencia Homecenter" @bind="_hName" />
                         </div>
                         <div class="xd-prop">
-                            <label for="xd-f-url">URL (http/https)</label>
-                            <input id="xd-f-url" class="mono" @bind="_editUrl" placeholder="https://ejemplo.com/productos" maxlength="1000" />
+                            <label>URL de arranque</label>
+                            <input class="xd-input" placeholder="https://..." @bind="_hUrl" />
                         </div>
-                        <div class="xd-prop">
-                            <label for="xd-f-kind">Tipo de contenido</label>
-                            <select id="xd-f-kind" @bind="_editKind">
-                                <option value="@ScrapeSourceKind.Json">JSON (conteo + preview de items)</option>
-                                <option value="@ScrapeSourceKind.Html">HTML (extraccion por selector CSS)</option>
-                            </select>
+                        @if (_headError is not null) { <div class="xd-error-box">@_headError</div> }
+                        <div class="xd-props-actions">
+                            <button class="xd-btn primary" @onclick="CreateFlowAsync" disabled="@_busy">Crear</button>
+                            <button class="xd-btn" @onclick="CancelNew">Cancelar</button>
                         </div>
-                        <div class="xd-prop">
-                            <label for="xd-f-selector">Selector CSS @(_editKind == ScrapeSourceKind.Html ? "(obligatorio)" : "(no aplica en JSON)")</label>
-                            <input id="xd-f-selector" class="mono" @bind="_editSelector" disabled="@(_editKind != ScrapeSourceKind.Html)"
-                                   placeholder="article.product-card h3" maxlength="300" />
-                            <div class="xd-help">
-                                Se extrae el TEXTO de cada nodo que casa con el selector.
-                                Ejemplos: <code>h2.titulo</code>, <code>table#precios td.valor</code>, <code>.card &gt; .price</code>.
+                    </div>
+                </div>
+            }
+            else if (_selected is null)
+            {
+                <div class="xd-card"><div class="xd-card-empty">Elige un flujo de la izquierda, o crea uno nuevo.</div></div>
+            }
+            else
+            {
+                var flow = _selected;
+
+                @* ---- Hero ---- *@
+                <div class="xd-hero">
+                    <div class="xd-hero-head">
+                        <div>
+                            <h1 class="xd-hero-title">
+                                <span>@flow.Name</span>
+                                <span class="xd-hero-badge">@StatusLabel(flow.Status)</span>
+                            </h1>
+                            <div class="xd-hero-url">@flow.StartUrl</div>
+                        </div>
+                        <div class="xd-hero-actions">
+                            <button class="xd-hero-btn ghost" @onclick="ToggleHeaderEdit">@(_editHeader ? "Cerrar" : "Editar")</button>
+                            <button class="xd-hero-btn ghost" @onclick="DeleteFlowAsync" disabled="@_busy">Eliminar</button>
+                        </div>
+                    </div>
+                    <div class="xd-kpis">
+                        <div class="xd-kpi"><div class="lbl">Ejecuciones</div><div class="val">@(flow.LastRunAt is null ? "0" : "-")</div></div>
+                        <div class="xd-kpi"><div class="lbl">Exitosas 30d</div><div class="val">-</div></div>
+                        <div class="xd-kpi"><div class="lbl">Registros</div><div class="val">-</div></div>
+                        <div class="xd-kpi"><div class="lbl">Ultima corrida</div><div class="val">@(flow.LastRunAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "nunca")</div></div>
+                    </div>
+                </div>
+
+                @* ---- Banda: el runtime es la colmena, no esta pantalla ---- *@
+                <div class="xd-strip">
+                    <strong>Runtime:</strong>&nbsp; el motor de ejecucion es el <strong>sub-agente Navegador</strong> de la
+                    colmena (WebView2 + acciones tipadas + JS firmado por el servidor). Esta pantalla es el
+                    configurador. La ejecucion del flujo (disparar + traer datos) esta pendiente (Ola 3).
+                </div>
+
+                @if (_editHeader)
+                {
+                    @* ---- Edicion de cabecera ---- *@
+                    <div class="xd-card">
+                        <div class="xd-card-head"><div class="xd-card-title">Cabecera del flujo</div></div>
+                        <div class="xd-props-body">
+                            <div class="xd-prop"><label>Nombre</label><input class="xd-input" @bind="_hName" /></div>
+                            <div class="xd-prop"><label>Descripcion</label><input class="xd-input" @bind="_hDesc" /></div>
+                            <div class="xd-prop"><label>URL de arranque</label><input class="xd-input" @bind="_hUrl" /></div>
+                            <div class="xd-prop">
+                                <label>Estado</label>
+                                <select class="xd-input" @bind="_hStatus">
+                                    @foreach (var st in Enum.GetValues<ScrapeSourceStatus>())
+                                    { <option value="@st">@StatusLabel(st)</option> }
+                                </select>
+                            </div>
+                            @if (_headError is not null) { <div class="xd-error-box">@_headError</div> }
+                            <div class="xd-props-actions">
+                                <button class="xd-btn primary" @onclick="SaveHeaderAsync" disabled="@_busy">Guardar</button>
+                                <button class="xd-btn" @onclick="() => _editHeader = false">Cancelar</button>
                             </div>
                         </div>
-                        <div class="xd-prop">
-                            <label for="xd-f-status">Estado</label>
-                            <select id="xd-f-status" @bind="_editStatus">
-                                <option value="@ScrapeSourceStatus.Active">Activa</option>
-                                <option value="@ScrapeSourceStatus.Inactive">Inactiva</option>
-                                @if (_editStatus == ScrapeSourceStatus.Error)
-                                {
-                                    <option value="@ScrapeSourceStatus.Error">Con errores (ultima corrida fallida)</option>
-                                }
-                            </select>
+                    </div>
+                }
+
+                <div class="xd-cols">
+
+                    @* ===== Pasos ===== *@
+                    <div class="xd-card">
+                        <div class="xd-card-head">
+                            <div class="xd-card-title">Pasos de ejecucion <span class="xd-num-badge">@flow.Steps.Count</span></div>
+                            <button class="xd-btn sm primary" @onclick="() => OpenStepEditor(null)">+ Agregar paso</button>
                         </div>
-                        <div class="xd-props-actions">
-                            <button class="xd-btn primary xd-save-btn" disabled="@_busy" @onclick="SaveAsync">
-                                @(_isNew ? "Crear fuente" : "Guardar cambios")
-                            </button>
-                            @if (!_isNew && _selected is not null)
+
+                        <div class="xd-steps">
+                            @if (flow.Steps.Count == 0)
                             {
-                                <button class="xd-btn xd-run" disabled="@_busy" @onclick="RunSelectedAsync">Probar / Ejecutar</button>
-                                <button class="xd-btn danger xd-del-btn" disabled="@_busy" @onclick="DeleteAsync">Eliminar</button>
+                                <div class="xd-empty">Sin pasos. Agrega el primero (navegar, inyectar script, extraer, o un paso de IA).</div>
+                            }
+                            @{ var idx = 0; }
+                            @foreach (var s in flow.Steps)
+                            {
+                                var i = idx++;
+                                <div class="xd-step">
+                                    <div class="xd-step-num">@(i + 1)</div>
+                                    <div class="xd-step-body">
+                                        <h4>@s.Name <span class="xd-tag @TagClass(s.Kind)">@KindLabel(s.Kind)</span></h4>
+                                        <div class="xd-step-desc">@StepSummary(s)</div>
+                                        @if (!string.IsNullOrWhiteSpace(s.Url)) { <span class="xd-step-url">@s.Url</span> }
+                                        @if (!string.IsNullOrWhiteSpace(s.Script))
+                                        { <pre class="xd-code-editor">@Shorten(s.Script, 240)</pre> }
+                                        @if (s.Kind == ScrapeStepKind.Ai && !string.IsNullOrWhiteSpace(s.Instruction))
+                                        { <div class="xd-step-ai">"@s.Instruction"</div> }
+                                    </div>
+                                    <div class="xd-step-actions">
+                                        <button class="xd-icon-btn" title="Subir" disabled="@(i == 0)" @onclick="() => MoveStepAsync(i, -1)">&uarr;</button>
+                                        <button class="xd-icon-btn" title="Bajar" disabled="@(i == flow.Steps.Count - 1)" @onclick="() => MoveStepAsync(i, 1)">&darr;</button>
+                                        <button class="xd-icon-btn" title="Editar" @onclick="() => OpenStepEditor(s)">&#9998;</button>
+                                        <button class="xd-icon-btn" title="Eliminar" @onclick="() => DeleteStepAsync(s.Id)">&times;</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (_showStepEditor)
+                        {
+                            <div class="xd-step-editor">
+                                <div class="xd-card-title" style="font-size:13px;margin-bottom:8px;">@(_editingStepId is null ? "Nuevo paso" : "Editar paso")</div>
+                                <div class="xd-prop">
+                                    <label>Tipo de paso</label>
+                                    <select class="xd-input" @bind="_sKind">
+                                        @foreach (var k in Enum.GetValues<ScrapeStepKind>())
+                                        { <option value="@k">@KindLabel(k)</option> }
+                                    </select>
+                                </div>
+                                <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="Ej. Login con credenciales" @bind="_sName" /></div>
+
+                                @if (_sKind == ScrapeStepKind.Navigate)
+                                {
+                                    <div class="xd-prop"><label>URL (admite {{VAR}})</label><input class="xd-input" @bind="_sUrl" /></div>
+                                }
+                                else if (_sKind is ScrapeStepKind.InjectScript or ScrapeStepKind.Extract)
+                                {
+                                    <div class="xd-prop"><label>Script JS (el servidor lo firma al ejecutar)</label>
+                                        <textarea class="xd-input xd-code-input" rows="6" @bind="_sScript"></textarea></div>
+                                    @if (_sKind == ScrapeStepKind.Extract)
+                                    {
+                                        <div class="xd-prop"><label>Mapeo campo -> columna (JSON, opcional)</label>
+                                            <textarea class="xd-input xd-code-input" rows="3" placeholder='{"sku":"CODIGO","nombre":"NOMBRE"}' @bind="_sMappingJson"></textarea></div>
+                                        <div class="xd-prop"><label>Tabla destino (si difiere de la del flujo)</label>
+                                            <select class="xd-input" @bind="_sTargetContainer">
+                                                <option value="">(la del flujo)</option>
+                                                @foreach (var c in _containers) { <option value="@c.Id">@c.Label</option> }
+                                            </select></div>
+                                    }
+                                }
+                                else if (_sKind == ScrapeStepKind.Wait)
+                                {
+                                    <div class="xd-prop"><label>Selector a esperar (opcional)</label><input class="xd-input" @bind="_sSelector" /></div>
+                                    <div class="xd-prop"><label>Espera (ms)</label><input class="xd-input" type="number" @bind="_sWaitMs" /></div>
+                                }
+                                else if (_sKind == ScrapeStepKind.Click)
+                                {
+                                    <div class="xd-prop"><label>Selector a clicar</label><input class="xd-input" @bind="_sSelector" /></div>
+                                }
+                                else if (_sKind == ScrapeStepKind.Ai)
+                                {
+                                    <div class="xd-prop"><label>Instruccion (lenguaje natural)</label>
+                                        <textarea class="xd-input" rows="3" placeholder="Ej. saca la tabla de precios y ponla en Productos" @bind="_sInstruction"></textarea></div>
+                                    <div class="xd-prop"><label>Tabla destino</label>
+                                        <select class="xd-input" @bind="_sTargetContainer">
+                                            <option value="">(la del flujo)</option>
+                                            @foreach (var c in _containers) { <option value="@c.Id">@c.Label</option> }
+                                        </select></div>
+                                    <div class="xd-prop"><label>Tools permitidas (browser.*, separadas por coma)</label>
+                                        <input class="xd-input" placeholder="navigate, eval, screenshot" @bind="_sToolAllow" /></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Tope de pasos</label><input class="xd-input" type="number" @bind="_sMaxSteps" /></div>
+                                        <div class="xd-prop"><label>Tope de segundos</label><input class="xd-input" type="number" @bind="_sMaxSeconds" /></div>
+                                    </div>
+                                    <div class="xd-prop"><label>Modelo (entre los habilitados por el Super Admin)</label>
+                                        <input class="xd-input" placeholder="Ej. claude-sonnet-5" @bind="_sAiModel" /></div>
+                                }
+
+                                @if (_stepError is not null) { <div class="xd-error-box">@_stepError</div> }
+                                <div class="xd-props-actions">
+                                    <button class="xd-btn primary" @onclick="SaveStepAsync" disabled="@_busy">Guardar paso</button>
+                                    <button class="xd-btn" @onclick="() => _showStepEditor = false">Cancelar</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @* ===== Cliente y variables ===== *@
+                    <div class="xd-card">
+                        <div class="xd-card-head"><div class="xd-card-title">Cliente y variables</div></div>
+                        <div class="xd-props-body">
+                            <div class="xd-prop">
+                                <label>Agente (bot asignado)</label>
+                                <select class="xd-input" @bind="_hClient" @bind:after="SaveAssignmentsAsync">
+                                    <option value="">(sin agente)</option>
+                                    @foreach (var c in _clients) { <option value="@c.Id">@c.Name</option> }
+                                </select>
+                            </div>
+                            <div class="xd-prop">
+                                <label>Tabla destino</label>
+                                <select class="xd-input" @bind="_hContainer" @bind:after="SaveAssignmentsAsync">
+                                    <option value="">(sin tabla)</option>
+                                    @foreach (var c in _containers) { <option value="@c.Id">@c.Label</option> }
+                                </select>
+                            </div>
+
+                            <div class="xd-prop">
+                                <label>Variables (se usan como {{Nombre}} en los scripts)</label>
+                                <div class="xd-var-list">
+                                    @foreach (var v in flow.Variables)
+                                    {
+                                        <div class="xd-var-row">
+                                            <span class="xd-var-name">@v.Name</span>
+                                            <span class="xd-var-value">@(v.IsSecret ? "********" : (v.HasValue ? "(con valor)" : "(vacia)"))</span>
+                                            @if (v.IsSecret) { <span class="xd-lock" title="Secreta (cifrada)">&#128274;</span> }
+                                            <button class="xd-icon-btn" title="Eliminar" @onclick="() => DeleteVariableAsync(v.Id)">&times;</button>
+                                        </div>
+                                    }
+                                    @if (!_showVarEditor)
+                                    {
+                                        <div class="xd-var-add" @onclick="OpenVarEditor">+ Nueva variable</div>
+                                    }
+                                </div>
+                            </div>
+
+                            @if (_showVarEditor)
+                            {
+                                <div class="xd-step-editor">
+                                    <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="USER" @bind="_vName" /></div>
+                                    <div class="xd-prop"><label>Valor</label><input class="xd-input" type="@(_vSecret ? "password" : "text")" @bind="_vValue" /></div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra y no se puede consultar)</label>
+                                    @if (_varError is not null) { <div class="xd-error-box">@_varError</div> }
+                                    <div class="xd-props-actions">
+                                        <button class="xd-btn primary" @onclick="SaveVariableAsync" disabled="@_busy">Guardar</button>
+                                        <button class="xd-btn" @onclick="() => _showVarEditor = false">Cancelar</button>
+                                    </div>
+                                </div>
                             }
                         </div>
                     </div>
-                </div>
 
-            </div>
-
-            @* ---- Historial de corridas (proto .exec-table, dot verde/rojo) ---- *@
-            <div class="xd-card">
-                <div class="xd-card-head">
-                    <div class="xd-card-title">Seguimiento de ejecuciones <span class="xd-num-badge">ultimas @_runs.Count</span></div>
                 </div>
-                @if (_runs.Count == 0)
-                {
-                    <div class="xd-card-empty">El historial de esta fuente esta vacio.</div>
-                }
-                else
-                {
-                    <div class="xd-table-wrap">
-                        <table class="xd-exec-table">
-                            <thead>
-                                <tr>
-                                    <th>Ejecucion</th>
-                                    <th>Cuando</th>
-                                    <th>Duracion</th>
-                                    <th>Registros</th>
-                                    <th>Estado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var r in _runs)
-                                {
-                                    <tr>
-                                        <td><code>#XD-@r.Id.ToString("N")[..6].ToUpperInvariant()</code></td>
-                                        <td>@r.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                                        <td>@DurationLabel(r.DurationMs)</td>
-                                        <td class="num">@r.ItemCount.ToString("N0")</td>
-                                        <td>
-                                            <span class="xd-pill @(r.Status == ScrapeRunStatus.Success ? "ok" : "err")"
-                                                  title="@(r.ErrorMessage ?? "Corrida exitosa")">
-                                                <span class="d"></span>@(r.Status == ScrapeRunStatus.Success ? "Exitoso" : "Fallido")
-                                            </span>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-            </div>
+            }
 
         </div>
     </div>
 </div>
 
 @code {
-    private List<ScrapeSourceDto> _sources = [];
-    private ScrapeSourceDto? _selected;
-    private List<ScrapeRunDto> _runs = [];
-    private ScrapeRunDto? _lastRun;
-
+    private IReadOnlyList<ScrapeFlowSummaryDto> _flows = Array.Empty<ScrapeFlowSummaryDto>();
+    private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
+    private IReadOnlyList<ScrapeTargetDto> _containers = Array.Empty<ScrapeTargetDto>();
+    private ScrapeFlowDto? _selected;
     private bool _isNew;
     private bool _busy;
     private string _search = "";
     private string? _flash;
     private bool _flashError;
+    private Guid _actor;
 
-    // Editor (panel derecho)
-    private string _editName = "";
-    private string _editUrl = "";
-    private ScrapeSourceKind _editKind = ScrapeSourceKind.Json;
-    private string? _editSelector;
-    private ScrapeSourceStatus _editStatus = ScrapeSourceStatus.Active;
+    // Cabecera
+    private bool _editHeader;
+    private string? _headError;
+    private string _hName = "";
+    private string _hDesc = "";
+    private string _hUrl = "";
+    private ScrapeSourceStatus _hStatus = ScrapeSourceStatus.Active;
+    private string _hClient = "";
+    private string _hContainer = "";
 
-    // Preview parseada del ResultJson de la ultima corrida
-    private int? _previewItemCount;
-    private List<string> _previewColumns = [];
-    private List<List<string?>> _previewRows = [];
-    private string _previewRawJson = "";
+    // Editor de paso
+    private bool _showStepEditor;
+    private Guid? _editingStepId;
+    private string? _stepError;
+    private ScrapeStepKind _sKind = ScrapeStepKind.Navigate;
+    private string _sName = "";
+    private string _sUrl = "";
+    private string _sScript = "";
+    private string _sSelector = "";
+    private string _sWaitMs = "";
+    private string _sMappingJson = "";
+    private string _sInstruction = "";
+    private string _sTargetContainer = "";
+    private string _sToolAllow = "";
+    private string _sMaxSteps = "";
+    private string _sMaxSeconds = "";
+    private string _sAiModel = "";
 
-    private IReadOnlyList<ScrapeSourceDto> FilteredSources =>
+    // Editor de variable
+    private bool _showVarEditor;
+    private string? _varError;
+    private string _vName = "";
+    private string _vValue = "";
+    private bool _vSecret = true;
+
+    private List<ScrapeFlowSummaryDto> FilteredFlows =>
         string.IsNullOrWhiteSpace(_search)
-            ? _sources
-            : _sources.Where(s => s.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            ? _flows.ToList()
+            : _flows.Where(f => f.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)).ToList();
 
     protected override async Task OnInitializedAsync()
     {
-        await ReloadSourcesAsync(selectFirst: true);
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+        _clients = await ConfigSvc.ListClientsAsync();
+        _containers = await FlowSvc.ListContainersAsync();
+        await ReloadFlowsAsync();
     }
 
-    private async Task ReloadSourcesAsync(bool selectFirst = false, Guid? keepSelected = null)
-    {
-        _sources = (await ScrapeSvc.ListSourcesAsync()).ToList();
-        var target = keepSelected ?? _selected?.Id;
-        if (target is Guid id && _sources.Any(s => s.Id == id))
-        {
-            await SelectSourceAsync(id);
-        }
-        else if (selectFirst && _sources.Count > 0)
-        {
-            await SelectSourceAsync(_sources[0].Id);
-        }
-        else if (_sources.Count == 0)
-        {
-            NewSource();
-        }
-    }
+    private async Task ReloadFlowsAsync() => _flows = await FlowSvc.ListAsync();
 
-    private async Task SelectSourceAsync(Guid id)
+    private async Task SelectFlowAsync(Guid id)
     {
         _isNew = false;
-        _selected = _sources.FirstOrDefault(s => s.Id == id) ?? await ScrapeSvc.GetSourceAsync(id);
-        if (_selected is null)
+        _editHeader = false;
+        _showStepEditor = false;
+        _showVarEditor = false;
+        _selected = await FlowSvc.GetAsync(id);
+        if (_selected is not null)
         {
-            return;
+            _hClient = _selected.ClientId?.ToString() ?? "";
+            _hContainer = _selected.ContainerId?.ToString() ?? "";
         }
-        _editName = _selected.Name;
-        _editUrl = _selected.Url;
-        _editKind = _selected.Kind;
-        _editSelector = _selected.Selector;
-        _editStatus = _selected.Status;
-        await ReloadRunsAsync();
     }
 
-    private async Task ReloadRunsAsync()
-    {
-        _runs = _selected is null ? [] : (await ScrapeSvc.ListRunsAsync(_selected.Id)).ToList();
-        _lastRun = _runs.FirstOrDefault();
-        ParsePreview(_lastRun?.ResultJson);
-    }
-
-    private void NewSource()
+    private void NewFlow()
     {
         _isNew = true;
         _selected = null;
-        _runs = [];
-        _lastRun = null;
-        ParsePreview(null);
-        _editName = "";
-        _editUrl = "";
-        _editKind = ScrapeSourceKind.Json;
-        _editSelector = null;
-        _editStatus = ScrapeSourceStatus.Active;
+        _headError = null;
+        _hName = ""; _hUrl = "";
     }
 
-    private async Task SaveAsync()
+    private void CancelNew() => _isNew = false;
+
+    private async Task CreateFlowAsync()
     {
+        _headError = null;
         _busy = true;
         try
         {
-            var result = await ScrapeSvc.SaveSourceAsync(new SaveScrapeSourceRequest(
-                _isNew ? null : _selected?.Id, _editName, _editUrl, _editKind, _editSelector, _editStatus));
-            if (!result.IsOk)
-            {
-                Flash(result.Error ?? "No se pudo guardar la fuente.", error: true);
-                return;
-            }
-            Flash(_isNew ? $"Fuente \"{result.Value!.Name}\" creada." : "Fuente guardada.");
+            var saved = await FlowSvc.SaveFlowAsync(new SaveScrapeFlowRequest(
+                null, _hName, null, _hUrl, ScrapeSourceStatus.Active, null, null), _actor);
+            if (saved is null) { _headError = "No se pudo crear."; return; }
+            await ReloadFlowsAsync();
             _isNew = false;
-            await ReloadSourcesAsync(keepSelected: result.Value!.Id);
+            await SelectFlowAsync(saved.Id);
+            Flash("Flujo creado.");
         }
-        finally
+        catch (Exception ex) { _headError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void ToggleHeaderEdit()
+    {
+        _editHeader = !_editHeader;
+        if (_editHeader && _selected is not null)
         {
-            _busy = false;
+            _hName = _selected.Name; _hDesc = _selected.Description ?? "";
+            _hUrl = _selected.StartUrl; _hStatus = _selected.Status;
         }
     }
 
-    private async Task RunSelectedAsync()
+    private async Task SaveHeaderAsync()
     {
-        if (_selected is null)
-        {
-            return;
-        }
+        if (_selected is null) { return; }
+        _headError = null;
         _busy = true;
         try
         {
-            var result = await ScrapeSvc.RunAsync(_selected.Id);
-            if (!result.IsOk)
-            {
-                Flash(result.Error ?? "No se pudo ejecutar la fuente.", error: true);
-                return;
-            }
-            var run = result.Value!;
-            if (run.Status == ScrapeRunStatus.Success)
-            {
-                Flash($"Corrida exitosa: {run.ItemCount} items en {run.DurationMs} ms.");
-            }
-            else
-            {
-                Flash($"Corrida fallida: {run.ErrorMessage}", error: true);
-            }
-            await ReloadSourcesAsync(keepSelected: _selected.Id);
+            var saved = await FlowSvc.SaveFlowAsync(new SaveScrapeFlowRequest(
+                _selected.Id, _hName, NullIfBlank(_hDesc), _hUrl, _hStatus,
+                ParseGuid(_hClient), ParseGuid(_hContainer)), _actor);
+            if (saved is null) { _headError = "No se pudo guardar."; return; }
+            _editHeader = false;
+            await ReloadFlowsAsync();
+            await SelectFlowAsync(saved.Id);
+            Flash("Cabecera guardada.");
         }
-        finally
-        {
-            _busy = false;
-        }
+        catch (Exception ex) { _headError = ex.Message; }
+        finally { _busy = false; }
     }
 
-    private async Task DeleteAsync()
+    private async Task SaveAssignmentsAsync()
     {
-        if (_selected is null)
-        {
-            return;
-        }
+        // El cliente/tabla se guardan al vuelo desde el panel derecho (sin abrir la cabecera).
+        if (_selected is null) { return; }
         _busy = true;
         try
         {
-            var result = await ScrapeSvc.DeleteSourceAsync(_selected.Id);
-            if (!result.IsOk)
-            {
-                // Regla de negocio (ADR-0025, mismo criterio que reglas): con historial no se
-                // borra; se ofrece desactivar para conservar la trazabilidad.
-                Flash(result.Error ?? "No se pudo eliminar la fuente.", error: true);
-                return;
-            }
-            Flash("Fuente eliminada.");
+            await FlowSvc.SaveFlowAsync(new SaveScrapeFlowRequest(
+                _selected.Id, _selected.Name, _selected.Description, _selected.StartUrl, _selected.Status,
+                ParseGuid(_hClient), ParseGuid(_hContainer)), _actor);
+            await SelectFlowAsync(_selected.Id);
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteFlowAsync()
+    {
+        if (_selected is null) { return; }
+        _busy = true;
+        try
+        {
+            await FlowSvc.DeleteFlowAsync(_selected.Id, _actor);
             _selected = null;
-            await ReloadSourcesAsync(selectFirst: true);
+            await ReloadFlowsAsync();
+            Flash("Flujo eliminado.");
         }
-        finally
-        {
-            _busy = false;
-        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
     }
 
-    private void Flash(string message, bool error = false)
+    // ---- Pasos ----
+
+    private void OpenStepEditor(ScrapeStepDto? s)
     {
-        _flash = message;
-        _flashError = error;
+        _stepError = null;
+        _showStepEditor = true;
+        _editingStepId = s?.Id;
+        _sKind = s?.Kind ?? ScrapeStepKind.Navigate;
+        _sName = s?.Name ?? "";
+        _sUrl = s?.Url ?? "";
+        _sScript = s?.Script ?? "";
+        _sSelector = s?.Selector ?? "";
+        _sWaitMs = s?.WaitMs?.ToString() ?? "";
+        _sMappingJson = s?.MappingJson ?? "";
+        _sInstruction = s?.Instruction ?? "";
+        _sTargetContainer = s?.TargetContainerId?.ToString() ?? "";
+        _sToolAllow = "";
+        _sMaxSteps = s?.MaxSteps?.ToString() ?? "";
+        _sMaxSeconds = s?.MaxSeconds?.ToString() ?? "";
+        _sAiModel = s?.AiModel ?? "";
     }
 
-    /// <summary>Parsea el documento ResultJson persistido ({itemCount, columns, rows}) para la tabla de preview.</summary>
-    private void ParsePreview(string? resultJson)
+    private async Task SaveStepAsync()
     {
-        _previewItemCount = null;
-        _previewColumns = [];
-        _previewRows = [];
-        _previewRawJson = "";
-        if (string.IsNullOrWhiteSpace(resultJson))
-        {
-            return;
-        }
+        if (_selected is null) { return; }
+        _stepError = null;
+        _busy = true;
         try
         {
-            using var doc = JsonDocument.Parse(resultJson);
-            var root = doc.RootElement;
-            _previewItemCount = root.TryGetProperty("itemCount", out var c) ? c.GetInt32() : null;
-            if (root.TryGetProperty("columns", out var cols) && cols.ValueKind == JsonValueKind.Array)
-            {
-                _previewColumns = cols.EnumerateArray().Select(e => e.GetString() ?? "").ToList();
-            }
-            if (root.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var row in rows.EnumerateArray())
-                {
-                    _previewRows.Add(row.EnumerateArray()
-                        .Select(e => e.ValueKind == JsonValueKind.Null ? null : e.ToString())
-                        .ToList());
-                }
-            }
-            _previewRawJson = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+            var order = _editingStepId is null ? _selected.Steps.Count : _selected.Steps.First(x => x.Id == _editingStepId).Order;
+            var toolJson = string.IsNullOrWhiteSpace(_sToolAllow) ? null
+                : System.Text.Json.JsonSerializer.Serialize(_sToolAllow.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            var req = new SaveScrapeStepRequest(
+                _editingStepId, _selected.Id, order, _sKind, _sName,
+                WaitMs: ParseInt(_sWaitMs), Url: NullIfBlank(_sUrl), Script: NullIfBlank(_sScript),
+                Selector: NullIfBlank(_sSelector), MappingJson: NullIfBlank(_sMappingJson),
+                Instruction: NullIfBlank(_sInstruction), TargetContainerId: ParseGuid(_sTargetContainer),
+                ToolAllowListJson: toolJson, MaxSteps: ParseInt(_sMaxSteps), MaxSeconds: ParseInt(_sMaxSeconds),
+                AiModel: NullIfBlank(_sAiModel));
+            var saved = await FlowSvc.SaveStepAsync(req, _actor);
+            if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
+            _showStepEditor = false;
+            await SelectFlowAsync(_selected.Id);
+            await ReloadFlowsAsync();
         }
-        catch (JsonException)
-        {
-            _previewRawJson = resultJson;
-        }
+        catch (Exception ex) { _stepError = ex.Message; }
+        finally { _busy = false; }
     }
 
-    private string SuccessRateLabel
+    private async Task DeleteStepAsync(Guid stepId)
     {
-        get
+        if (_selected is null) { return; }
+        _busy = true;
+        try
         {
-            if (_selected is null || _selected.RunCount30d == 0)
-            {
-                return "-";
-            }
-            return $"{100.0 * _selected.SuccessCount30d / _selected.RunCount30d:0.#}%";
+            await FlowSvc.DeleteStepAsync(stepId, _actor);
+            await SelectFlowAsync(_selected.Id);
+            await ReloadFlowsAsync();
         }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
     }
 
-    private static string Initial(string name) =>
-        string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+    private async Task MoveStepAsync(int index, int delta)
+    {
+        if (_selected is null) { return; }
+        var ids = _selected.Steps.Select(s => s.Id).ToList();
+        var target = index + delta;
+        if (target < 0 || target >= ids.Count) { return; }
+        (ids[index], ids[target]) = (ids[target], ids[index]);
+        _busy = true;
+        try
+        {
+            await FlowSvc.ReorderStepsAsync(_selected.Id, ids, _actor);
+            await SelectFlowAsync(_selected.Id);
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
 
-    private static string KindLabel(ScrapeSourceKind kind) => kind == ScrapeSourceKind.Json ? "JSON" : "HTML";
+    // ---- Variables ----
 
-    private static string StatusLabel(ScrapeSourceStatus status) => status switch
+    private void OpenVarEditor()
+    {
+        _varError = null;
+        _showVarEditor = true;
+        _vName = ""; _vValue = ""; _vSecret = true;
+    }
+
+    private async Task SaveVariableAsync()
+    {
+        if (_selected is null) { return; }
+        _varError = null;
+        _busy = true;
+        try
+        {
+            var saved = await FlowSvc.SaveVariableAsync(new SaveScrapeVariableRequest(
+                null, _selected.Id, _vName, NullIfBlank(_vValue), _vSecret), _actor);
+            if (saved is null) { _varError = "No se pudo guardar."; return; }
+            _showVarEditor = false;
+            await SelectFlowAsync(_selected.Id);
+        }
+        catch (Exception ex) { _varError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteVariableAsync(Guid id)
+    {
+        if (_selected is null) { return; }
+        _busy = true;
+        try
+        {
+            await FlowSvc.DeleteVariableAsync(id, _actor);
+            await SelectFlowAsync(_selected.Id);
+        }
+        catch (Exception ex) { Flash(ex.Message, true); }
+        finally { _busy = false; }
+    }
+
+    // ---- Helpers ----
+
+    private void Flash(string msg, bool error = false) { _flash = msg; _flashError = error; }
+
+    private static string Initial(string name) => string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static Guid? ParseGuid(string s) => Guid.TryParse(s, out var g) ? g : null;
+    private static int? ParseInt(string s) => int.TryParse(s, out var n) ? n : null;
+    private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
+
+    private static string StatusLabel(ScrapeSourceStatus s) => s switch
     {
         ScrapeSourceStatus.Active => "Activa",
         ScrapeSourceStatus.Inactive => "Inactiva",
         _ => "Con errores"
     };
 
-    private static string DotClass(ScrapeSourceDto s) => s.Status switch
+    private static string DotClass(ScrapeSourceStatus s) => s == ScrapeSourceStatus.Error ? "err" : "";
+
+    private static string KindLabel(ScrapeStepKind k) => k switch
     {
-        ScrapeSourceStatus.Error => "err",
-        ScrapeSourceStatus.Inactive => "off",
-        _ => "ok"
+        ScrapeStepKind.Navigate => "Navegar",
+        ScrapeStepKind.InjectScript => "Inyectar JS",
+        ScrapeStepKind.Extract => "Extraer",
+        ScrapeStepKind.Wait => "Esperar",
+        ScrapeStepKind.Click => "Clic",
+        ScrapeStepKind.Screenshot => "Captura",
+        _ => "IA"
     };
 
-    private static string DurationLabel(int ms) =>
-        ms < 1000 ? $"{ms} ms" : $"{ms / 1000.0:0.0} s";
-
-    private static string RelativeShort(DateTimeOffset? at)
+    private static string TagClass(ScrapeStepKind k) => k switch
     {
-        if (at is not DateTimeOffset t)
-        {
-            return "-";
-        }
-        var delta = DateTimeOffset.UtcNow - t.ToUniversalTime();
-        if (delta < TimeSpan.FromMinutes(1)) { return "ahora"; }
-        if (delta < TimeSpan.FromHours(1)) { return $"{(int)delta.TotalMinutes}m"; }
-        if (delta < TimeSpan.FromHours(48)) { return $"{(int)delta.TotalHours}h"; }
-        return $"{(int)delta.TotalDays}d";
-    }
+        ScrapeStepKind.Navigate => "nav",
+        ScrapeStepKind.Wait => "wait",
+        ScrapeStepKind.Ai => "ai",
+        ScrapeStepKind.Extract => "extract",
+        _ => "script"
+    };
+
+    private static string StepSummary(ScrapeStepDto s) => s.Kind switch
+    {
+        ScrapeStepKind.Navigate => "Va a la URL indicada.",
+        ScrapeStepKind.InjectScript => "Inyecta JavaScript (firmado por el servidor).",
+        ScrapeStepKind.Extract => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
+        ScrapeStepKind.Wait => s.WaitMs is int ms ? $"Espera {ms} ms." : "Espera a que aparezca el selector.",
+        ScrapeStepKind.Click => "Hace clic sobre el selector.",
+        ScrapeStepKind.Screenshot => "Captura de pantalla.",
+        _ => $"Un agente de IA maneja el navegador (tope {s.MaxSteps?.ToString() ?? "-"} pasos / {s.MaxSeconds?.ToString() ?? "-"} s)."
+    };
 }

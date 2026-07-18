@@ -46,6 +46,9 @@ public sealed record ScrapeVariableDto(
     bool HasValue,
     bool IsSecret);
 
+/// <summary>Una tabla que un flujo puede usar como destino ("Modelo / Tabla"), para el selector.</summary>
+public sealed record ScrapeTargetDto(Guid Id, string Label);
+
 /// <summary>El flujo completo (cabecera + pasos ordenados + variables).</summary>
 public sealed record ScrapeFlowDto(
     Guid Id,
@@ -108,6 +111,8 @@ public sealed record SaveScrapeVariableRequest(
 public interface IScrapeFlowService
 {
     Task<IReadOnlyList<ScrapeFlowSummaryDto>> ListAsync(CancellationToken ct = default);
+    /// <summary>Tablas que un flujo puede usar como destino, etiquetadas "Modelo / Tabla".</summary>
+    Task<IReadOnlyList<ScrapeTargetDto>> ListContainersAsync(CancellationToken ct = default);
     Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default);
     Task<ScrapeFlowDto?> SaveFlowAsync(SaveScrapeFlowRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteFlowAsync(Guid flowId, Guid actorUserId, CancellationToken ct = default);

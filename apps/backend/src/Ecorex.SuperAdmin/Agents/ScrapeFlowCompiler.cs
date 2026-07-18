@@ -149,7 +149,14 @@ public static class ScrapeFlowCompiler
     }
 
     private static BrowserAction EvalSigned(string js, string correlationId, string? secret, ScrapeStep step)
-        => new(BrowserActionKind.Eval, Script: js, Signature: Sign(js, correlationId, secret, step));
+    {
+        // El JS del operador es un CUERPO de funcion: escribe `return [...]` para devolver las filas.
+        // El Navegador lo corre con WebView2 ExecuteScriptAsync, donde un `return` en el nivel superior es
+        // error de sintaxis; por eso se envuelve en un IIFE ANTES de firmar (la firma cubre el JS exacto
+        // que se ejecuta). El salto de linea final evita que un comentario `//` al final se coma el cierre.
+        var body = "(function(){\n" + js + "\n})()";
+        return new(BrowserActionKind.Eval, Script: body, Signature: Sign(body, correlationId, secret, step));
+    }
 
     private static string RequireScript(ScrapeStep step, string kindLabel)
     {

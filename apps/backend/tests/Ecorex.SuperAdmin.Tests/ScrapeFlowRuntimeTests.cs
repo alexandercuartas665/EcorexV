@@ -41,8 +41,12 @@ public class ScrapeFlowRuntimeTests
         Assert.Null(nav.Signature); // Navigate no lleva JS: no se firma.
     }
 
+    // El JS del operador se envuelve en un IIFE (cuerpo de funcion) para que `return` sea legal en
+    // WebView2 ExecuteScriptAsync. La firma cubre el JS YA envuelto (lo exacto que corre el agente).
+    private static string Wrapped(string js) => "(function(){\n" + js + "\n})()";
+
     [Fact]
-    public void Compile_InjectScript_signs_the_exact_substituted_js()
+    public void Compile_InjectScript_wraps_and_signs_the_exact_substituted_js()
     {
         var flow = FlowWith(new ScrapeStep { Kind = ScrapeStepKind.InjectScript, Name = "login", Script = "login('{{USER}}')" });
         var vars = new Dictionary<string, string> { ["USER"] = "ana" };
@@ -51,10 +55,27 @@ public class ScrapeFlowRuntimeTests
 
         var eval = Assert.Single(plan.Actions);
         Assert.Equal(BrowserActionKind.Eval, eval.Kind);
-        Assert.Equal("login('ana')", eval.Script);
-        // La firma cubre el JS YA sustituido (anti-tamper) ligado al correlationId (anti-replay).
-        Assert.Equal(AgentSign.SignJs(Secret, Corr, "login('ana')"), eval.Signature);
+        Assert.Equal(Wrapped("login('ana')"), eval.Script); // variable sustituida Y envuelto en IIFE.
+        // La firma cubre el JS envuelto+sustituido (anti-tamper) ligado al correlationId (anti-replay).
+        Assert.Equal(AgentSign.SignJs(Secret, Corr, Wrapped("login('ana')")), eval.Signature);
         Assert.True(AgentSign.Verify(Secret, Corr, eval.Script!, eval.Signature));
+    }
+
+    [Fact]
+    public void Compile_wraps_extract_js_in_iife_so_return_is_valid()
+    {
+        // Regresion: el operador escribe `return [...]` (mental model natural). Sin envolver, un `return`
+        // en el nivel superior de ExecuteScriptAsync es SyntaxError -> el Navegador devuelve null -> 0 filas.
+        const string body = "return Array.from(document.querySelectorAll('.q')).map(q => ({ N: q.innerText }));";
+        var flow = FlowWith(new ScrapeStep { Kind = ScrapeStepKind.Extract, Name = "sacar", Script = body });
+
+        var plan = ScrapeFlowCompiler.Compile(flow, NoVars, Corr, Secret);
+
+        var eval = Assert.Single(plan.Actions);
+        Assert.StartsWith("(function(){", eval.Script);
+        Assert.EndsWith("})()", eval.Script);
+        Assert.Contains(body, eval.Script); // el cuerpo del operador queda intacto dentro del IIFE.
+        Assert.True(AgentSign.Verify(Secret, Corr, eval.Script!, eval.Signature)); // firma sobre el JS envuelto.
     }
 
     [Fact]

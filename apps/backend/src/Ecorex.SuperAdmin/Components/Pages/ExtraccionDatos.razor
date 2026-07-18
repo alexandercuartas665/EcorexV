@@ -230,8 +230,10 @@
                                 }
                                 else if (_sKind is ScrapeStepKind.InjectScript or ScrapeStepKind.Extract)
                                 {
-                                    <div class="xd-prop"><label>Script JS (el servidor lo firma al ejecutar)</label>
-                                        <textarea class="xd-input xd-code-input" rows="6" @bind="_sScript"></textarea></div>
+                                    <div class="xd-prop"><label>Script JS (cuerpo de funcion: usa <code>return</code>; el servidor lo firma al ejecutar)</label>
+                                        <textarea class="xd-input xd-code-input" rows="6"
+                                            placeholder="return Array.from(document.querySelectorAll('.fila')).map(r => ({ CODIGO: r.dataset.id, NOMBRE: r.querySelector('.nombre').innerText }));"
+                                            @bind="_sScript"></textarea></div>
                                     @if (_sKind == ScrapeStepKind.Extract)
                                     {
                                         <div class="xd-prop"><label>Mapeo campo -> columna (JSON, opcional)</label>

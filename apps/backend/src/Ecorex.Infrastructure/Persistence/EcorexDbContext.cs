@@ -2204,6 +2204,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
             b.Property(x => x.DisabledReason).HasMaxLength(300);
             b.HasIndex(x => new { x.TenantId, x.ModelId });
+            // Un proceso puede programar un FLUJO de extraccion (Ola 5): el servicio del flujo busca
+            // "su" proceso por aqui. FlowId es referencia suave (sin FK) a ScrapeFlow.
+            b.HasIndex(x => new { x.TenantId, x.FlowId });
             // El barrido del worker filtra por aqui en CADA pasada (cada minuto, cross-tenant).
             b.HasIndex(x => x.NextRunAt);
             // El worker tambien busca "quien esta esperando a su agente" en cada pasada.

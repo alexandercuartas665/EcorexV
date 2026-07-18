@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos, Ola 4: paso de IA (orquestacion agente<->navegador)
+
+Cuarta ola: los pasos de tipo IA ya se EJECUTAN. Un agente de IA maneja el navegador para cumplir una
+instruccion en lenguaje natural, acotado por su allow-list de tools + topes de pasos/tiempo (doc 03 s2).
+Requiere un refactor del runtime a ejecucion SECUENCIAL (que ademas Ola 5 paginacion necesitara).
+
+- **Canal request/response** (`IBrowserActionChannel`): une el envio y la respuesta del Navegador por
+  correlationId (TCS + timeout), para poder AWAITAR el resultado de una accion antes de la siguiente. El
+  hub (`AgenteHub.BrowserResult`) ahora RESUELVE la espera del canal (antes solo logueaba). Es lo que
+  hace posible el bucle del paso de IA y la ejecucion secuencial de los deterministas.
+- **Runtime secuencial** (`BrowserRunService` reescrito): "Ejecutar ahora" valida + abre corrida +
+  chequea online, y lanza la ejecucion en SEGUNDO PLANO (la UI recibe "despachado"; el resultado llega a
+  la bitacora al terminar). El ejecutor agrupa los pasos deterministas consecutivos en tramos (un
+  BrowserRequest por tramo, por el canal) y corre cada paso de IA con el orquestador. Sustituye el
+  modelo batch+callback de la Ola 3 (unificado; la ingesta se movio a `ScrapeRowIngest`).
+- **Orquestador del paso de IA** (`AiStepOrchestrator`, ADR-0043): bucle de function-calling sobre el AI
+  Provider Gateway (`IAiProviderClient.CompleteWithToolsAsync`, ya existente). Tools = acciones del
+  navegador filtradas por la allow-list (vacia = solo lectura; eval/clic solo si el operador las
+  habilito) + `guardar_filas` (ingiere). El JS que genera la IA viaja por el hub, asi que el servidor lo
+  FIRMA (el agente lo rechazaria sin firma). Topes de pasos y tiempo. Consumo registrado en el modulo de
+  tokens (`IAiUsageService`) con control de cupo. Proveedor/llave via seam `IAiProviderResolver`;
+  ingesta via seam `IScrapeRowSink` (para probar sin BD).
+
+**Pruebas**: 5 tests unitarios nuevos del orquestador con fakes (bucle navegar->guardar_filas ingiere;
+sin proveedor -> mensaje claro; tope de pasos -> corta sin guardar; allow-list -> no ofrece eval/clic si
+no estan; firma el JS de un evaluar_js). Suite SuperAdmin.Tests 52 verde; build de la solucion 0 errores.
+**Verificado en Chrome**: regresion del path refactorizado -> "Ejecutar ahora" en el flujo offline sigue
+registrando "Esperando al agente" (el runtime secuencial + los DI nuevos resuelven sin error).
+
+**Limite honesto**: el paso de IA de punta a punta (LLM real manejando el navegador y filas aterrizando)
+exige un proveedor de IA habilitado en el Super Admin Y la colmena on-prem conectada, ninguno disponible
+en dev. El bucle, la firma, la allow-list, los topes y la ingesta estan cubiertos por los tests con
+fakes; el cableado (runtime -> orquestador -> canal -> hub) esta armado y compila.
+
+**Siguiente**: Ola 5 = programacion (ImportProcess -> flujo), paginacion, advertencias, y decidir
+coexistir con ScrapeSource.
+
+---
+
 ## 2026-07-18 - Extraccion de Datos, Ola 3: runtime determinista (cablear al Navegador)
 
 Tercera ola: el flujo configurado ya se EJECUTA. Se cierra el lazo que faltaba (hasta ahora

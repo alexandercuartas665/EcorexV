@@ -49,10 +49,15 @@ public static class AgentChannel
         services.AddSignalR().AddHubOptions<AgenteHub>(o => o.MaximumReceiveMessageSize = 32L * 1024 * 1024);
         // Ola 3: orquestador de ingesta via agente (pending-fetch + ingesta al contenedor).
         services.AddSingleton<IAgentImportService, AgentImportService>();
-        // Runtime del flujo de extraccion (modulo 000730, Ola 3): compila el flujo, lo empuja al
-        // sub-agente Navegador y, cuando responde, ingiere los Extract y cierra la corrida. Singleton
-        // (guarda las peticiones pendientes); su bitacora es scoped (DbContext).
+        // Runtime del flujo de extraccion (modulo 000730, Olas 3-4). El canal request/response une el
+        // envio y la respuesta del Navegador por correlationId (singleton: mantiene las esperas). El
+        // runtime ejecuta el flujo paso a paso (singleton, corre en scopes propios). El orquestador del
+        // paso de IA y la bitacora son scoped (usan DbContext).
+        services.AddSingleton<IBrowserActionChannel, BrowserActionChannel>();
         services.AddSingleton<IBrowserRunService, BrowserRunService>();
+        services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
+        services.AddScoped<IAiProviderResolver, AiProviderResolver>();
+        services.AddScoped<IScrapeRowSink, ScrapeRowSink>();
         services.AddScoped<IScrapeFlowRunLog, ScrapeFlowRunLog>();
         // Ejecuta una programacion AHORA (boton "Actualizar datos"). Scoped: usa el DbContext y el
         // tenant del request. Lo reusa el scheduler para que el horario y el boton hagan lo mismo.

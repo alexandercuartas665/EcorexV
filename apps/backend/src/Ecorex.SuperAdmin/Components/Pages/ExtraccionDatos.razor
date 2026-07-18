@@ -129,10 +129,11 @@
 
                 @* ---- Banda: el runtime es la colmena, no esta pantalla ---- *@
                 <div class="xd-strip">
-                    <strong>Runtime:</strong>&nbsp; "Ejecutar ahora" compila el flujo y lo empuja al
+                    <strong>Runtime:</strong>&nbsp; "Ejecutar ahora" ejecuta el flujo paso a paso en el
                     <strong>sub-agente Navegador</strong> del agente asignado (WebView2 + acciones tipadas + JS firmado).
+                    Los pasos de <strong>IA</strong> los maneja un agente con las tools del navegador (acotado por su
+                    allow-list y sus topes), y requieren un proveedor de IA habilitado en el Super Admin.
                     Si el agente no esta en linea, la corrida queda <strong>esperando</strong> y se reintenta cuando vuelva.
-                    El plano de IA (pasos de tipo IA) llega en la proxima ola.
                 </div>
 
                 @if (_editHeader)

@@ -3712,6 +3712,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(300)")
                         .HasColumnName("disabled_reason");
 
+                    b.Property<Guid?>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
                     b.Property<int?>("IntervalMinutes")
                         .HasColumnType("integer")
                         .HasColumnName("interval_minutes");
@@ -3780,6 +3784,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PendingSince")
                         .HasDatabaseName("ix_import_processes_pending_since");
+
+                    b.HasIndex("TenantId", "FlowId")
+                        .HasDatabaseName("ix_import_processes_tenant_id_flow_id");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_import_processes_tenant_id_model_id");

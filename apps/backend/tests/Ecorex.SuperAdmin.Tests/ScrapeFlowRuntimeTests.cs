@@ -149,7 +149,7 @@ public class ScrapeFlowRuntimeTests
     [Fact]
     public void ParseRows_reads_an_array_of_objects()
     {
-        var rows = BrowserRunService.ParseRows("[{\"sku\":\"A1\",\"precio\":100},{\"sku\":\"B2\",\"precio\":null}]");
+        var rows = ScrapeRowIngest.ParseRows("[{\"sku\":\"A1\",\"precio\":100},{\"sku\":\"B2\",\"precio\":null}]");
         Assert.Equal(2, rows.Count);
         Assert.Equal("A1", rows[0]["sku"]);
         Assert.Equal("100", rows[0]["precio"]); // numero -> texto para la ingesta EAV.
@@ -160,14 +160,14 @@ public class ScrapeFlowRuntimeTests
     public void ParseRows_unwraps_a_double_encoded_string()
     {
         // Si el script hizo JSON.stringify, el Value llega como cadena que CONTIENE el JSON del arreglo.
-        var rows = BrowserRunService.ParseRows("\"[{\\\"sku\\\":\\\"A1\\\"}]\"");
+        var rows = ScrapeRowIngest.ParseRows("\"[{\\\"sku\\\":\\\"A1\\\"}]\"");
         Assert.Equal("A1", Assert.Single(rows)["sku"]);
     }
 
     [Fact]
     public void ParseRows_accepts_a_single_object()
     {
-        var rows = BrowserRunService.ParseRows("{\"n\":\"1\"}");
+        var rows = ScrapeRowIngest.ParseRows("{\"n\":\"1\"}");
         Assert.Equal("1", Assert.Single(rows)["n"]);
     }
 
@@ -178,6 +178,6 @@ public class ScrapeFlowRuntimeTests
     [InlineData("no es json")]
     public void ParseRows_returns_empty_on_nothing_useful(string? value)
     {
-        Assert.Empty(BrowserRunService.ParseRows(value));
+        Assert.Empty(ScrapeRowIngest.ParseRows(value));
     }
 }

@@ -43,11 +43,22 @@ public static class ScrapeFlowCompiler
         IReadOnlyDictionary<string, string> variables,
         string correlationId,
         string? signingSecret)
+        => CompileSteps(flow.Steps.OrderBy(s => s.Order), flow.ContainerId, variables, correlationId, signingSecret);
+
+    /// <summary>Compila un SUBCONJUNTO de pasos (un segmento determinista de un flujo) a acciones. El
+    /// runtime secuencial (Ola 4) lo usa para despachar de a un tramo entre pasos de IA; los indices de
+    /// los ExtractBinding son relativos a las acciones de ESTE tramo.</summary>
+    public static CompiledFlow CompileSteps(
+        IEnumerable<ScrapeStep> orderedSteps,
+        Guid? defaultContainer,
+        IReadOnlyDictionary<string, string> variables,
+        string correlationId,
+        string? signingSecret)
     {
         var actions = new List<BrowserAction>();
         var extracts = new List<ExtractBinding>();
 
-        foreach (var step in flow.Steps.OrderBy(s => s.Order))
+        foreach (var step in orderedSteps)
         {
             switch (step.Kind)
             {
@@ -72,7 +83,7 @@ public static class ScrapeFlowCompiler
                 case ScrapeStepKind.Extract:
                 {
                     var js = Substitute(RequireScript(step, "Extraer"), variables)!;
-                    var container = step.TargetContainerId ?? flow.ContainerId
+                    var container = step.TargetContainerId ?? defaultContainer
                         ?? throw new ScrapeCompileException(
                             $"El paso '{step.Name}' (Extraer) no tiene tabla destino (ni el flujo tampoco).");
                     actions.Add(EvalSigned(js, correlationId, signingSecret, step));

@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos: agente en el modulo (Test de conexion + alta) + demo JS
+
+Dos cosas pedidas por el usuario:
+
+- **Feature (UI)**: el panel "Cliente y variables" del flujo gana, junto al selector de agente, un boton
+  **"Test de conexion"** (pregunta al `IAgentRegistry` del hub si el ClientId del agente elegido tiene
+  una conexion viva; muestra "En linea desde HOST (vX) hace N min" o "Sin agente conectado. Instala la
+  colmena con este ClientId y su secreto") y **"+ Agente"** (crea un `DataClient` con `SaveClientAsync` y
+  REVELA una sola vez el ClientId + secreto para configurar la colmena). Reusa el patron del Contenedor
+  de datos. Solo UI (`ExtraccionDatos.razor` + css); build verde.
+- **Demo end-to-end con inyecciones de JS**: se configuro paso a paso un flujo **"prueba de conexion"**
+  (Navegar quotes.toscrape.com -> Inyectar JS -> Extraer con JS) asignado al agente stand-in. El "Test de
+  conexion" lo detecto en linea (host BITCODEV1). Al "Ejecutar ahora", el servidor firmo las DOS
+  inyecciones de JS y el agente VERIFICO ambas (`#1 Eval VALIDA`, `#2 Eval VALIDA`); corrida **Ok, 3
+  filas** (visto en la UI y BD). Prueba nueva vs el E2E previo: firma+verificacion de MULTIPLES pasos JS
+  en una misma orden.
+- **Evidencia extra de la programacion (Ola 5)**: el flujo programado "Prueba runtime navegador" (cada
+  30 min) acumulo ~10 corridas "Horario / Esperando al agente" disparadas SOLAS por el worker
+  (00:06 -> 04:37), confirmando en vivo que el scheduler dispara los flujos sin nadie mirando.
+
+Nota honesta: el agente stand-in FABRICA el resultado del navegador (no ejecuta el JS real de quotes);
+prueba el pipeline (firma/despacho/ingesta/bitacora) de punta a punta, pero la ejecucion real del JS en
+la pagina la haria la colmena WebView2. El "Test de conexion" es justo la herramienta para verificar que
+esa colmena esta conectada.
+
+---
+
 ## 2026-07-18 - Extraccion de Datos: E2E del runtime determinista (agente stand-in)
 
 Se cerro el lazo COMPLETO del runtime determinista (Ola 3) contra el servidor + la BD REALES, sin la

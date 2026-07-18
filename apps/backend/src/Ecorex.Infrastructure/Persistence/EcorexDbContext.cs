@@ -216,6 +216,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
     public DbSet<ActividadCategoria> ActividadCategorias => Set<ActividadCategoria>();
     public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
+    public DbSet<ConceptoActividad> ConceptosActividad => Set<ConceptoActividad>();
     public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => Set<ActividadSubcategoriaCargo>();
     public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
     public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => Set<ActividadSubcategoriaNotificacion>();
@@ -1658,6 +1659,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.TaskBoardColumnId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.CategoriaId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<ConceptoActividad>(b =>
+        {
+            b.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(2000);
+            // Formulario asociado: NO ACTION (archivar el formulario no toca el concepto).
+            b.HasOne(x => x.FormDefinition).WithMany()
+                .HasForeignKey(x => x.FormDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
         modelBuilder.Entity<ActividadSubcategoriaCargo>(b =>

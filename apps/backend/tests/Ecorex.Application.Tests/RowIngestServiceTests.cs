@@ -40,6 +40,7 @@ public class RowIngestServiceTests
         public DbSet<DataModelRelationLink> DataModelRelationLinks => throw new NotSupportedException();
         public DbSet<TerceroFormLink> TerceroFormLinks => throw new NotSupportedException();
         public DbSet<TenantConfiguration> TenantConfigurations => throw new NotSupportedException();
+        public DbSet<ConceptoActividad> ConceptosActividad => throw new NotSupportedException();
         public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => throw new NotSupportedException();
         public DbSet<WhatsAppLine> WhatsAppLines => throw new NotSupportedException();
         public DbSet<PipelineStage> PipelineStages => throw new NotSupportedException();

@@ -1480,6 +1480,86 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("citas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConceptoActividad", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid?>("FormDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_definition_id");
+
+                    b.Property<bool>("HandlesValues")
+                        .HasColumnType("boolean")
+                        .HasColumnName("handles_values");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_archived");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("integer")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_conceptos_actividad");
+
+                    b.HasIndex("FormDefinitionId")
+                        .HasDatabaseName("ix_conceptos_actividad_form_definition_id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_conceptos_actividad_tenant_id_code");
+
+                    b.HasIndex("TenantId", "SortOrder")
+                        .HasDatabaseName("ix_conceptos_actividad_tenant_id_sort_order");
+
+                    b.ToTable("conceptos_actividad", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactImportBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -11076,6 +11156,17 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Oportunidad");
 
                     b.Navigation("Tercero");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConceptoActividad", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.FormDefinition", "FormDefinition")
+                        .WithMany()
+                        .HasForeignKey("FormDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_conceptos_actividad_form_definitions_form_definition_id");
+
+                    b.Navigation("FormDefinition");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataConnector", b =>

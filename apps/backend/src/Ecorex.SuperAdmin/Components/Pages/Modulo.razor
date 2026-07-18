@@ -1,5 +1,6 @@
 @page "/modulo/{Slug}"
 @attribute [Authorize(Policy = "TenantMember")]
+@inject NavigationManager Nav
 @* Stub generico para las opciones del menu del prototipo (ECOREX.dc.html) que aun no
    tienen modulo real. Registro estatico slug -> (titulo, grupo, codigo legacy); cuando
    se construya el modulo real, la opcion del NavMenu pasa a apuntar a su pagina propia
@@ -21,8 +22,20 @@
 
     private StubInfo _info = Unknown;
 
+    // Slugs cuyo modulo real YA existe: el nodo del menu sigue apuntando a /modulo/{slug} (dato por
+    // tenant), pero aqui redirigimos a la pagina real. Asi funciona en todos los tenants sin tocar la BD.
+    private static readonly Dictionary<string, string> Promoted = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["conceptos-actividades"] = "/conceptos-actividades",
+    };
+
     protected override void OnParametersSet()
     {
+        if (Promoted.TryGetValue(Slug ?? string.Empty, out var realRoute))
+        {
+            Nav.NavigateTo(realRoute, replace: true);
+            return;
+        }
         _info = Registry.TryGetValue(Slug ?? string.Empty, out var info) ? info : Unknown;
     }
 

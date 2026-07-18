@@ -1,0 +1,240 @@
+@page "/conceptos-actividades"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Crm
+@using Ecorex.Application.Forms
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
+@inject IConceptoActividadService ConceptosSvc
+@inject IFormDefinitionService FormsSvc
+
+@* Conceptos de actividad del CRM (000125): catalogo que gobierna las actividades del gestor de
+   contactos. Cada concepto tiene codigo, nombre, descripcion, formulario asociado (con vista previa),
+   si maneja valores, y su modo (ninguno / proceso de atencion / evento de calendario). *@
+
+<PageTitle>Conceptos de actividades - ECOREX.tareas</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title" style="margin-top:12px;">Conceptos de actividades</h1>
+        <p class="page-sub" style="margin-bottom:0;">Configuraciones que gobiernan las actividades del gestor de contactos: codigo, formulario, valores y modo de seguimiento.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenNew">+ Nuevo concepto</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="ca-kpis">
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count</span><span class="ca-kpi-l">Conceptos</span></div>
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count(c => c.FormDefinitionId is not null)</span><span class="ca-kpi-l">Con formulario</span></div>
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count(c => c.Mode != ConceptoActividadMode.None)</span><span class="ca-kpi-l">Con proceso/evento</span></div>
+    </div>
+
+    @if (_items.Count == 0)
+    {
+        <p class="text-muted">Aun no hay conceptos. Usa "+ Nuevo concepto" para crear el primero.</p>
+    }
+    else
+    {
+        <div class="ca-table-wrap">
+            <table class="ca-table">
+                <thead>
+                    <tr><th>Codigo</th><th>Nombre</th><th>Formulario</th><th>Valores</th><th>Modo</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in _items)
+                    {
+                        <tr class="@(c.IsArchived ? "ca-arch" : "")">
+                            <td><span class="ca-code">@c.Code</span></td>
+                            <td>
+                                <div style="font-weight:600;">@c.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(c.Description)) { <div class="ca-muted">@c.Description</div> }
+                            </td>
+                            <td>@(c.FormDefinitionId is null ? "-" : $"{c.FormCode} · {c.FormTitle}")</td>
+                            <td>@(c.HandlesValues ? "Si" : "No")</td>
+                            <td><span class="ca-chip">@ModeLabel(c.Mode)</span></td>
+                            <td class="ca-actions">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(c)">Editar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleArchivedAsync(c)" disabled="@_busy">@(c.IsArchived ? "Restaurar" : "Archivar")</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@* ===== Modal: nuevo / editar concepto ===== *@
+@if (_editOpen)
+{
+    <div class="modal-overlay" @onclick="() => _editOpen = false">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nuevo concepto" : "Editar concepto")</h3>
+                <button class="modal-close" @onclick="() => _editOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Codigo *</label>
+                        <input class="form-control" @bind="_f.Code" maxlength="60" placeholder="Ej. LLAMADA" />
+                    </div>
+                    <div class="field" style="flex:2;">
+                        <label class="form-label">Nombre *</label>
+                        <input class="form-control" @bind="_f.Name" maxlength="200" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="2000" @bind="_f.Description"></textarea>
+                </div>
+                <div class="field">
+                    <label class="form-label">Formulario asociado</label>
+                    <div style="display:flex;gap:8px;">
+                        <select class="form-control" value="@(_f.FormDefinitionId?.ToString() ?? "")"
+                                @onchange="@(e => _f.FormDefinitionId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                            <option value="">-- Sin formulario --</option>
+                            @foreach (var form in _forms)
+                            {
+                                <option value="@form.Id" selected="@(_f.FormDefinitionId == form.Id)">@form.Code · @form.Title</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary" style="white-space:nowrap;" @onclick="OpenPreview" disabled="@(_f.FormDefinitionId is null)">Previsualizar</button>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="ca-check"><input type="checkbox" @bind="_f.HandlesValues" /> Maneja valores (montos)</label>
+                </div>
+                <div class="field">
+                    <label class="form-label">Modo de seguimiento</label>
+                    <select class="form-control" @bind="_f.Mode">
+                        <option value="@ConceptoActividadMode.None">Ninguno</option>
+                        <option value="@ConceptoActividadMode.AttentionProcess">Proceso de atencion</option>
+                        <option value="@ConceptoActividadMode.CalendarEvent">Evento de calendario</option>
+                    </select>
+                </div>
+                @if (_error is not null) { <div class="text-danger small">@_error</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _editOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: previsualizacion del formulario ===== *@
+@if (_previewFormId is Guid pfid)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="() => _previewFormId = null">
+        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Vista previa del formulario</h3>
+                <button class="modal-close" @onclick="() => _previewFormId = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <DynamicFormRenderer DefinitionId="@pfid" Mode="FormRenderMode.Design" />
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private List<ConceptoActividadDto> _items = new();
+    private List<FormDefinitionListItemDto> _forms = new();
+
+    private bool _editOpen;
+    private Guid? _editingId;
+    private string? _error;
+    private Form _f = new();
+
+    private Guid? _previewFormId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _forms = (await FormsSvc.ListAsync()).Where(f => !f.IsArchived).ToList();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _items = (await ConceptosSvc.ListAsync(includeArchived: true)).ToList();
+
+    private void OpenNew()
+    {
+        _error = null;
+        _editingId = null;
+        _f = new Form();
+        _editOpen = true;
+    }
+
+    private void OpenEdit(ConceptoActividadDto c)
+    {
+        _error = null;
+        _editingId = c.Id;
+        _f = new Form
+        {
+            Code = c.Code,
+            Name = c.Name,
+            Description = c.Description,
+            FormDefinitionId = c.FormDefinitionId,
+            HandlesValues = c.HandlesValues,
+            Mode = c.Mode,
+        };
+        _editOpen = true;
+    }
+
+    private void OpenPreview() => _previewFormId = _f.FormDefinitionId;
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveConceptoActividadRequest(
+                _f.Code ?? "", _f.Name ?? "", _f.Description, _f.FormDefinitionId, _f.HandlesValues, _f.Mode);
+            var res = _editingId is Guid id
+                ? await ConceptosSvc.UpdateAsync(id, req)
+                : await ConceptosSvc.CreateAsync(req);
+            if (!res.Ok) { _error = res.Error; return; }
+            _editOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleArchivedAsync(ConceptoActividadDto c)
+    {
+        _busy = true;
+        try
+        {
+            await ConceptosSvc.SetArchivedAsync(c.Id, !c.IsArchived);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private static string ModeLabel(ConceptoActividadMode m) => m switch
+    {
+        ConceptoActividadMode.AttentionProcess => "Proceso de atencion",
+        ConceptoActividadMode.CalendarEvent => "Evento de calendario",
+        _ => "Ninguno",
+    };
+
+    private sealed class Form
+    {
+        public string? Code { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public Guid? FormDefinitionId { get; set; }
+        public bool HandlesValues { get; set; }
+        public ConceptoActividadMode Mode { get; set; } = ConceptoActividadMode.None;
+    }
+}

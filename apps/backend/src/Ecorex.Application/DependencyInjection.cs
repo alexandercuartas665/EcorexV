@@ -122,6 +122,7 @@ public static class DependencyInjection
         services.AddScoped<Modules.IModuleRegistryService, Modules.ModuleRegistryService>();
         // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
+        services.AddScoped<Crm.IConceptoActividadService, Crm.ConceptoActividadService>();
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.

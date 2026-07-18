@@ -181,6 +181,9 @@ public interface IApplicationDbContext
     DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros { get; }
     DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones { get; }
 
+    /// <summary>Conceptos de actividad del CRM (000125): catalogo propio del gestor de contactos.</summary>
+    DbSet<ConceptoActividad> ConceptosActividad { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

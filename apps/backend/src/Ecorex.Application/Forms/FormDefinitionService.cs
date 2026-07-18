@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
+using Ecorex.Application.MenuConfig;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -713,6 +714,14 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                 ? System.Text.Json.JsonSerializer.Serialize(request.ListColumns) : null;
             definition.FilterFieldsJson = request.FilterFields is { Count: > 0 }
                 ? System.Text.Json.JsonSerializer.Serialize(request.FilterFields) : null;
+            // Un modulo del menu tiene que poder capturar: si sigue en borrador, se activa al publicar
+            // (si no, GetOrCreateDraftAsync rechaza el alta con "El formulario no esta activo").
+            if (definition.Status != FormStatus.Active)
+            {
+                definition.Status = FormStatus.Active;
+            }
+            // Rotulo que se ve en el menu: el que escribio el usuario o, si no, el titulo del formulario.
+            var menuLabel = string.IsNullOrWhiteSpace(request.MenuLabel) ? definition.Title : request.MenuLabel.Trim();
             // Si aun no tiene nodo, se crea en la vista+grupo elegidos por el usuario.
             if (definition.ModuleMenuNodeId is null)
             {
@@ -721,7 +730,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                     return FormResult<FormDefinitionDetailDto>.Invalid("Elige la vista de menu donde colgar el modulo.");
                 }
                 var node = await _menu.CreateNodeAsync(
-                    viewId, request.ParentNodeId, Domain.Enums.MenuNodeKind.Item, definition.Title,
+                    viewId, request.ParentNodeId, Domain.Enums.MenuNodeKind.Item, menuLabel,
                     iconKey: definition.ModuleIcon, legacyCode: definition.Code,
                     route: $"/m/{definition.Code}", cancellationToken: cancellationToken);
                 if (!node.IsOk || node.Value is null)
@@ -729,6 +738,12 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                     return FormResult<FormDefinitionDetailDto>.Invalid(node.Error ?? "No se pudo crear el nodo de menu.");
                 }
                 definition.ModuleMenuNodeId = node.Value.Id;
+            }
+            else
+            {
+                // Ya publicado: actualiza el rotulo y el icono del nodo por si el usuario los cambio.
+                await _menu.UpdateNodeAsync(definition.ModuleMenuNodeId.Value,
+                    new MenuNodeEditDto(Name: menuLabel, IconKey: definition.ModuleIcon), cancellationToken);
             }
             definition.IsModule = true;
         }

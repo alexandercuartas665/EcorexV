@@ -3,7 +3,9 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Calc
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Forms
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
@@ -17,8 +19,9 @@
 @* ============================================================
    Bandeja del formulario-MODULO (Formularios avanzados, ola F4,
    doc 01 D6 / doc 02 s5). Ruta /m/{code}: KPIs + filtros + grid
-   de registros + export CSV. "En vivo" por SignalR y policies
-   Form.{code}.* quedan para el siguiente incremento.
+   de registros + export. Crear registro nuevo (modal con el
+   renderer en modo Fill), anular por fila (VoidAsync) y menu de
+   filtros con chips (patron del proyecto hermano CUBOT.travels).
    ============================================================ *@
 
 <PageTitle>@(_def?.Title ?? "Modulo") - ECOREX.tareas</PageTitle>
@@ -50,10 +53,18 @@ else
                 <p class="fm-sub">Modulo @_def.Code</p>
             </div>
             <div style="display:flex;gap:8px;">
+                <button class="fm-new" @onclick="OpenNew">+ Nuevo registro</button>
                 <button class="fm-export" @onclick="ExportExcelAsync" disabled="@_exporting">@(_exporting ? "Generando..." : "Exportar Excel")</button>
                 <a class="fm-export" href="@CsvDataUri()" download="@($"{_def.Code}-registros.csv")">CSV</a>
             </div>
         </div>
+
+        @if (_def.Status != FormStatus.Active)
+        {
+            <div class="fm-draft-banner">
+                Este formulario esta en <strong>borrador</strong>: aun no se pueden capturar registros. Activalo en el disenador (boton "Activar"); si lo republicas como modulo, tambien se activa.
+            </div>
+        }
 
         @* KPIs (doc 01 D6): cantidad, confirmados, anulados y % de crecimiento vs mes anterior. *@
         <div class="fm-kpis">
@@ -66,36 +77,88 @@ else
             </div>
         </div>
 
-        <div class="fm-filters">
-            <select class="fm-filter" @bind="_statusFilter" @bind:after="StateHasChanged">
-                <option value="">Todos los estados</option>
-                <option value="Confirmed">Confirmados</option>
-                <option value="Voided">Anulados</option>
-            </select>
-            <input class="fm-filter fm-search" placeholder="Buscar numero / referencia..."
-                   value="@_search" @oninput="@(e => { _search = e.Value?.ToString(); })" />
-            @* Filtros dinamicos por campo configurado (doc 01 D6). *@
-            @foreach (var f in _filterFields)
-            {
-                var code = f.Code;
-                <input class="fm-filter" placeholder="@f.Label"
-                       value="@(_fieldFilters.GetValueOrDefault(code))"
-                       @oninput="@(e => { _fieldFilters[code] = e.Value?.ToString(); })" />
-            }
+        @* Pestanas: los anulados viven en su propia pestana, aparte de los registros activos. *@
+        <div class="fm-tabs">
+            <button class="fm-tab @(_tab == "activos" ? "on" : "")" @onclick='() => _tab = "activos"'>
+                Activos <span class="fm-tab-count">@ActiveCount</span>
+            </button>
+            <button class="fm-tab @(_tab == "anulados" ? "on" : "")" @onclick='() => _tab = "anulados"'>
+                Anulados <span class="fm-tab-count">@VoidedCount</span>
+            </button>
         </div>
 
+        @* Barra: busqueda + boton de filtros con popover (patron CUBOT.travels: chips agrupados). *@
+        <div class="fm-toolbar">
+            <div class="fm-search-wrap">
+                <input class="fm-filter fm-search" placeholder="Buscar numero / referencia..."
+                       value="@_search" @oninput="@(e => { _search = e.Value?.ToString(); })" />
+            </div>
+            <div class="fm-filt-anchor">
+                <button class="fm-filter fm-filt-btn @(FiltersActive ? "on" : "")" @onclick="() => _filtersOpen = !_filtersOpen">
+                    Filtros@(FiltersActive ? $" ({ActiveFilterCount})" : "")
+                </button>
+                @if (_filtersOpen)
+                {
+                    <div class="fm-filters-pop">
+                        <div class="fm-filters-head">
+                            <span>Filtros avanzados</span>
+                            <button class="fm-link" @onclick="ClearFilters">Limpiar</button>
+                        </div>
+                        @{
+                            var fieldGroups = _filterFields
+                                .Select(f => (f.Label, f.Code, Values: DistinctFieldValues(f.Code)))
+                                .ToList();
+                        }
+                        @* Campos con pocos valores: chips. *@
+                        @foreach (var g in fieldGroups.Where(g => g.Values.Count is > 0 and <= 40))
+                        {
+                            <div class="fm-filt-group">
+                                <div class="fm-filt-lbl">@g.Label</div>
+                                <div class="fm-chips">
+                                    @foreach (var val in g.Values)
+                                    {
+                                        <button class="fm-fchip @(FieldValueOn(g.Code, val) ? "on" : "")" @onclick="() => ToggleFieldValue(g.Code, val)">@val</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        @* Campos con demasiados valores para chips: texto (contiene). *@
+                        @foreach (var g in fieldGroups.Where(g => g.Values.Count > 40))
+                        {
+                            <div class="fm-filt-group">
+                                <div class="fm-filt-lbl">@g.Label</div>
+                                <input class="fm-filter" style="width:100%;" placeholder="Filtrar por @g.Label"
+                                       value="@(_textFilters.GetValueOrDefault(g.Code))"
+                                       @oninput="@(e => { _textFilters[g.Code] = e.Value?.ToString(); })" />
+                            </div>
+                        }
+                        @if (_filterFields.Count == 0)
+                        {
+                            <p class="fm-filt-note">Este modulo no tiene campos de filtro configurados. Se eligen en el disenador (Propiedades del formulario -> Campos de filtro).</p>
+                        }
+                        else if (fieldGroups.All(g => g.Values.Count == 0))
+                        {
+                            <p class="fm-filt-note">Los filtros por campo apareceran cuando haya registros. Por ahora puedes filtrar por estado.</p>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="fm-table-wrap">
         <table class="fm-table">
             <thead>
                 <tr>
                     <th>Numero</th><th>Fecha</th><th>Estado</th>
                     @foreach (var c in _columns) { <th>@c.Label</th> }
                     @if (_columns.Count == 0) { <th>Referencia</th> }
+                    <th class="fm-actions-col"></th>
                 </tr>
             </thead>
             <tbody>
                 @if (Filtered.Count == 0)
                 {
-                    <tr><td colspan="@(3 + (_columns.Count == 0 ? 1 : _columns.Count))" class="fm-empty">Sin registros@(HasFilters ? " que coincidan con el filtro" : " todavia").</td></tr>
+                    <tr><td colspan="@ColSpan" class="fm-empty">Sin registros@(HasFilters ? " que coincidan con el filtro" : " todavia").</td></tr>
                 }
                 @foreach (var r in Filtered)
                 {
@@ -103,13 +166,110 @@ else
                         <td>@(r.RecordNumber ?? "-")</td>
                         <td>@((r.TransactionDate ?? r.SubmittedAt)?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")</td>
                         <td><span class="fm-badge @(r.RecordStatus == FormRecordStatus.Voided ? "void" : r.RecordStatus == FormRecordStatus.Confirmed ? "ok" : "")">@RecordStatusLabel(r.RecordStatus)</span></td>
-                        @foreach (var c in _columns) { <td>@(r.Fields.GetValueOrDefault(c.Code) ?? "-")</td> }
+                        @foreach (var c in _columns)
+                        {
+                            @if (_gridCols.ContainsKey(c.Code))
+                            {
+                                @* Columna tipo tabla (GridDetail): en vez del JSON crudo, un chip con el conteo
+                                   que despliega una sub-fila con la mini-tabla de las filas. *@
+                                var gridRows = ParseGridRows(r.Fields.GetValueOrDefault(c.Code));
+                                <td>
+                                    @if (gridRows.Count == 0)
+                                    {
+                                        <span class="fm-muted">-</span>
+                                    }
+                                    else
+                                    {
+                                        <button class="fm-subtoggle @(IsExpanded(r.Id, c.Code) ? "on" : "")" @onclick="() => ToggleExpand(r.Id, c.Code)">
+                                            <span class="fm-caret">@(IsExpanded(r.Id, c.Code) ? "▾" : "▸")</span>
+                                            @gridRows.Count @(gridRows.Count == 1 ? "fila" : "filas")
+                                        </button>
+                                    }
+                                </td>
+                            }
+                            else
+                            {
+                                <td>@(r.Fields.GetValueOrDefault(c.Code) ?? "-")</td>
+                            }
+                        }
                         @if (_columns.Count == 0) { <td>@(r.Reference ?? "-")</td> }
+                        <td class="fm-actions-col">
+                            @if (r.RecordStatus != FormRecordStatus.Voided)
+                            {
+                                <button class="fm-row-void" title="Anular este registro" @onclick="() => OpenVoid(r)">Anular</button>
+                            }
+                        </td>
                     </tr>
+                    @* Sub-filas: mini-tabla por cada columna-grid expandida de este registro. *@
+                    @foreach (var c in _columns.Where(col => _gridCols.ContainsKey(col.Code) && IsExpanded(r.Id, col.Code)))
+                    {
+                        var gcols = _gridCols[c.Code];
+                        var grows = ParseGridRows(r.Fields.GetValueOrDefault(c.Code));
+                        <tr class="fm-subrow">
+                            <td colspan="@ColSpan">
+                                <div class="fm-subtitle">@c.Label</div>
+                                <div class="fm-subtable-wrap">
+                                    <table class="fm-subtable">
+                                        <thead><tr>@foreach (var gc in gcols) { <th>@gc.Label</th> }</tr></thead>
+                                        <tbody>
+                                            @foreach (var grow in grows)
+                                            {
+                                                <tr>@foreach (var gc in gcols) { <td>@GridCellLabel(gc, grow.GetValueOrDefault(gc.Id))</td> }</tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    }
                 }
             </tbody>
         </table>
+        </div>
     </div>
+
+    @* ===== Modal: nuevo registro (renderer en modo Fill) ===== *@
+    @if (_newOpen && _def is not null)
+    {
+        <div class="modal-overlay" style="z-index:60;" @onclick="CloseNew">
+            <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Nuevo registro - @_def.Title</h3>
+                    <button class="modal-close" @onclick="CloseNew">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <DynamicFormRenderer DefinitionId="@_def.Id"
+                                         Mode="FormRenderMode.Fill"
+                                         SubmittedByTenantUserId="@_actorTenantUserId"
+                                         OnSubmitted="OnNewRecordSubmittedAsync" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Modal: anular registro (motivo obligatorio) ===== *@
+    @if (_voidTarget is not null)
+    {
+        <div class="modal-overlay" style="z-index:60;" @onclick="CloseVoid">
+            <div class="modal-dialog" style="max-width:440px;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Anular registro</h3>
+                    <button class="modal-close" @onclick="CloseVoid">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="fm-void-txt">Vas a anular el registro <strong>@(_voidTarget.RecordNumber ?? _voidTarget.Reference ?? "sin numero")</strong>. Queda marcado como anulado (no se borra, el numero no se libera).</p>
+                    <label class="fm-void-lbl">Motivo</label>
+                    <textarea class="fm-void-reason" rows="3" placeholder="Por que se anula..."
+                              value="@_voidReason" @oninput="@(e => { _voidReason = e.Value?.ToString(); })"></textarea>
+                    @if (_voidError is not null) { <p class="fm-void-err">@_voidError</p> }
+                    <div class="fm-void-actions">
+                        <button class="fm-export" @onclick="CloseVoid">Cancelar</button>
+                        <button class="fm-void-confirm" disabled="@(_voiding || string.IsNullOrWhiteSpace(_voidReason))" @onclick="ConfirmVoidAsync">@(_voiding ? "Anulando..." : "Anular registro")</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -120,15 +280,30 @@ else
     private IReadOnlyList<FormRecordListItemDto> _records = [];
     private bool _loading = true;
     private bool _denied;
-    private string? _statusFilter;
+    // Pestana activa: "activos" (Confirmados + borradores) o "anulados" (Voided).
+    private string _tab = "activos";
     private string? _search;
     private bool _exporting;
     private HubConnection? _hub;
     private string? _tenantId;
+    private Guid? _actorTenantUserId;
     // Columnas y filtros configurados (ola F4): (fieldCode, etiqueta).
     private List<(string Code, string Label)> _columns = new();
     private List<(string Code, string Label)> _filterFields = new();
-    private readonly Dictionary<string, string?> _fieldFilters = new(StringComparer.Ordinal);
+    // Columnas tipo tabla (GridDetail) -> sus sub-columnas, para pintar la sub-fila expandible.
+    private Dictionary<string, IReadOnlyList<FormGridColumn>> _gridCols = new(StringComparer.Ordinal);
+    // Celdas-grid expandidas: clave "recordId|fieldCode".
+    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
+    // Filtros por campo: chips multi-valor (exacto) y, si hay demasiados valores, texto (contiene).
+    private readonly Dictionary<string, HashSet<string>> _valueFilters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _textFilters = new(StringComparer.Ordinal);
+    private bool _filtersOpen;
+    // Alta y anulacion.
+    private bool _newOpen;
+    private FormRecordListItemDto? _voidTarget;
+    private string? _voidReason;
+    private string? _voidError;
+    private bool _voiding;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -149,6 +324,11 @@ else
             {
                 var labels = _def.Questions.ToDictionary(q => q.FieldCode, q => q.Label, StringComparer.Ordinal);
                 _columns = ParseCodes(_def.ListColumnsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
+                // Columnas tipo tabla (GridDetail): se guardan sus sub-columnas para pintar la sub-fila
+                // en vez del JSON crudo.
+                _gridCols = _def.Questions
+                    .Where(q => q.ControlType == FormControlType.GridDetail)
+                    .ToDictionary(q => q.FieldCode, q => FormGridCalculator.ParseColumns(q.OptionsJson), StringComparer.Ordinal);
                 _filterFields = ParseCodes(_def.FilterFieldsJson).Select(c => (c, labels.GetValueOrDefault(c, c))).ToList();
                 _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
             }
@@ -168,6 +348,10 @@ else
         if (!firstRender || _hub is not null || AuthState is null) { return; }
         var st = await AuthState;
         _tenantId = st.User.FindFirst("tenant_id")?.Value;
+        if (Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var uid))
+        {
+            _actorTenantUserId = uid;
+        }
         if (_tenantId is null) { return; }
         _hub = new HubConnectionBuilder().WithUrl(Nav.ToAbsoluteUri("/hubs/tasks")).WithAutomaticReconnect().Build();
         _hub.On<string, string>("FormRecord", async (code, _) =>
@@ -191,26 +375,45 @@ else
         }
     }
 
-    private bool HasFilters => !string.IsNullOrWhiteSpace(_statusFilter) || !string.IsNullOrWhiteSpace(_search)
-        || _fieldFilters.Values.Any(v => !string.IsNullOrWhiteSpace(v));
+    private int ColSpan => 3 + (_columns.Count == 0 ? 1 : _columns.Count) + 1;
+
+    private int ActiveCount => _records.Count(r => r.RecordStatus != FormRecordStatus.Voided);
+    private int VoidedCount => _records.Count(r => r.RecordStatus == FormRecordStatus.Voided);
+
+    private bool HasFilters => !string.IsNullOrWhiteSpace(_search)
+        || _valueFilters.Values.Any(s => s.Count > 0)
+        || _textFilters.Values.Any(v => !string.IsNullOrWhiteSpace(v));
+
+    private bool FiltersActive => _valueFilters.Values.Any(s => s.Count > 0)
+        || _textFilters.Values.Any(v => !string.IsNullOrWhiteSpace(v));
+
+    private int ActiveFilterCount =>
+        _valueFilters.Values.Sum(s => s.Count)
+        + _textFilters.Values.Count(v => !string.IsNullOrWhiteSpace(v));
 
     private IReadOnlyList<FormRecordListItemDto> Filtered
     {
         get
         {
             IEnumerable<FormRecordListItemDto> q = _records;
-            if (Enum.TryParse<FormRecordStatus>(_statusFilter, out var st))
-            {
-                q = q.Where(r => r.RecordStatus == st);
-            }
+            // La pestana separa anulados de activos: los Voided NO se mezclan con los activos.
+            q = _tab == "anulados"
+                ? q.Where(r => r.RecordStatus == FormRecordStatus.Voided)
+                : q.Where(r => r.RecordStatus != FormRecordStatus.Voided);
             if (!string.IsNullOrWhiteSpace(_search))
             {
                 var s = _search.Trim();
                 q = q.Where(r => (r.RecordNumber?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false)
                     || (r.Reference?.Contains(s, StringComparison.OrdinalIgnoreCase) ?? false));
             }
-            // Filtros dinamicos por campo configurado (ola F4).
-            foreach (var (code, val) in _fieldFilters)
+            // Filtros por chips (valor exacto, cualquiera de los seleccionados).
+            foreach (var (code, set) in _valueFilters)
+            {
+                if (set.Count == 0) { continue; }
+                q = q.Where(r => set.Contains(r.Fields.GetValueOrDefault(code) ?? ""));
+            }
+            // Filtros por texto (contiene) para campos con demasiados valores.
+            foreach (var (code, val) in _textFilters)
             {
                 if (string.IsNullOrWhiteSpace(val)) { continue; }
                 var v = val.Trim();
@@ -218,6 +421,128 @@ else
             }
             return q.ToList();
         }
+    }
+
+    /// <summary>Valores distintos (no vacios) presentes en los registros para un campo, ordenados.</summary>
+    private IReadOnlyList<string> DistinctFieldValues(string code)
+        => _records.Select(r => r.Fields.GetValueOrDefault(code))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private bool FieldValueOn(string code, string val)
+        => _valueFilters.TryGetValue(code, out var set) && set.Contains(val);
+
+    private void ToggleFieldValue(string code, string val)
+    {
+        if (!_valueFilters.TryGetValue(code, out var set))
+        {
+            set = new HashSet<string>(StringComparer.Ordinal);
+            _valueFilters[code] = set;
+        }
+        if (!set.Remove(val)) { set.Add(val); }
+    }
+
+    private void ClearFilters()
+    {
+        foreach (var set in _valueFilters.Values) { set.Clear(); }
+        foreach (var k in _textFilters.Keys.ToList()) { _textFilters[k] = null; }
+    }
+
+    // ---- Alta de registro nuevo ----
+    private void OpenNew() => _newOpen = true;
+    private void CloseNew() => _newOpen = false;
+
+    private async Task OnNewRecordSubmittedAsync(FormResponseDto _)
+    {
+        _newOpen = false;
+        if (_def is not null)
+        {
+            _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
+        }
+        StateHasChanged();
+    }
+
+    // ---- Anular (soft-delete: Voided, no borra ni libera el numero) ----
+    private void OpenVoid(FormRecordListItemDto r)
+    {
+        _voidTarget = r;
+        _voidReason = null;
+        _voidError = null;
+    }
+
+    private void CloseVoid()
+    {
+        _voidTarget = null;
+        _voidReason = null;
+        _voidError = null;
+        _voiding = false;
+    }
+
+    private async Task ConfirmVoidAsync()
+    {
+        if (_voidTarget is null || string.IsNullOrWhiteSpace(_voidReason) || _def is null) { return; }
+        _voiding = true;
+        _voidError = null;
+        var res = await ResponsesSvc.VoidAsync(_voidTarget.Id, _voidReason.Trim(), _actorTenantUserId);
+        if (res.IsOk)
+        {
+            _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
+            CloseVoid();
+        }
+        else
+        {
+            _voidError = res.Error ?? "No se pudo anular el registro.";
+            _voiding = false;
+        }
+    }
+
+    private bool IsExpanded(Guid recordId, string fieldCode) => _expanded.Contains($"{recordId}|{fieldCode}");
+
+    private void ToggleExpand(Guid recordId, string fieldCode)
+    {
+        var key = $"{recordId}|{fieldCode}";
+        if (!_expanded.Remove(key)) { _expanded.Add(key); }
+    }
+
+    /// <summary>Parsea el valor de una celda GridDetail: un arreglo de filas {colId: valor}.</summary>
+    private static IReadOnlyList<Dictionary<string, string?>> ParseGridRows(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<Dictionary<string, string?>>(); }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) { return Array.Empty<Dictionary<string, string?>>(); }
+            var rows = new List<Dictionary<string, string?>>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != System.Text.Json.JsonValueKind.Object) { continue; }
+                var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+                foreach (var prop in el.EnumerateObject())
+                {
+                    row[prop.Name] = prop.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? prop.Value.GetString()
+                        : prop.Value.ToString();
+                }
+                rows.Add(row);
+            }
+            return rows;
+        }
+        catch (System.Text.Json.JsonException) { return Array.Empty<Dictionary<string, string?>>(); }
+    }
+
+    /// <summary>Etiqueta de una celda del grid: resuelve el id de opcion a su etiqueta en columnas Select.</summary>
+    private static string GridCellLabel(FormGridColumn col, string? value)
+    {
+        if (string.IsNullOrEmpty(value)) { return "-"; }
+        if (col.IsSelect && col.Options is not null)
+        {
+            var opt = col.Options.FirstOrDefault(o => string.Equals(o.Id, value, StringComparison.Ordinal));
+            if (opt is not null) { return opt.Label; }
+        }
+        return value;
     }
 
     private static IReadOnlyList<string> ParseCodes(string? json)

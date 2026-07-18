@@ -11,6 +11,7 @@ using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.Components;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -122,6 +123,14 @@ builder.Services.AddApplication();
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddSingleton(new Ecorex.Application.Scraping.ScrapeGuardOptions { AllowLoopback = true });
+    // DataProtection en DEV: persiste las llaves a un archivo LOCAL en vez del DbContext. Dos razones:
+    // (1) los reinicios del dev ya no cierran la sesion (llaves estables entre arranques); (2) el dev
+    // deja de escribir su keyring en la BD, que en este proyecto es la de PROD via tunel. Solo Development;
+    // en produccion queda la persistencia al DbContext que registra Infrastructure. La carpeta esta gitignored.
+    builder.Services.AddDataProtection()
+        .SetApplicationName("Ecorex")
+        .PersistKeysToFileSystem(new System.IO.DirectoryInfo(
+            System.IO.Path.Combine(builder.Environment.ContentRootPath, ".dpkeys-dev")));
 }
 // Contexto de tenant con soporte ambient: por cookie en peticiones, fijable en background (webhook -> agente).
 builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantContext>();

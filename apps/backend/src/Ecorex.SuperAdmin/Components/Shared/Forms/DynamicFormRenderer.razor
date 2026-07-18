@@ -170,6 +170,8 @@ else
     /// <summary>Rol del usuario (tenant_role) para permisos por campo (ola F6). Null en el visor publico.</summary>
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private string? _currentRole;
+    // Nombre del usuario logueado (para el default dinamico "usuario actual": se muestra el NOMBRE, no el Guid).
+    private string? _currentUserName;
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
@@ -229,7 +231,9 @@ else
             // Permisos por campo (ola F6): rol del usuario (null en el visor publico -> sin restriccion).
             if (AuthState is not null)
             {
-                _currentRole = (await AuthState).User.FindFirst("tenant_role")?.Value;
+                var user = (await AuthState).User;
+                _currentRole = user.FindFirst("tenant_role")?.Value;
+                _currentUserName = user.Identity?.Name;
             }
             using var ambient = BeginAmbient();
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
@@ -1331,7 +1335,11 @@ else
     private string? ResolveDynamicDefault(FormDefaultDynamic d) => d switch
     {
         FormDefaultDynamic.Today => DateTimeOffset.Now.ToString("yyyy-MM-dd"),
-        FormDefaultDynamic.CurrentUser => SubmittedByTenantUserId?.ToString(),
+        // Usuario actual: se muestra el NOMBRE del usuario logueado (no el Guid). Si no hay identidad
+        // con nombre (p.ej. visor publico por token), cae al id como ultimo recurso.
+        FormDefaultDynamic.CurrentUser => string.IsNullOrWhiteSpace(_currentUserName)
+            ? SubmittedByTenantUserId?.ToString()
+            : _currentUserName,
         _ => null,
     };
 
@@ -1556,7 +1564,8 @@ else
             using var ambient = BeginAmbient();
             var result = await ResponsesSvc.SaveAsync(
                 _response.Id, BuildDocument(), submit, SubmittedByTenantUserId,
-                approvalResult: submit ? _approvalChoice : null);
+                approvalResult: submit ? _approvalChoice : null,
+                hiddenFieldCodes: _ruleUiState.HiddenFields);
             if (result.Status == FormServiceStatus.ValidationFailed && result.FieldErrors is not null)
             {
                 // Errores del servidor bajo cada campo (fuente de verdad).

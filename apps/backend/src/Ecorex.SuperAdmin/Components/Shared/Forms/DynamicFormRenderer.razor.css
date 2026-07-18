@@ -72,6 +72,8 @@
 .dfr-alert {
     font-size: 12.5px; color: var(--t-rose, #E11D48); background: var(--t-rose-bg, #FEE7EC);
     border: 1px solid var(--t-rose-bg, #FEE7EC); border-radius: 11px; padding: 10px 12px;
+    /* Siempre visible aunque el formulario sea largo y este scrolleado. */
+    position: sticky; top: 0; z-index: 4;
 }
 .dfr-msg {
     font-size: 13px; color: var(--ink-2, #5C5C66);
@@ -81,7 +83,11 @@
 
 .dfr-foot {
     display: flex; align-items: center; justify-content: flex-end; gap: 14px;
-    border-top: 1px solid var(--line, rgba(20,20,25,.07)); padding-top: 14px;
+    border-top: 1px solid var(--line, rgba(20,20,25,.07)); padding: 14px 0 4px;
+    /* Fijo al fondo del modal: el boton Enviar queda SIEMPRE a la vista, aunque el
+       formulario sea largo (antes quedaba debajo del fold y parecia que no se podia guardar). */
+    position: sticky; bottom: 0; z-index: 3;
+    background: var(--surface, #FFFFFF);
 }
 .dfr-autosave { font-size: 11.5px; color: var(--ink-3, #A2A2AC); }
 

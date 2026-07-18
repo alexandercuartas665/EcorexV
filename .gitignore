@@ -85,3 +85,7 @@ apps/backend/src/Ecorex.SuperAdmin/protected-media/
 
 # backup local con secretos de prod (nunca commitear)
 appsettings.Development.local.json.bak
+
+# Llaves de DataProtection en dev (local, no versionar)
+.dpkeys-dev/
+**/.dpkeys-dev/

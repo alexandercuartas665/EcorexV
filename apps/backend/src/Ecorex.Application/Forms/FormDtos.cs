@@ -72,7 +72,8 @@ public sealed record FormRecordListItemDto(
 /// <see cref="FilterFields"/> son field codes para las columnas/filtros de la bandeja.</summary>
 public sealed record SetFormModuleRequest(
     bool IsModule, Guid? MenuViewId, Guid? ParentNodeId, string? Icon,
-    IReadOnlyList<string>? ListColumns = null, IReadOnlyList<string>? FilterFields = null);
+    IReadOnlyList<string>? ListColumns = null, IReadOnlyList<string>? FilterFields = null,
+    string? MenuLabel = null);
 
 public sealed record CreateFormDefinitionRequest(string Code, string Title, string? Description = null);
 

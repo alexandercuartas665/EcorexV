@@ -38,6 +38,7 @@ public interface IFormResponseService
     Task<FormResult<FormResponseDto>> SaveAsync(
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
         Guid? submittedByTenantUserId = null, string? approvalResult = null,
+        IReadOnlyCollection<string>? hiddenFieldCodes = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

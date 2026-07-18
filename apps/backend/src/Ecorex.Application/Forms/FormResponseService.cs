@@ -114,6 +114,7 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<FormResult<FormResponseDto>> SaveAsync(
         Guid responseId, IReadOnlyDictionary<string, FormFieldValue> data, bool submit,
         Guid? submittedByTenantUserId = null, string? approvalResult = null,
+        IReadOnlyCollection<string>? hiddenFieldCodes = null,
         CancellationToken cancellationToken = default)
     {
         var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
@@ -183,6 +184,14 @@ public sealed class FormResponseService : IFormResponseService
             {
                 // Campos ocultos por el disenador (ADR-0021): no se pintan, no se validan.
                 if (question.IsHidden)
+                {
+                    continue;
+                }
+                // Campos ocultos por REGLA en runtime (D4): el renderer evalua las reglas de
+                // visibilidad y manda que campos quedaron ocultos; no se exigen (p.ej. "Valor"
+                // cuando "Concreto una venta? = No"). Sin esto, un campo condicional oculto pero
+                // Required bloqueaba el envio SIN mostrar el error (el campo no se pinta).
+                if (hiddenFieldCodes is not null && hiddenFieldCodes.Contains(question.FieldCode))
                 {
                     continue;
                 }

@@ -2,12 +2,18 @@
 .fm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .fm-title { font-size: 22px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0; }
 .fm-sub { font-size: 13px; color: var(--ink-3, #A2A2AC); margin: 4px 0 0; }
-.fm-table {
-    width: 100%; border-collapse: collapse;
-    background: var(--surface, #FFFFFF);
+/* Contenedor con scroll horizontal: la tabla tiene muchas columnas y en pantallas
+   angostas se desbordaba. Ahora scrollea dentro de su caja sin romper el layout. */
+.fm-table-wrap {
+    width: 100%; overflow-x: auto;
     border: 1px solid var(--line, rgba(20,20,25,.07));
-    border-radius: var(--rad, 16px); overflow: hidden;
+    border-radius: var(--rad, 16px);
 }
+.fm-table {
+    width: 100%; border-collapse: collapse; min-width: 720px;
+    background: var(--surface, #FFFFFF);
+}
+.fm-table th, .fm-table td { white-space: nowrap; }
 .fm-table th, .fm-table td {
     text-align: left; padding: 11px 14px; font-size: 13px;
     border-bottom: 1px solid var(--line, rgba(20,20,25,.07));
@@ -21,6 +27,26 @@
 }
 .fm-badge.ok { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); }
 .fm-badge.void { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
+
+/* Columna tipo tabla (GridDetail): chip que despliega la sub-fila (en vez del JSON crudo). */
+.fm-muted { color: var(--ink-3, #A2A2AC); }
+.fm-subtoggle {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--ink, #1B1B1E);
+}
+.fm-subtoggle:hover { border-color: var(--brand, #1B1B1E); }
+.fm-subtoggle.on { background: var(--surface-3, #F2F2F3); border-color: var(--brand, #1B1B1E); }
+.fm-caret { font-size: 10px; color: var(--ink-3, #A2A2AC); }
+
+/* Sub-fila: mini-tabla con las filas del grid. */
+.fm-subrow > td { background: var(--surface-2, #FAFAFA); padding: 12px 16px !important; white-space: normal !important; }
+.fm-subtitle { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3, #A2A2AC); margin-bottom: 8px; }
+.fm-subtable-wrap { overflow-x: auto; }
+.fm-subtable { border-collapse: collapse; background: var(--surface, #FFFFFF); border: 1px solid var(--line, rgba(20,20,25,.07)); border-radius: 10px; overflow: hidden; }
+.fm-subtable th, .fm-subtable td { text-align: left; padding: 7px 12px; font-size: 12.5px; border-bottom: 1px solid var(--line, rgba(20,20,25,.07)); white-space: nowrap; }
+.fm-subtable th { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2, #5C5C66); background: var(--surface-2, #FAFAFA); }
+.fm-subtable tbody tr:last-child td { border-bottom: none; }
 
 .fm-export {
     font-size: 12.5px; font-weight: 600; padding: 8px 14px; border-radius: 10px;
@@ -41,9 +67,90 @@
 .fm-kpi-growth.up { color: var(--t-green, #16A34A); }
 .fm-kpi-growth.down { color: var(--danger, #E11D48); }
 
-.fm-filters { display: flex; gap: 10px; margin-bottom: 14px; }
+/* Pestanas Activos / Anulados: los anulados no se mezclan con los activos. */
+.fm-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line, rgba(20,20,25,.07)); margin-bottom: 14px; }
+.fm-tab {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    padding: 9px 14px; border: none; background: none; font: inherit;
+    font-size: 13px; font-weight: 600; color: var(--ink-3, #A2A2AC);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.fm-tab:hover { color: var(--ink, #1B1B1E); }
+.fm-tab.on { color: var(--ink, #1B1B1E); border-bottom-color: var(--brand, #1B1B1E); }
+.fm-tab-count {
+    font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+    background: var(--surface-3, #F2F2F3); color: var(--ink-2, #5C5C66);
+}
+.fm-tab.on .fm-tab-count { background: var(--brand, #1B1B1E); color: #FFFFFF; }
+
+.fm-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
 .fm-filter {
     height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px;
     border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--ink, #1B1B1E);
 }
+.fm-search-wrap { flex: 1; display: flex; }
 .fm-search { flex: 1; }
+
+/* Boton "Nuevo registro" (accion primaria). */
+.fm-new {
+    font-size: 12.5px; font-weight: 700; padding: 8px 14px; border-radius: 10px;
+    border: 1px solid var(--brand, #1B1B1E); background: var(--brand, #1B1B1E); color: #FFFFFF; cursor: pointer;
+}
+.fm-new:hover { opacity: .92; }
+
+/* Boton de filtros + popover (patron CUBOT.travels adaptado a tokens ECOREX). */
+.fm-filt-anchor { position: relative; flex-shrink: 0; }
+.fm-filt-btn { cursor: pointer; font-weight: 600; }
+.fm-filt-btn.on { border-color: var(--brand, #1B1B1E); color: var(--brand, #1B1B1E); }
+.fm-filters-pop {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 40;
+    width: 460px; max-width: 88vw;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); border-radius: 12px;
+    background: var(--surface, #FFFFFF); padding: 16px 18px;
+    box-shadow: 0 12px 32px rgba(20,20,25,.14);
+}
+.fm-filters-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.fm-filters-head > span { font-weight: 700; font-size: 13px; color: var(--ink, #1B1B1E); }
+.fm-link { border: none; background: none; color: var(--brand, #1B1B1E); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.fm-filt-group { margin-bottom: 12px; }
+.fm-filt-group:last-child { margin-bottom: 0; }
+.fm-filt-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--ink-3, #A2A2AC); margin-bottom: 7px; }
+.fm-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.fm-fchip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF);
+    font-size: 12px; cursor: pointer; color: var(--ink, #1B1B1E);
+}
+.fm-fchip:hover { border-color: var(--brand, #1B1B1E); }
+.fm-fchip.on { background: var(--surface-3, #F2F2F3); border-color: var(--brand, #1B1B1E); color: var(--brand, #1B1B1E); font-weight: 600; }
+.fm-filt-note { font-size: 12px; color: var(--ink-3, #A2A2AC); margin: 4px 2px 0; line-height: 1.4; }
+
+/* Banner de formulario en borrador. */
+.fm-draft-banner {
+    font-size: 13px; color: var(--ink-2, #5C5C66); margin-bottom: 16px;
+    padding: 11px 14px; border-radius: 12px;
+    background: var(--t-amber-bg, #FEF3C7); border: 1px solid var(--t-amber, #F59E0B);
+}
+
+/* Acciones por fila (anular). */
+.fm-actions-col { text-align: right; white-space: nowrap; width: 1%; }
+.fm-row-void {
+    font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--danger, #E11D48);
+}
+.fm-row-void:hover { border-color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
+
+/* Modal de anulacion. */
+.fm-void-txt { font-size: 13px; color: var(--ink-2, #5C5C66); margin: 0 0 14px; }
+.fm-void-lbl { display: block; font-size: 12px; font-weight: 700; color: var(--ink-2, #5C5C66); margin-bottom: 6px; }
+.fm-void-reason {
+    width: 100%; padding: 9px 11px; border-radius: 10px; font-size: 13px; resize: vertical;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--ink, #1B1B1E);
+}
+.fm-void-err { color: var(--danger, #E11D48); font-size: 12.5px; margin: 8px 0 0; }
+.fm-void-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.fm-void-confirm {
+    font-size: 12.5px; font-weight: 700; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--danger, #E11D48); background: var(--danger, #E11D48); color: #FFFFFF;
+}
+.fm-void-confirm:disabled { opacity: .5; cursor: not-allowed; }

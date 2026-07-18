@@ -447,8 +447,13 @@ else
                         </div>
                     </div>
                     <div class="field">
-                        <label class="form-label">Icono (clave, opcional)</label>
-                        <input class="form-control" @bind="_moduleIcon" maxlength="60" placeholder="clipboard, chart, box..." />
+                        <label class="form-label">Nombre en el menu</label>
+                        <input class="form-control" @bind="_moduleLabel" maxlength="80" placeholder="@_def.Title" />
+                        <p style="font-size:12px;color:var(--ink-3);margin-top:4px;">Como se muestra en el menu. Si lo dejas vacio, usa el titulo del formulario.</p>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Icono</label>
+                        <MenuIconPicker @bind-Value="_moduleIcon" />
                     </div>
                     <div class="field">
                         <label class="form-label">Columnas de la bandeja</label>
@@ -525,6 +530,7 @@ else
     private Guid? _moduleViewId;
     private string? _moduleParentId;
     private string? _moduleIcon;
+    private string? _moduleLabel;
     private IReadOnlyList<MenuViewDto> _menuViews = [];
     private readonly List<(Guid Id, string Label)> _menuGroups = new();
     private readonly HashSet<string> _moduleColumns = new(StringComparer.Ordinal);
@@ -1140,6 +1146,7 @@ else
         _txField = _def.IdentitySourceFieldCode;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
+        _moduleLabel = _def.Title;
         _moduleParentId = null;
         _moduleColumns.Clear(); _moduleFilters.Clear();
         foreach (var c in ParseCodeList(_def.ListColumnsJson)) { _moduleColumns.Add(c); }
@@ -1213,7 +1220,7 @@ else
             Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
             var mod = await FormsSvc.SetModuleAsync(_def!.Id,
                 new SetFormModuleRequest(_isModule, _moduleViewId, parent, _moduleIcon,
-                    _moduleColumns.ToList(), _moduleFilters.ToList()));
+                    _moduleColumns.ToList(), _moduleFilters.ToList(), _moduleLabel));
             if (!mod.IsOk) { _modalError = mod.Error; return; }
             _def = mod.Value;
 

@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos: E2E del runtime determinista (agente stand-in)
+
+Se cerro el lazo COMPLETO del runtime determinista (Ola 3) contra el servidor + la BD REALES, sin la
+colmena WebView2 (que necesita display) ni llaves de IA, usando un **agente stand-in**: una consola .NET
+que referencia `Ecorex.Contracts.Agent`, se autentica al `AgenteHub` por SignalR, VERIFICA la firma del
+JS que manda el servidor, y responde `BrowserResult` fabricado (los `Extract` devuelven filas).
+
+**Lazo probado E2E**: handshake `POST /api/agente/token` (HMAC(secret,"clientId|ts|nonce") -> JWT) ->
+conexion SignalR al hub real -> "Ejecutar ahora" desde Chrome -> el servidor COMPILA el flujo (Navigate +
+Extract), FIRMA el JS del Extract, y despacha `BrowserRequest` -> el agente verifica `firma=VALIDA` ->
+devuelve 3 filas -> el servidor correlaciona (canal), parsea e INGIERE via `IRowIngestService` en el
+contenedor "Productos E2E" -> `ScrapeFlowRun` cierra **Ok, 3 filas** (visto en la UI: `Manual/OK/0.3s/3` y
+en BD `data_container_cells` con Taladro Bosch/Martillo Stanley/Destornillador Truper).
+
+**Camino negativo (seguridad)**: `/api/agente/dev/browse/...?nosign=true` (JS sin firma) -> el agente lo
+marca `firma=INVALIDA` y lo rechaza (fail-closed). Contrato probado en ambos sentidos.
+
+Cubre REAL: auth + transporte SignalR + compilacion + firma + despacho + correlacion + ingesta +
+bitacora. Lo unico fabricado por el stand-in es la ejecucion del navegador (que en prod hace la colmena
+WebView2, ya probada en el capitulo del Agente). El paso de IA no entra (necesita proveedor de IA con
+llave). Documentado en el vault: capitulo Extraccion de Datos, doc "05 - Estado de construccion y E2E".
+
+Sin cambios de codigo (el E2E fue fixtures de BD + un agente stand-in scratch fuera del repo).
+
+---
+
 ## 2026-07-18 - Extraccion de Datos, Ola 5: programacion + paginacion + advertencias (+ coexistir)
 
 Quinta ola: un flujo puede correr SOLO por horario, recorrer paginas, y avisar/detenerse ante una

@@ -1053,7 +1053,7 @@ else
         var opts = _providerOptions.ToList();
         if (_editId is not null && opts.All(o => o.Provider != _fProvider))
         {
-            opts.Insert(0, new AiProviderOptionDto(_fProvider, ProviderLabel(_fProvider), string.IsNullOrWhiteSpace(_fModel) ? ModelHint(_fProvider) : _fModel!));
+            opts.Insert(0, new AiProviderOptionDto(_fProvider, ProviderLabel(_fProvider), string.IsNullOrWhiteSpace(_fModel) ? ModelHint(_fProvider) : _fModel!, Guid.Empty));
         }
         return opts;
     }

@@ -4,12 +4,14 @@
 @using System.Security.Claims
 @using Ecorex.Application.Scraping
 @using Ecorex.Application.DataContainers
+@using Ecorex.Application.Admin
 @using Ecorex.Application.Common
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Agents
 @inject IScrapeFlowService FlowSvc
 @inject IDataImportConfigService ConfigSvc
 @inject IBrowserRunService RunSvc
+@inject IAiServerConfigService AiSvc
 @inject IAgentRegistry Agents
 @inject ITenantContext Tenant
 @inject AuthenticationStateProvider AuthProvider
@@ -269,8 +271,21 @@
                                         <div class="xd-prop"><label>Tope de pasos</label><input class="xd-input" type="number" @bind="_sMaxSteps" /></div>
                                         <div class="xd-prop"><label>Tope de segundos</label><input class="xd-input" type="number" @bind="_sMaxSeconds" /></div>
                                     </div>
-                                    <div class="xd-prop"><label>Modelo (entre los habilitados por el Super Admin)</label>
-                                        <input class="xd-input" placeholder="Ej. claude-sonnet-5" @bind="_sAiModel" /></div>
+                                    <div class="xd-prop"><label>IA (entre las habilitadas por el Super Admin)</label>
+                                        @if (_aiProviders.Count == 0)
+                                        {
+                                            <div class="xd-hint">No hay IAs habilitadas. Habilita un proveedor en Super Admin -&gt; Servidores de IA.</div>
+                                        }
+                                        else
+                                        {
+                                            <select class="xd-input" @bind="_sAiProviderId">
+                                                <option value="">(elige una IA)</option>
+                                                @foreach (var p in _aiProviders) { <option value="@p.ConfigId">@p.DisplayName</option> }
+                                            </select>
+                                        }
+                                    </div>
+                                    <div class="xd-prop"><label>Modelo (lo fija el Super Admin)</label>
+                                        <input class="xd-input" value="@SelectedAiModel()" disabled /></div>
                                 }
 
                                 @if (_sKind != ScrapeStepKind.Ai)
@@ -466,6 +481,7 @@
     private IReadOnlyList<ScrapeFlowSummaryDto> _flows = Array.Empty<ScrapeFlowSummaryDto>();
     private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
     private IReadOnlyList<ScrapeTargetDto> _containers = Array.Empty<ScrapeTargetDto>();
+    private IReadOnlyList<AiProviderOptionDto> _aiProviders = Array.Empty<AiProviderOptionDto>();
     private IReadOnlyList<ScrapeFlowRunDto> _runs = Array.Empty<ScrapeFlowRunDto>();
     private ScrapeScheduleDto? _schedule;
     private ImportScheduleKind _schKind = ImportScheduleKind.Manual;
@@ -517,7 +533,7 @@
     private string _sToolAllow = "";
     private string _sMaxSteps = "";
     private string _sMaxSeconds = "";
-    private string _sAiModel = "";
+    private string _sAiProviderId = "";
     private string _sWarnLabel = "";
     private ScrapeWarningAction _sWarnAction = ScrapeWarningAction.None;
 
@@ -539,6 +555,7 @@
         _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
         _clients = await ConfigSvc.ListClientsAsync();
         _containers = await FlowSvc.ListContainersAsync();
+        _aiProviders = await AiSvc.ListEnabledAsync();
         await ReloadFlowsAsync();
     }
 
@@ -776,7 +793,7 @@
         _sToolAllow = "";
         _sMaxSteps = s?.MaxSteps?.ToString() ?? "";
         _sMaxSeconds = s?.MaxSeconds?.ToString() ?? "";
-        _sAiModel = s?.AiModel ?? "";
+        _sAiProviderId = s?.AiProviderId?.ToString() ?? "";
         _sWarnLabel = s?.WarningLabel ?? "";
         _sWarnAction = s?.WarningAction ?? ScrapeWarningAction.None;
     }
@@ -797,7 +814,7 @@
                 Selector: NullIfBlank(_sSelector), MappingJson: NullIfBlank(_sMappingJson),
                 Instruction: NullIfBlank(_sInstruction), TargetContainerId: ParseGuid(_sTargetContainer),
                 ToolAllowListJson: toolJson, MaxSteps: ParseInt(_sMaxSteps), MaxSeconds: ParseInt(_sMaxSeconds),
-                AiModel: NullIfBlank(_sAiModel),
+                AiProviderId: ParseGuid(_sAiProviderId), AiModel: null,
                 WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction);
             var saved = await FlowSvc.SaveStepAsync(req, _actor);
             if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
@@ -887,6 +904,12 @@
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
     private static Guid? ParseGuid(string s) => Guid.TryParse(s, out var g) ? g : null;
     private static int? ParseInt(string s) => int.TryParse(s, out var n) ? n : null;
+
+    // Modelo (solo lectura) de la IA elegida en el paso: lo fija el Super Admin en ese proveedor.
+    private string SelectedAiModel()
+        => Guid.TryParse(_sAiProviderId, out var id)
+            ? _aiProviders.FirstOrDefault(p => p.ConfigId == id)?.DefaultModel ?? ""
+            : "";
     private static string Shorten(string? s, int max) => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "...");
 
     private static string StatusLabel(ScrapeSourceStatus s) => s switch

@@ -63,7 +63,7 @@ public sealed class AiServerConfigService : IAiServerConfigService
     {
         var enabled = await _db.AiProviderConfigs.AsNoTracking()
             .Where(c => c.IsEnabled && c.ApiKeyEncrypted != null)
-            .Select(c => new { c.Provider, c.Model })
+            .Select(c => new { c.Id, c.Provider, c.Model })
             .ToListAsync(cancellationToken);
 
         return enabled.Select(c =>
@@ -71,7 +71,7 @@ public sealed class AiServerConfigService : IAiServerConfigService
             var meta = AiProviderCatalog.For(c.Provider);
             // El modelo lo define el Super Admin; si no fijo uno, se usa el por defecto del catalogo.
             var model = string.IsNullOrWhiteSpace(c.Model) ? meta.DefaultModel : c.Model!;
-            return new AiProviderOptionDto(c.Provider, meta.DisplayName, model);
+            return new AiProviderOptionDto(c.Provider, meta.DisplayName, model, c.Id);
         }).ToList();
     }
 

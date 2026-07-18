@@ -67,7 +67,7 @@ public class AiStepOrchestratorTests
 
     private sealed class FakeResolver(AiProviderChoice? choice, string? error) : IAiProviderResolver
     {
-        public Task<(AiProviderChoice? Choice, string? Error)> ResolveAsync(string? preferredModel, CancellationToken ct = default)
+        public Task<(AiProviderChoice? Choice, string? Error)> ResolveAsync(Guid? providerConfigId, CancellationToken ct = default)
             => Task.FromResult((choice, error));
     }
 
@@ -82,7 +82,7 @@ public class AiStepOrchestratorTests
         new(true, null, null, 5, 5, new[] { new AiToolCall(Guid.NewGuid().ToString("N")[..6], name, args) });
 
     private static AiStepContext Ctx(IReadOnlyList<string> allow, int maxSteps = 8) =>
-        new("bot-1", Guid.NewGuid(), "saca la tabla de precios", Guid.NewGuid(), allow, maxSteps, 90, "claude-x", Secret);
+        new("bot-1", Guid.NewGuid(), "saca la tabla de precios", Guid.NewGuid(), allow, maxSteps, 90, Guid.NewGuid(), Secret);
 
     private static AiStepOrchestrator New(FakeAi ai, FakeChannel channel, FakeSink sink,
         AiProviderChoice? choice = null, string? providerError = null)

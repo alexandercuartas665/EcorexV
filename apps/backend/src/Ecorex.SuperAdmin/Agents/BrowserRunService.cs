@@ -150,7 +150,7 @@ public sealed class BrowserRunService(
                             var outcome = await orchestrator.RunAsync(new AiStepContext(
                                 clientId, tenantId, aiStep.Instruction ?? "", target,
                                 ParseAllowList(aiStep.ToolAllowListJson), aiStep.MaxSteps ?? 0, aiStep.MaxSeconds ?? 0,
-                                aiStep.AiModel, secret), CancellationToken.None);
+                                aiStep.AiProviderId, secret), CancellationToken.None);
                             if (!outcome.Ok) { await runLog.CloseAsync(runCorr, false, ins, upd, del, outcome.Error); return; }
                             ins += outcome.Inserted; upd += outcome.Updated; del += outcome.Deleted;
                         }

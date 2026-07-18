@@ -7,7 +7,7 @@ namespace Ecorex.SuperAdmin.Agents;
 /// <summary>Insumos de un paso de IA (lo que el operador configuro + a que agente/tabla va).</summary>
 public sealed record AiStepContext(
     string ClientId, Guid TenantId, string Instruction, Guid TargetContainerId,
-    IReadOnlyList<string> ToolAllowList, int MaxSteps, int MaxSeconds, string? Model, string? Secret);
+    IReadOnlyList<string> ToolAllowList, int MaxSteps, int MaxSeconds, Guid? AiProviderId, string? Secret);
 
 /// <summary>Como quedo el paso de IA.</summary>
 public sealed record AiStepOutcome(bool Ok, int Inserted, int Updated, int Deleted, string? Error, int RoundsUsed);
@@ -45,7 +45,7 @@ public sealed class AiStepOrchestrator(
     {
         // Proveedor/modelo: entre los que habilito el Super Admin (config global, key cifrada). Si no
         // hay ninguno, el paso no puede correr y se dice claro.
-        var (choice, providerError) = await providerResolver.ResolveAsync(ctx.Model, ct);
+        var (choice, providerError) = await providerResolver.ResolveAsync(ctx.AiProviderId, ct);
         if (choice is null) { return Fail(providerError ?? "No hay proveedor de IA."); }
 
         // Cupo del plan: si es duro y ya se agoto, no se ejecuta (mismo criterio que el chat de agentes).

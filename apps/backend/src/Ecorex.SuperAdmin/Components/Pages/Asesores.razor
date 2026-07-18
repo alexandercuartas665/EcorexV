@@ -84,6 +84,14 @@ else
                                     <div style="min-width:0;">
                                         <div style="font-weight:600;">@(string.IsNullOrWhiteSpace(a.DisplayName) ? "(Sin nombre)" : a.DisplayName)</div>
                                         <div class="text-muted" style="font-size:12px;">@a.Email</div>
+                                        @if (!string.IsNullOrWhiteSpace(a.DocumentCode) || !string.IsNullOrWhiteSpace(a.Phone))
+                                        {
+                                            <div class="text-muted" style="font-size:11.5px;">
+                                                @if (!string.IsNullOrWhiteSpace(a.DocumentCode)) { <span>Doc: @a.DocumentCode</span> }
+                                                @if (!string.IsNullOrWhiteSpace(a.DocumentCode) && !string.IsNullOrWhiteSpace(a.Phone)) { <span> &middot; </span> }
+                                                @if (!string.IsNullOrWhiteSpace(a.Phone)) { <span>Tel: @a.Phone</span> }
+                                            </div>
+                                        }
                                     </div>
                                 </div>
                             </td>
@@ -144,6 +152,16 @@ else
                     <label class="form-label">Nombre (opcional)</label>
                     <input class="form-control" @bind="_iv.DisplayName" autocomplete="off" />
                 </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Codigo / documento</label>
+                        <input class="form-control" @bind="_iv.DocumentCode" autocomplete="off" placeholder="Ej. V-001 o cedula" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Telefono</label>
+                        <input class="form-control" @bind="_iv.Phone" autocomplete="off" />
+                    </div>
+                </div>
                 <div class="field">
                     <label class="form-label">Que clientes puede ver</label>
                     <select class="form-control" @bind="_iv.LeadVisibility">
@@ -182,6 +200,16 @@ else
                 <div class="field">
                     <label class="form-label">Nombre</label>
                     <input class="form-control" @bind="_ef.DisplayName" />
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Codigo / documento</label>
+                        <input class="form-control" @bind="_ef.DocumentCode" placeholder="Ej. V-001 o cedula" />
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Telefono</label>
+                        <input class="form-control" @bind="_ef.Phone" />
+                    </div>
                 </div>
                 <div class="field-row">
                     <div class="field">
@@ -296,7 +324,7 @@ else
         {
             var actor = await ActorAsync();
             var created = await AdvisorsSvc.CreateAsync(
-                new CreateAdvisorRequest(_iv.Email, _iv.DisplayName, _iv.LeadVisibility), actor);
+                new CreateAdvisorRequest(_iv.Email, _iv.DisplayName, _iv.LeadVisibility, DocumentCode: _iv.DocumentCode, Phone: _iv.Phone), actor);
             if (created is null)
             {
                 _inviteError = "No se pudo crear (quiza el correo ya es miembro de la agencia).";
@@ -316,7 +344,7 @@ else
     {
         _editError = null;
         _editing = a;
-        _ef = new EditForm2 { DisplayName = a.DisplayName, Role = a.Role, LeadVisibility = a.LeadVisibility };
+        _ef = new EditForm2 { DisplayName = a.DisplayName, DocumentCode = a.DocumentCode, Phone = a.Phone, Role = a.Role, LeadVisibility = a.LeadVisibility };
         _editOpen = true;
     }
 
@@ -327,7 +355,7 @@ else
         try
         {
             var actor = await ActorAsync();
-            await AdvisorsSvc.UpdateAsync(_editing.Id, new UpdateAdvisorRequest(_ef.DisplayName, _ef.LeadVisibility, _ef.Role), actor);
+            await AdvisorsSvc.UpdateAsync(_editing.Id, new UpdateAdvisorRequest(_ef.DisplayName, _ef.LeadVisibility, _ef.Role, DocumentCode: _ef.DocumentCode, Phone: _ef.Phone), actor);
             _editOpen = false;
             await ReloadAsync();
         }
@@ -432,12 +460,16 @@ else
     {
         public string Email { get; set; } = "";
         public string? DisplayName { get; set; }
+        public string? DocumentCode { get; set; }
+        public string? Phone { get; set; }
         public LeadVisibility LeadVisibility { get; set; } = LeadVisibility.OwnOnly;
     }
 
     private sealed class EditForm2
     {
         public string? DisplayName { get; set; }
+        public string? DocumentCode { get; set; }
+        public string? Phone { get; set; }
         public TenantRole Role { get; set; } = TenantRole.Advisor;
         public LeadVisibility LeadVisibility { get; set; } = LeadVisibility.OwnOnly;
     }

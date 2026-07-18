@@ -518,6 +518,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Email).HasMaxLength(256).IsRequired();
             b.Property(x => x.InvitationToken).HasMaxLength(128);
+            b.Property(x => x.DocumentCode).HasMaxLength(60);
+            b.Property(x => x.Phone).HasMaxLength(40);
             b.HasOne(x => x.PlatformUser).WithMany().HasForeignKey(x => x.PlatformUserId).OnDelete(DeleteBehavior.Restrict);
             // Asignacion usuario->vista del menu (Ola 1). NO ACTION: borrar una vista no arrastra
             // al usuario por cascada (la app deja MenuViewId en null antes de borrar la vista).

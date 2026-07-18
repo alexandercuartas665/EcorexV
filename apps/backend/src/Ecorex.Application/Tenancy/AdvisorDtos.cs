@@ -13,18 +13,24 @@ public sealed record AdvisorDto(
     LeadVisibility LeadVisibility,
     bool InvitePending,
     string? InvitationToken,
-    DateTimeOffset? InvitationExpiresAt);
+    DateTimeOffset? InvitationExpiresAt,
+    string? DocumentCode = null,
+    string? Phone = null);
 
 public sealed record CreateAdvisorRequest(
     string Email,
     string? DisplayName,
     LeadVisibility LeadVisibility = LeadVisibility.OwnOnly,
-    TenantRole Role = TenantRole.Advisor);
+    TenantRole Role = TenantRole.Advisor,
+    string? DocumentCode = null,
+    string? Phone = null);
 
 public sealed record UpdateAdvisorRequest(
     string? DisplayName,
     LeadVisibility LeadVisibility,
-    TenantRole Role);
+    TenantRole Role,
+    string? DocumentCode = null,
+    string? Phone = null);
 
 /// <summary>Informacion publica de una invitacion, para la pagina de aceptacion.</summary>
 public sealed record AdvisorInvitationInfo(bool Valid, string Email, string TenantName);

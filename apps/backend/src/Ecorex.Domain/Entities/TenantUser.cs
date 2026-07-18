@@ -16,6 +16,12 @@ public class TenantUser : TenantEntity
     public TenantRole TenantRole { get; set; } = TenantRole.Advisor;
     public PlatformUserStatus Status { get; set; } = PlatformUserStatus.Active;
 
+    /// <summary>Codigo o documento del asesor/vendedor dentro de este tenant (maestro de vendedores 000124). Opcional.</summary>
+    public string? DocumentCode { get; set; }
+
+    /// <summary>Telefono de contacto del asesor/vendedor. Opcional.</summary>
+    public string? Phone { get; set; }
+
     /// <summary>Alcance de leads del asesor (los admin/owner/supervisor ven todo por rol).</summary>
     public LeadVisibility LeadVisibility { get; set; } = LeadVisibility.OwnOnly;
 

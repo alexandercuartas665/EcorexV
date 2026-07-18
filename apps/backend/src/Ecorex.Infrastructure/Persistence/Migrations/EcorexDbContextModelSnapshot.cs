@@ -9224,6 +9224,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DocumentCode")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("document_code");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -9248,6 +9253,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("MenuViewId")
                         .HasColumnType("uuid")
                         .HasColumnName("menu_view_id");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("phone");
 
                     b.Property<Guid>("PlatformUserId")
                         .HasColumnType("uuid")

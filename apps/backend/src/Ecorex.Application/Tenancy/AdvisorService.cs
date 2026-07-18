@@ -42,7 +42,8 @@ public sealed class AdvisorService : IAdvisorService
                 (tu, pu) => new AdvisorDto(
                     tu.Id, tu.PlatformUserId, tu.Email, pu.DisplayName, pu.AvatarUrl,
                     tu.TenantRole, tu.Status, tu.LeadVisibility,
-                    tu.InvitationToken != null, tu.InvitationToken, tu.InvitationExpiresAt))
+                    tu.InvitationToken != null, tu.InvitationToken, tu.InvitationExpiresAt,
+                    tu.DocumentCode, tu.Phone))
             .ToListAsync(cancellationToken);
     }
 
@@ -89,6 +90,8 @@ public sealed class AdvisorService : IAdvisorService
             TenantRole = request.Role,
             Status = PlatformUserStatus.Invited,
             LeadVisibility = request.LeadVisibility,
+            DocumentCode = string.IsNullOrWhiteSpace(request.DocumentCode) ? null : request.DocumentCode.Trim(),
+            Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim(),
             InvitationToken = NewToken(),
             InvitationExpiresAt = now.AddDays(InviteValidDays)
         };
@@ -114,6 +117,8 @@ public sealed class AdvisorService : IAdvisorService
 
         tenantUser.TenantRole = request.Role;
         tenantUser.LeadVisibility = request.LeadVisibility;
+        tenantUser.DocumentCode = string.IsNullOrWhiteSpace(request.DocumentCode) ? null : request.DocumentCode.Trim();
+        tenantUser.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
         if (platformUser is not null && !string.IsNullOrWhiteSpace(request.DisplayName))
         {
             platformUser.DisplayName = request.DisplayName.Trim();
@@ -242,5 +247,6 @@ public sealed class AdvisorService : IAdvisorService
     private static AdvisorDto Map(TenantUser tu, PlatformUser? pu) =>
         new(tu.Id, tu.PlatformUserId, tu.Email, pu?.DisplayName, pu?.AvatarUrl,
             tu.TenantRole, tu.Status, tu.LeadVisibility,
-            tu.InvitationToken != null, tu.InvitationToken, tu.InvitationExpiresAt);
+            tu.InvitationToken != null, tu.InvitationToken, tu.InvitationExpiresAt,
+            tu.DocumentCode, tu.Phone);
 }

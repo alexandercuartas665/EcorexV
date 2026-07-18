@@ -145,6 +145,11 @@ public interface IApplicationDbContext
     /// <summary>Bitacora de corridas de importacion (manual y programada).</summary>
     DbSet<ImportRun> ImportRuns { get; }
 
+    // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
+    DbSet<ScrapeFlow> ScrapeFlows { get; }
+    DbSet<ScrapeStep> ScrapeSteps { get; }
+    DbSet<ScrapeVariable> ScrapeVariables { get; }
+
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }
 

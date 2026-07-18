@@ -135,6 +135,9 @@ public class RowIngestServiceTests
         public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => throw new NotSupportedException();
         public DbSet<ScrapeSource> ScrapeSources => throw new NotSupportedException();
         public DbSet<ScrapeRun> ScrapeRuns => throw new NotSupportedException();
+        public DbSet<ScrapeFlow> ScrapeFlows => throw new NotSupportedException();
+        public DbSet<ScrapeStep> ScrapeSteps => throw new NotSupportedException();
+        public DbSet<ScrapeVariable> ScrapeVariables => throw new NotSupportedException();
         public DbSet<Warehouse> Warehouses => throw new NotSupportedException();
         public DbSet<Brand> Brands => throw new NotSupportedException();
         public DbSet<ItemGroup> ItemGroups => throw new NotSupportedException();

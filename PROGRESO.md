@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos, Ola 1: dominio del flujo (config)
+
+Primera ola del capitulo "Extraccion de Datos" (000730): el modulo /extraccion-datos (hoy un scraper
+HTTP simple, ADR-0025) evoluciona a un configurador de FLUJOS de automatizacion de navegador cuyo
+runtime es el sub-agente Navegador de la colmena. Esta ola es SOLO la configuracion (el runtime es
+diferido). Documentado antes en el vault (capitulo "Extraccion de Datos", 5 docs).
+
+- **Dominio** (`Ecorex.Domain`): `ScrapeFlow` (maestro: nombre, URL, estado, FK a `DataClient` = "bot
+  asignado" y a `DataContainer` = destino), `ScrapeStep` (tabla unica con discriminador
+  `ScrapeStepKind`: Navigate/InjectScript/Extract/Wait/Click/Screenshot/Ai; campos por tipo), y
+  `ScrapeVariable` (sustituciones {{VAR}}, secretas cifradas). Reusa `ScrapeSourceStatus` para el
+  estado. `TargetContainerId` es referencia SUAVE (sin FK) para no crear un segundo camino
+  DataContainer->ScrapeStep que SQL Server rechaza (error 1785).
+- **Persistencia**: EF config + DbSets + enum a texto. Migracion DUAL `AddScrapeFlow` (PG + SQL
+  Server). Aplicada a `ecorex_agente`; `has-pending-model-changes` limpio en AMBOS contextos.
+- **Servicio**: `IScrapeFlowService` (CRUD de flujo + pasos + variables), variables secretas cifradas
+  con `ISecretProtector` y NUNCA devueltas en claro (el DTO solo dice HasValue). Reorder de pasos.
+- **Decisiones (E1-E4, con el usuario)**: destino = Contenedor de datos; programacion = reusar
+  ImportProcess/ImportRun; paso de IA = instruccion + destino + allow-list de tools MCP + tope
+  pasos/tiempo + modelo entre los que habilite el Super Admin; runtime = sub-agente Navegador (no Doom).
+
+**Verificado en vivo** (smoke contra el Postgres real, reusando el EcorexDbContext real): crear flujo,
+duplicado RECHAZADO, 3 pasos creados y REORDENADOS (orden invertido confirmado al releer), variable
+secreta con el valor CIFRADO en BD (no en claro) y el DTO sin exponerlo, y BORRADO EN CASCADA (pasos +
+variables a 0). Build Release verde; 522 pruebas verdes (los dobles de test ganaron los DbSets nuevos).
+
+**Siguiente**: Ola 2 = la UI del configurador (milimetrica a `proto_web_scraping.html`, acento morado).
+
+---
+
 ## 2026-07-17 - Merge del Agente Conector On-Prem al tronco + deploy a prod
 
 **Agentes**: Claude (Opus 4.8). **Accion**: fusionar `feat/agente-colmena-gui` (34 commits, backbone

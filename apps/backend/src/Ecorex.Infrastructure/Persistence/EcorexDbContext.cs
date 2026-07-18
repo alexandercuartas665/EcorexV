@@ -68,6 +68,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Extraccion de datos / web scraping acotado (modulo 000730, ADR-0025).
     public DbSet<ScrapeSource> ScrapeSources => Set<ScrapeSource>();
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
+    // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
+    public DbSet<ScrapeFlow> ScrapeFlows => Set<ScrapeFlow>();
+    public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
+    public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -306,6 +310,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ScrapeSourceKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeSourceStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeRunStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScrapeStepKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateCategory>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateHeaderType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -676,6 +681,51 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.SourceId).OnDelete(DeleteBehavior.Cascade);
             // El historial se lista por fuente, de la corrida mas reciente a la mas vieja.
             b.HasIndex(x => new { x.TenantId, x.SourceId, x.CreatedAt });
+        });
+
+        // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos", Ola 1).
+        modelBuilder.Entity<ScrapeFlow>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.StartUrl).HasMaxLength(1000).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.LastResultSummary).HasMaxLength(400);
+            // NO ACTION: borrar el agente o el contenedor NO borra el flujo (queda sin destino/agente,
+            // el operador lo re-asigna). SetNull en ambos, que es ruta unica y valida en los dos motores.
+            b.HasOne(x => x.Client).WithMany()
+                .HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.SetNull);
+            b.HasOne(x => x.Container).WithMany()
+                .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
+            // El nombre identifica el flujo dentro del tenant (el servicio valida el duplicado con
+            // mensaje claro; el indice unico es la defensa en profundidad).
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ScrapeStep>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Url).HasMaxLength(1000);
+            b.Property(x => x.Selector).HasMaxLength(300);
+            b.Property(x => x.Instruction).HasMaxLength(2000);
+            b.Property(x => x.AiModel).HasMaxLength(120);
+            // Script / MappingJson / ToolAllowListJson pueden ser largos: sin tope de longitud.
+            b.HasOne(x => x.Flow).WithMany(x => x.Steps)
+                .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);
+            // TargetContainerId es referencia SUAVE (sin FK): una FK dura crearia un segundo camino
+            // DataContainer -> ScrapeStep (el otro via ScrapeFlow.ContainerId) que SQL Server rechaza
+            // (error 1785). Es un override de runtime casi siempre nulo; el runtime valida que la tabla
+            // exista y sea del tenant, como ya hace el conector con su tabla destino.
+            // Los pasos se leen en orden dentro del flujo.
+            b.HasIndex(x => new { x.TenantId, x.FlowId, x.Order });
+        });
+
+        modelBuilder.Entity<ScrapeVariable>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.HasOne(x => x.Flow).WithMany(x => x.Variables)
+                .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);
+            // Una variable por (flujo, nombre): {{Name}} tiene que ser univoco.
+            b.HasIndex(x => new { x.TenantId, x.FlowId, x.Name }).IsUnique();
         });
 
         modelBuilder.Entity<FollowUpTask>(b =>

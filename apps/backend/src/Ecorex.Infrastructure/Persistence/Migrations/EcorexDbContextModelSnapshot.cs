@@ -7082,6 +7082,89 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("scheduled_job_runs", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("client_id");
+
+                    b.Property<Guid?>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("LastResultSummary")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("last_result_summary");
+
+                    b.Property<DateTimeOffset?>("LastRunAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_run_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("StartUrl")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("start_url");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_flows");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_scrape_flows_client_id");
+
+                    b.HasIndex("ContainerId")
+                        .HasDatabaseName("ix_scrape_flows_container_id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scrape_flows_tenant_id_name");
+
+                    b.ToTable("scrape_flows", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7221,6 +7304,175 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_scrape_sources_tenant_id_name");
 
                     b.ToTable("scrape_sources", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AiModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("ai_model");
+
+                    b.Property<Guid?>("AiProviderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_provider_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<string>("Instruction")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("instruction");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("MappingJson")
+                        .HasColumnType("text")
+                        .HasColumnName("mapping_json");
+
+                    b.Property<int?>("MaxSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_seconds");
+
+                    b.Property<int?>("MaxSteps")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_steps");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer")
+                        .HasColumnName("order");
+
+                    b.Property<string>("Script")
+                        .HasColumnType("text")
+                        .HasColumnName("script");
+
+                    b.Property<string>("Selector")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("selector");
+
+                    b.Property<Guid?>("TargetContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_container_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToolAllowListJson")
+                        .HasColumnType("text")
+                        .HasColumnName("tool_allow_list_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("url");
+
+                    b.Property<int?>("WaitMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("wait_ms");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_steps");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_steps_flow_id");
+
+                    b.HasIndex("TenantId", "FlowId", "Order")
+                        .HasDatabaseName("ix_scrape_steps_tenant_id_flow_id_order");
+
+                    b.ToTable("scrape_steps", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeVariable", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<bool>("IsSecret")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_secret");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("ValueEncrypted")
+                        .HasColumnType("text")
+                        .HasColumnName("value_encrypted");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_variables");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_variables_flow_id");
+
+                    b.HasIndex("TenantId", "FlowId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scrape_variables_tenant_id_flow_id_name");
+
+                    b.ToTable("scrape_variables", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SqlConsoleLog", b =>
@@ -11867,6 +12119,25 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Job");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.DataClient", "Client")
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_scrape_flows_data_clients_client_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "Container")
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_scrape_flows_data_containers_container_id");
+
+                    b.Navigation("Client");
+
+                    b.Navigation("Container");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ScrapeSource", "Source")
@@ -11877,6 +12148,30 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_scrape_runs_scrape_sources_source_id");
 
                     b.Navigation("Source");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeStep", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany("Steps")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_steps_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeVariable", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany("Variables")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_variables_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskBoardColumn", b =>
@@ -12511,6 +12806,13 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Channels");
 
                     b.Navigation("Rules");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.Navigation("Steps");
+
+                    b.Navigation("Variables");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeSource", b =>

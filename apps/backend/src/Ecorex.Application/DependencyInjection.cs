@@ -176,6 +176,9 @@ public static class DependencyInjection
         // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
         // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).
         services.AddScoped<Scraping.IScrapeService, Scraping.ScrapeService>();
+        // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos"): CRUD de
+        // configuracion (flujo + pasos + variables cifradas). Solo config; el runtime es diferido.
+        services.AddScoped<Scraping.IScrapeFlowService, Scraping.ScrapeFlowService>();
         // Costura de cierre comercial (ADR-0028): el runtime de agentes depende de IAgentLeadSink, no de
         // Lead/CRM. Default No-Op (funciona sin CRM); el adaptador PipelineLeadSink lo reemplaza como
         // implementacion VIVA para conservar el comportamiento actual (crea el lead en el pipeline).

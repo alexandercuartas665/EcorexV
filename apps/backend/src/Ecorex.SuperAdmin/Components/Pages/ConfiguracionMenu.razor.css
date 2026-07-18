@@ -41,10 +41,13 @@
 .mc-tab:hover { color: var(--ink-2); }
 .mc-tab.active { color: var(--ink); border-bottom-color: var(--brand); }
 
-.mc-editor-body { display: grid; grid-template-columns: 1fr 320px; gap: 0; min-height: 0; flex: 1; overflow: hidden; }
-.mc-tree-pane { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
-.mc-toolbar { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.mc-tree { overflow: auto; padding: 8px 10px 18px; }
+/* grid-template-rows minmax(0,1fr): constrine la fila al alto disponible (0 min) para que el
+   arbol y las propiedades scrolleen dentro de su panel en vez de crecer y quedar recortados. */
+.mc-editor-body { display: grid; grid-template-columns: 1fr 320px; grid-template-rows: minmax(0, 1fr); gap: 0; min-height: 0; flex: 1; overflow: hidden; }
+.mc-tree-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+.mc-toolbar { display: flex; align-items: center; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--line); flex: none; }
+/* flex:1 + min-height:0 para que el arbol llene el panel y su overflow:auto haga scroll de verdad. */
+.mc-tree { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px 18px; }
 .mc-tree-empty { padding: 30px 16px; text-align: center; font-size: 13px; color: var(--ink-3); }
 
 .mc-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 10px; cursor: pointer; font-size: 13px; color: var(--ink); }

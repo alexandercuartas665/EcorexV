@@ -30,7 +30,8 @@ public sealed record UpdateAdvisorRequest(
     LeadVisibility LeadVisibility,
     TenantRole Role,
     string? DocumentCode = null,
-    string? Phone = null);
+    string? Phone = null,
+    string? Email = null);
 
 /// <summary>Informacion publica de una invitacion, para la pagina de aceptacion.</summary>
 public sealed record AdvisorInvitationInfo(bool Valid, string Email, string TenantName);

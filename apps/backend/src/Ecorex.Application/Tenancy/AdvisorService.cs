@@ -119,6 +119,20 @@ public sealed class AdvisorService : IAdvisorService
         tenantUser.LeadVisibility = request.LeadVisibility;
         tenantUser.DocumentCode = string.IsNullOrWhiteSpace(request.DocumentCode) ? null : request.DocumentCode.Trim();
         tenantUser.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
+        // Cambio de correo (= correo de LOGIN e identidad global del asesor). Guarda de unicidad:
+        // se rechaza si otro miembro del tenant o cualquier otra identidad de plataforma ya lo usa.
+        var newEmail = request.Email?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(newEmail) && !string.Equals(newEmail, tenantUser.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            var tenantConflict = await _db.TenantUsers.AnyAsync(tu => tu.Id != tenantUser.Id && tu.Email == newEmail, cancellationToken);
+            var platformConflict = await _db.PlatformUsers.AnyAsync(p => p.Id != tenantUser.PlatformUserId && p.Email == newEmail, cancellationToken);
+            if (tenantConflict || platformConflict)
+            {
+                return null; // correo en uso -> la UI muestra el error
+            }
+            tenantUser.Email = newEmail;
+            if (platformUser is not null) { platformUser.Email = newEmail; }
+        }
         if (platformUser is not null && !string.IsNullOrWhiteSpace(request.DisplayName))
         {
             platformUser.DisplayName = request.DisplayName.Trim();

@@ -62,6 +62,70 @@ else
     }
     else
     {
+        <div class="ase-viewbar">
+            <button class="ase-vtab @(_view == "cards" ? "on" : "")" @onclick='() => _view = "cards"'>Tarjetas</button>
+            <button class="ase-vtab @(_view == "list" ? "on" : "")" @onclick='() => _view = "list"'>Lista</button>
+        </div>
+
+        @if (_view == "cards")
+        {
+            <div class="ase-cards">
+                @foreach (var a in _advisors)
+                {
+                    <div class="ase-card">
+                        <div class="ase-card-top">
+                            @if (a.AvatarUrl is { } av)
+                            {
+                                <img src="@av" alt="" class="ase-card-avatar" />
+                            }
+                            else
+                            {
+                                <span class="ase-card-avatar" style="display:grid;place-items:center;color:#fff;font-weight:700;background:@AseColor(a.DisplayName ?? a.Email)">@Initials(a.DisplayName ?? a.Email)</span>
+                            }
+                            <div style="min-width:0;flex:1;">
+                                <div class="ase-card-name">@(string.IsNullOrWhiteSpace(a.DisplayName) ? "(Sin nombre)" : a.DisplayName)</div>
+                                <div class="ase-card-mail">@a.Email</div>
+                            </div>
+                            @if (a.InvitePending)
+                            {
+                                <span class="badge bg-warning">Pendiente</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-@StatusColor(a.Status)">@StatusText(a.Status)</span>
+                            }
+                        </div>
+                        <div class="ase-card-meta">
+                            <span class="badge bg-secondary">@RoleText(a.Role)</span>
+                            <span class="ase-chip">Ve: @VisibilityText(a.LeadVisibility)</span>
+                            @if (!string.IsNullOrWhiteSpace(a.DocumentCode)) { <span class="ase-chip">Doc: @a.DocumentCode</span> }
+                            @if (!string.IsNullOrWhiteSpace(a.Phone)) { <span class="ase-chip">Tel: @a.Phone</span> }
+                        </div>
+                        <div class="ase-card-actions">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(a)">Editar</button>
+                            @if (a.InvitePending && a.InvitationToken is { } tk)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowLink(tk)">Ver link</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => ResetAsync(a)" disabled="@_busy">Restablecer clave</button>
+                            }
+                            @if (a.Status == PlatformUserStatus.Active)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => SetStatusAsync(a, PlatformUserStatus.Suspended)">Suspender</button>
+                            }
+                            else if (!a.InvitePending)
+                            {
+                                <button class="btn btn-sm btn-outline-success" @onclick="() => SetStatusAsync(a, PlatformUserStatus.Active)">Activar</button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
         <div class="card" style="max-width:1040px;padding:6px 16px;">
             <table class="table table-hover align-middle" style="margin-bottom:0;">
                 <thead>
@@ -131,6 +195,7 @@ else
                 </tbody>
             </table>
         </div>
+        }
     }
 }
 
@@ -194,8 +259,9 @@ else
             </div>
             <div class="modal-body">
                 <div class="field">
-                    <label class="form-label">Correo</label>
-                    <input class="form-control" value="@_editing.Email" disabled />
+                    <label class="form-label">Correo (login del asesor)</label>
+                    <input class="form-control" type="email" @bind="_ef.Email" autocomplete="off" />
+                    <p class="text-muted" style="font-size:11.5px;margin:4px 0 0;">Es el correo con el que inicia sesion. Cambiarlo actualiza su login.</p>
                 </div>
                 <div class="field">
                     <label class="form-label">Nombre</label>
@@ -272,6 +338,8 @@ else
     private bool _busy;
     private bool _canManage;
     private List<AdvisorDto> _advisors = new();
+    // Vista: "cards" (tarjetas) o "list" (tabla).
+    private string _view = "cards";
 
     private bool _inviteOpen;
     private string? _inviteError;
@@ -344,18 +412,30 @@ else
     {
         _editError = null;
         _editing = a;
-        _ef = new EditForm2 { DisplayName = a.DisplayName, DocumentCode = a.DocumentCode, Phone = a.Phone, Role = a.Role, LeadVisibility = a.LeadVisibility };
+        _ef = new EditForm2 { Email = a.Email, DisplayName = a.DisplayName, DocumentCode = a.DocumentCode, Phone = a.Phone, Role = a.Role, LeadVisibility = a.LeadVisibility };
         _editOpen = true;
     }
 
     private async Task SaveEditAsync()
     {
         if (_editing is null) { return; }
+        _editError = null;
+        if (string.IsNullOrWhiteSpace(_ef.Email))
+        {
+            _editError = "El correo no puede quedar vacio.";
+            return;
+        }
         _busy = true;
         try
         {
             var actor = await ActorAsync();
-            await AdvisorsSvc.UpdateAsync(_editing.Id, new UpdateAdvisorRequest(_ef.DisplayName, _ef.LeadVisibility, _ef.Role, DocumentCode: _ef.DocumentCode, Phone: _ef.Phone), actor);
+            var updated = await AdvisorsSvc.UpdateAsync(_editing.Id,
+                new UpdateAdvisorRequest(_ef.DisplayName, _ef.LeadVisibility, _ef.Role, DocumentCode: _ef.DocumentCode, Phone: _ef.Phone, Email: _ef.Email), actor);
+            if (updated is null)
+            {
+                _editError = "No se pudo guardar (quiza el correo ya esta en uso por otra cuenta).";
+                return;
+            }
             _editOpen = false;
             await ReloadAsync();
         }
@@ -467,6 +547,7 @@ else
 
     private sealed class EditForm2
     {
+        public string? Email { get; set; }
         public string? DisplayName { get; set; }
         public string? DocumentCode { get; set; }
         public string? Phone { get; set; }

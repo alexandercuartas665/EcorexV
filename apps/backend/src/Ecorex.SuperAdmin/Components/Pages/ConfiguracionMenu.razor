@@ -770,8 +770,16 @@ else
 
     private async Task SaveEditorAsync()
     {
-        // El editor aplica cada accion de inmediato (create/update/move/delete persisten al vuelo),
-        // asi que "Guardar" recarga desde BD y confirma. Se mantiene por coherencia con el prototipo.
+        // El editor aplica cada accion de inmediato (create/move/delete persisten al vuelo). PERO las
+        // propiedades del nodo (nombre, icono, ruta...) viven en un buffer que solo se persiste con
+        // "Aplicar cambios". Si el usuario edito el nombre y dio a este "Guardar" de arriba sin aplicar,
+        // el cambio se perdia al recargar. Ahora "Guardar" TAMBIEN aplica lo que este editado en el
+        // panel de propiedades del nodo seleccionado.
+        if (_selected is not null)
+        {
+            await SaveNodeAsync();
+            return;
+        }
         await ReloadTreeAsync();
         Flash("Cambios guardados.", true);
     }

@@ -152,6 +152,16 @@
                                     { <option value="@st">@StatusLabel(st)</option> }
                                 </select>
                             </div>
+                            <div class="xd-prop">
+                                <label>Paginacion (opcional): variable de pagina</label>
+                                <input class="xd-input mono" placeholder="PAGINA" @bind="_hPageVar" />
+                            </div>
+                            <div class="xd-two">
+                                <div class="xd-prop"><label>Desde</label><input class="xd-input" type="number" @bind="_hPageFrom" /></div>
+                                <div class="xd-prop"><label>Hasta</label><input class="xd-input" type="number" @bind="_hPageTo" /></div>
+                            </div>
+                            <div class="xd-help">Si defines una variable de pagina y un rango, el flujo se repite por cada
+                                pagina, sustituyendo {{ese nombre}} en las URLs/scripts.</div>
                             @if (_headError is not null) { <div class="xd-error-box">@_headError</div> }
                             <div class="xd-props-actions">
                                 <button class="xd-btn primary" @onclick="SaveHeaderAsync" disabled="@_busy">Guardar</button>
@@ -260,6 +270,20 @@
                                         <input class="xd-input" placeholder="Ej. claude-sonnet-5" @bind="_sAiModel" /></div>
                                 }
 
+                                @if (_sKind != ScrapeStepKind.Ai)
+                                {
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
+                                            <input class="xd-input" placeholder="captcha" @bind="_sWarnLabel" /></div>
+                                        <div class="xd-prop"><label>Si aparece</label>
+                                            <select class="xd-input" @bind="_sWarnAction">
+                                                <option value="@ScrapeWarningAction.None">Nada</option>
+                                                <option value="@ScrapeWarningAction.Notify">Notificar (seguir)</option>
+                                                <option value="@ScrapeWarningAction.Stop">Detener la corrida</option>
+                                            </select></div>
+                                    </div>
+                                }
+
                                 @if (_stepError is not null) { <div class="xd-error-box">@_stepError</div> }
                                 <div class="xd-props-actions">
                                     <button class="xd-btn primary" @onclick="SaveStepAsync" disabled="@_busy">Guardar paso</button>
@@ -325,6 +349,49 @@
 
                 </div>
 
+                @* ===== Programacion (Ola 5: reusa ImportProcess/recurrencia) ===== *@
+                <div class="xd-card">
+                    <div class="xd-card-head">
+                        <div class="xd-card-title">Programacion</div>
+                        @if (_schedule?.NextRunAt is DateTimeOffset nr && (_schedule?.IsActive ?? false))
+                        {
+                            <span class="xd-pill ok"><span class="d"></span>Proxima: @nr.ToLocalTime().ToString("dd MMM HH:mm")</span>
+                        }
+                        else
+                        {
+                            <span class="xd-pill wait"><span class="d"></span>@(_schedule is null ? "Sin programar" : "Manual/inactiva")</span>
+                        }
+                    </div>
+                    <div class="xd-props-body">
+                        <div class="xd-prop">
+                            <label>Recurrencia</label>
+                            <select class="xd-input" @bind="_schKind">
+                                <option value="@ImportScheduleKind.Manual">Manual (solo con el boton)</option>
+                                <option value="@ImportScheduleKind.Interval">Cada N minutos</option>
+                                <option value="@ImportScheduleKind.Cron">Cron</option>
+                            </select>
+                        </div>
+                        @if (_schKind == ImportScheduleKind.Interval)
+                        {
+                            <div class="xd-prop"><label>Minutos entre corridas</label>
+                                <input class="xd-input" type="number" min="1" @bind="_schInterval" /></div>
+                        }
+                        else if (_schKind == ImportScheduleKind.Cron)
+                        {
+                            <div class="xd-prop"><label>Expresion cron (zona del tenant)</label>
+                                <input class="xd-input mono" placeholder="0 */6 * * *" @bind="_schCron" /></div>
+                        }
+                        <label class="xd-check"><input type="checkbox" @bind="_schActive" /> Activa (el horario dispara sola)</label>
+                        @if (_schedule?.DisabledReason is { } dr) { <div class="xd-error-box">Desactivada: @dr</div> }
+                        @if (_schError is not null) { <div class="xd-error-box">@_schError</div> }
+                        <div class="xd-props-actions">
+                            <button class="xd-btn primary" @onclick="SaveScheduleAsync" disabled="@_busy">Guardar programacion</button>
+                        </div>
+                        <div class="xd-help">La corrida programada la ejecuta el mismo agente asignado; si esta
+                            offline queda esperando y se reintenta al reconectar. Requiere un agente asignado.</div>
+                    </div>
+                </div>
+
                 @* ===== Historial de corridas (bitacora, Ola 3) ===== *@
                 <div class="xd-card">
                     <div class="xd-card-head">
@@ -369,6 +436,12 @@
     private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
     private IReadOnlyList<ScrapeTargetDto> _containers = Array.Empty<ScrapeTargetDto>();
     private IReadOnlyList<ScrapeFlowRunDto> _runs = Array.Empty<ScrapeFlowRunDto>();
+    private ScrapeScheduleDto? _schedule;
+    private ImportScheduleKind _schKind = ImportScheduleKind.Manual;
+    private int _schInterval = 60;
+    private string _schCron = "";
+    private bool _schActive = true;
+    private string? _schError;
     private ScrapeFlowDto? _selected;
     private bool _isNew;
     private bool _busy;
@@ -386,6 +459,9 @@
     private ScrapeSourceStatus _hStatus = ScrapeSourceStatus.Active;
     private string _hClient = "";
     private string _hContainer = "";
+    private string _hPageVar = "";
+    private int? _hPageFrom;
+    private int? _hPageTo;
 
     // Editor de paso
     private bool _showStepEditor;
@@ -404,6 +480,8 @@
     private string _sMaxSteps = "";
     private string _sMaxSeconds = "";
     private string _sAiModel = "";
+    private string _sWarnLabel = "";
+    private ScrapeWarningAction _sWarnAction = ScrapeWarningAction.None;
 
     // Editor de variable
     private bool _showVarEditor;
@@ -440,8 +518,36 @@
             _hClient = _selected.ClientId?.ToString() ?? "";
             _hContainer = _selected.ContainerId?.ToString() ?? "";
             _runs = await FlowSvc.ListRunsAsync(id);
+            _schedule = await FlowSvc.GetScheduleAsync(id);
+            _schError = null;
+            if (_schedule is not null)
+            {
+                _schKind = _schedule.Kind;
+                _schInterval = _schedule.IntervalMinutes ?? 60;
+                _schCron = _schedule.CronExpression ?? "";
+                _schActive = _schedule.IsActive;
+            }
+            else { _schKind = ImportScheduleKind.Manual; _schInterval = 60; _schCron = ""; _schActive = true; }
         }
-        else { _runs = Array.Empty<ScrapeFlowRunDto>(); }
+        else { _runs = Array.Empty<ScrapeFlowRunDto>(); _schedule = null; }
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        if (_selected is null) { return; }
+        _schError = null;
+        _busy = true;
+        try
+        {
+            _schedule = await FlowSvc.SaveScheduleAsync(new SaveScrapeScheduleRequest(
+                _selected.Id, _schKind,
+                _schKind == ImportScheduleKind.Interval ? _schInterval : null,
+                _schKind == ImportScheduleKind.Cron ? NullIfBlank(_schCron) : null,
+                _schActive), _actor);
+            Flash("Programacion guardada.");
+        }
+        catch (Exception ex) { _schError = ex.Message; }
+        finally { _busy = false; }
     }
 
     private async Task RunFlowAsync()
@@ -507,6 +613,7 @@
         {
             _hName = _selected.Name; _hDesc = _selected.Description ?? "";
             _hUrl = _selected.StartUrl; _hStatus = _selected.Status;
+            _hPageVar = _selected.PageVar ?? ""; _hPageFrom = _selected.PageFrom; _hPageTo = _selected.PageTo;
         }
     }
 
@@ -519,7 +626,8 @@
         {
             var saved = await FlowSvc.SaveFlowAsync(new SaveScrapeFlowRequest(
                 _selected.Id, _hName, NullIfBlank(_hDesc), _hUrl, _hStatus,
-                ParseGuid(_hClient), ParseGuid(_hContainer)), _actor);
+                ParseGuid(_hClient), ParseGuid(_hContainer),
+                NullIfBlank(_hPageVar), _hPageFrom, _hPageTo), _actor);
             if (saved is null) { _headError = "No se pudo guardar."; return; }
             _editHeader = false;
             await ReloadFlowsAsync();
@@ -539,7 +647,8 @@
         {
             await FlowSvc.SaveFlowAsync(new SaveScrapeFlowRequest(
                 _selected.Id, _selected.Name, _selected.Description, _selected.StartUrl, _selected.Status,
-                ParseGuid(_hClient), ParseGuid(_hContainer)), _actor);
+                ParseGuid(_hClient), ParseGuid(_hContainer),
+                _selected.PageVar, _selected.PageFrom, _selected.PageTo), _actor);
             await SelectFlowAsync(_selected.Id);
         }
         catch (Exception ex) { Flash(ex.Message, true); }
@@ -581,6 +690,8 @@
         _sMaxSteps = s?.MaxSteps?.ToString() ?? "";
         _sMaxSeconds = s?.MaxSeconds?.ToString() ?? "";
         _sAiModel = s?.AiModel ?? "";
+        _sWarnLabel = s?.WarningLabel ?? "";
+        _sWarnAction = s?.WarningAction ?? ScrapeWarningAction.None;
     }
 
     private async Task SaveStepAsync()
@@ -599,7 +710,8 @@
                 Selector: NullIfBlank(_sSelector), MappingJson: NullIfBlank(_sMappingJson),
                 Instruction: NullIfBlank(_sInstruction), TargetContainerId: ParseGuid(_sTargetContainer),
                 ToolAllowListJson: toolJson, MaxSteps: ParseInt(_sMaxSteps), MaxSeconds: ParseInt(_sMaxSeconds),
-                AiModel: NullIfBlank(_sAiModel));
+                AiModel: NullIfBlank(_sAiModel),
+                WarningLabel: NullIfBlank(_sWarnLabel), WarningAction: _sWarnAction);
             var saved = await FlowSvc.SaveStepAsync(req, _actor);
             if (saved is null) { _stepError = "No se pudo guardar el paso."; return; }
             _showStepEditor = false;

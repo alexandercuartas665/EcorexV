@@ -1,4 +1,6 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.DataContainers;
+using Ecorex.Application.Scheduling;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +84,55 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             .ToListAsync(ct);
     }
 
+    public async Task<ScrapeScheduleDto?> GetScheduleAsync(Guid flowId, CancellationToken ct = default)
+    {
+        // Un flujo tiene a lo sumo un ImportProcess (su programacion). Si no hay, no esta programado.
+        var p = await _db.ImportProcesses.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.FlowId == flowId, ct);
+        if (p is null) { return null; }
+        return new ScrapeScheduleDto(p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.NextRunAt, p.DisabledReason);
+    }
+
+    public async Task<ScrapeScheduleDto> SaveScheduleAsync(SaveScrapeScheduleRequest req, Guid actorUserId, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+        var flow = await _db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == req.FlowId, ct)
+            ?? throw new InvalidOperationException("El flujo no existe.");
+
+        // Un proceso por flujo: se reusa el existente o se crea. Un proceso de flujo NO tiene modelo ni
+        // conector (esos son del Contenedor); solo FlowId + la regla de tiempo.
+        var entity = await _db.ImportProcesses.FirstOrDefaultAsync(x => x.FlowId == req.FlowId, ct);
+        if (entity is null)
+        {
+            entity = new ImportProcess { TenantId = tenantId, FlowId = req.FlowId };
+            _db.ImportProcesses.Add(entity);
+        }
+        entity.Name = $"Flujo: {flow.Name}";
+        entity.ScheduleKind = req.Kind;
+        entity.IntervalMinutes = req.IntervalMinutes;
+        entity.CronExpression = string.IsNullOrWhiteSpace(req.CronExpression) ? null : req.CronExpression!.Trim();
+        entity.IsActive = req.IsActive;
+
+        // La proxima ventana se calcula AL GUARDAR (el operador ve cuando corre) y un cron invalido se
+        // rechaza aqui, no mas tarde en silencio. Mismo criterio que la programacion del Contenedor.
+        var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
+            .Where(t => t.Id == tenantId).Select(t => t.TimeZoneId).FirstOrDefaultAsync(ct));
+        var next = ImportRecurrence.ComputeNextRun(entity, DateTimeOffset.UtcNow, tz);
+        if (next.Problem == ImportScheduleProblem.Invalid)
+        {
+            throw new InvalidOperationException(next.Reason ?? "El horario no es valido.");
+        }
+        entity.NextRunAt = next.NextRunAt;
+        entity.DisabledReason = null;
+
+        await _db.SaveChangesAsync(ct);
+        return new ScrapeScheduleDto(entity.ScheduleKind, entity.IntervalMinutes, entity.CronExpression,
+            entity.IsActive, entity.NextRunAt, entity.DisabledReason);
+    }
+
     public async Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default)
     {
         var flow = await _db.ScrapeFlows.AsNoTracking().FirstOrDefaultAsync(f => f.Id == flowId, ct);
@@ -102,7 +153,8 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             flow.ClientId, clientName, flow.ContainerId, containerName,
             flow.LastRunAt, flow.LastResultSummary,
             steps.Select(MapStep).ToList(),
-            vars.Select(MapVariable).ToList());
+            vars.Select(MapVariable).ToList(),
+            flow.PageVar, flow.PageFrom, flow.PageTo);
     }
 
     public async Task<ScrapeFlowDto?> SaveFlowAsync(SaveScrapeFlowRequest req, Guid actorUserId, CancellationToken ct = default)
@@ -136,6 +188,9 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.Status = req.Status;
         entity.ClientId = req.ClientId;
         entity.ContainerId = req.ContainerId;
+        entity.PageVar = NullIfBlank(req.PageVar);
+        entity.PageFrom = req.PageFrom;
+        entity.PageTo = req.PageTo;
 
         await _db.SaveChangesAsync(ct);
         return await GetAsync(entity.Id, ct);
@@ -145,7 +200,11 @@ public sealed class ScrapeFlowService : IScrapeFlowService
     {
         var flow = await _db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == flowId, ct);
         if (flow is null) { return false; }
-        // Pasos y variables caen por cascada de la BD; se quita el maestro.
+        // La programacion (ImportProcess) apunta al flujo por referencia SUAVE (sin FK): no cae por
+        // cascada, hay que quitarla a mano para no dejar un proceso huerfano que el worker intentaria.
+        var schedules = await _db.ImportProcesses.Where(p => p.FlowId == flowId).ToListAsync(ct);
+        if (schedules.Count > 0) { _db.ImportProcesses.RemoveRange(schedules); }
+        // Pasos, variables y corridas caen por cascada de la BD; se quita el maestro.
         _db.ScrapeFlows.Remove(flow);
         await _db.SaveChangesAsync(ct);
         return true;
@@ -190,6 +249,8 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.MaxSeconds = req.MaxSeconds;
         entity.AiProviderId = req.AiProviderId;
         entity.AiModel = NullIfBlank(req.AiModel);
+        entity.WarningLabel = NullIfBlank(req.WarningLabel);
+        entity.WarningAction = req.WarningAction;
 
         await _db.SaveChangesAsync(ct);
         return MapStep(entity);
@@ -271,7 +332,8 @@ public sealed class ScrapeFlowService : IScrapeFlowService
 
     private static ScrapeStepDto MapStep(ScrapeStep s) => new(
         s.Id, s.FlowId, s.Order, s.Kind, s.Name, s.WaitMs, s.Url, s.Script, s.Selector, s.MappingJson,
-        s.Instruction, s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel);
+        s.Instruction, s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel,
+        s.WarningLabel, s.WarningAction);
 
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
         new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret);

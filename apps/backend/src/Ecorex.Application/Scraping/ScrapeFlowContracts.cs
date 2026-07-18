@@ -36,7 +36,9 @@ public sealed record ScrapeStepDto(
     int? MaxSteps,
     int? MaxSeconds,
     Guid? AiProviderId,
-    string? AiModel);
+    string? AiModel,
+    string? WarningLabel = null,
+    ScrapeWarningAction WarningAction = ScrapeWarningAction.None);
 
 /// <summary>Una variable. NUNCA lleva el valor: solo si tiene o no, y si es secreta.</summary>
 public sealed record ScrapeVariableDto(
@@ -48,6 +50,23 @@ public sealed record ScrapeVariableDto(
 
 /// <summary>Una tabla que un flujo puede usar como destino ("Modelo / Tabla"), para el selector.</summary>
 public sealed record ScrapeTargetDto(Guid Id, string Label);
+
+/// <summary>La programacion de un flujo (Ola 5): reusa ImportProcess/recurrencia del Contenedor.</summary>
+public sealed record ScrapeScheduleDto(
+    ImportScheduleKind Kind,
+    int? IntervalMinutes,
+    string? CronExpression,
+    bool IsActive,
+    DateTimeOffset? NextRunAt,
+    string? DisabledReason);
+
+/// <summary>Alta/edicion de la programacion de un flujo.</summary>
+public sealed record SaveScrapeScheduleRequest(
+    Guid FlowId,
+    ImportScheduleKind Kind,
+    int? IntervalMinutes,
+    string? CronExpression,
+    bool IsActive);
 
 /// <summary>Una corrida en la bitacora del flujo (runtime, Ola 3).</summary>
 public sealed record ScrapeFlowRunDto(
@@ -74,7 +93,10 @@ public sealed record ScrapeFlowDto(
     DateTimeOffset? LastRunAt,
     string? LastResultSummary,
     IReadOnlyList<ScrapeStepDto> Steps,
-    IReadOnlyList<ScrapeVariableDto> Variables);
+    IReadOnlyList<ScrapeVariableDto> Variables,
+    string? PageVar = null,
+    int? PageFrom = null,
+    int? PageTo = null);
 
 /// <summary>Alta/edicion de la CABECERA de un flujo (los pasos y variables se guardan aparte).</summary>
 public sealed record SaveScrapeFlowRequest(
@@ -84,7 +106,10 @@ public sealed record SaveScrapeFlowRequest(
     string StartUrl,
     ScrapeSourceStatus Status,
     Guid? ClientId,
-    Guid? ContainerId);
+    Guid? ContainerId,
+    string? PageVar = null,
+    int? PageFrom = null,
+    int? PageTo = null);
 
 public sealed record SaveScrapeStepRequest(
     Guid? Id,
@@ -103,7 +128,9 @@ public sealed record SaveScrapeStepRequest(
     int? MaxSteps = null,
     int? MaxSeconds = null,
     Guid? AiProviderId = null,
-    string? AiModel = null);
+    string? AiModel = null,
+    string? WarningLabel = null,
+    ScrapeWarningAction WarningAction = ScrapeWarningAction.None);
 
 /// <summary>Alta/edicion de una variable. <paramref name="Value"/> en claro (input); se cifra al
 /// persistir si <paramref name="IsSecret"/>. Si es edicion y Value llega null, se conserva el valor
@@ -127,6 +154,10 @@ public interface IScrapeFlowService
     Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default);
     /// <summary>Bitacora de corridas del flujo, mas recientes primero (runtime, Ola 3).</summary>
     Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default);
+    /// <summary>Programacion del flujo (Ola 5), o null si no tiene una todavia.</summary>
+    Task<ScrapeScheduleDto?> GetScheduleAsync(Guid flowId, CancellationToken ct = default);
+    /// <summary>Crea o actualiza la programacion del flujo (reusa ImportProcess). Rechaza cron invalido.</summary>
+    Task<ScrapeScheduleDto> SaveScheduleAsync(SaveScrapeScheduleRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<ScrapeFlowDto?> SaveFlowAsync(SaveScrapeFlowRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteFlowAsync(Guid flowId, Guid actorUserId, CancellationToken ct = default);
 

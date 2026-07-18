@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-07-18 - Extraccion de Datos, Ola 5: programacion + paginacion + advertencias (+ coexistir)
+
+Quinta ola: un flujo puede correr SOLO por horario, recorrer paginas, y avisar/detenerse ante una
+etiqueta. Cierra el capitulo (el runtime queda cableado; falta E2E con colmena real).
+
+- **Programacion** (reusa `ImportProcess`/recurrencia del Contenedor, decision E2): `ImportProcess` gana
+  `FlowId` (referencia suave) + migracion dual `AddImportProcessFlowId`. El dispatcher
+  (`ImportScheduleDispatcher`) RAMIFICA: si el proceso tiene `FlowId`, dispara
+  `IBrowserRunService.RunFlowNowAsync(Scheduled)` (su corrida va a `ScrapeFlowRun`, no `ImportRun`, por
+  ADR-0042) en vez del runner de importacion; el manejo offline se reusa parqueando `PendingSince` y
+  reintentando al reconectar (con el gate `IsOnline` del agente del FLUJO). Servicio Get/Save de
+  programacion en `IScrapeFlowService` (administra el `ImportProcess` del flujo, calcula `NextRunAt` con
+  `ImportRecurrence`, rechaza cron invalido). Borrar el flujo borra su programacion (ref suave, sin
+  cascada). UI: tarjeta "Programacion" (Manual/Intervalo/Cron + activar, muestra la proxima corrida).
+- **Paginacion controlada** (el PAGINA_DESDE/HASTA legacy): `ScrapeFlow` gana `PageVar`/`PageFrom`/
+  `PageTo`. El runtime repite el flujo por cada pagina sustituyendo {{PAGINA}}, con techo de seguridad
+  (500 paginas). UI en la cabecera.
+- **Advertencias** (el CONDICION legacy): `ScrapeStep` gana `WarningLabel` + `WarningAction` (None/
+  Notify/Stop, enum a texto). Tras cada tramo, si la etiqueta aparece en lo devuelto, Stop DETIENE la
+  corrida y Notify la anota. UI en el editor de paso. Migracion dual `AddFlowPaginationAndWarnings`.
+- **Coexistir con ScrapeSource** (ADR-0044): se conserva el scraper HTTP simple (URLs publicas sin
+  agente); la absorcion se reevalua cuando el runtime de flujos este probado E2E.
+
+**Pruebas**: build de la solucion 0 errores; snapshots limpios en ambos contextos; SuperAdmin.Tests 52 y
+Application.Tests 457 verdes. **Verificado en Chrome**: la tarjeta "Programacion" del flujo crea un
+`ImportProcess` con `FlowId` y calcula la proxima corrida (confirmado en BD: `Flujo: Prueba runtime
+navegador / Interval 30 min / next_run_at`).
+
+**Limite honesto**: el disparo programado real (el worker llamando al flujo a su hora) y la paginacion/
+advertencias en vivo exigen la colmena conectada; la logica reusa la recurrencia + el manejo offline ya
+probados del Contenedor, y el runtime del flujo (Olas 3-4) que corre en segundo plano.
+
+**Estado del capitulo**: configuracion (Olas 1-2) + runtime determinista (3) + paso de IA (4) +
+programacion/paginacion/advertencias (5) construidos y probados hasta donde el entorno de dev permite
+(sin colmena on-prem ni proveedor de IA con llaves). El E2E de punta a punta queda para cuando ambos
+esten disponibles.
+
+---
+
 ## 2026-07-18 - Extraccion de Datos, Ola 4: paso de IA (orquestacion agente<->navegador)
 
 Cuarta ola: los pasos de tipo IA ya se EJECUTAN. Un agente de IA maneja el navegador para cumplir una

@@ -45,6 +45,19 @@ public class ScrapeFlow : TenantEntity
     /// <summary>Resumen humano de la ultima corrida.</summary>
     public string? LastResultSummary { get; set; }
 
+    // ---- Paginacion controlada (Ola 5, el PAGINA_DESDE/HASTA del legacy) ----
+
+    /// <summary>Nombre de la variable de pagina ({{PAGINA}}). Si esta puesto junto con
+    /// <see cref="PageFrom"/>/<see cref="PageTo"/>, el runtime repite el flujo por cada pagina,
+    /// sustituyendo esta variable con el numero de pagina.</summary>
+    public string? PageVar { get; set; }
+
+    /// <summary>Primera pagina (inclusive).</summary>
+    public int? PageFrom { get; set; }
+
+    /// <summary>Ultima pagina (inclusive).</summary>
+    public int? PageTo { get; set; }
+
     public ICollection<ScrapeStep> Steps { get; set; } = new List<ScrapeStep>();
     public ICollection<ScrapeVariable> Variables { get; set; } = new List<ScrapeVariable>();
 }
@@ -111,6 +124,15 @@ public class ScrapeStep : TenantEntity
 
     /// <summary>Modelo del proveedor elegido.</summary>
     public string? AiModel { get; set; }
+
+    // ---- Advertencia (Ola 5, el CONDICION del legacy) ----
+
+    /// <summary>Etiqueta que, si aparece en lo que devuelve el paso, dispara la advertencia
+    /// (p.ej. "captcha", "sesion expirada"). Null = sin advertencia.</summary>
+    public string? WarningLabel { get; set; }
+
+    /// <summary>Que hacer si aparece la etiqueta: nada, notificar (sigue) o detener la corrida.</summary>
+    public ScrapeWarningAction WarningAction { get; set; } = ScrapeWarningAction.None;
 }
 
 /// <summary>

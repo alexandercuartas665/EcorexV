@@ -7134,6 +7134,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("name");
 
+                    b.Property<int?>("PageFrom")
+                        .HasColumnType("int")
+                        .HasColumnName("page_from");
+
+                    b.Property<int?>("PageTo")
+                        .HasColumnType("int")
+                        .HasColumnName("page_to");
+
+                    b.Property<string>("PageVar")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("page_var");
+
                     b.Property<string>("StartUrl")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -7505,6 +7518,17 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<int?>("WaitMs")
                         .HasColumnType("int")
                         .HasColumnName("wait_ms");
+
+                    b.Property<string>("WarningAction")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("warning_action");
+
+                    b.Property<string>("WarningLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("warning_label");
 
                     b.HasKey("Id")
                         .HasName("pk_scrape_steps");

@@ -312,6 +312,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ScrapeSourceStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeRunStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeStepKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ScrapeWarningAction>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateCategory>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateHeaderType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -691,6 +692,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.StartUrl).HasMaxLength(1000).IsRequired();
             b.Property(x => x.Description).HasMaxLength(1000);
             b.Property(x => x.LastResultSummary).HasMaxLength(400);
+            b.Property(x => x.PageVar).HasMaxLength(120);
             // NO ACTION: borrar el agente o el contenedor NO borra el flujo (queda sin destino/agente,
             // el operador lo re-asigna). SetNull en ambos, que es ruta unica y valida en los dos motores.
             b.HasOne(x => x.Client).WithMany()
@@ -709,6 +711,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Selector).HasMaxLength(300);
             b.Property(x => x.Instruction).HasMaxLength(2000);
             b.Property(x => x.AiModel).HasMaxLength(120);
+            b.Property(x => x.WarningLabel).HasMaxLength(200);
             // Script / MappingJson / ToolAllowListJson pueden ser largos: sin tope de longitud.
             b.HasOne(x => x.Flow).WithMany(x => x.Steps)
                 .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);

@@ -131,50 +131,81 @@ public sealed class BrowserRunService(
                 if (flow is null) { await runLog.CloseAsync(runCorr, false, 0, 0, 0, "El flujo desaparecio."); return; }
                 var steps = flow.Steps.OrderBy(s => s.Order).ToList();
 
-                foreach (var segment in Segment(steps))
-                {
-                    if (segment.Ai is { } aiStep)
-                    {
-                        var target = aiStep.TargetContainerId ?? flow.ContainerId
-                            ?? throw new ScrapeCompileException($"El paso de IA '{aiStep.Name}' no tiene tabla destino.");
-                        var outcome = await orchestrator.RunAsync(new AiStepContext(
-                            clientId, tenantId, aiStep.Instruction ?? "", target,
-                            ParseAllowList(aiStep.ToolAllowListJson), aiStep.MaxSteps ?? 0, aiStep.MaxSeconds ?? 0,
-                            aiStep.AiModel, secret), CancellationToken.None);
-                        if (!outcome.Ok) { await runLog.CloseAsync(runCorr, false, ins, upd, del, outcome.Error); return; }
-                        ins += outcome.Inserted; upd += outcome.Updated; del += outcome.Deleted;
-                    }
-                    else
-                    {
-                        var segCorr = NewCorr();
-                        var compiled = ScrapeFlowCompiler.CompileSteps(segment.Steps, flow.ContainerId, variables, segCorr, secret);
-                        if (compiled.Actions.Count == 0) { continue; }
+                // Paginacion controlada (Ola 5): si el flujo define una variable de pagina + rango, se
+                // repite entero por cada pagina, sustituyendo {{PAGINA}}. Sin rango, corre una vez.
+                var pages = ResolvePages(flow);
+                var vars = new Dictionary<string, string>(variables, StringComparer.Ordinal);
+                var notes = new List<string>();
 
-                        var timeout = TimeSpan.FromSeconds(60 + compiled.Actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
-                        var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions);
-                        var result = await channel.ExecuteAsync(clientId, req, timeout, CancellationToken.None);
-                        if (!result.Ok)
+                foreach (var page in pages)
+                {
+                    if (flow.PageVar is { } pv && !string.IsNullOrWhiteSpace(pv)) { vars[pv] = page.ToString(); }
+
+                    foreach (var segment in Segment(steps))
+                    {
+                        if (segment.Ai is { } aiStep)
                         {
-                            await runLog.CloseAsync(runCorr, false, ins, upd, del, FirstError(result) ?? "El Navegador reporto un error.");
-                            return;
+                            var target = aiStep.TargetContainerId ?? flow.ContainerId
+                                ?? throw new ScrapeCompileException($"El paso de IA '{aiStep.Name}' no tiene tabla destino.");
+                            var outcome = await orchestrator.RunAsync(new AiStepContext(
+                                clientId, tenantId, aiStep.Instruction ?? "", target,
+                                ParseAllowList(aiStep.ToolAllowListJson), aiStep.MaxSteps ?? 0, aiStep.MaxSeconds ?? 0,
+                                aiStep.AiModel, secret), CancellationToken.None);
+                            if (!outcome.Ok) { await runLog.CloseAsync(runCorr, false, ins, upd, del, outcome.Error); return; }
+                            ins += outcome.Inserted; upd += outcome.Updated; del += outcome.Deleted;
                         }
-                        foreach (var bind in compiled.Extracts)
+                        else
                         {
-                            var res = result.Results.FirstOrDefault(r => r.Index == bind.ActionIndex);
-                            if (res is null || !res.Ok)
+                            var segCorr = NewCorr();
+                            var compiled = ScrapeFlowCompiler.CompileSteps(segment.Steps, flow.ContainerId, vars, segCorr, secret);
+                            if (compiled.Actions.Count == 0) { continue; }
+
+                            var timeout = TimeSpan.FromSeconds(60 + compiled.Actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+                            var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions);
+                            var result = await channel.ExecuteAsync(clientId, req, timeout, CancellationToken.None);
+                            if (!result.Ok)
                             {
-                                throw new InvalidOperationException(
-                                    $"El paso de extraccion #{bind.ActionIndex + 1} no devolvio datos: {res?.Error ?? "sin resultado"}.");
+                                await runLog.CloseAsync(runCorr, false, ins, upd, del, FirstError(result) ?? "El Navegador reporto un error.");
+                                return;
                             }
-                            var rows = ScrapeRowIngest.ParseRows(res.Value);
-                            var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, CancellationToken.None);
-                            ins += i; upd += u; del += d;
+
+                            // Advertencias (Ola 5): si la etiqueta de un paso aparece en lo que devolvio el
+                            // tramo, se detiene (Stop) o se anota (Notify). Deteccion sobre el texto
+                            // devuelto (Html/Eval); un endurecimiento mas fino queda como backlog.
+                            var haystack = string.Join("\n", result.Results.Select(r => r.Value ?? ""));
+                            foreach (var ws in segment.Steps.Where(s => s.WarningAction != ScrapeWarningAction.None && !string.IsNullOrWhiteSpace(s.WarningLabel)))
+                            {
+                                if (haystack.Contains(ws.WarningLabel!, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (ws.WarningAction == ScrapeWarningAction.Stop)
+                                    {
+                                        throw new InvalidOperationException($"Advertencia '{ws.WarningLabel}' detectada en '{ws.Name}': corrida detenida.");
+                                    }
+                                    notes.Add($"advertencia '{ws.WarningLabel}' en '{ws.Name}'");
+                                }
+                            }
+
+                            foreach (var bind in compiled.Extracts)
+                            {
+                                var res = result.Results.FirstOrDefault(r => r.Index == bind.ActionIndex);
+                                if (res is null || !res.Ok)
+                                {
+                                    throw new InvalidOperationException(
+                                        $"El paso de extraccion #{bind.ActionIndex + 1} no devolvio datos: {res?.Error ?? "sin resultado"}.");
+                                }
+                                var rows = ScrapeRowIngest.ParseRows(res.Value);
+                                var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, CancellationToken.None);
+                                ins += i; upd += u; del += d;
+                            }
                         }
                     }
                 }
 
-                await runLog.CloseAsync(runCorr, true, ins, upd, del, ins > 0 ? $"{ins} filas extraidas." : "Flujo ejecutado.");
-                log.LogInformation("[NAV-RUN] corr={Corr} OK ins={Ins} upd={Upd} del={Del}", runCorr, ins, upd, del);
+                var detail = (ins > 0 ? $"{ins} filas extraidas" : "Flujo ejecutado")
+                    + (pages.Count > 1 ? $" ({pages.Count} paginas)" : "")
+                    + (notes.Count > 0 ? $"; {string.Join("; ", notes)}" : "") + ".";
+                await runLog.CloseAsync(runCorr, true, ins, upd, del, detail);
+                log.LogInformation("[NAV-RUN] corr={Corr} OK ins={Ins} upd={Upd} del={Del} pages={Pages}", runCorr, ins, upd, del, pages.Count);
             }
             catch (TimeoutException ex)
             {
@@ -215,6 +246,19 @@ public sealed class BrowserRunService(
     }
 
     // ---- Segmentacion: tramos deterministas consecutivos + cada paso de IA aparte ----
+
+    /// <summary>Paginas a recorrer. Sin variable/rango valido, una sola pasada ("pagina" 0). Con rango,
+    /// [from..to] acotado a un techo por seguridad (un rango enorme no debe colgar una corrida).</summary>
+    private const int MaxPages = 500;
+    private static IReadOnlyList<int> ResolvePages(ScrapeFlow flow)
+    {
+        if (string.IsNullOrWhiteSpace(flow.PageVar) || flow.PageFrom is not int from || flow.PageTo is not int to || to < from)
+        {
+            return new[] { 0 };
+        }
+        var count = Math.Min(to - from + 1, MaxPages);
+        return Enumerable.Range(from, count).ToList();
+    }
 
     private sealed record StepSegment(IReadOnlyList<ScrapeStep> Steps, ScrapeStep? Ai);
 

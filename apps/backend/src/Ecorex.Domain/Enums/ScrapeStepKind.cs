@@ -31,3 +31,19 @@ public enum ScrapeStepKind
     /// acotado por allow-list de tools y topes de pasos/tiempo. NO es una accion tipada.</summary>
     Ai = 6
 }
+
+/// <summary>
+/// Que hacer si la ETIQUETA de advertencia de un paso aparece en lo que devuelve (el
+/// CONDICION/advertencia del legacy). Ola 5.
+/// </summary>
+public enum ScrapeWarningAction
+{
+    /// <summary>Sin advertencia.</summary>
+    None = 0,
+
+    /// <summary>Si aparece la etiqueta, se anota en la bitacora pero el flujo sigue.</summary>
+    Notify = 1,
+
+    /// <summary>Si aparece la etiqueta, se DETIENE la corrida (p.ej. "captcha", "sesion expirada").</summary>
+    Stop = 2
+}

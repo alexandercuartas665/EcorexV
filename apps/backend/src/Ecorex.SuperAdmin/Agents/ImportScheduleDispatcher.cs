@@ -25,6 +25,7 @@ public sealed class ImportScheduleDispatcher(
     IApplicationDbContext db,
     ITenantContext tenantContext,
     IProcessRunner runner,
+    IBrowserRunService browserRuns,
     IAgentRegistry registry,
     ILogger<ImportScheduleDispatcher> log) : IImportScheduleDispatcher
 {
@@ -90,14 +91,24 @@ public sealed class ImportScheduleDispatcher(
             var window = process.NextRunAt.Value;
             try
             {
-                var result = await runner.RunNowAsync(process.Id, ImportRunTrigger.Scheduled, window, ct);
-                if (result.Ok) { fired++; }
+                // Un proceso puede programar un FLUJO de extraccion (Ola 5) en vez de refrescar un
+                // contenedor. Se ramifica: el flujo lo ejecuta el runtime del Navegador y su corrida vive
+                // en ScrapeFlowRun (no ImportRun). El manejo offline se reusa parqueando PendingSince.
+                if (process.FlowId is Guid flowId)
+                {
+                    if (await FireFlowAsync(process, flowId, window, ct)) { fired++; }
+                }
                 else
                 {
-                    // No se lanza excepcion: el runner YA lo dejo en la bitacora (o lo descarto por
-                    // idempotencia). Aqui solo interesa que la programacion siga su curso.
-                    log.LogInformation("[HORARIO] proceso {Process} ventana {Window:o}: {Msg}",
-                        process.Id, window, result.Message);
+                    var result = await runner.RunNowAsync(process.Id, ImportRunTrigger.Scheduled, window, ct);
+                    if (result.Ok) { fired++; }
+                    else
+                    {
+                        // No se lanza excepcion: el runner YA lo dejo en la bitacora (o lo descarto por
+                        // idempotencia). Aqui solo interesa que la programacion siga su curso.
+                        log.LogInformation("[HORARIO] proceso {Process} ventana {Window:o}: {Msg}",
+                            process.Id, window, result.Message);
+                    }
                 }
             }
             catch (Exception ex)
@@ -129,10 +140,32 @@ public sealed class ImportScheduleDispatcher(
             .ToListAsync(ct);
 
         var retried = 0;
+        var flowChanged = false;
         foreach (var process in pending)
         {
             if (ct.IsCancellationRequested) { break; }
             if (alreadyRun.Contains(process.Id)) { continue; } // el pase de vencidas ya lo toco.
+
+            // Proceso de FLUJO (Ola 5): el cliente esta en el flujo, no en el proceso. Mismo gate por
+            // IsOnline (solo se reintenta cuando el agente reconecta, para no generar otra corrida
+            // PendingOffline cada minuto).
+            if (process.FlowId is Guid flowId)
+            {
+                var clientRow = await db.ScrapeFlows.AsNoTracking()
+                    .Where(f => f.Id == flowId).Select(f => f.ClientId).FirstOrDefaultAsync(ct);
+                if (clientRow is not Guid cid) { continue; }
+                var pub = await db.DataClients.AsNoTracking()
+                    .Where(c => c.Id == cid).Select(c => c.ClientId).FirstOrDefaultAsync(ct);
+                if (pub is null || !registry.IsOnline(pub)) { continue; } // aun no ha vuelto.
+                try
+                {
+                    var res = await FireFlowAsync(process, flowId, nowUtc, ct);
+                    if (res) { retried++; flowChanged = true; log.LogInformation("[HORARIO] flujo {Flow}: agente reconecto, carga pendiente reintentada", flowId); }
+                }
+                catch (Exception ex) { log.LogError(ex, "[HORARIO] fallo el reintento del flujo {Flow}", flowId); }
+                continue;
+            }
+
             if (process.ClientId is not Guid clientRowId) { continue; }
 
             var publicId = await db.DataClients.AsNoTracking()
@@ -155,7 +188,28 @@ public sealed class ImportScheduleDispatcher(
                 log.LogError(ex, "[HORARIO] fallo el reintento del proceso {Process}", process.Id);
             }
         }
+        // El path de import guarda via ProcessRunner (su propio SaveChanges); el de flujo cambia el
+        // proceso aqui (PendingSince), asi que se persiste si hubo alguno.
+        if (flowChanged) { await db.SaveChangesAsync(ct); }
         return retried;
+    }
+
+    /// <summary>Dispara un proceso que apunta a un flujo: el runtime del Navegador lo ejecuta y su
+    /// corrida va a ScrapeFlowRun. Si el agente esta offline, se parquea PendingSince para reintentar al
+    /// reconectar (igual que el import). Devuelve true si se despacho.</summary>
+    private async Task<bool> FireFlowAsync(Domain.Entities.ImportProcess process, Guid flowId, DateTimeOffset window, CancellationToken ct)
+    {
+        if (tenantContext.TenantId is not Guid tenantId) { return false; }
+        var result = await browserRuns.RunFlowNowAsync(flowId, tenantId, ImportRunTrigger.Scheduled, ct);
+        process.LastRunAt = window;
+        if (result.Offline)
+        {
+            process.PendingSince ??= window; // parquea la mas vieja; se limpia al alcanzarlo.
+            log.LogInformation("[HORARIO] flujo {Flow} offline; se reintentara cuando el agente vuelva", flowId);
+            return false;
+        }
+        process.PendingSince = null;
+        return result.Dispatched;
     }
 
     private void Reschedule(Domain.Entities.ImportProcess process, DateTimeOffset nowUtc, TimeZoneInfo tz)

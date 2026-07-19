@@ -33,7 +33,29 @@ Internal), como los seeders DIRECTORIO/GESTOR/CONCEPTOS.
 **Verificacion**: build Release verde (0 errores); tests Application 457. Migracion solo aditiva en
 ambos motores. **Deploy**: rebuild build-from-git de `fase-0/clon-backbone` (68bd053) + up -d con
 `ECOREX_SEED_CRM_CONCEPTOS=true` un arranque para sembrar; la migracion se aplica sola al arrancar.
-**Bloqueo recurrente**: el clasificador de auto-mode bloquea `up -d` a prod -> lo ejecuta el usuario.
+Seed verificado por SELECT: 5 conceptos + 5 forms en cada tenant de negocio (Internal en 0).
+
+**Login "Recordar sesion" (`ca90b29`, deploy)**: el login emitia la cookie SIN
+AuthenticationProperties -> cookie de sesion (moria al cerrar) con expiracion 8h; obligaba a
+re-loguear seguido. Ahora: checkbox "Recordar mi sesion en este equipo" (marcado por defecto);
+`/auth/login` emite cookie PERSISTENTE (IsPersistent + ExpiresUtc 30d) cuando esta marcado;
+ExpireTimeSpan global 8h -> 30d deslizantes. Sin migracion.
+
+**Contacto Cliente = solo conceptos (`e2d20a5`, deploy)**: rediseno de la pestana segun captura del
+usuario. Una sola fila de BOTONES pildora (uno por concepto 000125, icono por modo/valor, estado
+seleccionado morado); al pulsar abre su formulario (o textarea) y guarda la gestion ligada. Se
+elimino el compositor fijo heredado; el cableado CRM del Cargador (Oportunidad/Cita) se preserva via
+concepto (ApplyCrmWiringAsync: HandlesValues -> Oportunidad, Mode CalendarEvent -> Cita). Decision
+del usuario (AskUserQuestion): "solo conceptos configurables", no el set fijo. Sin migracion.
+
+**Dev local para MCP**: se acordo usar SIEMPRE `http://localhost:5234` (dev con tunel SSH a la BD de
+prod), nunca `10.0.0.3` (la IP va lenta por el MCP). Ver memoria [[preview-siempre-activa]].
+
+**Pendiente de validacion visual**: el modal Contacto Cliente requiere login (no puedo teclear
+contrasena) -> lo valida el usuario en 5234. Duda abierta: la captura mostraba un panel-resumen
+lateral (Nivel de interes/Etapa/Probabilidad/Presupuesto) ademas del formulario; se implemento el
+formulario inline debajo de las pildoras. **Bloqueo recurrente**: el clasificador de auto-mode
+bloquea `up -d` a prod (a veces pasa si se antepone backup.sh).
 
 ---
 

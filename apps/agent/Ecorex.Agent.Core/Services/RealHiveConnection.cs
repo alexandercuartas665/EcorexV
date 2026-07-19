@@ -166,7 +166,15 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
         // Servidor -> agente (doc 02 s4).
         conn.On<FetchRequestMsg>(AgentHubMethods.FetchRequest, req => OnFetchRequestAsync(conn, req));
-        conn.On<BrowserRequestMsg>(AgentHubMethods.BrowserRequest, req => OnBrowserRequestAsync(conn, req));
+        // CONCURRENCIA: cada orden de navegador corre en su propia Task y NO bloquea el bucle de recepcion
+        // de SignalR. Asi varias ordenes simultaneas (p.ej. 4 flujos disparados a la vez) llegan a la colmena
+        // al mismo tiempo y su pool abre una WebView2 aislada por orden -en paralelo- en lugar de serializarse
+        // aqui. El pipe y el pool ya soportan varias en vuelo (correlacion por CorrelationId).
+        conn.On<BrowserRequestMsg>(AgentHubMethods.BrowserRequest, req =>
+        {
+            _ = Task.Run(() => OnBrowserRequestAsync(conn, req));
+            return Task.CompletedTask;
+        });
         conn.On<FileRequestMsg>(AgentHubMethods.FileRequest, req => OnFileRequestAsync(conn, req));
         conn.On<CancelMsg>(AgentHubMethods.Cancel, msg => OnCancel(msg));
         conn.On(AgentHubMethods.Ping, () => SafeInvokeAsync(conn, AgentHubMethods.Heartbeat));

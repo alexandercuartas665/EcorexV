@@ -107,6 +107,16 @@ public class ImportProcess : TenantEntity
     public Guid? ClientId { get; set; }
     public DataClient? Client { get; set; }
 
+    /// <summary>
+    /// Si esta puesto, este proceso NO refresca un contenedor via conector: PROGRAMA UN FLUJO de
+    /// extraccion (modulo 000730, Ola 5). El dispatcher lo detecta y, en vez del runner de importacion,
+    /// dispara `IBrowserRunService.RunFlowNowAsync`, cuya corrida vive en `ScrapeFlowRun` (ADR-0042), no
+    /// en `ImportRun`. Referencia SUAVE (sin FK): reusa la carcasa de programacion (recurrencia,
+    /// NextRunAt, PendingSince, worker) sin acoplar el modelo de horarios al de flujos ni crear rutas de
+    /// cascada nuevas. Un proceso de flujo tiene `ModelId`/`ConnectorId` nulos y este puesto.
+    /// </summary>
+    public Guid? FlowId { get; set; }
+
     public string Name { get; set; } = null!;
 
     public ImportScheduleKind ScheduleKind { get; set; } = ImportScheduleKind.Manual;

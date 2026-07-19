@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Ecorex.Application.Common;
 using Ecorex.Application.Scheduling;
 using Ecorex.Domain.Entities;
@@ -19,12 +18,15 @@ public sealed class DataImportConfigService : IDataImportConfigService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly ISecretProtector _protector;
+    private readonly Agents.IAgentClientService _agentClients;
 
-    public DataImportConfigService(IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector)
+    public DataImportConfigService(IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector,
+        Agents.IAgentClientService agentClients)
     {
         _db = db;
         _tenantContext = tenantContext;
         _protector = protector;
+        _agentClients = agentClients;
     }
 
     // ---- Conectores (por contenedor/modelo) ----
@@ -203,78 +205,31 @@ public sealed class DataImportConfigService : IDataImportConfigService
     }
 
     // ---- Clientes (por tenant) ----
+    // El ciclo de vida de los clientes/agentes colmena vive ahora en su propio modulo
+    // (Agents.IAgentClientService, ADR-0045). Estos metodos DELEGAN y mapean a los DTOs de este modulo,
+    // para no romper a los consumidores actuales (Contenedores/Extraccion) mientras migran al selector.
 
     public async Task<IReadOnlyList<DataClientDto>> ListClientsAsync(CancellationToken ct = default)
-    {
-        var clients = await _db.DataClients.AsNoTracking()
-            .OrderBy(c => c.Name)
-            .ToListAsync(ct);
-        return clients.Select(MapClient).ToList();
-    }
+        => (await _agentClients.ListAsync(ct)).Select(ToDataClientDto).ToList();
 
     public async Task<(DataClientDto Client, DataClientSecretDto? Secret)> SaveClientAsync(SaveDataClientRequest req, Guid actorUserId, CancellationToken ct = default)
     {
-        if (_tenantContext.TenantId is not Guid tenantId)
-        {
-            throw new InvalidOperationException("No hay tenant activo.");
-        }
-        var name = (req.Name ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new InvalidOperationException("El nombre del cliente es obligatorio.");
-        }
-
-        if (req.Id is { } id)
-        {
-            // Edicion: no se regenera identidad ni secreto.
-            var existing = await _db.DataClients.FirstOrDefaultAsync(c => c.Id == id, ct);
-            if (existing is null)
-            {
-                throw new InvalidOperationException("El cliente no existe.");
-            }
-            existing.Name = name;
-            existing.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim();
-            existing.IsActive = req.IsActive;
-            await _db.SaveChangesAsync(ct);
-            return (MapClient(existing), null);
-        }
-
-        // Alta: genera ClientId publico unico por tenant + secreto fuerte (mostrado una vez).
-        var clientId = await GenerateUniqueClientIdAsync(ct);
-        var secret = GenerateSecret();
-        var entity = new DataClient
-        {
-            TenantId = tenantId,
-            Name = name,
-            Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description!.Trim(),
-            ClientId = clientId,
-            ClientSecretEncrypted = _protector.Protect(secret),
-            IsActive = req.IsActive
-        };
-        _db.DataClients.Add(entity);
-        await _db.SaveChangesAsync(ct);
-
-        return (MapClient(entity), new DataClientSecretDto(entity.Id, entity.ClientId, secret));
+        var (client, secret) = await _agentClients.SaveAsync(
+            new Agents.SaveAgentClientRequest(req.Id, req.Name, req.Description, req.IsActive), actorUserId, ct);
+        return (ToDataClientDto(client), secret is null ? null : new DataClientSecretDto(secret.Id, secret.ClientId, secret.ClientSecret));
     }
 
     public async Task<DataClientSecretDto?> RotateClientSecretAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default)
     {
-        var entity = await _db.DataClients.FirstOrDefaultAsync(c => c.Id == clientId, ct);
-        if (entity is null) { return null; }
-        var secret = GenerateSecret();
-        entity.ClientSecretEncrypted = _protector.Protect(secret);
-        await _db.SaveChangesAsync(ct);
-        return new DataClientSecretDto(entity.Id, entity.ClientId, secret);
+        var secret = await _agentClients.RotateSecretAsync(clientId, actorUserId, ct);
+        return secret is null ? null : new DataClientSecretDto(secret.Id, secret.ClientId, secret.ClientSecret);
     }
 
-    public async Task<bool> DeleteClientAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default)
-    {
-        var entity = await _db.DataClients.FirstOrDefaultAsync(c => c.Id == clientId, ct);
-        if (entity is null) { return false; }
-        _db.DataClients.Remove(entity);
-        await _db.SaveChangesAsync(ct);
-        return true;
-    }
+    public Task<bool> DeleteClientAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default)
+        => _agentClients.DeleteAsync(clientId, actorUserId, ct);
+
+    private static DataClientDto ToDataClientDto(Agents.AgentClientDto c) =>
+        new(c.Id, c.Name, c.Description, c.ClientId, c.HasSecret, c.IsActive);
 
     // ---- Procesos de importacion (por contenedor/modelo) ----
 
@@ -407,9 +362,6 @@ public sealed class DataImportConfigService : IDataImportConfigService
         new(d.ModelId, d.Kind, d.DbEngine, d.Host, d.Port, d.DatabaseName, d.Username,
             d.CredentialsEncrypted != null);
 
-    private static DataClientDto MapClient(DataClient c) =>
-        new(c.Id, c.Name, c.Description, c.ClientId, c.ClientSecretEncrypted != null, c.IsActive);
-
     private static ImportProcessDto MapProcess(
         ImportProcess p,
         IReadOnlyDictionary<Guid, string> connectorNames,
@@ -425,27 +377,4 @@ public sealed class DataImportConfigService : IDataImportConfigService
             p.NextRunAt, p.DisabledReason, p.PendingSince);
     }
 
-    private async Task<string> GenerateUniqueClientIdAsync(CancellationToken ct)
-    {
-        for (var attempt = 0; attempt < 10; attempt++)
-        {
-            var candidate = "cli_" + Guid.NewGuid().ToString("N")[..12];
-            if (!await _db.DataClients.AnyAsync(c => c.ClientId == candidate, ct))
-            {
-                return candidate;
-            }
-        }
-        // Fallback practicamente imposible: usa el Guid completo.
-        return "cli_" + Guid.NewGuid().ToString("N");
-    }
-
-    private static string GenerateSecret()
-    {
-        // 32 bytes aleatorios -> base64url sin padding.
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
 }

@@ -495,6 +495,96 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("activity_types", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgentActivityLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ClientId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("client_name");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("detail");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("int")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("finished_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Origin")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("origin");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("result");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agent_activity_logs");
+
+                    b.HasIndex("TenantId", "StartedAt")
+                        .HasDatabaseName("ix_agent_activity_logs_tenant_id_started_at");
+
+                    b.HasIndex("TenantId", "ClientId", "StartedAt")
+                        .HasDatabaseName("ix_agent_activity_logs_tenant_id_client_id_started_at");
+
+                    b.ToTable("agent_activity_logs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3793,6 +3883,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(300)")
                         .HasColumnName("disabled_reason");
 
+                    b.Property<Guid?>("FlowId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_id");
+
                     b.Property<int?>("IntervalMinutes")
                         .HasColumnType("int")
                         .HasColumnName("interval_minutes");
@@ -3861,6 +3955,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("PendingSince")
                         .HasDatabaseName("ix_import_processes_pending_since");
+
+                    b.HasIndex("TenantId", "FlowId")
+                        .HasDatabaseName("ix_import_processes_tenant_id_flow_id");
 
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_import_processes_tenant_id_model_id");
@@ -7236,6 +7333,194 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("scheduled_job_runs", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ClientId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("client_id");
+
+                    b.Property<Guid?>("ContainerId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("LastResultSummary")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)")
+                        .HasColumnName("last_result_summary");
+
+                    b.Property<DateTimeOffset?>("LastRunAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_run_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("PageFrom")
+                        .HasColumnType("int")
+                        .HasColumnName("page_from");
+
+                    b.Property<int?>("PageTo")
+                        .HasColumnType("int")
+                        .HasColumnName("page_to");
+
+                    b.Property<string>("PageVar")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("page_var");
+
+                    b.Property<string>("StartUrl")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("start_url");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_flows");
+
+                    b.HasIndex("ClientId")
+                        .HasDatabaseName("ix_scrape_flows_client_id");
+
+                    b.HasIndex("ContainerId")
+                        .HasDatabaseName("ix_scrape_flows_container_id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scrape_flows_tenant_id_name");
+
+                    b.ToTable("scrape_flows", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlowRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Deleted")
+                        .HasColumnType("int")
+                        .HasColumnName("deleted");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("detail");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("finished_at");
+
+                    b.Property<DateTimeOffset>("FiredAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fired_at");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_id");
+
+                    b.Property<int>("Inserted")
+                        .HasColumnType("int")
+                        .HasColumnName("inserted");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("result");
+
+                    b.Property<int>("StepCount")
+                        .HasColumnType("int")
+                        .HasColumnName("step_count");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("trigger");
+
+                    b.Property<int>("Updated")
+                        .HasColumnType("int")
+                        .HasColumnName("updated");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_flow_runs");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_flow_runs_flow_id");
+
+                    b.HasIndex("TenantId", "CorrelationId")
+                        .HasDatabaseName("ix_scrape_flow_runs_tenant_id_correlation_id");
+
+                    b.HasIndex("TenantId", "FlowId", "FiredAt")
+                        .HasDatabaseName("ix_scrape_flow_runs_tenant_id_flow_id_fired_at");
+
+                    b.ToTable("scrape_flow_runs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7375,6 +7660,186 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_scrape_sources_tenant_id_name");
 
                     b.ToTable("scrape_sources", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AiModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("ai_model");
+
+                    b.Property<Guid?>("AiProviderId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("ai_provider_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_id");
+
+                    b.Property<string>("Instruction")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("instruction");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("MappingJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("mapping_json");
+
+                    b.Property<int?>("MaxSeconds")
+                        .HasColumnType("int")
+                        .HasColumnName("max_seconds");
+
+                    b.Property<int?>("MaxSteps")
+                        .HasColumnType("int")
+                        .HasColumnName("max_steps");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("order");
+
+                    b.Property<string>("Script")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("script");
+
+                    b.Property<string>("Selector")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("selector");
+
+                    b.Property<Guid?>("TargetContainerId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("target_container_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToolAllowListJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("tool_allow_list_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("url");
+
+                    b.Property<int?>("WaitMs")
+                        .HasColumnType("int")
+                        .HasColumnName("wait_ms");
+
+                    b.Property<string>("WarningAction")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("warning_action");
+
+                    b.Property<string>("WarningLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("warning_label");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_steps");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_steps_flow_id");
+
+                    b.HasIndex("TenantId", "FlowId", "Order")
+                        .HasDatabaseName("ix_scrape_steps_tenant_id_flow_id_order");
+
+                    b.ToTable("scrape_steps", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeVariable", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("flow_id");
+
+                    b.Property<bool>("IsSecret")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_secret");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("ValueEncrypted")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("value_encrypted");
+
+                    b.HasKey("Id")
+                        .HasName("pk_scrape_variables");
+
+                    b.HasIndex("FlowId")
+                        .HasDatabaseName("ix_scrape_variables_flow_id");
+
+                    b.HasIndex("TenantId", "FlowId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_scrape_variables_tenant_id_flow_id_name");
+
+                    b.ToTable("scrape_variables", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SqlConsoleLog", b =>
@@ -12069,6 +12534,37 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Job");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.DataClient", "Client")
+                        .WithMany()
+                        .HasForeignKey("ClientId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_scrape_flows_data_clients_client_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.DataContainer", "Container")
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_scrape_flows_data_containers_container_id");
+
+                    b.Navigation("Client");
+
+                    b.Navigation("Container");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlowRun", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany()
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_flow_runs_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeRun", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ScrapeSource", "Source")
@@ -12079,6 +12575,30 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_scrape_runs_scrape_sources_source_id");
 
                     b.Navigation("Source");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeStep", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany("Steps")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_steps_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeVariable", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ScrapeFlow", "Flow")
+                        .WithMany("Variables")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_scrape_variables_scrape_flows_flow_id");
+
+                    b.Navigation("Flow");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskBoardColumn", b =>
@@ -12729,6 +13249,13 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Channels");
 
                     b.Navigation("Rules");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeFlow", b =>
+                {
+                    b.Navigation("Steps");
+
+                    b.Navigation("Variables");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ScrapeSource", b =>

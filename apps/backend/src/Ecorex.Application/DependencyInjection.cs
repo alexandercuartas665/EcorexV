@@ -139,6 +139,10 @@ public static class DependencyInjection
         // Contenedor (DataModel): agrupa varias tablas + relaciones internas (lienzo ER). Reusa el
         // nivel tabla via IDataContainerService.
         services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();
+        // Cliente/agente colmena como recurso transversal propio (ADR-0045): duenio del ciclo de vida de
+        // los clientes; Contenedores/Extraccion lo reusan. DataImportConfigService delega aqui.
+        services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();
+        services.AddScoped<Agents.IAgentActivityQuery, Agents.AgentActivityQuery>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
         // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
         services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();
@@ -180,6 +184,9 @@ public static class DependencyInjection
         // HTTP (IScrapeFetcher) y las opciones del guard SSRF se registran en Infrastructure;
         // la app host puede sobreescribir ScrapeGuardOptions (AllowLoopback SOLO en dev).
         services.AddScoped<Scraping.IScrapeService, Scraping.ScrapeService>();
+        // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos"): CRUD de
+        // configuracion (flujo + pasos + variables cifradas). Solo config; el runtime es diferido.
+        services.AddScoped<Scraping.IScrapeFlowService, Scraping.ScrapeFlowService>();
         // Costura de cierre comercial (ADR-0028): el runtime de agentes depende de IAgentLeadSink, no de
         // Lead/CRM. Default No-Op (funciona sin CRM); el adaptador PipelineLeadSink lo reemplaza como
         // implementacion VIVA para conservar el comportamiento actual (crea el lead en el pipeline).

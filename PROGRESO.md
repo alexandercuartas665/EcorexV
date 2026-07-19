@@ -207,6 +207,242 @@ DynamicForms+RulesEngine 30 (dual), aislamiento cross-tenant 6/6 (dual). **Sigui
 visual del scroll del menu (usuario, en su sesion). **Bloqueo recurrente**: no puedo teclear
 contrasenas, y la pestana que controla el MCP no comparte sesion con el Chrome del usuario -> la
 validacion interactiva de paginas gated depende de que el usuario este logueado en la pestana correcta.
+## 2026-07-18 - Extraccion de Datos: agente en el modulo (Test de conexion + alta) + demo JS
+
+Dos cosas pedidas por el usuario:
+
+- **Feature (UI)**: el panel "Cliente y variables" del flujo gana, junto al selector de agente, un boton
+  **"Test de conexion"** (pregunta al `IAgentRegistry` del hub si el ClientId del agente elegido tiene
+  una conexion viva; muestra "En linea desde HOST (vX) hace N min" o "Sin agente conectado. Instala la
+  colmena con este ClientId y su secreto") y **"+ Agente"** (crea un `DataClient` con `SaveClientAsync` y
+  REVELA una sola vez el ClientId + secreto para configurar la colmena). Reusa el patron del Contenedor
+  de datos. Solo UI (`ExtraccionDatos.razor` + css); build verde.
+- **Demo end-to-end con inyecciones de JS**: se configuro paso a paso un flujo **"prueba de conexion"**
+  (Navegar quotes.toscrape.com -> Inyectar JS -> Extraer con JS) asignado al agente stand-in. El "Test de
+  conexion" lo detecto en linea (host BITCODEV1). Al "Ejecutar ahora", el servidor firmo las DOS
+  inyecciones de JS y el agente VERIFICO ambas (`#1 Eval VALIDA`, `#2 Eval VALIDA`); corrida **Ok, 3
+  filas** (visto en la UI y BD). Prueba nueva vs el E2E previo: firma+verificacion de MULTIPLES pasos JS
+  en una misma orden.
+- **Evidencia extra de la programacion (Ola 5)**: el flujo programado "Prueba runtime navegador" (cada
+  30 min) acumulo ~10 corridas "Horario / Esperando al agente" disparadas SOLAS por el worker
+  (00:06 -> 04:37), confirmando en vivo que el scheduler dispara los flujos sin nadie mirando.
+
+Nota honesta: el agente stand-in FABRICA el resultado del navegador (no ejecuta el JS real de quotes);
+prueba el pipeline (firma/despacho/ingesta/bitacora) de punta a punta, pero la ejecucion real del JS en
+la pagina la haria la colmena WebView2. El "Test de conexion" es justo la herramienta para verificar que
+esa colmena esta conectada.
+
+---
+
+## 2026-07-18 - Extraccion de Datos: E2E del runtime determinista (agente stand-in)
+
+Se cerro el lazo COMPLETO del runtime determinista (Ola 3) contra el servidor + la BD REALES, sin la
+colmena WebView2 (que necesita display) ni llaves de IA, usando un **agente stand-in**: una consola .NET
+que referencia `Ecorex.Contracts.Agent`, se autentica al `AgenteHub` por SignalR, VERIFICA la firma del
+JS que manda el servidor, y responde `BrowserResult` fabricado (los `Extract` devuelven filas).
+
+**Lazo probado E2E**: handshake `POST /api/agente/token` (HMAC(secret,"clientId|ts|nonce") -> JWT) ->
+conexion SignalR al hub real -> "Ejecutar ahora" desde Chrome -> el servidor COMPILA el flujo (Navigate +
+Extract), FIRMA el JS del Extract, y despacha `BrowserRequest` -> el agente verifica `firma=VALIDA` ->
+devuelve 3 filas -> el servidor correlaciona (canal), parsea e INGIERE via `IRowIngestService` en el
+contenedor "Productos E2E" -> `ScrapeFlowRun` cierra **Ok, 3 filas** (visto en la UI: `Manual/OK/0.3s/3` y
+en BD `data_container_cells` con Taladro Bosch/Martillo Stanley/Destornillador Truper).
+
+**Camino negativo (seguridad)**: `/api/agente/dev/browse/...?nosign=true` (JS sin firma) -> el agente lo
+marca `firma=INVALIDA` y lo rechaza (fail-closed). Contrato probado en ambos sentidos.
+
+Cubre REAL: auth + transporte SignalR + compilacion + firma + despacho + correlacion + ingesta +
+bitacora. Lo unico fabricado por el stand-in es la ejecucion del navegador (que en prod hace la colmena
+WebView2, ya probada en el capitulo del Agente). El paso de IA no entra (necesita proveedor de IA con
+llave). Documentado en el vault: capitulo Extraccion de Datos, doc "05 - Estado de construccion y E2E".
+
+Sin cambios de codigo (el E2E fue fixtures de BD + un agente stand-in scratch fuera del repo).
+
+---
+
+## 2026-07-18 - Extraccion de Datos, Ola 5: programacion + paginacion + advertencias (+ coexistir)
+
+Quinta ola: un flujo puede correr SOLO por horario, recorrer paginas, y avisar/detenerse ante una
+etiqueta. Cierra el capitulo (el runtime queda cableado; falta E2E con colmena real).
+
+- **Programacion** (reusa `ImportProcess`/recurrencia del Contenedor, decision E2): `ImportProcess` gana
+  `FlowId` (referencia suave) + migracion dual `AddImportProcessFlowId`. El dispatcher
+  (`ImportScheduleDispatcher`) RAMIFICA: si el proceso tiene `FlowId`, dispara
+  `IBrowserRunService.RunFlowNowAsync(Scheduled)` (su corrida va a `ScrapeFlowRun`, no `ImportRun`, por
+  ADR-0042) en vez del runner de importacion; el manejo offline se reusa parqueando `PendingSince` y
+  reintentando al reconectar (con el gate `IsOnline` del agente del FLUJO). Servicio Get/Save de
+  programacion en `IScrapeFlowService` (administra el `ImportProcess` del flujo, calcula `NextRunAt` con
+  `ImportRecurrence`, rechaza cron invalido). Borrar el flujo borra su programacion (ref suave, sin
+  cascada). UI: tarjeta "Programacion" (Manual/Intervalo/Cron + activar, muestra la proxima corrida).
+- **Paginacion controlada** (el PAGINA_DESDE/HASTA legacy): `ScrapeFlow` gana `PageVar`/`PageFrom`/
+  `PageTo`. El runtime repite el flujo por cada pagina sustituyendo {{PAGINA}}, con techo de seguridad
+  (500 paginas). UI en la cabecera.
+- **Advertencias** (el CONDICION legacy): `ScrapeStep` gana `WarningLabel` + `WarningAction` (None/
+  Notify/Stop, enum a texto). Tras cada tramo, si la etiqueta aparece en lo devuelto, Stop DETIENE la
+  corrida y Notify la anota. UI en el editor de paso. Migracion dual `AddFlowPaginationAndWarnings`.
+- **Coexistir con ScrapeSource** (ADR-0044): se conserva el scraper HTTP simple (URLs publicas sin
+  agente); la absorcion se reevalua cuando el runtime de flujos este probado E2E.
+
+**Pruebas**: build de la solucion 0 errores; snapshots limpios en ambos contextos; SuperAdmin.Tests 52 y
+Application.Tests 457 verdes. **Verificado en Chrome**: la tarjeta "Programacion" del flujo crea un
+`ImportProcess` con `FlowId` y calcula la proxima corrida (confirmado en BD: `Flujo: Prueba runtime
+navegador / Interval 30 min / next_run_at`).
+
+**Limite honesto**: el disparo programado real (el worker llamando al flujo a su hora) y la paginacion/
+advertencias en vivo exigen la colmena conectada; la logica reusa la recurrencia + el manejo offline ya
+probados del Contenedor, y el runtime del flujo (Olas 3-4) que corre en segundo plano.
+
+**Estado del capitulo**: configuracion (Olas 1-2) + runtime determinista (3) + paso de IA (4) +
+programacion/paginacion/advertencias (5) construidos y probados hasta donde el entorno de dev permite
+(sin colmena on-prem ni proveedor de IA con llaves). El E2E de punta a punta queda para cuando ambos
+esten disponibles.
+
+---
+
+## 2026-07-18 - Extraccion de Datos, Ola 4: paso de IA (orquestacion agente<->navegador)
+
+Cuarta ola: los pasos de tipo IA ya se EJECUTAN. Un agente de IA maneja el navegador para cumplir una
+instruccion en lenguaje natural, acotado por su allow-list de tools + topes de pasos/tiempo (doc 03 s2).
+Requiere un refactor del runtime a ejecucion SECUENCIAL (que ademas Ola 5 paginacion necesitara).
+
+- **Canal request/response** (`IBrowserActionChannel`): une el envio y la respuesta del Navegador por
+  correlationId (TCS + timeout), para poder AWAITAR el resultado de una accion antes de la siguiente. El
+  hub (`AgenteHub.BrowserResult`) ahora RESUELVE la espera del canal (antes solo logueaba). Es lo que
+  hace posible el bucle del paso de IA y la ejecucion secuencial de los deterministas.
+- **Runtime secuencial** (`BrowserRunService` reescrito): "Ejecutar ahora" valida + abre corrida +
+  chequea online, y lanza la ejecucion en SEGUNDO PLANO (la UI recibe "despachado"; el resultado llega a
+  la bitacora al terminar). El ejecutor agrupa los pasos deterministas consecutivos en tramos (un
+  BrowserRequest por tramo, por el canal) y corre cada paso de IA con el orquestador. Sustituye el
+  modelo batch+callback de la Ola 3 (unificado; la ingesta se movio a `ScrapeRowIngest`).
+- **Orquestador del paso de IA** (`AiStepOrchestrator`, ADR-0043): bucle de function-calling sobre el AI
+  Provider Gateway (`IAiProviderClient.CompleteWithToolsAsync`, ya existente). Tools = acciones del
+  navegador filtradas por la allow-list (vacia = solo lectura; eval/clic solo si el operador las
+  habilito) + `guardar_filas` (ingiere). El JS que genera la IA viaja por el hub, asi que el servidor lo
+  FIRMA (el agente lo rechazaria sin firma). Topes de pasos y tiempo. Consumo registrado en el modulo de
+  tokens (`IAiUsageService`) con control de cupo. Proveedor/llave via seam `IAiProviderResolver`;
+  ingesta via seam `IScrapeRowSink` (para probar sin BD).
+
+**Pruebas**: 5 tests unitarios nuevos del orquestador con fakes (bucle navegar->guardar_filas ingiere;
+sin proveedor -> mensaje claro; tope de pasos -> corta sin guardar; allow-list -> no ofrece eval/clic si
+no estan; firma el JS de un evaluar_js). Suite SuperAdmin.Tests 52 verde; build de la solucion 0 errores.
+**Verificado en Chrome**: regresion del path refactorizado -> "Ejecutar ahora" en el flujo offline sigue
+registrando "Esperando al agente" (el runtime secuencial + los DI nuevos resuelven sin error).
+
+**Limite honesto**: el paso de IA de punta a punta (LLM real manejando el navegador y filas aterrizando)
+exige un proveedor de IA habilitado en el Super Admin Y la colmena on-prem conectada, ninguno disponible
+en dev. El bucle, la firma, la allow-list, los topes y la ingesta estan cubiertos por los tests con
+fakes; el cableado (runtime -> orquestador -> canal -> hub) esta armado y compila.
+
+**Siguiente**: Ola 5 = programacion (ImportProcess -> flujo), paginacion, advertencias, y decidir
+coexistir con ScrapeSource.
+
+---
+
+## 2026-07-18 - Extraccion de Datos, Ola 3: runtime determinista (cablear al Navegador)
+
+Tercera ola: el flujo configurado ya se EJECUTA. Se cierra el lazo que faltaba (hasta ahora
+`AgenteHub.BrowserResult` solo logueaba el resultado del Navegador; ahora se correlaciona, se ingiere y
+se cierra la corrida, igual que ya hacia `FetchResult` con la ingesta). Alcance: el plano DETERMINISTA
+(doc 03 s1); el paso de IA (s2) es Ola 4.
+
+- **Compilador** (`ScrapeFlowCompiler`, funcion pura): traduce el flujo a `BrowserAction[]`. Sustituye
+  `{{VAR}}` con las variables descifradas y **FIRMA** el JS (Eval/Extract/condicion de Wait/Click) con
+  `AgentSign.SignJs(secret, corr, payload)` DESPUES de sustituir, para que la firma cubra el JS exacto.
+  Mapea Navigate->Navigate, InjectScript/Extract->Eval, Wait->Wait (condicion por selector), Click->
+  Mouse (guion MouseBot), Screenshot->Screenshot. Un paso Ai se rechaza con mensaje claro (es Ola 4).
+- **Runtime** (`IBrowserRunService`, singleton espejo de `AgentImportService`): `RunFlowNowAsync` abre
+  la corrida, valida agente asignado, compila, comprueba `IAgentRegistry.IsOnline` y despacha un
+  `BrowserRequest` o deja la corrida **PendingOffline** (reintento en Ola 5). `OnBrowserResultAsync`
+  (ruteado desde el hub) correlaciona por `correlationId`, parsea el Value de cada Extract (arreglo JSON
+  que WebView2 devuelve; desanida doble-codificacion), resuelve el mapeo campo->columna del contenedor
+  y **ingiere con `IRowIngestService`** (modo Append), y cierra la bitacora. Sweep de vencidos + Cancel.
+- **Bitacora** (`ScrapeFlowRun` + `IScrapeFlowRunLog`): dedicada, no reusa `ImportRun` (ver ADR-0042:
+  `ImportRun` cuelga de `ImportProcess`, que es la programacion; el disparo manual no tiene proceso).
+  Migracion DUAL `AddScrapeFlowRun` (PG + SQL Server), snapshot limpio en ambos contextos, FK unica en
+  cascada (sin doble camino -> sin error 1785). Reusa los enums `ImportRunTrigger`/`ImportRunResult`.
+- **UI**: boton "Ejecutar ahora" en el hero, KPIs reales (corridas/exitosas/filas), y tarjeta
+  "Historial de corridas" con estado (pildora), disparo, duracion y filas. Banda de runtime actualizada.
+
+**Pruebas**: 17 tests unitarios nuevos (SuperAdmin.Tests) del compilador (firma cubre el JS sustituido
+y ligado al corr; Extract ancla el indice del Eval; Wait/Click firmados; sin-secreto rechaza JS pero
+permite un flujo solo-Navigate; Ai rechazado) y de `ParseRows` (arreglo/objeto/doble-codificado/basura).
+Suite completa verde: SuperAdmin.Tests 47, Application.Tests 457; build de la solucion 0 errores.
+**Verificado en Chrome** (tenant demo, BD `ecorex_agente`, 5262): (1) "Ejecutar ahora" en un flujo sin
+agente -> corrida **Error** "El flujo no tiene un agente asignado" en el historial + KPIs + estado del
+flujo sellado a "con errores"; (2) con un `DataClient` sembrado (offline) asignado a un flujo Navigate-
+only -> corrida **"Esperando al agente"** (PendingOffline), el flujo sigue Activo. Sin errores de app en
+consola (el ruido de reconexion de blazor.web.js es de una ventana previa).
+
+**Limite honesto**: el E2E con filas REALES aterrizando en el contenedor exige la colmena on-prem
+(WebView2) conectada por el hub, que no corre en este entorno de dev; ese tramo queda cubierto por los
+tests del compilador + `ParseRows` y por el `IRowIngestService` (ya probado en el import). El disparo,
+la correlacion, el offline y la bitacora si se probaron en vivo.
+
+**Siguiente**: Ola 4 = paso de IA (orquestacion agente<->navegador por el MCP local, con topes y
+allow-list de tools). Luego Ola 5 = programacion (ImportProcess -> flujo) + paginacion + advertencias.
+
+---
+
+## 2026-07-18 - Extraccion de Datos, Ola 2: UI del configurador de flujos
+
+Segunda ola: `ExtraccionDatos.razor` deja de ser el CRUD de `ScrapeSource` (scraper HTTP simple) y pasa
+a ser el CONFIGURADOR DE FLUJOS sobre `IScrapeFlowService` (Ola 1), milimetrico a
+`proto_web_scraping.html` reusando el shell `xd-*` (topbar/breadcrumb + MOD 000730, sidebar de flujos,
+hero con KPIs, franja de runtime, columnas 1fr/380). El backend `ScrapeSource` queda intacto (coexiste;
+reversible por git).
+
+- **Servicio**: `IScrapeFlowService.ListContainersAsync` + `ScrapeTargetDto(Id, Label)` -> etiqueta
+  "Modelo / Tabla" (join `DataContainers` con `DataModels`) para el selector de tabla destino.
+- **Pagina**: lista lateral de flujos (con contador de pasos), alta rapida (nombre + URL), hero editable
+  (cabecera: nombre/descripcion/URL/estado), tarjeta "Pasos de ejecucion" con editor por-tipo
+  (Navegar: URL con {{VAR}}; Inyectar/Extraer: JS + mapeo + tabla; Esperar: selector/ms; Clic: selector;
+  **IA**: instruccion + tabla destino + allow-list de tools browser.* + tope pasos/segundos + modelo),
+  reorden por flechas, y panel "Cliente y variables" (agente + tabla que se guardan al vuelo, variables
+  {{VAR}} con secretas cifradas y enmascaradas). Franja recordando que el runtime (disparar + traer
+  datos) es del sub-agente Navegador y esta pendiente (Ola 3). CSS de pasos/tags/variables anadido.
+- **Fixes durante la verificacion**: (1) el enmascarado de la variable mostraba `&middot;` literal
+  (Razor codifica el string del `@()`) -> ahora `********` ASCII; (2) el contador de pasos del sidebar no
+  refrescaba al guardar/borrar paso -> `ReloadFlowsAsync()` tras cada cambio.
+
+**Verificado en Chrome** (tenant demo SKY SYSTEM, BD `ecorex_agente`, puerto 5262): flujo "Precios
+competencia Homecenter" creado; paso 1 Navegar (URL con `{{PAGINA}}`) y paso 2 IA (instruccion, tope
+25 pasos / 120 s, modelo claude-sonnet-5) guardados; variable secreta `PAGINA` cifrada y enmascarada
+con candado; reorden IA<->Navegar aplicado y renumerado; todo PERSISTIO tras reiniciar el server. Build
+de la solucion completa verde, 0 errores; sin errores de consola.
+
+**Siguiente**: Ola 3 = runtime (compilar el flujo -> BrowserAction[] + JS firmado + ingesta via
+IRowIngestService, orquestar el paso de IA, reusar ImportProcess/ImportRun para programar, y decidir
+absorber vs coexistir con ScrapeSource).
+
+---
+
+## 2026-07-18 - Extraccion de Datos, Ola 1: dominio del flujo (config)
+
+Primera ola del capitulo "Extraccion de Datos" (000730): el modulo /extraccion-datos (hoy un scraper
+HTTP simple, ADR-0025) evoluciona a un configurador de FLUJOS de automatizacion de navegador cuyo
+runtime es el sub-agente Navegador de la colmena. Esta ola es SOLO la configuracion (el runtime es
+diferido). Documentado antes en el vault (capitulo "Extraccion de Datos", 5 docs).
+
+- **Dominio** (`Ecorex.Domain`): `ScrapeFlow` (maestro: nombre, URL, estado, FK a `DataClient` = "bot
+  asignado" y a `DataContainer` = destino), `ScrapeStep` (tabla unica con discriminador
+  `ScrapeStepKind`: Navigate/InjectScript/Extract/Wait/Click/Screenshot/Ai; campos por tipo), y
+  `ScrapeVariable` (sustituciones {{VAR}}, secretas cifradas). Reusa `ScrapeSourceStatus` para el
+  estado. `TargetContainerId` es referencia SUAVE (sin FK) para no crear un segundo camino
+  DataContainer->ScrapeStep que SQL Server rechaza (error 1785).
+- **Persistencia**: EF config + DbSets + enum a texto. Migracion DUAL `AddScrapeFlow` (PG + SQL
+  Server). Aplicada a `ecorex_agente`; `has-pending-model-changes` limpio en AMBOS contextos.
+- **Servicio**: `IScrapeFlowService` (CRUD de flujo + pasos + variables), variables secretas cifradas
+  con `ISecretProtector` y NUNCA devueltas en claro (el DTO solo dice HasValue). Reorder de pasos.
+- **Decisiones (E1-E4, con el usuario)**: destino = Contenedor de datos; programacion = reusar
+  ImportProcess/ImportRun; paso de IA = instruccion + destino + allow-list de tools MCP + tope
+  pasos/tiempo + modelo entre los que habilite el Super Admin; runtime = sub-agente Navegador (no Doom).
+
+**Verificado en vivo** (smoke contra el Postgres real, reusando el EcorexDbContext real): crear flujo,
+duplicado RECHAZADO, 3 pasos creados y REORDENADOS (orden invertido confirmado al releer), variable
+secreta con el valor CIFRADO en BD (no en claro) y el DTO sin exponerlo, y BORRADO EN CASCADA (pasos +
+variables a 0). Build Release verde; 522 pruebas verdes (los dobles de test ganaron los DbSets nuevos).
+
+**Siguiente**: Ola 2 = la UI del configurador (milimetrica a `proto_web_scraping.html`, acento morado).
 
 ---
 
@@ -5800,3 +6036,42 @@ tests verdes. Commit `54c4889`. Estados marcados [x] en la nota del vault.
 
 **Nota**: hallazgo clave de que D4 ya tenia runtime y verbo -> no habia que construir el motor, solo
 la UI de autoria. D1/D2 mas pequenos de lo que parecia; D3 (la P1) fue el grueso real.
+
+---
+
+## Sesion 2026-07-19 - Agentes Colmena al menu + diag log del agente + concurrencia VERIFICADA en vivo
+
+**Agentes**: Claude (Opus 4.8). Rama `feat/agente-colmena-gui` (17 commits sobre el tronco
+`fase-0/clon-backbone`), lista para unificar. Cierre del modulo Agentes Colmena (ADR-0045) y prueba
+en vivo de la concurrencia del agente en TODOS los niveles de servicio.
+
+- **Menu (Infraestructura IA)**: el item "Agentes Colmena" (000868) se sembraba en
+  `EnsureDefaultMenuAsync` pero los tenants YA existentes no lo recibian (ese metodo no reprocesa
+  vistas ya creadas). Se agrega `EnsureAgentesColmenaMenuItemAsync` (backfill idempotente: recorre
+  toda Section con Route="ia" e inserta el item donde falte) + cableado en el arranque tras AMBAS
+  ramas de siembra (skip/demo). Commit `21db1a2`. Verificado como usuario cliente tenant
+  (owner@sky-system.local): item bajo Infraestructura IA, breadcrumb correcto, aislamiento por tenant.
+- **Diag log del agente**: el Servicio corre headless/elevado; suelto su consola no se ve y como
+  servicio Windows va al Visor de eventos. Se agrega `FileLoggerProvider` (sin NuGet): deja SIEMPRE
+  copia del ciclo de conexion en `%PUBLIC%\Documents\ecorex-agent-diag.log`, + una linea con la
+  config leida de la boveda (ClientId/Hub/Secreto). Con esto se ubico al instante que la boveda tenia
+  un ClientId viejo (`cli_dev_agent`) en vez del esperado -> el "Sin conexion" no era bug de codigo.
+  Commit `d3d26c3`.
+- **Concurrencia VERIFICADA en vivo (colmena real elevada)**: 4 tareas programadas con el MISMO
+  `next_run_at` "se pisaron" al dispararse: 2 de Navegador (quotes.toscrape.com page/1 y page/2) + 2
+  de Gateway/DB (SELECT contra SQL Server). El agente abrio 2 WebView2 aisladas EN PARALELO (ambas
+  ordenes al mismo timestamp .255, cerrando a distinto tiempo) + 2 fetch headless. 20 filas ingestadas
+  (10 autores x 2 paginas), feed de actividad poblado, agente En linea. En BD AISLADA `ecorex_agente`
+  (puerto 5262), no en la compartida `ecorex_dev`.
+- **Consulta editable del conector de BD**: a peticion del dueno se confirmo (no habia que construir
+  nada): el conector de BD ya se define por un SELECT LIBRE editable en la UI (textarea "Consulta") --
+  tabla simple o consulta compleja (joins/where/columnas calculadas). Wired end-to-end
+  (crear/editar/guardar/ejecutar). Solo-lectura; exige que sea SELECT.
+
+**Pendiente menor**: el feed de la UI solo muestra las ordenes de Navegador; las de Gateway/fetch
+salen en el diag del agente pero aun no en el feed (logging de la ruta fetch diferido, ADR-0045 Ola
+5). Permiso propio del modulo (hoy reusa `ExtraccionDatos.Editar`).
+
+**Para unificar al tronco**: 17 commits en `feat/agente-colmena-gui` sobre `fase-0/clon-backbone`.
+Migraciones DUALES nuevas (`AgentActivityLog` PG + SqlServer, `AddConnectorQuery`). Ver prompt de
+handoff a la sesion principal.

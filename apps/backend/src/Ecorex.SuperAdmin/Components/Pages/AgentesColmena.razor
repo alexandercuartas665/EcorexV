@@ -1,0 +1,201 @@
+@page "/agentes-colmena"
+@attribute [Authorize(Policy = "ExtraccionDatos.Editar")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Agents
+@using Ecorex.Domain.Entities
+@using Ecorex.SuperAdmin.Agents
+@inject IAgentClientService ClientsSvc
+@inject IAgentActivityQuery ActivitySvc
+@inject IAgentRegistry Registry
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Agentes Colmena - ECOREX.tareas</PageTitle>
+
+<div class="agc-page">
+    <div class="agc-crumb">Home / Infraestructura IA / <b>Agentes Colmena</b></div>
+
+    <div class="agc-head">
+        <div>
+            <h1>Agentes Colmena</h1>
+            <p class="agc-sub">Registra los clientes on-prem que conectan con la colmena y mira su actividad.
+                Estos clientes se usan luego en Contenedores de datos y en Extraccion de datos.</p>
+        </div>
+        <button class="agc-btn agc-primary" @onclick="OpenRegister">+ Registrar agente</button>
+    </div>
+
+    @if (_revealed is not null)
+    {
+        <div class="agc-reveal">
+            <b>Configura la colmena con estos datos. El secreto NO se vuelve a mostrar.</b>
+            <div class="agc-kv"><span>ClientId</span><code>@_revealed.ClientId</code></div>
+            <div class="agc-kv"><span>Secreto</span><code>@_revealed.ClientSecret</code></div>
+            <button class="agc-btn" @onclick="() => _revealed = null">Ya lo copie</button>
+        </div>
+    }
+
+    @if (_showRegister)
+    {
+        <div class="agc-card agc-register">
+            <label>Nombre del agente colmena</label>
+            <input class="agc-input" placeholder="Ej. Colmena Bodega Norte" @bind="_regName" />
+            @if (_regError is not null) { <div class="agc-error">@_regError</div> }
+            <div class="agc-row">
+                <button class="agc-btn agc-primary" disabled="@_busy" @onclick="RegisterAsync">Crear y generar ClientId</button>
+                <button class="agc-btn" @onclick="() => _showRegister = false">Cancelar</button>
+            </div>
+        </div>
+    }
+
+    <div class="agc-card">
+        <div class="agc-card-title">Clientes <span class="agc-count">@_clients.Count</span></div>
+        @if (_clients.Count == 0)
+        {
+            <div class="agc-empty">Aun no hay agentes. Registra el primero con "+ Registrar agente".</div>
+        }
+        else
+        {
+            <table class="agc-table">
+                <thead><tr><th>Agente</th><th>ClientId</th><th>Estado</th><th>Presencia</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var c in _clients)
+                    {
+                        var pres = Presence(c.ClientId);
+                        <tr class="@(c.IsActive ? "" : "agc-revoked")">
+                            <td><b>@c.Name</b>@(string.IsNullOrWhiteSpace(c.Description) ? "" : $" - {c.Description}")</td>
+                            <td><code>@c.ClientId</code></td>
+                            <td>@(c.IsActive ? "Activo" : "Revocado")</td>
+                            <td>
+                                <span class="agc-dot @(pres.Online ? "on" : "off")"></span>@pres.Text
+                            </td>
+                            <td class="agc-actions">
+                                <button class="agc-btn agc-sm" @onclick="() => RotateAsync(c)">Rotar secreto</button>
+                                @if (c.IsActive)
+                                {
+                                    <button class="agc-btn agc-sm agc-danger" @onclick="() => RevokeAsync(c)">Revocar</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="agc-card">
+        <div class="agc-card-title">
+            Actividad reciente
+            <select class="agc-input agc-filter" @bind="_filterClient" @bind:after="ReloadActivityAsync">
+                <option value="">Todos los agentes</option>
+                @foreach (var c in _clients) { <option value="@c.ClientId">@c.Name</option> }
+            </select>
+        </div>
+        @if (_activity.Count == 0)
+        {
+            <div class="agc-empty">Sin actividad aun. Cuando un agente atienda una orden (navegador, gateway), aparece aqui.</div>
+        }
+        else
+        {
+            <table class="agc-table">
+                <thead><tr><th>Cuando</th><th>Agente</th><th>Tipo</th><th>Origen</th><th>Resultado</th><th>Duracion</th><th>Detalle</th></tr></thead>
+                <tbody>
+                    @foreach (var a in _activity)
+                    {
+                        <tr>
+                            <td>@a.StartedAt.ToLocalTime().ToString("dd/MM HH:mm:ss")</td>
+                            <td><code>@a.ClientId</code></td>
+                            <td>@KindLabel(a.Kind)</td>
+                            <td>@a.Origin</td>
+                            <td><span class="agc-res @(a.Result == AgentActivityResult.Ok ? "ok" : "err")">@(a.Result == AgentActivityResult.Ok ? "Ok" : "Error")</span></td>
+                            <td>@a.DurationMs ms</td>
+                            <td class="agc-detail">@a.Detail</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private Guid _actor;
+    private bool _busy;
+    private IReadOnlyList<AgentClientDto> _clients = Array.Empty<AgentClientDto>();
+    private IReadOnlyList<AgentActivityDto> _activity = Array.Empty<AgentActivityDto>();
+    private string _filterClient = "";
+
+    private bool _showRegister;
+    private string _regName = "";
+    private string? _regError;
+    private AgentClientSecretDto? _revealed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        _actor = Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _clients = await ClientsSvc.ListAsync();
+        await ReloadActivityAsync();
+    }
+
+    private async Task ReloadActivityAsync()
+        => _activity = await ActivitySvc.ListAsync(new AgentActivityQueryDto(
+            ClientId: string.IsNullOrWhiteSpace(_filterClient) ? null : _filterClient, Take: 100));
+
+    private void OpenRegister()
+    {
+        _regError = null;
+        _regName = "";
+        _showRegister = true;
+    }
+
+    private async Task RegisterAsync()
+    {
+        _regError = null;
+        if (string.IsNullOrWhiteSpace(_regName)) { _regError = "Ponle un nombre al agente."; return; }
+        _busy = true;
+        try
+        {
+            var (_, secret) = await ClientsSvc.SaveAsync(new SaveAgentClientRequest(null, _regName, null), _actor);
+            _revealed = secret;
+            _showRegister = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _regError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task RotateAsync(AgentClientDto c)
+    {
+        var secret = await ClientsSvc.RotateSecretAsync(c.Id, _actor);
+        if (secret is not null) { _revealed = secret; }
+    }
+
+    private async Task RevokeAsync(AgentClientDto c)
+    {
+        await ClientsSvc.RevokeAsync(c.Id, _actor);
+        await ReloadAsync();
+    }
+
+    private (bool Online, string Text) Presence(string clientId)
+    {
+        var p = Registry.Get(clientId);
+        if (p is null) { return (false, "Sin conexion"); }
+        var mins = Math.Max(0, (int)(DateTimeOffset.UtcNow - p.ConnectedAt).TotalMinutes);
+        var host = string.IsNullOrWhiteSpace(p.Host) ? "" : $" {p.Host}";
+        var ver = string.IsNullOrWhiteSpace(p.Version) ? "" : $" (v{p.Version})";
+        return (true, $"En linea{host}{ver} - hace {mins} min");
+    }
+
+    private static string KindLabel(AgentActivityKind k) => k switch
+    {
+        AgentActivityKind.Browser => "Navegador",
+        AgentActivityKind.Fetch => "Gateway",
+        AgentActivityKind.File => "Archivos",
+        _ => k.ToString()
+    };
+}

@@ -20,8 +20,10 @@ public sealed record SaveAiProviderRequest(
     string? BaseUrl,
     bool IsEnabled);
 
-/// <summary>Proveedor disponible para que una agencia lo use en sus agentes (sin datos sensibles).</summary>
-public sealed record AiProviderOptionDto(AiProvider Provider, string DisplayName, string DefaultModel);
+/// <summary>Proveedor disponible para que una agencia lo use en sus agentes (sin datos sensibles).
+/// <paramref name="ConfigId"/> es el Id de la fila del Super Admin: sirve como referencia estable cuando
+/// un modulo (p.ej. Extraccion de datos) necesita fijar EXACTAMENTE cual proveedor eligio el operador.</summary>
+public sealed record AiProviderOptionDto(AiProvider Provider, string DisplayName, string DefaultModel, Guid ConfigId);
 
 /// <summary>
 /// Cuentas maestras de IA de la plataforma (Super Admin). Un registro por proveedor; la API key

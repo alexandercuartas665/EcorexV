@@ -1039,24 +1039,12 @@ else
     /// lineas de marcado ni duplicarlo.
     /// </summary>
     private RenderFragment RenderClientes => @<text>
-        @if (_revealedSecret is not null)
-        {
-            <div class="dc-secret">
-                <div style="font-size:12px;font-weight:700;">Guarda estos datos ahora: el secreto NO se vuelve a mostrar.</div>
-                <div class="dc-secret-row">
-                    <code>ClientId: @_revealedSecret.ClientId</code>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyAsync(_revealedSecret!.ClientId)">Copiar</button>
-                </div>
-                <div class="dc-secret-row">
-                    <code>Secret: @_revealedSecret.ClientSecret</code>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyAsync(_revealedSecret!.ClientSecret)">Copiar</button>
-                </div>
-                <div class="text-muted" style="font-size:11px;margin-top:4px;">
-                    Si lo pierdes no hay forma de consultarlo: usa <strong>Rotar</strong> para generar uno nuevo
-                    (ojo: el agente que este usando el anterior quedara fuera hasta que lo reconfigures).
-                </div>
-            </div>
-        }
+        @* El alta/rotacion/revocacion de agentes colmena vive en su modulo propio (ADR-0045, Ola 4).
+           Aqui solo se ELIGE el agente del proceso (mas abajo) y, como referencia, se lista su estado. *@
+        <div class="text-muted" style="font-size:12px;margin-bottom:8px;">
+            Los agentes colmena se registran y gestionan en su modulo.
+            <a href="/agentes-colmena" target="_blank">Gestionar agentes -&gt;</a>
+        </div>
         @if (_clients.Count > 0)
         {
             <ul class="dc-mini-list">
@@ -1065,47 +1053,25 @@ else
                     <li>
                         <div>
                             <strong>@c.Name</strong> @(c.IsActive ? "" : "(inactivo)")
-                            <div class="text-muted" style="font-size:11px;">@c.ClientId @(c.HasSecret ? "· con secreto" : "")</div>
+                            <div class="text-muted" style="font-size:11px;">@c.ClientId</div>
                             @if (_probe.TryGetValue(c.ClientId, out var estado))
                             {
                                 <div class="dc-probe @(estado.Online ? "on" : "off")">@estado.Texto</div>
                             }
                         </div>
-                        <div style="display:flex;gap:4px;">
-                            @* El servidor NO puede conectarse al agente: es el agente quien marca hacia
-                               afuera (por eso no hay que abrir puertos en la red del cliente). Lo que
-                               esto hace es preguntarle al registro del hub si ese ClientId tiene un
-                               agente conectado AHORA. El titulo lo dice para no prometer de mas. *@
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ProbeClientAsync(c.ClientId)" disabled="@_busy"
-                                    title="Consulta si este cliente tiene un agente conectado en este momento. El servidor no inicia la conexion: la abre el agente.">
-                                Probar conexion
-                            </button>
-                            @if (_canEdit)
-                            {
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => RotateSecretAsync(c.Id)" disabled="@_busy">Rotar</button>
-                            }
-                            @if (_canDelete)
-                            {
-                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteClientAsync(c.Id)" disabled="@_busy">&times;</button>
-                            }
-                        </div>
+                        @* Probar = solo LECTURA (pregunta al registro del hub si ese ClientId esta conectado
+                           ahora). El servidor no inicia la conexion: la abre el agente. *@
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => ProbeClientAsync(c.ClientId)" disabled="@_busy"
+                                title="Consulta si este cliente tiene un agente conectado en este momento.">
+                            Probar conexion
+                        </button>
                     </li>
                 }
             </ul>
         }
-        @if (_canCreate)
+        else
         {
-            <div class="dc-mini-form">
-                <div class="dc-section-sub">Nuevo cliente</div>
-                <input class="form-control" placeholder="Nombre" @bind="_clName" />
-                <input class="form-control" placeholder="Descripcion (opcional)" @bind="_clDescription" />
-                <label class="dc-req"><input type="checkbox" @bind="_clActive" /> Activo</label>
-                @if (_clError is not null)
-                {
-                    <div class="tk-field-error">@_clError</div>
-                }
-                <button class="btn btn-sm btn-primary" @onclick="CreateClientAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_clName))">+ Crear cliente</button>
-            </div>
+            <div class="text-muted" style="font-size:12px;">Aun no hay agentes. Registra uno en el modulo Agentes Colmena.</div>
         }
     </text>;
 
@@ -1265,13 +1231,9 @@ else
     private bool _destHasCreds;
     private string? _destError;
 
-    // Clientes.
+    // Clientes: solo se LISTAN aqui como referencia (nombre + ClientId + probar). El alta/rotacion/
+    // revocacion vive en el modulo propio "Agentes Colmena" (ADR-0045, Ola 4).
     private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
-    private string _clName = "";
-    private string _clDescription = "";
-    private bool _clActive = true;
-    private string? _clError;
-    private DataClientSecretDto? _revealedSecret;
 
     // Procesos.
     private IReadOnlyList<ImportProcessDto> _processes = Array.Empty<ImportProcessDto>();
@@ -1356,14 +1318,12 @@ else
         ResetConnectorForm();
         ResetProcessForm();
         ResetDestinationForm();
-        _revealedSecret = null;
         _modalOpen = true;
     }
 
     private Task OpenModelAsync(Guid id) => GuardAsync(async () =>
     {
         _headError = null;
-        _revealedSecret = null;
         ResetConnectorForm();
         ResetProcessForm();
         await LoadDetailCoreAsync(id);
@@ -1808,54 +1768,6 @@ else
     });
 
     // ---------- Clientes ----------
-    private Task CreateClientAsync() => GuardAsync(async () =>
-    {
-        _clError = null;
-        if (string.IsNullOrWhiteSpace(_clName)) { _clError = "El nombre es obligatorio."; return; }
-        _busy = true;
-        try
-        {
-            var req = new SaveDataClientRequest(null, _clName.Trim(), NullIfBlank(_clDescription), _clActive);
-            var (_, secret) = await ConfigSvc.SaveClientAsync(req, _actor);
-            _revealedSecret = secret;
-            _clName = "";
-            _clDescription = "";
-            _clActive = true;
-            _clients = await ConfigSvc.ListClientsAsync();
-        }
-        catch (InvalidOperationException ex) { _clError = ex.Message; }
-        catch (Exception ex) { _clError = ex.Message; }
-        finally { _busy = false; }
-    });
-
-    private Task RotateSecretAsync(Guid clientId) => GuardAsync(async () =>
-    {
-        _clError = null;
-        _busy = true;
-        try
-        {
-            var secret = await ConfigSvc.RotateClientSecretAsync(clientId, _actor);
-            _revealedSecret = secret;
-            _clients = await ConfigSvc.ListClientsAsync();
-        }
-        catch (InvalidOperationException ex) { _clError = ex.Message; }
-        catch (Exception ex) { _clError = ex.Message; }
-        finally { _busy = false; }
-    });
-
-    private Task DeleteClientAsync(Guid clientId) => GuardAsync(async () =>
-    {
-        _clError = null;
-        _busy = true;
-        try
-        {
-            await ConfigSvc.DeleteClientAsync(clientId, _actor);
-            _clients = await ConfigSvc.ListClientsAsync();
-        }
-        catch (Exception ex) { _clError = ex.Message; }
-        finally { _busy = false; }
-    });
-
     // ---------- Procesos ----------
     private void EditProcess(ImportProcessDto p)
     {

@@ -138,6 +138,7 @@ public static class DependencyInjection
         // Cliente/agente colmena como recurso transversal propio (ADR-0045): duenio del ciclo de vida de
         // los clientes; Contenedores/Extraccion lo reusan. DataImportConfigService delega aqui.
         services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();
+        services.AddScoped<Agents.IAgentActivityQuery, Agents.AgentActivityQuery>();
         services.AddScoped<DataContainers.IDataImportConfigService, DataContainers.DataImportConfigService>();
         // Publicacion de una tabla como modulo del menu (nodo de menu + ruta inmutable).
         services.AddScoped<DataContainers.IDataContainerModuleService, DataContainers.DataContainerModuleService>();

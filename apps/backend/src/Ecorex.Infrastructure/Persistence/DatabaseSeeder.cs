@@ -2796,6 +2796,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // ---- Seccion: Infraestructura IA (slug ia) ----
         var ia = Add(MenuNodeKind.Section, "Infraestructura IA", null, "ia", iconKey: "robot");
         Item(ia.Id, "Agentes", "agentes", "000867");
+        Item(ia.Id, "Agentes Colmena", "agentes-colmena", "000868");
         Item(ia.Id, "Lineas WhatsApp", "lineas");
         Item(ia.Id, "Conversaciones", "conversaciones");
         Item(ia.Id, "Bitacora del agente", "bitacora-agente");

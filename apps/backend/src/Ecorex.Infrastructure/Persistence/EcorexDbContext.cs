@@ -1617,8 +1617,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Categoria).HasMaxLength(120);
             b.Property(x => x.Subcategoria).HasMaxLength(120);
             b.Property(x => x.Autor).HasMaxLength(150);
+            b.Property(x => x.Valor).HasPrecision(18, 2);
             b.HasOne(x => x.Tercero).WithMany()
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
+            // Concepto de actividad y respuesta de formulario: NO ACTION (no arrastran la bitacora).
+            b.HasOne(x => x.ConceptoActividad).WithMany()
+                .HasForeignKey(x => x.ConceptoActividadId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.FormResponse).WithMany()
+                .HasForeignKey(x => x.FormResponseId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
         });
 

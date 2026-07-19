@@ -92,7 +92,11 @@ public sealed record TerceroNotaDto(
     string? Categoria,
     string? Subcategoria,
     string? Autor,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    Guid? ConceptoActividadId = null,
+    string? ConceptoNombre = null,
+    Guid? FormResponseId = null,
+    decimal? Valor = null);
 
 /// <summary>Alta de una nota / gestion del tercero.</summary>
 public sealed record SaveNotaRequest(
@@ -100,7 +104,10 @@ public sealed record SaveNotaRequest(
     string Accion = "Nota",
     string? Categoria = null,
     string? Subcategoria = null,
-    string? Autor = null);
+    string? Autor = null,
+    Guid? ConceptoActividadId = null,
+    Guid? FormResponseId = null,
+    decimal? Valor = null);
 
 /// <summary>KPIs de cabecera del modulo (como el prototipo).</summary>
 public sealed record TerceroKpisDto(

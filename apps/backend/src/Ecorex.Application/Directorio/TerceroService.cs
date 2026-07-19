@@ -400,7 +400,10 @@ public sealed class TerceroService : ITerceroService
             .Where(n => n.TerceroId == terceroId)
             .OrderByDescending(n => n.CreatedAt)
             .Select(n => new TerceroNotaDto(
-                n.Id, n.TerceroId, n.Texto, n.Accion, n.Categoria, n.Subcategoria, n.Autor, n.CreatedAt))
+                n.Id, n.TerceroId, n.Texto, n.Accion, n.Categoria, n.Subcategoria, n.Autor, n.CreatedAt,
+                n.ConceptoActividadId,
+                n.ConceptoActividadId == null ? null : _db.ConceptosActividad.Where(c => c.Id == n.ConceptoActividadId).Select(c => c.Name).FirstOrDefault(),
+                n.FormResponseId, n.Valor))
             .ToListAsync(cancellationToken);
 
     public async Task<TerceroResult<TerceroNotaDto>> AddNotaAsync(
@@ -429,12 +432,19 @@ public sealed class TerceroService : ITerceroService
             Accion = Normalize(request.Accion) ?? "Nota",
             Categoria = Normalize(request.Categoria),
             Subcategoria = Normalize(request.Subcategoria),
-            Autor = Normalize(request.Autor)
+            Autor = Normalize(request.Autor),
+            ConceptoActividadId = request.ConceptoActividadId,
+            FormResponseId = request.FormResponseId,
+            Valor = request.Valor
         };
         _db.TerceroNotas.Add(nota);
         await _db.SaveChangesAsync(cancellationToken);
+        var conceptoNombre = request.ConceptoActividadId is Guid cid
+            ? await _db.ConceptosActividad.Where(c => c.Id == cid).Select(c => c.Name).FirstOrDefaultAsync(cancellationToken)
+            : null;
         return TerceroResult<TerceroNotaDto>.Ok(new TerceroNotaDto(
-            nota.Id, nota.TerceroId, nota.Texto, nota.Accion, nota.Categoria, nota.Subcategoria, nota.Autor, nota.CreatedAt));
+            nota.Id, nota.TerceroId, nota.Texto, nota.Accion, nota.Categoria, nota.Subcategoria, nota.Autor, nota.CreatedAt,
+            nota.ConceptoActividadId, conceptoNombre, nota.FormResponseId, nota.Valor));
     }
 
     public async Task<TerceroResult<bool>> DeleteNotaAsync(

@@ -12,12 +12,14 @@
 @using Ecorex.Application.Gestor
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
+@using Ecorex.Application.Forms
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFormService FormsSvc
 @inject IGestorContactosService GestorSvc
+@inject Ecorex.Application.Crm.IConceptoActividadService ConceptosSvc
 @inject ICurrentPermissions Perms
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
@@ -399,7 +401,50 @@
                         else
                         {
                             <div class="dg-notas">
-                                @* --- Compositor de nueva gestion --- *@
+                                @* --- Gestion por CONCEPTO de actividad (000125): botones que cargan su formulario --- *@
+                                @if (_conceptos.Count > 0)
+                                {
+                                    <div class="dg-note-new">
+                                        <div class="dg-sec-lbl">GESTION POR CONCEPTO</div>
+                                        <div class="dg-note-chips">
+                                            @foreach (var c in _conceptos)
+                                            {
+                                                var cc = c;
+                                                <button class="dg-note-chip @(_noteConcepto?.Id == cc.Id ? "on" : "")" @onclick="() => SelectConcepto(cc)">@cc.Name</button>
+                                            }
+                                            @if (_noteConcepto is not null)
+                                            {
+                                                <button class="dg-note-chip" @onclick="() => { _noteConcepto = null; _noteError = null; }">Cerrar</button>
+                                            }
+                                        </div>
+                                        @if (_noteConcepto is { } conc)
+                                        {
+                                            @if (conc.FormDefinitionId is Guid cfid)
+                                            {
+                                                <p class="dg-aside-note" style="margin:6px 0;">Llena y envia el formulario de <strong>@conc.Name</strong>@(conc.HandlesValues ? " (maneja valor)" : "") para registrar la gestion.</p>
+                                                <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
+                                                    <DynamicFormRenderer DefinitionId="@cfid"
+                                                                         Mode="FormRenderMode.Fill"
+                                                                         ShowHeader="false"
+                                                                         OnSubmitted="OnConceptoFormSubmittedAsync" />
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <textarea class="dg-input dg-textarea" placeholder="Detalle de @conc.Name..." value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
+                                                @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
+                                                <div class="dg-note-actions">
+                                                    <button class="dg-btn-new" @onclick="AddConceptoNotaAsync" disabled="@_busy">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                                        Registrar @conc.Name
+                                                    </button>
+                                                </div>
+                                            }
+                                        }
+                                    </div>
+                                }
+
+                                @* --- Compositor de nueva gestion (nota rapida) --- *@
                                 <div class="dg-note-new">
                                     <div class="dg-sec-lbl">@("NUEVA " + _noteAccion.ToUpperInvariant())</div>
                                     <div class="dg-note-chips">
@@ -450,6 +495,10 @@
                                                     @if (!string.IsNullOrWhiteSpace(n.Categoria))
                                                     {
                                                         <span class="dg-note-cat">@n.Categoria@(string.IsNullOrWhiteSpace(n.Subcategoria) ? "" : " / " + n.Subcategoria)</span>
+                                                    }
+                                                    @if (n.Valor is decimal nv)
+                                                    {
+                                                        <span class="dg-note-cat" style="font-weight:700;color:var(--t-green)">@MoneyFmt(nv)</span>
                                                     }
                                                     <span class="dg-note-date">@n.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
                                                     <button class="dg-act del" title="Eliminar" @onclick="() => DeleteNotaAsync(n.Id)" disabled="@_busy">
@@ -672,6 +721,9 @@
     private string _noteAccion = "Nota";
     private string _noteCategoria = "";
     private string _noteSubcategoria = "";
+    // Conceptos de actividad del CRM: botones que cargan su formulario asociado (000125).
+    private IReadOnlyList<Ecorex.Application.Crm.ConceptoActividadDto> _conceptos = Array.Empty<Ecorex.Application.Crm.ConceptoActividadDto>();
+    private Ecorex.Application.Crm.ConceptoActividadDto? _noteConcepto;
     private string? _noteError;
 
     // ---- Campos configurables por ficha (cache; se recarga al abrir el modal). ----
@@ -786,6 +838,7 @@
         _notas = await TerceroSvc.ListNotasAsync(id);
         _opps = CrmWiring ? (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList() : new();
         _forms = (await FormsSvc.ListAsync()).ToList();
+        _conceptos = await ConceptosSvc.ListAsync();
         _formSel = null;
         ResetNoteForm();
         _modalError = null;
@@ -1123,6 +1176,65 @@
         _noteSubcategoria = "";
         _noteFecha = DateTime.Today.AddDays(1);
         _noteError = null;
+        _noteConcepto = null;
+    }
+
+    // ---- Gestion por concepto de actividad (000125) ----
+    private void SelectConcepto(Ecorex.Application.Crm.ConceptoActividadDto c)
+    {
+        _noteConcepto = c;
+        _noteText = "";
+        _noteError = null;
+    }
+
+    /// <summary>El formulario del concepto se envio: guarda la gestion ligada (concepto + respuesta + valor).</summary>
+    private async Task OnConceptoFormSubmittedAsync(FormResponseDto resp)
+    {
+        if (_editingId is not Guid id || _noteConcepto is not { } conc) { return; }
+        var valor = conc.HandlesValues ? ExtractValor(resp) : (decimal?)null;
+        var texto = conc.Name + (valor is decimal v ? $" - {MoneyFmt(v)}" : "");
+        _busy = true;
+        var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
+            texto, conc.Name, conc.Code, null, null,
+            ConceptoActividadId: conc.Id, FormResponseId: resp.Id, Valor: valor));
+        _busy = false;
+        if (res.IsOk)
+        {
+            _notas = await TerceroSvc.ListNotasAsync(id);
+            _noteConcepto = null;
+        }
+        else { _noteError = res.Error; }
+    }
+
+    /// <summary>Concepto sin formulario: nota rapida ligada al concepto.</summary>
+    private async Task AddConceptoNotaAsync()
+    {
+        if (_editingId is not Guid id || _noteConcepto is not { } conc) { return; }
+        var texto = _noteText.Trim();
+        if (texto.Length == 0) { _noteError = "Escribe la gestion antes de registrarla."; return; }
+        _busy = true;
+        var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
+            texto, conc.Name, conc.Code, null, null, ConceptoActividadId: conc.Id));
+        _busy = false;
+        if (res.IsOk)
+        {
+            _notas = await TerceroSvc.ListNotasAsync(id);
+            _noteConcepto = null;
+            _noteText = "";
+        }
+        else { _noteError = res.Error; }
+    }
+
+    /// <summary>Lee el valor de la respuesta: un campo cuyo codigo contiene "valor" y parsea a decimal.</summary>
+    private static decimal? ExtractValor(FormResponseDto resp)
+    {
+        foreach (var (code, field) in resp.Data)
+        {
+            if (!code.Contains("valor", StringComparison.OrdinalIgnoreCase)) { continue; }
+            var raw = field.Value?.Replace(".", "").Replace(",", ".").Trim();
+            if (decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d)) { return d; }
+        }
+        return null;
     }
 
     // ---- Oportunidades (presentacion; el CRM es IGestorContactosService) ----

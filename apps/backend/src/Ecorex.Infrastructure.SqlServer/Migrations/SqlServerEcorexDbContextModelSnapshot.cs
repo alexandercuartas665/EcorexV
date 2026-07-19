@@ -9835,6 +9835,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("categoria");
 
+                    b.Property<Guid?>("ConceptoActividadId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("concepto_actividad_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -9842,6 +9846,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<Guid?>("FormResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("form_response_id");
 
                     b.Property<string>("Subcategoria")
                         .HasMaxLength(120)
@@ -9870,8 +9878,19 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<decimal?>("Valor")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("valor");
+
                     b.HasKey("Id")
                         .HasName("pk_tercero_notas");
+
+                    b.HasIndex("ConceptoActividadId")
+                        .HasDatabaseName("ix_tercero_notas_concepto_actividad_id");
+
+                    b.HasIndex("FormResponseId")
+                        .HasDatabaseName("ix_tercero_notas_form_response_id");
 
                     b.HasIndex("TerceroId")
                         .HasDatabaseName("ix_tercero_notas_tercero_id");
@@ -12397,12 +12416,28 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroNota", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.ConceptoActividad", "ConceptoActividad")
+                        .WithMany()
+                        .HasForeignKey("ConceptoActividadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_tercero_notas_conceptos_actividad_concepto_actividad_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.FormResponse", "FormResponse")
+                        .WithMany()
+                        .HasForeignKey("FormResponseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_tercero_notas_form_responses_form_response_id");
+
                     b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
                         .WithMany()
                         .HasForeignKey("TerceroId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_tercero_notas_terceros_tercero_id");
+
+                    b.Navigation("ConceptoActividad");
+
+                    b.Navigation("FormResponse");
 
                     b.Navigation("Tercero");
                 });

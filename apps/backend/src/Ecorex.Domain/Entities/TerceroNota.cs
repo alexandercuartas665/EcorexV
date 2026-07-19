@@ -28,4 +28,21 @@ public class TerceroNota : TenantEntity
 
     /// <summary>Nombre del autor que registro la gestion (texto libre).</summary>
     public string? Autor { get; set; }
+
+    /// <summary>
+    /// Concepto de actividad del CRM (000125) que origino esta gestion. Null = gestion libre (nota
+    /// rapida sin concepto). FK NO ACTION (archivar el concepto no toca la bitacora).
+    /// </summary>
+    public Guid? ConceptoActividadId { get; set; }
+    public ConceptoActividad? ConceptoActividad { get; set; }
+
+    /// <summary>
+    /// Respuesta del formulario capturado para esta gestion (cuando el concepto tiene formulario).
+    /// Null = gestion sin formulario. FK NO ACTION.
+    /// </summary>
+    public Guid? FormResponseId { get; set; }
+    public FormResponse? FormResponse { get; set; }
+
+    /// <summary>Valor de la gestion (cuando el concepto maneja valor, ej. una oportunidad). Null = sin valor.</summary>
+    public decimal? Valor { get; set; }
 }

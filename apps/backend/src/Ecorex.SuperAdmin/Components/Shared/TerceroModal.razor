@@ -646,10 +646,8 @@
                                     }
                                 </div>
                             }
-                            <button class="dg-kids-add" style="margin-top:10px;width:100%;justify-content:center" @onclick="RequestAddOpportunityAsync">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                                Agregar oportunidad
-                            </button>
+                            @* Sin "agregar oportunidad" suelto: se crean desde la pildora "Oportunidad"
+                               de la pestana Contacto Cliente, que las liga a su gestion. *@
                         }
                     </aside>
                 }
@@ -685,10 +683,6 @@
     /// oportunidades del tercero en el aside, la fecha de "Proxima atencion" y crea cita/oportunidad
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
     [Parameter] public bool CrmWiring { get; set; }
-
-    /// <summary>Se dispara cuando el usuario pide agregar una oportunidad desde el aside del modal;
-    /// el host abre su propio compositor. Entrega (terceroId, nombre del tercero).</summary>
-    [Parameter] public EventCallback<(Guid TerceroId, string Nombre)> OnAddOpportunity { get; set; }
 
     private bool _busy;
     private List<OportunidadDto> _opps = new();
@@ -873,11 +867,6 @@
             _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList();
             StateHasChanged();
         }
-    }
-
-    private async Task RequestAddOpportunityAsync()
-    {
-        if (_editingId is Guid id) { await OnAddOpportunity.InvokeAsync((id, _mNombre)); }
     }
 
     private void CloseModal()

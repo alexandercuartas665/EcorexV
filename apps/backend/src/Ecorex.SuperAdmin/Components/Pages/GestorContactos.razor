@@ -333,10 +333,9 @@
                                 <button class="@(_oppView == OppView.Cliente ? "active" : "")" @onclick="() => _oppView = OppView.Cliente" title="Por cliente">Por cliente</button>
                                 <button class="@(_oppView == OppView.Tabla ? "active" : "")" @onclick="() => _oppView = OppView.Tabla" title="Tabla">Tabla</button>
                             </div>
-                            <button class="gc-btn-brand" @onclick="() => OpenOpp(null, null, null)">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                                Nueva oportunidad
-                            </button>
+                            @* Sin boton de "nueva oportunidad": TODA oportunidad nace de una gestion
+                               con el cliente (pildora "Oportunidad" del concepto, en Contacto Cliente
+                               del modal de Tercero), que captura titulo y valor y la crea ligada. *@
                         </div>
                     </div>
 
@@ -696,91 +695,6 @@
     </div>
 }
 
-@* ============ MODAL: alta de oportunidad ============ *@
-@if (_oppOpen)
-{
-    <div class="gc-overlay" @onclick="() => _oppOpen = false">
-        <div class="gc-modal sm" @onclick:stopPropagation="true">
-            <div class="gc-m-head">
-                <div>
-                    <div class="gc-m-kicker">NUEVA OPORTUNIDAD</div>
-                    <div class="gc-m-title">@(_oppTerceroNombre ?? "Oportunidad de negocio")</div>
-                </div>
-                <button class="gc-close" @onclick="() => _oppOpen = false">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-            </div>
-            <div class="gc-m-body">
-                @if (_oppTerceroId is null)
-                {
-                    <label class="gc-flabel">CLIENTE / LEAD</label>
-                    <select class="gc-input" value="@(_oppSelTercero?.ToString() ?? "")" @onchange="e => _oppSelTercero = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
-                        <option value="">Selecciona un lead...</option>
-                        @foreach (var t in TercerosBolsa)
-                        {
-                            <option value="@t.TerceroId">@t.Nombre</option>
-                        }
-                    </select>
-                    @if (TercerosBolsa.Count == 0)
-                    {
-                        <div class="gc-side-hint" style="text-align:left;margin-top:6px">No hay leads en la bolsa. Promueve un prospecto primero.</div>
-                    }
-                }
-                <label class="gc-flabel mt">NOMBRE DE LA OPORTUNIDAD</label>
-                <input class="gc-input" placeholder="Ej. Suministro anual" value="@_oppNombre" @oninput="e => _oppNombre = e.Value?.ToString() ?? string.Empty" />
-                <div class="gc-two">
-                    <div>
-                        <label class="gc-flabel mt">ETAPA</label>
-                        <select class="gc-input" value="@_oppEtapa" @onchange="e => _oppEtapa = Enum.Parse<OportunidadEtapa>(e.Value!.ToString()!)">
-                            @foreach (var et in EtapasBoard)
-                            {
-                                <option value="@et">@EtapaLabel(et)</option>
-                            }
-                        </select>
-                    </div>
-                    <div>
-                        <label class="gc-flabel mt">VALOR</label>
-                        <input class="gc-input" type="number" value="@_oppValor" @oninput="e => _oppValor = decimal.TryParse(e.Value?.ToString(), out var v) ? v : 0m" />
-                    </div>
-                </div>
-                <div class="gc-two">
-                    <div>
-                        <label class="gc-flabel mt">RESPONSABLE</label>
-                        <input class="gc-input" value="@_oppResponsable" @oninput="e => _oppResponsable = e.Value?.ToString() ?? string.Empty" />
-                    </div>
-                    <div>
-                        <label class="gc-flabel mt">PROBABILIDAD (%)</label>
-                        <input class="gc-input" type="number" value="@_oppProb" @oninput="e => _oppProb = int.TryParse(e.Value?.ToString(), out var p) ? p : 0" />
-                    </div>
-                </div>
-                <div class="gc-two">
-                    <div>
-                        <label class="gc-flabel mt">FECHA DE CIERRE</label>
-                        <input class="gc-input" type="date" value="@(_oppCierre?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => _oppCierre = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null" />
-                    </div>
-                    <div>
-                        <label class="gc-flabel mt">FUENTE</label>
-                        <input class="gc-input" value="@_oppFuente" @oninput="e => _oppFuente = e.Value?.ToString() ?? string.Empty" />
-                    </div>
-                </div>
-                <label class="gc-flabel mt">DESCRIPCION</label>
-                <textarea class="gc-input gc-textarea" value="@_oppDesc" @oninput="e => _oppDesc = e.Value?.ToString() ?? string.Empty"></textarea>
-                @if (_oppError is not null)
-                {
-                    <div class="gc-note-err">@_oppError</div>
-                }
-            </div>
-            <div class="gc-m-foot">
-                <span></span>
-                <div class="gc-foot-actions">
-                    <button class="gc-btn-ghost" @onclick="() => _oppOpen = false" disabled="@_busy">Cancelar</button>
-                    <button class="gc-btn-brand" @onclick="SaveOportunidadAsync" disabled="@_busy">Crear oportunidad</button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
-
 @* ============ MODAL: alta de cita ============ *@
 @if (_citaOpen)
 {
@@ -850,7 +764,7 @@
 
 @* Nuevo contacto: reusa EL MISMO modal de tercero de Directorio General (un contacto ES un
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
-<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" OnAddOpportunity="OnAddOpportunityFromModal" />
+<TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" />
 
 @code {
     private enum Tab { Prospectos, Bolsa, Oportunidades, Agenda }
@@ -1212,76 +1126,9 @@
         _bolsa = (await GestorSvc.ListBolsaAsync()).ToList();
     }
 
-    // ================= OPORTUNIDAD (alta) =================
-    private bool _oppOpen;
-    private Guid? _oppTerceroId;
-    private string? _oppTerceroNombre;
-    private Guid? _oppSelTercero;
-    private string _oppNombre = "";
-    private OportunidadEtapa _oppEtapa = OportunidadEtapa.Nueva;
-    private decimal _oppValor;
-    private string _oppResponsable = "";
-    private int _oppProb;
-    private DateTime? _oppCierre;
-    private string _oppFuente = "";
-    private string _oppDesc = "";
-    private string? _oppError;
-
-    private void OpenOpp(Guid? terceroId, string? terceroNombre, OportunidadEtapa? etapa)
-    {
-        _oppTerceroId = terceroId;
-        _oppTerceroNombre = terceroNombre;
-        _oppSelTercero = terceroId;
-        _oppNombre = "";
-        _oppEtapa = etapa ?? OportunidadEtapa.Nueva;
-        _oppValor = 0m;
-        _oppResponsable = "";
-        _oppProb = 0;
-        _oppCierre = null;
-        _oppFuente = "";
-        _oppDesc = "";
-        _oppError = null;
-        _oppOpen = true;
-    }
-
-    private async Task SaveOportunidadAsync()
-    {
-        _oppError = null;
-        var terceroId = _oppTerceroId ?? _oppSelTercero;
-        if (terceroId is not Guid tid)
-        {
-            _oppError = "Selecciona un lead de la bolsa.";
-            return;
-        }
-        var nombre = _oppNombre.Trim();
-        if (nombre.Length == 0)
-        {
-            _oppError = "El nombre de la oportunidad es obligatorio.";
-            return;
-        }
-        DateTimeOffset? cierre = _oppCierre is DateTime d
-            ? new DateTimeOffset(d.Date, DateTimeOffset.Now.Offset).ToUniversalTime()
-            : null;
-        var req = new SaveOportunidadRequest(nombre, _oppEtapa, _oppValor, Blank(_oppResponsable), _oppProb, cierre, Blank(_oppFuente), Blank(_oppDesc));
-        _busy = true;
-        var res = await GestorSvc.CreateOportunidadAsync(tid, req);
-        _busy = false;
-        if (!res.IsOk)
-        {
-            _oppError = res.Error;
-            return;
-        }
-        _oppOpen = false;
-        _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
-        _bolsa = (await GestorSvc.ListBolsaAsync()).ToList();
-        _kpis = await GestorSvc.GetKpisAsync();
-        // Refresca las oportunidades dentro del modal de tercero compartido (si esta abierto en ese tercero).
-        if (_terceroModal is not null) { await _terceroModal.ReloadOpportunitiesAsync(); }
-    }
-
-    // El aside del modal compartido pide "Agregar oportunidad" -> abre el compositor de oportunidad.
-    private void OnAddOpportunityFromModal((Guid TerceroId, string Nombre) req)
-        => OpenOpp(req.TerceroId, req.Nombre, null);
+    // El compositor suelto de oportunidad (estado + OpenOpp + SaveOportunidadAsync + el callback del
+    // aside) se RETIRO: toda oportunidad nace de una gestion por concepto en Contacto Cliente, que la
+    // crea ligada a su gestion, con titulo y valor, y en la primera etapa configurable del pipeline.
 
     // ================= CITA (alta) =================
     private bool _citaOpen;

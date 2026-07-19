@@ -35,14 +35,14 @@
         <div class="dg-head-actions">
             @if (_canEdit)
             {
-                <button class="dg-btn-cfg" @onclick="OpenConfigAsync" title="Configurar los campos de cada ficha">
+                <button class="dg-btn-cfg" @onclick="OpenConfigAsync" disabled="@(_loading || _reloading)" title="Configurar los campos de cada ficha">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
                     Configurar campos
                 </button>
             }
             @if (CanCreateAny)
             {
-                <button class="dg-btn-new" @onclick="() => _terceroModal!.OpenCreate()">
+                <button class="dg-btn-new" @onclick="OpenCreateAsync" disabled="@(_loading || _reloading)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                     Nuevo cliente
                 </button>
@@ -582,6 +582,11 @@
 @code {
     // ---- Estado de lista ----
     private bool _loading = true;
+    // Recarga en curso (lista + KPIs). Bloquea las acciones que abren el editor mientras una
+    // consulta del DbContext scoped esta en vuelo: abrir el modal dispara EnsureDefaultsAsync sobre
+    // el MISMO contexto y "second operation on this context" tumba el circuito (se veia sobre todo
+    // con la BD remota por tunel, donde las queries tardan y la ventana de solape es amplia).
+    private bool _reloading;
     private bool _busy;
     private string? _pageError;
     private TerceroKpisDto _kpis = new(0, 0, 0, 0);
@@ -675,6 +680,16 @@
         _loading = false;
     }
 
+    // Abre el editor en modo crear. Guarda: si la pagina aun carga o recarga, NO abras el modal
+    // (abrirlo dispara EnsureDefaultsAsync sobre el DbContext scoped que la consulta en vuelo esta
+    // usando -> "second operation on this context"). Los botones ya salen deshabilitados; esto cubre
+    // cualquier disparo residual.
+    private async Task OpenCreateAsync()
+    {
+        if (_loading || _reloading || _terceroModal is null) { return; }
+        await _terceroModal.OpenCreate();
+    }
+
     // Refresca lista + KPIs + contactos expandidos tras un cambio en el modal compartido.
     private async Task OnModalChangedAsync()
     {
@@ -702,12 +717,17 @@
 
     private async Task ReloadAsync()
     {
-        // Se pide siempre naturaleza=Todos: los tabs de naturaleza filtran en cliente para
-        // que los contadores (Todos/Empresas/Contactos) queden siempre visibles.
-        _allRows = await TerceroSvc.ListAsync(new TerceroListFilter(_tipo, TerceroTabNaturaleza.Todos, _search));
-        _kpis = await TerceroSvc.GetKpisAsync();
-        // Purga expansiones/contactos de filas ya no visibles.
-        _expanded.RemoveWhere(id => _allRows.All(r => r.Id != id));
+        _reloading = true;
+        try
+        {
+            // Se pide siempre naturaleza=Todos: los tabs de naturaleza filtran en cliente para
+            // que los contadores (Todos/Empresas/Contactos) queden siempre visibles.
+            _allRows = await TerceroSvc.ListAsync(new TerceroListFilter(_tipo, TerceroTabNaturaleza.Todos, _search));
+            _kpis = await TerceroSvc.GetKpisAsync();
+            // Purga expansiones/contactos de filas ya no visibles.
+            _expanded.RemoveWhere(id => _allRows.All(r => r.Id != id));
+        }
+        finally { _reloading = false; }
     }
 
     private async Task SetTipo(TerceroTabTipo tipo)

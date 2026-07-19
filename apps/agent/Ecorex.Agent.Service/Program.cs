@@ -67,6 +67,11 @@ if (WindowsServiceHelpers.IsWindowsService())
     builder.Logging.AddFilter<EventLogLoggerProvider>(level => level >= LogLevel.Information);
 }
 
+// Diagnostico SIEMPRE a archivo (corra suelto, en consola o como servicio): deja una copia legible
+// del ciclo de conexion en %PUBLIC%\Documents\ecorex-agent-diag.log. Es la ventana que faltaba cuando
+// el canal queda Offline y no hay consola a la vista. Ruta fija para no adivinar donde mirar.
+builder.Logging.AddProvider(new FileLoggerProvider(FileLoggerProvider.DefaultPath));
+
 var host = builder.Build();
 await host.RunAsync();
 return 0;

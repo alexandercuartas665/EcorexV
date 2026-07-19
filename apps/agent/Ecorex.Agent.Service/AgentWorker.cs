@@ -47,6 +47,12 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var config = store.Load();
+            logger.LogInformation(
+                "Config leida de la boveda: ClientId={ClientId} Hub={Hub} Secreto={Secreto} Completa={Completa}",
+                string.IsNullOrWhiteSpace(config.ClientId) ? "(vacio)" : config.ClientId,
+                string.IsNullOrWhiteSpace(config.HubUrl) ? "(vacio)" : config.HubUrl,
+                config.HasSecret ? "si" : "NO",
+                config.IsComplete);
             if (!config.IsComplete)
             {
                 logger.LogWarning(

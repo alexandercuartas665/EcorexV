@@ -165,6 +165,9 @@ builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>
 builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
+// Gate por circuito que serializa el acceso al DbContext desde todos los DynamicFormRenderer del
+// mismo circuito (evita "second operation on this context" cuando dos formularios cargan a la vez).
+builder.Services.AddScoped<Ecorex.SuperAdmin.Services.CircuitFormGate>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
 // Onboarding one-shot desde db3dev (crea tenants cliente + usuarios). Se dispara con

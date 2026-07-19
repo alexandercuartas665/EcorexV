@@ -13,6 +13,7 @@
 @inject IFormRuleDispatcher RulesDispatcher
 @inject IFormLookupService LookupSvc
 @inject IJSRuntime JS
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -203,7 +204,9 @@ else
     // reglas (o un autosave cruzado con un submit) interleaban operaciones y
     // tumbaban el circuito con "a second operation was started on this context"
     // (bug real destapado por la suite E2E, PROGRESO.md sesion 13).
-    private readonly SemaphoreSlim _dbGate = new(1, 1);
+    // Gate COMPARTIDO por circuito (servicio scoped): serializa el DbContext entre TODOS los
+    // renderers del circuito, no solo las operaciones de esta instancia. Ver CircuitFormGate.
+    private SemaphoreSlim _dbGate => FormGate.Gate;
 
     private bool IsSubmitted => _response?.Status == FormResponseStatus.Submitted;
     private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsSubmitted;
@@ -235,6 +238,11 @@ else
                 _currentRole = user.FindFirst("tenant_role")?.Value;
                 _currentUserName = user.Identity?.Name;
             }
+            // Toma el gate del circuito para TODA la carga: impide que otro renderer (o un autosave/
+            // regla/submit de este) toque el DbContext a la vez -> sin "second operation".
+            await _dbGate.WaitAsync();
+            try
+            {
             using var ambient = BeginAmbient();
             _definition = await DefinitionsSvc.GetAsync(DefinitionId);
             _response = null;
@@ -298,6 +306,8 @@ else
                 // Maestro-detalle (ola F5): registros hijos de los subformularios.
                 await LoadSubformChildrenAsync();
             }
+            }
+            finally { _dbGate.Release(); }
         }
         finally
         {
@@ -1616,6 +1626,7 @@ else
     public void Dispose()
     {
         _autosaveTimer?.Dispose();
-        _dbGate.Dispose();
+        // NO se hace _dbGate.Dispose(): el semaforo lo posee el servicio scoped CircuitFormGate y
+        // lo comparten los demas renderers del circuito; disponerlo aqui los tumbaria.
     }
 }

@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-07-18 (cont.) - Asesores (correo/tarjetas) + fixes de menu + modulo Conceptos de actividades
+
+**Agentes**: Claude (Opus 4.8). Continuacion del dia; 4 deploys mas a prod (build-from-git de
+`fase-0/clon-backbone`).
+
+**Asesores (`3be3f37`)**: editar el CORREO del asesor (= su login e identidad global) con guarda de
+unicidad (rechaza si otro miembro del tenant o cualquier identidad de plataforma ya lo usa;
+actualiza TenantUser.Email y PlatformUser.Email). Vista de TARJETAS con toggle Tarjetas/Lista
+(default tarjetas): avatar, nombre, correo, rol, alcance, doc/telefono, estado y acciones. Scoped
+CSS nuevo. Sin migracion.
+
+**Editor de menu**: (a) `5a904cc` SCROLL del arbol de la vista -crecia al alto de los 53 modulos y
+el modal lo recortaba-: `grid-template-rows: minmax(0,1fr)` + `flex:1/min-height:0` en el arbol.
+(b) `e457094` el boton "Guardar" de arriba ahora TAMBIEN aplica el nombre/props del nodo
+seleccionado (antes solo recargaba y se perdia la edicion si no dabas "Aplicar cambios"; no era
+especifico de "CRM (heredado)", pasaba con cualquier nodo).
+
+**Modulo Conceptos de actividades (CRM 000125, `0d27383`, con migracion)**: entidad PROPIA del CRM
+`ConceptoActividad` (Code, Name, Description, FormDefinitionId?, HandlesValues, Mode = None/
+AttentionProcess/CalendarEvent), distinta de ActivityType/ActividadSubcategoria (que son de
+TAREAS). Servicio + DTOs + DI; pagina /conceptos-actividades (KPIs + tabla + modal) con selector de
+formulario asociado + boton "Previsualizar" (DynamicFormRenderer en modo Design), checkbox de
+valores y selector de modo; archivar/restaurar. Migracion DUAL AddConceptoActividad (tabla
+conceptos_actividad, aditiva). El stub /modulo/conceptos-actividades REDIRIGE a la pagina real
+(Modulo.razor), asi el item del menu funciona en todos los tenants sin tocar la BD por-tenant.
+Decision del usuario: entidad nueva (no reusar) + selector de modo (un modo a la vez).
+
+**Deploys a prod** (`root@10.0.0.3`, build-from-git):
+- `3be3f37` (Asesores correo+tarjetas): build --no-cache + up -d, sin migracion. /login 200.
+- `5a904cc` (scroll menu): idem, solo CSS. /login 200.
+- `e457094` (fix Guardar menu): idem. Un intento previo murio al cortarse el SSH (exit 4); se
+  relanzo limpio. /login 200.
+- `0d27383` (Conceptos de actividades): backup `ecorex-2026-07-18-0903.sql.gz` ya existente del dia
+  + backup nuevo previo; aplico `AddConceptoActividad` (tabla conceptos_actividad creada). /login 200.
+
+**Verificacion**: build completo verde; tests Application 457, Domain 35, SuperAdmin 30. Migracion
+solo CreateTable/AddColumn aditivo en ambos motores. **Siguiente (pedido del usuario)**: en el modal
+de creacion de Terceros, pestana "contacto cliente", cargar los Conceptos de actividades como
+botones que abren su formulario asociado; disenar formularios para anotaciones/PQR/solicitudes/
+oportunidades/cotizaciones (oportunidades maneja valor). **Bloqueo recurrente**: sin poder teclear
+contrasenas + la pestana del MCP no comparte sesion con el Chrome del usuario -> la validacion visual
+de paginas gated la hace el usuario.
+
+---
+
 ## 2026-07-18 - Bandeja de formularios usable + Asesores con doc/telefono + scroll del menu (3 deploys)
 
 **Agentes**: Claude (Opus 4.8). **Accion**: hacer usable el modulo de formulario (/m/{code}),

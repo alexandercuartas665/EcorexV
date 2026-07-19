@@ -328,6 +328,11 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-concepto-close:hover { color: var(--ink); border-color: var(--ink-3); }
 .dg-concepto-close svg { width: 14px; height: 14px; }
 .dg-concepto-hint { font-size: 12.5px; color: var(--ink-3); margin: 2px 0; }
+/* Datos del proceso (fuera del formulario): titulo + valor + fecha, activados por el concepto. */
+.dg-proc { padding: 12px 14px; border: 1px solid var(--brand); border-radius: 12px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.dg-proc-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dg-proc-row:first-child { grid-column: 1 / -1; }
+.dg-proc-row .dg-flabel { margin: 0; }
 .dg-note-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .dg-note-err { color: var(--danger); font-size: 12px; font-weight: 600; margin-top: 8px; }
 .dg-note-actions { display: flex; justify-content: flex-end; margin-top: 12px; }

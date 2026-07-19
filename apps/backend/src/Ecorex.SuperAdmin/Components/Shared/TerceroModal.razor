@@ -435,14 +435,47 @@
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                                                 </button>
                                             </div>
+                                            @{
+                                                var needsProc = ProcFieldsRequired(conc);
+                                                var procOk = !needsProc || ProcFieldsComplete(conc);
+                                            }
+                                            @* Datos del PROCESO (fuera del formulario): titulo + valor (si maneja valor) +
+                                               fecha (si es evento de agenda). Alimentan el modulo de Oportunidades / la agenda. *@
+                                            @if (needsProc)
+                                            {
+                                                <div class="dg-proc">
+                                                    <div class="dg-proc-row">
+                                                        <label class="dg-flabel">TITULO *</label>
+                                                        <input class="dg-input" placeholder="Titulo de la gestion" value="@_procTitulo" @oninput="e => _procTitulo = e.Value?.ToString() ?? string.Empty" />
+                                                    </div>
+                                                    @if (conc.HandlesValues)
+                                                    {
+                                                        <div class="dg-proc-row">
+                                                            <label class="dg-flabel">VALOR *</label>
+                                                            <input class="dg-input" type="number" min="0" step="any" placeholder="0" value="@_procValor" @oninput="e => _procValor = e.Value?.ToString() ?? string.Empty" />
+                                                        </div>
+                                                    }
+                                                    @if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent)
+                                                    {
+                                                        <div class="dg-proc-row">
+                                                            <label class="dg-flabel">FECHA DE LA PROXIMA ACTIVIDAD *</label>
+                                                            <input class="dg-input" type="date" value="@(_procFecha?.ToString("yyyy-MM-dd"))" @onchange="e => { _procFecha = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : (DateTime?)null; }" />
+                                                        </div>
+                                                    }
+                                                    @if (!procOk) { <p class="dg-concepto-hint">Completa los datos del proceso para continuar.</p> }
+                                                </div>
+                                            }
                                             @if (conc.FormDefinitionId is Guid cfid)
                                             {
-                                                <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
-                                                    <DynamicFormRenderer DefinitionId="@cfid"
-                                                                         Mode="FormRenderMode.Fill"
-                                                                         ShowHeader="false"
-                                                                         OnSubmitted="OnConceptoFormSubmittedAsync" />
-                                                </div>
+                                                @if (procOk)
+                                                {
+                                                    <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
+                                                        <DynamicFormRenderer DefinitionId="@cfid"
+                                                                             Mode="FormRenderMode.Fill"
+                                                                             ShowHeader="false"
+                                                                             OnSubmitted="OnConceptoFormSubmittedAsync" />
+                                                    </div>
+                                                }
                                                 @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
                                             }
                                             else
@@ -450,7 +483,7 @@
                                                 <textarea class="dg-input dg-textarea" placeholder="Detalle de @conc.Name..." value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
                                                 @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
                                                 <div class="dg-note-actions">
-                                                    <button class="dg-btn-new" @onclick="AddConceptoNotaAsync" disabled="@_busy">
+                                                    <button class="dg-btn-new" @onclick="AddConceptoNotaAsync" disabled="@(_busy || !procOk)">
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                                                         Registrar @conc.Name
                                                     </button>
@@ -702,6 +735,11 @@
     // ---- Tab Contacto Cliente (gestiones por concepto de actividad, 000125) ----
     private IReadOnlyList<TerceroNotaDto> _notas = Array.Empty<TerceroNotaDto>();
     private string _noteText = "";
+    // Datos del PROCESO (fuera del formulario): titulo, valor (si maneja valor) y fecha de la proxima
+    // actividad (si es evento de agenda). Alimentan el modulo de Oportunidades / la agenda.
+    private string _procTitulo = "";
+    private string _procValor = "";
+    private DateTime? _procFecha;
     // Conceptos de actividad del CRM: botones que cargan su formulario asociado (000125).
     private IReadOnlyList<Ecorex.Application.Crm.ConceptoActividadDto> _conceptos = Array.Empty<Ecorex.Application.Crm.ConceptoActividadDto>();
     private Ecorex.Application.Crm.ConceptoActividadDto? _noteConcepto;
@@ -1152,6 +1190,9 @@
     private void ResetNoteForm()
     {
         _noteText = "";
+        _procTitulo = "";
+        _procValor = "";
+        _procFecha = null;
         _noteError = null;
         _noteConcepto = null;
     }
@@ -1161,22 +1202,47 @@
     {
         _noteConcepto = c;
         _noteText = "";
+        _procTitulo = "";
+        _procValor = "";
+        _procFecha = null;
         _noteError = null;
     }
 
-    /// <summary>El formulario del concepto se envio: guarda la gestion ligada (concepto + respuesta + valor).</summary>
+    // Datos del proceso (fuera del formulario): un concepto pide titulo+valor si maneja valor, y
+    // titulo+fecha si es evento de agenda. Titulo solo se pide para esos casos (decision del usuario).
+    private static bool ProcFieldsRequired(Ecorex.Application.Crm.ConceptoActividadDto c)
+        => c.HandlesValues || c.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent;
+
+    private bool ProcFieldsComplete(Ecorex.Application.Crm.ConceptoActividadDto c)
+    {
+        if (!ProcFieldsRequired(c)) { return true; }
+        if (string.IsNullOrWhiteSpace(_procTitulo)) { return false; }
+        if (c.HandlesValues && ParseValor(_procValor) is null) { return false; }
+        if (c.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent && _procFecha is null) { return false; }
+        return true;
+    }
+
+    /// <summary>Valor del input number (formato invariante): decimal >= 0 o null.</summary>
+    private static decimal? ParseValor(string? s)
+        => decimal.TryParse((s ?? "").Trim(), System.Globalization.NumberStyles.Any,
+               System.Globalization.CultureInfo.InvariantCulture, out var d) && d >= 0
+           ? d : (decimal?)null;
+
+    /// <summary>El formulario del concepto se envio: guarda la gestion ligada (concepto + respuesta +
+    /// datos del proceso) y alimenta el modulo de Oportunidades / la agenda.</summary>
     private async Task OnConceptoFormSubmittedAsync(FormResponseDto resp)
     {
         if (_editingId is not Guid id || _noteConcepto is not { } conc) { return; }
-        var valor = conc.HandlesValues ? ExtractValor(resp) : (decimal?)null;
-        var texto = conc.Name + (valor is decimal v ? $" - {MoneyFmt(v)}" : "");
+        if (!ProcFieldsComplete(conc)) { _noteError = "Completa los datos del proceso (titulo, valor y/o fecha)."; return; }
+        var valor = conc.HandlesValues ? ParseValor(_procValor) : null;
+        var texto = GestionTexto(conc, valor);
         _busy = true;
         var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
             texto, conc.Name, conc.Code, null, null,
             ConceptoActividadId: conc.Id, FormResponseId: resp.Id, Valor: valor));
         if (res.IsOk)
         {
-            await ApplyCrmWiringAsync(id, conc, texto);
+            await ApplyProcessWiringAsync(id, conc, valor);
             _notas = await TerceroSvc.ListNotasAsync(id);
             _noteConcepto = null;
         }
@@ -1184,18 +1250,20 @@
         _busy = false;
     }
 
-    /// <summary>Concepto sin formulario: nota rapida ligada al concepto.</summary>
+    /// <summary>Concepto sin formulario: nota rapida ligada al concepto (+ datos del proceso).</summary>
     private async Task AddConceptoNotaAsync()
     {
         if (_editingId is not Guid id || _noteConcepto is not { } conc) { return; }
-        var texto = _noteText.Trim();
+        if (!ProcFieldsComplete(conc)) { _noteError = "Completa los datos del proceso (titulo, valor y/o fecha)."; return; }
+        var texto = ProcFieldsRequired(conc) ? _procTitulo.Trim() : _noteText.Trim();
         if (texto.Length == 0) { _noteError = "Escribe la gestion antes de registrarla."; return; }
+        var valor = conc.HandlesValues ? ParseValor(_procValor) : null;
         _busy = true;
         var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
-            texto, conc.Name, conc.Code, null, null, ConceptoActividadId: conc.Id));
+            texto, conc.Name, conc.Code, null, null, ConceptoActividadId: conc.Id, Valor: valor));
         if (res.IsOk)
         {
-            await ApplyCrmWiringAsync(id, conc, texto);
+            await ApplyProcessWiringAsync(id, conc, valor);
             _notas = await TerceroSvc.ListNotasAsync(id);
             _noteConcepto = null;
             _noteText = "";
@@ -1204,38 +1272,33 @@
         _busy = false;
     }
 
-    /// <summary>
-    /// Cableado CRM (solo en el Cargador de contactos, CrmWiring=true): al registrar una gestion por
-    /// concepto, si el concepto maneja valor crea una Oportunidad, y si su modo es evento de calendario
-    /// crea una Cita. Reemplaza el match por texto del compositor viejo. En el Directorio (CrmWiring
-    /// false) es no-op.
-    /// </summary>
-    private async Task ApplyCrmWiringAsync(Guid terceroId, Ecorex.Application.Crm.ConceptoActividadDto conc, string texto)
+    /// <summary>Texto de la gestion en el timeline: el titulo del proceso (con su valor) o el nombre del concepto.</summary>
+    private string GestionTexto(Ecorex.Application.Crm.ConceptoActividadDto conc, decimal? valor)
     {
-        if (!CrmWiring) { return; }
-        if (conc.HandlesValues)
-        {
-            await GestorSvc.CreateOportunidadAsync(terceroId, new SaveOportunidadRequest(texto, OportunidadEtapa.Nueva));
-            _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(terceroId)).ToList();
-        }
-        else if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent)
-        {
-            await GestorSvc.CreateCitaAsync(new SaveCitaRequest(
-                terceroId, null, texto, CitaTipo.Reunion, CombineInicio(DateTime.Today.AddDays(1), "09:00"), 60));
-        }
-        await OnChanged.InvokeAsync();
+        var baseTexto = ProcFieldsRequired(conc) && !string.IsNullOrWhiteSpace(_procTitulo) ? _procTitulo.Trim() : conc.Name;
+        return valor is decimal v ? $"{baseTexto} - {MoneyFmt(v)}" : baseTexto;
     }
 
-    /// <summary>Lee el valor de la respuesta: un campo cuyo codigo contiene "valor" y parsea a decimal.</summary>
-    private static decimal? ExtractValor(FormResponseDto resp)
+    /// <summary>
+    /// Efecto de proceso de la gestion por concepto: si el concepto MANEJA VALOR crea una Oportunidad
+    /// en el modulo de Oportunidades (con su titulo y valor, estado inicial) para gestionar sus
+    /// estados aparte; si es EVENTO DE AGENDA crea una Cita con la fecha de la proxima actividad.
+    /// Se ejecuta siempre (no solo en el Cargador): esos registros deben existir en sus modulos.
+    /// </summary>
+    private async Task ApplyProcessWiringAsync(Guid terceroId, Ecorex.Application.Crm.ConceptoActividadDto conc, decimal? valor)
     {
-        foreach (var (code, field) in resp.Data)
+        var titulo = ProcFieldsRequired(conc) && !string.IsNullOrWhiteSpace(_procTitulo) ? _procTitulo.Trim() : conc.Name;
+        if (conc.HandlesValues)
         {
-            if (!code.Contains("valor", StringComparison.OrdinalIgnoreCase)) { continue; }
-            var raw = field.Value?.Replace(".", "").Replace(",", ".").Trim();
-            if (decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d)) { return d; }
+            await GestorSvc.CreateOportunidadAsync(terceroId, new SaveOportunidadRequest(titulo, OportunidadEtapa.Nueva, Valor: valor ?? 0m));
+            if (CrmWiring) { _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(terceroId)).ToList(); }
         }
-        return null;
+        if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent && _procFecha is DateTime fecha)
+        {
+            await GestorSvc.CreateCitaAsync(new SaveCitaRequest(
+                terceroId, null, titulo, CitaTipo.Reunion, CombineInicio(fecha, "09:00"), 60));
+        }
+        await OnChanged.InvokeAsync();
     }
 
     // ---- Oportunidades (presentacion; el CRM es IGestorContactosService) ----

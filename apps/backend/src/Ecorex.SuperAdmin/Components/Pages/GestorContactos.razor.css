@@ -279,4 +279,7 @@
 .gc-opp-group-body { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .gc-opp-line { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); }
 .gc-opp-line:first-child { border-top: none; }
+/* Sub-encabezado por etapa dentro de un cliente (vista "Por cliente"). */
+.gc-opp-substage { display: flex; align-items: center; gap: 9px; padding: 7px 14px; background: var(--surface-2); border-top: 1px solid var(--line); }
+.gc-opp-substage:first-child { border-top: none; }
 .gc-opp-line-name { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

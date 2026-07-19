@@ -1235,7 +1235,7 @@
         if (_editingId is not Guid id || _noteConcepto is not { } conc) { return; }
         if (!ProcFieldsComplete(conc)) { _noteError = "Completa los datos del proceso (titulo, valor y/o fecha)."; return; }
         var valor = conc.HandlesValues ? ParseValor(_procValor) : null;
-        var texto = GestionTexto(conc, valor);
+        var texto = GestionTexto(conc, valor, resp);
         _busy = true;
         var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
             texto, conc.Name, conc.Code, null, null,
@@ -1272,11 +1272,48 @@
         _busy = false;
     }
 
-    /// <summary>Texto de la gestion en el timeline: el titulo del proceso (con su valor) o el nombre del concepto.</summary>
-    private string GestionTexto(Ecorex.Application.Crm.ConceptoActividadDto conc, decimal? valor)
+    /// <summary>
+    /// Texto de la gestion en el timeline: el titulo del proceso (con su valor) cuando el concepto
+    /// lo pide; si no, un RESUMEN de lo que se lleno en el formulario (antes salia solo el nombre
+    /// del concepto, que no decia nada). Ultimo recurso: el nombre del concepto.
+    /// </summary>
+    private string GestionTexto(Ecorex.Application.Crm.ConceptoActividadDto conc, decimal? valor, FormResponseDto? resp = null)
     {
-        var baseTexto = ProcFieldsRequired(conc) && !string.IsNullOrWhiteSpace(_procTitulo) ? _procTitulo.Trim() : conc.Name;
+        var baseTexto = ProcFieldsRequired(conc) && !string.IsNullOrWhiteSpace(_procTitulo)
+            ? _procTitulo.Trim()
+            : (ResumenRespuesta(resp) ?? conc.Name);
         return valor is decimal v ? $"{baseTexto} - {MoneyFmt(v)}" : baseTexto;
+    }
+
+    /// <summary>
+    /// Resumen legible de una respuesta de formulario para el timeline: prioriza los campos con
+    /// significado (asunto/titulo/texto/descripcion/detalle) y si no hay, toma el primer valor con
+    /// contenido. Recortado a una linea.
+    /// </summary>
+    private static string? ResumenRespuesta(FormResponseDto? resp)
+    {
+        if (resp is null) { return null; }
+        foreach (var clave in new[] { "asunto", "titulo", "texto", "descripcion", "detalle" })
+        {
+            foreach (var (code, field) in resp.Data)
+            {
+                if (code.Contains(clave, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(field.Value))
+                {
+                    return RecortarResumen(field.Value!);
+                }
+            }
+        }
+        foreach (var (_, field) in resp.Data)
+        {
+            if (!string.IsNullOrWhiteSpace(field.Value)) { return RecortarResumen(field.Value!); }
+        }
+        return null;
+    }
+
+    private static string RecortarResumen(string s)
+    {
+        var t = s.Trim().ReplaceLineEndings(" ");
+        return t.Length <= 120 ? t : t[..117] + "...";
     }
 
     /// <summary>

@@ -473,18 +473,30 @@
                                             <svg class="gc-opp-group-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
                                         </div>
                                         <div class="gc-opp-group-body">
-                                            @foreach (var o in gg)
+                                            @* Dentro del cliente, las oportunidades se SUB-AGRUPAN por etapa (en el
+                                               orden del pipeline configurable) con su conteo y total. *@
+                                            @foreach (var sub in gg.GroupBy(o => o.EstadoId)
+                                                                   .OrderBy(s => _estados.FirstOrDefault(e => e.Id == s.Key)?.SortOrder ?? int.MaxValue))
                                             {
-                                                var oo = o;
-                                                var chip = OppChip(oo);
-                                                <div class="gc-opp-line">
-                                                    <span class="gc-etapa" style="background:@chip.Bg;color:@chip.Fg">@OppEstadoLabel(oo)</span>
-                                                    <span class="gc-opp-line-name">@oo.Nombre</span>
-                                                    @if (oo.Valor > 0) { <span class="gc-money">@Money(oo.Valor)</span> }
-                                                    <button class="gc-icon-btn del" title="Eliminar" @onclick="() => DeleteOportunidadAsync(oo.Id)" @onclick:stopPropagation="true" disabled="@_busy">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                                                    </button>
+                                                var ss = sub;
+                                                var est = _estados.FirstOrDefault(e => e.Id == ss.Key);
+                                                var subChip = est is not null ? EstadoChip(est) : OppChip(ss.First());
+                                                var subName = est is not null ? est.Name : OppEstadoLabel(ss.First());
+                                                <div class="gc-opp-substage">
+                                                    <span class="gc-etapa" style="background:@subChip.Bg;color:@subChip.Fg">@subName</span>
+                                                    <span class="gc-opp-group-sub">@ss.Count() &#183; <b>@Money(ss.Sum(o => o.Valor))</b></span>
                                                 </div>
+                                                @foreach (var o in ss)
+                                                {
+                                                    var oo = o;
+                                                    <div class="gc-opp-line">
+                                                        <span class="gc-opp-line-name">@oo.Nombre</span>
+                                                        @if (oo.Valor > 0) { <span class="gc-money">@Money(oo.Valor)</span> }
+                                                        <button class="gc-icon-btn del" title="Eliminar" @onclick="() => DeleteOportunidadAsync(oo.Id)" @onclick:stopPropagation="true" disabled="@_busy">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                                        </button>
+                                                    </div>
+                                                }
                                             }
                                         </div>
                                     </div>

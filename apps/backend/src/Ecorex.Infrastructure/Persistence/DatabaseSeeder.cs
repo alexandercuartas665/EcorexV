@@ -1273,8 +1273,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             "Oportunidad comercial con valor estimado.",
             new (string, string, FormControlType, bool, string, string?, string?)[]
             {
+                // NOTA: el VALOR ya no vive aqui. Lo pide el bloque de "datos del proceso" fuera del
+                // formulario (concepto que maneja valor) y de ahi sale la Oportunidad del modulo.
                 ("descripcion", "Descripcion", FormControlType.Text, true, "col-12", null, """{"minLength":3,"maxLength":200}"""),
-                ("valor", "Valor estimado", FormControlType.Number, true, "col-md-4", null, """{"minValue":0}"""),
                 ("probabilidad", "Probabilidad (%)", FormControlType.Number, false, "col-md-4", null, """{"minValue":0,"maxValue":100}"""),
                 ("fecha_cierre", "Fecha estimada de cierre", FormControlType.Date, false, "col-md-4", null, null),
                 ("producto", "Producto / Servicio", FormControlType.Text, false, "col-12", null, null),
@@ -1287,7 +1288,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 ("descripcion", "Descripcion", FormControlType.Text, true, "col-12", null, """{"minLength":3,"maxLength":200}"""),
                 ("items", "Items", FormControlType.GridDetail, false, "col-12",
                     """[{"id":"detalle","label":"Detalle"},{"id":"cantidad","label":"Cantidad"},{"id":"valor_unitario","label":"Valor unitario"}]""", null),
-                ("valor_total", "Valor total", FormControlType.Number, true, "col-md-6", null, """{"minValue":0}"""),
+                // El valor total lo pide el bloque de "datos del proceso", no el formulario.
                 ("validez_dias", "Validez (dias)", FormControlType.Number, false, "col-md-6", null, """{"minValue":1,"maxValue":365}"""),
             });
 
@@ -1303,6 +1304,37 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             cotizacionForm, handlesValues: true, ConceptoActividadMode.None, 4);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Limpieza idempotente: en los tenants sembrados ANTES de mover el valor fuera del
+        // formulario, FRM-CRM-OPP tenia "valor" y FRM-CRM-COT "valor_total" como campos
+        // OBLIGATORIOS, que ahora duplican el campo de proceso (habia que teclearlo dos veces). No se
+        // borran (conservan las respuestas historicas): se ocultan y se dejan de exigir.
+        var formsCrm = await _db.FormDefinitions.IgnoreQueryFilters()
+            .Where(d => d.TenantId == tenantId && (d.Code == "FRM-CRM-OPP" || d.Code == "FRM-CRM-COT"))
+            .Select(d => d.Id)
+            .ToListAsync(cancellationToken);
+        if (formsCrm.Count > 0)
+        {
+            var duplicadas = await _db.FormQuestions.IgnoreQueryFilters()
+                .Where(q => q.TenantId == tenantId
+                            && formsCrm.Contains(q.DefinitionId)
+                            && (q.FieldCode == "valor" || q.FieldCode == "valor_total")
+                            && (q.Required || !q.IsHidden))
+                .ToListAsync(cancellationToken);
+            foreach (var q in duplicadas)
+            {
+                q.Required = false;
+                q.IsHidden = true;
+            }
+            if (duplicadas.Count > 0)
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+                _logger.LogWarning(
+                    "[crm-conceptos] {N} campo(s) de valor duplicados ocultados en los formularios CRM del tenant {TenantId}.",
+                    duplicadas.Count, tenantId);
+            }
+        }
+
         _logger.LogWarning("[crm-conceptos] 5 conceptos + formularios sembrados para tenant {TenantId}.", tenantId);
     }
 

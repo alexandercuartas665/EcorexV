@@ -2812,6 +2812,49 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Backfill IDEMPOTENTE (ADR-0045): asegura el item "Agentes Colmena" bajo la seccion Infraestructura
+    /// IA en los menus YA sembrados. Los menus NUEVOS ya lo traen via <see cref="EnsureDefaultMenuAsync"/>;
+    /// esto cubre las BD existentes (que se sembraron antes del cambio). Corre en cada arranque; no duplica.
+    /// </summary>
+    public async Task EnsureAgentesColmenaMenuItemAsync(CancellationToken cancellationToken = default)
+    {
+        var iaSections = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Section && n.Route == "ia")
+            .ToListAsync(cancellationToken);
+
+        var added = false;
+        foreach (var ia in iaSections)
+        {
+            var exists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == ia.MenuViewId && n.Route == "agentes-colmena", cancellationToken);
+            if (exists) { continue; }
+
+            var maxSort = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.ParentId == ia.Id)
+                .Select(n => (int?)n.SortOrder)
+                .MaxAsync(cancellationToken) ?? ia.SortOrder;
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = ia.TenantId,
+                MenuViewId = ia.MenuViewId,
+                ParentId = ia.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Agentes Colmena",
+                IconKey = null,
+                LegacyCode = "000868",
+                Route = "agentes-colmena",
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = maxSort + 1
+            });
+            added = true;
+        }
+
+        if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
     public async Task EnsureMenuConfigDemoAsync(CancellationToken cancellationToken = default)
     {
         var tenant = await _db.Tenants.IgnoreQueryFilters()

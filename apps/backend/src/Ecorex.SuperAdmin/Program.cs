@@ -338,6 +338,10 @@ else
             ?? "http://localhost:5253").Split(';', ',')[0].Trim().TrimEnd('/');
         await seeder.EnsureScrapingDemoAsync(scrapeDemoBaseUrl);
     }
+    // Backfill idempotente (ADR-0045): asegura el item "Agentes Colmena" bajo el grupo
+    // "Infraestructura IA" en toda vista de menu existente. Corre tras cualquiera de las dos
+    // ramas (skip/demo) porque EnsureDefaultMenuAsync no reprocesa tenants ya sembrados.
+    await seeder.EnsureAgentesColmenaMenuItemAsync();
 }
 
 // Onboarding one-shot desde db3dev (ECOREX_RUN_ONBOARDING=true). Corre despues de migraciones/seed,

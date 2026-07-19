@@ -329,8 +329,9 @@
                         </div>
                         <div class="gc-panel-actions">
                             <div class="gc-toggle">
-                                <button class="@(!_oppTabla ? "active" : "")" @onclick="() => _oppTabla = false" title="Por cliente">Por cliente</button>
-                                <button class="@(_oppTabla ? "active" : "")" @onclick="() => _oppTabla = true" title="Tabla">Tabla</button>
+                                <button class="@(_oppView == OppView.Tablero ? "active" : "")" @onclick="() => _oppView = OppView.Tablero" title="Tablero por etapa">Tablero</button>
+                                <button class="@(_oppView == OppView.Cliente ? "active" : "")" @onclick="() => _oppView = OppView.Cliente" title="Por cliente">Por cliente</button>
+                                <button class="@(_oppView == OppView.Tabla ? "active" : "")" @onclick="() => _oppView = OppView.Tabla" title="Tabla">Tabla</button>
                             </div>
                             <button class="gc-btn-brand" @onclick="() => OpenOpp(null, null, null)">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
@@ -339,7 +340,58 @@
                         </div>
                     </div>
 
-                    @if (_oppTabla)
+                    @if (_oppView == OppView.Tablero)
+                    {
+                        @* Kanban del pipeline: una columna por etapa CONFIGURABLE (orden y color de
+                           Estados de oportunidad). Se arrastra la tarjeta entre columnas. *@
+                        @if (_estados.Count == 0)
+                        {
+                            <div class="gc-empty-note" style="padding:22px 18px">
+                                No hay etapas configuradas. Crealas en <b>CRM &#183; Estados de oportunidad</b>.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="tb-board">
+                                @foreach (var es in _estados)
+                                {
+                                    var estado = es;
+                                    var colOpps = _oportunidades.Where(o => o.EstadoId == estado.Id).ToList();
+                                    var colTotal = colOpps.Sum(o => o.Valor);
+                                    <div class="tb-col @(_dragOverEstadoId == estado.Id ? "tb-col-drag" : "")"
+                                         ondragover="event.preventDefault()"
+                                         @ondragenter="@(() => _dragOverEstadoId = estado.Id)"
+                                         @ondragleave="@(() => { if (_dragOverEstadoId == estado.Id) { _dragOverEstadoId = null; } })"
+                                         @ondrop="@(() => OnDropOppAsync(estado.Id))">
+                                        <div class="tb-col-head">
+                                            <span class="gc-etapa" style="background:@EstadoChip(estado).Bg;color:@EstadoChip(estado).Fg">@estado.Name</span>
+                                            <span class="gc-panel-sub" style="margin-left:auto">@colOpps.Count &#183; <b>@Money(colTotal)</b></span>
+                                        </div>
+                                        <div class="tb-col-body">
+                                            @if (colOpps.Count == 0)
+                                            {
+                                                <div class="tb-col-empty">Sin oportunidades</div>
+                                            }
+                                            @foreach (var o in colOpps)
+                                            {
+                                                var oo = o;
+                                                <div class="tb-card-item @(_dragOppId == oo.Id ? "dragging" : "")"
+                                                     draggable="true"
+                                                     @ondragstart="@(() => _dragOppId = oo.Id)"
+                                                     @ondragend="@(() => _dragOppId = null)"
+                                                     style="border-left:3px solid @OppBorder(oo)">
+                                                    <div class="gc-cell-strong">@oo.Nombre</div>
+                                                    <div class="gc-panel-sub">@oo.TerceroNombre</div>
+                                                    <div class="gc-money" style="margin-top:6px">@Money(oo.Valor)</div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_oppView == OppView.Tabla)
                     {
                         <div class="gc-src-row">
                             <span class="gc-src-lbl">CAMPOS:</span>
@@ -827,7 +879,15 @@
     private Guid? _dragTerceroId;
 
     // Oportunidades
-    private bool _oppTabla;
+    // Vista del pipeline: Tablero (kanban por etapa, la principal), Cliente (agrupado) o Tabla.
+    private enum OppView { Tablero, Cliente, Tabla }
+    private OppView _oppView = OppView.Tablero;
+    // Arrastrar y soltar del kanban.
+    private Guid? _dragOppId;
+    private Guid? _dragOverEstadoId;
+    // Serializa los movimientos de etapa: dos cambios seguidos (arrastres rapidos o selects en
+    // rafaga) usaban el MISMO DbContext del circuito y uno se perdia en silencio.
+    private bool _movingOpp;
     private bool _oppShowResp = true;
     private bool _oppShowValor = true;
 
@@ -908,12 +968,50 @@
     private async Task MoverEstadoAsync(Guid id, object? value)
     {
         if (!Guid.TryParse(value?.ToString(), out var estadoId)) { return; }
-        var res = await GestorSvc.MoverEstadoAsync(id, estadoId);
-        if (res.IsOk)
+        await MoverAEstadoAsync(id, estadoId);
+    }
+
+    /// <summary>Suelta la tarjeta arrastrada en la columna de una etapa.</summary>
+    private async Task OnDropOppAsync(Guid estadoId)
+    {
+        var oppId = _dragOppId;
+        _dragOppId = null;
+        _dragOverEstadoId = null;
+        if (oppId is Guid id) { await MoverAEstadoAsync(id, estadoId); }
+    }
+
+    /// <summary>
+    /// Mueve la oportunidad de etapa. SERIALIZADO con _movingOpp: dos movimientos solapados
+    /// (arrastres rapidos o selects en rafaga) compartian el DbContext del circuito y uno se perdia
+    /// en silencio; ahora el segundo se ignora hasta que el primero termina.
+    /// </summary>
+    private async Task MoverAEstadoAsync(Guid id, Guid estadoId)
+    {
+        if (_movingOpp) { return; }
+        _movingOpp = true;
+        try
         {
-            _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
-            _kpis = await GestorSvc.GetKpisAsync();
+            var res = await GestorSvc.MoverEstadoAsync(id, estadoId);
+            if (res.IsOk)
+            {
+                _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
+                _kpis = await GestorSvc.GetKpisAsync();
+            }
         }
+        finally { _movingOpp = false; }
+    }
+
+    /// <summary>Chip (fondo/texto) de una etapa configurable, para la cabecera de su columna.</summary>
+    private static (string Bg, string Fg) EstadoChip(OportunidadEstadoDto e)
+    {
+        var c = e.Color;
+        if (!string.IsNullOrWhiteSpace(c) && c.StartsWith("--t-", StringComparison.Ordinal))
+        {
+            return ($"var({c}-bg)", $"var({c})");
+        }
+        return string.IsNullOrWhiteSpace(c)
+            ? ("var(--surface-3)", "var(--ink-2)")
+            : ("var(--surface-3)", c);
     }
 
     // Etiqueta de la etapa: nombre de la etapa configurable cuando existe; si no, el enum heredado.

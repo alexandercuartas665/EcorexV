@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Crm;
 using Ecorex.Application.Directorio;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -18,13 +19,15 @@ public sealed class GestorContactosService : IGestorContactosService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly IOportunidadEstadoService _estados;
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
-    public GestorContactosService(IApplicationDbContext db, ITenantContext tenant)
+    public GestorContactosService(IApplicationDbContext db, ITenantContext tenant, IOportunidadEstadoService estados)
     {
         _db = db;
         _tenant = tenant;
+        _estados = estados;
     }
 
     // ---- KPIs ----
@@ -39,10 +42,21 @@ public sealed class GestorContactosService : IGestorContactosService
         var calificados = await _db.Terceros.AsNoTracking()
             .CountAsync(t => (t.Perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente, cancellationToken);
 
-        var abiertas = _db.Oportunidades.AsNoTracking()
-            .Where(o => o.Etapa != OportunidadEtapa.Ganada && o.Etapa != OportunidadEtapa.Perdida);
-        var oportunidadesAbiertas = await abiertas.CountAsync(cancellationToken);
-        var valorPipeline = await abiertas.SumAsync(o => (decimal?)o.Valor, cancellationToken) ?? 0m;
+        // Abierta = etapa configurable con Tipo Abierta cuando existe; si la oportunidad aun no tiene
+        // etapa configurable (EstadoId null), cae al enum heredado (no Ganada/Perdida).
+        var ops = await _db.Oportunidades.AsNoTracking()
+            .Select(o => new
+            {
+                o.Valor,
+                o.Etapa,
+                EstadoTipo = o.Estado != null ? (OportunidadEstadoTipo?)o.Estado.Tipo : null
+            })
+            .ToListAsync(cancellationToken);
+        var abiertas = ops.Where(o => o.EstadoTipo is OportunidadEstadoTipo tipo
+            ? tipo == OportunidadEstadoTipo.Abierta
+            : o.Etapa != OportunidadEtapa.Ganada && o.Etapa != OportunidadEtapa.Perdida).ToList();
+        var oportunidadesAbiertas = abiertas.Count;
+        var valorPipeline = abiertas.Sum(o => o.Valor);
 
         return new GestorKpisDto(prospectos, contactados, calificados, oportunidadesAbiertas, valorPipeline);
     }
@@ -267,57 +281,59 @@ public sealed class GestorContactosService : IGestorContactosService
 
     public async Task<IReadOnlyList<OportunidadDto>> ListOportunidadesAsync(CancellationToken cancellationToken = default)
     {
-        var rows = await _db.Oportunidades.AsNoTracking()
-            .OrderBy(o => o.Etapa).ThenBy(o => o.SortOrder).ThenByDescending(o => o.Valor)
-            .Select(o => new
-            {
-                o.Id,
-                o.TerceroId,
-                TerceroNombre = o.Tercero!.Nombre,
-                o.Nombre,
-                o.Etapa,
-                o.Valor,
-                o.Responsable,
-                o.Probabilidad,
-                o.FechaCierre,
-                o.Fuente,
-                o.Descripcion
-            })
-            .ToListAsync(cancellationToken);
-        return rows.Select(o => new OportunidadDto(
-            o.Id, o.TerceroId, o.TerceroNombre, o.Nombre, o.Etapa, o.Valor, o.Responsable,
-            o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion)).ToList();
+        var rows = await QueryOportunidadesRows(_db.Oportunidades.AsNoTracking(), cancellationToken);
+        // Orden: por SortOrder de la etapa configurable cuando existe, si no cae al enum heredado.
+        return rows
+            .OrderBy(o => o.EstadoSort ?? (int)o.Etapa)
+            .ThenBy(o => o.SortOrder)
+            .ThenByDescending(o => o.Valor)
+            .Select(ToDtoFromRow).ToList();
     }
 
     public async Task<IReadOnlyList<OportunidadDto>> ListOportunidadesByTerceroAsync(
         Guid terceroId, CancellationToken cancellationToken = default)
     {
-        var rows = await _db.Oportunidades.AsNoTracking()
-            .Where(o => o.TerceroId == terceroId)
-            .Select(o => new
-            {
-                o.Id,
-                o.TerceroId,
-                TerceroNombre = o.Tercero!.Nombre,
-                o.Nombre,
-                o.Etapa,
-                o.Valor,
-                o.Responsable,
-                o.Probabilidad,
-                o.FechaCierre,
-                o.Fuente,
-                o.Descripcion
-            })
-            .ToListAsync(cancellationToken);
-        // Abiertas primero (Nueva..Negociacion antes de Ganada/Perdida), luego por etapa.
+        var rows = await QueryOportunidadesRows(
+            _db.Oportunidades.AsNoTracking().Where(o => o.TerceroId == terceroId), cancellationToken);
+        // Abiertas primero (por EstadoTipo cuando existe; si no, por el enum heredado), luego por orden de etapa.
         return rows
-            .OrderBy(o => o.Etapa == OportunidadEtapa.Ganada || o.Etapa == OportunidadEtapa.Perdida ? 1 : 0)
-            .ThenBy(o => o.Etapa)
+            .OrderBy(o => IsClosedRow(o) ? 1 : 0)
+            .ThenBy(o => o.EstadoSort ?? (int)o.Etapa)
             .ThenByDescending(o => o.Valor)
-            .Select(o => new OportunidadDto(
-                o.Id, o.TerceroId, o.TerceroNombre, o.Nombre, o.Etapa, o.Valor, o.Responsable,
-                o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion)).ToList();
+            .Select(ToDtoFromRow).ToList();
     }
+
+    // LEFT JOIN Oportunidades -> OportunidadEstados via la navegacion Estado (nullable en transicion:
+    // EF genera el LEFT JOIN y los accesos protegidos por o.Estado != null caen a null si no hay etapa).
+    private static async Task<List<OportunidadRow>> QueryOportunidadesRows(
+        IQueryable<Oportunidad> source, CancellationToken cancellationToken)
+        => await source
+            .Select(o => new OportunidadRow(
+                o.Id, o.TerceroId, o.Tercero!.Nombre, o.Nombre, o.Etapa, o.Valor, o.Responsable,
+                o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion, o.SortOrder,
+                o.EstadoId,
+                o.Estado != null ? o.Estado.Name : null,
+                o.Estado != null ? o.Estado.Color : null,
+                o.Estado != null ? (OportunidadEstadoTipo?)o.Estado.Tipo : null,
+                o.Estado != null ? (int?)o.Estado.SortOrder : null))
+            .ToListAsync(cancellationToken);
+
+    private static bool IsClosedRow(OportunidadRow o)
+        => o.EstadoTipo is OportunidadEstadoTipo tipo
+            ? tipo != OportunidadEstadoTipo.Abierta
+            : o.Etapa == OportunidadEtapa.Ganada || o.Etapa == OportunidadEtapa.Perdida;
+
+    private static OportunidadDto ToDtoFromRow(OportunidadRow o) => new(
+        o.Id, o.TerceroId, o.TerceroNombre, o.Nombre, o.Etapa, o.Valor, o.Responsable,
+        o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion,
+        o.EstadoId, o.EstadoNombre, o.EstadoColor, o.EstadoTipo);
+
+    private sealed record OportunidadRow(
+        Guid Id, Guid TerceroId, string TerceroNombre, string Nombre, OportunidadEtapa Etapa,
+        decimal Valor, string? Responsable, int Probabilidad, DateTimeOffset? FechaCierre,
+        string? Fuente, string? Descripcion, int SortOrder,
+        Guid? EstadoId, string? EstadoNombre, string? EstadoColor, OportunidadEstadoTipo? EstadoTipo,
+        int? EstadoSort);
 
     public async Task<TerceroResult<OportunidadDto>> CreateOportunidadAsync(
         Guid terceroId, SaveOportunidadRequest req, CancellationToken cancellationToken = default)
@@ -346,9 +362,22 @@ public sealed class GestorContactosService : IGestorContactosService
             SortOrder = sortOrder
         };
         ApplyOportunidad(entity, req);
+
+        // Etapa CONFIGURABLE (000740): la nueva oportunidad nace en la primera etapa no archivada del
+        // pipeline. Se garantiza que exista al menos una sembrando los defaults si el tenant no tiene.
+        await _estados.EnsureDefaultsAsync(cancellationToken);
+        var primerEstado = await _db.OportunidadEstados.AsNoTracking()
+            .Where(e => !e.IsArchived)
+            .OrderBy(e => e.SortOrder)
+            .Select(e => new { e.Id, e.Name, e.Color, e.Tipo })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (primerEstado is not null) { entity.EstadoId = primerEstado.Id; }
+
         _db.Oportunidades.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
-        return TerceroResult<OportunidadDto>.Ok(ToDto(entity, tercero.Nombre));
+        return TerceroResult<OportunidadDto>.Ok(ToDto(
+            entity, tercero.Nombre,
+            primerEstado?.Name, primerEstado?.Color, primerEstado?.Tipo));
     }
 
     public async Task<TerceroResult<OportunidadDto>> UpdateOportunidadAsync(
@@ -369,7 +398,12 @@ public sealed class GestorContactosService : IGestorContactosService
 
         var nombre = await _db.Terceros.AsNoTracking()
             .Where(t => t.Id == entity.TerceroId).Select(t => t.Nombre).FirstOrDefaultAsync(cancellationToken);
-        return TerceroResult<OportunidadDto>.Ok(ToDto(entity, nombre ?? string.Empty));
+        var estado = entity.EstadoId is Guid eid
+            ? await _db.OportunidadEstados.AsNoTracking()
+                .Where(e => e.Id == eid).Select(e => new { e.Name, e.Color, e.Tipo }).FirstOrDefaultAsync(cancellationToken)
+            : null;
+        return TerceroResult<OportunidadDto>.Ok(ToDto(
+            entity, nombre ?? string.Empty, estado?.Name, estado?.Color, estado?.Tipo));
     }
 
     public async Task<TerceroResult<bool>> MoverEtapaAsync(
@@ -381,6 +415,31 @@ public sealed class GestorContactosService : IGestorContactosService
             return TerceroResult<bool>.NotFound("La oportunidad no existe.");
         }
         entity.Etapa = etapa;
+        await _db.SaveChangesAsync(cancellationToken);
+        return TerceroResult<bool>.Ok(true);
+    }
+
+    public async Task<TerceroResult<bool>> MoverEstadoAsync(
+        Guid id, Guid estadoId, CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Oportunidades.FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+        if (entity is null)
+        {
+            return TerceroResult<bool>.NotFound("La oportunidad no existe.");
+        }
+        // La etapa destino debe existir para el tenant (filtro global aplica el aislamiento).
+        var estado = await _db.OportunidadEstados.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Id == estadoId, cancellationToken);
+        if (estado is null)
+        {
+            return TerceroResult<bool>.NotFound("La etapa destino no existe.");
+        }
+        entity.EstadoId = estadoId;
+        // Mantiene el enum heredado alineado por si algun consumidor aun lo lee: mapea por SortOrder.
+        if (Enum.IsDefined(typeof(OportunidadEtapa), estado.SortOrder))
+        {
+            entity.Etapa = (OportunidadEtapa)estado.SortOrder;
+        }
         await _db.SaveChangesAsync(cancellationToken);
         return TerceroResult<bool>.Ok(true);
     }
@@ -685,9 +744,12 @@ public sealed class GestorContactosService : IGestorContactosService
         return null;
     }
 
-    private static OportunidadDto ToDto(Oportunidad o, string terceroNombre) => new(
+    private static OportunidadDto ToDto(
+        Oportunidad o, string terceroNombre,
+        string? estadoNombre = null, string? estadoColor = null, OportunidadEstadoTipo? estadoTipo = null) => new(
         o.Id, o.TerceroId, terceroNombre, o.Nombre, o.Etapa, o.Valor, o.Responsable,
-        o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion);
+        o.Probabilidad, o.FechaCierre, o.Fuente, o.Descripcion,
+        o.EstadoId, estadoNombre, estadoColor, estadoTipo);
 
     private static void ApplyCita(Cita entity, SaveCitaRequest req, string titulo)
     {

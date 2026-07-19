@@ -7,9 +7,11 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Gestor
 @using Ecorex.Application.Directorio
+@using Ecorex.Application.Crm
 @using Ecorex.Domain.Enums
 @inject IGestorContactosService GestorSvc
 @inject ITerceroService TerceroSvc
+@inject IOportunidadEstadoService EstadosSvc
 
 <PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
 
@@ -323,7 +325,7 @@
                     <div class="gc-panel-head">
                         <div>
                             <div class="gc-panel-title">Pipeline de oportunidades</div>
-                            <div class="gc-panel-sub">Agrupadas por cliente &#183; <b style="color:var(--t-green)">@Money(NegociacionTotal)</b> en negociacion</div>
+                            <div class="gc-panel-sub">Agrupadas por cliente &#183; <b style="color:var(--t-green)">@Money(PipelineAbierto)</b> en pipeline abierto</div>
                         </div>
                         <div class="gc-panel-actions">
                             <div class="gc-toggle">
@@ -358,17 +360,28 @@
                             @foreach (var o in _oportunidades)
                             {
                                 var oo = o;
-                                var oi = EtapaInfo(oo.Etapa);
-                                <div class="gc-tbl-row gc-opp-grid" style="border-left:3px solid @ColorVar(oi.Color)">
+                                var chip = OppChip(oo);
+                                <div class="gc-tbl-row gc-opp-grid" style="border-left:3px solid @OppBorder(oo)">
                                     <div class="gc-cell gc-cell-strong">@oo.Nombre</div>
                                     <div class="gc-cell">@oo.TerceroNombre</div>
                                     <div class="gc-cell">
-                                        <select class="gc-input xs" style="background:var(@oi.Bg);color:var(@oi.Color)" value="@oo.Etapa" @onchange="e => MoverEtapaAsync(oo.Id, Enum.Parse<OportunidadEtapa>(e.Value!.ToString()!))">
-                                            @foreach (var et in EtapasBoard)
-                                            {
-                                                <option value="@et">@EtapaLabel(et)</option>
-                                            }
-                                        </select>
+                                        @if (_estados.Count > 0)
+                                        {
+                                            <select class="gc-input xs" style="background:@chip.Bg;color:@chip.Fg" value="@(oo.EstadoId?.ToString() ?? "")" @onchange="e => MoverEstadoAsync(oo.Id, e.Value)">
+                                                @if (oo.EstadoId is null)
+                                                {
+                                                    <option value="">-- etapa --</option>
+                                                }
+                                                @foreach (var es in _estados)
+                                                {
+                                                    <option value="@es.Id">@es.Name</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <span class="gc-etapa" style="background:@chip.Bg;color:@chip.Fg">@OppEstadoLabel(oo)</span>
+                                        }
                                     </div>
                                     @if (_oppShowValor) { <div class="gc-cell gc-money">@Money(oo.Valor)</div> }
                                     @if (_oppShowResp) { <div class="gc-cell">@(string.IsNullOrWhiteSpace(oo.Responsable) ? "-" : oo.Responsable)</div> }
@@ -408,12 +421,12 @@
                                             <svg class="gc-opp-group-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
                                         </div>
                                         <div class="gc-opp-group-body">
-                                            @foreach (var o in gg.OrderBy(o => o.Etapa))
+                                            @foreach (var o in gg)
                                             {
                                                 var oo = o;
-                                                var oi = EtapaInfo(oo.Etapa);
+                                                var chip = OppChip(oo);
                                                 <div class="gc-opp-line">
-                                                    <span class="gc-etapa" style="background:var(@oi.Bg);color:var(@oi.Color)">@EtapaLabel(oo.Etapa)</span>
+                                                    <span class="gc-etapa" style="background:@chip.Bg;color:@chip.Fg">@OppEstadoLabel(oo)</span>
                                                     <span class="gc-opp-line-name">@oo.Nombre</span>
                                                     @if (oo.Valor > 0) { <span class="gc-money">@Money(oo.Valor)</span> }
                                                     <button class="gc-icon-btn del" title="Eliminar" @onclick="() => DeleteOportunidadAsync(oo.Id)" @onclick:stopPropagation="true" disabled="@_busy">
@@ -797,6 +810,7 @@
     private List<BolsaColumnaDto> _columnas = new();
     private List<BolsaTerceroDto> _bolsa = new();
     private List<OportunidadDto> _oportunidades = new();
+    private List<OportunidadEstadoDto> _estados = new();
     private List<CitaDto> _citas = new();
     private List<ProspectoDto> _prospectos = new();
 
@@ -824,6 +838,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Etapas CONFIGURABLES del pipeline (000740): garantiza los defaults y las carga para
+        // pintar las columnas/selectores. Un contacto y su pipeline viven en el mismo tenant.
+        await EstadosSvc.EnsureDefaultsAsync();
+        _estados = (await EstadosSvc.ListAsync()).ToList();
         await ReloadAllAsync();
         _loading = false;
     }
@@ -879,16 +897,48 @@
     }
 
     // ================= OPORTUNIDADES =================
-    private decimal NegociacionTotal => _oportunidades.Where(o => o.Etapa == OportunidadEtapa.Negociacion).Sum(o => o.Valor);
+    // Abierta = etapa configurable con Tipo Abierta cuando existe; si la oportunidad aun no tiene
+    // etapa configurable (EstadoTipo null), cae al enum heredado (no Ganada/Perdida).
+    private static bool IsOpen(OportunidadDto o) => o.EstadoTipo is OportunidadEstadoTipo tipo
+        ? tipo == OportunidadEstadoTipo.Abierta
+        : o.Etapa != OportunidadEtapa.Ganada && o.Etapa != OportunidadEtapa.Perdida;
 
-    private async Task MoverEtapaAsync(Guid id, OportunidadEtapa etapa)
+    private decimal PipelineAbierto => _oportunidades.Where(IsOpen).Sum(o => o.Valor);
+
+    private async Task MoverEstadoAsync(Guid id, object? value)
     {
-        var res = await GestorSvc.MoverEtapaAsync(id, etapa);
+        if (!Guid.TryParse(value?.ToString(), out var estadoId)) { return; }
+        var res = await GestorSvc.MoverEstadoAsync(id, estadoId);
         if (res.IsOk)
         {
             _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
             _kpis = await GestorSvc.GetKpisAsync();
         }
+    }
+
+    // Etiqueta de la etapa: nombre de la etapa configurable cuando existe; si no, el enum heredado.
+    private static string OppEstadoLabel(OportunidadDto o)
+        => string.IsNullOrWhiteSpace(o.EstadoNombre) ? EtapaLabel(o.Etapa) : o.EstadoNombre!;
+
+    // Chip (fondo/texto) de la etapa: usa el color de la etapa configurable; si no, el del enum.
+    private static (string Bg, string Fg) OppChip(OportunidadDto o)
+    {
+        if (!string.IsNullOrWhiteSpace(o.EstadoColor))
+        {
+            var c = o.EstadoColor!.Trim();
+            if (c.StartsWith("--t-")) { return ($"var({c}-bg)", $"var({c})"); }
+            if (c.StartsWith("--")) { return ("var(--surface-3)", $"var({c})"); }
+            return ("var(--surface-3)", c); // hex u otro
+        }
+        var oi = EtapaInfo(o.Etapa);
+        return ($"var({oi.Bg})", $"var({oi.Color})");
+    }
+
+    // Color del borde izquierdo de la fila (tabla).
+    private static string OppBorder(OportunidadDto o)
+    {
+        if (!string.IsNullOrWhiteSpace(o.EstadoColor)) { return ColorOf(o.EstadoColor); }
+        return ColorVar(EtapaInfo(o.Etapa).Color);
     }
 
     private async Task DeleteOportunidadAsync(Guid id)

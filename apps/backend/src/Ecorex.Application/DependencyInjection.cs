@@ -123,6 +123,9 @@ public static class DependencyInjection
         // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
         // grupos, subgrupos, tipos) + items con stock por bodega e imagenes por URL.
         services.AddScoped<Crm.IConceptoActividadService, Crm.ConceptoActividadService>();
+        // Etapas configurables del pipeline de oportunidades del CRM (000740): catalogo por tenant
+        // (nombre/orden/color/tipo) que reemplaza el enum fijo OportunidadEtapa; seed + backfill.
+        services.AddScoped<Crm.IOportunidadEstadoService, Crm.OportunidadEstadoService>();
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.

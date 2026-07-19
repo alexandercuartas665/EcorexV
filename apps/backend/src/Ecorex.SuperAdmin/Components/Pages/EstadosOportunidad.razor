@@ -1,0 +1,238 @@
+@page "/estados-oportunidad"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Crm
+@using Ecorex.Domain.Enums
+@inject IOportunidadEstadoService EstadosSvc
+
+@* Estados de oportunidad del CRM (000740): catalogo CONFIGURABLE por tenant de las etapas del
+   pipeline de oportunidades (nombre, orden, color, tipo Abierta/Ganada/Perdida). Reemplaza el
+   enum fijo OportunidadEtapa. Al iniciar siembra los 6 defaults si el tenant no tiene ninguno. *@
+
+<PageTitle>Estados de oportunidad - ECOREX.tareas</PageTitle>
+
+<div class="page-header">
+    <div>
+        <div class="eo-eyebrow">CATALOGO 000740 &#183; CRM</div>
+        <h1 class="page-title" style="margin-top:6px;">Estados de oportunidad</h1>
+        <p class="page-sub" style="margin-bottom:0;">Etapas configurables del pipeline de oportunidades: orden, color y tipo (abierta, ganada o perdida).</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenNew">+ Nueva etapa</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="ca-kpis">
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count(e => !e.IsArchived)</span><span class="ca-kpi-l">Etapas activas</span></div>
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count(e => e.Tipo == OportunidadEstadoTipo.Abierta && !e.IsArchived)</span><span class="ca-kpi-l">Abiertas</span></div>
+        <div class="ca-kpi"><span class="ca-kpi-n">@_items.Count(e => e.Tipo != OportunidadEstadoTipo.Abierta && !e.IsArchived)</span><span class="ca-kpi-l">Cierre (ganada/perdida)</span></div>
+    </div>
+
+    @if (_error is not null) { <div class="text-danger small" style="margin-bottom:10px;">@_error</div> }
+
+    <div class="eo-list">
+        @if (Activos.Count == 0)
+        {
+            <p class="text-muted">Aun no hay etapas. Usa "+ Nueva etapa" para crear la primera.</p>
+        }
+        @for (var i = 0; i < Activos.Count; i++)
+        {
+            var e = Activos[i];
+            var idx = i;
+            <div class="eo-row">
+                <span class="eo-dot" style="background:@ColorOf(e.Color)"></span>
+                <div class="eo-main">
+                    <div class="eo-name">@e.Name</div>
+                    <div class="eo-meta">
+                        <span class="eo-tipo eo-tipo-@e.Tipo.ToString().ToLowerInvariant()">@TipoLabel(e.Tipo)</span>
+                        <span class="eo-ord">Orden @e.SortOrder</span>
+                    </div>
+                </div>
+                <div class="eo-actions">
+                    <button class="btn btn-sm btn-outline-secondary" title="Subir" @onclick="() => MoveAsync(idx, -1)" disabled="@(_busy || idx == 0)">&#8593;</button>
+                    <button class="btn btn-sm btn-outline-secondary" title="Bajar" @onclick="() => MoveAsync(idx, 1)" disabled="@(_busy || idx == Activos.Count - 1)">&#8595;</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(e)">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => SetArchivedAsync(e, true)" disabled="@_busy">Archivar</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (Archivados.Count > 0)
+    {
+        <div class="eo-arch-head">Archivadas</div>
+        <div class="eo-list">
+            @foreach (var e in Archivados)
+            {
+                var ee = e;
+                <div class="eo-row eo-arch">
+                    <span class="eo-dot" style="background:@ColorOf(ee.Color)"></span>
+                    <div class="eo-main"><div class="eo-name">@ee.Name</div><div class="eo-meta"><span class="eo-tipo">@TipoLabel(ee.Tipo)</span></div></div>
+                    <div class="eo-actions">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => SetArchivedAsync(ee, false)" disabled="@_busy">Restaurar</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@* ===== Modal: nueva / editar etapa ===== *@
+@if (_editOpen)
+{
+    <div class="modal-overlay" @onclick="() => _editOpen = false">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editingId is null ? "Nueva etapa" : "Editar etapa")</h3>
+                <button class="modal-close" @onclick="() => _editOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" maxlength="80" placeholder="Ej. Propuesta enviada" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Color</label>
+                    <div class="eo-swatches">
+                        @foreach (var c in Swatches)
+                        {
+                            var cv = c;
+                            <button type="button" class="eo-swatch @(_fColor == cv ? "sel" : "")" style="background:@ColorOf(cv)"
+                                    title="@cv" @onclick="() => _fColor = cv"></button>
+                        }
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Tipo</label>
+                    <select class="form-control" @bind="_fTipo">
+                        <option value="@OportunidadEstadoTipo.Abierta">Abierta (cuenta para el pipeline)</option>
+                        <option value="@OportunidadEstadoTipo.Ganada">Ganada (cerrada con exito)</option>
+                        <option value="@OportunidadEstadoTipo.Perdida">Perdida (cerrada sin exito)</option>
+                    </select>
+                </div>
+                @if (_modalError is not null) { <div class="text-danger small">@_modalError</div> }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _editOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private List<OportunidadEstadoDto> _items = new();
+
+    private bool _editOpen;
+    private Guid? _editingId;
+    private string? _modalError;
+    private string _fName = "";
+    private string _fColor = "--t-slate";
+    private OportunidadEstadoTipo _fTipo = OportunidadEstadoTipo.Abierta;
+
+    private static readonly string[] Swatches =
+        { "--t-slate", "--t-blue", "--t-violet", "--t-amber", "--t-green", "--t-rose", "--t-teal" };
+
+    // Etapas activas (ordenadas por el pipeline) y archivadas, derivadas de la lista cargada.
+    private List<OportunidadEstadoDto> Activos => _items.Where(e => !e.IsArchived).OrderBy(e => e.SortOrder).ToList();
+    private List<OportunidadEstadoDto> Archivados => _items.Where(e => e.IsArchived).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await EstadosSvc.EnsureDefaultsAsync();
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync() => _items = (await EstadosSvc.ListAsync(includeArchived: true)).ToList();
+
+    private void OpenNew()
+    {
+        _modalError = null;
+        _editingId = null;
+        _fName = "";
+        _fColor = "--t-slate";
+        _fTipo = OportunidadEstadoTipo.Abierta;
+        _editOpen = true;
+    }
+
+    private void OpenEdit(OportunidadEstadoDto e)
+    {
+        _modalError = null;
+        _editingId = e.Id;
+        _fName = e.Name;
+        _fColor = e.Color;
+        _fTipo = e.Tipo;
+        _editOpen = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _modalError = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveOportunidadEstadoRequest(_fName ?? "", _fColor, _fTipo);
+            var res = _editingId is Guid id
+                ? await EstadosSvc.UpdateAsync(id, req)
+                : await EstadosSvc.CreateAsync(req);
+            if (!res.Ok) { _modalError = res.Error; return; }
+            _editOpen = false;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SetArchivedAsync(OportunidadEstadoDto e, bool archived)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await EstadosSvc.SetArchivedAsync(e.Id, archived);
+            if (!res.Ok) { _error = res.Error; return; }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    // Reordena moviendo la etapa activa idx en la direccion dir (-1 arriba, +1 abajo).
+    private async Task MoveAsync(int idx, int dir)
+    {
+        _error = null;
+        var activos = _items.Where(e => !e.IsArchived).OrderBy(e => e.SortOrder).ToList();
+        var target = idx + dir;
+        if (target < 0 || target >= activos.Count) { return; }
+        (activos[idx], activos[target]) = (activos[target], activos[idx]);
+        _busy = true;
+        try
+        {
+            var res = await EstadosSvc.ReorderAsync(activos.Select(e => e.Id).ToList());
+            if (!res.Ok) { _error = res.Error; return; }
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private static string TipoLabel(OportunidadEstadoTipo t) => t switch
+    {
+        OportunidadEstadoTipo.Ganada => "Ganada",
+        OportunidadEstadoTipo.Perdida => "Perdida",
+        _ => "Abierta"
+    };
+
+    // Color: token CSS (--t-...) -> var(--t-...); hex u otro -> tal cual.
+    private static string ColorOf(string? color)
+    {
+        if (string.IsNullOrWhiteSpace(color)) { return "var(--ink-3)"; }
+        var c = color.Trim();
+        return c.StartsWith("--") ? $"var({c})" : c;
+    }
+}

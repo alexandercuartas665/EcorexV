@@ -51,6 +51,10 @@ public interface IGestorContactosService
     Task<TerceroResult<bool>> MoverEtapaAsync(
         Guid id, OportunidadEtapa etapa, CancellationToken cancellationToken = default);
 
+    /// <summary>Mueve la oportunidad a una etapa CONFIGURABLE del pipeline (000740) por FK.</summary>
+    Task<TerceroResult<bool>> MoverEstadoAsync(
+        Guid id, Guid estadoId, CancellationToken cancellationToken = default);
+
     Task<TerceroResult<bool>> DeleteOportunidadAsync(Guid id, CancellationToken cancellationToken = default);
 
     // ---- Citas / Agenda ----

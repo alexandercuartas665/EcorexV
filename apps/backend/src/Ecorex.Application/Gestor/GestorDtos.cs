@@ -47,7 +47,9 @@ public sealed record BolsaTerceroDto(
     int OportunidadesAbiertas,
     decimal Valor);
 
-/// <summary>Oportunidad de negocio (kanban por etapa y panel de la ficha del cliente).</summary>
+/// <summary>Oportunidad de negocio (kanban por etapa y panel de la ficha del cliente).
+/// La etapa CONFIGURABLE (EstadoId/EstadoNombre/EstadoColor/EstadoTipo) es opcional durante la
+/// transicion; cuando es null la UI cae al enum heredado <see cref="OportunidadEtapa"/> Etapa.</summary>
 public sealed record OportunidadDto(
     Guid Id,
     Guid TerceroId,
@@ -59,7 +61,11 @@ public sealed record OportunidadDto(
     int Probabilidad,
     DateTimeOffset? FechaCierre,
     string? Fuente,
-    string? Descripcion);
+    string? Descripcion,
+    Guid? EstadoId = null,
+    string? EstadoNombre = null,
+    string? EstadoColor = null,
+    OportunidadEstadoTipo? EstadoTipo = null);
 
 /// <summary>Alta/edicion de una oportunidad.</summary>
 public sealed record SaveOportunidadRequest(

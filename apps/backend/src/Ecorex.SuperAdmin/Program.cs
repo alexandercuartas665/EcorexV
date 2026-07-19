@@ -448,6 +448,31 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CRM_CONCEPTOS"
     }
 }
 
+// Siembra + backfill de las etapas CONFIGURABLES del pipeline de oportunidades (000740) en cada
+// tenant de negocio (ECOREX_SEED_OPP_ESTADOS=true). Idempotente: EnsureDefaultsAsync solo siembra si
+// el tenant no tiene ninguna etapa; BackfillAsync rellena EstadoId (por SortOrder == (int)Etapa) en
+// las oportunidades que aun lo tienen null. El servicio lee el tenant del ambient.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_OPP_ESTADOS"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var estadosSvc = scope.ServiceProvider
+        .GetRequiredService<Ecorex.Application.Crm.IOportunidadEstadoService>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        using (AmbientTenantContext.Begin(t.Id))
+        {
+            await estadosSvc.EnsureDefaultsAsync();
+            await estadosSvc.BackfillAsync();
+        }
+        app.Logger.LogWarning("[opp-estados-seed] etapas del pipeline sembradas + backfill en tenant {Name}", t.Name);
+    }
+}
+
 app.UseHttpsRedirection();
 // Sirve archivos subidos en tiempo de ejecucion (logos de agencias en wwwroot/uploads).
 app.UseStaticFiles();

@@ -1,0 +1,33 @@
+.eo-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .12em; color: var(--ink-3, #A2A2AC); }
+
+.ca-kpis { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.ca-kpi {
+    display: flex; flex-direction: column; gap: 2px; padding: 12px 18px; min-width: 140px;
+    background: var(--surface, #FFFFFF); border: 1px solid var(--line, rgba(20,20,25,.07)); border-radius: 14px;
+}
+.ca-kpi-n { font-size: 22px; font-weight: 800; color: var(--ink, #1B1B1E); }
+.ca-kpi-l { font-size: 12px; color: var(--ink-3, #A2A2AC); }
+
+.eo-list { max-width: 720px; display: flex; flex-direction: column; gap: 8px; }
+.eo-row {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    background: var(--surface, #FFFFFF); border: 1px solid var(--line, rgba(20,20,25,.07)); border-radius: 12px;
+}
+.eo-row.eo-arch { opacity: .6; }
+.eo-dot { width: 12px; height: 12px; border-radius: 999px; flex: none; }
+.eo-main { flex: 1; min-width: 0; }
+.eo-name { font-weight: 600; font-size: 14px; color: var(--ink, #1B1B1E); }
+.eo-meta { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+.eo-tipo { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-3, #F2F2F3); color: var(--ink-2, #5C5C66); }
+.eo-tipo-abierta { background: var(--t-blue-bg, #E8F0FE); color: var(--t-blue, #2563EB); }
+.eo-tipo-ganada { background: var(--t-green-bg, #E7F6EC); color: var(--t-green, #16A34A); }
+.eo-tipo-perdida { background: var(--t-rose-bg, #FCE9EE); color: var(--t-rose, #E11D48); }
+.eo-ord { font-size: 11px; color: var(--ink-3, #A2A2AC); }
+.eo-actions { display: flex; gap: 6px; white-space: nowrap; }
+.eo-arch-head { margin: 20px 0 8px; font-size: 12px; font-weight: 700; color: var(--ink-3, #A2A2AC); }
+
+.eo-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.eo-swatch {
+    width: 26px; height: 26px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; padding: 0;
+}
+.eo-swatch.sel { border-color: var(--ink, #1B1B1E); box-shadow: 0 0 0 2px var(--surface, #FFFFFF) inset; }

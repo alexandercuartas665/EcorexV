@@ -168,6 +168,7 @@ public interface IApplicationDbContext
     // citas/agenda, filtros dinamicos guardados y prospectos scrapeados (demo).
     DbSet<BolsaColumna> BolsaColumnas { get; }
     DbSet<Oportunidad> Oportunidades { get; }
+    DbSet<OportunidadEstado> OportunidadEstados { get; }
     DbSet<Cita> Citas { get; }
     DbSet<TerceroFiltro> TerceroFiltros { get; }
     DbSet<ProspectoScrapeado> ProspectosScrapeados { get; }

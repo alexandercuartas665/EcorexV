@@ -208,6 +208,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // ---- Gestor de Clientes (000740) ----
     public DbSet<BolsaColumna> BolsaColumnas => Set<BolsaColumna>();
     public DbSet<Oportunidad> Oportunidades => Set<Oportunidad>();
+    public DbSet<OportunidadEstado> OportunidadEstados => Set<OportunidadEstado>();
     public DbSet<Cita> Citas => Set<Cita>();
     public DbSet<TerceroFiltro> TerceroFiltros => Set<TerceroFiltro>();
     public DbSet<ProspectoScrapeado> ProspectosScrapeados => Set<ProspectoScrapeado>();
@@ -271,6 +272,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<NotificationKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DofaQuadrant>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<OportunidadEstadoTipo>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
@@ -1742,6 +1744,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
             b.HasIndex(x => new { x.TenantId, x.Etapa, x.SortOrder });
+            // Pipeline configurable (000740): FK a la etapa configurable. NO ACTION (archivar/reasignar
+            // la etapa es responsabilidad del servicio; no se borra en cascada la oportunidad).
+            b.HasOne(x => x.Estado).WithMany()
+                .HasForeignKey(x => x.EstadoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.EstadoId, x.SortOrder });
+        });
+
+        modelBuilder.Entity<OportunidadEstado>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(40).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });
 
         modelBuilder.Entity<Cita>(b =>

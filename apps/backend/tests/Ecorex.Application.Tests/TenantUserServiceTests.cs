@@ -191,6 +191,7 @@ public class TenantUserServiceTests
         public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => throw new NotSupportedException();
         public DbSet<BolsaColumna> BolsaColumnas => throw new NotSupportedException();
         public DbSet<Oportunidad> Oportunidades => throw new NotSupportedException();
+        public DbSet<OportunidadEstado> OportunidadEstados => throw new NotSupportedException();
         public DbSet<Cita> Citas => throw new NotSupportedException();
         public DbSet<TerceroFiltro> TerceroFiltros => throw new NotSupportedException();
         public DbSet<ProspectoScrapeado> ProspectosScrapeados => throw new NotSupportedException();

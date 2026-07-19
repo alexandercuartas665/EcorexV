@@ -17,7 +17,16 @@ public class Oportunidad : TenantEntity
 
     public string Nombre { get; set; } = null!;
 
+    /// <summary>
+    /// Etapa fija heredada. En transicion a <see cref="EstadoId"/> (pipeline configurable, 000740):
+    /// se conserva como respaldo/compatibilidad y fuente del backfill inicial.
+    /// </summary>
     public OportunidadEtapa Etapa { get; set; } = OportunidadEtapa.Nueva;
+
+    /// <summary>Etapa CONFIGURABLE del pipeline (000740). FK a <see cref="OportunidadEstado"/>.
+    /// Nullable durante la transicion; el seed/backfill la rellena y las nuevas oportunidades la fijan.</summary>
+    public Guid? EstadoId { get; set; }
+    public OportunidadEstado? Estado { get; set; }
 
     /// <summary>Valor estimado del negocio.</summary>
     public decimal Valor { get; set; }

@@ -5289,6 +5289,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("descripcion");
 
+                    b.Property<Guid?>("EstadoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("estado_id");
+
                     b.Property<string>("Etapa")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -5346,16 +5350,84 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_oportunidades");
 
+                    b.HasIndex("EstadoId")
+                        .HasDatabaseName("ix_oportunidades_estado_id");
+
                     b.HasIndex("TerceroId")
                         .HasDatabaseName("ix_oportunidades_tercero_id");
 
                     b.HasIndex("TenantId", "TerceroId")
                         .HasDatabaseName("ix_oportunidades_tenant_id_tercero_id");
 
+                    b.HasIndex("TenantId", "EstadoId", "SortOrder")
+                        .HasDatabaseName("ix_oportunidades_tenant_id_estado_id_sort_order");
+
                     b.HasIndex("TenantId", "Etapa", "SortOrder")
                         .HasDatabaseName("ix_oportunidades_tenant_id_etapa_sort_order");
 
                     b.ToTable("oportunidades", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.OportunidadEstado", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_archived");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("tipo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_oportunidad_estados");
+
+                    b.HasIndex("TenantId", "SortOrder")
+                        .HasDatabaseName("ix_oportunidad_estados_tenant_id_sort_order");
+
+                    b.ToTable("oportunidad_estados", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.OrgUnit", b =>
@@ -11778,12 +11850,20 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Oportunidad", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.OportunidadEstado", "Estado")
+                        .WithMany()
+                        .HasForeignKey("EstadoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_oportunidades_oportunidad_estados_estado_id");
+
                     b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
                         .WithMany()
                         .HasForeignKey("TerceroId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_oportunidades_terceros_tercero_id");
+
+                    b.Navigation("Estado");
 
                     b.Navigation("Tercero");
                 });

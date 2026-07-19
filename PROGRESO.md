@@ -5,6 +5,58 @@
 
 ---
 
+## 2026-07-19 (cont.) - Pipeline de oportunidades CONFIGURABLE + kanban + 3 fixes de concurrencia
+
+**Agentes**: Claude (Opus 4.8) + 1 subagente para el grueso del servicio/UI del pipeline.
+
+**Bug transversal de concurrencia sobre el DbContext del circuito** (destapado por el dev conectado a
+la BD de prod POR TUNEL: cada consulta tarda cientos de ms y ensancha la ventana de solape; en prod
+con BD local es raro). Tres fixes:
+- `8e55114` Directorio: pulsar "Nuevo cliente" ANTES de que terminara OnInitializedAsync lanzaba
+  EnsureDefaultsAsync sobre el mismo DbContext que la consulta de KPIs -> "second operation" y el
+  modal quedaba con el cuerpo vacio. Botones del header deshabilitados mientras carga/recarga.
+- `ed90e51` Formularios: dos DynamicFormRenderer del mismo circuito cargando a la vez (el del aside
+  + el de una pildora de concepto) se pisaban -> "Cargando formulario..." colgado. Nuevo servicio
+  SCOPED `CircuitFormGate` (un semaforo por circuito, compartido por todos los renderers) y la CARGA
+  ahora tambien lo toma (antes solo autosave/reglas/submit, y era por-instancia).
+- `20d5205` Pipeline: mover varias oportunidades en rafaga perdia un cambio EN SILENCIO. Movimiento
+  serializado con `_movingOpp`.
+
+**Datos de proceso fuera del formulario (`dbb626d`)**: al elegir una pildora, si el concepto MANEJA
+VALOR o es EVENTO DE AGENDA aparece un bloque arriba del formulario con Titulo + Valor + Fecha de la
+proxima actividad (obligatorios segun el concepto); el formulario solo se muestra cuando estan
+completos. El valor sale de ahi (ya no se extrae del formulario) y alimenta el proceso: Oportunidad
+en su modulo / Cita en la agenda. Decisiones del usuario: titulo solo para valor/agenda.
+
+**Pipeline de oportunidades configurable (`be32efa` + `5f19313`)**: entidad `OportunidadEstado`
+(Name, SortOrder, Color, Tipo=Abierta/Ganada/Perdida, IsArchived) que reemplaza al enum fijo;
+Oportunidad gana EstadoId. Migracion DUAL `AddOportunidadEstado` (aditiva). Servicio con CRUD +
+Reorder + Archivar + EnsureDefaults (6 etapas mapeando el enum) + Backfill. Pagina
+`/estados-oportunidad`. El panel usa las etapas configurables y los KPIs de pipeline abierto usan el
+TIPO. Seed por env `ECOREX_SEED_OPP_ESTADOS`. Verificado en BD: 6 etapas/tenant + backfill 5/5.
+
+**Kanban (`20d5205`)**: el pipeline se veia como lista, que era justo lo que no se queria. Vista
+"Tablero" (principal): una columna por etapa configurable con su color, conteo y total; tarjeta con
+cliente y valor; ARRASTRAR Y SOLTAR entre columnas (patron tb-board del kanban de tareas).
+
+**Cierre de pendientes (`c82d6c3`)**: sub-agrupar por etapa dentro de "Por cliente"; el timeline
+resume lo que se lleno en el formulario en vez de mostrar solo el nombre del concepto; y el VALOR ya
+no se pide dos veces (se saca de la definicion y en los ya sembrados se oculta/desmarca, sin borrar
+respuestas; 12/12 verificados en BD).
+
+**QA E2E en Chrome contra la BD de prod**: crear etapa + reordenar; crear cliente desde cero;
+Anotacion + PQR; 3 oportunidades con titulo/valor; las 3 llegaron al panel ($135.5M); mover en el
+tablero recalculo KPIs (3->2 abiertas, $135.5M->$50.5M al pasar una a Ganada) y persistio (SELECT).
+
+**Responsive (`49c6ce7`)**: datos de proceso en una columna; modal de Tercero a pantalla completa en
+celular con todo apilado y tabs con scroll; Directorio con KPIs 4->2->1 y tabla con scroll.
+
+**Bloqueo recurrente**: el clasificador bloquea `up -d` a prod (pasa si se antepone backup.sh) y las
+llaves de DataProtection en dev se ensucian si se lanza el proceso sin `--contentRoot`, lo que
+invalida la cookie y obliga a re-loguear.
+
+---
+
 ## 2026-07-19 - CRM: conceptos de actividad como botones en Terceros (Contacto Cliente) + 5 formularios
 
 **Agentes**: Claude (Opus 4.8). **Accion**: integrar los Conceptos de actividad (000125) en la

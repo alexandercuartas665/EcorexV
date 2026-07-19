@@ -39,6 +39,7 @@ public sealed class BrowserRunService(
     IAgentRegistry registry,
     IBrowserActionChannel channel,
     IServiceScopeFactory scopeFactory,
+    IAgentActivityLog activity,
     ILogger<BrowserRunService> log,
     TimeProvider? clock = null) : IBrowserRunService
 {
@@ -147,10 +148,16 @@ public sealed class BrowserRunService(
                         {
                             var target = aiStep.TargetContainerId ?? flow.ContainerId
                                 ?? throw new ScrapeCompileException($"El paso de IA '{aiStep.Name}' no tiene tabla destino.");
+                            var aiStarted = DateTimeOffset.UtcNow;
                             var outcome = await orchestrator.RunAsync(new AiStepContext(
                                 clientId, tenantId, aiStep.Instruction ?? "", target,
                                 ParseAllowList(aiStep.ToolAllowListJson), aiStep.MaxSteps ?? 0, aiStep.MaxSeconds ?? 0,
                                 aiStep.AiProviderId, secret), CancellationToken.None);
+                            // Bitacora transversal (ADR-0045): 1 registro resumen por paso de IA (todo su bucle).
+                            await activity.RecordAsync(new AgentActivityEntry(
+                                tenantId, clientId, null, AgentActivityKind.Browser, NewCorr(),
+                                $"Flujo: {flow.Name} (IA: {aiStep.Name})", outcome.Ok, aiStarted, DateTimeOffset.UtcNow,
+                                outcome.Ok ? $"{outcome.Inserted} filas, {outcome.RoundsUsed} rondas" : outcome.Error));
                             if (!outcome.Ok) { await runLog.CloseAsync(runCorr, false, ins, upd, del, outcome.Error); return; }
                             ins += outcome.Inserted; upd += outcome.Updated; del += outcome.Deleted;
                         }
@@ -162,7 +169,13 @@ public sealed class BrowserRunService(
 
                             var timeout = TimeSpan.FromSeconds(60 + compiled.Actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
                             var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions);
+                            var started = DateTimeOffset.UtcNow;
                             var result = await channel.ExecuteAsync(clientId, req, timeout, CancellationToken.None);
+                            // Bitacora transversal de agentes (ADR-0045): 1 registro resumen por tramo despachado.
+                            await activity.RecordAsync(new AgentActivityEntry(
+                                tenantId, clientId, null, AgentActivityKind.Browser, segCorr, $"Flujo: {flow.Name}",
+                                result.Ok, started, DateTimeOffset.UtcNow,
+                                result.Ok ? $"{NavUrlOf(compiled)}{compiled.Actions.Count} acciones" : FirstError(result)));
                             if (!result.Ok)
                             {
                                 await runLog.CloseAsync(runCorr, false, ins, upd, del, FirstError(result) ?? "El Navegador reporto un error.");
@@ -306,4 +319,11 @@ public sealed class BrowserRunService(
         msg.Error ?? msg.Results.FirstOrDefault(r => !r.Ok)?.Error;
 
     private static string NewCorr() => Guid.NewGuid().ToString("N")[..8];
+
+    /// <summary>Primer URL navegado del tramo, para el resumen de la bitacora (o vacio).</summary>
+    private static string NavUrlOf(CompiledFlow compiled)
+    {
+        var url = compiled.Actions.FirstOrDefault(a => a.Kind == BrowserActionKind.Navigate)?.Url;
+        return string.IsNullOrEmpty(url) ? "" : $"{url} - ";
+    }
 }

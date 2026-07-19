@@ -73,6 +73,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
     public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
     public DbSet<ScrapeFlowRun> ScrapeFlowRuns => Set<ScrapeFlowRun>();
+    public DbSet<AgentActivityLog> AgentActivityLogs => Set<AgentActivityLog>();
     public DbSet<FollowUpTask> FollowUpTasks => Set<FollowUpTask>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
@@ -313,6 +314,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ScrapeRunStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeStepKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScrapeWarningAction>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgentActivityKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgentActivityResult>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateCategory>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateHeaderType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppTemplateStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -742,6 +745,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // recorrer la bitacora entera. La lista de la UI lee por flujo, mas recientes primero.
             b.HasIndex(x => new { x.TenantId, x.CorrelationId });
             b.HasIndex(x => new { x.TenantId, x.FlowId, x.FiredAt });
+        });
+
+        modelBuilder.Entity<AgentActivityLog>(b =>
+        {
+            b.Property(x => x.ClientId).HasMaxLength(80).IsRequired();
+            b.Property(x => x.ClientName).HasMaxLength(150);
+            b.Property(x => x.CorrelationId).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Origin).HasMaxLength(300);
+            b.Property(x => x.Detail).HasMaxLength(600);
+            // La UI del modulo Agentes Colmena lista lo mas reciente primero, filtrando por cliente/tipo.
+            b.HasIndex(x => new { x.TenantId, x.StartedAt });
+            b.HasIndex(x => new { x.TenantId, x.ClientId, x.StartedAt });
         });
 
         modelBuilder.Entity<FollowUpTask>(b =>

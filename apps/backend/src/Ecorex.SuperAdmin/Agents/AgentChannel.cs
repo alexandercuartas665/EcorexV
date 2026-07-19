@@ -54,6 +54,9 @@ public static class AgentChannel
         // runtime ejecuta el flujo paso a paso (singleton, corre en scopes propios). El orquestador del
         // paso de IA y la bitacora son scoped (usan DbContext).
         services.AddSingleton<IBrowserActionChannel, BrowserActionChannel>();
+        // Bitacora transversal de actividad de los agentes colmena (ADR-0045, Ola 2). Singleton porque abre
+        // su propio scope por escritura (se llama desde el background del runtime, sin scope de peticion).
+        services.AddSingleton<IAgentActivityLog, AgentActivityLogWriter>();
         services.AddSingleton<IBrowserRunService, BrowserRunService>();
         services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();

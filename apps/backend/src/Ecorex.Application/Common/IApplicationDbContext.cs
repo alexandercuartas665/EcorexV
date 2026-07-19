@@ -152,6 +152,10 @@ public interface IApplicationDbContext
     /// <summary>Bitacora de corridas de un flujo de extraccion (runtime, Ola 3).</summary>
     DbSet<ScrapeFlowRun> ScrapeFlowRuns { get; }
 
+    // Agentes colmena (ADR-0045): bitacora transversal de actividad -1 registro resumen por orden que el
+    // servidor despacha a un agente y ve completar (navegador/gateway/archivos).
+    DbSet<AgentActivityLog> AgentActivityLogs { get; }
+
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     DbSet<WhatsAppTemplate> WhatsAppTemplates { get; }
 

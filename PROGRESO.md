@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-19 - CRM: conceptos de actividad como botones en Terceros (Contacto Cliente) + 5 formularios
+
+**Agentes**: Claude (Opus 4.8). **Accion**: integrar los Conceptos de actividad (000125) en la
+pestana "Contacto Cliente" del modal de Tercero, y sembrar los 5 conceptos + sus formularios.
+
+**Ola A+B - servicio + UI (`0665b2c`, con migracion)**: en el modal de Tercero, pestana "Contacto
+Cliente", nueva seccion "Gestion por concepto": los conceptos se listan como BOTONES. Al pulsar uno
+con formulario -> se carga el DynamicFormRenderer (Fill, Reference = el tercero) inline; al enviarlo
+se guarda una gestion LIGADA (concepto + respuesta + valor). Sin formulario -> nota rapida ligada al
+concepto. El valor se extrae de la respuesta (campo cuyo codigo contiene "valor") cuando el concepto
+maneja valor; el timeline lo muestra en verde. El compositor de nota rapida existente (con su
+cableado CRM del Cargador) queda intacto. Datos: `TerceroNota` gana ConceptoActividadId +
+FormResponseId + Valor (FKs NO ACTION); migracion DUAL `AddTerceroNotaConceptoLink` (3 columnas
+aditivas en tercero_notas). SaveNotaRequest / TerceroNotaDto extendidos; TerceroService setea/
+proyecta los campos.
+
+**Ola C - seed de conceptos + formularios (`68bd053`)**: `DatabaseSeeder.EnsureCrmConceptosAsync(
+tenantId)` crea, idempotente por Code y con TenantId explicito, 5 formularios (FRM-CRM-ANOT/PQR/SOL/
+OPP/COT) y 5 conceptos (CRM-ANOT/PQR/SOL/OPP/COT). Oportunidad y Cotizacion manejan valor. Campos:
+Anotacion (texto*+fecha); PQR (tipo*+prioridad+asunto*+detalle*); Solicitud (asunto*+fecha
+requerida+descripcion*); Oportunidad (descripcion*+valor*+probabilidad+fecha cierre+producto);
+Cotizacion (descripcion*+items(tabla)+valor total*+validez). Disparador
+`ECOREX_SEED_CRM_CONCEPTOS=true` en Program.cs corre el seeder por cada tenant de negocio (Kind !=
+Internal), como los seeders DIRECTORIO/GESTOR/CONCEPTOS.
+
+**Verificacion**: build Release verde (0 errores); tests Application 457. Migracion solo aditiva en
+ambos motores. **Deploy**: rebuild build-from-git de `fase-0/clon-backbone` (68bd053) + up -d con
+`ECOREX_SEED_CRM_CONCEPTOS=true` un arranque para sembrar; la migracion se aplica sola al arrancar.
+**Bloqueo recurrente**: el clasificador de auto-mode bloquea `up -d` a prod -> lo ejecuta el usuario.
+
+---
+
 ## 2026-07-18 (cont.) - Asesores (correo/tarjetas) + fixes de menu + modulo Conceptos de actividades
 
 **Agentes**: Claude (Opus 4.8). Continuacion del dia; 4 deploys mas a prod (build-from-git de

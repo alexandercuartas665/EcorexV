@@ -43,7 +43,10 @@ builder.Services
     {
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/login";
-        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        // 30 dias deslizantes: con "Recordar sesion" marcado la cookie es persistente (IsPersistent)
+        // y dura hasta 30 dias renovandose en cada visita; sin marcar es cookie de sesion (muere al
+        // cerrar el navegador). Antes eran 8h, lo que obligaba a re-loguear con frecuencia.
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
         options.SlidingExpiration = true;
     });
 builder.Services.AddAuthorizationBuilder()
@@ -464,6 +467,7 @@ app.MapPost("/auth/login", async (
     HttpContext http,
     [FromForm] string email,
     [FromForm] string password,
+    [FromForm] string? remember,
     IApplicationDbContext db,
     IPasswordHasher hasher) =>
 {
@@ -526,7 +530,16 @@ app.MapPost("/auth/login", async (
     redirect = isOperator ? "/" : "/inicio";
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+    // "Recordar sesion": checkbox marcado -> cookie PERSISTENTE (sobrevive al cierre del navegador,
+    // 30 dias deslizantes). Sin marcar -> cookie de sesion (muere al cerrar), con la expiracion de 8h.
+    var rememberMe = string.Equals(remember, "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(remember, "on", StringComparison.OrdinalIgnoreCase);
+    var authProps = new Microsoft.AspNetCore.Authentication.AuthenticationProperties
+    {
+        IsPersistent = rememberMe,
+        ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.AddDays(30) : null
+    };
+    await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity), authProps);
     return Results.Redirect(redirect);
 }).DisableAntiforgery();
 

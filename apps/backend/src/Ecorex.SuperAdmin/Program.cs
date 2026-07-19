@@ -423,6 +423,25 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CONCEPTOS"), "
     }
 }
 
+// Siembra de los Conceptos de actividad del CRM + sus formularios (000125, Ola C) en cada tenant
+// de negocio (ECOREX_SEED_CRM_CONCEPTOS=true). Idempotente por Code. Deja los 5 botones
+// (Anotacion/PQR/Solicitud/Oportunidad/Cotizacion) listos en la pestana "Contacto Cliente".
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CRM_CONCEPTOS"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureCrmConceptosAsync(t.Id);
+        app.Logger.LogWarning("[crm-conceptos-seed] conceptos + formularios del CRM sembrados en tenant {Name}", t.Name);
+    }
+}
+
 app.UseHttpsRedirection();
 // Sirve archivos subidos en tiempo de ejecucion (logos de agencias en wwwroot/uploads).
 app.UseStaticFiles();

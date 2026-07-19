@@ -1148,6 +1148,164 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             DemoFormCode, tenant.Name, workflowDefinitionId is not null);
     }
 
+    // ---- Conceptos de actividad del CRM + sus formularios (000125, Ola C) ----
+
+    /// <summary>
+    /// Siembra los 5 conceptos de actividad del CRM y sus formularios asociados para un tenant de
+    /// negocio: Anotacion, PQR, Solicitud, Oportunidad (maneja valor) y Cotizacion (maneja valor).
+    /// Estos conceptos aparecen como botones en la pestana "Contacto Cliente" del modal de Tercero.
+    /// Idempotente por Code (tanto del formulario como del concepto), estampa TenantId explicito.
+    /// Corre para tenants reales via ECOREX_SEED_CRM_CONCEPTOS=true (ver Program.cs).
+    /// </summary>
+    public async Task EnsureCrmConceptosAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // Crea un formulario (definicion + contenedor + preguntas) si su Code no existe para el tenant.
+        // Devuelve el Id del formulario (existente o recien creado).
+        async Task<Guid> EnsureFormAsync(
+            string code, string title, string description,
+            (string Field, string Label, FormControlType Type, bool Required, string Grid,
+             string? Options, string? Validation)[] fields)
+        {
+            var existing = await _db.FormDefinitions.IgnoreQueryFilters()
+                .Where(d => d.TenantId == tenantId && d.Code == code)
+                .Select(d => (Guid?)d.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (existing is Guid id) { return id; }
+
+            var def = new FormDefinition
+            {
+                TenantId = tenantId,
+                Code = code,
+                Title = title,
+                Description = description,
+                Status = FormStatus.Active,
+                Revision = 1
+            };
+            _db.FormDefinitions.Add(def);
+
+            var container = new FormContainer
+            {
+                TenantId = tenantId,
+                DefinitionId = def.Id,
+                Name = title,
+                ContainerType = FormContainerType.Segment,
+                SortOrder = 0
+            };
+            _db.FormContainers.Add(container);
+
+            var order = 0;
+            foreach (var f in fields)
+            {
+                _db.FormQuestions.Add(new FormQuestion
+                {
+                    TenantId = tenantId,
+                    DefinitionId = def.Id,
+                    ContainerId = container.Id,
+                    FieldCode = f.Field,
+                    Label = f.Label,
+                    ControlType = f.Type,
+                    Required = f.Required,
+                    SortOrder = order,
+                    GridCol = f.Grid,
+                    OptionsJson = f.Options,
+                    ValidationJson = f.Validation
+                });
+                order++;
+            }
+            return def.Id;
+        }
+
+        // Crea el concepto si su Code no existe para el tenant. Estampa TenantId explicito.
+        async Task EnsureConceptoAsync(
+            string code, string name, string description, Guid formId,
+            bool handlesValues, ConceptoActividadMode mode, int sortOrder)
+        {
+            if (await _db.ConceptosActividad.IgnoreQueryFilters()
+                    .AnyAsync(c => c.TenantId == tenantId && c.Code == code, cancellationToken))
+            {
+                return;
+            }
+            _db.ConceptosActividad.Add(new ConceptoActividad
+            {
+                TenantId = tenantId,
+                Code = code,
+                Name = name,
+                Description = description,
+                FormDefinitionId = formId,
+                HandlesValues = handlesValues,
+                Mode = mode,
+                SortOrder = sortOrder,
+                IsArchived = false
+            });
+        }
+
+        const string tipoPqr = """[{"id":"peticion","label":"Peticion"},{"id":"queja","label":"Queja"},{"id":"reclamo","label":"Reclamo"},{"id":"sugerencia","label":"Sugerencia"}]""";
+        const string prioridad = """[{"id":"alta","label":"Alta"},{"id":"media","label":"Media"},{"id":"baja","label":"Baja"}]""";
+
+        var anotacionForm = await EnsureFormAsync("FRM-CRM-ANOT", "Anotacion",
+            "Nota libre de seguimiento del cliente.",
+            new (string, string, FormControlType, bool, string, string?, string?)[]
+            {
+                ("texto", "Anotacion", FormControlType.TextArea, true, "col-12", null, """{"minLength":3,"maxLength":2000}"""),
+                ("fecha", "Fecha", FormControlType.Date, false, "col-md-4", null, null),
+            });
+
+        var pqrForm = await EnsureFormAsync("FRM-CRM-PQR", "PQR",
+            "Peticion, queja, reclamo o sugerencia del cliente.",
+            new (string, string, FormControlType, bool, string, string?, string?)[]
+            {
+                ("tipo", "Tipo", FormControlType.Select, true, "col-md-6", tipoPqr, null),
+                ("prioridad", "Prioridad", FormControlType.Select, false, "col-md-6", prioridad, null),
+                ("asunto", "Asunto", FormControlType.Text, true, "col-12", null, """{"minLength":3,"maxLength":160}"""),
+                ("detalle", "Detalle", FormControlType.TextArea, true, "col-12", null, """{"minLength":10,"maxLength":2000}"""),
+            });
+
+        var solicitudForm = await EnsureFormAsync("FRM-CRM-SOL", "Solicitud",
+            "Solicitud o requerimiento del cliente.",
+            new (string, string, FormControlType, bool, string, string?, string?)[]
+            {
+                ("asunto", "Asunto", FormControlType.Text, true, "col-md-8", null, """{"minLength":3,"maxLength":160}"""),
+                ("fecha_requerida", "Fecha requerida", FormControlType.Date, false, "col-md-4", null, null),
+                ("descripcion", "Descripcion", FormControlType.TextArea, true, "col-12", null, """{"minLength":10,"maxLength":2000}"""),
+            });
+
+        var oportunidadForm = await EnsureFormAsync("FRM-CRM-OPP", "Oportunidad",
+            "Oportunidad comercial con valor estimado.",
+            new (string, string, FormControlType, bool, string, string?, string?)[]
+            {
+                ("descripcion", "Descripcion", FormControlType.Text, true, "col-12", null, """{"minLength":3,"maxLength":200}"""),
+                ("valor", "Valor estimado", FormControlType.Number, true, "col-md-4", null, """{"minValue":0}"""),
+                ("probabilidad", "Probabilidad (%)", FormControlType.Number, false, "col-md-4", null, """{"minValue":0,"maxValue":100}"""),
+                ("fecha_cierre", "Fecha estimada de cierre", FormControlType.Date, false, "col-md-4", null, null),
+                ("producto", "Producto / Servicio", FormControlType.Text, false, "col-12", null, null),
+            });
+
+        var cotizacionForm = await EnsureFormAsync("FRM-CRM-COT", "Cotizacion",
+            "Cotizacion al cliente con valor total.",
+            new (string, string, FormControlType, bool, string, string?, string?)[]
+            {
+                ("descripcion", "Descripcion", FormControlType.Text, true, "col-12", null, """{"minLength":3,"maxLength":200}"""),
+                ("items", "Items", FormControlType.GridDetail, false, "col-12",
+                    """[{"id":"detalle","label":"Detalle"},{"id":"cantidad","label":"Cantidad"},{"id":"valor_unitario","label":"Valor unitario"}]""", null),
+                ("valor_total", "Valor total", FormControlType.Number, true, "col-md-6", null, """{"minValue":0}"""),
+                ("validez_dias", "Validez (dias)", FormControlType.Number, false, "col-md-6", null, """{"minValue":1,"maxValue":365}"""),
+            });
+
+        await EnsureConceptoAsync("CRM-ANOT", "Anotacion", "Nota libre de seguimiento.",
+            anotacionForm, handlesValues: false, ConceptoActividadMode.None, 0);
+        await EnsureConceptoAsync("CRM-PQR", "PQR", "Peticion, queja, reclamo o sugerencia.",
+            pqrForm, handlesValues: false, ConceptoActividadMode.AttentionProcess, 1);
+        await EnsureConceptoAsync("CRM-SOL", "Solicitud", "Solicitud o requerimiento del cliente.",
+            solicitudForm, handlesValues: false, ConceptoActividadMode.AttentionProcess, 2);
+        await EnsureConceptoAsync("CRM-OPP", "Oportunidad", "Oportunidad comercial con valor.",
+            oportunidadForm, handlesValues: true, ConceptoActividadMode.None, 3);
+        await EnsureConceptoAsync("CRM-COT", "Cotizacion", "Cotizacion con valor total.",
+            cotizacionForm, handlesValues: true, ConceptoActividadMode.None, 4);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogWarning("[crm-conceptos] 5 conceptos + formularios sembrados para tenant {TenantId}.", tenantId);
+    }
+
     // ---- Formularios demo del constructor (ADR-0021) ----
 
     public const string DemoFormDraftCode = "FRM-002";

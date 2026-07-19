@@ -401,33 +401,49 @@
                         else
                         {
                             <div class="dg-notas">
-                                @* --- Gestion por CONCEPTO de actividad (000125): botones que cargan su formulario --- *@
-                                @if (_conceptos.Count > 0)
+                                @* --- Gestion por CONCEPTO de actividad (000125): una sola fila de botones
+                                     (pildoras); cada uno abre su formulario/compositor. Sin conceptos, aviso. --- *@
+                                @if (_conceptos.Count == 0)
                                 {
-                                    <div class="dg-note-new">
-                                        <div class="dg-sec-lbl">GESTION POR CONCEPTO</div>
-                                        <div class="dg-note-chips">
-                                            @foreach (var c in _conceptos)
-                                            {
-                                                var cc = c;
-                                                <button class="dg-note-chip @(_noteConcepto?.Id == cc.Id ? "on" : "")" @onclick="() => SelectConcepto(cc)">@cc.Name</button>
-                                            }
-                                            @if (_noteConcepto is not null)
-                                            {
-                                                <button class="dg-note-chip" @onclick="() => { _noteConcepto = null; _noteError = null; }">Cerrar</button>
-                                            }
-                                        </div>
-                                        @if (_noteConcepto is { } conc)
+                                    <div class="dg-empty-note">No hay conceptos de actividad configurados. Crealos en <strong>Conceptos de actividades</strong> (000125) para registrar gestiones.</div>
+                                }
+                                else
+                                {
+                                    <div class="dg-concepto-bar">
+                                        @foreach (var c in _conceptos)
                                         {
+                                            var cc = c;
+                                            <button type="button" class="dg-concepto-pill @(_noteConcepto?.Id == cc.Id ? "on" : "")" @onclick="() => SelectConcepto(cc)">
+                                                <span class="dg-concepto-ico">@((MarkupString)ConceptoIcon(cc))</span>
+                                                <span class="dg-concepto-name">@cc.Name</span>
+                                            </button>
+                                        }
+                                    </div>
+
+                                    @if (_noteConcepto is { } conc)
+                                    {
+                                        <div class="dg-concepto-panel">
+                                            <div class="dg-concepto-panel-head">
+                                                <div>
+                                                    <div class="dg-sec-lbl">NUEVA @conc.Name.ToUpperInvariant()@(conc.HandlesValues ? " (maneja valor)" : "")</div>
+                                                    @if (!string.IsNullOrWhiteSpace(conc.Description))
+                                                    {
+                                                        <p class="dg-concepto-desc">@conc.Description</p>
+                                                    }
+                                                </div>
+                                                <button type="button" class="dg-concepto-close" title="Cerrar" @onclick="() => { _noteConcepto = null; _noteError = null; }">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
                                             @if (conc.FormDefinitionId is Guid cfid)
                                             {
-                                                <p class="dg-aside-note" style="margin:6px 0;">Llena y envia el formulario de <strong>@conc.Name</strong>@(conc.HandlesValues ? " (maneja valor)" : "") para registrar la gestion.</p>
                                                 <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
                                                     <DynamicFormRenderer DefinitionId="@cfid"
                                                                          Mode="FormRenderMode.Fill"
                                                                          ShowHeader="false"
                                                                          OnSubmitted="OnConceptoFormSubmittedAsync" />
                                                 </div>
+                                                @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
                                             }
                                             else
                                             {
@@ -440,43 +456,13 @@
                                                     </button>
                                                 </div>
                                             }
-                                        }
-                                    </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <p class="dg-concepto-hint">Elige un concepto para registrar la gestion con el cliente.</p>
+                                    }
                                 }
-
-                                @* --- Compositor de nueva gestion (nota rapida) --- *@
-                                <div class="dg-note-new">
-                                    <div class="dg-sec-lbl">@("NUEVA " + _noteAccion.ToUpperInvariant())</div>
-                                    <div class="dg-note-chips">
-                                        @foreach (var a in NoteAcciones)
-                                        {
-                                            var ai = AccionInfo(a);
-                                            <button class="dg-note-chip @(_noteAccion == a ? "on" : "")"
-                                                    style="@(_noteAccion == a ? $"border-color:var({ai.Color});background:var({ai.Bg});color:var({ai.Color})" : "")"
-                                                    @onclick="() => _noteAccion = a">@ai.Label</button>
-                                        }
-                                    </div>
-                                    <div class="dg-note-meta">
-                                        <input class="dg-input" placeholder="Categoria (ej. Comercial)" value="@_noteCategoria" @oninput="e => _noteCategoria = e.Value?.ToString() ?? string.Empty" />
-                                        <input class="dg-input" placeholder="Sub-categoria (ej. Llamada)" value="@_noteSubcategoria" @oninput="e => _noteSubcategoria = e.Value?.ToString() ?? string.Empty" />
-                                    </div>
-                                    @if (CrmWiring && _noteAccion == "Atencion")
-                                    {
-                                        <label class="dg-flabel">FECHA DE LA PROXIMA ATENCION</label>
-                                        <input class="dg-input" type="date" value="@_noteFecha.ToString("yyyy-MM-dd")" @onchange="e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { _noteFecha = d; } }" />
-                                    }
-                                    <textarea class="dg-input dg-textarea" placeholder="@AccionPlaceholder(_noteAccion)" value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
-                                    @if (_noteError is not null)
-                                    {
-                                        <div class="dg-note-err">@_noteError</div>
-                                    }
-                                    <div class="dg-note-actions">
-                                        <button class="dg-btn-new" @onclick="AddNotaAsync" disabled="@_busy">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                                            Registrar @_noteAccion
-                                        </button>
-                                    </div>
-                                </div>
 
                                 @* --- Timeline --- *@
                                 @if (_notas.Count == 0)
@@ -672,7 +658,6 @@
     [Parameter] public EventCallback<(Guid TerceroId, string Nombre)> OnAddOpportunity { get; set; }
 
     private bool _busy;
-    private DateTime _noteFecha = DateTime.Today.AddDays(1);
     private List<OportunidadDto> _opps = new();
 
     // ---- Formularios asociados (3a columna). Respuestas ancladas por Reference = "TERCERO:{id}". ----
@@ -714,13 +699,9 @@
     private string _coNombre = "", _coCargo = "", _coEmail = "", _coTelefono = "";
     private string? _coError;
 
-    // ---- Tab Contacto Cliente (notas / gestiones) ----
-    private static readonly string[] NoteAcciones = { "Nota", "Oportunidad", "Solicitud", "Actividad", "PQR", "Atencion" };
+    // ---- Tab Contacto Cliente (gestiones por concepto de actividad, 000125) ----
     private IReadOnlyList<TerceroNotaDto> _notas = Array.Empty<TerceroNotaDto>();
     private string _noteText = "";
-    private string _noteAccion = "Nota";
-    private string _noteCategoria = "";
-    private string _noteSubcategoria = "";
     // Conceptos de actividad del CRM: botones que cargan su formulario asociado (000125).
     private IReadOnlyList<Ecorex.Application.Crm.ConceptoActividadDto> _conceptos = Array.Empty<Ecorex.Application.Crm.ConceptoActividadDto>();
     private Ecorex.Application.Crm.ConceptoActividadDto? _noteConcepto;
@@ -1171,10 +1152,6 @@
     private void ResetNoteForm()
     {
         _noteText = "";
-        _noteAccion = "Nota";
-        _noteCategoria = "";
-        _noteSubcategoria = "";
-        _noteFecha = DateTime.Today.AddDays(1);
         _noteError = null;
         _noteConcepto = null;
     }
@@ -1197,13 +1174,14 @@
         var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
             texto, conc.Name, conc.Code, null, null,
             ConceptoActividadId: conc.Id, FormResponseId: resp.Id, Valor: valor));
-        _busy = false;
         if (res.IsOk)
         {
+            await ApplyCrmWiringAsync(id, conc, texto);
             _notas = await TerceroSvc.ListNotasAsync(id);
             _noteConcepto = null;
         }
         else { _noteError = res.Error; }
+        _busy = false;
     }
 
     /// <summary>Concepto sin formulario: nota rapida ligada al concepto.</summary>
@@ -1215,14 +1193,37 @@
         _busy = true;
         var res = await TerceroSvc.AddNotaAsync(id, new SaveNotaRequest(
             texto, conc.Name, conc.Code, null, null, ConceptoActividadId: conc.Id));
-        _busy = false;
         if (res.IsOk)
         {
+            await ApplyCrmWiringAsync(id, conc, texto);
             _notas = await TerceroSvc.ListNotasAsync(id);
             _noteConcepto = null;
             _noteText = "";
         }
         else { _noteError = res.Error; }
+        _busy = false;
+    }
+
+    /// <summary>
+    /// Cableado CRM (solo en el Cargador de contactos, CrmWiring=true): al registrar una gestion por
+    /// concepto, si el concepto maneja valor crea una Oportunidad, y si su modo es evento de calendario
+    /// crea una Cita. Reemplaza el match por texto del compositor viejo. En el Directorio (CrmWiring
+    /// false) es no-op.
+    /// </summary>
+    private async Task ApplyCrmWiringAsync(Guid terceroId, Ecorex.Application.Crm.ConceptoActividadDto conc, string texto)
+    {
+        if (!CrmWiring) { return; }
+        if (conc.HandlesValues)
+        {
+            await GestorSvc.CreateOportunidadAsync(terceroId, new SaveOportunidadRequest(texto, OportunidadEtapa.Nueva));
+            _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(terceroId)).ToList();
+        }
+        else if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent)
+        {
+            await GestorSvc.CreateCitaAsync(new SaveCitaRequest(
+                terceroId, null, texto, CitaTipo.Reunion, CombineInicio(DateTime.Today.AddDays(1), "09:00"), 60));
+        }
+        await OnChanged.InvokeAsync();
     }
 
     /// <summary>Lee el valor de la respuesta: un campo cuyo codigo contiene "valor" y parsea a decimal.</summary>
@@ -1268,42 +1269,6 @@
         return new DateTimeOffset(dt, DateTimeOffset.Now.Offset).ToUniversalTime();
     }
 
-    private async Task AddNotaAsync()
-    {
-        _noteError = null;
-        if (_editingId is not Guid id) { return; }
-        var texto = _noteText.Trim();
-        if (texto.Length == 0)
-        {
-            _noteError = "Escribe la gestion antes de registrarla.";
-            return;
-        }
-        var req = new SaveNotaRequest(texto, _noteAccion, Blank(_noteCategoria), Blank(_noteSubcategoria));
-        _busy = true;
-        // 1) Siempre guarda la nota en la bitacora del tercero.
-        var res = await TerceroSvc.AddNotaAsync(id, req);
-        if (!res.IsOk)
-        {
-            _busy = false;
-            _noteError = res.Error;
-            return;
-        }
-        // 2) Cableado CRM (solo Cargador de contactos): la accion crea la entidad correspondiente.
-        if (CrmWiring && _noteAccion == "Oportunidad")
-        {
-            await GestorSvc.CreateOportunidadAsync(id, new SaveOportunidadRequest(texto, OportunidadEtapa.Nueva));
-            _opps = (await GestorSvc.ListOportunidadesByTerceroAsync(id)).ToList();
-        }
-        else if (CrmWiring && _noteAccion == "Atencion")
-        {
-            await GestorSvc.CreateCitaAsync(new SaveCitaRequest(id, null, texto, CitaTipo.Reunion, CombineInicio(_noteFecha, "09:00"), 60));
-        }
-        _busy = false;
-        _noteText = "";
-        _notas = await TerceroSvc.ListNotasAsync(id);
-        if (CrmWiring) { await OnChanged.InvokeAsync(); }
-    }
-
     private async Task DeleteNotaAsync(Guid notaId)
     {
         if (_editingId is not Guid id) { return; }
@@ -1319,19 +1284,32 @@
         "Solicitud" => new("Solicitud", "--t-blue", "--t-blue-bg"),
         "Actividad" => new("Actividad", "--t-green", "--t-green-bg"),
         "PQR" => new("PQR", "--t-amber", "--t-amber-bg"),
+        "Cotizacion" => new("Cotizacion", "--t-blue", "--t-blue-bg"),
         "Atencion" => new("Proxima atencion", "--t-rose", "--t-rose-bg"),
-        _ => new("Nota", "--t-slate", "--t-slate-bg")
+        "Nota" or "Anotacion" => new("Nota", "--t-slate", "--t-slate-bg"),
+        // Concepto configurable sin color propio: usa su nombre como etiqueta.
+        _ => new(accion, "--t-slate", "--t-slate-bg")
     };
 
-    private static string AccionPlaceholder(string accion) => accion switch
+    // Icono de la pildora del concepto (000125). Se elige por modo/valor para variar el aspecto sin
+    // depender de un catalogo de iconos por concepto.
+    private static string ConceptoIcon(Ecorex.Application.Crm.ConceptoActividadDto c)
     {
-        "Oportunidad" => "Describe la oportunidad de negocio detectada...",
-        "Solicitud" => "Detalla la solicitud del cliente...",
-        "Actividad" => "Describe la actividad a realizar...",
-        "PQR" => "Registra la peticion, queja o reclamo...",
-        "Atencion" => "Programa la proxima atencion al cliente...",
-        _ => "Describe la gestion realizada con el contacto..."
-    };
+        if (c.HandlesValues)
+        {
+            // Valor / oportunidad: tendencia.
+            return "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><path d='M23 6l-9.5 9.5-5-5L1 18'/><path d='M17 6h6v6'/></svg>";
+        }
+        return c.Mode switch
+        {
+            Ecorex.Domain.Enums.ConceptoActividadMode.AttentionProcess =>
+                "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'/></svg>",
+            Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent =>
+                "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><path d='M16 2v4M8 2v4M3 10h18'/></svg>",
+            _ =>
+                "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/></svg>"
+        };
+    }
 
     // ---- Fichas dinamicas por perfil: metadatos visuales; los CAMPOS se leen del servicio. ----
     private List<FichaMeta> VisibleFichas()

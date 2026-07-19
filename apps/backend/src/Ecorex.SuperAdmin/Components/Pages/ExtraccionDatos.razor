@@ -323,31 +323,12 @@
                                 </select>
                                 <div class="xd-agent-actions">
                                     <button class="xd-btn sm" @onclick="TestConnectionAsync" disabled="@(_busy || string.IsNullOrEmpty(_hClient))">Test de conexion</button>
-                                    <button class="xd-btn sm" @onclick="() => _showAgentAdd = !_showAgentAdd">+ Agente</button>
+                                    @* El alta/rotacion de agentes vive en su modulo propio (ADR-0045). Aqui solo se ELIGE. *@
+                                    <a class="xd-btn sm" href="/agentes-colmena" target="_blank">Gestionar agentes</a>
                                 </div>
                                 @if (_probe is { } pr)
                                 {
                                     <div class="xd-probe @(pr.Online ? "ok" : "off")">@pr.Text</div>
-                                }
-                                @if (_showAgentAdd)
-                                {
-                                    <div class="xd-step-editor">
-                                        <div class="xd-prop"><label>Nombre del agente colmena</label>
-                                            <input class="xd-input" placeholder="Ej. Colmena Bodega Norte" @bind="_agName" /></div>
-                                        @if (_agError is not null) { <div class="xd-error-box">@_agError</div> }
-                                        <div class="xd-props-actions">
-                                            <button class="xd-btn primary" @onclick="AddAgentAsync" disabled="@_busy">Crear y generar ClientId</button>
-                                            <button class="xd-btn" @onclick="() => _showAgentAdd = false">Cancelar</button>
-                                        </div>
-                                    </div>
-                                }
-                                @if (_revealed is { } rv)
-                                {
-                                    <div class="xd-reveal">
-                                        <div class="xd-reveal-title">Configura la colmena con estos datos. El secreto NO se vuelve a mostrar.</div>
-                                        <div class="xd-reveal-row"><span>ClientId</span><code>@rv.ClientId</code></div>
-                                        <div class="xd-reveal-row"><span>Secreto</span><code>@rv.ClientSecret</code></div>
-                                    </div>
                                 }
                             </div>
                             <div class="xd-prop">
@@ -510,11 +491,8 @@
     private int? _hPageFrom;
     private int? _hPageTo;
 
-    // Gestion del agente colmena (alta + test de conexion)
-    private bool _showAgentAdd;
-    private string _agName = "";
-    private string? _agError;
-    private DataClientSecretDto? _revealed;
+    // Agente colmena: aqui solo se ELIGE y se prueba la conexion. El alta/rotacion vive en el modulo
+    // propio "Agentes Colmena" (ADR-0045, Ola 4).
     private (bool Online, string Text)? _probe;
 
     // Editor de paso
@@ -736,27 +714,6 @@
             var ver = string.IsNullOrWhiteSpace(p.Version) ? "" : $" (v{p.Version})";
             _probe = (true, $"En linea{host}{ver} · conectado hace {mins} min");
         }
-    }
-
-    private async Task AddAgentAsync()
-    {
-        _agError = null;
-        if (string.IsNullOrWhiteSpace(_agName)) { _agError = "Ponle un nombre al agente."; return; }
-        _busy = true;
-        try
-        {
-            var (client, secret) = await ConfigSvc.SaveClientAsync(
-                new SaveDataClientRequest(null, _agName.Trim(), null, true), _actor);
-            _revealed = secret;
-            _clients = await ConfigSvc.ListClientsAsync();
-            _showAgentAdd = false;
-            _agName = "";
-            // Si hay un flujo abierto, se le asigna el agente recien creado.
-            if (_selected is not null) { _hClient = client.Id.ToString(); await SaveAssignmentsAsync(); }
-            Flash("Agente creado. Copia el ClientId y el secreto para configurar la colmena.");
-        }
-        catch (Exception ex) { _agError = ex.Message; }
-        finally { _busy = false; }
     }
 
     private async Task DeleteFlowAsync()

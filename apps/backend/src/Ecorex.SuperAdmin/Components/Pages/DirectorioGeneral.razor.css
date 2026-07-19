@@ -290,6 +290,19 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-note-text { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
 @media (max-width: 720px) { .dg-co-body { grid-template-columns: 1fr; } .dg-note-meta { grid-template-columns: 1fr; } }
 
+/* ============================ RESPONSIVE de la pagina (tablet / celular) ============================ */
+/* KPIs a 2 columnas y la tabla con scroll horizontal (conserva sus anchos en vez de aplastarse). */
+@media (max-width: 860px) {
+    .dg-kpis { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .dg-table { overflow-x: auto; }
+    .dg-grid { min-width: 640px; }
+    .dg-tabs { overflow-x: auto; scrollbar-width: none; }
+    .dg-tabs::-webkit-scrollbar { display: none; }
+}
+@media (max-width: 460px) {
+    .dg-kpis { grid-template-columns: 1fr; }
+}
+
 /* ---- Formularios ofrecidos en el modal de tercero (3a columna) ---- */
 .dg-cfg-note { font-size: 12px; color: var(--ink-3); margin: 2px 0 10px; }
 .dg-cfg-forms { display: flex; flex-direction: column; gap: 8px; }

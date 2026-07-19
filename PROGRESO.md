@@ -5834,3 +5834,42 @@ tests verdes. Commit `54c4889`. Estados marcados [x] en la nota del vault.
 
 **Nota**: hallazgo clave de que D4 ya tenia runtime y verbo -> no habia que construir el motor, solo
 la UI de autoria. D1/D2 mas pequenos de lo que parecia; D3 (la P1) fue el grueso real.
+
+---
+
+## Sesion 2026-07-19 - Agentes Colmena al menu + diag log del agente + concurrencia VERIFICADA en vivo
+
+**Agentes**: Claude (Opus 4.8). Rama `feat/agente-colmena-gui` (17 commits sobre el tronco
+`fase-0/clon-backbone`), lista para unificar. Cierre del modulo Agentes Colmena (ADR-0045) y prueba
+en vivo de la concurrencia del agente en TODOS los niveles de servicio.
+
+- **Menu (Infraestructura IA)**: el item "Agentes Colmena" (000868) se sembraba en
+  `EnsureDefaultMenuAsync` pero los tenants YA existentes no lo recibian (ese metodo no reprocesa
+  vistas ya creadas). Se agrega `EnsureAgentesColmenaMenuItemAsync` (backfill idempotente: recorre
+  toda Section con Route="ia" e inserta el item donde falte) + cableado en el arranque tras AMBAS
+  ramas de siembra (skip/demo). Commit `21db1a2`. Verificado como usuario cliente tenant
+  (owner@sky-system.local): item bajo Infraestructura IA, breadcrumb correcto, aislamiento por tenant.
+- **Diag log del agente**: el Servicio corre headless/elevado; suelto su consola no se ve y como
+  servicio Windows va al Visor de eventos. Se agrega `FileLoggerProvider` (sin NuGet): deja SIEMPRE
+  copia del ciclo de conexion en `%PUBLIC%\Documents\ecorex-agent-diag.log`, + una linea con la
+  config leida de la boveda (ClientId/Hub/Secreto). Con esto se ubico al instante que la boveda tenia
+  un ClientId viejo (`cli_dev_agent`) en vez del esperado -> el "Sin conexion" no era bug de codigo.
+  Commit `d3d26c3`.
+- **Concurrencia VERIFICADA en vivo (colmena real elevada)**: 4 tareas programadas con el MISMO
+  `next_run_at` "se pisaron" al dispararse: 2 de Navegador (quotes.toscrape.com page/1 y page/2) + 2
+  de Gateway/DB (SELECT contra SQL Server). El agente abrio 2 WebView2 aisladas EN PARALELO (ambas
+  ordenes al mismo timestamp .255, cerrando a distinto tiempo) + 2 fetch headless. 20 filas ingestadas
+  (10 autores x 2 paginas), feed de actividad poblado, agente En linea. En BD AISLADA `ecorex_agente`
+  (puerto 5262), no en la compartida `ecorex_dev`.
+- **Consulta editable del conector de BD**: a peticion del dueno se confirmo (no habia que construir
+  nada): el conector de BD ya se define por un SELECT LIBRE editable en la UI (textarea "Consulta") --
+  tabla simple o consulta compleja (joins/where/columnas calculadas). Wired end-to-end
+  (crear/editar/guardar/ejecutar). Solo-lectura; exige que sea SELECT.
+
+**Pendiente menor**: el feed de la UI solo muestra las ordenes de Navegador; las de Gateway/fetch
+salen en el diag del agente pero aun no en el feed (logging de la ruta fetch diferido, ADR-0045 Ola
+5). Permiso propio del modulo (hoy reusa `ExtraccionDatos.Editar`).
+
+**Para unificar al tronco**: 17 commits en `feat/agente-colmena-gui` sobre `fase-0/clon-backbone`.
+Migraciones DUALES nuevas (`AgentActivityLog` PG + SqlServer, `AddConnectorQuery`). Ver prompt de
+handoff a la sesion principal.

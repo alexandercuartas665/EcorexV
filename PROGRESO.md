@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-07-20 - Gate de formato reparado + concepto que produce tarea-proceso
+
+**Agentes**: Claude (Opus 4.8).
+
+**Fixes de oportunidades**:
+- `29572ef` El aside del tercero decia "3 abiertas - $135,500,000" contando las Ganadas: sumaba
+  TODAS sin mirar el tipo de etapa, mientras los KPIs de la pagina si lo hacian bien (dos verdades
+  para el mismo dato). Se reusa la regla `IsOpen` de GestorContactos. De paso, la pildora de cada
+  oportunidad mostraba el enum heredado en vez de la etapa CONFIGURABLE: ese panel se habia quedado
+  sin migrar al pipeline nuevo.
+- `ab9c5de` Al elegir un concepto que maneja valor, el formulario enlazado "no cargaba": en realidad
+  se renderizaba solo cuando los campos de proceso ya estaban completos. El envio YA valida esos
+  campos, asi que esconderlo era redundante. Se muestra siempre y el error se movio junto a los
+  campos que faltan (abajo del formulario quedaba fuera de pantalla mientras el boton decia
+  "Enviado"). TITULO y VALOR pasan a 6 y 2 de 12 en la MISMA fila.
+
+**Gate `dotnet format` del CI reparado (`5a9cf8e`)**: estaba en rojo en el tronco. Contra-validado
+lo reportado por la sesion de la rama secundaria: correcto que el gate fallaba, que era PREEXISTENTE
+(no lo causo el merge) y que los 6 archivos que listaron son los que aparecen en el diff. Matices:
+`dotnet format` reporta 188 diagnosticos en 12 archivos, pero 6 de ellos solo tenian CRLF de working
+tree que git normaliza y el CI (Linux) nunca veria; y no es "puramente espacios" — en ProjectService
+y TaskCoreTests reparte inicializadores de objeto a una linea por miembro (equivalente, verificado
+campo a campo). Commit aislado de logica para que el diff sea auditable.
+
+**Matriz dual de integracion CORRIDA** (la sesion anterior la dejo pendiente por Docker colgado):
+371/371 en 9m14s, y el aislamiento cross-tenant confirmado corriendo en AMBOS motores (sufijos
+`_Postgres` y `_SqlServer`), 20/20. Gate de CLAUDE.md §6/§8 cubierto.
+
+**Concepto de actividad que produce TAREA DE PROCESO (`bbd1f1a`)**: el eslabon que faltaba entre el
+gestor de contactos y el motor de actividades. El concepto guarda una SUBCATEGORIA del catalogo
+000270 (no un flujo suelto): la subcategoria ya trae flujo, tablero y formulario, y el alta pasa por
+el MISMO `ITaskItemService` del wizard, sin abrir una segunda via de creacion de tareas. Migraciones
+duales `20260720164807` / `20260720165009`. La pestana de prospectos pasa a "Contactos" y muestra
+todos los del tenant (scrapeados + Directorio General), decision del usuario.
+
+**Causa raiz de las sesiones que se caian**: el codigo usa dos anillos de DataProtection segun el
+entorno — archivo `.dpkeys-dev` en Development, tabla `data_protection_keys` (de PROD) si no. Al
+lanzar la app sin `ASPNETCORE_ENVIRONMENT=Development` arranca como Production y ninguna cookie
+previa se puede descifrar. `start-ecorex.ps1` si fija la variable; el fallo venia de lanzarla a mano.
+
+**Bloqueos / pendientes**:
+- La migracion `AddConceptoActividadSubcategoria` NO se ha aplicado a la BD. Debe correrse antes de
+  desplegar (el dev apunta por tunel a la BD de PROD, asi que requiere autorizacion del usuario).
+- Sin ADR del pipeline configurable ni tests de `OportunidadEstadoService`.
+- Vault Obsidian sin actualizar.
+
+---
+
 ## 2026-07-19 (cont.) - Pipeline de oportunidades CONFIGURABLE + kanban + 3 fixes de concurrencia
 
 **Agentes**: Claude (Opus 4.8) + 1 subagente para el grueso del servicio/UI del pipeline.

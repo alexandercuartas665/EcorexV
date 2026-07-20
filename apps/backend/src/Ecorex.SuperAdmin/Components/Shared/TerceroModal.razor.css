@@ -329,8 +329,16 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-concepto-close svg { width: 14px; height: 14px; }
 .dg-concepto-hint { font-size: 12.5px; color: var(--ink-3); margin: 2px 0; }
 /* Datos del proceso (fuera del formulario): titulo + valor + fecha, activados por el concepto. */
-.dg-proc { padding: 12px 14px; border: 1px solid var(--brand); border-radius: 12px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); display: flex; flex-direction: column; gap: 10px; }
-.dg-proc-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* Rejilla de 12 columnas: TITULO ocupa 6 y VALOR 2, en la MISMA fila. */
+.dg-proc { padding: 12px 14px; border: 1px solid var(--brand); border-radius: 12px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; align-items: start; }
+.dg-proc-row { display: flex; flex-direction: column; gap: 4px; min-width: 0; grid-column: span 12; }
+.dg-proc-titulo { grid-column: span 6; }
+.dg-proc-valor { grid-column: span 2; }
+.dg-proc-fecha { grid-column: span 4; }
+.dg-proc .dg-concepto-hint { grid-column: span 12; margin: 0; }
+.dg-proc-err { grid-column: span 12; margin-top: 0; }
+/* En pantallas angostas la fila de 6+2 no cabe: cada campo a lo ancho. */
+@media (max-width: 700px) { .dg-proc-titulo, .dg-proc-valor, .dg-proc-fecha { grid-column: span 12; } }
 .dg-proc-row .dg-flabel { margin: 0; }
 .dg-note-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .dg-note-err { color: var(--danger); font-size: 12px; font-weight: 600; margin-top: 8px; }

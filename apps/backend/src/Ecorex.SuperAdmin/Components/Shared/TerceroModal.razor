@@ -444,39 +444,42 @@
                                             @if (needsProc)
                                             {
                                                 <div class="dg-proc">
-                                                    <div class="dg-proc-row">
+                                                    <div class="dg-proc-row dg-proc-titulo">
                                                         <label class="dg-flabel">TITULO *</label>
                                                         <input class="dg-input" placeholder="Titulo de la gestion" value="@_procTitulo" @oninput="e => _procTitulo = e.Value?.ToString() ?? string.Empty" />
                                                     </div>
                                                     @if (conc.HandlesValues)
                                                     {
-                                                        <div class="dg-proc-row">
+                                                        <div class="dg-proc-row dg-proc-valor">
                                                             <label class="dg-flabel">VALOR *</label>
                                                             <input class="dg-input" type="number" min="0" step="any" placeholder="0" value="@_procValor" @oninput="e => _procValor = e.Value?.ToString() ?? string.Empty" />
                                                         </div>
                                                     }
                                                     @if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent)
                                                     {
-                                                        <div class="dg-proc-row">
+                                                        <div class="dg-proc-row dg-proc-fecha">
                                                             <label class="dg-flabel">FECHA DE LA PROXIMA ACTIVIDAD *</label>
                                                             <input class="dg-input" type="date" value="@(_procFecha?.ToString("yyyy-MM-dd"))" @onchange="e => { _procFecha = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : (DateTime?)null; }" />
                                                         </div>
                                                     }
                                                     @if (!procOk) { <p class="dg-concepto-hint">Completa los datos del proceso para continuar.</p> }
+                                                    @* El error se muestra AQUI, junto a los campos que faltan: abajo del
+                                                       formulario quedaba fuera de pantalla y el boton decia "Enviado". *@
+                                                    @if (_noteError is not null) { <div class="dg-note-err dg-proc-err">@_noteError</div> }
                                                 </div>
                                             }
+                                            @* El formulario se muestra SIEMPRE: esconderlo hasta completar el proceso
+                                               se leia como "no carga". El envio ya valida los campos de proceso
+                                               (ver OnConceptoFormSubmittedAsync), asi que no hace falta ocultarlo. *@
                                             @if (conc.FormDefinitionId is Guid cfid)
                                             {
-                                                @if (procOk)
-                                                {
-                                                    <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
-                                                        <DynamicFormRenderer DefinitionId="@cfid"
-                                                                             Mode="FormRenderMode.Fill"
-                                                                             ShowHeader="false"
-                                                                             OnSubmitted="OnConceptoFormSubmittedAsync" />
-                                                    </div>
-                                                }
-                                                @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
+                                                <div class="dg-form-host" @key="@($"conc-{conc.Id}")">
+                                                    <DynamicFormRenderer DefinitionId="@cfid"
+                                                                         Mode="FormRenderMode.Fill"
+                                                                         ShowHeader="false"
+                                                                         OnSubmitted="OnConceptoFormSubmittedAsync" />
+                                                </div>
+                                                @if (_noteError is not null && !needsProc) { <div class="dg-note-err">@_noteError</div> }
                                             }
                                             else
                                             {

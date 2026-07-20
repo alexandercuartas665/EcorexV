@@ -63,65 +63,65 @@ public static class ScrapeFlowCompiler
             switch (step.Kind)
             {
                 case ScrapeStepKind.Navigate:
-                {
-                    var url = Substitute(step.Url, variables);
-                    if (string.IsNullOrWhiteSpace(url))
                     {
-                        throw new ScrapeCompileException($"El paso '{step.Name}' (Navegar) no tiene URL.");
+                        var url = Substitute(step.Url, variables);
+                        if (string.IsNullOrWhiteSpace(url))
+                        {
+                            throw new ScrapeCompileException($"El paso '{step.Name}' (Navegar) no tiene URL.");
+                        }
+                        actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: url));
+                        break;
                     }
-                    actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: url));
-                    break;
-                }
 
                 case ScrapeStepKind.InjectScript:
-                {
-                    var js = Substitute(RequireScript(step, "Inyectar JS"), variables)!;
-                    actions.Add(EvalSigned(js, correlationId, signingSecret, step));
-                    break;
-                }
+                    {
+                        var js = Substitute(RequireScript(step, "Inyectar JS"), variables)!;
+                        actions.Add(EvalSigned(js, correlationId, signingSecret, step));
+                        break;
+                    }
 
                 case ScrapeStepKind.Extract:
-                {
-                    var js = Substitute(RequireScript(step, "Extraer"), variables)!;
-                    var container = step.TargetContainerId ?? defaultContainer
-                        ?? throw new ScrapeCompileException(
-                            $"El paso '{step.Name}' (Extraer) no tiene tabla destino (ni el flujo tampoco).");
-                    actions.Add(EvalSigned(js, correlationId, signingSecret, step));
-                    // El Eval que acabamos de agregar es el que devuelve las filas: su indice es el ancla.
-                    extracts.Add(new ExtractBinding(actions.Count - 1, container, step.MappingJson));
-                    break;
-                }
+                    {
+                        var js = Substitute(RequireScript(step, "Extraer"), variables)!;
+                        var container = step.TargetContainerId ?? defaultContainer
+                            ?? throw new ScrapeCompileException(
+                                $"El paso '{step.Name}' (Extraer) no tiene tabla destino (ni el flujo tampoco).");
+                        actions.Add(EvalSigned(js, correlationId, signingSecret, step));
+                        // El Eval que acabamos de agregar es el que devuelve las filas: su indice es el ancla.
+                        extracts.Add(new ExtractBinding(actions.Count - 1, container, step.MappingJson));
+                        break;
+                    }
 
                 case ScrapeStepKind.Wait:
-                {
-                    // Espera por selector (condicion JS firmada) y/o por milisegundos. Al menos uno.
-                    string? condition = null;
-                    if (!string.IsNullOrWhiteSpace(step.Selector))
                     {
-                        condition = $"!!document.querySelector({JsString(step.Selector!)})";
+                        // Espera por selector (condicion JS firmada) y/o por milisegundos. Al menos uno.
+                        string? condition = null;
+                        if (!string.IsNullOrWhiteSpace(step.Selector))
+                        {
+                            condition = $"!!document.querySelector({JsString(step.Selector!)})";
+                        }
+                        if (condition is null && step.WaitMs is not > 0)
+                        {
+                            throw new ScrapeCompileException(
+                                $"El paso '{step.Name}' (Esperar) no tiene ni selector ni milisegundos.");
+                        }
+                        var sig = condition is null ? null : Sign(condition, correlationId, signingSecret, step);
+                        actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: step.WaitMs, ConditionScript: condition, Signature: sig));
+                        break;
                     }
-                    if (condition is null && step.WaitMs is not > 0)
-                    {
-                        throw new ScrapeCompileException(
-                            $"El paso '{step.Name}' (Esperar) no tiene ni selector ni milisegundos.");
-                    }
-                    var sig = condition is null ? null : Sign(condition, correlationId, signingSecret, step);
-                    actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: step.WaitMs, ConditionScript: condition, Signature: sig));
-                    break;
-                }
 
                 case ScrapeStepKind.Click:
-                {
-                    if (string.IsNullOrWhiteSpace(step.Selector))
                     {
-                        throw new ScrapeCompileException($"El paso '{step.Name}' (Clic) no tiene selector.");
+                        if (string.IsNullOrWhiteSpace(step.Selector))
+                        {
+                            throw new ScrapeCompileException($"El paso '{step.Name}' (Clic) no tiene selector.");
+                        }
+                        // El Navegador consume un guion MouseBot: un arreglo de {action, selector}.
+                        var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector = step.Selector } });
+                        var sig = Sign(scriptJson, correlationId, signingSecret, step);
+                        actions.Add(new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: sig));
+                        break;
                     }
-                    // El Navegador consume un guion MouseBot: un arreglo de {action, selector}.
-                    var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector = step.Selector } });
-                    var sig = Sign(scriptJson, correlationId, signingSecret, step);
-                    actions.Add(new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: sig));
-                    break;
-                }
 
                 case ScrapeStepKind.Screenshot:
                     actions.Add(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true));

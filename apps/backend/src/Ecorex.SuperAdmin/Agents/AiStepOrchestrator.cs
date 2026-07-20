@@ -213,22 +213,22 @@ public sealed class AiStepOrchestrator(
                 action = new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true);
                 break;
             case "evaluar_js":
-            {
-                var js = Str(args, "script");
-                if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
-                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
-                action = new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!));
-                break;
-            }
+                {
+                    var js = Str(args, "script");
+                    if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
+                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
+                    action = new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!));
+                    break;
+                }
             case "clic":
-            {
-                var selector = Str(args, "selector");
-                if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
-                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
-                var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
-                action = new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson));
-                break;
-            }
+                {
+                    var selector = Str(args, "selector");
+                    if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
+                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
+                    var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
+                    action = new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson));
+                    break;
+                }
             default:
                 return $"error: herramienta '{tool}' no disponible en este paso.";
         }

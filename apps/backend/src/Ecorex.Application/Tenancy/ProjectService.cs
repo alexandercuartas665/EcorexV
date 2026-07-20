@@ -394,9 +394,14 @@ public sealed class ProjectService : IProjectService
             .Select(x => (int?)x.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
         var item = new ProjectBudgetItem
         {
-            TenantId = tenantId, ProjectId = projectId, Name = name,
-            Category = Normalize(request.Category), Notes = Normalize(request.Notes),
-            PlannedAmount = request.PlannedAmount, ActualAmount = request.ActualAmount, SortOrder = nextOrder
+            TenantId = tenantId,
+            ProjectId = projectId,
+            Name = name,
+            Category = Normalize(request.Category),
+            Notes = Normalize(request.Notes),
+            PlannedAmount = request.PlannedAmount,
+            ActualAmount = request.ActualAmount,
+            SortOrder = nextOrder
         };
         _db.ProjectBudgetItems.Add(item);
         await _db.SaveChangesAsync(cancellationToken);

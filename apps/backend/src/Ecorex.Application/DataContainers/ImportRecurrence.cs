@@ -46,61 +46,61 @@ public static class ImportRecurrence
                 return new(null, ImportScheduleProblem.NotScheduled, null);
 
             case ImportScheduleKind.Interval:
-            {
-                if (process.IntervalMinutes is not int minutes || minutes < MinIntervalMinutes)
                 {
-                    return new(null, ImportScheduleProblem.Invalid,
-                        $"El intervalo debe ser de al menos {MinIntervalMinutes} minuto(s).");
-                }
+                    if (process.IntervalMinutes is not int minutes || minutes < MinIntervalMinutes)
+                    {
+                        return new(null, ImportScheduleProblem.Invalid,
+                            $"El intervalo debe ser de al menos {MinIntervalMinutes} minuto(s).");
+                    }
 
-                // Se ancla a la ULTIMA corrida, no a "ahora": asi "cada 15 minutos" no se va
-                // corriendo hacia adelante segun lo que tarde cada refresco.
-                var anchor = process.LastRunAt ?? afterUtc;
-                var next = anchor.AddMinutes(minutes);
+                    // Se ancla a la ULTIMA corrida, no a "ahora": asi "cada 15 minutos" no se va
+                    // corriendo hacia adelante segun lo que tarde cada refresco.
+                    var anchor = process.LastRunAt ?? afterUtc;
+                    var next = anchor.AddMinutes(minutes);
 
-                // Si el servidor estuvo apagado, el ancla puede quedar muy atras y next seria pasado.
-                // Se avanza hasta el futuro en vez de disparar una rafaga de corridas atrasadas: a
-                // nadie le sirve recibir los 40 refrescos que no ocurrieron anoche.
-                if (next <= afterUtc)
-                {
-                    var missed = (afterUtc - anchor).TotalMinutes / minutes;
-                    next = anchor.AddMinutes(minutes * (Math.Floor(missed) + 1));
+                    // Si el servidor estuvo apagado, el ancla puede quedar muy atras y next seria pasado.
+                    // Se avanza hasta el futuro en vez de disparar una rafaga de corridas atrasadas: a
+                    // nadie le sirve recibir los 40 refrescos que no ocurrieron anoche.
+                    if (next <= afterUtc)
+                    {
+                        var missed = (afterUtc - anchor).TotalMinutes / minutes;
+                        next = anchor.AddMinutes(minutes * (Math.Floor(missed) + 1));
+                    }
+                    return new(next.ToUniversalTime(), ImportScheduleProblem.None, null);
                 }
-                return new(next.ToUniversalTime(), ImportScheduleProblem.None, null);
-            }
 
             case ImportScheduleKind.Cron:
-            {
-                if (string.IsNullOrWhiteSpace(process.CronExpression))
                 {
-                    return new(null, ImportScheduleProblem.Invalid, "Falta la expresion cron.");
-                }
+                    if (string.IsNullOrWhiteSpace(process.CronExpression))
+                    {
+                        return new(null, ImportScheduleProblem.Invalid, "Falta la expresion cron.");
+                    }
 
-                CronExpression parsed;
-                try
-                {
-                    parsed = CronExpression.Parse(process.CronExpression.Trim());
-                }
-                catch (CronFormatException ex)
-                {
-                    return new(null, ImportScheduleProblem.Invalid, $"Cron invalido: {ex.Message}");
-                }
+                    CronExpression parsed;
+                    try
+                    {
+                        parsed = CronExpression.Parse(process.CronExpression.Trim());
+                    }
+                    catch (CronFormatException ex)
+                    {
+                        return new(null, ImportScheduleProblem.Invalid, $"Cron invalido: {ex.Message}");
+                    }
 
-                // El cron se interpreta en hora DEL TENANT (un "0 3 * * *" es "a las 3 de la
-                // madrugada aqui", no en UTC). Cronos resuelve el horario de verano: en el salto de
-                // primavera la hora que no existe se corre, y en el de otono la que ocurre dos veces
-                // no dispara dos veces.
-                var next = parsed.GetNextOccurrence(afterUtc.ToUniversalTime(), timeZone, inclusive: false);
+                    // El cron se interpreta en hora DEL TENANT (un "0 3 * * *" es "a las 3 de la
+                    // madrugada aqui", no en UTC). Cronos resuelve el horario de verano: en el salto de
+                    // primavera la hora que no existe se corre, y en el de otono la que ocurre dos veces
+                    // no dispara dos veces.
+                    var next = parsed.GetNextOccurrence(afterUtc.ToUniversalTime(), timeZone, inclusive: false);
 
-                // ToUniversalTime() NO es adorno: Cronos devuelve el instante con el desfase de la
-                // ZONA PEDIDA (-05:00 en Bogota), y Npgsql rechaza guardar un `timestamptz` que no
-                // venga con desfase 0. Sin esto, guardar una programacion cron revienta al escribir.
-                // Ojo al probarlo: DateTimeOffset compara INSTANTES, asi que un test de igualdad pasa
-                // igual con -05:00 que con Z; hay que afirmar sobre .Offset (ver ImportRecurrenceTests).
-                return next is null
-                    ? new(null, ImportScheduleProblem.Invalid, "El cron no vuelve a ocurrir.")
-                    : new(next.Value.ToUniversalTime(), ImportScheduleProblem.None, null);
-            }
+                    // ToUniversalTime() NO es adorno: Cronos devuelve el instante con el desfase de la
+                    // ZONA PEDIDA (-05:00 en Bogota), y Npgsql rechaza guardar un `timestamptz` que no
+                    // venga con desfase 0. Sin esto, guardar una programacion cron revienta al escribir.
+                    // Ojo al probarlo: DateTimeOffset compara INSTANTES, asi que un test de igualdad pasa
+                    // igual con -05:00 que con Z; hay que afirmar sobre .Offset (ver ImportRecurrenceTests).
+                    return next is null
+                        ? new(null, ImportScheduleProblem.Invalid, "El cron no vuelve a ocurrir.")
+                        : new(next.Value.ToUniversalTime(), ImportScheduleProblem.None, null);
+                }
 
             default:
                 return new(null, ImportScheduleProblem.NotScheduled, null);

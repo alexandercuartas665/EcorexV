@@ -20,14 +20,14 @@ public class ImportRecurrenceTests
 
     private static ImportProcess Proc(ImportScheduleKind kind, int? interval = null, string? cron = null,
         DateTimeOffset? lastRun = null, bool active = true) => new()
-    {
-        Name = "p",
-        ScheduleKind = kind,
-        IntervalMinutes = interval,
-        CronExpression = cron,
-        LastRunAt = lastRun,
-        IsActive = active
-    };
+        {
+            Name = "p",
+            ScheduleKind = kind,
+            IntervalMinutes = interval,
+            CronExpression = cron,
+            LastRunAt = lastRun,
+            IsActive = active
+        };
 
     [Fact]
     public void Manual_no_se_programa()

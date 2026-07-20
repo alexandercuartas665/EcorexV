@@ -302,12 +302,17 @@ public abstract class TaskCoreTestsBase
             ctx.ActividadCategorias.Add(categoria);
             var subcategoria = new ActividadSubcategoria
             {
-                TenantId = seed.TenantId, CategoriaId = categoria.Id, Codigo = "CAT-N-1", Nombre = "Con notificacion"
+                TenantId = seed.TenantId,
+                CategoriaId = categoria.Id,
+                Codigo = "CAT-N-1",
+                Nombre = "Con notificacion"
             };
             ctx.ActividadSubcategorias.Add(subcategoria);
             ctx.ActividadSubcategoriaNotificaciones.Add(new ActividadSubcategoriaNotificacion
             {
-                TenantId = seed.TenantId, SubcategoriaId = subcategoria.Id, TenantUserId = seed.TenantUserId
+                TenantId = seed.TenantId,
+                SubcategoriaId = subcategoria.Id,
+                TenantUserId = seed.TenantUserId
             });
             await ctx.SaveChangesAsync();
             subcategoriaId = subcategoria.Id;

@@ -623,23 +623,29 @@
                                 </span>
                                 <div style="flex:1;min-width:0">
                                     <div class="dg-prosp-t">Oportunidades</div>
-                                    <div class="dg-prosp-s">@_opps.Count abiertas &#183; @MoneyFmt(_opps.Sum(o => o.Valor))</div>
+                                    <div class="dg-prosp-s">
+                                        @_opps.Count(IsOpen) abiertas &#183; @MoneyFmt(_opps.Where(IsOpen).Sum(o => o.Valor))
+                                        @if (_opps.Count(o => !IsOpen(o)) > 0)
+                                        {
+                                            <text>&nbsp;&#183; @_opps.Count(o => !IsOpen(o)) cerradas</text>
+                                        }
+                                    </div>
                                 </div>
                             </div>
                             @if (_opps.Count == 0)
                             {
-                                <div class="dg-empty-note">Sin oportunidades abiertas.</div>
+                                <div class="dg-empty-note">Sin oportunidades.</div>
                             }
                             else
                             {
                                 <div class="tm-opp-list">
                                     @foreach (var o in _opps)
                                     {
-                                        var oi = EtapaInfo(o.Etapa);
+                                        var oi = OppChip(o);
                                         <div class="tm-opp">
                                             <div class="tm-opp-name">@o.Nombre</div>
                                             <div class="tm-opp-foot">
-                                                <span class="tm-etapa" style="background:var(@oi.Bg);color:var(@oi.Color)">@EtapaLabel(o.Etapa)</span>
+                                                <span class="tm-etapa" style="background:@oi.Bg;color:@oi.Fg">@oi.Label</span>
                                                 <span class="dg-money">@MoneyFmt(o.Valor)</span>
                                             </div>
                                         </div>
@@ -1340,6 +1346,31 @@
         OportunidadEtapa.Ganada => "Ganada",
         _ => "Perdida"
     };
+
+    // Abierta = etapa configurable con Tipo Abierta cuando existe; si la oportunidad aun no tiene
+    // etapa configurable (EstadoTipo null), cae al enum heredado. Misma regla que /gestor-contactos.
+    private static bool IsOpen(OportunidadDto o) => o.EstadoTipo is OportunidadEstadoTipo tipo
+        ? tipo == OportunidadEstadoTipo.Abierta
+        : o.Etapa != OportunidadEtapa.Ganada && o.Etapa != OportunidadEtapa.Perdida;
+
+    // La pildora muestra la etapa CONFIGURABLE del pipeline; solo cae al enum heredado
+    // mientras la oportunidad no tenga estado asignado.
+    private static (string Bg, string Fg, string Label) OppChip(OportunidadDto o)
+    {
+        if (!string.IsNullOrWhiteSpace(o.EstadoNombre))
+        {
+            var c = o.EstadoColor;
+            if (!string.IsNullOrWhiteSpace(c) && c.StartsWith("--t-", StringComparison.Ordinal))
+            {
+                return ($"var({c}-bg)", $"var({c})", o.EstadoNombre!);
+            }
+            return string.IsNullOrWhiteSpace(c)
+                ? ("var(--surface-3)", "var(--ink-2)", o.EstadoNombre!)
+                : ("var(--surface-3)", c!, o.EstadoNombre!);
+        }
+        var i = EtapaInfo(o.Etapa);
+        return ($"var({i.Bg})", $"var({i.Color})", EtapaLabel(o.Etapa));
+    }
 
     private static TagInfo EtapaInfo(OportunidadEtapa e) => e switch
     {

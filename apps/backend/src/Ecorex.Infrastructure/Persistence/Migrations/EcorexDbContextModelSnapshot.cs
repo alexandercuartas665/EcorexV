@@ -1622,6 +1622,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
 
+                    b.Property<Guid?>("SubcategoriaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subcategoria_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
@@ -1639,6 +1643,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("FormDefinitionId")
                         .HasDatabaseName("ix_conceptos_actividad_form_definition_id");
+
+                    b.HasIndex("SubcategoriaId")
+                        .HasDatabaseName("ix_conceptos_actividad_subcategoria_id");
 
                     b.HasIndex("TenantId", "Code")
                         .IsUnique()
@@ -11722,7 +11729,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_conceptos_actividad_form_definitions_form_definition_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
+                        .WithMany()
+                        .HasForeignKey("SubcategoriaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_conceptos_actividad_actividad_subcategorias_subcategoria_id");
+
                     b.Navigation("FormDefinition");
+
+                    b.Navigation("Subcategoria");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataConnector", b =>

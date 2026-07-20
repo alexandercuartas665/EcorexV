@@ -24,13 +24,44 @@ public sealed class ConceptoActividadService : IConceptoActividadService
     {
         var q = _db.ConceptosActividad.AsNoTracking().AsQueryable();
         if (!includeArchived) { q = q.Where(c => !c.IsArchived); }
-        return await q
+        var items = await q
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .GroupJoin(_db.FormDefinitions.AsNoTracking(),
                 c => c.FormDefinitionId, f => (Guid?)f.Id, (c, fs) => new { c, fs })
             .SelectMany(x => x.fs.DefaultIfEmpty(), (x, f) => Project(x.c, f))
             .ToListAsync(cancellationToken);
+        return await FillSubcategoriasAsync(items, cancellationToken);
     }
+
+    /// <summary>
+    /// Completa el nombre de la tarea-proceso en una consulta aparte. Se hace asi (y no con otro
+    /// GroupJoin encadenado) para no volver ilegible la proyeccion: son pocos conceptos por tenant.
+    /// </summary>
+    private async Task<IReadOnlyList<ConceptoActividadDto>> FillSubcategoriasAsync(
+        List<ConceptoActividadDto> items, CancellationToken cancellationToken)
+    {
+        var ids = items.Where(i => i.SubcategoriaId is not null)
+            .Select(i => i.SubcategoriaId!.Value).Distinct().ToList();
+        if (ids.Count == 0) { return items; }
+        var subs = await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => ids.Contains(s.Id))
+            .Select(s => new { s.Id, s.Nombre, Categoria = s.Categoria!.Nombre })
+            .ToListAsync(cancellationToken);
+        var map = subs.ToDictionary(s => s.Id);
+        return items.Select(i => i.SubcategoriaId is Guid sid && map.TryGetValue(sid, out var s)
+            ? i with { SubcategoriaNombre = s.Nombre, SubcategoriaCategoria = s.Categoria }
+            : i).ToList();
+    }
+
+    /// <summary>Subcategorias vivas del catalogo 000270, para el selector "tarea de proceso".</summary>
+    public async Task<IReadOnlyList<TareaProcesoOpcionDto>> ListTareasProcesoAsync(
+        CancellationToken cancellationToken = default)
+        => await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => !s.IsArchived)
+            .OrderBy(s => s.Categoria!.Nombre).ThenBy(s => s.SortOrder).ThenBy(s => s.Nombre)
+            .Select(s => new TareaProcesoOpcionDto(
+                s.Id, s.Nombre, s.Categoria!.Nombre, s.WorkflowDefinitionId != null))
+            .ToListAsync(cancellationToken);
 
     public async Task<ConceptoActividadDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -39,7 +70,8 @@ public sealed class ConceptoActividadService : IConceptoActividadService
         var f = c.FormDefinitionId is Guid fid
             ? await _db.FormDefinitions.AsNoTracking().FirstOrDefaultAsync(x => x.Id == fid, cancellationToken)
             : null;
-        return Project(c, f);
+        var dto = Project(c, f);
+        return (await FillSubcategoriasAsync(new List<ConceptoActividadDto> { dto }, cancellationToken))[0];
     }
 
     public async Task<ConceptoResult<ConceptoActividadDto>> CreateAsync(SaveConceptoActividadRequest request, CancellationToken cancellationToken = default)
@@ -60,6 +92,10 @@ public sealed class ConceptoActividadService : IConceptoActividadService
         {
             return ConceptoResult<ConceptoActividadDto>.Fail("El formulario seleccionado no existe.");
         }
+        if (await SubcategoriaInvalidAsync(request.SubcategoriaId, cancellationToken))
+        {
+            return ConceptoResult<ConceptoActividadDto>.Fail("La tarea de proceso seleccionada no existe.");
+        }
 
         var next = await _db.ConceptosActividad.CountAsync(cancellationToken);
         var entity = new ConceptoActividad
@@ -69,6 +105,7 @@ public sealed class ConceptoActividadService : IConceptoActividadService
             Name = request.Name.Trim(),
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             FormDefinitionId = request.FormDefinitionId,
+            SubcategoriaId = request.SubcategoriaId,
             HandlesValues = request.HandlesValues,
             Mode = request.Mode,
             SortOrder = next,
@@ -94,11 +131,16 @@ public sealed class ConceptoActividadService : IConceptoActividadService
         {
             return ConceptoResult<ConceptoActividadDto>.Fail("El formulario seleccionado no existe.");
         }
+        if (await SubcategoriaInvalidAsync(request.SubcategoriaId, cancellationToken))
+        {
+            return ConceptoResult<ConceptoActividadDto>.Fail("La tarea de proceso seleccionada no existe.");
+        }
 
         entity.Code = code;
         entity.Name = request.Name.Trim();
         entity.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         entity.FormDefinitionId = request.FormDefinitionId;
+        entity.SubcategoriaId = request.SubcategoriaId;
         entity.HandlesValues = request.HandlesValues;
         entity.Mode = request.Mode;
         await _db.SaveChangesAsync(cancellationToken);
@@ -124,8 +166,13 @@ public sealed class ConceptoActividadService : IConceptoActividadService
     private async Task<bool> FormInvalidAsync(Guid? formId, CancellationToken cancellationToken)
         => formId is Guid fid && !await _db.FormDefinitions.AnyAsync(f => f.Id == fid, cancellationToken);
 
+    // El filtro global por tenant hace que una subcategoria de OTRO tenant no exista para esta
+    // consulta, asi que esta comprobacion tambien cierra el paso a una FK cross-tenant.
+    private async Task<bool> SubcategoriaInvalidAsync(Guid? subId, CancellationToken cancellationToken)
+        => subId is Guid sid && !await _db.ActividadSubcategorias.AnyAsync(s => s.Id == sid, cancellationToken);
+
     private static ConceptoActividadDto Project(ConceptoActividad c, FormDefinition? f) => new(
         c.Id, c.Code, c.Name, c.Description,
         c.FormDefinitionId, f == null ? null : f.Title, f == null ? null : f.Code,
-        c.HandlesValues, c.Mode, c.IsArchived, c.SortOrder);
+        c.HandlesValues, c.Mode, c.IsArchived, c.SortOrder, c.SubcategoriaId);
 }

@@ -163,8 +163,11 @@
                 <div class="gc-panel">
                     <div class="gc-panel-head">
                         <div>
-                            <div class="gc-panel-title">Prospectos scrapeados</div>
-                            <div class="gc-panel-sub"><b>@_prospectos.Count</b> contactos</div>
+                            <div class="gc-panel-title">Contactos</div>
+                            <div class="gc-panel-sub">
+                                <b>@ContactosFiltrados.Count</b> contactos
+                                <span style="color:var(--ink-3)">&#183; @_prospectos.Count scrapeados &#183; @_contactos.Count del directorio</span>
+                            </div>
                         </div>
                         <div class="gc-panel-actions">
                             <button class="gc-btn-brand" @onclick="OpenNewContact">
@@ -177,7 +180,7 @@
                     </div>
                     <div class="gc-src-row">
                         <span class="gc-src-lbl">FUENTE:</span>
-                        @foreach (var s in FuenteOpciones)
+                        @foreach (var s in FuenteChips)
                         {
                             var sv = s;
                             <button class="gc-pill @(_prospFuente == sv ? "active" : "")" @onclick="() => SetProspFuenteAsync(sv)">@(sv ?? "Todas")</button>
@@ -187,41 +190,45 @@
                         <div class="gc-tbl-head gc-prosp-grid">
                             <div>CONTACTO</div><div>EMPRESA</div><div>FUENTE</div><div>METRICA</div><div></div>
                         </div>
-                        @if (_prospectos.Count == 0)
+                        @if (ContactosFiltrados.Count == 0)
                         {
-                            <div class="gc-empty-note" style="padding:22px 18px">No hay prospectos para esta fuente.</div>
+                            <div class="gc-empty-note" style="padding:22px 18px">No hay contactos para esta fuente.</div>
                         }
-                        @foreach (var p in _prospectos)
+                        @foreach (var r in ContactosFiltrados)
                         {
-                            var pp = p;
-                            var fi = FuenteInfo(pp.Fuente);
-                            var bi = BadgeInfo(pp.Badge);
+                            var rr = r;
+                            var fi = FuenteInfo(rr.Fuente);
+                            var bi = BadgeInfo(rr.Badge);
                             <div class="gc-tbl-row gc-prosp-grid">
                                 <div class="gc-cell-name">
-                                    <span class="gc-av" style="background:@AvatarColor(pp.NombreCompleto)">@Initials(pp.NombreCompleto)</span>
+                                    <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
                                     <div style="min-width:0">
-                                        <div class="gc-cell-title">@pp.NombreCompleto</div>
-                                        <div class="gc-cell-sub">@(string.IsNullOrWhiteSpace(pp.Cargo) ? "Contacto" : pp.Cargo)</div>
+                                        <div class="gc-cell-title">@rr.Nombre</div>
+                                        <div class="gc-cell-sub">@rr.Sub</div>
                                     </div>
                                 </div>
                                 <div class="gc-cell">
-                                    <div>@(string.IsNullOrWhiteSpace(pp.Empresa) ? "-" : pp.Empresa)</div>
-                                    <div class="gc-cell-sub">@pp.Ciudad</div>
+                                    <div>@(string.IsNullOrWhiteSpace(rr.Empresa) ? "-" : rr.Empresa)</div>
+                                    <div class="gc-cell-sub">@rr.Ciudad</div>
                                 </div>
-                                <div class="gc-cell"><span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@pp.Fuente</span></div>
-                                <div class="gc-cell">@(string.IsNullOrWhiteSpace(pp.Metrica) ? "-" : pp.Metrica)</div>
+                                <div class="gc-cell"><span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@rr.Fuente</span></div>
+                                <div class="gc-cell">@(string.IsNullOrWhiteSpace(rr.Metrica) ? "-" : rr.Metrica)</div>
                                 <div class="gc-cell acts">
-                                    @if (!string.IsNullOrWhiteSpace(pp.Badge))
+                                    @if (!string.IsNullOrWhiteSpace(rr.Badge))
                                     {
-                                        <span class="gc-badge" style="background:var(@bi.Bg);color:var(@bi.Color)">@pp.Badge</span>
+                                        <span class="gc-badge" style="background:var(@bi.Bg);color:var(@bi.Color)">@rr.Badge</span>
                                     }
-                                    @if (pp.Promovido)
+                                    @if (rr.TerceroId is Guid tid)
+                                    {
+                                        <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">Abrir ficha</button>
+                                    }
+                                    else if (rr.Promovido)
                                     {
                                         <span class="gc-badge" style="background:var(--t-green-bg);color:var(--t-green)">En bolsa</span>
                                     }
-                                    else
+                                    else if (rr.ProspectoId is Guid pid)
                                     {
-                                        <button class="gc-btn-mini" @onclick="() => PromoverAsync(pp.Id)" disabled="@_busy">Calificar</button>
+                                        <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">Calificar</button>
                                     }
                                 </div>
                             </div>
@@ -841,13 +848,54 @@
         _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
         _citas = (await GestorSvc.ListCitasAsync(_agAnio, _agMes)).ToList();
         _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
+        _contactos = (await TerceroSvc.ListAsync(new TerceroListFilter())).ToList();
     }
 
-    // ================= PROSPECTOS =================
+    // ================= CONTACTOS (scrapeados + directorio) =================
+    // La pestana muestra TODOS los contactos del tenant, vengan de scraping o cargados a
+    // mano en el Directorio General: son la misma agenda comercial vista desde el CRM.
+    private List<TerceroListItemDto> _contactos = new();
+
+    private sealed record ContactoRow(
+        Guid? TerceroId, Guid? ProspectoId, string Nombre, string Sub,
+        string Empresa, string Ciudad, string Fuente, string Metrica,
+        string? Badge, bool Promovido);
+
+    private List<ContactoRow> ContactosFiltrados
+    {
+        get
+        {
+            var rows = new List<ContactoRow>();
+            if (_prospFuente is null || !string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
+            {
+                rows.AddRange(_prospectos.Select(p => new ContactoRow(
+                    null, p.Id, p.NombreCompleto,
+                    string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
+                    p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
+                    p.Badge, p.Promovido)));
+            }
+            if (_prospFuente is null || string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
+            {
+                rows.AddRange(_contactos.Select(t => new ContactoRow(
+                    t.Id, null, t.Nombre,
+                    t.EsEmpresa ? "Empresa" : "Persona",
+                    t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
+                    FuenteDirectorio, t.Identificacion,
+                    null, false)));
+            }
+            return rows;
+        }
+    }
+
     private async Task SetProspFuenteAsync(string? fuente)
     {
         _prospFuente = fuente;
-        _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
+        // "Directorio" no es una fuente de scraping: pedir prospectos con ese filtro
+        // devolveria vacio, asi que solo se recargan cuando la fuente es de scraping.
+        if (!string.Equals(fuente, FuenteDirectorio, StringComparison.Ordinal))
+        {
+            _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
+        }
     }
 
     private async Task PromoverAsync(Guid prospectoId)
@@ -1193,7 +1241,11 @@
     }
 
     // ================= HELPERS =================
+    private const string FuenteDirectorio = "Directorio";
+    // Fuentes de SCRAPING (las usa el constructor de filtros): no incluye el directorio.
     private static readonly string?[] FuenteOpciones = { null, "LinkedIn", "Maps", "Web" };
+    // Chips de la pestana de contactos: ademas del scraping, el directorio cargado a mano.
+    private static readonly string?[] FuenteChips = { null, "LinkedIn", "Maps", "Web", FuenteDirectorio };
     private static readonly string[] CampoOpciones = { "ciudad", "vendedor", "nombre", "sector", "cargo", "estado", "perfil" };
     private static readonly string[] OperadorOpciones = { "=", "!=", "LIKE", ">", "<" };
     private static readonly OportunidadEtapa[] EtapasBoard =
@@ -1259,6 +1311,7 @@
         "linkedin" => new("LinkedIn", "--t-blue", "--t-blue-bg"),
         "maps" => new("Maps", "--t-green", "--t-green-bg"),
         "web" => new("Web", "--t-amber", "--t-amber-bg"),
+        "directorio" => new("Directorio", "--t-violet", "--t-violet-bg"),
         _ => new(fuente ?? "-", "--t-slate", "--t-slate-bg")
     };
 

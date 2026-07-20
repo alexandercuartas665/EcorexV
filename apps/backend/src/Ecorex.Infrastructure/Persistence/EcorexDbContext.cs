@@ -1758,6 +1758,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Formulario asociado: NO ACTION (archivar el formulario no toca el concepto).
             b.HasOne(x => x.FormDefinition).WithMany()
                 .HasForeignKey(x => x.FormDefinitionId).OnDelete(DeleteBehavior.Restrict);
+            // Tarea-proceso que produce el concepto: NO ACTION igual que el resto de vinculos
+            // del catalogo 000270 (evita rutas multiples de cascada en SQL Server).
+            b.HasOne(x => x.Subcategoria).WithMany()
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.SortOrder });
         });

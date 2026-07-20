@@ -25,6 +25,16 @@ public class ConceptoActividad : TenantEntity
     public Guid? FormDefinitionId { get; set; }
     public FormDefinition? FormDefinition { get; set; }
 
+    /// <summary>
+    /// Tarea-proceso que produce este concepto: la subcategoria de actividad (000270) con la que
+    /// se da de alta un TaskItem al registrar la gestion. La subcategoria ya trae su flujo,
+    /// tablero y formulario, asi que NO se guarda aqui el flujo suelto: el alta de tareas sigue
+    /// pasando por el mismo puente concepto-tarea que usa el wizard. Null = no genera tarea.
+    /// FK real con NO ACTION (archivar la subcategoria no toca el catalogo del CRM).
+    /// </summary>
+    public Guid? SubcategoriaId { get; set; }
+    public ActividadSubcategoria? Subcategoria { get; set; }
+
     /// <summary>Si el concepto captura/maneja valores (montos).</summary>
     public bool HandlesValues { get; set; }
 

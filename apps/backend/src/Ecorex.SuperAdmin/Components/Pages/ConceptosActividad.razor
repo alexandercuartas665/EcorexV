@@ -43,7 +43,7 @@ else
         <div class="ca-table-wrap">
             <table class="ca-table">
                 <thead>
-                    <tr><th>Codigo</th><th>Nombre</th><th>Formulario</th><th>Valores</th><th>Modo</th><th></th></tr>
+                    <tr><th>Codigo</th><th>Nombre</th><th>Formulario</th><th>Tarea de proceso</th><th>Valores</th><th>Modo</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach (var c in _items)
@@ -55,6 +55,7 @@ else
                                 @if (!string.IsNullOrWhiteSpace(c.Description)) { <div class="ca-muted">@c.Description</div> }
                             </td>
                             <td>@(c.FormDefinitionId is null ? "-" : $"{c.FormCode} · {c.FormTitle}")</td>
+                            <td>@(c.SubcategoriaId is null ? "-" : $"{c.SubcategoriaCategoria} · {c.SubcategoriaNombre}")</td>
                             <td>@(c.HandlesValues ? "Si" : "No")</td>
                             <td><span class="ca-chip">@ModeLabel(c.Mode)</span></td>
                             <td class="ca-actions">
@@ -108,6 +109,24 @@ else
                     </div>
                 </div>
                 <div class="field">
+                    @* Tarea de proceso (000270): al registrar la gestion se da de alta un TaskItem
+                       con esta subcategoria, que ya trae su flujo, tablero y formulario. *@
+                    <label class="form-label">Tarea de proceso que genera</label>
+                    <select class="form-control" value="@(_f.SubcategoriaId?.ToString() ?? "")"
+                            @onchange="@(e => _f.SubcategoriaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                        <option value="">-- No genera tarea --</option>
+                        @foreach (var t in _tareas)
+                        {
+                            <option value="@t.SubcategoriaId" selected="@(_f.SubcategoriaId == t.SubcategoriaId)">
+                                @t.Categoria &#183; @t.Nombre@(t.TieneFlujo ? " (con flujo)" : "")
+                            </option>
+                        }
+                    </select>
+                    <div class="text-muted small" style="margin-top:4px;">
+                        Al registrar la gestion se crea la tarea con su flujo de proceso. Se configuran en Conceptos de actividades (000270).
+                    </div>
+                </div>
+                <div class="field">
                     <label class="ca-check"><input type="checkbox" @bind="_f.HandlesValues" /> Maneja valores (montos)</label>
                 </div>
                 <div class="field">
@@ -149,6 +168,7 @@ else
     private bool _busy;
     private List<ConceptoActividadDto> _items = new();
     private List<FormDefinitionListItemDto> _forms = new();
+    private List<TareaProcesoOpcionDto> _tareas = new();
 
     private bool _editOpen;
     private Guid? _editingId;
@@ -160,6 +180,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         _forms = (await FormsSvc.ListAsync()).Where(f => !f.IsArchived).ToList();
+        _tareas = (await ConceptosSvc.ListTareasProcesoAsync()).ToList();
         await ReloadAsync();
         _loading = false;
     }
@@ -184,6 +205,7 @@ else
             Name = c.Name,
             Description = c.Description,
             FormDefinitionId = c.FormDefinitionId,
+            SubcategoriaId = c.SubcategoriaId,
             HandlesValues = c.HandlesValues,
             Mode = c.Mode,
         };
@@ -199,7 +221,8 @@ else
         try
         {
             var req = new SaveConceptoActividadRequest(
-                _f.Code ?? "", _f.Name ?? "", _f.Description, _f.FormDefinitionId, _f.HandlesValues, _f.Mode);
+                _f.Code ?? "", _f.Name ?? "", _f.Description, _f.FormDefinitionId, _f.HandlesValues, _f.Mode,
+                _f.SubcategoriaId);
             var res = _editingId is Guid id
                 ? await ConceptosSvc.UpdateAsync(id, req)
                 : await ConceptosSvc.CreateAsync(req);
@@ -234,6 +257,7 @@ else
         public string? Name { get; set; }
         public string? Description { get; set; }
         public Guid? FormDefinitionId { get; set; }
+        public Guid? SubcategoriaId { get; set; }
         public bool HandlesValues { get; set; }
         public ConceptoActividadMode Mode { get; set; } = ConceptoActividadMode.None;
     }

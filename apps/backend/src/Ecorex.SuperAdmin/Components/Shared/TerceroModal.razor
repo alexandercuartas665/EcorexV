@@ -21,6 +21,7 @@
 @inject IGestorContactosService GestorSvc
 @inject Ecorex.Application.Crm.IConceptoActividadService ConceptosSvc
 @inject ICurrentPermissions Perms
+@inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -693,6 +694,9 @@
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
     [Parameter] public bool CrmWiring { get; set; }
 
+    // Actor para el alta de tareas-proceso (quien registra la gestion).
+    [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
+
     private bool _busy;
     private List<OportunidadDto> _opps = new();
 
@@ -1333,7 +1337,33 @@
             await GestorSvc.CreateCitaAsync(new SaveCitaRequest(
                 terceroId, null, titulo, CitaTipo.Reunion, CombineInicio(fecha, "09:00"), 60));
         }
+        // Tarea-proceso: el concepto puede producir una actividad del catalogo 000270. El alta
+        // pasa por el MISMO ITaskItemService que usa el wizard (no hay una segunda via), y el
+        // servicio deriva tablero/columna/flujo desde la subcategoria.
+        if (conc.SubcategoriaId is Guid subId)
+        {
+            var res = await TasksSvc.CreateAsync(
+                new Ecorex.Application.Tenancy.CreateTaskItemRequest(
+                    Title: titulo, ActivityTypeId: null, SubcategoriaId: subId),
+                await ActorIdAsync(), await ActorNameAsync());
+            // Si la tarea falla, la gestion ya quedo registrada: se avisa en vez de callar.
+            if (!res.IsOk) { _noteError = res.Error ?? "La gestion se registro, pero no se pudo crear la tarea de proceso."; }
+        }
         await OnChanged.InvokeAsync();
+    }
+
+    private async Task<Guid> ActorIdAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Usuario"; }
+        var st = await AuthState;
+        return st.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
     }
 
     // ---- Oportunidades (presentacion; el CRM es IGestorContactosService) ----

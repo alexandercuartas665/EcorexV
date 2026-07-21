@@ -4,6 +4,7 @@
 @using System.Security.Claims
 @using Ecorex.Application.Admin
 @using Microsoft.AspNetCore.Components.Forms
+@using Ecorex.SuperAdmin.Services
 @inject IPlatformBrandingService BrandingSvc
 @inject IWebHostEnvironment Env
 @inject IServiceScopeFactory ScopeFactory
@@ -51,8 +52,8 @@ else
 
             <div class="auth-field" style="margin-bottom:8px;">
                 <label>Logo del login</label>
-                <InputFile OnChange="OnLogoSelected" accept="image/*" class="form-control" />
-                <small class="text-muted">PNG/JPG/SVG, hasta 4 MB. Si no subes uno, se usa el logo por defecto.</small>
+                <InputFile OnChange="OnLogoSelected" accept="@ImageUploadGuard.Accept" class="form-control" />
+                <small class="text-muted">@ImageUploadGuard.FormatosTexto, hasta 4 MB. Si no subes uno, se usa el logo por defecto.</small>
             </div>
 
             @if (!string.IsNullOrWhiteSpace(_logoUrl))
@@ -131,15 +132,31 @@ else
         var file = e.File;
         const long max = 4L * 1024 * 1024;
         if (file.Size <= 0 || file.Size > max) { _error = "El logo debe pesar menos de 4 MB."; return; }
+
+        // Antes la extension salia tal cual del nombre que manda el navegador: se podia guardar un
+        // .svg (XML con script) o un .html en wwwroot y quedaba servido desde el propio dominio, es
+        // decir XSS almacenado en la PANTALLA DE LOGIN, que la ve todo el mundo sin autenticarse.
+        // Ahora la extension viene de la lista blanca y ademas se miran los bytes del contenido.
+        var ext = ImageUploadGuard.ResolveExtension(file.Name);
+        if (ext is null)
+        {
+            _error = $"Formato no permitido. El logo debe ser {ImageUploadGuard.FormatosTexto}.";
+            return;
+        }
         try
         {
             using var ms = new MemoryStream();
             await file.OpenReadStream(max).CopyToAsync(ms);
-            var ext = System.IO.Path.GetExtension(file.Name);
+            var bytes = ms.ToArray();
+            if (!ImageUploadGuard.MatchesSignature(bytes, ext))
+            {
+                _error = "El contenido del archivo no es una imagen valida.";
+                return;
+            }
             var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "branding");
             System.IO.Directory.CreateDirectory(dir);
-            var name = $"brand-{Guid.NewGuid():N}{ext}";
-            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), ms.ToArray());
+            var name = ImageUploadGuard.BuildStoredFileName("brand", ext);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, name), bytes);
             _logoUrl = $"/uploads/branding/{name}";
         }
         catch { _error = "No se pudo subir el logo."; }

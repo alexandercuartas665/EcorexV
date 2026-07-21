@@ -8,7 +8,8 @@
 #  Aislamiento (conviven con Visal u otros stacks en el mismo Docker):
 #    - project name    : ecorex-prod  (prefija volumenes y red)
 #    - contenedores     : ecorex-app / ecorex-postgres-prod
-#    - volumen de datos : ecorex-pgdata  (PERSISTENTE, propio, no se comparte)
+#    - volumen de datos : ecorex-pgdata     (PERSISTENTE, propio, no se comparte)
+#    - volumen de subidas: ecorex-uploads   (PERSISTENTE, archivos de usuarios)
 #    - red              : ecorex-net
 #
 #  Requisitos en el server:
@@ -66,6 +67,31 @@ services:
       # proxy ni TLS activo. Si mas adelante montas un proxy/Caddy delante,
       # cambia esto a "127.0.0.1:${ECOREX_PORT:-5480}:8080".
       - "${ECOREX_PORT:-5480}:8080"
+    volumes:
+      # ---------------------------------------------------------------------
+      # ARCHIVOS SUBIDOS POR LOS USUARIOS - VOLUMEN OBLIGATORIO.
+      #
+      # POR QUE EXISTE: la app guarda los binarios que sube el usuario en el
+      # SISTEMA DE ARCHIVOS del contenedor, bajo wwwroot/uploads (logo de marca,
+      # imagenes de items, avatares, adjuntos de chat, archivos de leads, PDFs de
+      # cotizaciones, recursos de agentes, plantillas...). En la BD solo queda la
+      # RUTA (p.ej. /uploads/items/{tenant}/x.png), no el binario.
+      # El update rutinario es "build --no-cache" + "up -d", que RECREA el
+      # contenedor: sin este volumen el sistema de archivos se pierde entero y
+      # todas esas imagenes quedan rotas (404) en cada despliegue. Ya paso.
+      #
+      # RUTA: el Dockerfile (apps/backend/Dockerfile.superadmin) usa WORKDIR /app
+      # y copia ahi el publish, asi que el wwwroot servido es /app/wwwroot y el
+      # directorio de subidas es /app/wwwroot/uploads.
+      #
+      # OJO al primer "up": hay 17 archivos de demo versionados en git dentro de
+      # wwwroot/uploads que viajan en la imagen. Docker, al CREAR un volumen con
+      # nombre vacio, copia dentro el contenido que la imagen trae en ese path,
+      # asi que esos 17 sobreviven. Pero eso pasa UNA sola vez: archivos nuevos
+      # que se agreguen al repo bajo wwwroot/uploads NO llegaran a un volumen ya
+      # creado. Si algun dia hace falta, copiarlos a mano:
+      #   docker cp <archivo> ecorex-app:/app/wwwroot/uploads/<subcarpeta>/
+      - ecorex-uploads:/app/wwwroot/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +125,10 @@ services:
 
 volumes:
   ecorex-pgdata:
+  # Archivos subidos por los usuarios (wwwroot/uploads). PERSISTENTE: sin el,
+  # cada "build --no-cache" + "up -d" borra todo lo que subieron los clientes.
+  # No lo elimines con "docker compose down -v": eso destruye BD Y archivos.
+  ecorex-uploads:
 
 networks:
   ecorex-net:

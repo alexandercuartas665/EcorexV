@@ -6,6 +6,8 @@
 @using Ecorex.Application.Formulas
 @using Ecorex.Application.Inventory
 @using Ecorex.Application.Roles
+@using Ecorex.Application.Common
+@using Ecorex.SuperAdmin.Services
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
@@ -14,6 +16,8 @@
 @inject IItemFieldService FieldSvc
 @inject IJSRuntime JS
 @inject ICurrentPermissions Perms
+@inject ITenantContext TenantCtx
+@inject IWebHostEnvironment Env
 
 <PageTitle>Items de inventarios - ECOREX.tareas</PageTitle>
 
@@ -429,9 +433,9 @@ else
                     </div>
                 </div>
 
-                @* ---- Imagenes por URL ---- *@
+                @* ---- Imagenes: se suben arrastrando o con clic (antes se pegaba una URL a mano) ---- *@
                 <div class="field">
-                    <label class="form-label">Imagenes (URL)</label>
+                    <label class="form-label">Imagenes</label>
                     @if (_editingId is null)
                     {
                         <em class="muted-cell">Crea el item y luego vuelve a abrirlo (Editar) para agregar imagenes.</em>
@@ -463,9 +467,31 @@ else
                                 </div>
                             }
                         </div>
-                        <div style="display:flex;gap:6px;margin-top:8px;">
-                            <input class="form-control" placeholder="https://..." maxlength="500" @bind="_newImageUrl" />
-                            <button class="btn btn-sm btn-primary" @onclick="AddImageAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newImageUrl))">Agregar</button>
+                        @* Zona de arrastre. El <InputFile> va encima, transparente y a pantalla completa
+                           de la zona: asi el navegador atiende NATIVAMENTE tanto el clic como el soltar
+                           el archivo (DragEventArgs de Blazor no trae los ficheros). Los @ondrag* del
+                           contenedor solo pintan el estado "arrastrando"; no llevan preventDefault en el
+                           drop para no anular el manejo nativo del input. *@
+                        <div class="inv-drop @(_dragOver ? "over" : "") @(_uploading ? "busy" : "")"
+                             @ondragenter="OnImageDragEnter" @ondragenter:preventDefault="true"
+                             @ondragleave="OnImageDragLeave"
+                             @ondragover:preventDefault="true"
+                             @ondrop="OnImageDragLeave">
+                            <InputFile class="inv-drop-input" accept="@ImageAccept" multiple
+                                       OnChange="OnImageFilesSelectedAsync" disabled="@(_busy || _uploading)"
+                                       title="Arrastra las imagenes aqui o haz clic para elegirlas" />
+                            <div class="inv-drop-inner">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-4.5-4.5L7 21" /></svg>
+                                @if (_uploading)
+                                {
+                                    <span class="inv-drop-title">Subiendo imagenes...</span>
+                                }
+                                else
+                                {
+                                    <span class="inv-drop-title">Arrastra las imagenes aqui o <u>haz clic para elegirlas</u></span>
+                                    <small class="inv-drop-hint">@ImageUploadGuard.FormatosTexto. Hasta @(MaxImageBytes / (1024 * 1024)) MB por imagen.</small>
+                                }
+                            </div>
                         </div>
                     }
                 </div>
@@ -700,6 +726,19 @@ else
     .inv-image-mkprin { border: 1px solid var(--line, var(--border)); background: transparent; border-radius: 6px; font-size: 10.5px; padding: 1px 5px; cursor: pointer; }
     .inv-image-texto { font-size: 11px; padding: 2px 6px; width: 96px; }
 
+    /* Zona de arrastre de imagenes */
+    .inv-drop { position: relative; margin-top: 8px; border: 1.5px dashed var(--line, var(--border)); border-radius: 12px; background: var(--surface-2, var(--accent)); transition: border-color .12s, background-color .12s; }
+    .inv-drop.over { border-color: var(--t-violet, var(--primary)); background: color-mix(in srgb, var(--t-violet, var(--primary)) 8%, transparent); }
+    .inv-drop.busy { opacity: .6; }
+    /* El input cubre toda la zona y es invisible: recibe el clic y el drop nativos. */
+    .inv-drop-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .inv-drop-input:disabled { cursor: default; }
+    /* El contenido es decorativo: sin pointer-events para que el input siempre reciba el evento. */
+    .inv-drop-inner { pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 18px 12px; text-align: center; color: var(--ink-2, var(--muted-foreground)); }
+    .inv-drop-inner svg { width: 26px; height: 26px; opacity: .7; }
+    .inv-drop-title { font-size: 12.5px; font-weight: 600; }
+    .inv-drop-hint { font-size: 11px; color: var(--ink-3, var(--muted-foreground)); }
+
     /* Configurador de campos */
     .inv-cfg-list { list-style: none; padding: 0; margin: 8px 0; }
     .inv-cfg-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line, var(--border)); }
@@ -751,8 +790,24 @@ else
     private string? _fSpecifications;
     private readonly Dictionary<Guid, int> _stock = new();
     private IReadOnlyList<ItemImageDto> _images = [];
-    private string? _newImageUrl;
     private string? _editorError;
+
+    // ---- Subida de imagenes (arrastrar y soltar / clic) ----
+    // 4 MB por archivo: mismo tope que el logo de marca (Marca.razor). No se usa el data-URI de
+    // DynamicFormRenderer (1 MB inline) porque aqui la imagen se guarda como archivo servido por
+    // wwwroot, no dentro de la fila.
+    private const long MaxImageBytes = 4L * 1024 * 1024;
+
+    // El accept sale de ImageUploadGuard para que el dialogo del navegador ofrezca EXACTAMENTE los
+    // formatos que el servidor acepta. Ojo: accept solo filtra la vista; la validacion real (lista
+    // blanca de extension + bytes magicos) esta en StoreImageAsync, porque el cliente puede mandar
+    // cualquier cosa saltandose el dialogo.
+    private const string ImageAccept = ImageUploadGuard.Accept;
+
+    // Tope del nombre original que se guarda como referencia (columna FileName, max 255 en BD).
+    private const int MaxFileNameChars = 255;
+    private bool _dragOver;
+    private bool _uploading;
 
     // Campos configurables segun el tipo del item + valores capturados.
     private IReadOnlyList<ItemFieldDto> _typeFields = [];
@@ -933,7 +988,8 @@ else
     private async Task OpenEditorAsync(Guid? itemId)
     {
         _editorError = null;
-        _newImageUrl = null;
+        _dragOver = false;
+        _uploading = false;
         _stock.Clear();
         _images = [];
         _fieldValues.Clear();
@@ -1311,19 +1367,125 @@ else
         finally { _busy = false; }
     });
 
-    private async Task AddImageAsync()
+    private void OnImageDragEnter(DragEventArgs _) => _dragOver = true;
+
+    private void OnImageDragLeave(DragEventArgs _) => _dragOver = false;
+
+    /// <summary>
+    /// Sube una o varias imagenes del item. Sirve tanto al clic como al arrastrar y soltar: el
+    /// InputFile que cubre la zona de arrastre recibe los dos gestos y dispara este mismo OnChange.
+    /// </summary>
+    private async Task OnImageFilesSelectedAsync(InputFileChangeEventArgs e)
     {
-        if (_editingId is not Guid id || string.IsNullOrWhiteSpace(_newImageUrl)) { return; }
-        _busy = true;
+        if (_editingId is not Guid id) { return; }
+        _dragOver = false;
         _editorError = null;
+        _uploading = true;
+        _busy = true;
+        var errores = new List<string>();
         await _dbGate.WaitAsync();
         try
         {
-            var result = await ItemSvc.AddImageAsync(id, _newImageUrl.Trim());
-            if (!result.IsOk) { _editorError = result.Error; }
-            else { _newImageUrl = null; await RefreshImagesAsync(id); }
+            // Tope de 10 por tanda: InputFile lanza si se piden mas de los permitidos por llamada.
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                var url = await StoreImageAsync(file, errores);
+                if (url is null) { continue; }
+
+                var result = await ItemSvc.AddImageAsync(id, url, RecortarNombre(file.Name));
+                if (!result.IsOk) { errores.Add(result.Error ?? $"No se pudo registrar {file.Name}."); }
+            }
+            await RefreshImagesAsync(id);
         }
-        finally { _dbGate.Release(); _busy = false; }
+        catch (InvalidOperationException)
+        {
+            errores.Add("Solo se pueden subir 10 imagenes a la vez.");
+        }
+        finally
+        {
+            _dbGate.Release();
+            _busy = false;
+            _uploading = false;
+            _editorError = errores.Count > 0 ? string.Join(" ", errores) : null;
+        }
+    }
+
+    /// <summary>
+    /// Valida y guarda el archivo en wwwroot/uploads/items/{tenant} devolviendo la ruta publica.
+    /// Se sigue el patron ya usado en Marca.razor y Pipeline.razor (archivo en wwwroot + URL en BD),
+    /// asi la columna Url del ItemImage no cambia y los items con URL externa antigua siguen validos.
+    /// La carpeta por tenant + nombre con Guid hacen imposible que un tenant pise el archivo de otro.
+    ///
+    /// Orden de las comprobaciones (de la mas barata a la mas cara):
+    ///  1. tenant activo -> sin el no hay carpeta que aisle y el archivo caeria en un sitio comun;
+    ///  2. extension contra lista blanca de ImageUploadGuard (sin .svg: XML con script = XSS);
+    ///  3. tamano, para no leer a memoria algo enorme;
+    ///  4. BYTES MAGICOS del contenido ya leido. Solo esta ultima es infalsificable renombrando:
+    ///     extension y ContentType los pone el navegador, o sea el atacante.
+    /// </summary>
+    private async Task<string?> StoreImageAsync(IBrowserFile file, List<string> errores)
+    {
+        // Sin tenant no se puede aislar por carpeta: se rechaza en vez de escribir en cualquier lado.
+        if (TenantCtx.TenantId is not Guid tenantId)
+        {
+            errores.Add("No hay tenant activo: vuelve a entrar antes de subir imagenes.");
+            return null;
+        }
+
+        // La extension devuelta es la CONSTANTE de la lista blanca, no el texto del cliente: por eso
+        // concatenarla a la ruta no puede introducir separadores ni ".." (path traversal).
+        var ext = ImageUploadGuard.ResolveExtension(file.Name);
+        if (ext is null)
+        {
+            errores.Add($"{file.Name}: formato no permitido. Solo se aceptan {ImageUploadGuard.FormatosTexto}.");
+            return null;
+        }
+        if (file.Size <= 0)
+        {
+            errores.Add($"{file.Name}: el archivo esta vacio.");
+            return null;
+        }
+        if (file.Size > MaxImageBytes)
+        {
+            errores.Add($"{file.Name}: supera el limite de {MaxImageBytes / (1024 * 1024)} MB.");
+            return null;
+        }
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(MaxImageBytes).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            // Se valida el CONTENIDO antes de escribir nada en disco.
+            if (!ImageUploadGuard.MatchesSignature(bytes, ext))
+            {
+                errores.Add($"{file.Name}: el contenido no es una imagen {ext.TrimStart('.').ToUpperInvariant()} valida.");
+                return null;
+            }
+
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "items", tenantId.ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = ImageUploadGuard.BuildStoredFileName("item", ext);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            return $"/uploads/items/{tenantId:N}/{stored}";
+        }
+        catch
+        {
+            errores.Add($"{file.Name}: no se pudo subir.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Nombre original recortado para guardarlo como referencia. La columna FileName admite 255;
+    /// el nombre lo elige el cliente y sin recorte una subida con nombre larguisimo tumbaria el
+    /// guardado. Este valor es SOLO informativo: no interviene en la ruta del archivo.
+    /// </summary>
+    private static string RecortarNombre(string? name)
+    {
+        var n = (name ?? string.Empty).Trim();
+        return n.Length > MaxFileNameChars ? n[..MaxFileNameChars] : n;
     }
 
     private async Task RemoveImageAsync(Guid imageId)

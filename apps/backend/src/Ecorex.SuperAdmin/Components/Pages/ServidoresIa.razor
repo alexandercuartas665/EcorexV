@@ -17,7 +17,7 @@
             <span>Super Admin SaaS</span>
         </div>
         <h1 class="page-title" style="margin-top:12px;">Servidores de <span>IA</span></h1>
-        <p class="page-sub" style="margin-bottom:0;">Cuentas de proveedores de IA de la plataforma. Las agencias usan los proveedores habilitados aqui en sus agentes. Las API keys se guardan cifradas.</p>
+        <p class="page-sub" style="margin-bottom:0;">Cuentas de proveedores de IA de la plataforma. Las empresas usan los proveedores habilitados aqui en sus agentes. Las API keys se guardan cifradas.</p>
     </div>
 </div>
 
@@ -82,7 +82,7 @@ else
                 </div>
                 <label class="ai-toggle">
                     <input type="checkbox" checked="@_form.IsEnabled" @onchange="e => _form.IsEnabled = (bool)e.Value!" />
-                    <span>Habilitado para las agencias</span>
+                    <span>Habilitado para las empresas</span>
                 </label>
                 <div class="text-muted" style="font-size:11px;">Solo se puede habilitar si hay API key guardada.</div>
                 @if (_modalError is not null)

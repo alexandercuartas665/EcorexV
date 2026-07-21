@@ -9,6 +9,7 @@ red y volumen de datos son propios de ECOREX y el volumen es PERSISTENTE.
 
 - Contenedores: `ecorex-app`, `ecorex-postgres-prod`
 - Volumen datos: `ecorex-prod_ecorex-pgdata` (persistente)
+- Volumen subidas: `ecorex-prod_ecorex-uploads` (persistente, ver mas abajo)
 - Red: `ecorex-prod_ecorex-net`
 - Puerto local por defecto: `127.0.0.1:5480` (Visal usa 5380)
 
@@ -111,6 +112,60 @@ docker compose -f docker-compose.from-git.yml logs --tail=50 ecorex-app
 ```
 Para pinear una version concreta: en `.env` cambia `ECOREX_BRANCH` por un tag o
 un commit sha y repite build + up.
+
+> El `build --no-cache` + `up -d` **recrea el contenedor desde cero**. Todo lo
+> que la app haya escrito en su sistema de archivos se pierde, salvo lo que este
+> en un volumen. Por eso `wwwroot/uploads` esta montado (ver siguiente seccion).
+> Nunca uses `docker compose down -v` en este stack: la `-v` borra los volumenes
+> (BD **y** archivos subidos).
+
+---
+
+## Archivos subidos por los usuarios (volumen `ecorex-uploads`)
+
+La app guarda los binarios que sube el usuario en el sistema de archivos, bajo
+`wwwroot/uploads`; en la BD solo queda la ruta (`/uploads/items/...`). Incluye:
+
+| Subcarpeta               | Contenido                              |
+|--------------------------|----------------------------------------|
+| `uploads/` (raiz)        | logo del tenant (`Cuenta`)             |
+| `uploads/branding/`      | logo de marca de la plataforma         |
+| `uploads/items/{tenant}/`| imagenes de items de inventario        |
+| `uploads/avatars/`       | fotos de usuario                       |
+| `uploads/chat/`          | adjuntos de conversaciones             |
+| `uploads/leads/`         | archivos adjuntos de leads             |
+| `uploads/cotizaciones/`  | PDFs de cotizaciones generados         |
+| `uploads/agents/`        | recursos de agentes de IA              |
+| `uploads/templates/`     | assets de plantillas                   |
+
+Ese directorio esta en `.gitignore`, asi que **no lo respalda el repo**, y el
+contenedor se recrea en cada deploy: **sin el volumen se pierde todo cada vez**.
+El compose lo monta en `/app/wwwroot/uploads` (el `Dockerfile.superadmin` usa
+`WORKDIR /app`, asi que el `wwwroot` publicado vive en `/app/wwwroot`).
+
+Comprobar que quedo montado:
+```bash
+docker inspect -f '{{json .Mounts}}' ecorex-app | tr ',' '\n' | grep -i upload
+docker exec ecorex-app ls -R /app/wwwroot/uploads | head
+```
+
+**Primer `up` tras agregar el volumen:** hay 17 archivos de demo versionados en
+git dentro de `wwwroot/uploads` que viajan en la imagen. Docker copia el
+contenido de la imagen dentro de un volumen con nombre **la primera vez que lo
+crea vacio**, asi que esos 17 sobreviven y las imagenes actuales no se rompen.
+Eso ocurre una sola vez: archivos nuevos que se agreguen al repo bajo
+`wwwroot/uploads` NO llegaran a un volumen ya existente. Si hiciera falta:
+```bash
+docker cp <archivo> ecorex-app:/app/wwwroot/uploads/<subcarpeta>/
+```
+
+### Backup de los archivos
+
+`backup.sh` respalda **solo Postgres**. Los binarios van aparte:
+```bash
+docker run --rm -v ecorex-prod_ecorex-uploads:/data -v "$PWD/backups":/out \
+    alpine tar czf /out/ecorex-uploads-$(date +%F).tar.gz -C /data .
+```
 
 ---
 

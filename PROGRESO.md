@@ -5712,6 +5712,24 @@ codigo. Backup previo `ecorex-2026-07-21-1625.sql.gz`.
   .sql con saltos de Windows), lo que habria roto la coincidencia del valor ("FIJO\r" != "FIJO").
   Se limpiaron con `replace(options, chr(13), '')`. Verificado: 0 opciones con CR.
 
+**Depuracion de formularios de SKY SYSTEM (2026-07-21, por SQL directo):** el usuario pidio dejar solo
+"SIMULADOR DE COTIZACIONES". Alcance acotado con el a **SOLO el tenant SKY SYSTEM** (habia 67
+formularios en 7 tenants; los demas NO se tocaron). Backup `ecorex-2026-07-21-1737.sql.gz`.
+- **Borrados 19**: los 17 de basura E2E (`FRM-004`..`FRM-020`, todos "Formulario nuevo" con 1
+  respuesta) + los demo `FRM-002` (Inventario fisico) y `FRM-003` (Visita tecnica). Se arrastraron
+  18 respuestas, 43 campos y 3 contenedores.
+- **CONSERVADOS y por que** (hallazgos que cambiaron el plan original de "borrar todo menos COT"):
+  1. Los 5 `FRM-CRM-*` (Anotacion/Cotizacion/Oportunidad/PQR/Solicitud) los **siembra
+     `DatabaseSeeder.EnsureFormAsync`** en CADA tenant y los usa el modulo de Contactos/CRM:
+     borrarlos es inutil (vuelven al reiniciar) y deja el CRM sin formularios mientras tanto.
+  2. `FRM-001` "Solicitud de cotizacion" esta **enganchado a configuracion viva**: al concepto
+     "Requerimiento infraestructura" (`actividad_subcategorias`) y a **2 nodos de flujo**
+     (`workflow_node_forms`). Borrarlo rompe ese concepto y esos nodos, asi que quedo EN PAUSA
+     pendiente de decision del usuario. Sus 56 respuestas son datos demo (sembradas 2026-07-04/08).
+- El DELETE llevo **guardas** que abortan la transaccion si algun concepto o nodo de flujo referencia
+  a los formularios objetivo (dieron 0, como se esperaba tras excluir FRM-001).
+- SKY SYSTEM queda con 7 formularios: COT + FRM-001 + los 5 del CRM.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

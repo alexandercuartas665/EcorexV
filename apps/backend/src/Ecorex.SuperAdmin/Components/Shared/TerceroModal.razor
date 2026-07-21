@@ -290,6 +290,23 @@
                                                                                 case TerceroFieldType.TextArea:
                                                                                     <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
                                                                                     break;
+                                                                                case TerceroFieldType.Lookup:
+                                                                                    @* Lista alimentada por el Contenedor de datos. Se guarda el Id de la
+                                                                                       fila; la cascada mira el formulario COMPLETO (todas las fichas). *@
+                                                                                    @if (LookupCfg(f) is { } lkCfg)
+                                                                                    {
+                                                                                        <DataLookupField Config="lkCfg"
+                                                                                                         Value="@GetFicha(fc.Key, f.FieldKey)"
+                                                                                                         ValueChanged="v => SetFicha(fc.Key, f.FieldKey, v)"
+                                                                                                         FormValues="TodosLosValores()"
+                                                                                                         OnAutofill="AplicarAutollenado"
+                                                                                                         Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
+                                                                                    }
+                                                                                    else
+                                                                                    {
+                                                                                        <div class="dg-calc-warn">Este campo aun no tiene configurada su tabla de origen.</div>
+                                                                                    }
+                                                                                    break;
                                                                                 case TerceroFieldType.Calculated:
                                                                                     @* No se captura: sale de la formula y se recalcula al escribir en sus
                                                                                        origenes (ADR-0029). Vacio = no se pudo calcular (division por cero,
@@ -926,6 +943,58 @@
         // Cualquier dato puede alimentar una formula, asi que los calculados se rehacen aqui. Es
         // aritmetica en memoria sobre unas pocas claves: no toca la base ni el servicio.
         RecalcCalculated();
+    }
+
+    // ---- Campos tipo lista del Contenedor de datos ----
+
+    /// <summary>
+    /// Configuracion del campo, leida de Options. Se cachea por campo porque el render la pide en
+    /// cada pasada y deserializar en cada una seria gratuito solo en apariencia.
+    /// </summary>
+    private readonly Dictionary<Guid, Ecorex.Application.DataLookups.DataLookupConfig?> _lookupCfgs = new();
+
+    private Ecorex.Application.DataLookups.DataLookupConfig? LookupCfg(TerceroFieldDto f)
+    {
+        if (_lookupCfgs.TryGetValue(f.Id, out var cached)) { return cached; }
+        var cfg = Ecorex.Application.DataLookups.DataLookupConfig.TryParse(f.Options);
+        _lookupCfgs[f.Id] = cfg;
+        return cfg;
+    }
+
+    /// <summary>
+    /// Estado del formulario COMPLETO con las llaves cualificadas por ficha ("comercial/ciudad"),
+    /// que es como la configuracion referencia los campos origen. Sin cualificar, dos campos
+    /// homonimos en fichas distintas serian indistinguibles y la cascada miraria el equivocado.
+    /// </summary>
+    private Dictionary<string, string?> TodosLosValores()
+    {
+        var todos = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (ficha, campos) in _fichaValues)
+        {
+            foreach (var (key, val) in campos)
+            {
+                todos[$"{ficha}/{key}"] = val;
+            }
+        }
+        return todos;
+    }
+
+    /// <summary>
+    /// Vuelca en otros campos lo que trajo la fila elegida. Los destinos vienen cualificados por
+    /// ficha; un destino que ya no exista se ignora en vez de crear una entrada huerfana.
+    /// </summary>
+    private void AplicarAutollenado(IReadOnlyDictionary<string, string?> valores)
+    {
+        foreach (var (target, val) in valores)
+        {
+            var i = target.IndexOf('/');
+            if (i <= 0 || i >= target.Length - 1) { continue; }
+            var ficha = target[..i];
+            var campo = target[(i + 1)..];
+            if (!_fichaFields.ContainsKey(ficha)) { continue; }
+            SetFicha(ficha, campo, val);
+        }
+        StateHasChanged();
     }
 
     /// <summary>Escribe un valor sin disparar el recalculo (para volcar el resultado ya calculado).</summary>

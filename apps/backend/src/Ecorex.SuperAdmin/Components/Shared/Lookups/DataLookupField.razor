@@ -1,0 +1,225 @@
+@using Ecorex.Application.DataLookups
+@inject IDataLookupService LookupSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+@* Captura de un campo tipo lista alimentado por el Contenedor de datos.
+   Guarda el ID DE LA FILA (referencia viva), no su texto: la etiqueta se resuelve al mostrar.
+   Sirve igual al tercero, al item y (mas adelante) a formularios.
+
+   Las consultas se serializan con el semaforo del circuito: varios de estos campos en la
+   misma ficha comparten el DbContext del circuito y, sin esto, dos busquedas simultaneas
+   producen "A second operation was started on this context instance". *@
+
+<div class="dlf">
+    @if (_bloqueado)
+    {
+        <input class="form-control" disabled placeholder="@BloqueoTexto()" />
+    }
+    else if (_seleccion is not null)
+    {
+        <div class="dlf-sel">
+            <span class="dlf-sel-txt" title="@_seleccion.Label">@_seleccion.Label</span>
+            @if (!Disabled)
+            {
+                <button type="button" class="dlf-x" title="Quitar" @onclick="ClearAsync">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            }
+        </div>
+    }
+    else
+    {
+        <input class="form-control" placeholder="@(Placeholder ?? "Buscar...")" disabled="@Disabled"
+               value="@_texto" @oninput="OnTypeAsync" @onfocus="OnFocusAsync" />
+    }
+
+    @if (_abierto && _resultados.Count > 0)
+    {
+        <div class="dlf-pop">
+            @foreach (var r in _resultados)
+            {
+                var rr = r;
+                <button type="button" class="dlf-opt" @onclick="() => ChooseAsync(rr)">@rr.Label</button>
+            }
+            @if (_total > _resultados.Count)
+            {
+                <div class="dlf-more">@_resultados.Count de @_total &#183; escribe para afinar</div>
+            }
+        </div>
+    }
+    else if (_abierto && !_buscando)
+    {
+        <div class="dlf-pop"><div class="dlf-more">Sin coincidencias</div></div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DataLookupConfig Config { get; set; } = null!;
+
+    /// <summary>Id de la fila elegida (lo que se guarda).</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Estado del formulario COMPLETO, para resolver la cascada.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string?>? FormValues { get; set; }
+
+    /// <summary>Valores a volcar en otros campos al elegir (o al limpiar).</summary>
+    [Parameter] public EventCallback<IReadOnlyDictionary<string, string?>> OnAutofill { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+
+    private readonly List<DataLookupRowDto> _resultados = new();
+    private DataLookupRowDto? _seleccion;
+    private string _texto = "";
+    private bool _abierto;
+    private bool _buscando;
+    private bool _bloqueado;
+    private int _total;
+
+    // Firma de las dependencias: si cambia, la lista ya no es la misma y hay que revalidar.
+    private string _firmaDeps = "";
+    private string? _valorResuelto;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var firma = FirmaDeps();
+        var cambioValor = !string.Equals(_valorResuelto, Value, StringComparison.Ordinal);
+        var cambioDeps = !string.Equals(_firmaDeps, firma, StringComparison.Ordinal);
+        if (!cambioValor && !cambioDeps) { return; }
+
+        _firmaDeps = firma;
+        _valorResuelto = Value;
+        _bloqueado = DataLookupBinder.ResolveFilters(Config, FormValues).Blocked;
+
+        await ResolverSeleccionAsync(cambioDeps);
+    }
+
+    /// <summary>
+    /// Trae la etiqueta de lo ya guardado y, si cambio un campo padre, comprueba que la
+    /// seleccion siga siendo valida. Si dejo de serlo se limpia: dejarla produciria
+    /// combinaciones incoherentes (un item de un grupo que ya no es el elegido).
+    /// </summary>
+    private async Task ResolverSeleccionAsync(bool revalidar)
+    {
+        if (string.IsNullOrWhiteSpace(Value) || !Guid.TryParse(Value, out var rowId))
+        {
+            _seleccion = null;
+            return;
+        }
+
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var filas = await LookupSvc.ResolveAsync(
+                Config.TableId, new[] { rowId }, Config.DisplayColumnId, DataLookupBinder.ColumnsNeeded(Config));
+            _seleccion = filas.Count > 0 ? filas[0] : null;
+        }
+        finally
+        {
+            FormGate.Gate.Release();
+        }
+
+        if (_seleccion is null)
+        {
+            // La fila se borro del Contenedor: se limpia en vez de mostrar un id crudo.
+            await SetAsync(null, null);
+            return;
+        }
+
+        if (revalidar)
+        {
+            var filtros = DataLookupBinder.ResolveFilters(Config, FormValues).Filters;
+            if (!DataLookupBinder.StillMatches(_seleccion, filtros))
+            {
+                await SetAsync(null, null);
+            }
+        }
+    }
+
+    private async Task OnFocusAsync(FocusEventArgs _)
+    {
+        if (Disabled || _bloqueado) { return; }
+        await BuscarAsync(_texto);
+    }
+
+    private async Task OnTypeAsync(ChangeEventArgs e)
+    {
+        _texto = e.Value?.ToString() ?? "";
+        await BuscarAsync(_texto);
+    }
+
+    private async Task BuscarAsync(string? texto)
+    {
+        _buscando = true;
+        _abierto = true;
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var page = await LookupSvc.SearchForFieldAsync(Config, FormValues, texto);
+            _resultados.Clear();
+            _resultados.AddRange(page.Rows);
+            _total = page.Total;
+        }
+        finally
+        {
+            FormGate.Gate.Release();
+            _buscando = false;
+        }
+    }
+
+    private async Task ChooseAsync(DataLookupRowDto row)
+    {
+        _seleccion = row;
+        _abierto = false;
+        _texto = "";
+        await SetAsync(row.RowId.ToString(), row);
+    }
+
+    private async Task ClearAsync()
+    {
+        _seleccion = null;
+        _texto = "";
+        await SetAsync(null, null);
+    }
+
+    private async Task SetAsync(string? valor, DataLookupRowDto? row)
+    {
+        _seleccion = row;
+        _valorResuelto = valor;
+        Value = valor;
+        await ValueChanged.InvokeAsync(valor);
+        // El autollenado se emite SIEMPRE, incluso al limpiar: asi los campos destino no se
+        // quedan con los datos de la seleccion anterior.
+        if (OnAutofill.HasDelegate)
+        {
+            await OnAutofill.InvokeAsync(DataLookupBinder.BuildAutofill(Config, row));
+        }
+    }
+
+    private string FirmaDeps()
+    {
+        var deps = DataLookupBinder.DependenciesOf(Config);
+        if (deps.Count == 0) { return ""; }
+        // La firma solo sirve para DETECTAR cambios, no se interpreta: basta con que dos
+        // estados distintos produzcan cadenas distintas.
+        return string.Join("||", deps.Select(d =>
+            FormValues is not null && FormValues.TryGetValue(d, out var v) ? v ?? "" : ""));
+    }
+
+    private string BloqueoTexto()
+    {
+        var faltan = DataLookupBinder.ResolveFilters(Config, FormValues).MissingSources;
+        return faltan.Count == 0
+            ? "Completa los campos previos"
+            : $"Elige primero: {string.Join(", ", faltan.Select(EtiquetaCorta))}";
+    }
+
+    // La clave puede venir cualificada por ficha ("comercial/ciudad"); al usuario se le muestra
+    // solo el nombre del campo.
+    private static string EtiquetaCorta(string key)
+    {
+        var i = key.LastIndexOf('/');
+        return i >= 0 && i < key.Length - 1 ? key[(i + 1)..] : key;
+    }
+}

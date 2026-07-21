@@ -14,6 +14,8 @@
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFormService FormsSvc
 @inject ICurrentPermissions Perms
+@inject Ecorex.Application.DataLookups.IDataLookupService LookupSvc
+@using Ecorex.Application.DataLookups
 
 <PageTitle>Directorio General - ECOREX.tareas</PageTitle>
 
@@ -387,7 +389,7 @@
                                 <option value="@m.Key">@m.ConfigLabel</option>
                             }
                         </select>
-                        <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgField(f)" title="Editar campo">
+                        <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgFieldAsync(f)" title="Editar campo">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                         </button>
                         <button class="dg-cfg-dbtn" disabled="@_busy" @onclick="() => DeleteCfgFieldAsync(f)" title="Eliminar campo">
@@ -417,6 +419,7 @@
                                 <option value="@TerceroFieldType.Phone">Telefono</option>
                                 <option value="@TerceroFieldType.Separator">Separador</option>
                                 <option value="@TerceroFieldType.Calculated">Calculado</option>
+                                <option value="@TerceroFieldType.Lookup">Lista del Contenedor de datos</option>
                             </select>
                         </div>
                         <div style="min-width:0">
@@ -436,6 +439,123 @@
                             <div style="min-width:0" class="dg-fld-full">
                                 <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
                                 <textarea class="dg-input dg-textarea" value="@_cfgOptions" @oninput="e => _cfgOptions = e.Value?.ToString() ?? string.Empty"></textarea>
+                            </div>
+                        }
+                        @if (_cfgType == TerceroFieldType.Lookup)
+                        {
+                            @* Modelo -> tabla -> columna a mostrar. Todo se guarda por ID: renombrar
+                               una columna en el Contenedor no debe romper esto en silencio. *@
+                            <div style="min-width:0" class="dg-fld-full">
+                                <div class="dg-lk-grid">
+                                    <div>
+                                        <label class="dg-flabel">Modelo de datos <span class="dg-req">*</span></label>
+                                        <select class="dg-input" value="@(_lkModelId?.ToString() ?? "")"
+                                                @onchange="OnLookupModelChangedAsync">
+                                            <option value="">-- Elige un modelo --</option>
+                                            @foreach (var m in _lkModels)
+                                            {
+                                                <option value="@m.Id" selected="@(_lkModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="dg-flabel">Tabla <span class="dg-req">*</span></label>
+                                        <select class="dg-input" value="@(_lkTableId?.ToString() ?? "")"
+                                                @onchange="OnLookupTableChangedAsync" disabled="@(_lkModelId is null)">
+                                            <option value="">-- Elige una tabla --</option>
+                                            @foreach (var t in _lkTables)
+                                            {
+                                                <option value="@t.Id" selected="@(_lkTableId == t.Id)">@t.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="dg-flabel">Columna que se muestra</label>
+                                        <select class="dg-input" value="@(_lkDisplayCol?.ToString() ?? "")"
+                                                @onchange="e => _lkDisplayCol = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                                disabled="@(_lkColumns.Count == 0)">
+                                            <option value="">-- Automatica (primera de texto) --</option>
+                                            @foreach (var c in _lkColumns)
+                                            {
+                                                <option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+
+                                @if (_lkColumns.Count > 0)
+                                {
+                                    @* Autollenado: al elegir una fila, estas columnas se vuelcan en otros
+                                       campos de la ficha (por su llave, p.ej. "comercial/marca"). *@
+                                    <div class="dg-lk-sec">
+                                        <div class="dg-lk-sec-t">Al elegir una fila, llenar otros campos</div>
+                                        @foreach (var a in _lkAutofill)
+                                        {
+                                            var aa = a;
+                                            <div class="dg-lk-row">
+                                                <select class="dg-input" value="@aa.ColumnId.ToString()"
+                                                        @onchange="e => aa.ColumnId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : Guid.Empty">
+                                                    @foreach (var c in _lkColumns)
+                                                    {
+                                                        <option value="@c.Id" selected="@(aa.ColumnId == c.Id)">@c.Name</option>
+                                                    }
+                                                </select>
+                                                <span class="dg-lk-arrow">&#8594;</span>
+                                                <select class="dg-input" value="@aa.TargetKey"
+                                                        @onchange="e => aa.TargetKey = e.Value?.ToString() ?? string.Empty">
+                                                    <option value="">-- Campo destino --</option>
+                                                    @foreach (var f in OtrosCamposDeLaFicha())
+                                                    {
+                                                        <option value="@f.Key" selected="@(aa.TargetKey == f.Key)">@f.Label</option>
+                                                    }
+                                                </select>
+                                                <button type="button" class="dg-lk-del" @onclick="() => _lkAutofill.Remove(aa)">&times;</button>
+                                            </div>
+                                        }
+                                        <button type="button" class="dg-btn-line" @onclick="AddAutofill">+ Agregar autollenado</button>
+                                    </div>
+
+                                    @* Cascada: la lista se filtra por el valor de otro campo. *@
+                                    <div class="dg-lk-sec">
+                                        <div class="dg-lk-sec-t">Filtrar la lista</div>
+                                        @foreach (var f in _lkFilters)
+                                        {
+                                            var ff = f;
+                                            <div class="dg-lk-row">
+                                                <select class="dg-input" value="@ff.ColumnId.ToString()"
+                                                        @onchange="e => ff.ColumnId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : Guid.Empty">
+                                                    @foreach (var c in _lkColumns)
+                                                    {
+                                                        <option value="@c.Id" selected="@(ff.ColumnId == c.Id)">@c.Name</option>
+                                                    }
+                                                </select>
+                                                <span class="dg-lk-arrow">=</span>
+                                                <select class="dg-input" value="@ff.FromKey"
+                                                        @onchange="e => ff.FromKey = e.Value?.ToString() ?? string.Empty">
+                                                    <option value="">-- Valor fijo --</option>
+                                                    @foreach (var o in OtrosCamposDeLaFicha())
+                                                    {
+                                                        <option value="@o.Key" selected="@(ff.FromKey == o.Key)">Campo: @o.Label</option>
+                                                    }
+                                                </select>
+                                                @if (string.IsNullOrEmpty(ff.FromKey))
+                                                {
+                                                    <input class="dg-input" placeholder="Valor" value="@ff.Value"
+                                                           @oninput="e => ff.Value = e.Value?.ToString() ?? string.Empty" />
+                                                }
+                                                else
+                                                {
+                                                    <label class="dg-lk-chk" title="Obliga a elegir primero el campo origen">
+                                                        <input type="checkbox" checked="@ff.Require"
+                                                               @onchange="e => ff.Require = (bool)e.Value!" /> Obligatorio
+                                                    </label>
+                                                }
+                                                <button type="button" class="dg-lk-del" @onclick="() => _lkFilters.Remove(ff)">&times;</button>
+                                            </div>
+                                        }
+                                        <button type="button" class="dg-btn-line" @onclick="AddFilter">+ Agregar filtro</button>
+                                    </div>
+                                }
                             </div>
                         }
                         @if (_cfgType == TerceroFieldType.Calculated)
@@ -923,6 +1043,141 @@
         await LoadCfgFieldsAsync();
     }
 
+    // ---- Campo tipo lista del Contenedor de datos (TerceroFieldType.Lookup) ----
+    // La configuracion no vive en columnas nuevas: se serializa a JSON dentro de Options, en el
+    // mismo sitio donde un Select guarda sus opciones de texto.
+    private List<LookupModelDto> _lkModels = new();
+    private List<LookupTableDto> _lkTables = new();
+    private List<LookupColumnDto> _lkColumns = new();
+    private Guid? _lkModelId;
+    private Guid? _lkTableId;
+    private Guid? _lkDisplayCol;
+    private readonly List<AutofillRow> _lkAutofill = new();
+    private readonly List<FilterRow> _lkFilters = new();
+
+    private sealed class AutofillRow { public Guid ColumnId { get; set; } public string TargetKey { get; set; } = ""; }
+    private sealed class FilterRow
+    {
+        public Guid ColumnId { get; set; }
+        public string FromKey { get; set; } = "";
+        public string Value { get; set; } = "";
+        public bool Require { get; set; }
+    }
+
+    private void AddAutofill()
+        => _lkAutofill.Add(new AutofillRow { ColumnId = _lkColumns.Count > 0 ? _lkColumns[0].Id : Guid.Empty });
+
+    private void AddFilter()
+        => _lkFilters.Add(new FilterRow { ColumnId = _lkColumns.Count > 0 ? _lkColumns[0].Id : Guid.Empty });
+
+    /// <summary>
+    /// Campos de TODA la ficha (menos el que se edita) para elegir destino de autollenado u
+    /// origen de un filtro. La llave se cualifica con la ficha porque solo es unica dentro de
+    /// ella: sin eso, dos campos "ciudad" en fichas distintas serian indistinguibles.
+    /// </summary>
+    private List<(string Key, string Label)> OtrosCamposDeLaFicha()
+        => _cfgFields
+            .Where(f => f.Id != _cfgEditingId
+                && f.FieldType != TerceroFieldType.Separator
+                && f.FieldType != TerceroFieldType.Calculated)
+            .Select(f => ($"{f.FichaKey}/{f.FieldKey}", $"{f.Label}"))
+            .ToList();
+
+    private async Task LoadLookupCatalogAsync()
+    {
+        if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
+    }
+
+    private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
+    {
+        _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkColumns.Clear();
+        _lkAutofill.Clear();
+        _lkFilters.Clear();
+        _lkTables = _lkModelId is Guid mid ? (await LookupSvc.ListTablesAsync(mid)).ToList() : new();
+    }
+
+    private async Task OnLookupTableChangedAsync(ChangeEventArgs e)
+    {
+        _lkTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        // Cambiar de tabla invalida columnas: lo configurado apuntaba a otras.
+        _lkDisplayCol = null;
+        _lkAutofill.Clear();
+        _lkFilters.Clear();
+        _lkColumns = _lkTableId is Guid tid ? (await LookupSvc.ListColumnsAsync(tid)).ToList() : new();
+    }
+
+    private void ResetLookupCfg()
+    {
+        _lkModelId = null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkTables = new();
+        _lkColumns = new();
+        _lkAutofill.Clear();
+        _lkFilters.Clear();
+    }
+
+    /// <summary>Carga en el formulario la configuracion guardada de un campo Lookup.</summary>
+    private async Task LoadLookupCfgAsync(string? options)
+    {
+        ResetLookupCfg();
+        var cfg = DataLookupConfig.TryParse(options);
+        if (cfg is null) { return; }
+
+        await LoadLookupCatalogAsync();
+        _lkTableId = cfg.TableId;
+        _lkDisplayCol = cfg.DisplayColumnId;
+        _lkModelId = cfg.ModelId;
+        if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
+        _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
+
+        foreach (var a in cfg.Autofill ?? [])
+        {
+            _lkAutofill.Add(new AutofillRow { ColumnId = a.ColumnId, TargetKey = a.TargetFieldKey });
+        }
+        foreach (var f in cfg.Filters ?? [])
+        {
+            _lkFilters.Add(new FilterRow
+            {
+                ColumnId = f.ColumnId,
+                FromKey = f.FromFieldKey ?? "",
+                Value = f.Value ?? "",
+                Require = f.RequireSource
+            });
+        }
+    }
+
+    /// <summary>Serializa lo configurado. Devuelve null si aun no hay tabla elegida.</summary>
+    private string? BuildLookupOptions()
+    {
+        if (_lkTableId is not Guid tid) { return null; }
+        var tabla = _lkTables.FirstOrDefault(t => t.Id == tid);
+        var cfg = new DataLookupConfig(
+            tid,
+            ModelId: _lkModelId,
+            DisplayColumnId: _lkDisplayCol,
+            // Se descartan las filas a medio llenar en vez de guardarlas rotas.
+            Filters: _lkFilters
+                .Where(f => f.ColumnId != Guid.Empty
+                    && (!string.IsNullOrWhiteSpace(f.FromKey) || !string.IsNullOrWhiteSpace(f.Value)))
+                .Select(f => new DataLookupFilterConfig(
+                    f.ColumnId,
+                    string.IsNullOrWhiteSpace(f.Value) ? null : f.Value.Trim(),
+                    string.IsNullOrWhiteSpace(f.FromKey) ? null : f.FromKey,
+                    f.Require))
+                .ToList(),
+            Autofill: _lkAutofill
+                .Where(a => a.ColumnId != Guid.Empty && !string.IsNullOrWhiteSpace(a.TargetKey))
+                .Select(a => new DataLookupAutofillConfig(a.ColumnId, a.TargetKey))
+                .ToList(),
+            TableName: tabla?.Name,
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name);
+        return cfg.ToJson();
+    }
+
     private void ResetCfgForm()
     {
         _cfgEditingId = null;
@@ -930,6 +1185,7 @@
         _cfgType = TerceroFieldType.Text;
         _cfgColumn = 1;
         _cfgOptions = "";
+        ResetLookupCfg();
         _cfgDescription = "";
         _cfgError = null;
         _cfgFormula = "";
@@ -938,7 +1194,7 @@
         _cfgRepeatWith = "";
     }
 
-    private void EditCfgField(TerceroFieldDto f)
+    private async Task EditCfgFieldAsync(TerceroFieldDto f)
     {
         _cfgEditingId = f.Id;
         _cfgLabel = f.Label;
@@ -951,6 +1207,8 @@
         _cfgFormulaError = null;
         _cfgShowInFilter = f.ShowInFilter;
         _cfgRepeatWith = f.RepeatWithFieldKey ?? "";
+        if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
+        else { ResetLookupCfg(); }
     }
 
     private void CancelEditCfgField() => ResetCfgForm();
@@ -964,9 +1222,17 @@
             _cfgError = "La etiqueta es obligatoria.";
             return;
         }
-        var options = _cfgType == TerceroFieldType.Select
-            ? (string.IsNullOrWhiteSpace(_cfgOptions) ? null : _cfgOptions.Trim())
-            : null;
+        var options = _cfgType switch
+        {
+            TerceroFieldType.Select => string.IsNullOrWhiteSpace(_cfgOptions) ? null : _cfgOptions.Trim(),
+            TerceroFieldType.Lookup => BuildLookupOptions(),
+            _ => null
+        };
+        if (_cfgType == TerceroFieldType.Lookup && options is null)
+        {
+            _cfgError = "Elige el modelo y la tabla que alimentan la lista.";
+            return;
+        }
         var desc = string.IsNullOrWhiteSpace(_cfgDescription) ? null : _cfgDescription.Trim();
 
         var formula = _cfgType == TerceroFieldType.Calculated ? _cfgFormula.Trim() : null;

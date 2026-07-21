@@ -1,0 +1,78 @@
+/* Selector de fila del Contenedor de datos. Tokens del workspace (claro/oscuro). */
+
+.dlf { position: relative; min-width: 0; }
+
+/* Valor ya elegido: pastilla con el texto y una X para quitarlo. */
+.dlf-sel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface-2, var(--surface));
+    min-height: 38px;
+}
+
+.dlf-sel-txt {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dlf-x {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-3);
+    cursor: pointer;
+}
+
+.dlf-x:hover { background: var(--danger-bg, var(--surface-3)); color: var(--danger); }
+.dlf-x svg { width: 13px; height: 13px; }
+
+/* Panel de resultados. */
+.dlf-pop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .12);
+    padding: 4px;
+}
+
+.dlf-opt {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 13.5px;
+    cursor: pointer;
+}
+
+.dlf-opt:hover { background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
+
+.dlf-more {
+    padding: 7px 10px;
+    font-size: 11.5px;
+    color: var(--ink-3);
+}

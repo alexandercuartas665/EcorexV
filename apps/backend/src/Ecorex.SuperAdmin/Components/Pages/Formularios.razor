@@ -206,8 +206,12 @@
                 </p>
                 @if (_confirming.ResponseCount > 0)
                 {
+                    @* Se nombra el formulario y su codigo: sin eso, el aviso queda junto a otras
+                       tarjetas que muestran 0 respuestas y parece que el numero viene de otro
+                       lado (llego a leerse como una fuga entre tenants, que no lo es). *@
                     <div class="fx-m-warn">
-                        Tiene @N(_confirming.ResponseCount) respuesta(s) guardada(s). No se borran.
+                        <b>@_confirming.Code &#183; @_confirming.Title</b> tiene
+                        @N(_confirming.ResponseCount) respuesta(s) guardada(s). No se borran.
                     </div>
                 }
                 @if (_confirmError is not null)

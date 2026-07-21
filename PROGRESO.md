@@ -5683,6 +5683,35 @@ Backup previo `ecorex-2026-07-21-1609.sql.gz`. **No se creo ningun modulo**: se 
 - PENDIENTE si se quiere: las existencias reales (STOCK del Excel) NO se cargaron en `item_stocks`
   porque eso exige crear una bodega; hoy el stock vive como anotacion en `specifications`.
 
+**SKY SYSTEM fase 2 - campos dinamicos, stock real y limpieza E2E (2026-07-21, por SQL directo):**
+a peticion de la sesion de FORMULARIOS (que creo el formulario "SIMULADOR DE COTIZACIONES", def
+`59a91ffe-...`, code COT). Esta sesion hizo SOLO los datos (secciones A/B/C de su prompt); la
+**seccion D (D6-D10: lookup en columna de tabla, IF/CEILING, referencia al encabezado, SUMIF,
+plantilla de texto) es DESARROLLO del motor de formulas y NO se toco** - corresponde a una sesion de
+codigo. Backup previo `ecorex-2026-07-21-1625.sql.gz`.
+
+> **CORRECCION AL BRIEFING DE ESA SESION:** decia "BASE_PRODUCTOS (~1019)". Es **FALSO**: son
+> **11 productos**. Los archivos `Cotizador.xlsx` y `Cotizador Formulario.xlsx` son **identicos**
+> (mismo MD5 `56aefcceb299`) y BASE_PRODUCTOS tiene `max_row=1023` pero solo **11 filas con datos**;
+> las otras 1009 son filas vacias con formato. El "~1019" salio de leer `max_row`, no los datos.
+> Por tanto la decision "cargar todo o una muestra" era irrelevante: ya esta el 100% del catalogo.
+
+- **A) Tercero**: creadas las 5 `TerceroFieldDefinition` de la ficha `cliente` con los codigos
+  EXACTOS de la spec (`pasaje`, `parq_valor`, `mano_obra`, `margen_sky`, `tipo_parq` Select
+  FIJO/X HORA) y **realineados los 38 `fichas_json`** a esos codigos (el primer cargue habia usado
+  claves propias: pasajes/parqueadero/manoObra/...).
+- **B) Item**: creadas las 3 `ItemFieldDefinition` del tipo Producto (`proveedor` Text,
+  `costo_sin_iva` Number, `exento_iva` Select SI/NO; el Excel trae EXENTO IVA vacio -> todos NO) y
+  cargado `field_values_json` de los 11. **Stock real** en `item_stocks` sobre **Bodega Central**
+  (existente, decision del usuario): IMP1=5, el resto=1.
+- **C) Limpieza E2E**: el residuo SI estaba en uso (cada marca/bodega E2E referenciada por su item y
+  su stock), asi que "borrar marcas/bodegas pero conservar los 15 items" era contradictorio. El
+  usuario decidio **borrar el residuo completo**: 6 items + 6 stocks + 6 marcas + 6 bodegas E2E.
+  SKY SYSTEM queda con **20 items** (9 demo + 11 del Cotizador).
+- **Defecto corregido en el acto:** las `options` de los Select quedaron con `\r` (Python escribio el
+  .sql con saltos de Windows), lo que habria roto la coincidencia del valor ("FIJO\r" != "FIJO").
+  Se limpiaron con `replace(options, chr(13), '')`. Verificado: 0 opciones con CR.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

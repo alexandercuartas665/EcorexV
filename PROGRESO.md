@@ -5647,6 +5647,23 @@ gordo (hasta 80 preguntas en FRM-00011) e implica mapear `TIPO_RESPUESTA` del le
 Se migraron SOLO los cabezotes: hoy los 14 formularios estan vacios. El usuario hara un fork de la rama
 para trabajar el diseno.
 
+**Carta de EL CHUZO DE IVAN cargada en items/inventarios (2026-07-21, por SQL directo):** primer cargue
+de catalogo desde un PDF (no desde una BD). Fuente: `carta menu el chuzo de ivan.pdf` (4 paginas).
+Backup previo `ecorex-2026-07-21-0807.sql.gz`.
+- **15 `item_groups`** = las categorias de la carta (Carnes, Sandwiches, Maicitos, Perros, Arepas,
+  Desgranados, Chorizos, Alitas, Chuzos, Papas, Aplastados, Tostadas, Hamburguesas, Porciones
+  adicionales, Bebidas), con `sort_order` en el orden del PDF.
+- **121 `items`** con nombre, descripcion (los ingredientes entre parentesis de la carta), `price` y
+  su grupo. Un `item_type` "Producto". Todos `is_active`.
+- Decisiones del usuario: (a) nombre **TAL CUAL la carta** (el grupo los diferencia); esto importa
+  porque hay nombres repetidos entre categorias (POLLO aparece 6 veces, RANCHERO 4). (b) **SKU por
+  categoria** correlativo: `CAR-001`, `SAN-001`, `HAM-022`, `BEB-026`... (el SKU es unico por tenant y
+  es lo que garantiza la unicidad real).
+- Verificado: 121 items, 0 sin grupo, 0 sin precio; rangos coherentes con el PDF (Carnes 35k-83k,
+  Bebidas 4k-15k). Idempotente por (tenant_id, sku).
+- Nota: el PDF es ASCII-imposible (tildes/enies en los ingredientes); en la BD se cargo texto sin
+  tildes para mantener la convencion del proyecto, salvo donde el dato lo exigia.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

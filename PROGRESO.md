@@ -5664,6 +5664,25 @@ Backup previo `ecorex-2026-07-21-0807.sql.gz`.
 - Nota: el PDF es ASCII-imposible (tildes/enies en los ingredientes); en la BD se cargo texto sin
   tildes para mantener la convencion del proyecto, salvo donde el dato lo exigia.
 
+**Catalogo y clientes de SKY SYSTEM cargados desde Excel (2026-07-21, por SQL directo):** fuente
+`048. SKy System/Cotizador.xlsx` (hojas BASE_PRODUCTOS y BASE_CLIENTES; el resto del libro -SIMULADOR,
+FORMATO_COTIZACION, SEGUIMIENTO_COTIZACIONES- es la herramienta de cotizacion, no se migro).
+Backup previo `ecorex-2026-07-21-1609.sql.gz`. **No se creo ningun modulo**: se reusaron los existentes.
+- **11 items** (inventarios) + **7 brands** (HP, LG, SAMSUNG, LENOVO, GENERICO, GEFORCE, ASUS).
+  `sku` = CODIGO del Excel (IMP1, PANT2, LAPT8...), sin colision con los SKU demo (ITM*/E2E*/QA*).
+  Se reusaron el grupo **Tecnologia** y el tipo **Producto** que ya existian en el tenant.
+- **38 terceros** (modulo negocio) con perfil **Cliente** (`perfiles = 1`, TerceroPerfil.Cliente),
+  estado Activo. Separados por decision del usuario: 33 Empresa / 5 Persona (BERNARDO AGUILERA,
+  WILSON ARIAS, YIMMI NESSIM, CARLOS VARELA, DR ACEVEDO). `id_tipo = 'Ninguno'` porque el Excel NO
+  trae NIT ni cedula.
+- Decisiones del usuario: `price` = **COSTO con IVA** (el COSTO SIN IVA queda anotado en
+  `specifications` junto con el proveedor y el stock del Excel, para no perder el dato); las tarifas
+  por cliente (pasajes, parqueadero, tipo) se guardaron en `fichas_json` bajo la clave `cliente`,
+  respetando la forma que ya usa la app (`{"cliente": {"campo":"valor"}}`).
+- Idempotente: items por (tenant,sku), terceros por (tenant,upper(nombre)), brands por (tenant,name).
+- PENDIENTE si se quiere: las existencias reales (STOCK del Excel) NO se cargaron en `item_stocks`
+  porque eso exige crear una bodega; hoy el stock vive como anotacion en `specifications`.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

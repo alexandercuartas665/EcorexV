@@ -21,11 +21,25 @@ public sealed record LookupColumnDto(Guid Id, string Name, DataContainerColumnTy
 
 /// <summary>
 /// Un filtro sobre la tabla origen. O trae un <paramref name="Value"/> fijo (definido al
-/// configurar), o toma su valor de OTRO campo del mismo formulario/ficha via
-/// <paramref name="FromFieldKey"/> (cascada). Los dos a la vez no tienen sentido: si hay
-/// FromFieldKey, Value se ignora y sirve solo como respaldo cuando el campo origen esta vacio.
+/// configurar), o toma su valor de OTRO campo del formulario via <paramref name="FromFieldKey"/>
+/// (cascada). Los dos a la vez no tienen sentido: si hay FromFieldKey, Value se ignora y sirve
+/// solo como respaldo cuando el campo origen esta vacio.
+///
+/// FromFieldKey referencia un campo de TODO el formulario, no solo del bloque donde vive el
+/// campo. En el tercero los campos se agrupan por ficha y la clave solo es unica DENTRO de su
+/// ficha (puede haber dos "ciudad"), asi que ahi la referencia se cualifica como "ficha/campo";
+/// en items no hace falta porque un item tiene un solo tipo. El motor no interpreta la clave:
+/// solo la busca tal cual en el diccionario de valores que le pase quien llama.
 /// </summary>
-public sealed record DataLookupFilterConfig(Guid ColumnId, string? Value = null, string? FromFieldKey = null);
+/// <param name="RequireSource">
+/// true = mientras el campo origen este vacio, la lista no devuelve NADA (obliga a elegir
+/// primero el campo padre). false (por defecto) = el filtro se omite y se ve la lista completa.
+/// </param>
+public sealed record DataLookupFilterConfig(
+    Guid ColumnId,
+    string? Value = null,
+    string? FromFieldKey = null,
+    bool RequireSource = false);
 
 /// <summary>Al elegir una fila, el valor de <paramref name="ColumnId"/> se copia al campo destino.</summary>
 public sealed record DataLookupAutofillConfig(Guid ColumnId, string TargetFieldKey);
@@ -123,5 +137,20 @@ public interface IDataLookupService
         IReadOnlyList<Guid> rowIds,
         Guid? displayColumnId = null,
         IReadOnlyList<Guid>? extraColumnIds = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Busqueda a partir de la CONFIGURACION del campo y del estado del formulario: resuelve la
+    /// cascada y consulta en un solo paso. Es lo que llama la UI, para que el cableado de
+    /// filtros no se repita (ni se desvie) en cada modulo.
+    /// Si un filtro obligatorio no tiene su campo origen lleno, devuelve pagina VACIA sin ir a
+    /// la base: no hay nada que consultar todavia.
+    /// </summary>
+    Task<DataLookupPageDto> SearchForFieldAsync(
+        DataLookupConfig config,
+        IReadOnlyDictionary<string, string?>? formValues,
+        string? search = null,
+        int page = 1,
+        int pageSize = 20,
         CancellationToken cancellationToken = default);
 }

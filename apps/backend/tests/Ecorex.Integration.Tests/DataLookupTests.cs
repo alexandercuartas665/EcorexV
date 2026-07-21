@@ -125,6 +125,62 @@ public abstract class DataLookupTestsBase
     }
 
     [Fact]
+    public async Task Cascada_Filtra_La_Lista_Segun_Otro_Campo_Del_Formulario()
+    {
+        var seed = await SeedAsync("DL Cascada");
+
+        // Campo "item" que se filtra por el campo "grupo" del formulario y autollena "marca".
+        var cfg = new DataLookupConfig(
+            seed.TablaId,
+            DisplayColumnId: seed.NombreCol,
+            Filters: new[] { new DataLookupFilterConfig(seed.GrupoCol, FromFieldKey: "grupo") },
+            Autofill: new[] { new DataLookupAutofillConfig(seed.MarcaCol, "marca") });
+
+        // Sin elegir grupo: se ve todo el catalogo.
+        var todo = await RunAsync(seed, s => s.SearchForFieldAsync(cfg, null));
+        Assert.Equal(3, todo.Total);
+
+        // Con grupo = Material, la lista se reduce a lo de ese grupo.
+        var material = await RunAsync(seed, s => s.SearchForFieldAsync(
+            cfg, new Dictionary<string, string?> { ["grupo"] = "Material" }));
+        var fila = Assert.Single(material.Rows);
+        Assert.Equal("Cemento gris", fila.Label);
+        // Y trae la columna del autollenado, sin pedir la fila entera.
+        Assert.Equal("Argos", DataLookupBinder.BuildAutofill(cfg, fila)["marca"]);
+
+        // La cascada se combina con la busqueda por texto dentro del grupo ya filtrado.
+        var conTexto = await RunAsync(seed, s => s.SearchForFieldAsync(
+            cfg, new Dictionary<string, string?> { ["grupo"] = "Herramienta" }, search: "destor"));
+        Assert.Equal("Destornillador", Assert.Single(conTexto.Rows).Label);
+
+        // Un valor de grupo que no existe deja la lista vacia (no cae al catalogo completo).
+        var ninguno = await RunAsync(seed, s => s.SearchForFieldAsync(
+            cfg, new Dictionary<string, string?> { ["grupo"] = "Inexistente" }));
+        Assert.Equal(0, ninguno.Total);
+    }
+
+    [Fact]
+    public async Task Con_Filtro_Obligatorio_No_Se_Consulta_Hasta_Elegir_El_Padre()
+    {
+        var seed = await SeedAsync("DL Obligatorio");
+
+        var cfg = new DataLookupConfig(
+            seed.TablaId,
+            DisplayColumnId: seed.NombreCol,
+            Filters: new[] { new DataLookupFilterConfig(seed.GrupoCol, FromFieldKey: "grupo", RequireSource: true) });
+
+        // Sin el padre: pagina vacia SIN ir a la base (es "elige primero grupo", no "no hay nada").
+        var bloqueado = await RunAsync(seed, s => s.SearchForFieldAsync(cfg, null));
+        Assert.Equal(0, bloqueado.Total);
+        Assert.Empty(bloqueado.Rows);
+
+        // Con el padre elegido, ya devuelve lo suyo.
+        var abierto = await RunAsync(seed, s => s.SearchForFieldAsync(
+            cfg, new Dictionary<string, string?> { ["grupo"] = "Herramienta" }));
+        Assert.Equal(2, abierto.Total);
+    }
+
+    [Fact]
     public async Task Es_Aislado_Entre_Tenants()
     {
         var a = await SeedAsync("DL Tenant A");

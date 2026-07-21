@@ -107,6 +107,32 @@ public sealed class DataLookupService : IDataLookupService
             .ToList();
     }
 
+    public async Task<DataLookupPageDto> SearchForFieldAsync(
+        DataLookupConfig config,
+        IReadOnlyDictionary<string, string?>? formValues,
+        string? search = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var resolucion = DataLookupBinder.ResolveFilters(config, formValues);
+        if (resolucion.Blocked)
+        {
+            // Falta el campo padre: no se consulta nada. La UI distingue este caso por Total = 0
+            // con la pagina pedida, y muestra "elige primero X" en vez de "sin resultados".
+            return new DataLookupPageDto([], 0, page, pageSize);
+        }
+
+        return await SearchAsync(new DataLookupQuery(
+            config.TableId,
+            Search: search,
+            DisplayColumnId: config.DisplayColumnId,
+            Filters: resolucion.Filters.Count == 0 ? null : resolucion.Filters,
+            ExtraColumnIds: DataLookupBinder.ColumnsNeeded(config),
+            Page: page,
+            PageSize: pageSize), cancellationToken);
+    }
+
     /// <summary>
     /// Columna que se muestra. Si no se configuro una, se cae a la MISMA heuristica que ya usa el
     /// Contenedor de datos (primera columna de texto por orden) para que la etiqueta no cambie

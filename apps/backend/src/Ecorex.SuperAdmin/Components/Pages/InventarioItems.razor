@@ -261,12 +261,17 @@ else
 @if (_showEditor)
 {
     <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
-        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="max-width:1060px;" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>@(_editingId is null ? "Nuevo item" : $"Editar {_fName}")</h3>
                 <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
             </div>
             <div class="modal-body">
+                @* Dos columnas: a la izquierda la CAPTURA, a la derecha la MEDIA (imagen principal,
+                   minigaleria, zona de arrastre) y el resumen de solo lectura. En pantalla angosta
+                   la rejilla colapsa a una sola columna y la captura queda primero (ver .inv-editor-grid). *@
+                <div class="inv-editor-grid">
+                <div class="inv-editor-main">
                 <div class="row g-2">
                     <div class="col-md-8 field">
                         <label class="form-label">Nombre *</label>
@@ -433,40 +438,80 @@ else
                     </div>
                 </div>
 
-                @* ---- Imagenes: se suben arrastrando o con clic (antes se pegaba una URL a mano) ---- *@
-                <div class="field">
-                    <label class="form-label">Imagenes</label>
+                </div>@* fin inv-editor-main (columna de captura) *@
+
+                @* ===== Columna derecha: imagen principal -> minigaleria -> resumen ===== *@
+                <aside class="inv-editor-side">
+                    <div class="inv-section-title">Imagenes</div>
                     @if (_editingId is null)
                     {
-                        <em class="muted-cell">Crea el item y luego vuelve a abrirlo (Editar) para agregar imagenes.</em>
+                        @* Las imagenes cuelgan del item (ItemImage.ItemId), asi que no hay donde
+                           colgarlas hasta que el item exista. *@
+                        <div class="inv-media-main inv-media-pending">
+                            <span class="inv-media-noimg">@Initials(string.IsNullOrWhiteSpace(_fName) ? "?" : _fName)</span>
+                        </div>
+                        <em class="inv-fld-help">Crea el item y luego vuelve a abrirlo (Editar) para agregar imagenes.</em>
                     }
                     else
                     {
-                        <div class="inv-images">
-                            @foreach (var img in _images)
+                        // Imagen grande: la que se este previsualizando y, si no hay, la principal.
+                        var actual = CurrentImage;
+                        <div class="inv-media-main">
+                            @if (actual is not null)
                             {
-                                <div class="inv-image-chip @(img.EsPrincipal ? "principal" : "")">
-                                    <img src="@img.Url" alt="@img.FileName" />
-                                    @if (!string.IsNullOrWhiteSpace(img.Texto))
-                                    {
-                                        <span class="inv-image-overlay">@img.Texto</span>
-                                    }
-                                    @if (img.EsPrincipal)
-                                    {
-                                        <span class="inv-image-star" title="Imagen principal">&#9733;</span>
-                                    }
-                                    <button class="inv-image-del" title="Quitar" @onclick="@(() => RemoveImageAsync(img.Id))" disabled="@_busy">&times;</button>
-                                    <div class="inv-image-tools">
-                                        @if (!img.EsPrincipal)
-                                        {
-                                            <button type="button" class="inv-image-mkprin" title="Marcar principal" @onclick="@(() => SetPrincipalAsync(img.Id))" disabled="@_busy">&#9734; Principal</button>
-                                        }
-                                        <input class="form-control form-control-sm inv-image-texto" placeholder="Texto sobre la imagen" maxlength="200"
-                                               value="@img.Texto" @onchange="@(e => UpdateTextoAsync(img.Id, e.Value?.ToString()))" disabled="@_busy" />
-                                    </div>
-                                </div>
+                                <img src="@actual.Url" alt="@(actual.FileName ?? _fName)" />
+                                @if (!string.IsNullOrWhiteSpace(actual.Texto))
+                                {
+                                    <span class="inv-media-caption">@actual.Texto</span>
+                                }
+                                <span class="inv-media-flag @(actual.EsPrincipal ? "on" : "")">@(actual.EsPrincipal ? "Principal" : "Secundaria")</span>
+                            }
+                            else
+                            {
+                                <span class="inv-media-noimg">@Initials(string.IsNullOrWhiteSpace(_fName) ? "?" : _fName)</span>
                             }
                         </div>
+                        @if (actual is not null)
+                        {
+                            <div class="inv-media-tools">
+                                @if (!actual.EsPrincipal)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetPrincipalAsync(actual.Id))" disabled="@_busy">&#9734; Hacer principal</button>
+                                }
+                                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="@(() => RemoveImageAsync(actual.Id))" disabled="@_busy">Quitar</button>
+                            </div>
+                            <input class="form-control form-control-sm inv-media-texto" placeholder="Texto sobre la imagen" maxlength="200"
+                                   value="@actual.Texto" @onchange="@(e => UpdateTextoAsync(actual.Id, e.Value?.ToString()))" disabled="@_busy" />
+                        }
+
+                        @* Minigaleria. PREVISUALIZAR y MARCAR PRINCIPAL son dos cosas distintas y se
+                           mantienen separadas a proposito:
+                            - el clic en la miniatura solo previsualiza (estado en memoria, no toca la
+                              BD): mirar las fotos es lo que se hace muchas veces y un clic simple no
+                              debe modificar datos guardados ni dejar al usuario sin deshacer;
+                            - promover a principal cambia la portada del catalogo, asi que es accion
+                              explicita del boton de arriba, sobre la imagen que se esta viendo.
+                           Por lo mismo cada estado se pinta distinto: la ESTRELLA marca cual es la
+                           principal y el MARCO (.sel) cual se esta previsualizando; confundirlos es
+                           justo lo que se quiere evitar. *@
+                        @if (_images.Count > 1)
+                        {
+                            <div class="inv-mini" role="group" aria-label="Otras imagenes del item">
+                                @foreach (var img in _images)
+                                {
+                                    var thumb = img;
+                                    <button type="button" class="inv-mini-item @(actual is not null && actual.Id == thumb.Id ? "sel" : "")"
+                                            title="@(thumb.FileName ?? "Imagen")" @onclick="@(() => _previewImageId = thumb.Id)">
+                                        <img src="@thumb.Url" alt="@thumb.FileName" />
+                                        @if (thumb.EsPrincipal)
+                                        {
+                                            <span class="inv-mini-star" title="Imagen principal">&#9733;</span>
+                                        }
+                                    </button>
+                                }
+                            </div>
+                        }
+
                         @* Zona de arrastre. El <InputFile> va encima, transparente y a pantalla completa
                            de la zona: asi el navegador atiende NATIVAMENTE tanto el clic como el soltar
                            el archivo (DragEventArgs de Blazor no trae los ficheros). Los @ondrag* del
@@ -494,8 +539,41 @@ else
                             </div>
                         </div>
                     }
-                </div>
 
+                    @* Resumen de SOLO LECTURA: refleja lo capturado a la izquierda (se repinta con
+                       cada cambio del formulario) para revisar de un vistazo antes de guardar. *@
+                    <div class="inv-section-title" style="margin-top:16px;">Resumen</div>
+                    <dl class="inv-resumen">
+                        <dt>SKU</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_fSku) ? (_editingId is null && _generateSku ? "Auto (ITM...)" : "-") : _fSku)</dd>
+                        <dt>Nombre</dt>
+                        <dd>@(string.IsNullOrWhiteSpace(_fName) ? "-" : _fName)</dd>
+                        <dt>Precio</dt>
+                        <dd class="num">@FormatPrice(_fPrice)</dd>
+                        <dt>Marca</dt>
+                        <dd>@(CatalogName(_brands, _fBrand) ?? "-")</dd>
+                        <dt>Grupo</dt>
+                        <dd>@(CatalogName(_groups, _fGroup) ?? "-")</dd>
+                        <dt>Subgrupo</dt>
+                        <dd>@(CatalogName(_subgroups, _fSubgroup) ?? "-")</dd>
+                        <dt>Tipo</dt>
+                        <dd>@(CatalogName(_types, _fType) ?? "-")</dd>
+                        <dt>Estado</dt>
+                        <dd>
+                            @if (_editingId is null)
+                            {
+                                <span class="inv-resumen-badge nuevo">Sin guardar</span>
+                            }
+                            else
+                            {
+                                <span class="inv-resumen-badge @(_fIsActive ? "activo" : "archivado")">@(_fIsActive ? "Activo" : "Archivado")</span>
+                            }
+                        </dd>
+                    </dl>
+                </aside>
+                </div>@* fin inv-editor-grid *@
+
+                @* El error va a lo ancho del modal: tanto Guardar como la subida de imagenes escriben aqui. *@
                 @if (_editorError is not null)
                 {
                     <div class="tk-field-error">@_editorError</div>
@@ -682,10 +760,6 @@ else
     .inv-stock-editor { display: flex; flex-direction: column; gap: 6px; }
     .inv-stock-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; }
     .inv-pager { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 16px; font-size: 13px; color: var(--ink-3, var(--muted-foreground)); }
-    .inv-images { display: flex; gap: 8px; flex-wrap: wrap; }
-    .inv-image-chip { position: relative; }
-    .inv-image-chip img { width: 56px; height: 56px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line, var(--border)); }
-    .inv-image-del { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border: 0; border-radius: 999px; background: var(--danger, var(--destructive)); color: #fff; font-size: 13px; line-height: 1; cursor: pointer; }
     .muted-cell small { color: var(--ink-3, var(--muted-foreground)); font-size: 11px; }
 
     /* Toggle de vista Tarjetas/Lista */
@@ -717,14 +791,45 @@ else
     .inv-dynfields { border: 1px dashed var(--line, var(--border)); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
     .inv-dato-row { display: flex; gap: 6px; margin-bottom: 6px; }
 
-    /* Galeria de imagenes: principal + texto */
-    .inv-image-chip.principal img { outline: 2px solid var(--t-violet, var(--primary)); outline-offset: -2px; }
-    .inv-image-chip img { width: 96px; height: 96px; }
-    .inv-image-overlay { position: absolute; left: 4px; bottom: 22px; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: rgba(0,0,0,.6); color: #fff; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .inv-image-star { position: absolute; top: -6px; left: -6px; color: #f5b301; font-size: 15px; }
-    .inv-image-tools { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
-    .inv-image-mkprin { border: 1px solid var(--line, var(--border)); background: transparent; border-radius: 6px; font-size: 10.5px; padding: 1px 5px; cursor: pointer; }
-    .inv-image-texto { font-size: 11px; padding: 2px 6px; width: 96px; }
+    /* ---- Editor a dos columnas: captura | media + resumen ----
+       minmax(0,1fr) y no 1fr: sin el, la rejilla de Bootstrap de la izquierda impone su ancho
+       minimo de contenido y desborda el modal en vez de encogerse. */
+    .inv-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; align-items: start; }
+    .inv-editor-main { min-width: 0; }
+    .inv-editor-side { min-width: 0; border-left: 1px solid var(--line, var(--border)); padding-left: 20px; }
+    /* Angosto: una sola columna y la CAPTURA primero (el orden del DOM ya la pone antes). */
+    @@media (max-width: 900px) {
+        .inv-editor-grid { grid-template-columns: 1fr; gap: 16px; }
+        .inv-editor-side { border-left: 0; padding-left: 0; border-top: 1px solid var(--line, var(--border)); padding-top: 14px; }
+    }
+
+    /* Imagen principal grande */
+    .inv-media-main { position: relative; aspect-ratio: 1 / 1; border: 1px solid var(--line, var(--border)); border-radius: 12px; overflow: hidden; background: var(--surface-2, var(--accent)); display: grid; place-items: center; }
+    .inv-media-main img { width: 100%; height: 100%; object-fit: cover; }
+    .inv-media-pending { opacity: .55; }
+    .inv-media-noimg { font-size: 34px; font-weight: 800; color: var(--t-violet, var(--primary)); }
+    .inv-media-caption { position: absolute; left: 8px; bottom: 8px; right: 8px; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.62); color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inv-media-flag { position: absolute; top: 8px; left: 8px; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; }
+    .inv-media-flag.on { background: var(--t-violet, var(--primary)); }
+    .inv-media-tools { display: flex; gap: 6px; margin-top: 8px; }
+    .inv-media-texto { font-size: 11.5px; margin-top: 6px; width: 100%; }
+
+    /* Minigaleria: miniaturas de las demas imagenes */
+    .inv-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .inv-mini-item { position: relative; padding: 0; border: 1px solid var(--line, var(--border)); border-radius: 9px; overflow: hidden; background: transparent; cursor: pointer; line-height: 0; }
+    .inv-mini-item img { width: 54px; height: 54px; object-fit: cover; }
+    .inv-mini-item:hover { border-color: var(--t-violet, var(--primary)); }
+    .inv-mini-item.sel { border-color: var(--t-violet, var(--primary)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--t-violet, var(--primary)) 30%, transparent); }
+    .inv-mini-star { position: absolute; top: 1px; left: 3px; color: #f5b301; font-size: 13px; line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+
+    /* Ficha resumen (solo lectura) */
+    .inv-resumen { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
+    .inv-resumen dt { color: var(--ink-3, var(--muted-foreground)); font-weight: 600; }
+    .inv-resumen dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .inv-resumen dd.num { font-variant-numeric: tabular-nums; }
+    .inv-resumen-badge { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
+    .inv-resumen-badge.activo { background: var(--t-green-bg, rgba(21,128,61,.12)); color: var(--t-green, #15803d); }
+    .inv-resumen-badge.archivado { background: var(--t-amber-bg, rgba(180,83,9,.12)); color: var(--t-amber, #b45309); }
 
     /* Zona de arrastre de imagenes */
     .inv-drop { position: relative; margin-top: 8px; border: 1.5px dashed var(--line, var(--border)); border-radius: 12px; background: var(--surface-2, var(--accent)); transition: border-color .12s, background-color .12s; }
@@ -791,6 +896,24 @@ else
     private readonly Dictionary<Guid, int> _stock = new();
     private IReadOnlyList<ItemImageDto> _images = [];
     private string? _editorError;
+    // Estado del item abierto: el resumen lo muestra, el editor no lo cambia (se archiva desde el listado).
+    private bool _fIsActive = true;
+
+    /// <summary>
+    /// Imagen que se esta VIENDO en grande. Es estado de pantalla, no de la BD: al pinchar una
+    /// miniatura solo cambia esto. Si esa imagen desaparece (se quita) o nunca se eligio una, cae a
+    /// la principal y, en su defecto, a la primera de la lista.
+    /// </summary>
+    private Guid? _previewImageId;
+
+    private ItemImageDto? CurrentImage
+        => _images.FirstOrDefault(i => i.Id == _previewImageId)
+           ?? _images.FirstOrDefault(i => i.EsPrincipal)
+           ?? _images.FirstOrDefault();
+
+    /// <summary>Nombre del catalogo para el resumen: el formulario guarda el Id como texto.</summary>
+    private static string? CatalogName(IReadOnlyList<CatalogEntryDto> source, string rawId)
+        => Guid.TryParse(rawId, out var id) ? source.FirstOrDefault(e => e.Id == id)?.Name : null;
 
     // ---- Subida de imagenes (arrastrar y soltar / clic) ----
     // 4 MB por archivo: mismo tope que el logo de marca (Marca.razor). No se usa el data-URI de
@@ -992,6 +1115,8 @@ else
         _uploading = false;
         _stock.Clear();
         _images = [];
+        _previewImageId = null;   // cada item abre mostrando su principal
+        _fIsActive = true;
         _fieldValues.Clear();
         _datos.Clear();
         _typeFields = [];
@@ -1011,6 +1136,7 @@ else
             _fType = detail.ItemTypeId?.ToString() ?? "";
             _fDescription = detail.Description;
             _fSpecifications = detail.Specifications;
+            _fIsActive = detail.IsActive;
             foreach (var s in detail.StockByWarehouse.Where(s => s.Stock > 0))
             {
                 _stock[s.WarehouseId] = s.Stock;

@@ -55,17 +55,6 @@ else
                 <small class="text-muted">PNG/JPG/SVG, hasta 4 MB. Si no subes uno, se usa el logo por defecto.</small>
             </div>
 
-            <div class="auth-field" style="margin-bottom:8px;">
-                <label>O usa un logo sugerido</label>
-                <div class="brand-suggested">
-                    @foreach (var s in _suggested)
-                    {
-                        <button type="button" class="brand-suggested-item @(s == _logoUrl ? "active" : "")" @onclick="() => UseSuggested(s)">
-                            <img src="@s" alt="logo sugerido" />
-                        </button>
-                    }
-                </div>
-            </div>
             @if (!string.IsNullOrWhiteSpace(_logoUrl))
             {
                 <div class="brand-logo-current">
@@ -121,9 +110,8 @@ else
     private string? _subtext;
     private string? _logoUrl;
 
-    private readonly string[] _suggested = { "/img/brand/logo1.jpeg", "/img/brand/logo2.jpeg" };
-
-    private void UseSuggested(string url) { _logoUrl = url; _savedOk = false; _error = null; }
+    // Los "logos sugeridos" que habia aqui eran de CUBOT IA, la marca del backbone del que se
+    // clono este repo: no son de ECOREX y no tienen por que ofrecerse. La marca se sube.
 
     protected override async Task OnInitializedAsync()
     {

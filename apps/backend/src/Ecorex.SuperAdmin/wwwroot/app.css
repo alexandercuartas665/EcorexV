@@ -407,10 +407,6 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .bp-body h3 { font-size: 1.6rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; color: var(--ink, #1B1B1E); margin: 0 0 10px; }
 .bp-body p { font-size: .92rem; line-height: 1.55; color: var(--ink-2, #5C5C66); margin: 0; }
 .brand-preview-label { text-align: center; font-size: .76rem; color: var(--muted-foreground); margin-top: 10px; }
-.brand-suggested { display: flex; gap: 10px; flex-wrap: wrap; }
-.brand-suggested-item { padding: 8px; border: 2px solid var(--border); border-radius: 12px; background: #fff; cursor: pointer; }
-.brand-suggested-item.active { border-color: var(--primary); box-shadow: 0 0 0 3px oklch(0.62 0.2 285 / .15); }
-.brand-suggested-item img { height: 40px; max-width: 130px; object-fit: contain; display: block; }
 
 /* error boundary (keep functional) */
 .blazor-error-boundary { background: var(--destructive); padding: 1rem; color: white; border-radius: 8px; }

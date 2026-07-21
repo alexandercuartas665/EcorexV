@@ -2921,11 +2921,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
 
         // ---- Seccion: Sistema - Inventarios (slug inv) ----
         var inv = Add(MenuNodeKind.Section, "Sistema \u00b7 Inventarios", null, "inv", iconKey: "cube");
-        Item(inv.Id, "Bodegas", "inventario-bodegas", "000556");
-        Item(inv.Id, "Grupo inventarios", "inventario-grupos", "000506");
-        Item(inv.Id, "Marcas", "inventario-marcas", "000502");
-        Item(inv.Id, "Subgrupos", "inventario-subgrupos", "000606");
-        Item(inv.Id, "Tipos de inventario", "inventario-tipos", "000498");
+        // Los cinco catalogos (bodegas 000556, grupos 000506, marcas 000502, subgrupos 000606
+        // y tipos 000498) viven ahora en UN modulo con tarjetas + modal. Sus rutas individuales
+        // siguen existiendo; lo que se retira es su entrada del menu.
+        Item(inv.Id, "Configuracion", "inventario-configuracion", "000556");
         Item(inv.Id, "Items de inventarios", "inventario-items", "000066");
 
         // ---- Seccion: Sistema - Actividades (slug act) ----
@@ -3223,6 +3222,35 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // de contactos". Scopeado por seccion (nego) para no tocar rutas homonimas de otras secciones.
         await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/creacion-de-clientes", cancellationToken);
         await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/seguimiento-de-clientes", cancellationToken);
+
+        await EnsureInventarioConfigMenuAsync(tenantId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reorg "Sistema - Inventarios": los cinco catalogos (bodegas, marcas, grupos, subgrupos y
+    /// tipos) ocupaban cinco entradas del menu para configuraciones que se tocan de vez en cuando.
+    /// Ahora viven en UN modulo con tarjetas + modal (/inventario-configuracion) que reusa los
+    /// mismos componentes; las rutas individuales siguen existiendo.
+    /// Publico para poder dispararlo puntualmente contra un tenant ya sembrado, donde la
+    /// reconciliacion completa no corre (dev con Ecorex:SkipDemoSeed). Idempotente.
+    /// </summary>
+    public async Task EnsureInventarioConfigMenuAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // Primero el alta y despues las bajas: si esto se interrumpe a medias, la seccion nunca
+        // queda sin acceso a los catalogos.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "inv", route: "inventario-configuracion",
+            name: "Configuracion", legacyCode: "000556", cancellationToken);
+
+        foreach (var ruta in new[]
+        {
+            "inventario-bodegas", "inventario-marcas",
+            "inventario-grupos", "inventario-subgrupos", "inventario-tipos"
+        })
+        {
+            await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "inv", route: ruta, cancellationToken);
+        }
     }
 
     /// <summary>

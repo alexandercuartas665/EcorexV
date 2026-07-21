@@ -1,0 +1,232 @@
+@using Ecorex.Application.Inventory
+@inject IInventoryCatalogService CatalogSvc
+
+@* Maestro de bodegas (000556). Se extrajo de la pagina /inventario-bodegas para poder
+   reusarlo dentro del modal de /inventario-configuracion, igual que CatalogManager hace
+   con marcas/grupos/subgrupos/tipos. Con ShowHeader=false se omite el encabezado del
+   modulo, porque el modal ya pone su propio titulo. *@
+
+@if (ShowHeader)
+{
+    <div class="module-head">
+        <div>
+            <div class="module-eyebrow">
+                <div class="module-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35" /><path d="M2 8.35 12 2l10 6.35" /><path d="M6 22V12h12v10" /></svg>
+                </div>
+                <span>Modulo 000556 &#183; Sistema &#183; Inventarios</span>
+            </div>
+            <h1 class="page-title" style="margin-top:12px;">Bodegas</h1>
+            <p class="page-sub" style="margin-bottom:0;">Maestro de bodegas de inventario: el stock de cada item se reparte por bodega.</p>
+        </div>
+        <div>
+            <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ Nueva bodega</button>
+        </div>
+    </div>
+}
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <input class="form-control" style="max-width:280px;" placeholder="Buscar bodega..." @bind="_search" @bind:event="oninput" />
+        @if (!ShowHeader)
+        {
+            <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ Nueva bodega</button>
+        }
+        <label class="pl-toggle" style="margin-left:auto;">
+            <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await LoadAsync(); })" />
+            Ver archivadas
+        </label>
+    </div>
+
+    @if (Filtered.Count == 0)
+    {
+        <div class="coming-soon" style="padding:40px 24px;">
+            <h3>Sin bodegas todavia</h3>
+            <p>Crea la primera bodega para organizar el inventario.</p>
+            <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditor(null))">+ Nueva bodega</button>
+        </div>
+    }
+    else
+    {
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Ciudad</th>
+                    <th>Direccion</th>
+                    <th>Telefono</th>
+                    <th style="text-align:center;">Estado</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var w in Filtered)
+                {
+                    <tr class="@(w.IsActive ? "" : "inactive-row")">
+                        <td><strong>@w.Name</strong></td>
+                        <td>@w.City</td>
+                        <td class="muted-cell">@(string.IsNullOrWhiteSpace(w.Address) ? "-" : w.Address)</td>
+                        <td class="muted-cell">@(string.IsNullOrWhiteSpace(w.Phone) ? "-" : w.Phone)</td>
+                        <td style="text-align:center;">
+                            <span class="tk-status @(w.IsActive ? "st-done" : "st-closed")">@(w.IsActive ? "Activa" : "Archivada")</span>
+                        </td>
+                        <td style="text-align:right;white-space:nowrap;">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditor(w))">Editar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(w))" disabled="@_busy">
+                                @(w.IsActive ? "Archivar" : "Restaurar")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (_pageError is not null)
+    {
+        <div class="tk-field-error">@_pageError</div>
+    }
+}
+
+@if (_showEditor)
+{
+    <div class="modal-overlay" style="z-index:80;" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editing is null ? "Nueva bodega" : $"Editar {_editing.Name}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" maxlength="150" placeholder="Ej. Bodega Central" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6 field">
+                        <label class="form-label">Ciudad *</label>
+                        <input class="form-control" @bind="_fCity" maxlength="120" placeholder="Ej. Bogota" />
+                    </div>
+                    <div class="col-md-6 field">
+                        <label class="form-label">Telefono</label>
+                        <input class="form-control" @bind="_fPhone" maxlength="80" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Direccion</label>
+                    <input class="form-control" @bind="_fAddress" maxlength="300" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6 field">
+                        <label class="form-label">Orden</label>
+                        <input type="number" class="form-control" @bind="_fSortOrder" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="600" @bind="_fDescription"></textarea>
+                </div>
+                @if (_editorError is not null)
+                {
+                    <div class="tk-field-error">@_editorError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editing is null ? "Crear bodega" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>false dentro del modal de configuracion: el modal ya pone su propio titulo.</summary>
+    [Parameter] public bool ShowHeader { get; set; } = true;
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeInactive;
+    private string _search = "";
+    private string? _pageError;
+
+    private IReadOnlyList<WarehouseDto> _warehouses = [];
+
+    private bool _showEditor;
+    private WarehouseDto? _editing;
+    private string _fName = "";
+    private string _fCity = "";
+    private string? _fAddress;
+    private string? _fPhone;
+    private string? _fDescription;
+    private int _fSortOrder;
+    private string? _editorError;
+
+    private List<WarehouseDto> Filtered => _warehouses
+        .Where(w => string.IsNullOrWhiteSpace(_search)
+            || w.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)
+            || w.City.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _warehouses = await CatalogSvc.ListWarehousesAsync(_includeInactive);
+    }
+
+    private void OpenEditor(WarehouseDto? warehouse)
+    {
+        _editing = warehouse;
+        _fName = warehouse?.Name ?? "";
+        _fCity = warehouse?.City ?? "";
+        _fAddress = warehouse?.Address;
+        _fPhone = warehouse?.Phone;
+        _fDescription = warehouse?.Description;
+        _fSortOrder = warehouse?.SortOrder ?? 0;
+        _editorError = null;
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _editorError = null;
+        var request = new SaveWarehouseRequest(_fName, _fCity, _fDescription, _fAddress, _fPhone, _fSortOrder);
+        var result = _editing is null
+            ? await CatalogSvc.CreateWarehouseAsync(request)
+            : await CatalogSvc.UpdateWarehouseAsync(_editing.Id, request);
+        if (!result.IsOk)
+        {
+            _editorError = result.Error;
+        }
+        else
+        {
+            _showEditor = false;
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task ToggleActiveAsync(WarehouseDto warehouse)
+    {
+        _busy = true;
+        _pageError = null;
+        var result = await CatalogSvc.SetWarehouseActiveAsync(warehouse.Id, !warehouse.IsActive);
+        if (!result.IsOk)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            await LoadAsync();
+        }
+        _busy = false;
+    }
+}

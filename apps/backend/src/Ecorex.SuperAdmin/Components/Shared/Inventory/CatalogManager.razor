@@ -5,21 +5,26 @@
    000606, tipos 000498). Grid + busqueda + modal crear/editar + activar/archivar. Los
    subgrupos agregan un select de grupo. Tokens del workspace, claro/oscuro. *@
 
-<div class="module-head">
-    <div>
-        <div class="module-eyebrow">
-            <div class="module-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+@* Con ShowHeader=false (dentro del modal de /inventario-configuracion) se omite el
+   encabezado del modulo, porque el modal ya pone su propio titulo. *@
+@if (ShowHeader)
+{
+    <div class="module-head">
+        <div>
+            <div class="module-eyebrow">
+                <div class="module-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9" /><path d="M14 17H5" /><circle cx="17" cy="17" r="3" /><circle cx="7" cy="7" r="3" /></svg>
+                </div>
+                <span>Modulo @LegacyCode &#183; Sistema &#183; Inventarios</span>
             </div>
-            <span>Modulo @LegacyCode &#183; Sistema &#183; Inventarios</span>
+            <h1 class="page-title" style="margin-top:12px;">@Title</h1>
+            <p class="page-sub" style="margin-bottom:0;">@Subtitle</p>
         </div>
-        <h1 class="page-title" style="margin-top:12px;">@Title</h1>
-        <p class="page-sub" style="margin-bottom:0;">@Subtitle</p>
+        <div>
+            <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
+        </div>
     </div>
-    <div>
-        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
-    </div>
-</div>
+}
 
 @if (_loading)
 {
@@ -29,6 +34,10 @@ else
 {
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
         <input class="form-control" style="max-width:280px;" placeholder="Buscar @Title.ToLowerInvariant()..." @bind="_search" @bind:event="oninput" />
+        @if (!ShowHeader)
+        {
+            <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
+        }
         <label class="pl-toggle" style="margin-left:auto;">
             <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await LoadAsync(); })" />
             Ver archivados
@@ -145,6 +154,9 @@ else
     [Parameter, EditorRequired] public string Subtitle { get; set; } = "";
     [Parameter, EditorRequired] public string NewLabel { get; set; } = "";
     [Parameter, EditorRequired] public string LegacyCode { get; set; } = "";
+
+    /// <summary>false dentro del modal de configuracion: el modal ya pone su propio titulo.</summary>
+    [Parameter] public bool ShowHeader { get; set; } = true;
 
     private bool _loading = true;
     private bool _busy;

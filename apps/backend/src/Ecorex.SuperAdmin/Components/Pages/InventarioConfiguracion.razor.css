@@ -1,0 +1,66 @@
+/* Tarjetas del hub de configuracion de inventarios. Tokens del workspace (claro/oscuro). */
+
+.inv-cfg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 4px;
+}
+
+.inv-cfg-card {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    width: 100%;
+    padding: 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.inv-cfg-card:hover {
+    border-color: var(--brand);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .07);
+    transform: translateY(-1px);
+}
+
+.inv-cfg-ic {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+    color: var(--brand);
+}
+
+/* ::deep porque el SVG entra como MarkupString y no lleva el atributo de scope. */
+.inv-cfg-ic ::deep svg { width: 20px; height: 20px; }
+
+.inv-cfg-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+
+.inv-cfg-title { font-size: 14.5px; font-weight: 650; color: var(--ink); }
+
+.inv-cfg-sub { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+
+.inv-cfg-code {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* El modal hospeda una tabla completa: mas ancho y con scroll propio. */
+.inv-cfg-modal { max-width: 980px; width: 100%; }
+.inv-cfg-modal .modal-body { max-height: 72vh; overflow-y: auto; }
+
+@media (max-width: 560px) {
+    .inv-cfg-grid { grid-template-columns: 1fr; }
+    .inv-cfg-card { padding: 14px; }
+}

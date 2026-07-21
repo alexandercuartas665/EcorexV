@@ -1,0 +1,139 @@
+@page "/inventario-configuracion"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Inventory
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Inventory
+@inject ICurrentPermissions Perms
+
+@* Configuracion de inventarios: reune en UN solo modulo los cinco catalogos que antes
+   ocupaban cinco entradas del menu (bodegas, marcas, grupos, subgrupos y tipos). Cada
+   tarjeta abre un modal con el mismo componente que usa su pagina dedicada, asi que no
+   hay logica duplicada: CatalogManager para los cuatro catalogos simples y
+   WarehouseManager para bodegas (que tiene campos propios).
+
+   Las rutas individuales siguen existiendo; lo que se retira es su entrada del menu. *@
+
+<PageTitle>Configuracion de inventarios - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Inventarios</span>
+    <span class="sep">/</span>
+    <span class="cur">Configuracion</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+            </div>
+            <span>Sistema &#183; Inventarios</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Configuracion de inventarios</h1>
+        <p class="page-sub" style="margin-bottom:0;">Bodegas, marcas y la clasificacion de items en un solo lugar. Elige que quieres configurar.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (Visibles.Count == 0)
+{
+    <div class="coming-soon" style="padding:40px 24px;">
+        <h3>Sin acceso a los catalogos de inventario</h3>
+        <p>Tu rol no tiene permiso de ver ninguna de estas configuraciones.</p>
+    </div>
+}
+else
+{
+    <div class="inv-cfg-grid">
+        @foreach (var c in Visibles)
+        {
+            var cc = c;
+            <button type="button" class="inv-cfg-card" @onclick="() => _abierto = cc.Key">
+                <span class="inv-cfg-ic">@((MarkupString)cc.Icon)</span>
+                <span class="inv-cfg-body">
+                    <span class="inv-cfg-title">@cc.Title</span>
+                    <span class="inv-cfg-sub">@cc.Subtitle</span>
+                </span>
+                <span class="inv-cfg-code">@cc.LegacyCode</span>
+            </button>
+        }
+    </div>
+}
+
+@if (_abierto is string key && Catalogos.FirstOrDefault(c => c.Key == key) is { } sel)
+{
+    <div class="modal-overlay" @onclick="() => _abierto = null">
+        <div class="modal-dialog inv-cfg-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@sel.Title</h3>
+                <button class="modal-close" @onclick="() => _abierto = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (sel.Kind is CatalogKind kind)
+                {
+                    <CatalogManager Kind="kind"
+                                    Title="@sel.Title"
+                                    Subtitle="@sel.Subtitle"
+                                    NewLabel="@sel.NewLabel"
+                                    LegacyCode="@sel.LegacyCode"
+                                    ShowHeader="false" />
+                }
+                else
+                {
+                    <WarehouseManager ShowHeader="false" />
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private string? _abierto;
+    private readonly HashSet<string> _permitidos = new(StringComparer.Ordinal);
+
+    private sealed record Catalogo(
+        string Key, string ModuleKey, CatalogKind? Kind,
+        string Title, string Subtitle, string NewLabel, string LegacyCode, string Icon);
+
+    // Bodegas va con Kind null: no es un catalogo simple, tiene su propio componente.
+    private static readonly Catalogo[] Catalogos =
+    [
+        new("bodegas", "inventario-bodegas", null,
+            "Bodegas", "Donde se reparte el stock de cada item.", "Nueva bodega", "000556",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35\"/><path d=\"M2 8.35 12 2l10 6.35\"/><path d=\"M6 22V12h12v10\"/></svg>"),
+        new("marcas", "inventario-marcas", CatalogKind.Brand,
+            "Marcas", "Fabricante o marca comercial del item.", "Nueva marca", "000502",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z\"/><circle cx=\"7\" cy=\"7\" r=\"1.5\"/></svg>"),
+        new("grupos", "inventario-grupos", CatalogKind.ItemGroup,
+            "Grupo inventarios", "Primer nivel de la clasificacion; agrupa subgrupos.", "Nuevo grupo", "000506",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg>"),
+        new("subgrupos", "inventario-subgrupos", CatalogKind.ItemSubgroup,
+            "Subgrupos", "Segundo nivel de la clasificacion, dentro de un grupo.", "Nuevo subgrupo", "000606",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 3v14a2 2 0 0 0 2 2h14\"/><rect x=\"9\" y=\"7\" width=\"11\" height=\"4\" rx=\"1\"/><rect x=\"9\" y=\"14\" width=\"7\" height=\"4\" rx=\"1\"/></svg>"),
+        new("tipos", "inventario-tipos", CatalogKind.ItemType,
+            "Tipos de inventario", "Naturaleza del item (producto, servicio, insumo).", "Nuevo tipo", "000498",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m7.5 4.27 9 5.15\"/><path d=\"M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z\"/><path d=\"m3.3 7 8.7 5 8.7-5\"/><path d=\"M12 22V12\"/></svg>"),
+    ];
+
+    private List<Catalogo> Visibles => Catalogos.Where(c => _permitidos.Contains(c.ModuleKey)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Cada catalogo conserva su permiso propio: la union en un modulo es de NAVEGACION,
+        // no de gobierno. Un rol que solo ve bodegas sigue viendo solo bodegas.
+        foreach (var c in Catalogos)
+        {
+            if (await Perms.CanViewAsync(c.ModuleKey)) { _permitidos.Add(c.ModuleKey); }
+        }
+        _loading = false;
+    }
+}

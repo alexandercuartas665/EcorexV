@@ -452,6 +452,25 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CRM_CONCEPTOS"
     }
 }
 
+// Reorg del menu de Inventarios: los 5 catalogos pasan a un solo item "Configuracion"
+// (ECOREX_MENU_INVENTARIO=true). Idempotente. Existe porque la reconciliacion completa del menu
+// no corre cuando el dev apunta a una BD real (Ecorex:SkipDemoSeed).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_INVENTARIO"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind != TenantKind.Internal)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureInventarioConfigMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-inventario] catalogos unificados en 'Configuracion' para el tenant {Name}", t.Name);
+    }
+}
+
 // Siembra + backfill de las etapas CONFIGURABLES del pipeline de oportunidades (000740) en cada
 // tenant de negocio (ECOREX_SEED_OPP_ESTADOS=true). Idempotente: EnsureDefaultsAsync solo siembra si
 // el tenant no tiene ninguna etapa; BackfillAsync rellena EstadoId (por SortOrder == (int)Etapa) en

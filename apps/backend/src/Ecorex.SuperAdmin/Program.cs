@@ -455,13 +455,15 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_SEED_CRM_CONCEPTOS"
 // Reorg del menu de Inventarios: los 5 catalogos pasan a un solo item "Configuracion"
 // (ECOREX_MENU_INVENTARIO=true). Idempotente. Existe porque la reconciliacion completa del menu
 // no corre cuando el dev apunta a una BD real (Ecorex:SkipDemoSeed).
+// A DIFERENCIA de los seeds de datos demo, aqui van TODOS los tenants incluido el interno
+// (PLATAFORMA ECOREX): la seccion de inventarios debe verse igual en todas partes, y dejarla a
+// medias significaba que el tenant de plataforma conservaba las 5 entradas viejas.
 if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_INVENTARIO"), "true", StringComparison.OrdinalIgnoreCase))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     var tenantIds = await db.Tenants.IgnoreQueryFilters()
-        .Where(t => t.Kind != TenantKind.Internal)
         .Select(t => new { t.Id, t.Name })
         .ToListAsync();
     foreach (var t in tenantIds)

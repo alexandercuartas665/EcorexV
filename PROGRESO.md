@@ -5730,6 +5730,24 @@ formularios en 7 tenants; los demas NO se tocaron). Backup `ecorex-2026-07-21-17
   a los formularios objetivo (dieron 0, como se esperaba tras excluir FRM-001).
 - SKY SYSTEM queda con 7 formularios: COT + FRM-001 + los 5 del CRM.
 
+**Menu de SOLDARCO replicado a SKY SYSTEM (2026-07-21, por SQL directo):** el usuario noto que el menu
+de SOLDARCO quedo mejor organizado y pidio traerlo a SKY SYSTEM. Backup `ecorex-2026-07-21-1800.sql.gz`.
+- Contexto: el 2026-07-14 se clono el menu canonico DESDE SKY hacia los demas tenants, pero despues
+  **SOLDARCO se reorganizo a mano** (53 nodos / 11 raices, `updated_at` 2026-07-14 20:26) mientras SKY
+  se quedo con la version vieja (61 nodos / 12 raices). Ahora SKY adopta la de SOLDARCO.
+- Que mejora: SOLDARCO **consolida el CRM en UNA seccion**; SKY arrastraba "CRM (heredado)" Y
+  "Sistema - CRM" por separado. Ademas reubica Power BI Service, Contenedor de datos y Plantillas a
+  "Sistema - Desarrollo", y Extraccion de datos / Lista negra a "Infraestructura IA".
+- **Se conservo el `id` de la vista "Completo" de SKY**, de modo que los **17 usuarios asignados NO se
+  tocaron** (0 usuarios sin menu al final). La vista "Simple" (10 nodos, 1 usuario) quedo intacta.
+- SKY perdio 7 entradas que SOLDARCO ya no tiene, todas **stubs heredados** del sistema viejo
+  (`Autocompletado formularios` 000801, `Notificaciones` 000288, `Objetos del sistema` 000137,
+  `Parametros XML` 000057, `Servicios web` 000053, `Consecutivos` 000136 y `Automatizaciones`).
+  Decision del usuario: copiar SOLDARCO tal cual.
+- Guarda previa: se verifico que **ningun formulario-modulo** (`form_definitions.module_menu_node_id`)
+  dependiera de los nodos a borrar (0), y el DO block aborta la transaccion si aparece alguno.
+- SOLDARCO quedo intacto (sigue con sus 53 nodos): la copia es unidireccional.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

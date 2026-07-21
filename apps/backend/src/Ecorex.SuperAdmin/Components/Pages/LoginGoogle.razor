@@ -4,6 +4,7 @@
 @using System.Security.Claims
 @using Ecorex.Application.Admin
 @inject IGoogleAuthConfigService GoogleSvc
+@inject NavigationManager Nav
 
 <PageTitle>Login con Google - ECOREX.tareas</PageTitle>
 
@@ -28,10 +29,12 @@ else
 {
     <div class="card-soft" style="max-width:680px;padding:22px;">
         <div class="auth-alert" style="background:var(--muted);border:1px solid var(--border);color:var(--foreground);">
+            @* La URI de produccion se arma con el host desde el que se esta viendo esta pagina:
+               antes venia escrita a mano y era la de cubotcrm, el proyecto del que se clono este
+               repo. Seguir esa instruccion configuraba el OAuth apuntando a OTRO sistema. *@
             <strong>URIs de redireccion</strong> que debes registrar en Google Cloud (Clientes &rarr; Aplicacion web):
             <div style="margin-top:6px;font-family:var(--bs-font-monospace);font-size:12.5px;">
-                http://localhost:5232/signin-google<br />
-                https://cubotcrm-production.up.railway.app/signin-google
+                @RedirectUri()
             </div>
         </div>
 
@@ -64,6 +67,9 @@ else
 }
 
 @code {
+    /// <summary>URI de redireccion del ENTORNO ACTUAL, para no dictar la de otro sistema.</summary>
+    private string RedirectUri() => new Uri(new Uri(Nav.BaseUri), "signin-google").ToString();
+
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true, _saving, _savedOk, _enabled, _hasSecret;

@@ -139,6 +139,10 @@ public static class DependencyInjection
         // Contenedor (DataModel): agrupa varias tablas + relaciones internas (lienzo ER). Reusa el
         // nivel tabla via IDataContainerService.
         services.AddScoped<DataContainers.IDataModelService, DataContainers.DataModelService>();
+        // Motor COMPARTIDO de campos tipo lista alimentados por el Contenedor de datos. Lo
+        // consumen los campos configurables del tercero y del item (y mas adelante el motor de
+        // formularios): un solo lugar donde vive "elegir una fila y propagar sus valores".
+        services.AddScoped<DataLookups.IDataLookupService, DataLookups.DataLookupService>();
         // Cliente/agente colmena como recurso transversal propio (ADR-0045): duenio del ciclo de vida de
         // los clientes; Contenedores/Extraccion lo reusan. DataImportConfigService delega aqui.
         services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();

@@ -143,6 +143,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
+    /// <summary>Agente de IA que atiende un nodo (a lo sumo uno por nodo). Ola 1: modelo y asignacion.</summary>
+    public DbSet<WorkflowNodeAgent> WorkflowNodeAgents => Set<WorkflowNodeAgent>();
+
     // Motor de reglas (FASE 4 ola 3, ADR-0016): documentos de reglas, reglas con verbo
     // tipado, historial append-only con TTL y vinculos a preguntas de formulario y nodos
     // de flujo.
@@ -1502,6 +1505,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Agente de IA por nodo (ola 1): el gemelo no humano de WorkflowNodePolicy.
+        modelBuilder.Entity<WorkflowNodeAgent>(b =>
+        {
+            // Un nodo tiene a lo sumo UN agente: el resultado de un paso es uno solo.
+            // Con TenantId al frente igual que el resto de indices de negocio del contexto.
+            b.HasIndex(x => new { x.TenantId, x.NodeId }).IsUnique();
+            b.HasIndex(x => x.AiAgentId);
+            // Mismo criterio que WorkflowNodePolicy/WorkflowNodeForm: el vinculo vive y muere
+            // con el nodo (cascade), pero el agente NO se borra mientras este asignado
+            // (restrict): un agente en uso por un flujo se apaga (IsActive), no se elimina.
+            b.HasOne(x => x.Node).WithMany()
+                .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.AiAgent).WithMany()
+                .HasForeignKey(x => x.AiAgentId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ---- Motor de reglas (FASE 4 ola 3, ADR-0016) ----

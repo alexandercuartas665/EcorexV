@@ -52,3 +52,15 @@ public sealed record FlowCanvasDto(
 /// <summary>Regla del catalogo del tenant para el acordeon Reglas del editor.</summary>
 public sealed record FlowRuleCatalogItemDto(
     Guid RuleId, string Name, string VerbName, RuleStatus Status, string DocumentName);
+
+/// <summary>
+/// Agente de IA asignado a un nodo (ola 1). IsActive es del AiAgent: un agente apagado sigue
+/// asignado pero no atendera cuando llegue la ola 2, y el editor debe poder advertirlo.
+/// </summary>
+public sealed record FlowNodeAgentDto(
+    Guid LinkId, Guid AiAgentId, string AgentName, string? AgentRole,
+    bool IsActive, WorkflowAgentAutonomy Autonomy);
+
+/// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
+public sealed record FlowAgentCatalogItemDto(
+    Guid AiAgentId, string Name, string? Role, bool IsActive);

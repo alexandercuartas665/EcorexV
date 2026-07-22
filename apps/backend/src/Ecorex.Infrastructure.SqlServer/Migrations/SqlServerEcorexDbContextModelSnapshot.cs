@@ -11248,6 +11248,61 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("workflow_nodes", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeAgent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AiAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("ai_agent_id");
+
+                    b.Property<int>("Autonomy")
+                        .HasColumnType("int")
+                        .HasColumnName("autonomy");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("node_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_workflow_node_agents");
+
+                    b.HasIndex("AiAgentId")
+                        .HasDatabaseName("ix_workflow_node_agents_ai_agent_id");
+
+                    b.HasIndex("NodeId")
+                        .HasDatabaseName("ix_workflow_node_agents_node_id");
+
+                    b.HasIndex("TenantId", "NodeId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_workflow_node_agents_tenant_id_node_id");
+
+                    b.ToTable("workflow_node_agents", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13137,6 +13192,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Definition");
 
                     b.Navigation("RestartNode");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeAgent", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AiAgent", "AiAgent")
+                        .WithMany()
+                        .HasForeignKey("AiAgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_agents_ai_agents_ai_agent_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WorkflowNode", "Node")
+                        .WithMany()
+                        .HasForeignKey("NodeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_workflow_node_agents_workflow_nodes_node_id");
+
+                    b.Navigation("AiAgent");
+
+                    b.Navigation("Node");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.WorkflowNodeForm", b =>

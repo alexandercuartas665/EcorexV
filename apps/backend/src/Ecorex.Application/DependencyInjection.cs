@@ -81,6 +81,9 @@ public static class DependencyInjection
         services.AddScoped<Workflows.IWorkflowRuleHook, Rules.WorkflowRuleHook>();
         // Editor de flujos del prototipo (ADR-0022): indice con metricas + mutaciones del canvas.
         services.AddScoped<Workflows.IWorkflowDesignService, Workflows.WorkflowDesignService>();
+        // Agentes de IA en nodos (ola 1): arma el contexto del paso (nodo+formulario, datos
+        // previos, tarea/tercero, historial). La EJECUCION del agente es la ola 2.
+        services.AddScoped<Workflows.IWorkflowAgentContextBuilder, Workflows.WorkflowAgentContextBuilder>();
         // Bandeja operativa de flujos (runtime, ola F2, ADR-0036): "mis pasos pendientes" +
         // atender (formulario o completar/aprobar) + reclamar/reasignar. Une la asignacion por
         // nodo (INodeAssigneeResolver) con el motor (IWorkflowEngine).

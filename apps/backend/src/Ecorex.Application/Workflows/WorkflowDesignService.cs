@@ -1015,6 +1015,85 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    // ---- Agente de IA por nodo (ola 1) ----
+
+    public async Task<IReadOnlyList<FlowAgentCatalogItemDto>> ListAgentCatalogAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // Los activos primero: asignar un agente apagado es valido pero poco util.
+        return await _db.AiAgents.AsNoTracking()
+            .OrderByDescending(a => a.IsActive).ThenBy(a => a.SortOrder).ThenBy(a => a.Name)
+            .Select(a => new FlowAgentCatalogItemDto(a.Id, a.Name, a.Role, a.IsActive))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<FlowNodeAgentDto?> GetNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)
+    {
+        return await _db.WorkflowNodeAgents.AsNoTracking()
+            .Where(x => x.NodeId == nodeId)
+            .Join(_db.AiAgents.AsNoTracking(), x => x.AiAgentId, a => a.Id,
+                (x, a) => new FlowNodeAgentDto(x.Id, a.Id, a.Name, a.Role, a.IsActive, x.Autonomy))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentAsync(
+        Guid nodeId, Guid aiAgentId, WorkflowAgentAutonomy autonomy, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Nodo de flujo no encontrado.");
+        }
+        // El filtro global ya restringe al tenant activo: un agente de OTRO tenant no aparece
+        // aqui y cae como NotFound (nunca se filtra a mano por TenantId, regla 1 de CLAUDE.md).
+        var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == aiAgentId, cancellationToken);
+        if (agent is null)
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Agente de IA no encontrado.");
+        }
+        // Solo tienen sentido los nodos que representan un paso atendible; un gateway o un
+        // evento no se "atienden" y asignarles agente seria configuracion muerta.
+        if (node.NodeType != WorkflowNodeType.Task)
+        {
+            return WorkflowResult<FlowNodeAgentDto>.Invalid("Solo un paso (Task) admite agente de IA.");
+        }
+
+        // A lo sumo un agente por nodo (indice unico): upsert, igual que SetNodeFormAsync.
+        var existing = await _db.WorkflowNodeAgents.FirstOrDefaultAsync(x => x.NodeId == nodeId, cancellationToken);
+        if (existing is null)
+        {
+            existing = new WorkflowNodeAgent
+            {
+                TenantId = node.TenantId,
+                NodeId = nodeId,
+                AiAgentId = aiAgentId,
+                Autonomy = autonomy
+            };
+            _db.WorkflowNodeAgents.Add(existing);
+        }
+        else
+        {
+            existing.AiAgentId = aiAgentId;
+            existing.Autonomy = autonomy;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return WorkflowResult<FlowNodeAgentDto>.Ok(new FlowNodeAgentDto(
+            existing.Id, agent.Id, agent.Name, agent.Role, agent.IsActive, autonomy));
+    }
+
+    public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.WorkflowNodeAgents.FirstOrDefaultAsync(x => x.NodeId == nodeId, cancellationToken);
+        if (existing is null)
+        {
+            return WorkflowResult<bool>.NotFound("El nodo no tiene agente de IA asignado.");
+        }
+        _db.WorkflowNodeAgents.Remove(existing);
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<FlowNodeRuleDto>> AddNodeRuleAsync(Guid nodeId, Guid ruleId, CancellationToken cancellationToken = default)
     {
         var node = await _db.WorkflowNodes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);

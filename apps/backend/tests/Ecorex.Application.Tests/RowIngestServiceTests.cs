@@ -105,6 +105,7 @@ public class RowIngestServiceTests
         public DbSet<FormToken> FormTokens => throw new NotSupportedException();
         public DbSet<FormRecordLink> FormRecordLinks => throw new NotSupportedException();
         public DbSet<WorkflowNodeForm> WorkflowNodeForms => throw new NotSupportedException();
+        public DbSet<WorkflowNodeAgent> WorkflowNodeAgents => throw new NotSupportedException();
         public DbSet<ScheduledJob> ScheduledJobs => throw new NotSupportedException();
         public DbSet<ScheduledJobRule> ScheduledJobRules => throw new NotSupportedException();
         public DbSet<ScheduledJobChannel> ScheduledJobChannels => throw new NotSupportedException();

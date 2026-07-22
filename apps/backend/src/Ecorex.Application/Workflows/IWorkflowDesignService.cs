@@ -129,4 +129,23 @@ public interface IWorkflowDesignService
     Task<WorkflowResult<bool>> RemoveNodeRuleAsync(Guid linkId, CancellationToken cancellationToken = default);
 
     Task<WorkflowResult<bool>> SetNodeRuleAutonomousAsync(Guid linkId, bool isAutonomous, CancellationToken cancellationToken = default);
+
+    // ---- Agente de IA por nodo (ola 1: modelo y asignacion; la ejecucion es la ola 2) ----
+
+    /// <summary>Agentes de IA del tenant para el selector del editor (activos primero).</summary>
+    Task<IReadOnlyList<FlowAgentCatalogItemDto>> ListAgentCatalogAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Agente asignado al nodo, o null si el nodo lo atiende solo gente.</summary>
+    Task<FlowNodeAgentDto?> GetNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Asigna (o REEMPLAZA, upsert por el indice unico) el agente de IA del nodo. El agente
+    /// debe existir en el tenant activo: el filtro global lo garantiza (uno de otro tenant se
+    /// ve como inexistente -> NotFound).
+    /// </summary>
+    Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentAsync(
+        Guid nodeId, Guid aiAgentId, WorkflowAgentAutonomy autonomy, CancellationToken cancellationToken = default);
+
+    /// <summary>Quita el agente del nodo (el paso vuelve a ser 100% humano).</summary>
+    Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default);
 }

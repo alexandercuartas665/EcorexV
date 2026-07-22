@@ -78,6 +78,7 @@ public interface IApplicationDbContext
     DbSet<FormToken> FormTokens { get; }
     DbSet<FormRecordLink> FormRecordLinks { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
+    DbSet<WorkflowNodeAgent> WorkflowNodeAgents { get; }
 
     // Motor de programaciones (000889 "Programar actividad"): cabecera + reglas + canales + bitacora.
     DbSet<ScheduledJob> ScheduledJobs { get; }

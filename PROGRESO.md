@@ -5748,6 +5748,35 @@ de SOLDARCO quedo mejor organizado y pidio traerlo a SKY SYSTEM. Backup `ecorex-
   dependiera de los nodos a borrar (0), y el DO block aborta la transaccion si aparece alguno.
 - SOLDARCO quedo intacto (sigue con sus 53 nodos): la copia es unidireccional.
 
+**Flujo "Proceso de compras" implementado en SKY SYSTEM (2026-07-21, por SQL directo):** importado de
+`diagrama.bpmn` (Downloads del usuario). `process_code` **COMPRAS**, v1, categoria Compras,
+**BORRADOR** (`is_published=false`, decision del usuario para revisarlo en el editor).
+Backup `ecorex-2026-07-21-1900.sql.gz`. 12 nodos + 11 aristas + `bpmn_xml` completo.
+- Ruta: Requerimiento -> Cotizacion a Proveedores -> Se aprueba proveedor y cotizacion ->
+  compuerta "Aprobacion de cliente" -> [Aprobada] Se aprueba compra por el cliente -> 4 tareas de
+  cierre; [Rechazada] -> compuerta "El cliente rechaza" -> [Negocio perdido] | [Reiniciar cotizacion].
+- Las **8 anotaciones de texto** del BPMN se guardaron en `workflow_nodes.note` (instrucciones
+  operativas: "debe llenar formulario de cotizacion y % de incremento", "orden de compra igual a la
+  tarea", "formato de entrega con firma del cliente", etc.). No se perdio nada del diagrama.
+- Condiciones de compuerta: el **nombre de la arista es el boton** que ve el usuario y el valor que se
+  compara (`ApprovalOptions` -> `approvalResult` -> `WorkflowConditionEvaluator`). Quedaron
+  `approval == 'Aprobada'` / `'Rechazada'` / `'Negocio perdido'` / `'Reiniciar cotizacion'`.
+- **Unica adaptacion inevitable**: el diagrama traia un `intermediateThrowEvent` ("Reiniciar a cotizar
+  nuevo proveedor") y el motor **solo soporta 4 tipos** (`BpmnXmlMerger.LocalName` lanza con cualquier
+  otro): StartEvent, Task, ExclusiveGateway, EndEvent. Se modelo como **EndEvent con
+  `restart_node_id`** apuntando a "Cotizacion a Proveedores" (decision del usuario), que es el
+  mecanismo nativo del motor para reinicios.
+
+> **PENDIENTE DE DESARROLLO (D11) - ejecucion en PARALELO.** El nodo "Se aprueba compra por el cliente"
+> tiene **4 salidas simultaneas** (Recibe producto / Entrega para gestion de pago / Generar Factura /
+> Ingreso a Alegra). El motor es de **UN SOLO TOKEN**: `WorkflowStartService.cs:135` toma
+> `outgoing[0]` y `WorkflowEngine.ResolveOutgoing` hace lo mismo, asi que **hoy solo se ejecutaria 1
+> de las 4 ramas y las otras 3 quedarian muertas**. Por decision del usuario el diagrama se dejo TAL
+> CUAL para no falsear el proceso real; hay que implementar la bifurcacion paralela (ParallelGateway
+> / multi-token con join) en una sesion de DESARROLLO. Mientras tanto el flujo NO debe publicarse.
+> Relacionado: tampoco hay EndEvents en las 4 tareas de cierre ni en "Negocio Perdido" (el diagrama
+> no los trae), asi que la instancia no cerraria; conviene resolverlo junto con el paralelismo.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

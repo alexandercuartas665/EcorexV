@@ -5858,6 +5858,22 @@ posterior. Backup `ecorex-2026-07-22-0947.sql.gz`.
 - Verificado DESPUES: 0 actividades en SKY, y 0 huerfanos en instancias, worklogs e historial de pasos.
   Los demas tenants no tenian ninguna actividad, asi que no se toco nada mas.
 
+**Terceros demo borrados en BITCODE y AGROMETALICAS (2026-07-22, por SQL directo):** el usuario pidio
+"limpiar" tambien SOLDARCO, BITCODE y AGROMETALICAS. Hallazgo al inventariar: **los tres ya tenian 0
+actividades** (la limpieza de actividades solo aplicaba a SKY SYSTEM), y lo unico dummy que quedaba
+eran los **terceros DEMO sembrados por la app el 2026-07-09** (ANDINA S.A.S, INGETEL, Produvarios,
+Maria Fernanda Lopez, Roberto Salcedo) mas "fulano" en BITCODE.
+- **Decision explicita del usuario: en SOLDARCO NO se tocan los terceros.** Sus 3 registros de prueba
+  (ALEXANDER, CLIENTE DEMO CONCEPTOS, INDUSTRIAS TEST QA), sus 33 respuestas de formulario y sus notas
+  quedaron INTACTOS, igual que los 14 cabezotes migrados de su sistema viejo.
+- Borrados 11 terceros (6 BITCODE + 5 AGROMETALICAS) con su rastro: 12 `citas`, 10 `oportunidades` y
+  6 `tercero_contactos`. Guarda en el DELETE que aborta si el conjunto alcanza otro tenant.
+- Resultado: BITCODE y AGROMETALICAS con el directorio en 0, listos para sus contactos reales.
+
+> PENDIENTE menor: **SKY SYSTEM sigue con los 5 terceros demo** (ANDINA S.A.S, INGETEL, Produvarios,
+> Maria Fernanda Lopez, Roberto Salcedo) mezclados con los 38 clientes reales del Cotizador (43 en
+> total). No se tocaron porque el usuario acoto la limpieza a los otros tres tenants.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

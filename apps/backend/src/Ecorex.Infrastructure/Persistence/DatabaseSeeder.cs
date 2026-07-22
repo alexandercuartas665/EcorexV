@@ -2931,6 +2931,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
 
         // ---- Seccion: Sistema - Actividades (slug act) ----
         var act = Add(MenuNodeKind.Section, "Sistema \u00b7 Actividades", null, "act", iconKey: "check-square");
+        // Tableros Kanban: crear y configurar los tableros. Es un modulo DISTINTO de
+        // "Administrar actividades" (que es la bandeja) y no tenia entrada en ningun menu, asi
+        // que no habia forma de llegar a el salvo escribiendo la URL.
+        Item(act.Id, "Tableros", "tableros", "000635");
         Item(act.Id, "Administrar actividades", "actividades", "000636");
         Item(act.Id, "Prioridades", "modulo/prioridades", "000621");
         Item(act.Id, "Tipos de proyecto", "modulo/tipos-de-proyecto", "000690");
@@ -3252,6 +3256,12 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "act", route: "actividades",
             name: "Administrar actividades", legacyCode: "000636", cancellationToken);
+
+        // TABLEROS Kanban (crear y configurar tableros). Es un modulo distinto de la bandeja y
+        // NO tenia entrada en ningun menu de ningun tenant: solo se llegaba escribiendo la URL.
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "act", route: "tableros",
+            name: "Tableros", legacyCode: "000635", cancellationToken);
     }
 
     /// <summary>

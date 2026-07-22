@@ -5777,6 +5777,14 @@ Backup `ecorex-2026-07-21-1900.sql.gz`. 12 nodos + 11 aristas + `bpmn_xml` compl
 > Relacionado: tampoco hay EndEvents en las 4 tareas de cierre ni en "Negocio Perdido" (el diagrama
 > no los trae), asi que la instancia no cerraria; conviene resolverlo junto con el paralelismo.
 
+**Limpieza de flujos E2E en SKY SYSTEM (2026-07-21, por SQL directo):** se borraron los **27 flujos
+basura** de pruebas automatizadas ("E2E editor ..." y "E2E asignacion ..."), equivalente a la limpieza
+de formularios. Backup `ecorex-2026-07-21-1930.sql.gz`. Arrastraron **81 nodos, 54 aristas y 5
+politicas de nodo**. Verificado ANTES: 0 conceptos, 0 tipos de actividad, 0 instancias y 0 tareas
+dependian de ellos; el DELETE lleva guardas que abortan la transaccion si aparece alguno.
+SKY SYSTEM queda con 5 definiciones reales: COMPRAS v1 (borrador), COT-COM v1 (publicado) y v2
+(borrador), FLW-001 (publicado) y VIS-TEC (publicado, pausado). 0 nodos/aristas huerfanos.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

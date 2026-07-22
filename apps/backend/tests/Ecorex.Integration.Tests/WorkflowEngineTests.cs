@@ -169,6 +169,85 @@ public abstract class WorkflowEngineTestsBase
         Assert.All(history, s => Assert.False(s.IsCurrent));
     }
 
+    // ---- D11: ejecucion en PARALELO (multi-token) ----
+
+    /// <summary>
+    /// Un nodo con cuatro salidas abre CUATRO pasos vivos a la vez, y la instancia NO se cierra
+    /// cuando la primera rama alcanza el endEvent: sigue viva mientras quede trabajo. Antes de
+    /// D11 el primer endEvent completaba la instancia y dejaba las tres ramas hermanas en
+    /// Skipped, asi que el proceso real de compras solo ejecutaba una de sus cuatro ramas.
+    /// </summary>
+    [Fact]
+    public async Task ParallelSplit_OpensAllBranches_AndInstanceStaysOpenUntilTheLastOneFinishes()
+    {
+        var seed = await SeedTenantAsync("Workflow Paralelo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var engine = BuildEngine(ctx, seed);
+
+        var definition = (await engine.ImportBpmnAsync(new ImportBpmnRequest("PAR-01", "Flujo paralelo", ParallelXml))).Value!;
+        Assert.True((await engine.PublishAsync(definition.Id)).IsOk);
+        var activityType = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        activityType.WorkflowDefinitionId = definition.Id;
+        await ctx.SaveChangesAsync();
+
+        var service = BuildTaskService(ctx, seed, engine);
+        var created = await service.CreateAsync(
+            new CreateTaskItemRequest("Compra con ramas", seed.ActivityTypeId), seed.PlatformUserId, "Tester");
+        Assert.True(created.IsOk, created.Error);
+        var instance = await ctx.WorkflowInstances.AsNoTracking().SingleAsync(i => i.TaskItemId == created.Value!.Item.Id);
+
+        // Arranque: un solo paso vigente, la tarea que bifurca.
+        var stepA = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_A", stepA.BpmnElementId);
+
+        // AND-split: al completarla nacen las CUATRO ramas, todas vivas a la vez.
+        Assert.True((await engine.CompleteStepAsync(instance.Id, stepA.Id, seed.TenantUserId)).IsOk);
+        var ramas = await engine.GetCurrentStepsAsync(instance.Id);
+        Assert.Equal(4, ramas.Count);
+        Assert.Equal(
+            new[] { "Task_Alegra", "Task_Entrega", "Task_Factura", "Task_Pago" },
+            ramas.Select(r => r.BpmnElementId).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.All(ramas, r => Assert.Equal(WorkflowStepStatus.Pending, r.Status));
+
+        // La rama que SI llega al endEvent no debe cerrar la instancia: quedan tres vivas.
+        var entrega = ramas.Single(r => r.BpmnElementId == "Task_Entrega");
+        var trasEndEvent = await engine.CompleteStepAsync(instance.Id, entrega.Id, seed.TenantUserId);
+        Assert.True(trasEndEvent.IsOk, trasEndEvent.Error);
+        Assert.Equal(WorkflowInstanceStatus.Running, trasEndEvent.Value!.Status);
+        Assert.Equal(3, (await engine.GetCurrentStepsAsync(instance.Id)).Count);
+
+        // Se cierran las dos siguientes: sigue viva mientras quede una.
+        foreach (var code in new[] { "Task_Pago", "Task_Factura" })
+        {
+            var paso = (await engine.GetCurrentStepsAsync(instance.Id)).Single(r => r.BpmnElementId == code);
+            var res = await engine.CompleteStepAsync(instance.Id, paso.Id, seed.TenantUserId);
+            Assert.True(res.IsOk, res.Error);
+            Assert.Equal(WorkflowInstanceStatus.Running, res.Value!.Status);
+        }
+
+        // La ULTIMA rama cierra la instancia: cierre implicito, sin endEvent propio.
+        var ultima = Assert.Single(await engine.GetCurrentStepsAsync(instance.Id));
+        Assert.Equal("Task_Alegra", ultima.BpmnElementId);
+        var fin = await engine.CompleteStepAsync(instance.Id, ultima.Id, seed.TenantUserId);
+        Assert.True(fin.IsOk, fin.Error);
+        Assert.Equal(WorkflowInstanceStatus.Completed, fin.Value!.Status);
+        Assert.NotNull(fin.Value.CompletedAt);
+        Assert.Empty(await engine.GetCurrentStepsAsync(instance.Id));
+
+        // Ninguna rama quedo Skipped: las cuatro se ejecutaron de verdad.
+        var historial = await ctx.WorkflowStepHistories.AsNoTracking()
+            .Where(s => s.InstanceId == instance.Id).ToListAsync();
+        Assert.DoesNotContain(historial, s => s.Status == WorkflowStepStatus.Skipped);
+        Assert.Equal(4, historial.Count(s =>
+            s.Status == WorkflowStepStatus.Completed
+            && new[] { "Task_Entrega", "Task_Pago", "Task_Factura", "Task_Alegra" }
+                .Contains(ctx.WorkflowNodes.AsNoTracking().Single(n => n.Id == s.NodeId).BpmnElementId)));
+
+        // La tarea asociada quedo Done solo al cerrar la instancia.
+        var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == created.Value!.Item.Id);
+        Assert.Equal(TaskItemStatus.Done, task.Status);
+    }
+
     // ---- (2b) Ola 2: el alta CONSUME el concepto (flujo + titulo/detalle auto) ----
 
     [Fact]
@@ -417,6 +496,32 @@ public abstract class WorkflowEngineTestsBase
         => Path.Combine(AppContext.BaseDirectory, "Fixtures", "ejemplo-bpmn-flujo-00001.bpmn");
 
     /// <summary>start -> Task_A -> Task_B -> end.</summary>
+    /// <summary>
+    /// D11 (paralelo real): Task_A tiene CUATRO salidas simultaneas, como el nodo
+    /// "Se aprueba compra por el cliente" del flujo COMPRAS de produccion. Solo UNA rama
+    /// termina en endEvent; las otras tres son tareas finales sin fin explicito, tal como
+    /// lo modelo el negocio.
+    /// </summary>
+    private const string ParallelXml = """
+        <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="par" targetNamespace="http://ecorex.local/bpmn">
+          <bpmn:process id="P_Parallel">
+            <bpmn:startEvent id="Start_1" name="Inicio" />
+            <bpmn:task id="Task_A" name="Se aprueba compra" />
+            <bpmn:task id="Task_Entrega" name="Recibe producto y entrega" />
+            <bpmn:task id="Task_Pago" name="Gestion de pago" />
+            <bpmn:task id="Task_Factura" name="Generar factura" />
+            <bpmn:task id="Task_Alegra" name="Ingreso a alegra" />
+            <bpmn:endEvent id="End_1" name="Fin" />
+            <bpmn:sequenceFlow id="F0" sourceRef="Start_1" targetRef="Task_A" />
+            <bpmn:sequenceFlow id="F1" sourceRef="Task_A" targetRef="Task_Entrega" />
+            <bpmn:sequenceFlow id="F2" sourceRef="Task_A" targetRef="Task_Pago" />
+            <bpmn:sequenceFlow id="F3" sourceRef="Task_A" targetRef="Task_Factura" />
+            <bpmn:sequenceFlow id="F4" sourceRef="Task_A" targetRef="Task_Alegra" />
+            <bpmn:sequenceFlow id="F5" sourceRef="Task_Entrega" targetRef="End_1" />
+          </bpmn:process>
+        </bpmn:definitions>
+        """;
+
     private const string LinearXml = """
         <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="lin" targetNamespace="http://ecorex.local/bpmn">
           <bpmn:process id="P_Linear">

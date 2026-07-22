@@ -497,9 +497,14 @@ public sealed class WorkflowEngine : IWorkflowEngine
                     else if (target.NodeType == WorkflowNodeType.EndEvent)
                     {
                         // Historial completo: el endEvent alcanzado queda registrado.
+                        //
+                        // D11 (multi-token): alcanzar un endEvent cierra ESTA RAMA, no la
+                        // instancia. Antes se llamaba aqui a CompleteInstance y las ramas
+                        // hermanas vivas quedaban Skipped, asi que en un flujo con 4 salidas
+                        // paralelas solo prosperaba la primera en llegar al final. La instancia
+                        // ahora se cierra abajo, cuando no queda NINGUN paso vigente.
                         steps.Add(AddStep(instance, target, step.CycleIndex, isCycleStart: false,
                             status: WorkflowStepStatus.Completed, isCurrent: false));
-                        CompleteInstance(instance, task);
                     }
                     else
                     {
@@ -519,6 +524,11 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
             if (instance.Status == WorkflowInstanceStatus.Completed)
             {
+                // Red de seguridad. Tras D11 este barrido NO deberia dispararse por un endEvent:
+                // la instancia solo se completa cuando ya no queda ningun paso vigente. Se conserva
+                // para cualquier otra via que cierre la instancia con ramas abiertas (un cierre
+                // manual, por ejemplo), porque dejar pasos Pending de una instancia cerrada los
+                // mantendria vivos en la bandeja de alguien.
                 // Ramas paralelas que quedaron vivas: sin efecto (Skipped), nunca se borran.
                 foreach (var stale in steps.Where(s => s.IsCurrent).ToList())
                 {
@@ -542,8 +552,16 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
         if (instance.Status == WorkflowInstanceStatus.Running && !steps.Any(s => s.IsCurrent))
         {
-            // Sin pasos vigentes y sin endEvent alcanzado: el flujo no tiene salida.
-            MarkStuck(instance, task, "no quedan pasos vigentes y el flujo no alcanzo un endEvent");
+            // CIERRE IMPLICITO (D11): la instancia termina cuando no queda ningun paso vigente,
+            // vengan de una rama o de varias en paralelo. Antes esto marcaba Stuck si el flujo no
+            // habia alcanzado un endEvent explicito, lo que obligaba a modelar un fin por rama;
+            // se prefirio que un diagrama que refleja el proceso real (varias tareas finales sin
+            // endEvent) corra tal cual, sin tener que retocarlo.
+            //
+            // Contrapartida asumida: un flujo mal modelado que se queda sin salidas ahora se cierra
+            // en silencio en vez de avisar. El aviso natural es al PUBLICAR (advertir ramas sin
+            // endEvent), no en ejecucion, porque en ejecucion ya es tarde para corregir el diseno.
+            CompleteInstance(instance, task);
         }
         return false;
 

@@ -5,6 +5,58 @@
 
 ---
 
+## 2026-07-22 - Administrador de tableros unificado + menu de tenants cliente alineado
+
+**Agentes**: Claude (Opus 4.8).
+
+### Hecho
+
+**1. Un solo sistema de tableros (ADR-0020).** `task_boards` guarda DOS familias separadas por
+`Kind`: `CrmLegacy` (kanban heredado del backbone, tarjetas `TaskCard`) y `Activities` (tableros
+del prototipo 000636, tarjetas `TaskItem`). `/tableros` creaba `CrmLegacy` y `/actividades` filtra
+`Kind == Activities`, asi que los tableros creados desde el administrador eran INVISIBLES en el
+modulo de actividades. Se detecto porque el tablero "Comercio" de SOLDARCO no aparecia.
+
+- `Tableros.razor` pasa a `IActivityBoardService`: opera sobre los mismos tableros que el modulo
+  de actividades. Alta, edicion, baja, estado del tablero (A tiempo / En progreso / En riesgo /
+  Completado) y archivado. Lista con archivados incluidos: es el administrador, no la bandeja.
+- Editor de ESTADOS (columnas): crear, renombrar, color, reordenar, marcar "cierra", eliminar.
+  Via `ITaskBoardService`, la unica API sobre `task_board_columns` (misma tabla).
+- El clic en la tarjeta abre el EDITOR; para entrar al tablero hay boton "Abrir" ->
+  `/actividades?board={id}`. Antes navegaba al tablero y el modulo parecia no administrar nada.
+- `ActivityBoardsIndex` deja de crear tableros (modal y metodos eliminados) y su cabecera queda
+  sin acciones: el alta de tableros es `/tableros` y la de actividades `/crear-actividad`.
+- Bloque `ECOREX_FIX_BOARD_KIND` convierte a `Activities` los tableros `CrmLegacy` SIN tarjetas
+  `TaskCard` (uno con tarjetas si es legitimamente CrmLegacy). Convirtio 1: "Comercio".
+
+**2. Menu de los tenants cliente alineado con SOLDARCO.** Los 4 Standard restantes tenian 12
+secciones / 51 items; SOLDARCO 11/44. No era "los demas menos unos stubs" sino una
+REORGANIZACION: `syscrm` -> `crm`, e items mudados entre `gen`, `dev`, `ia` y `auto`.
+`DepurarMenuClienteAsync` (env `ECOREX_MENU_DEPURAR`) deja los 4 identicos a SOLDARCO: diff por
+seccion+ruta+nombre da CERO diferencias en los cuatro.
+
+**3. "Configuracion de entidad" reparada.** El item se llamaba asi pero apuntaba a la ruta
+`configuracion`, alias de `/mi-cuenta`; el modulo real `/configuracion-entidad` (areas y
+sucursales que alimentan el selector "Empresa/Area") no estaba enlazado en NINGUN menu. El seed
+ya estaba corregido: faltaba reconciliar los tenants existentes.
+
+### Decisiones
+
+- `EnsureMenuItemInSectionAsync` omite el alta si la ruta ya existe en la vista SIN mirar la
+  seccion. Todo MOVIMIENTO de item es quitar-y-despues-agregar. Documentado en el codigo.
+- Los `legacy_code` se leen de la BD, nunca se inventan correlativos: son la trazabilidad al
+  WebForms y no siguen orden (Conceptos actividades es 000125, Estados 000272, Origen 000324).
+- No se copio "Asesores" de la seccion `crm` de SOLDARCO: dominio belleza que el proyecto elimina.
+- "Automatizaciones" (pagina real) sale del menu para igualar a SOLDARCO; devolverla es una linea.
+
+### Siguiente
+
+- Validar en Chrome el editor de tableros y el menu de un tenant distinto de SOLDARCO.
+- Pendientes de antes: UI para asignar agentes de IA a nodos, migraciones `AddWorkflowNodeAgent` /
+  `AddWorkflowStepAgentExecution` sin aplicar, validacion visual del Cotizador.
+
+---
+
 ## 2026-07-21/22 - Agentes de IA en flujos, D11 paralelo, inventarios y limpieza del backbone
 
 **Agentes**: Claude (Opus 4.8) + varios subagentes (imagenes de items, usuarios/dependencias,

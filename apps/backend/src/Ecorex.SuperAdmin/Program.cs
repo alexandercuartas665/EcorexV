@@ -493,6 +493,47 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ACTIVIDADES"),
     }
 }
 
+// Deja el menu de los tenants CLIENTE (Kind = Standard) como el de SOLDARCO, que es el depurado:
+// quita los 6 stubs muertos de "Sistema - Desarrollo", muda el CRM de sistema de "syscrm" a "crm"
+// y reubica Contenedor de datos / Plantillas / Extraccion de datos (ECOREX_MENU_DEPURAR=true).
+// Solo Standard: PLATAFORMA ECOREX es Internal y SKY SYSTEM es Demo, con menus propios.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_DEPURAR"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind == TenantKind.Standard)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.DepurarMenuClienteAsync(t.Id);
+        app.Logger.LogWarning("[menu-depurar] Menu alineado con SOLDARCO para el tenant {Name}", t.Name);
+    }
+}
+
+// Convierte a Activities los tableros que quedaron como CrmLegacy por haber sido creados desde el
+// antiguo /tableros (ECOREX_FIX_BOARD_KIND=true). ADR-0020: task_boards guarda dos familias y el
+// modulo de actividades solo ve Kind=Activities, asi que esos tableros eran invisibles.
+// Solo migra los que NO tienen tarjetas TaskCard: un tablero del CRM heredado con tarjetas SI es
+// legitimamente CrmLegacy y convertirlo dejaria sus tarjetas sin renderizador.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_FIX_BOARD_KIND"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var huerfanos = await db.TaskBoards.IgnoreQueryFilters()
+        .Where(b => b.Kind == TaskBoardKind.CrmLegacy && !db.TaskCards.IgnoreQueryFilters().Any(c => c.BoardId == b.Id))
+        .ToListAsync();
+    foreach (var b in huerfanos)
+    {
+        b.Kind = TaskBoardKind.Activities;
+        app.Logger.LogWarning("[fix-board-kind] Tablero '{Name}' ({Id}) convertido a Activities", b.Name, b.Id);
+    }
+    if (huerfanos.Count > 0) { await db.SaveChangesAsync(); }
+    app.Logger.LogWarning("[fix-board-kind] {Count} tablero(s) convertido(s).", huerfanos.Count);
+}
+
 // Siembra + backfill de las etapas CONFIGURABLES del pipeline de oportunidades (000740) en cada
 // tenant de negocio (ECOREX_SEED_OPP_ESTADOS=true). Idempotente: EnsureDefaultsAsync solo siembra si
 // el tenant no tiene ninguna etapa; BackfillAsync rellena EstadoId (por SortOrder == (int)Etapa) en

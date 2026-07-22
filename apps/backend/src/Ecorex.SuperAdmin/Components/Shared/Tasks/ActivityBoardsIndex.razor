@@ -26,16 +26,8 @@
             <h1 class="ab-title">Tableros</h1>
             <p class="ab-subtitle">Selecciona un tablero para ver sus tareas. Cada tablero tiene sus propias columnas.</p>
         </div>
-        <div class="ab-head-actions">
-            <button class="ab-btn-ghost" title="Wizard de 3 pasos con tipo y flujo BPMN" @onclick="OpenWizardAsync">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>
-                Actividad completa
-            </button>
-            <button class="ab-btn-primary" @onclick="OpenNewBoard">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                Nuevo tablero
-            </button>
-        </div>
+        @* Sin acciones en la cabecera: este indice solo SELECCIONA tableros. El alta de tableros
+           vive en el administrador (/tableros) y el alta de actividades en /crear-actividad. *@
     </div>
 
     @* ---- KPIs ---- *@
@@ -121,54 +113,7 @@
     </div>
 </div>
 
-@* ---- Modal "Nuevo tablero" ---- *@
-@if (_boardModalOpen)
-{
-    <div class="ab-modal-overlay" @onclick="CloseBoardModal">
-        <div class="ab-modal" @onclick:stopPropagation="true">
-            <div class="ab-modal-head">
-                <h3>Nuevo tablero</h3>
-                <button class="ab-modal-x" @onclick="CloseBoardModal" aria-label="Cerrar">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                </button>
-            </div>
-            <div class="ab-modal-body">
-                <div class="ab-field">
-                    <label>Nombre</label>
-                    <input class="ab-input" @bind="_nbName" @bind:event="oninput" maxlength="160" placeholder="Nombre del tablero" />
-                </div>
-                <div class="ab-field">
-                    <label>Descripcion</label>
-                    <textarea class="ab-textarea" @bind="_nbDesc" placeholder="Que se gestiona en este tablero?"></textarea>
-                </div>
-                <div class="ab-field">
-                    <label>Estado</label>
-                    <select class="ab-select" @bind="_nbStatus">
-                        <option value="@TaskBoardStatus.InProgress">En progreso</option>
-                        <option value="@TaskBoardStatus.OnTime">A tiempo</option>
-                        <option value="@TaskBoardStatus.AtRisk">En riesgo</option>
-                        <option value="@TaskBoardStatus.Completed">Completado</option>
-                    </select>
-                </div>
-                <div class="ab-field">
-                    <label>Fecha limite</label>
-                    <input type="date" class="ab-input" @bind="_nbDue" />
-                </div>
-                @if (_nbError is not null)
-                {
-                    <div class="ab-field-error">@_nbError</div>
-                }
-            </div>
-            <div class="ab-modal-foot">
-                <button class="ab-btn-secondary" @onclick="CloseBoardModal">Cancelar</button>
-                <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_nbName))" @onclick="CreateBoardAsync">Crear tablero</button>
-            </div>
-        </div>
-    </div>
-}
-
 <TaskToasts @ref="_toasts" />
-<TaskWizard @ref="_wizard" OnCreated="OnActivityCreatedAsync" />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -188,16 +133,8 @@
     private string? _fDate; // "conf" = con fecha limite, "sinf" = sin fecha
     private string? _openDd;
 
-    private bool _boardModalOpen;
-    private string _nbName = "";
-    private string _nbDesc = "";
-    private TaskBoardStatus _nbStatus = TaskBoardStatus.InProgress;
-    private DateTime? _nbDue;
-    private string? _nbError;
-    private bool _busy;
 
     private TaskToasts? _toasts;
-    private TaskWizard? _wizard;
     private HubConnection? _hub;
     private string? _tenantId;
 
@@ -347,55 +284,6 @@
     private string TagLabel() => _fTag is Guid id ? (_tags.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
     private string TypeLabel() => _fType is Guid id ? (_types.FirstOrDefault(t => t.Id == id)?.Name ?? "Todas") : "Todas";
     private string DateLabel() => _fDate switch { "conf" => "Con fecha limite", "sinf" => "Sin fecha", _ => "Todas" };
-
-    // ---- Nuevo tablero ----
-
-    private void OpenNewBoard()
-    {
-        _nbName = ""; _nbDesc = ""; _nbStatus = TaskBoardStatus.InProgress; _nbDue = null; _nbError = null;
-        _boardModalOpen = true;
-    }
-
-    private void CloseBoardModal() => _boardModalOpen = false;
-
-    private async Task CreateBoardAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_nbName)) { return; }
-        _busy = true;
-        _nbError = null;
-        try
-        {
-            // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
-            var due = _nbDue is DateTime d
-                ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime()
-                : (DateTimeOffset?)null;
-            var request = new CreateActivityBoardRequest(
-                Name: _nbName.Trim(),
-                Description: string.IsNullOrWhiteSpace(_nbDesc) ? null : _nbDesc.Trim(),
-                Status: _nbStatus,
-                DueDate: due);
-            var result = await BoardsSvc.CreateBoardAsync(request, await ActorAsync(), await ActorNameAsync());
-            if (!result.IsOk)
-            {
-                _nbError = result.Error;
-                return;
-            }
-            _boardModalOpen = false;
-            _toasts?.Success($"Tablero {result.Value!.Code} creado.");
-            await ReloadAsync();
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    // ---- Wizard "Actividad completa" (flujo 3 pasos con tipo/flujo BPMN) ----
-
-    private async Task OpenWizardAsync()
-    {
-        if (_wizard is not null) { await _wizard.OpenAsync(); }
-    }
 
     private async Task OnActivityCreatedAsync(TaskItemDetailDto detail)
     {

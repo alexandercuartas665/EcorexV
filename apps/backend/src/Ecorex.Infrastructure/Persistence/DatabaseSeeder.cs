@@ -3262,6 +3262,160 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await EnsureMenuItemInSectionAsync(
             tenantId, sectionSlug: "act", route: "tableros",
             name: "Tableros", legacyCode: "000635", cancellationToken);
+
+        await EnsureConfiguracionEntidadMenuAsync(tenantId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Quita los stubs de "Sistema . Desarrollo" que SOLDARCO (el menu depurado) ya no tiene.
+    /// Los 6 apuntan a /modulo/{slug}, la pagina placeholder generica: prometen un modulo que
+    /// no existe.
+    ///
+    /// OJO: esto NO iguala el menu a SOLDARCO. SOLDARCO ademas REORGANIZO secciones (syscrm ->
+    /// crm, y movio Contenedor de datos / Plantillas / Extraccion de datos entre secciones).
+    /// Eso es un movimiento masivo y se decide aparte; aqui solo se retiran los stubs muertos.
+    ///
+    /// Solo quita entradas de menu; no borra datos ni paginas. Idempotente.
+    /// </summary>
+    public async Task DepurarMenuClienteAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        string[] stubsMuertos =
+        [
+            "modulo/autocompletado-formularios",
+            "modulo/notificaciones-config",
+            "modulo/objetos-del-sistema",
+            "modulo/parametros-xml",
+            "modulo/servicios-web",
+            "modulo/consecutivos",
+        ];
+
+        foreach (var ruta in stubsMuertos)
+        {
+            await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "dev", route: ruta, cancellationToken);
+        }
+
+        await ReorganizarMenuComoSoldarcoAsync(tenantId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Replica en un tenant cliente la reorganizacion de secciones que ya tiene SOLDARCO:
+    /// la seccion "syscrm" pasa a "crm", y tres items se mudan de "gen" a "dev"/"ia".
+    ///
+    /// CADA MOVIMIENTO ES QUITAR-Y-DESPUES-AGREGAR, nunca al reves: EnsureMenuItemInSectionAsync
+    /// omite el alta si la ruta ya existe en la vista SIN MIRAR la seccion, asi que un alta previa
+    /// seria un no-op y la baja posterior dejaria el item borrado. Ese error ya borro
+    /// "Administrar actividades" de los 7 tenants una vez; no se repite.
+    ///
+    /// Solo mueve entradas de menu; no toca datos ni paginas. Idempotente.
+    /// </summary>
+    private async Task ReorganizarMenuComoSoldarcoAsync(
+        Guid tenantId, CancellationToken cancellationToken)
+    {
+        // 1) Los 8 items del CRM de sistema se mudan de "syscrm" a "crm".
+        //    Los legacy_code son los REALES leidos de SOLDARCO, no correlativos inventados: son
+        //    la trazabilidad al WebForms viejo y no siguen ningun orden (000125, 000272, 000324...).
+        (string Route, string Name, string? Legacy)[] itemsCrm =
+        [
+            ("modulo/vendedores",             "Vendedores",             "000124"),
+            ("modulo/conceptos-actividades",  "Conceptos actividades",  "000125"),
+            ("modulo/grupos-de-actividades",  "Grupos de actividades",  "000126"),
+            ("modulo/perfiles-cliente-prov",  "Perfiles cliente/prov",  "000166"),
+            ("modulo/tipos-de-empresas",      "Tipos de empresas",      "000231"),
+            ("modulo/servicios-o-productos",  "Servicios o productos",  "000249"),
+            ("modulo/estados-crm",            "Estados",                "000272"),
+            ("modulo/origen-clientes",        "Origen clientes",        "000324"),
+        ];
+        foreach (var it in itemsCrm)
+        {
+            await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "syscrm", route: it.Route, cancellationToken);
+            await EnsureMenuItemInSectionAsync(
+                tenantId, sectionSlug: "crm", route: it.Route,
+                name: it.Name, legacyCode: it.Legacy, cancellationToken);
+        }
+
+        // 2) Tres items salen de "Sistema . General" hacia su seccion natural.
+        (string Route, string Name, string? Legacy, string Destino)[] mudanzas =
+        [
+            ("contenedor-datos", "Contenedor de datos", null,     "dev"),
+            ("plantillas",       "Plantillas",          "000893", "dev"),
+            ("extraccion-datos", "Extraccion de datos", "000730", "ia"),
+        ];
+        foreach (var m in mudanzas)
+        {
+            await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "gen", route: m.Route, cancellationToken);
+            await EnsureMenuItemInSectionAsync(
+                tenantId, sectionSlug: m.Destino, route: m.Route,
+                name: m.Name, legacyCode: m.Legacy, cancellationToken);
+        }
+
+        // 3) Power BI Service y Lista negra SI existian en los demas tenants, pero en otra seccion
+        //    ("auto" y "crm"). Sin quitarlos de la vieja primero, el Ensure los daba por presentes
+        //    y no los movia: la ruta ya estaba en la vista. Misma trampa del punto 1.
+        //    NO se copia "Asesores" de la seccion crm de SOLDARCO: es del dominio belleza heredado
+        //    del backbone, que este proyecto elimina.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "auto", route: "modulo/power-bi-service", cancellationToken);
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "dev", route: "modulo/power-bi-service",
+            name: "Power BI Service", legacyCode: "000788", cancellationToken);
+
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "crm", route: "lista-negra", cancellationToken);
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "ia", route: "lista-negra",
+            name: "Lista negra", legacyCode: null, cancellationToken);
+
+        // "Automatizaciones" es una pagina real, pero SOLDARCO no la lleva en el menu y el objetivo
+        // es igualar. Si se necesita de vuelta, basta con volver a sembrar la entrada.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "crm", route: "automatizaciones", cancellationToken);
+
+        // 4) "syscrm" quedo vacia tras la mudanza y la seccion "crm" se llama "CRM (heredado)"
+        //    en los demas tenants: en SOLDARCO es simplemente "CRM".
+        await RemoveMenuSubtreeByRouteAsync(tenantId, "syscrm", cancellationToken);
+        await RenameMenuSectionAsync(tenantId, sectionSlug: "crm", nuevoNombre: "CRM", cancellationToken);
+    }
+
+    /// <summary>Renombra una seccion del menu por su slug (Route). Idempotente.</summary>
+    private async Task RenameMenuSectionAsync(
+        Guid tenantId, string sectionSlug, string nuevoNombre, CancellationToken cancellationToken)
+    {
+        var secciones = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.ParentId == null && n.Route == sectionSlug
+                && n.Name != nuevoNombre)
+            .ToListAsync(cancellationToken);
+        if (secciones.Count == 0) { return; }
+
+        foreach (var s in secciones) { s.Name = nuevoNombre; }
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Reconciliacion del menu para el tenant {Tenant}: seccion '{Sec}' renombrada a '{Nombre}'.",
+            tenantId, sectionSlug, nuevoNombre);
+    }
+
+    /// <summary>
+    /// Repara el item "Configuracion de entidad", que se llamaba asi pero apuntaba a la ruta
+    /// "configuracion" (un alias de /mi-cuenta): el nombre prometia el maestro de entidades y
+    /// llevaba al plan del tenant. Y el modulo REAL (/configuracion-entidad, donde se configuran
+    /// las areas y sucursales que alimentan el selector "Empresa/Area" de las actividades) no
+    /// estaba enlazado en NINGUN menu, asi que era inalcanzable.
+    ///
+    /// El seed ya estaba corregido hace tiempo; lo que faltaba era reconciliar a los tenants que
+    /// ya existian. Idempotente.
+    /// </summary>
+    public async Task EnsureConfiguracionEntidadMenuAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // La BAJA va primero: EnsureMenuItemInSectionAsync salta si la RUTA ya existe en la vista,
+        // y aqui ademas hay que quitar un item cuyo nombre engana. Mismo aprendizaje del movimiento
+        // de "Administrar actividades": un renombrar-y-reapuntar no es un alta seguida de una baja.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "gen", route: "configuracion", cancellationToken);
+
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "gen", route: "mi-cuenta",
+            name: "Mi cuenta", legacyCode: "000615", cancellationToken);
+
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "gen", route: "configuracion-entidad",
+            name: "Configuracion de la entidad", legacyCode: "000616", cancellationToken);
     }
 
     /// <summary>

@@ -4,7 +4,13 @@
 @attribute [Authorize(Policy = "TenantMember")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Tenancy
-@inject ITaskBoardService BoardsSvc
+@using Ecorex.Domain.Enums
+@* ADR-0020: task_boards guarda DOS familias separadas por Kind. Este administrador opera sobre
+   los tableros de ACTIVIDADES (000636), los del prototipo, via IActivityBoardService, que fuerza
+   Kind=Activities. ITaskBoardService se usa SOLO para las columnas (estados), que viven en la
+   misma tabla task_board_columns y no tienen API propia en el servicio de actividades. *@
+@inject IActivityBoardService BoardsSvc
+@inject ITaskBoardService ColumnsSvc
 @inject NavigationManager Nav
 
 <PageTitle>Tableros - ECOREX.tareas</PageTitle>
@@ -38,18 +44,34 @@ else
     <div class="tb-grid">
         @foreach (var b in _boards)
         {
-            <div class="tb-card" @onclick="@(() => Nav.NavigateTo($"/tableros/{b.Id}"))">
+            @* Esta pagina es el ADMINISTRADOR de tableros: el clic en la tarjeta abre el EDITOR,
+               no el tablero. Para entrar al tablero esta el boton explicito "Abrir". *@
+            <div class="tb-card" @onclick="@(() => OpenEditAsync(b))">
                 <div class="tb-card-head">
                     <span class="tb-card-color" style="background:@(string.IsNullOrWhiteSpace(b.Color) ? "#7c4dff" : b.Color);"></span>
                     <div class="tb-card-name">@b.Name</div>
+                    <div class="tb-card-actions" @onclick:stopPropagation="true">
+                        <button type="button" class="tb-icon-btn" title="Abrir tablero"
+                                @onclick="@(() => Nav.NavigateTo($"/actividades?board={b.Id}"))">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+                        </button>
+                        <button type="button" class="tb-icon-btn danger" title="Eliminar tablero"
+                                @onclick="@(() => OpenDelete(b))" disabled="@_busy">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        </button>
+                    </div>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(b.Description))
                 {
                     <div class="tb-card-desc">@b.Description</div>
                 }
                 <div class="tb-card-foot">
-                    <span class="tb-card-stat">@b.CardCount tarea@(b.CardCount == 1 ? "" : "s")</span>
-                    <span class="tb-card-stat">@b.CompletedCount completada@(b.CompletedCount == 1 ? "" : "s")</span>
+                    <span class="tb-card-stat">@b.TaskCount tarea@(b.TaskCount == 1 ? "" : "s")</span>
+                    <span class="tb-card-stat">@b.ProgressPct% completado</span>
+                    @if (b.IsArchived)
+                    {
+                        <span class="tb-card-stat">Archivado</span>
+                    }
                 </div>
             </div>
         }
@@ -59,9 +81,9 @@ else
 @if (_modalOpen)
 {
     <div class="modal-overlay">
-        <div class="modal-dialog" style="max-width:520px;">
+        <div class="modal-dialog" style="max-width:@(_editId is null ? "520px" : "700px");">
             <div class="modal-head">
-                <h3>Nuevo tablero</h3>
+                <h3>@(_editId is null ? "Nuevo tablero" : "Editar tablero")</h3>
                 <button class="modal-close" @onclick="CloseModal">&times;</button>
             </div>
             <div class="modal-body">
@@ -84,7 +106,7 @@ else
                         <button type="button" class="tb-color-swatch clear @(string.IsNullOrEmpty(_fColor) ? "selected" : "")" @onclick="@(() => _fColor = null)" title="Sin color">x</button>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
-                        <input type="color" style="height:34px;width:48px;padding:2px;border:1px solid var(--border);border-radius:6px;cursor:pointer;" value="@(string.IsNullOrEmpty(_fColor) ? "#7c4dff" : _fColor)" @onchange="@(e => _fColor = e.Value?.ToString())" />
+                        <input type="color" style="height:26px;width:34px;padding:2px;border:1px solid var(--border);border-radius:6px;cursor:pointer;flex:none;" value="@(string.IsNullOrEmpty(_fColor) ? "#7c4dff" : _fColor)" @onchange="@(e => _fColor = e.Value?.ToString())" />
                         <input class="form-control" @bind="_fColor" placeholder="#7c4dff" autocomplete="off" style="flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;" />
                         @if (!string.IsNullOrEmpty(_fColor))
                         {
@@ -92,6 +114,83 @@ else
                         }
                     </div>
                 </div>
+                @if (_editId is not null)
+                {
+                    <div class="field">
+                        <label class="form-label">Estado del tablero</label>
+                        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                            <select class="form-control" style="flex:1;min-width:180px;"
+                                    value="@_fStatus" @onchange="@(e => _fStatus = Enum.TryParse<TaskBoardStatus>(e.Value?.ToString(), out var s) ? s : _fStatus)">
+                                @foreach (var s in Enum.GetValues<TaskBoardStatus>())
+                                {
+                                    <option value="@s">@StatusLabel(s)</option>
+                                }
+                            </select>
+                            <label class="tb-state-done">
+                                <input type="checkbox" checked="@_fArchived" @onchange="@(e => _fArchived = (bool)(e.Value ?? false))" />
+                                <span>Archivado</span>
+                            </label>
+                        </div>
+                    </div>
+                }
+                @* Los estados solo existen contra un tablero ya guardado (necesitan su Id), asi que
+                   en el alta no se muestran: se configuran al reabrir el tablero recien creado. *@
+                @if (_editId is Guid boardId)
+                {
+                    <div class="tb-states">
+                        <div class="tb-states-head">
+                            <label class="form-label" style="margin:0;">Estados del tablero</label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="AddStateAsync" disabled="@_busy">+ Estado</button>
+                        </div>
+                        @if (_columns.Count == 0)
+                        {
+                            <div class="tb-states-empty">Este tablero no tiene estados. Agrega el primero.</div>
+                        }
+                        else
+                        {
+                            <div class="tb-state-list">
+                                @foreach (var col in _columns)
+                                {
+                                    var c = col;
+                                    <div class="tb-state-row">
+                                        <div class="tb-state-order">
+                                            <button type="button" class="tb-icon-btn" title="Subir"
+                                                    disabled="@(_busy || _columns.IndexOf(c) == 0)"
+                                                    @onclick="@(() => MoveStateAsync(c, -1))">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                                            </button>
+                                            <button type="button" class="tb-icon-btn" title="Bajar"
+                                                    disabled="@(_busy || _columns.IndexOf(c) == _columns.Count - 1)"
+                                                    @onclick="@(() => MoveStateAsync(c, 1))">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                            </button>
+                                        </div>
+                                        <input type="color" class="tb-state-color"
+                                               value="@(string.IsNullOrEmpty(c.Color) ? "#94a3b8" : c.Color)"
+                                               @onchange="@(e => SaveStateAsync(c, color: e.Value?.ToString()))" />
+                                        <input class="form-control form-control-sm" value="@c.Name"
+                                               @onchange="@(e => SaveStateAsync(c, name: e.Value?.ToString()))" />
+                                        <label class="tb-state-done" title="Las tareas en este estado cuentan como completadas">
+                                            <input type="checkbox" checked="@c.IsDone"
+                                                   @onchange="@(e => SaveStateAsync(c, isDone: (bool?)e.Value))" />
+                                            <span>Cierra</span>
+                                        </label>
+                                        <span class="tb-card-stat">@c.CardCount</span>
+                                        <button type="button" class="tb-icon-btn danger" title="Eliminar estado"
+                                                @onclick="@(() => DeleteStateAsync(c))" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <div class="tb-states-hint">
+                            Los cambios en los estados se guardan al instante.
+                            <a href="/tableros/@boardId">Abrir el tablero</a>
+                        </div>
+                    </div>
+                }
                 @if (_error is not null)
                 {
                     <div class="text-danger small">@_error</div>
@@ -99,7 +198,40 @@ else
             </div>
             <div class="modal-foot">
                 <button class="btn btn-outline-secondary" @onclick="CloseModal">Cancelar</button>
-                <button class="btn btn-primary" @onclick="CreateAsync" disabled="@_busy">Crear tablero</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">
+                    @(_editId is null ? "Crear tablero" : "Guardar cambios")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_deleteTarget is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:460px;">
+            <div class="modal-head">
+                <h3>Eliminar tablero</h3>
+                <button class="modal-close" @onclick="@(() => _deleteTarget = null)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0 0 10px;">
+                    Se eliminara el tablero <strong>@_deleteTarget.Name</strong>.
+                </p>
+                @if (_deleteTarget.TaskCount > 0)
+                {
+                    <div class="alert alert-warning" style="margin:0;">
+                        Tiene @_deleteTarget.TaskCount tarea@(_deleteTarget.TaskCount == 1 ? "" : "s") asociada@(_deleteTarget.TaskCount == 1 ? "" : "s").
+                    </div>
+                }
+                @if (_error is not null)
+                {
+                    <div class="text-danger small" style="margin-top:10px;">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _deleteTarget = null)">Cancelar</button>
+                <button class="btn btn-danger" @onclick="DeleteAsync" disabled="@_busy">Eliminar</button>
             </div>
         </div>
     </div>
@@ -110,10 +242,16 @@ else
 
     private bool _loading = true;
     private bool _busy;
-    private List<TaskBoardDto> _boards = new();
+    private List<ActivityBoardSummaryDto> _boards = new();
 
     private bool _modalOpen;
+    /// <summary>null = alta; con valor = edicion de ese tablero. Un solo modal para ambos casos.</summary>
+    private Guid? _editId;
+    private ActivityBoardSummaryDto? _deleteTarget;
+    private List<TaskBoardColumnDto> _columns = new();
     private string _fName = "";
+    private TaskBoardStatus _fStatus = TaskBoardStatus.InProgress;
+    private bool _fArchived;
     private string? _fDescription;
     private string? _fColor;
     private string? _error;
@@ -134,21 +272,134 @@ else
 
     private async Task ReloadAsync()
     {
-        _boards = (await BoardsSvc.ListBoardsAsync()).ToList();
+        // Sin filtros y CON archivados: esto es el administrador, no la bandeja de trabajo.
+        var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter(IncludeArchived: true));
+        _boards = index.Boards.ToList();
     }
 
     private void OpenNew()
     {
+        _editId = null;
         _fName = "";
         _fDescription = null;
         _fColor = null;
+        _fStatus = TaskBoardStatus.InProgress;
+        _fArchived = false;
+        _error = null;
+        _columns.Clear();
+        _modalOpen = true;
+    }
+
+    private async Task OpenEditAsync(ActivityBoardSummaryDto b)
+    {
+        _editId = b.Id;
+        _fName = b.Name;
+        _fDescription = b.Description;
+        _fColor = b.Color;
+        _fStatus = b.Status;
+        _fArchived = b.IsArchived;
         _error = null;
         _modalOpen = true;
+        _columns = (await ColumnsSvc.ListColumnsAsync(b.Id)).ToList();
+    }
+
+    private async Task ReloadColumnsAsync()
+    {
+        if (_editId is Guid id) { _columns = (await ColumnsSvc.ListColumnsAsync(id)).ToList(); }
+    }
+
+    private async Task AddStateAsync()
+    {
+        if (_editId is not Guid id) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var created = await ColumnsSvc.CreateColumnAsync(
+                new CreateTaskColumnRequest(id, "Nuevo estado", "#94a3b8", IsDone: false), await ActorAsync());
+            if (created is null) { _error = "No se pudo crear el estado."; return; }
+            await ReloadColumnsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>
+    /// Guarda un estado editando UN campo a la vez: el resto se toma del DTO que ya esta en
+    /// pantalla, porque UpdateTaskColumnRequest exige los tres valores completos.
+    /// </summary>
+    private async Task SaveStateAsync(TaskBoardColumnDto col, string? name = null, string? color = null, bool? isDone = null)
+    {
+        _error = null;
+        var nuevoNombre = name ?? col.Name;
+        if (string.IsNullOrWhiteSpace(nuevoNombre))
+        {
+            _error = "El nombre del estado es obligatorio.";
+            await ReloadColumnsAsync();
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var upd = await ColumnsSvc.UpdateColumnAsync(
+                col.Id,
+                new UpdateTaskColumnRequest(nuevoNombre, color ?? col.Color, isDone ?? col.IsDone),
+                await ActorAsync());
+            if (upd is null) { _error = "No se pudo guardar el estado."; }
+            await ReloadColumnsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task MoveStateAsync(TaskBoardColumnDto col, int delta)
+    {
+        if (_editId is not Guid id) { return; }
+        var idx = _columns.IndexOf(col);
+        var destino = idx + delta;
+        if (idx < 0 || destino < 0 || destino >= _columns.Count) { return; }
+
+        _error = null;
+        _busy = true;
+        try
+        {
+            var orden = _columns.Select(c => c.Id).ToList();
+            (orden[idx], orden[destino]) = (orden[destino], orden[idx]);
+            if (!await ColumnsSvc.ReorderColumnsAsync(id, orden, await ActorAsync()))
+            {
+                _error = "No se pudo reordenar los estados.";
+            }
+            await ReloadColumnsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteStateAsync(TaskBoardColumnDto col)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            if (!await ColumnsSvc.DeleteColumnAsync(col.Id, await ActorAsync()))
+            {
+                // El servicio rechaza borrar un estado con tareas: no se pueden dejar huerfanas.
+                _error = col.CardCount > 0
+                    ? $"No se puede eliminar \"{col.Name}\": tiene {col.CardCount} tarea(s). Muevelas primero."
+                    : $"No se pudo eliminar el estado \"{col.Name}\".";
+            }
+            await ReloadColumnsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void OpenDelete(ActivityBoardSummaryDto b)
+    {
+        _deleteTarget = b;
+        _error = null;
     }
 
     private void CloseModal() => _modalOpen = false;
 
-    private async Task CreateAsync()
+    private async Task SaveAsync()
     {
         _error = null;
         if (string.IsNullOrWhiteSpace(_fName)) { _error = "El nombre es obligatorio."; return; }
@@ -156,10 +407,42 @@ else
         try
         {
             var actor = await ActorAsync();
-            var created = await BoardsSvc.CreateBoardAsync(new CreateTaskBoardRequest(_fName, _fDescription, _fColor), actor);
-            if (created is null) { _error = "No se pudo crear el tablero."; return; }
+            var actorName = await ActorNameAsync();
+            if (_editId is Guid id)
+            {
+                var upd = await BoardsSvc.UpdateBoardAsync(
+                    id,
+                    new UpdateActivityBoardRequest(_fName, _fDescription, _fColor, _fStatus, DueDate: null, _fArchived),
+                    actor, actorName);
+                if (!upd.IsOk) { _error = upd.Error ?? "No se pudo guardar el tablero."; return; }
+            }
+            else
+            {
+                var created = await BoardsSvc.CreateBoardAsync(
+                    new CreateActivityBoardRequest(_fName, _fDescription, _fColor), actor, actorName);
+                if (!created.IsOk) { _error = created.Error ?? "No se pudo crear el tablero."; return; }
+            }
+
+            // Esta pagina es el ADMINISTRADOR de tableros: al guardar se vuelve a la lista para
+            // seguir configurando. Antes saltaba al tablero recien creado y parecia que el modulo
+            // "llevaba a un tablero" en vez de dejarte gestionarlos.
             _modalOpen = false;
-            Nav.NavigateTo($"/tableros/{created.Id}");
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is null) { return; }
+        _error = null;
+        _busy = true;
+        try
+        {
+            var res = await BoardsSvc.DeleteBoardAsync(_deleteTarget.Id, await ActorAsync(), await ActorNameAsync());
+            if (!res.IsOk) { _error = res.Error ?? "No se pudo eliminar el tablero."; return; }
+            _deleteTarget = null;
+            await ReloadAsync();
         }
         finally { _busy = false; }
     }
@@ -169,5 +452,21 @@ else
         if (AuthState is null) { return Guid.Empty; }
         var st = await AuthState;
         return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string StatusLabel(TaskBoardStatus s) => s switch
+    {
+        TaskBoardStatus.OnTime => "A tiempo",
+        TaskBoardStatus.InProgress => "En progreso",
+        TaskBoardStatus.AtRisk => "En riesgo",
+        TaskBoardStatus.Completed => "Completado",
+        _ => s.ToString(),
+    };
+
+    private async Task<string> ActorNameAsync()
+    {
+        if (AuthState is null) { return "Sistema"; }
+        var st = await AuthState;
+        return st.User.Identity?.Name ?? "Sistema";
     }
 }

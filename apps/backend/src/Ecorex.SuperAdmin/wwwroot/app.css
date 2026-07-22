@@ -866,6 +866,29 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tb-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .tb-card-color { width: 12px; height: 12px; border-radius: 4px; flex: none; }
 .tb-card-name { font-weight: 700; font-size: 15.5px; }
+/* Acciones de administracion (editar/eliminar) de la tarjeta de tablero. Se revelan al pasar
+   el mouse para que la tarjeta siga leyendose como un acceso al tablero, no como una barra. */
+.tb-card-actions { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity .15s ease; }
+.tb-card:hover .tb-card-actions, .tb-card-actions:focus-within { opacity: 1; }
+.tb-icon-btn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--muted-foreground); cursor: pointer; }
+.tb-icon-btn svg { width: 14px; height: 14px; }
+.tb-icon-btn:hover { background: var(--accent); color: var(--foreground); }
+.tb-icon-btn.danger:hover { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.tb-icon-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Editor de estados (columnas) dentro del modal de edicion del tablero. */
+.tb-states { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.tb-states-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.tb-states-empty { font-size: 12.5px; color: var(--muted-foreground); padding: 10px 0; }
+.tb-state-list { display: flex; flex-direction: column; gap: 6px; }
+.tb-state-row { display: flex; align-items: center; gap: 8px; }
+.tb-state-order { display: flex; flex-direction: column; gap: 2px; }
+.tb-state-order .tb-icon-btn { width: 22px; height: 15px; border-radius: 5px; }
+.tb-state-order .tb-icon-btn svg { width: 11px; height: 11px; }
+.tb-state-color { width: 34px; height: 30px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; flex: none; }
+.tb-state-row .form-control { flex: 1; }
+.tb-state-done { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap; cursor: pointer; }
+.tb-states-hint { font-size: 11.5px; color: var(--muted-foreground); margin-top: 10px; }
 .tb-card-desc { font-size: 12.5px; color: var(--muted-foreground); margin-bottom: 12px; min-height: 32px; }
 .tb-card-foot { display: flex; gap: 8px; font-size: 11px; color: var(--muted-foreground); }
 .tb-card-stat { background: var(--accent); padding: 3px 10px; border-radius: 999px; }
@@ -1044,8 +1067,10 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tb-pop-add input { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; }
 
 /* Paleta de colores para titulo de tarjeta. */
-.tb-color-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.tb-color-swatch { width: 100%; aspect-ratio: 1; border: 2px solid transparent; border-radius: 6px; cursor: pointer; padding: 0; transition: transform 0.1s, border-color 0.15s; }
+/* Muestras de tamano FIJO: con "repeat(6, 1fr)" cada muestra crecia con el ancho del modal y
+   en el editor (700px) quedaban enormes. Ahora fluyen y ocupan lo mismo en cualquier ancho. */
+.tb-color-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-color-swatch { width: 22px; height: 22px; flex: none; border: 2px solid transparent; border-radius: 6px; cursor: pointer; padding: 0; transition: transform 0.1s, border-color 0.15s; }
 .tb-color-swatch:hover { transform: scale(1.08); }
 .tb-color-swatch.selected { border-color: var(--foreground); }
 .tb-color-swatch.clear { background: var(--card); border: 1px dashed var(--border); color: var(--muted-foreground); font-size: 12px; font-weight: 700; display: grid; place-items: center; }

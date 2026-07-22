@@ -2332,6 +2332,8 @@ else
             if (c.Required) { o["required"] = true; }
             if (!string.IsNullOrWhiteSpace(c.Calc)) { o["calc"] = c.Calc; }
             if (c.Agg != FormAggregate.None) { o["agg"] = c.Agg.ToString(); }
+            // C4: sin esto, guardar la columna desde el disenador BORRARIA la condicion del agregado.
+            if (!string.IsNullOrWhiteSpace(c.AggWhen)) { o["aggWhen"] = c.AggWhen; }
             if (!string.IsNullOrWhiteSpace(c.Rollup)) { o["rollup"] = c.Rollup; }
             return o;
         }).ToList();

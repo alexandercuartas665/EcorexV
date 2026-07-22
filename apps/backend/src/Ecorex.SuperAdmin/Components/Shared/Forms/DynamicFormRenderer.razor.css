@@ -174,6 +174,23 @@
 }
 .dfr-grid-add:hover { color: var(--brand, #1B1B1E); border-color: var(--brand, #1B1B1E); }
 
+/* Fila cuya cantidad supera las existencias: se avisa, NO se bloquea (se cotiza sobre pedido). */
+.dfr-grid-table tr.dfr-grid-nostock td { background: var(--t-amber-bg, #FEF3C7); }
+.dfr-grid-nostock-tag {
+    display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; white-space: nowrap;
+    color: var(--t-amber, #B45309); background: var(--surface, #FFFFFF);
+    border: 1px solid var(--t-amber, #B45309);
+}
+
+/* Celda de tabla con lookup: mismo panel de resultados que el lookup de campo. */
+.dfr-gridlk { position: relative; min-width: 130px; }
+.dfr-gridlk-panel { min-width: 240px; }
+.dfr-gridlk-note {
+    margin-top: 3px; font-size: 10.5px; font-weight: 600;
+    color: var(--danger, #E11D48);
+}
+
 /* ---- Lookup / autocompletado (ola F1) ---- */
 .dfr-lookup { position: relative; }
 .dfr-lookup-box { display: flex; align-items: center; gap: 6px; }

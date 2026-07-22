@@ -1034,6 +1034,61 @@ else
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
 
     /// <summary>
+    /// Extras de columna (lookup, valor por defecto, comprobacion de existencias). Se parsean del
+    /// MISMO OptionsJson en paralelo a GridColumnsOf: son responsabilidad de la UI, no del
+    /// calculador, y asi las dos capas evolucionan sin pisarse.
+    /// </summary>
+    private static IReadOnlyDictionary<string, FormGridColumnExtras> GridExtrasOf(FormQuestionDto q)
+        => FormGridColumnLookupParser.Parse(q.OptionsJson);
+
+    // Filas que el calculo dejo FUERA de los agregados (C4), por tabla. Lo llena RecomputeGrids con
+    // lo que reporta FormGridCalculator.Compute: el renderer no reinterpreta la condicion.
+    private readonly Dictionary<string, HashSet<int>> _gridExcludedRows = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Una fila se marca "sin stock suficiente" si el calculo la excluyo de los agregados (C4) o si
+    /// una columna con <c>stockCheck</c> declara menos existencias que la cantidad pedida. Lo
+    /// segundo cubre las tablas que aun no declaran <c>aggWhen</c>. Es SOLO un aviso visual: la fila
+    /// se guarda igual, porque se puede cotizar sobre pedido.
+    /// </summary>
+    private bool IsRowShortOfStock(
+        FormQuestionDto q, int rowIndex,
+        IReadOnlyDictionary<string, string?> row,
+        IReadOnlyDictionary<string, FormGridColumnExtras> extras)
+    {
+        if (_gridExcludedRows.TryGetValue(q.FieldCode, out var excluded) && excluded.Contains(rowIndex))
+        {
+            return true;
+        }
+        foreach (var ex in extras.Values)
+        {
+            if (ex.StockCheck is null) { continue; }
+            var stock = ParseCellNumber(row.GetValueOrDefault(ex.Id));
+            var wanted = ParseCellNumber(row.GetValueOrDefault(ex.StockCheck.Against));
+            // Sin dato de stock o sin cantidad no se afirma nada: no se marca por omision.
+            if (stock is null || wanted is null || wanted <= 0) { continue; }
+            if (stock < wanted) { return true; }
+        }
+        return false;
+    }
+
+    /// <summary>Columna donde se pinta el aviso: la que declara stockCheck o, si ninguna, la primera.</summary>
+    private static string? StockBadgeColumnId(
+        IReadOnlyList<FormGridColumn> columns,
+        IReadOnlyDictionary<string, FormGridColumnExtras> extras)
+    {
+        var declared = columns.FirstOrDefault(c => extras.GetValueOrDefault(c.Id)?.StockCheck is not null);
+        return declared?.Id ?? columns.FirstOrDefault()?.Id;
+    }
+
+    private static decimal? ParseCellNumber(string? v)
+        => decimal.TryParse(
+            (v ?? string.Empty).Replace(" ", string.Empty).Replace(",", string.Empty),
+            System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var n) ? n : null;
+
+    /// <summary>
     /// Recalcula todas las tablas (ola F2): formula por fila + roll-up de columnas al encabezado,
     /// via el helper compartido. Persiste las filas computadas en _values.
     /// </summary>
@@ -1044,15 +1099,21 @@ else
         {
             var cols = GridColumnsOf(q);
             if (cols.Count == 0) { continue; }
-            var (rows, rollups) = FormGridCalculator.Recompute(GridRowsOf(q), cols);
+            // _values es el encabezado del formulario: resuelve las referencias {#campo} (C3).
+            // Compute (y no Recompute) porque ademas de filas y roll-ups devuelve QUE filas quedaron
+            // fuera del agregado: ese es el dato con el que se marcan visualmente (C4).
+            var computation = FormGridCalculator.Compute(GridRowsOf(q), cols, _values);
+            var rows = computation.Rows;
             _values[q.FieldCode] = rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows);
-            foreach (var (field, total) in rollups) { _values[field] = total; }
+            foreach (var (field, total) in computation.Rollups) { _values[field] = total; }
+            _gridExcludedRows[q.FieldCode] = computation.ExcludedRowIndexes.ToHashSet();
         }
     }
 
     private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>
     {
         var columns = GridColumnsOf(q);
+        var extras = GridExtrasOf(q);
         var rows = FormFieldValidator.ParseGridRows(value).Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
         @if (columns.Count == 0)
         {
@@ -1084,13 +1145,24 @@ else
                     @for (var r = 0; r < rows.Count; r++)
                     {
                         var rowIndex = r;
-                        <tr>
+                        @* Aviso de existencias (declarado por la columna con stockCheck): la fila se
+                           marca pero NO se bloquea el guardado; se puede cotizar sobre pedido. *@
+                        var lowStock = IsRowShortOfStock(q, rowIndex, rows[rowIndex], extras);
+                        var badgeCol = StockBadgeColumnId(columns, extras);
+                        <tr class="@(lowStock ? "dfr-grid-nostock" : null)">
                             @foreach (var col in columns)
                             {
                                 var colId = col.Id;
                                 var cell = rows[rowIndex].GetValueOrDefault(colId);
+                                var colExtras = extras.GetValueOrDefault(colId);
                                 <td>
-                                    @if (col.Calc is not null)
+                                    @if (colExtras?.Lookup is { } lkCfg && col.Calc is null)
+                                    {
+                                        @* Columna lookup con autollenado en la misma fila (generica:
+                                           Item / Tercero / DataContainer, la fuente la dice el JSON). *@
+                                        @RenderGridLookupCell(q, rowIndex, colExtras, lkCfg, cell)
+                                    }
+                                    else if (col.Calc is not null)
                                     {
                                         @* Columna calculada por fila (ola F2): solo lectura. *@
                                         <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
@@ -1114,6 +1186,10 @@ else
                                                value="@cell"
                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
                                     }
+                                    @if (lowStock && string.Equals(colId, badgeCol, StringComparison.Ordinal))
+                                    {
+                                        <span class="dfr-grid-nostock-tag" title="La cantidad pedida supera las existencias; esta fila no suma a los totales.">sin stock suficiente</span>
+                                    }
                                 </td>
                             }
                             @if (!IsDisabled)
@@ -1133,7 +1209,8 @@ else
                             @foreach (var col in columns)
                             {
                                 var total = col.Agg == FormAggregate.None ? null
-                                    : FormGridCalculator.Aggregate(col.Agg, rows.Select(r => r.GetValueOrDefault(col.Id)));
+                                    // C4: sobrecarga por columna, para respetar aggWhen y coincidir con el roll-up.
+                                    : FormGridCalculator.Aggregate(col, rows, _values);
                                 <td>@(total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")</td>
                             }
                             @if (!IsDisabled)
@@ -1150,6 +1227,194 @@ else
             }
         </div>
     };
+
+    // ---- Lookup con autollenado A NIVEL DE COLUMNA de tabla ----
+    //
+    // Reusa TAL CUAL la capa de lookup del campo (IFormLookupService + adaptadores Item/Tercero/
+    // DataContainer): aqui solo cambia donde se guarda el resultado (una celda de la fila en vez de
+    // un campo del formulario) y que la celda guarda una CLAVE LEGIBLE (valueField, p.ej. el SKU)
+    // en vez del id, porque el asesor teclea y lee ese codigo.
+    //
+    // Los valores autollenados son un SNAPSHOT y quedan EDITABLES: las columnas destino se pintan
+    // como texto normal, asi que el asesor ajusta costo/marca/proveedor en una cotizacion puntual
+    // sin alterar el catalogo. No hay vinculo vivo: nada se relee despues de elegir.
+
+    // Estado de UI por CELDA (clave = campo#fila#columna), no por columna: dos filas de la misma
+    // columna buscan cosas distintas a la vez.
+    private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _gridLookupResults = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _gridLookupNote = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _gridLookupOpen = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _gridLookupBusy = new(StringComparer.Ordinal);
+
+    private static string GridCellKey(FormQuestionDto q, int rowIndex, string colId)
+        => $"{q.FieldCode}#{rowIndex}#{colId}";
+
+    /// <summary>Descarta el estado de lookup de una tabla (sus claves llevan el fieldCode como prefijo).</summary>
+    private void ClearGridLookupState(FormQuestionDto q)
+    {
+        var prefix = q.FieldCode + "#";
+        foreach (var k in _gridLookupResults.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _gridLookupResults.Remove(k);
+        }
+        foreach (var k in _gridLookupNote.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _gridLookupNote.Remove(k);
+        }
+        _gridLookupOpen.RemoveWhere(k => k.StartsWith(prefix, StringComparison.Ordinal));
+        _gridLookupBusy.RemoveWhere(k => k.StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    private RenderFragment RenderGridLookupCell(
+        FormQuestionDto q, int rowIndex, FormGridColumnExtras extras, FormGridLookupConfig cfg, string? cell) => __builder =>
+    {
+        var key = GridCellKey(q, rowIndex, extras.Id);
+        var results = _gridLookupResults.GetValueOrDefault(key);
+        var note = _gridLookupNote.GetValueOrDefault(key);
+
+        <div class="dfr-gridlk">
+            <input class="form-control form-control-sm" disabled="@IsDisabled"
+                   value="@cell"
+                   @oninput="@(e => GridLookupSearchAsync(q, rowIndex, extras, cfg, e.Value?.ToString()))"
+                   @onchange="@(e => GridLookupCommitAsync(q, rowIndex, extras, cfg, e.Value?.ToString()))" />
+            @if (!string.IsNullOrEmpty(note))
+            {
+                @* El aviso vive EN LA CELDA: un codigo inexistente no rompe la fila ni el formulario. *@
+                <div class="dfr-gridlk-note">@note</div>
+            }
+            @if (_gridLookupOpen.Contains(key))
+            {
+                <div class="dfr-lookup-panel dfr-gridlk-panel">
+                    @if (_gridLookupBusy.Contains(key))
+                    {
+                        <div class="dfr-lookup-empty"><em>Buscando...</em></div>
+                    }
+                    else if (results is null || results.Count == 0)
+                    {
+                        <div class="dfr-lookup-empty">
+                            <span>Sin resultados.</span>
+                            <a class="dfr-lookup-create" href="@CreateLink(cfg.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var it in results)
+                        {
+                            var item = it;
+                            <button type="button" class="dfr-lookup-opt"
+                                    @onclick="@(() => GridLookupChooseAsync(q, rowIndex, extras, cfg, item))">@item.Display</button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private async Task GridLookupSearchAsync(
+        FormQuestionDto q, int rowIndex, FormGridColumnExtras extras, FormGridLookupConfig cfg, string? text)
+    {
+        if (IsDisabled) { return; }
+        var key = GridCellKey(q, rowIndex, extras.Id);
+        _gridLookupOpen.Add(key);
+        _gridLookupBusy.Add(key);
+        // Gate del circuito: varias celdas (y otros renderers) comparten el MISMO DbContext; sin
+        // serializar aqui se reproduce "a second operation was started on this context instance".
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+            _gridLookupResults[key] = page.Items;
+        }
+        catch (Exception ex)
+        {
+            _gridLookupResults[key] = Array.Empty<FormLookupItem>();
+            _gridLookupNote[key] = $"No se pudo buscar: {ex.Message}";
+        }
+        finally
+        {
+            _dbGate.Release();
+            _gridLookupBusy.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// El usuario eligio un resultado: guarda la clave en la celda y COPIA (snapshot) los campos
+    /// mapeados a las columnas destino de LA MISMA FILA. Todo queda editable a mano despues.
+    /// </summary>
+    private async Task GridLookupChooseAsync(
+        FormQuestionDto q, int rowIndex, FormGridColumnExtras extras, FormGridLookupConfig cfg, FormLookupItem item)
+    {
+        var key = GridCellKey(q, rowIndex, extras.Id);
+        _gridLookupOpen.Remove(key);
+        _gridLookupNote.Remove(key);
+
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var row = rows[rowIndex];
+        row[extras.Id] = cfg.KeyOf(item);
+        foreach (var (source, target) in cfg.Autofill)
+        {
+            row[target] = item.Fields.TryGetValue(source, out var v) ? v : null;
+        }
+        // SetValue recalcula formulas por fila y roll-ups con los valores recien copiados.
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    /// <summary>
+    /// El usuario TECLEO un codigo y salio de la celda: se busca coincidencia EXACTA por la clave.
+    /// Si existe, autollena; si no, se conserva lo tecleado, se vacian las columnas destino (para no
+    /// dejar un snapshot viejo que no corresponde al codigo) y se avisa EN LA CELDA. Nunca se
+    /// descarta la fila ni se bloquea el guardado.
+    /// </summary>
+    private async Task GridLookupCommitAsync(
+        FormQuestionDto q, int rowIndex, FormGridColumnExtras extras, FormGridLookupConfig cfg, string? typed)
+    {
+        if (IsDisabled) { return; }
+        var key = GridCellKey(q, rowIndex, extras.Id);
+        var text = typed?.Trim();
+
+        if (string.IsNullOrEmpty(text))
+        {
+            _gridLookupNote.Remove(key);
+            _gridLookupOpen.Remove(key);
+            await SetGridCell(q, rowIndex, extras.Id, null);
+            return;
+        }
+
+        FormLookupItem? match = null;
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            // Se resuelve por BUSQUEDA y no por ResolveAsync porque lo tecleado es la clave de
+            // negocio (SKU/documento), no el id de la entidad que espera ResolveAsync.
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+            match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _gridLookupNote[key] = $"No se pudo verificar el codigo: {ex.Message}";
+        }
+        finally { _dbGate.Release(); }
+
+        if (match is not null)
+        {
+            await GridLookupChooseAsync(q, rowIndex, extras, cfg, match);
+            return;
+        }
+
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var row = rows[rowIndex];
+        row[extras.Id] = text;
+        foreach (var target in cfg.Autofill.Values) { row[target] = null; }
+        if (!_gridLookupNote.ContainsKey(key)) { _gridLookupNote[key] = "Codigo no encontrado."; }
+        _gridLookupOpen.Remove(key);
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
 
     // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----
 
@@ -1283,9 +1548,12 @@ else
         var row = new Dictionary<string, string?>(StringComparer.Ordinal);
         // Se parsea igual que el render (GridColumnsOf), no con ParseOptions: si una columna Select o
         // calculada solo existiera en uno de los dos parseos, la fila nueva y la tabla se desincronizarian.
+        // C5: el valor por defecto de la columna se aplica AL CREAR la fila y solo aqui. Si se
+        // aplicara en cada recalculo, borrar una celda a proposito la resucitaria en el acto.
+        var extras = GridExtrasOf(q);
         foreach (var col in GridColumnsOf(q))
         {
-            row[col.Id] = null;
+            row[col.Id] = extras.GetValueOrDefault(col.Id)?.Default;
         }
         rows.Add(row);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
@@ -1299,6 +1567,9 @@ else
             return;
         }
         rows.RemoveAt(rowIndex);
+        // El estado de UI del lookup se indexa por numero de fila; al borrar una fila los indices se
+        // corren y un aviso quedaria pegado a la fila equivocada. Se descarta el de esta tabla.
+        ClearGridLookupState(q);
         await SetValue(q, rows.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(rows));
     }
 

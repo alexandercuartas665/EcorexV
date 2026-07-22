@@ -146,6 +146,9 @@ public sealed class FormResponseService : IFormResponseService
 
         // Tablas en SERVIDOR (ola F2, doc 01 D5): formula por fila + roll-up de columnas al
         // encabezado, con el helper compartido con el renderer. Persiste las filas computadas.
+        // Valores del ENCABEZADO visibles para las formulas de columna via {#campo} (C3): p.ej. el
+        // % de IVA de la cotizacion, que es editable por documento y no se repite en cada fila.
+        var headerValues = document.ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
         foreach (var question in questions.Where(q => q.ControlType == FormControlType.GridDetail))
         {
             var cols = Calc.FormGridCalculator.ParseColumns(question.OptionsJson);
@@ -153,7 +156,7 @@ public sealed class FormResponseService : IFormResponseService
             document.TryGetValue(question.FieldCode, out var gridField);
             var gridRows = FormFieldValidator.ParseGridRows(gridField?.Value)
                 .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
-            var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols);
+            var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols, headerValues);
             document[question.FieldCode] = new FormFieldValue(
                 computed.Count == 0 ? null : JsonSerializer.Serialize(computed, JsonOptions),
                 question.ControlType.ToString());
@@ -161,6 +164,8 @@ public sealed class FormResponseService : IFormResponseService
             {
                 var type = questionsByCode.TryGetValue(field, out var tq) ? tq.ControlType.ToString() : FormControlType.Text.ToString();
                 document[field] = new FormFieldValue(total, type);
+                // Un roll-up ya es encabezado: queda visible para las tablas que se calculen despues.
+                headerValues[field] = total;
             }
         }
 

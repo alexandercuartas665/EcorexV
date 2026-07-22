@@ -599,6 +599,98 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal("SN-002", parsed[1]["serial"]);
     }
 
+    /// <summary>
+    /// Motor de calculo del SIMULADOR DE COTIZACIONES de punta a punta y en AMBOS motores: la
+    /// formula de columna usa funciones (SI / REDONDEAR.SUPERIOR), lee el ENCABEZADO con
+    /// <c>{#iva_pct}</c> (C3) y el roll-up EXCLUYE las filas marcadas por <c>aggWhen</c> (C4).
+    /// Lo que se verifica es que el SERVIDOR recalcula y persiste (el cliente no es fuente de
+    /// verdad para montos): se mandan valores calculados falsos y deben quedar sobrescritos.
+    /// </summary>
+    [Fact]
+    public async Task GridCalc_FunctionsHeaderRefAndConditionalAggregate_AreRecomputedOnServer()
+    {
+        var seed = await SeedTenantAsync("Forms Calculo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+
+        var created = await definitions.CreateAsync(new CreateFormDefinitionRequest(
+            "FRM-C" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), "Simulador de cotizaciones"));
+        var definition = created.Value!;
+
+        // Encabezado: el % de IVA es editable POR COTIZACION, no una constante de la formula.
+        var iva = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "iva_pct", "IVA %", FormControlType.Number));
+        Assert.True(iva.IsOk, iva.Error);
+
+        // Roll-ups del encabezado.
+        foreach (var (code, label) in new[] { ("total_linea", "Total lineas"), ("total_iva", "Total IVA") })
+        {
+            var rollupField = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+                null, code, label, FormControlType.Number));
+            Assert.True(rollupField.IsOk, rollupField.Error);
+        }
+
+        const string columns =
+            """
+            [{"id":"cantidad","label":"Cantidad"},
+             {"id":"stock","label":"Stock"},
+             {"id":"precio_base","label":"Precio base"},
+             {"id":"mano_obra","label":"Mano de obra"},
+             {"id":"p_unitario","label":"P. unitario","calc":"REDONDEAR.SUPERIOR({precio_base}+{mano_obra}; 1000)"},
+             {"id":"sin_stock","label":"Sin stock","calc":"SI({cantidad} > {stock}; 1; 0)"},
+             {"id":"subt_desc","label":"Subtotal","calc":"{p_unitario} * {cantidad}","agg":"Sum","rollup":"total_linea","aggWhen":"{sin_stock}=0"},
+             {"id":"iva","label":"IVA","calc":"SI({exento_iva}=1; 0; {subt_desc}*{#iva_pct}/100)","agg":"Sum","rollup":"total_iva","aggWhen":"{sin_stock}=0"},
+             {"id":"exento_iva","label":"Exento"}]
+            """;
+        var grid = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "lineas", "Lineas", FormControlType.GridDetail, OptionsJson: columns));
+        Assert.True(grid.IsOk, grid.Error);
+
+        var activated = await definitions.ActivateAsync(definition.Id);
+        Assert.True(activated.IsOk, activated.Error);
+
+        // Fila 1: hay stock, gravada. Fila 2: pide 5 con 3 en stock -> se marca y NO suma.
+        // Fila 3: hay stock pero es EXENTA de IVA. Los valores calculados que manda el cliente
+        // van adrede en 999999 para comprobar que el servidor los descarta.
+        const string rows =
+            """
+            [{"cantidad":"2","stock":"10","precio_base":"1200000","mano_obra":"150000","exento_iva":"0","p_unitario":"999999","sin_stock":"999999","subt_desc":"999999","iva":"999999"},
+             {"cantidad":"5","stock":"3","precio_base":"1000000","mano_obra":"1","exento_iva":"0"},
+             {"cantidad":"1","stock":"9","precio_base":"500000","mano_obra":"0","exento_iva":"1"}]
+            """;
+        var draft = await responses.GetOrCreateDraftAsync(definition.Id, "REF-CALC");
+        var saved = await responses.SaveAsync(draft.Value!.Id, new Dictionary<string, FormFieldValue>
+        {
+            ["iva_pct"] = new("19", "Number"),
+            ["lineas"] = new(rows, "GridDetail"),
+        }, submit: true, seed.TenantUserId);
+        Assert.True(saved.IsOk, saved.Error);
+
+        var read = await responses.GetAsync(draft.Value.Id);
+        var parsed = FormFieldValidator.ParseGridRows(read!.Data["lineas"].Value);
+        Assert.Equal(3, parsed.Count);
+
+        // REDONDEAR.SUPERIOR con el multiplo COMO PARAMETRO: 1.350.000 sube al siguiente mil.
+        Assert.Equal("1350000", parsed[0]["p_unitario"]);
+        Assert.Equal("1001000", parsed[1]["p_unitario"]);   // 1.000.001 sube al siguiente mil
+        Assert.Equal("500000", parsed[2]["p_unitario"]);
+
+        // SI() + comparador: solo la fila 2 queda sin stock.
+        Assert.Equal("0", parsed[0]["sin_stock"]);
+        Assert.Equal("1", parsed[1]["sin_stock"]);
+        Assert.Equal("0", parsed[2]["sin_stock"]);
+
+        // {#iva_pct} viene del ENCABEZADO; la fila exenta no paga IVA.
+        Assert.Equal("2700000", parsed[0]["subt_desc"]);
+        Assert.Equal("513000", parsed[0]["iva"]);           // 2.700.000 * 19 / 100
+        Assert.Equal("0", parsed[2]["iva"]);
+
+        // Roll-ups al encabezado EXCLUYENDO la fila sin stock (aggWhen).
+        Assert.Equal("3200000", read.Data["total_linea"].Value);   // 2.700.000 + 500.000
+        Assert.Equal("513000", read.Data["total_iva"].Value);
+    }
+
     private static FormDefinitionService BuildDefinitionService(EcorexDbContext ctx, SeedData seed)
     {
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);

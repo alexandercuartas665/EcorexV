@@ -45,7 +45,9 @@ public sealed class ItemLookupSource : IFormLookupSource
             .OrderBy(i => i.Name)
             .Skip(Math.Max(0, request.Skip))
             .Take(Math.Clamp(request.Take, 1, 100))
-            .Select(i => new Row(i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson))
+            .Select(i => new Row(
+                i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson,
+                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0))
             .ToListAsync(cancellationToken);
 
         var items = rows.Select(r => ToItem(r, request.DisplayField, request.Fields)).ToList();
@@ -58,7 +60,9 @@ public sealed class ItemLookupSource : IFormLookupSource
 
         var r = await _db.Items.AsNoTracking()
             .Where(i => i.Id == id)
-            .Select(i => new Row(i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson))
+            .Select(i => new Row(
+                i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson,
+                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0))
             .FirstOrDefaultAsync(cancellationToken);
 
         return r is null ? null : ToItem(r, displayField: null, fields);
@@ -80,6 +84,9 @@ public sealed class ItemLookupSource : IFormLookupSource
             new("description", "Descripcion"),
             new("price", "Precio"),
             new("active", "Activo"),
+            // Existencias TOTALES (suma de todas las bodegas): lo que necesita una cotizacion para
+            // avisar "sin stock suficiente"; el desglose por bodega es cosa del modulo de inventario.
+            new("stock", "Existencias"),
         };
 
         var dyn = await _fields.ListAllAsync(cancellationToken);
@@ -103,6 +110,7 @@ public sealed class ItemLookupSource : IFormLookupSource
             ["description"] = r.Description,
             ["price"] = r.Price?.ToString(CultureInfo.InvariantCulture),
             ["active"] = r.IsActive ? "true" : "false",
+            ["stock"] = r.Stock.ToString(CultureInfo.InvariantCulture),
         };
         FlattenValues(r.FieldValuesJson, all);
 
@@ -176,5 +184,6 @@ public sealed class ItemLookupSource : IFormLookupSource
     }
 
     private sealed record Row(
-        Guid Id, string? Sku, string Name, string? Description, decimal? Price, bool IsActive, string? FieldValuesJson);
+        Guid Id, string? Sku, string Name, string? Description, decimal? Price, bool IsActive, string? FieldValuesJson,
+        int Stock);
 }

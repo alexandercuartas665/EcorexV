@@ -2906,7 +2906,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // La creacion se unifico al wizard (tableros/conceptos): se retiro "Crear una actividad".
         // El grupo "Procesos" (categorias con flujo) lo despliega NavMenu por IsProcessGroup.
         Item(misproc.Id, "Proyectos", "proyectos", "000042");
-        Item(misproc.Id, "Administrar actividades", "actividades", "000636");
+        // "Administrar actividades" (000636) vive ahora en "Sistema - Actividades", no aqui: es el
+        // modulo de TABLEROS, y buscarlo bajo "Mis Procesos" no era evidente para nadie.
         Item(misproc.Id, "Programar actividad", "programar-actividad", "000889");
 
         // ---- Seccion: Negocio (slug nego) ----
@@ -2930,6 +2931,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
 
         // ---- Seccion: Sistema - Actividades (slug act) ----
         var act = Add(MenuNodeKind.Section, "Sistema \u00b7 Actividades", null, "act", iconKey: "check-square");
+        Item(act.Id, "Administrar actividades", "actividades", "000636");
         Item(act.Id, "Prioridades", "modulo/prioridades", "000621");
         Item(act.Id, "Tipos de proyecto", "modulo/tipos-de-proyecto", "000690");
         Item(act.Id, "Conceptos", "conceptos", "000270");
@@ -3225,6 +3227,31 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/seguimiento-de-clientes", cancellationToken);
 
         await EnsureInventarioConfigMenuAsync(tenantId, cancellationToken);
+        await EnsureActividadesEnSistemaAsync(tenantId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Mueve "Administrar actividades" (000636, el modulo de TABLEROS) de "Mis Procesos" a
+    /// "Sistema - Actividades". Estaba donde nadie lo buscaba: el usuario pedia "el modulo de
+    /// tableros" y el menu lo llamaba "actividades" colgando de otra seccion.
+    /// De paso corrige el duplicado que quedo en algun tenant al replicar menus entre ellos: la
+    /// baja retira TODAS las copias de esa ruta en la seccion, y el alta solo agrega si falta.
+    /// Publico para dispararlo contra tenants ya sembrados, donde la reconciliacion completa no
+    /// corre (dev con Ecorex:SkipDemoSeed). Idempotente.
+    /// </summary>
+    public async Task EnsureActividadesEnSistemaAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        // ORDEN CRITICO: primero la BAJA y despues el alta. Es al reves que cuando se AGREGA un
+        // item nuevo, y por una razon concreta: EnsureMenuItemInSectionAsync salta si la ruta ya
+        // existe EN LA VISTA, sin mirar en que seccion. Con el orden inverso el alta no hacia nada
+        // (la ruta seguia en "Mis Procesos") y la baja acto seguido la borraba, dejando el modulo
+        // fuera del menu por completo. Un MOVER no es un AGREGAR seguido de un QUITAR.
+        await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "misproc", route: "actividades", cancellationToken);
+
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "act", route: "actividades",
+            name: "Administrar actividades", legacyCode: "000636", cancellationToken);
     }
 
     /// <summary>

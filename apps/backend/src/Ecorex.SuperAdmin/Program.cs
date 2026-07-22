@@ -476,6 +476,23 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_INVENTARIO"), 
     }
 }
 
+// Mueve "Administrar actividades" (el modulo de tableros) de "Mis Procesos" a
+// "Sistema - Actividades" (ECOREX_MENU_ACTIVIDADES=true). Idempotente; de paso quita duplicados.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ACTIVIDADES"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureActividadesEnSistemaAsync(t.Id);
+        app.Logger.LogWarning("[menu-actividades] 'Administrar actividades' movido a Sistema para el tenant {Name}", t.Name);
+    }
+}
+
 // Siembra + backfill de las etapas CONFIGURABLES del pipeline de oportunidades (000740) en cada
 // tenant de negocio (ECOREX_SEED_OPP_ESTADOS=true). Idempotente: EnsureDefaultsAsync solo siembra si
 // el tenant no tiene ninguna etapa; BackfillAsync rellena EstadoId (por SortOrder == (int)Etapa) en

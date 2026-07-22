@@ -5,6 +5,64 @@
 
 ---
 
+## 2026-07-21/22 - Agentes de IA en flujos, D11 paralelo, inventarios y limpieza del backbone
+
+**Agentes**: Claude (Opus 4.8) + varios subagentes (imagenes de items, usuarios/dependencias,
+agentes en nodos olas 1 y 2, volumen de uploads).
+
+**D11 - ejecucion en PARALELO (`a0e5b3e`, ADR-0046)**: el flujo COMPRAS de SKY SYSTEM tiene un
+nodo con 4 salidas y solo prosperaba una. **El diagnostico recibido era incorrecto**: se reporto
+que el motor era de un solo token y tomaba `outgoing[0]`; verificado en codigo, `ResolveOutgoing`
+YA devolvia todas las salientes y el bucle YA las activaba, y `IsCurrent` YA admitia varios pasos
+vigentes (sin migracion). El defecto real, no reportado: al tocar un endEvent se llamaba a
+`CompleteInstance` y se marcaban `Skipped` las ramas hermanas. Ahora un endEvent cierra la RAMA y
+la instancia cierra cuando no queda ningun paso vigente (cierre implicito, decision del usuario).
+Contrapartida asumida: un flujo sin salidas cierra en silencio donde antes gritaba Stuck; el aviso
+natural es al PUBLICAR. Test dual que calca el caso real + 70/70 de regresion del motor.
+
+**Agentes de IA en nodos de flujo, olas 1 y 2 (`4ce8cc3`, `5589c80`)**:
+- Ola 1: `WorkflowNodeAgent` (nodo -> agente + autonomia POR NODO) y constructor de contexto con
+  las 4 partes que pidio el usuario (nodo+formulario, datos previos, tarea/cliente, historial),
+  con techo y marca de truncado porque los tokens se facturan contra el cupo del plan.
+- Ola 2: el agente ATIENDE. **El agente es el autor**: `ExecutedByAiAgentId` junto al de usuario,
+  sin FK (auditoria append-only). La llamada a la IA NO va dentro de la transaccion del motor
+  (vive tras `IWorkflowAgentInvoker`, imposible por construccion). La cola ES la tabla: un paso
+  vigente con agente y sin intento previo es el trabajo, lo que sobrevive a reinicios y es
+  idempotente. Si el agente no puede (fallo o cupo agotado) el paso VUELVE A UNA PERSONA.
+  La propuesta va en campos propios porque `CompleteStepAsync` sobrescribe los de aprobacion.
+  10/10 en matriz dual con doble del proveedor.
+- **Sin UI y sin ejecucion real**: el invocador que llama a Gemini nunca corrio; los tests usan un
+  doble. Migraciones generadas y NO aplicadas.
+
+**Restos del backbone eliminados**: los "logos sugeridos" de la pagina de Marca eran de CUBOT IA
+(`c6e0498`) y la URI de OAuth que se pedia registrar en Google era la de cubotcrm (`5577b9b`);
+ahora se deriva del host actual. Quedan ~25 apariciones de "agencia" en el Super Admin, sin tocar.
+
+**Inventarios**: los 5 catalogos se unifican en `/inventario-configuracion` con tarjetas + modal
+(`5d126f7`, `8fe73cf`); imagenes por arrastrar y soltar, fuera el campo de URL, y **volumen
+persistente de uploads en produccion** (`a8f1800`) — sin el, cada despliegue borraba lo subido por
+los usuarios. Modal de item a dos columnas con imagen principal, minigaleria y resumen (`64bde77`).
+
+**Seguridad**: al endurecer la subida de imagenes se encontro que la pagina de Marca no tenia
+lista blanca y concatenaba la extension del nombre del cliente; ese logo se sirve en la PANTALLA
+DE LOGIN, sin autenticar, asi que un .svg subido ahi era XSS almacenado en la superficie mas
+expuesta. Corregido con `ImageUploadGuard` (lista blanca + bytes magicos).
+
+**Usuarios y organigrama (`94b8063`)**: baja LOGICA de usuarios con salvaguardas en el servicio
+(no auto-eliminarse, no eliminar al ultimo admin activo); Dependencias muestra nombre y correo.
+
+**Motor de listas del Contenedor de datos (`fa8a053`, `ab6d824`, `ef7cc8c`)**: campos tipo lista
+alimentados por una tabla del Contenedor, con cascada entre campos y autollenado. Sin migracion.
+
+**Bloqueos / pendientes**:
+- SIN VALIDACION VISUAL: modal de items, arrastrar y soltar, eliminar usuarios, campo tipo lista.
+- Tres migraciones generadas y sin aplicar (agente por nodo, ejecucion por agente).
+- Sin UI para asignar agentes a nodos ni para ver propuestas en la bandeja.
+- `backup.sh` no respalda los archivos subidos, solo la base.
+- 4 sitios suben adjuntos genericos sin validar contenido.
+
+---
+
 ## 2026-07-20 - Gate de formato reparado + concepto que produce tarea-proceso
 
 **Agentes**: Claude (Opus 4.8).

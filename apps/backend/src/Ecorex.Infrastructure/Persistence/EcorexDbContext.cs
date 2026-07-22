@@ -1288,6 +1288,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.ApprovalResult).HasMaxLength(20);
             b.Property(x => x.ApprovalComment).HasMaxLength(2000);
+            // Agentes de IA en nodos (ola 2). Todo aditivo y nullable: los pasos ya existentes
+            // quedan con null (los atendio gente). ExecutedByAiAgentId NO lleva FK a AiAgent: el
+            // historial es append-only y no puede depender de que el agente siga configurado.
+            b.Property(x => x.AgentProposalResult).HasMaxLength(20);
+            b.Property(x => x.AgentProposalComment).HasMaxLength(2000);
+            b.Property(x => x.AgentFailureReason).HasMaxLength(500);
             b.HasOne(x => x.Instance).WithMany()
                 .HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el nodo: el historial es append-only y sobrevive a la
@@ -1296,6 +1302,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.InstanceId, x.IsCurrent });
             b.HasIndex(x => new { x.InstanceId, x.NodeId, x.CycleIndex });
+            // Barrido del worker de agentes: pasos vigentes que ningun agente intento todavia.
+            // Sin este indice el sweep seria un scan de TODO el historial (append-only, crece sin fin).
+            b.HasIndex(x => new { x.IsCurrent, x.AgentAttemptedAt });
         });
 
         // ---- Formularios dinamicos (FASE 4, ADR-0015) ----

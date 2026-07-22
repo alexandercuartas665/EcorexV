@@ -11466,6 +11466,25 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("AgentAttemptedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("agent_attempted_at");
+
+                    b.Property<string>("AgentFailureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("agent_failure_reason");
+
+                    b.Property<string>("AgentProposalComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("agent_proposal_comment");
+
+                    b.Property<string>("AgentProposalResult")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("agent_proposal_result");
+
                     b.Property<string>("ApprovalComment")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)")
@@ -11495,6 +11514,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<int>("CycleIndex")
                         .HasColumnType("int")
                         .HasColumnName("cycle_index");
+
+                    b.Property<Guid?>("ExecutedByAiAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("executed_by_ai_agent_id");
 
                     b.Property<Guid?>("ExecutedByTenantUserId")
                         .HasColumnType("uniqueidentifier")
@@ -11542,6 +11565,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("InstanceId", "IsCurrent")
                         .HasDatabaseName("ix_workflow_step_histories_instance_id_is_current");
+
+                    b.HasIndex("IsCurrent", "AgentAttemptedAt")
+                        .HasDatabaseName("ix_workflow_step_histories_is_current_agent_attempted_at");
 
                     b.HasIndex("InstanceId", "NodeId", "CycleIndex")
                         .HasDatabaseName("ix_workflow_step_histories_instance_id_node_id_cycle_index");

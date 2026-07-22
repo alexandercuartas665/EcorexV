@@ -29,7 +29,13 @@ public sealed record WorkflowStepDto(
     Guid Id, Guid InstanceId, Guid NodeId, string BpmnElementId, string? NodeName,
     WorkflowNodeType NodeType, int CycleIndex, bool IsCurrent, bool IsCycleStart,
     WorkflowStepStatus Status, Guid? AssignedToTenantUserId, Guid? ExecutedByTenantUserId,
-    string? ApprovalResult, string? ApprovalComment, DateTimeOffset? CompletedAt);
+    string? ApprovalResult, string? ApprovalComment, DateTimeOffset? CompletedAt,
+    // Agentes de IA en nodos (ola 2). Aditivos y al final para no romper llamadores posicionales.
+    // El AUTOR maquina viaja junto al humano (nunca en su lugar) y la propuesta viaja aparte para
+    // que una bandeja pueda mostrarla mientras el paso sigue esperando a una persona.
+    Guid? ExecutedByAiAgentId = null,
+    string? AgentProposalResult = null, string? AgentProposalComment = null,
+    string? AgentFailureReason = null, DateTimeOffset? AgentAttemptedAt = null);
 
 public sealed record WorkflowInstanceDto(
     Guid Id, Guid DefinitionId, Guid? TaskItemId, WorkflowInstanceStatus Status,

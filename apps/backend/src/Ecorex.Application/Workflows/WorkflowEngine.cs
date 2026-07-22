@@ -320,13 +320,16 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 r.Step.Id, r.Step.InstanceId, r.Step.NodeId, r.Node.BpmnElementId, r.Node.Name, r.Node.NodeType,
                 r.Step.CycleIndex, r.Step.IsCurrent, r.Step.IsCycleStart, r.Step.Status,
                 r.Step.AssignedToTenantUserId, r.Step.ExecutedByTenantUserId,
-                r.Step.ApprovalResult, r.Step.ApprovalComment, r.Step.CompletedAt))
+                r.Step.ApprovalResult, r.Step.ApprovalComment, r.Step.CompletedAt,
+                r.Step.ExecutedByAiAgentId, r.Step.AgentProposalResult, r.Step.AgentProposalComment,
+                r.Step.AgentFailureReason, r.Step.AgentAttemptedAt))
             .ToList();
     }
 
     public async Task<WorkflowResult<WorkflowInstanceDto>> CompleteStepAsync(
         Guid instanceId, Guid stepId, Guid? executedByTenantUserId,
         string? approvalResult = null, string? approvalComment = null,
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default)
     {
         var loaded = await LoadRunningInstanceAsync(instanceId, cancellationToken);
@@ -350,6 +353,13 @@ public sealed class WorkflowEngine : IWorkflowEngine
 
         step.Status = WorkflowStepStatus.Completed;
         step.ExecutedByTenantUserId = executedByTenantUserId;
+        // Autor maquina: se registra SIN pisar al humano. Un paso cerrado por un agente autonomo
+        // deja usuario null y agente con valor; uno confirmado por una persona sobre la propuesta
+        // de un agente deja los dos, que es exactamente lo que una auditoria necesita saber.
+        if (executedByAiAgentId is Guid agentId)
+        {
+            step.ExecutedByAiAgentId = agentId;
+        }
         step.CompletedAt = DateTimeOffset.UtcNow;
         step.ApprovalResult = Normalize(approvalResult);
         step.ApprovalComment = Normalize(approvalComment);
@@ -824,7 +834,9 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 s.Id, s.InstanceId, s.NodeId, node.BpmnElementId, node.Name, node.NodeType,
                 s.CycleIndex, s.IsCurrent, s.IsCycleStart, s.Status,
                 s.AssignedToTenantUserId, s.ExecutedByTenantUserId,
-                s.ApprovalResult, s.ApprovalComment, s.CompletedAt);
+                s.ApprovalResult, s.ApprovalComment, s.CompletedAt,
+                s.ExecutedByAiAgentId, s.AgentProposalResult, s.AgentProposalComment,
+                s.AgentFailureReason, s.AgentAttemptedAt);
         }).ToList();
         return new WorkflowInstanceDto(
             instance.Id, instance.DefinitionId, instance.TaskItemId, instance.Status,

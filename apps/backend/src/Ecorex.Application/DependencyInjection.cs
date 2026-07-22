@@ -84,6 +84,13 @@ public static class DependencyInjection
         // Agentes de IA en nodos (ola 1): arma el contexto del paso (nodo+formulario, datos
         // previos, tarea/tercero, historial). La EJECUCION del agente es la ola 2.
         services.AddScoped<Workflows.IWorkflowAgentContextBuilder, Workflows.WorkflowAgentContextBuilder>();
+        // Agentes de IA en nodos (ola 2): el agente ATIENDE el paso de verdad. El invoker es lo
+        // unico que habla con el proveedor (por eso es una interfaz aparte: la llamada de red queda
+        // fuera de la transaccion del motor, y en pruebas se sustituye por un doble); el runner
+        // decide y persiste; el dispatcher lo dispara de forma asincrona desde el worker.
+        services.AddScoped<Workflows.IWorkflowAgentInvoker, Workflows.WorkflowAgentInvoker>();
+        services.AddScoped<Workflows.IWorkflowAgentStepRunner, Workflows.WorkflowAgentStepRunner>();
+        services.AddScoped<Workflows.IWorkflowAgentStepDispatcher, Workflows.WorkflowAgentStepDispatcher>();
         // Bandeja operativa de flujos (runtime, ola F2, ADR-0036): "mis pasos pendientes" +
         // atender (formulario o completar/aprobar) + reclamar/reasignar. Une la asignacion por
         // nodo (INodeAssigneeResolver) con el motor (IWorkflowEngine).

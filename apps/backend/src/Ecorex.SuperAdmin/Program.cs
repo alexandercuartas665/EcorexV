@@ -163,6 +163,9 @@ builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>
 // Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
 // las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
 builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
+// Agentes de IA en nodos (ola 2): atiende los pasos de flujo cuyo nodo tiene agente. Es el disparo
+// ASINCRONO que mantiene la llamada al proveedor de IA fuera de la transaccion del motor de flujos.
+builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WorkflowAgentStepWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Gate por circuito que serializa el acceso al DbContext desde todos los DynamicFormRenderer del

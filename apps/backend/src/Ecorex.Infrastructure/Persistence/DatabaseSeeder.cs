@@ -875,7 +875,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 .FirstOrDefaultAsync(cancellationToken);
 
             var result = await engine.CompleteStepAsync(
-                row.Step.InstanceId, row.Step.Id, null, decision, "Resuelto automaticamente (ADR-0037)", cancellationToken);
+                row.Step.InstanceId, row.Step.Id, null, decision, "Resuelto automaticamente (ADR-0037)",
+                cancellationToken: cancellationToken);
             if (result.IsOk || result.Status == WorkflowEngineStatus.StuckDetected)
             {
                 resolved++;

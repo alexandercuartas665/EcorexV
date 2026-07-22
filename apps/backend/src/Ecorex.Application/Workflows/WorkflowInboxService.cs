@@ -274,7 +274,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         // ApprovalResult y enruta por el ConditionExpression de sus aristas (ADR-0037). La
         // bandeja ya no completa el gateway a mano: es una responsabilidad del motor.
         return await _engine.CompleteStepAsync(
-            step.InstanceId, step.Id, tenantUserId, approvalResult, approvalComment, cancellationToken);
+            step.InstanceId, step.Id, tenantUserId, approvalResult, approvalComment,
+            cancellationToken: cancellationToken);
     }
 
     // ---- Helpers ----

@@ -44,9 +44,14 @@ public interface IWorkflowEngine
     /// Completa un paso current y Pending (con resultado/comentario de aprobacion para
     /// compuertas) y ejecuta el avance en cascada. StuckDetected si se alcanza el tope de 50.
     /// </summary>
+    /// <param name="executedByAiAgentId">
+    /// Agente de IA que cerro el paso (agentes en nodos, ola 2). Se registra JUNTO al usuario, no
+    /// en su lugar: la traza debe distinguir un cierre humano de uno hecho por una maquina.
+    /// </param>
     Task<WorkflowResult<WorkflowInstanceDto>> CompleteStepAsync(
         Guid instanceId, Guid stepId, Guid? executedByTenantUserId,
         string? approvalResult = null, string? approvalComment = null,
+        Guid? executedByAiAgentId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

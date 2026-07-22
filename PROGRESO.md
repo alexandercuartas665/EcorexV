@@ -5843,6 +5843,21 @@ dependian de ellos; el DELETE lleva guardas que abortan la transaccion si aparec
 SKY SYSTEM queda con 5 definiciones reales: COMPRAS v1 (borrador), COT-COM v1 (publicado) y v2
 (borrador), FLW-001 (publicado) y VIS-TEC (publicado, pausado). 0 nodos/aristas huerfanos.
 
+**Borradas las actividades dummy de SKY SYSTEM (2026-07-22, por SQL directo):** las **206 tareas**
+del tenant demo, TODAS creadas entre 2026-07-04 y 2026-07-08 (siembra demo + corridas E2E); ninguna
+posterior. Backup `ecorex-2026-07-22-0947.sql.gz`.
+- Verificado ANTES: **ninguna pertenecia a un usuario real del cliente**; 193 estaban sin asignar y
+  13 en cuentas demo del tenant. El DELETE lleva una **guarda** que aborta la transaccion si alguna
+  actividad esta asignada a un usuario que no sea `*@sky-system.local`.
+- Arrastro el rastro completo: 407 `task_item_activities`, 40 checklist items, 25 `task_work_logs`,
+  11 tag assignments, 3 assignments, **76 `workflow_instances`** con sus 213 `workflow_step_histories`
+  y 32 `form_flow_links`.
+- Detalle tecnico: hay **referencia circular** `task_items.workflow_instance_id` <->
+  `workflow_instances.task_item_id`; hubo que poner en NULL el lado de la tarea antes de borrar las
+  instancias.
+- Verificado DESPUES: 0 actividades en SKY, y 0 huerfanos en instancias, worklogs e historial de pasos.
+  Los demas tenants no tenian ninguna actividad, asi que no se toco nada mas.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

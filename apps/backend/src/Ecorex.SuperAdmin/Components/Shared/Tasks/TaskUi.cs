@@ -131,14 +131,22 @@ public static class TaskUi
     /// capitalizada ("ana.garcia@x.com" -> "Ana Garcia"). Decision documentada: el
     /// nombre real solo vive en PlatformUser.DisplayName y puede ser null.
     /// </summary>
-    public static string UserLabel(Ecorex.Application.Tenancy.TenantUserDto user)
+    public static string UserLabel(Ecorex.Application.Tenancy.TenantUserDto user) =>
+        UserLabel(user.DisplayName, user.Email);
+
+    /// <summary>
+    /// Misma regla que <see cref="UserLabel(Ecorex.Application.Tenancy.TenantUserDto)"/> pero
+    /// sobre los campos sueltos, para DTOs que traen nombre y correo sin ser TenantUserDto
+    /// (por ejemplo los miembros del organigrama, modulo 000850).
+    /// </summary>
+    public static string UserLabel(string? displayName, string email)
     {
-        if (!string.IsNullOrWhiteSpace(user.DisplayName)) { return user.DisplayName!.Trim(); }
-        var local = user.Email;
+        if (!string.IsNullOrWhiteSpace(displayName)) { return displayName.Trim(); }
+        var local = email;
         var at = local.IndexOf('@');
         if (at > 0) { local = local[..at]; }
         var parts = local.Split(['.', '-', '_', '+'], StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) { return user.Email; }
+        if (parts.Length == 0) { return email; }
         return string.Join(" ", parts.Select(p =>
             p.Length == 1 ? p.ToUpperInvariant() : char.ToUpperInvariant(p[0]) + p[1..].ToLowerInvariant()));
     }

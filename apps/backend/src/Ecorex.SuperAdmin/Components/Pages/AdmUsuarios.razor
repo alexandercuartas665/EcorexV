@@ -40,6 +40,16 @@
     }
 </div>
 
+@if (_canRemove)
+{
+    @* Los eliminados quedan ocultos por defecto; el admin puede verlos para restaurarlos. *@
+    <label class="pl-toggle" style="margin-bottom:14px;display:inline-flex;align-items:center;gap:6px;">
+        <input type="checkbox" checked="@_includeRemoved"
+               @onchange="@(async e => { _includeRemoved = (bool)e.Value!; await ReloadAsync(); })" />
+        Ver usuarios eliminados
+    </label>
+}
+
 @if (_loading)
 {
     <p><em>Cargando...</em></p>
@@ -97,20 +107,36 @@ else
                             }
                         </td>
                         <td style="text-align:right;white-space:nowrap;">
-                            @if (_canEdit)
+                            @if (u.Status == PlatformUserStatus.Removed)
                             {
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(u))">Editar</button>
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenPassword(u))">Cambiar clave</button>
-                            }
-                            @if (_canDelete)
-                            {
-                                @if (u.Status == PlatformUserStatus.Active)
+                                @* Un usuario eliminado solo admite restaurarse; el resto de acciones no aplica. *@
+                                @if (_canRemove)
                                 {
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Suspended))" disabled="@_busy">Suspender</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => RestoreAsync(u))" disabled="@_busy">Restaurar</button>
                                 }
-                                else
+                            }
+                            else
+                            {
+                                @if (_canEdit)
                                 {
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Active))" disabled="@_busy">Activar</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEdit(u))">Editar</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenPassword(u))">Cambiar clave</button>
+                                }
+                                @if (_canDelete)
+                                {
+                                    @if (u.Status == PlatformUserStatus.Active)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Suspended))" disabled="@_busy">Suspender</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetStatusAsync(u, PlatformUserStatus.Active))" disabled="@_busy">Activar</button>
+                                    }
+                                }
+                                @* Eliminar exige rol de administrador del tenant; nunca sobre uno mismo. *@
+                                @if (_canRemove && u.PlatformUserId != _selfPlatformUserId)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => OpenDelete(u))" disabled="@_busy">Eliminar</button>
                                 }
                             }
                         </td>
@@ -276,6 +302,38 @@ else
     </div>
 }
 
+@* ===== Modal confirmar eliminacion ===== *@
+@if (_deleteOpen && _deleteTarget is not null)
+{
+    <div class="modal-overlay" @onclick="CloseDelete">
+        <div class="modal-dialog" style="max-width:480px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Eliminar usuario</h3>
+                <button class="modal-close" @onclick="CloseDelete">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:13.5px;margin-bottom:10px;">
+                    Vas a eliminar a
+                    <strong>@(string.IsNullOrWhiteSpace(_deleteTarget.DisplayName) ? "(sin nombre)" : _deleteTarget.DisplayName)</strong>
+                    (<span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">@_deleteTarget.Email</span>).
+                </p>
+                <p style="font-size:13px;color:var(--muted-foreground);margin-bottom:0;">
+                    Perdera el acceso a la empresa y dejara de aparecer en los selectores de asignacion.
+                    Su historial (tareas, notas y auditoria) se conserva y un administrador puede restaurarlo.
+                </p>
+                @if (_formError is not null)
+                {
+                    <div class="text-danger small" style="margin-top:10px;">@_formError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="CloseDelete" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-danger" @onclick="ConfirmDeleteAsync" disabled="@_busy">Eliminar usuario</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_toast is not null)
 {
     <div class="tk-toast @(_toastOk ? "ok" : "err")" style="position:fixed;right:20px;bottom:20px;z-index:2000;">@_toast</div>
@@ -322,6 +380,14 @@ else
     private TenantUserDto? _editTarget;
     private bool _passwordOpen;
     private TenantUserDto? _passwordTarget;
+    private bool _deleteOpen;
+    private TenantUserDto? _deleteTarget;
+
+    // Eliminar usuarios exige, ademas del permiso Delete del modulo, ser Owner/Admin del tenant
+    // (el servicio lo revalida en el servidor). Se resuelve mirando la fila propia en la lista.
+    private bool _canRemove;
+    private Guid _selfPlatformUserId;
+    private bool _includeRemoved;
 
     protected override async Task OnInitializedAsync()
     {
@@ -330,13 +396,17 @@ else
         _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
         _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
 
+        _selfPlatformUserId = await ResolveSelfIdAsync();
         await ReloadAsync();
         _loading = false;
     }
 
     private async Task ReloadAsync()
     {
-        _users = (await UsersSvc.ListAsync()).ToList();
+        _users = (await UsersSvc.ListAsync(_includeRemoved)).ToList();
+        // Gate de la accion "Eliminar": permiso Delete del modulo + rol Owner/Admin en el tenant.
+        var me = _users.FirstOrDefault(u => u.PlatformUserId == _selfPlatformUserId);
+        _canRemove = _canDelete && me is not null && me.TenantRole is TenantRole.Owner or TenantRole.Admin;
         _views = (await MenuSvc.ListViewsAsync()).ToList();
         _roles = (await RolesSvc.ListAsync()).ToList();
         var withView = await MenuSvc.ListTenantUsersWithViewAsync();
@@ -495,6 +565,54 @@ else
         finally { _busy = false; }
     }
 
+    // ---- Eliminar / restaurar (baja logica) ----
+
+    private void OpenDelete(TenantUserDto u)
+    {
+        _deleteTarget = u;
+        _formError = null;
+        _deleteOpen = true;
+    }
+
+    private void CloseDelete() { _deleteOpen = false; _deleteTarget = null; _formError = null; }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleteTarget is null) { return; }
+        _formError = null;
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var (ok, error) = await UsersSvc.RemoveAsync(_deleteTarget.Id, actor);
+            if (!ok)
+            {
+                // El servicio devuelve el motivo exacto (auto-eliminacion, ultimo admin, sin rol).
+                _formError = error ?? "No se pudo eliminar el usuario.";
+                return;
+            }
+            var email = _deleteTarget.Email;
+            _deleteOpen = false;
+            _deleteTarget = null;
+            await ReloadAsync();
+            ShowToast($"Usuario {email} eliminado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RestoreAsync(TenantUserDto u)
+    {
+        _busy = true;
+        try
+        {
+            var actor = await ResolveSelfIdAsync();
+            var (ok, error) = await UsersSvc.RestoreAsync(u.Id, actor);
+            await ReloadAsync();
+            ShowToast(ok ? $"Usuario {u.Email} restaurado." : error ?? "No se pudo restaurar.", ok);
+        }
+        finally { _busy = false; }
+    }
+
     // ---- Cambiar clave ----
 
     private void OpenPassword(TenantUserDto u)
@@ -598,6 +716,7 @@ else
         PlatformUserStatus.Blocked => "Bloqueado",
         PlatformUserStatus.Suspended => "Suspendido",
         PlatformUserStatus.PendingActivation => "Pendiente",
+        PlatformUserStatus.Removed => "Eliminado",
         _ => status.ToString(),
     };
 
@@ -608,6 +727,7 @@ else
         PlatformUserStatus.Blocked => "#ef4444",
         PlatformUserStatus.Suspended => "#f59e0b",
         PlatformUserStatus.PendingActivation => "#94a3b8",
+        PlatformUserStatus.Removed => "#64748b",
         _ => "#94a3b8",
     };
 }

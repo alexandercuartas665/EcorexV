@@ -25,13 +25,22 @@ public sealed class TenantUserService : ITenantUserService
         _audit = audit;
     }
 
-    public async Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default) =>
+        ListAsync(includeRemoved: false, cancellationToken);
+
+    public async Task<IReadOnlyList<TenantUserDto>> ListAsync(bool includeRemoved, CancellationToken cancellationToken = default)
     {
         // El filtro global del DbContext limita por el tenant del contexto.
         // DisplayName viene del PlatformUser (join aditivo, ola 3): los dropdowns de
         // asignado muestran el nombre legible en vez del email.
-        return await _db.TenantUsers
-            .AsNoTracking()
+        var query = _db.TenantUsers.AsNoTracking();
+        if (!includeRemoved)
+        {
+            // Baja logica: un usuario eliminado no debe aparecer en ningun selector de asignacion.
+            query = query.Where(u => u.Status != PlatformUserStatus.Removed);
+        }
+
+        return await query
             .OrderBy(u => u.Email)
             .Join(_db.PlatformUsers.AsNoTracking(),
                 tu => tu.PlatformUserId, pu => pu.Id,
@@ -204,6 +213,98 @@ public sealed class TenantUserService : ITenantUserService
         }
 
         return Map(tenantUser, normalized);
+    }
+
+    public async Task<(bool Ok, string? Error)> RemoveAsync(Guid tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var (actor, roleError) = await ResolveAdminActorAsync(actorUserId, cancellationToken);
+        if (actor is null) { return (false, roleError); }
+
+        // Filtro global: solo alcanza usuarios del tenant activo.
+        var target = await _db.TenantUsers.FirstOrDefaultAsync(tu => tu.Id == tenantUserId, cancellationToken);
+        if (target is null) { return (false, "El usuario no pertenece a esta empresa."); }
+
+        // Salvaguarda 1: nadie se elimina a si mismo (se quedaria operando con una cuenta dada de baja).
+        if (target.Id == actor.Id || target.PlatformUserId == actor.PlatformUserId)
+        {
+            return (false, "No puedes eliminarte a ti mismo.");
+        }
+
+        if (target.Status == PlatformUserStatus.Removed)
+        {
+            return (false, "El usuario ya estaba eliminado.");
+        }
+
+        // Salvaguarda 2: la empresa no puede quedarse sin quien la administre.
+        if (target.TenantRole is TenantRole.Owner or TenantRole.Admin)
+        {
+            var targetId = target.Id;
+            var otherAdmins = await _db.TenantUsers.CountAsync(tu =>
+                tu.Id != targetId
+                && (tu.TenantRole == TenantRole.Owner || tu.TenantRole == TenantRole.Admin)
+                && tu.Status == PlatformUserStatus.Active,
+                cancellationToken);
+            if (otherAdmins == 0)
+            {
+                return (false, "No se puede eliminar al ultimo propietario/administrador activo de la empresa.");
+            }
+        }
+
+        var previous = target.Status;
+        // Baja LOGICA: la fila sobrevive porque de ella cuelgan tareas, notas y auditoria.
+        target.Status = PlatformUserStatus.Removed;
+        // Una invitacion pendiente de un usuario eliminado no debe poder canjearse.
+        target.InvitationToken = null;
+        target.InvitationExpiresAt = null;
+
+        _audit.Write(actorUserId, "tenant-user.remove", nameof(TenantUser), target.Id,
+            previousValue: new { Status = previous, target.Email, target.TenantRole },
+            newValue: new { Status = PlatformUserStatus.Removed },
+            tenantId: target.TenantId);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return (true, null);
+    }
+
+    public async Task<(bool Ok, string? Error)> RestoreAsync(Guid tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var (actor, roleError) = await ResolveAdminActorAsync(actorUserId, cancellationToken);
+        if (actor is null) { return (false, roleError); }
+
+        var target = await _db.TenantUsers.FirstOrDefaultAsync(tu => tu.Id == tenantUserId, cancellationToken);
+        if (target is null) { return (false, "El usuario no pertenece a esta empresa."); }
+        if (target.Status != PlatformUserStatus.Removed) { return (false, "El usuario no esta eliminado."); }
+
+        target.Status = PlatformUserStatus.Active;
+
+        _audit.Write(actorUserId, "tenant-user.restore", nameof(TenantUser), target.Id,
+            previousValue: new { Status = PlatformUserStatus.Removed },
+            newValue: new { Status = PlatformUserStatus.Active },
+            tenantId: target.TenantId);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Candado de rol en el SERVIDOR: la baja de usuarios solo la puede ejecutar un Owner/Admin
+    /// del tenant activo. La UI tambien oculta la accion, pero eso es cosmetico; aqui esta el
+    /// permiso real (defensa en profundidad, mismo patron que LeadService.PurgeArchivedHistory).
+    /// </summary>
+    private async Task<(TenantUser? Actor, string? Error)> ResolveAdminActorAsync(Guid actorUserId, CancellationToken cancellationToken)
+    {
+        // El actor se identifica por su PlatformUserId; se prefiere el del contexto de ejecucion.
+        var platformUserId = _tenantContext.UserId ?? actorUserId;
+        if (platformUserId == Guid.Empty) { return (null, "No hay un usuario autenticado."); }
+
+        var actor = await _db.TenantUsers.AsNoTracking()
+            .FirstOrDefaultAsync(tu => tu.PlatformUserId == platformUserId, cancellationToken);
+        if (actor is null || actor.TenantRole is not (TenantRole.Owner or TenantRole.Admin))
+        {
+            return (null, "Solo un administrador de la empresa puede eliminar usuarios.");
+        }
+
+        return (actor, null);
     }
 
     private static TenantUserDto Map(TenantUser u, string? displayName = null) =>

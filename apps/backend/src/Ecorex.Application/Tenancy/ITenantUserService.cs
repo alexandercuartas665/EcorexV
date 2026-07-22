@@ -8,7 +8,15 @@ namespace Ecorex.Application.Tenancy;
 /// </summary>
 public interface ITenantUserService
 {
+    /// <summary>Usuarios vigentes del tenant (excluye los eliminados logicamente).</summary>
     Task<IReadOnlyList<TenantUserDto>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Igual que <see cref="ListAsync(CancellationToken)"/> pero permite incluir los usuarios
+    /// eliminados (Status = Removed). Solo la pantalla de administracion de usuarios los pide,
+    /// para poder restaurarlos; los selectores de asignacion NUNCA deben verlos.
+    /// </summary>
+    Task<IReadOnlyList<TenantUserDto>> ListAsync(bool includeRemoved, CancellationToken cancellationToken = default);
 
     /// <summary>Devuelve null si no hay tenant activo o si el usuario ya es miembro del tenant.</summary>
     Task<TenantUserDto?> InviteAsync(InviteTenantUserRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
@@ -30,4 +38,19 @@ public interface ITenantUserService
     /// vacio lo deja sin nombre). Audita. Devuelve null si el usuario no existe en el tenant.
     /// </summary>
     Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// "Elimina" un usuario del tenant como BAJA LOGICA (Status = Removed): no borra la fila
+    /// porque de ella cuelgan tareas, notas y auditoria. Exige que quien opera sea Owner/Admin
+    /// del tenant y aplica dos salvaguardas: nadie se elimina a si mismo y no se puede eliminar
+    /// al ultimo propietario/administrador activo. Audita la accion.
+    /// Devuelve (false, motivo) si alguna validacion falla.
+    /// </summary>
+    Task<(bool Ok, string? Error)> RemoveAsync(Guid tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deshace la baja logica: devuelve el usuario a Active. Mismo candado de rol que
+    /// <see cref="RemoveAsync"/>. Audita.
+    /// </summary>
+    Task<(bool Ok, string? Error)> RestoreAsync(Guid tenantUserId, Guid actorUserId, CancellationToken cancellationToken = default);
 }

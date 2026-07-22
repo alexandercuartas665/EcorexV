@@ -5,6 +5,8 @@
 @using Ecorex.Application.Organization
 @using Ecorex.Application.Tenancy
 @using Ecorex.Domain.Enums
+@* TaskUi.UserLabel: misma regla de nombre legible que usan tareas y tableros (no se duplica). *@
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
 @inject IOrgUnitService OrgSvc
 @inject ITenantUserService UsersSvc
 
@@ -170,13 +172,15 @@ else
                         @foreach (var m in _members)
                         {
                             <div class="org-member">
-                                <span class="org-avatar">@Initials(m.DisplayName ?? m.Email)</span>
+                                <span class="org-avatar">@Initials(TaskUi.UserLabel(m.DisplayName, m.Email))</span>
                                 <span class="org-member-name">
-                                    @(m.DisplayName ?? m.Email)
+                                    @* Nombre completo arriba y correo debajo: identifica sin ambiguedad a la persona. *@
+                                    @TaskUi.UserLabel(m.DisplayName, m.Email)
                                     @if (m.IsResponsible)
                                     {
                                         <span class="tk-status st-done" style="margin-left:6px;font-size:10.5px;">Jefe</span>
                                     }
+                                    <small class="org-member-mail">@m.Email</small>
                                     @if (!string.IsNullOrWhiteSpace(m.Role))
                                     {
                                         <small>@m.Role</small>
@@ -191,11 +195,12 @@ else
                             </div>
                         }
                         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
-                            <select class="form-control" style="max-width:210px;font-size:13px;" @bind="_newMemberUserId">
+                            @* Selector de alta: nombre completo + correo, para no elegir a la persona equivocada. *@
+                            <select class="form-control" style="max-width:320px;font-size:13px;" @bind="_newMemberUserId">
                                 <option value="">-- Usuario --</option>
                                 @foreach (var u in _users.Where(u => _members.All(m => m.TenantUserId != u.Id)))
                                 {
-                                    <option value="@u.Id">@u.Email</option>
+                                    <option value="@u.Id">@UserOption(u)</option>
                                 }
                             </select>
                             <input class="form-control" style="max-width:150px;font-size:13px;" placeholder="Rol (opcional)" maxlength="100" @bind="_newMemberRole" />
@@ -259,7 +264,7 @@ else
                             <option value="">-- Usuario del tenant --</option>
                             @foreach (var u in _users)
                             {
-                                <option value="@u.Id">@(u.DisplayName ?? u.Email)</option>
+                                <option value="@u.Id">@UserOption(u)</option>
                             }
                         </select>
                     </div>
@@ -284,7 +289,7 @@ else
                         <option value="">(Sin responsable)</option>
                         @foreach (var u in _users)
                         {
-                            <option value="@u.Id">@u.Email</option>
+                            <option value="@u.Id">@UserOption(u)</option>
                         }
                     </select>
                 </div>
@@ -348,6 +353,7 @@ else
     .org-member { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
     .org-member-name { font-size: 13px; color: var(--ink, var(--foreground)); flex: 1; }
     .org-member-name small { display: block; font-size: 11px; color: var(--ink-3, var(--muted-foreground)); }
+    .org-member-mail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.01em; }
 </style>
 
 @code {
@@ -573,6 +579,12 @@ else
     }
 
     // ---- Helpers de presentacion ----
+
+    /// <summary>
+    /// Etiqueta de los selectores de usuario: "Nombre Completo - correo". Un &lt;option&gt; no admite
+    /// marcado, asi que ambos datos van en una sola linea; el correo desambigua homonimos.
+    /// </summary>
+    private static string UserOption(TenantUserDto u) => $"{TaskUi.UserLabel(u)} - {u.Email}";
 
     private static string KindLabel(OrgUnitKind kind) => kind == OrgUnitKind.Area ? "Area" : "Equipo";
 

@@ -5941,6 +5941,25 @@ la visibilidad es un OR, asi que "valor" nace visible; anotado para desarrollo. 
 Chrome quedo pendiente: el login por automatizacion no dispara (binding de Blazor Server; el login manual si
 funciona).
 
+**Login por automatizacion RESUELTO (2026-07-17):** el login es un POST HTTP nativo a `/auth/login` (no un
+handler de Blazor). Automatizar = fijar los inputs (setter nativo + evento `change`) y `form.requestSubmit()`.
+Verificado (se entro como SOLDARCO). Guardado en memoria del agente. Con eso, FRM-00005 quedo confirmado en
+la UI real (13 campos, 1 regla).
+
+**SIMULADOR DE COTIZACIONES (SKY SYSTEM, code COT) (2026-07-17):** diseno del port del Excel Cotizador. Form
+transaccional, 19 campos de encabezado + tabla de 20 columnas. Calculos aritmeticos ya activos
+(precio_base, subtotal, descuento, subt_desc, total, total_parq, total_cotizacion, 5 totales por rollup) +
+regla del parqueadero (FIJO/X HORA). Lo que exige codigo (lookup en columna, funciones SI/REDONDEAR, leer
+encabezado, agregado condicional, default por columna) se entrego como prompt a la sesion de codigo y quedo
+documentado en la nota del vault (C1-C5). Datos maestros: clientes->Terceros, productos->Items (otra sesion).
+
+**Solicitud de Requerimientos (AGROMETALICAS, code FRM-REQ) (2026-07-17):** formulario simple de captura de
+requerimiento (replica de imagen del usuario). 2 secciones, 11 elementos (9 campos + 2 headings): datos del
+cliente/empresa y detalles del requerimiento; tipo de servicio como lista (metalmecanica agricola). No
+transaccional. Verificado en BD. NOTA: no se pudo verificar en la UI porque el usuario
+`calidad@agrometalicas.com` (alta manual, nunca ha ingresado) NO autentica con la clave documentada
+1116243150; su password quedo en otro valor. Pendiente: resetearlo (con permiso) o que el usuario de la clave real.
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)

@@ -5977,6 +5977,19 @@ transaccional. Verificado en BD. NOTA: no se pudo verificar en la UI porque el u
 `calidad@agrometalicas.com` (alta manual, nunca ha ingresado) NO autentica con la clave documentada
 1116243150; su password quedo en otro valor. Pendiente: resetearlo (con permiso) o que el usuario de la clave real.
 
+**8 formularios de AGROMETALICAS desde sus PDFs (2026-07-23):** el usuario aporto la carpeta de recursos
+`052. Agrometalicas Rojas/01. Recursos` (12 PDFs) y pidio crear SOLO los que sean formularios de captura.
+Clasificacion (3 subagentes leyeron los 9 candidatos): NO-formularios descartados = FC-C-001 (ficha de
+caracterizacion de proceso SGC), MANUAL GESTION COMERCIAL, PD-C-001 (procedimiento). Creados 8 (todos Draft,
+NO transaccionales por decision del usuario; codigos y nombres originales de la empresa):
+FT-C-001 Ingreso de Materiales, FT-C-002 Registro de Cotizaciones (log/grid), FT-C-004 Remision de Entrega,
+FT-C-005 Encuesta de Satisfaccion (4 preguntas escala 1-5 como Radio), FT-C-006 Formato PQRSF,
+FT-C-007 Seguimiento a PQRS, FT-C-008 Orden de Trabajo (35 campos: datos + casillas de procesos + tabla de
+10 columnas), FT-C-009 Seguimiento O.T. (log/grid de 21 columnas). Total 101 campos. Por SQL (backup
+`ecorex-2026-07-23-0923.sql.gz`), idempotente por (tenant, code). Verificado en BD. No verificado en UI
+(mismo bloqueo del login de AGRO). Nota de diseno: el croquis/area de dibujo de la Orden de Trabajo y los
+textos legales fijos de los PDFs no se modelaron como campos (no son captura).
+
 ---
 
 ## Sesion 2026-07-14 - Modulo "Programar actividad" (000889) ola P1 (rama tareasprogramadas)

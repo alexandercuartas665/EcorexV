@@ -138,7 +138,15 @@ else
                         <div class="dc-model-left">
                             <div class="dc-left-head">
                                 <div class="dc-cfg-title" style="margin:0;border:0;padding:0;">Modelo ER (@(_detail?.Tables.Count ?? 0) tablas)</div>
-                                <div style="display:flex;gap:6px;">
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    @* Zoom del lienzo: cuando hay muchas tablas o quedan fuera del area visible,
+                                       alejar (o "Ajustar") permite verlas todas. *@
+                                    <div class="dc-zoombar">
+                                        <button class="dc-zoom-btn" title="Alejar" @onclick="ZoomOut">&minus;</button>
+                                        <button class="dc-zoom-lvl" title="Restablecer a 100%" @onclick="ZoomReset">@((int)Math.Round(_zoom * 100))%</button>
+                                        <button class="dc-zoom-btn" title="Acercar" @onclick="ZoomIn">+</button>
+                                        <button class="dc-zoom-btn" title="Ajustar todas las tablas a la vista" @onclick="ZoomFitAsync">&#9633;</button>
+                                    </div>
                                     @if (_canEdit)
                                     {
                                         <button class="btn btn-sm btn-primary" @onclick="OpenNewTable">+ Tabla</button>
@@ -148,6 +156,7 @@ else
                             <div class="dc-canvas">
                                 @if (_detail is not null)
                                 {
+                                <div class="dc-canvas-content" style="transform:scale(@Z());transform-origin:0 0;">
                                     @* Capa SVG con las lineas de relacion (debajo de las cajas). *@
                                     <svg class="dc-canvas-svg" width="3000" height="2000" xmlns="http://www.w3.org/2000/svg">
                                         @foreach (var rel in _detail.Relations)
@@ -209,6 +218,7 @@ else
                                     {
                                         <div class="dc-canvas-hint">Sin tablas todavia. Usa "+ Tabla" para crear la primera.</div>
                                     }
+                                </div>
                                 }
                             </div>
                             <div class="dc-legend">
@@ -904,7 +914,15 @@ else
         repeating-linear-gradient(0deg, transparent, transparent 23px, var(--line, var(--border)) 23px, var(--line, var(--border)) 24px),
         repeating-linear-gradient(90deg, transparent, transparent 23px, var(--line, var(--border)) 23px, var(--line, var(--border)) 24px),
         var(--surface, var(--card)); }
+    /* Capa escalable: el zoom aplica transform:scale aqui; el .dc-canvas es el area con scroll. */
+    .dc-canvas-content { position: absolute; top: 0; left: 0; width: 3000px; height: 2000px; }
     .dc-canvas-svg { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 1; }
+    /* Barra de zoom del lienzo. */
+    .dc-zoombar { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line, var(--border)); border-radius: 8px; padding: 2px; background: var(--surface, var(--card)); }
+    .dc-zoom-btn, .dc-zoom-lvl { height: 26px; border: none; background: transparent; color: var(--ink-2, var(--foreground)); font: inherit; font-weight: 700; cursor: pointer; border-radius: 6px; }
+    .dc-zoom-btn { width: 26px; font-size: 15px; line-height: 1; }
+    .dc-zoom-lvl { min-width: 46px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .dc-zoom-btn:hover, .dc-zoom-lvl:hover { background: var(--surface-2, var(--accent)); }
     .dc-canvas-hint { position: absolute; top: 20px; left: 20px; color: var(--ink-3, var(--muted-foreground)); font-size: 13px; z-index: 2; }
     .dc-table-node { position: absolute; width: 220px; background: var(--surface, var(--card)); border: 1px solid var(--line, var(--border)); border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.10); z-index: 3; user-select: none; }
     .dc-table-node.dragging { box-shadow: 0 8px 22px rgba(0,0,0,.20); opacity: .95; }
@@ -1444,6 +1462,49 @@ else
         x2 = GetX(rel.ToTableId) + NodeW / 2;
         y2 = GetY(rel.ToTableId) + NodeH(rel.ToTableId) / 2;
         return true;
+    }
+
+    // ---- Zoom del lienzo ER ----
+    private double _zoom = 1.0;
+    private const double ZoomMin = 0.3;
+    private const double ZoomMax = 2.0;
+
+    /// <summary>Escala clamp para el transform del lienzo (invariant culture en el markup).</summary>
+    private string Z() => _zoom.ToString("0.###", CultureInfo.InvariantCulture);
+
+    private void ZoomIn() => _zoom = Math.Min(ZoomMax, Math.Round(_zoom + 0.1, 2));
+    private void ZoomOut() => _zoom = Math.Max(ZoomMin, Math.Round(_zoom - 0.1, 2));
+    private void ZoomReset() => _zoom = 1.0;
+
+    /// <summary>Ajusta el zoom para que TODAS las tablas quepan en el area visible del lienzo. El
+    /// tamano real del viewport lo mide el cliente (JS); aqui solo se aplica el resultado.</summary>
+    private async Task ZoomFitAsync()
+    {
+        if (_detail is null || _detail.Tables.Count == 0) { _zoom = 1.0; return; }
+        // Extension usada por las cajas (en coordenadas logicas, sin escalar).
+        double maxX = 0, maxY = 0;
+        foreach (var t in _detail.Tables)
+        {
+            maxX = Math.Max(maxX, GetX(t.Id) + NodeW);
+            maxY = Math.Max(maxY, GetY(t.Id) + NodeH(t.Id));
+        }
+        if (maxX <= 0 || maxY <= 0) { _zoom = 1.0; return; }
+
+        try
+        {
+            var vp = await JS.InvokeAsync<double[]>("ecorexDcCanvas.viewport", ".dc-canvas");
+            if (vp is { Length: 2 } && vp[0] > 0 && vp[1] > 0)
+            {
+                var pad = 24.0;
+                var fit = Math.Min((vp[0] - pad) / maxX, (vp[1] - pad) / maxY);
+                _zoom = Math.Clamp(Math.Round(fit, 2), ZoomMin, 1.0);
+                return;
+            }
+        }
+        catch { /* si el interop falla, cae al calculo por defecto abajo */ }
+
+        // Fallback sin viewport: asume un area nominal ~900x520 del lienzo.
+        _zoom = Math.Clamp(Math.Round(Math.Min(900.0 / maxX, 520.0 / maxY), 2), ZoomMin, 1.0);
     }
 
     [JSInvokable]

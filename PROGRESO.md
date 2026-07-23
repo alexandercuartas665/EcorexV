@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-07-23 (cont.) - Zoom del lienzo ER, fix del lookup y mejoras de listas del Contenedor
+
+**Agentes**: Claude (Opus 4.8).
+
+### Hecho
+
+- **Zoom en el lienzo ER del Contenedor de datos.** Barra +/-/100%/Ajustar en la cabecera del
+  modelo. El contenido (SVG + cajas) va en un wrapper con transform:scale; "Ajustar" mide el
+  viewport por JS y encaja todas las tablas. El arrastre de cajas (dc-canvas.js) se reescribio para
+  ser CONSCIENTE de la escala (acumula el delta / zoom); antes se descuadraba con zoom != 1.
+- **Fix: el campo "Lista del Contenedor" no cargaba modelos.** El selector de Tipo usaba @bind sin
+  @bind:after, asi que al pasar un campo a Lookup nunca se cargaba el catalogo de modelos y el
+  desplegable salia vacio. Se agrego @bind:after -> OnCfgTypeChangedAsync. La pieza no estaba rota:
+  faltaba el disparador.
+- **Modo de presentacion del lookup: autocompletado o lista desplegable.** Nuevo DisplayMode en
+  DataLookupConfig + selector en la config del campo. En modo lista, DataLookupField carga todas
+  las filas (topadas) en un <select>.
+- **Crear registros desde el campo lookup.** Flag AllowCreate en la config; en el llenado del
+  tercero aparece "+ Nuevo" que abre un modal REUSANDO DataRecordsGrid (el gestor de registros del
+  Contenedor); al cerrar refresca las opciones. TerceroModal pasa el ActorUserId cacheado.
+- **"Limpiar tabla" en el visor de registros.** Boton en DataRecordsGrid (con permiso de borrar y
+  filas > 0) que confirma y borra TODAS las filas. Nuevo IDataContainerService.ClearRowsAsync
+  (borra filas + vinculos N:N y de relacion, en una transaccion, como el borrado de una fila).
+
+### Notas
+
+- Sin migracion: DisplayMode/AllowCreate viajan en el JSON de config del campo (no hay columnas
+  nuevas), igual que el resto de la config del lookup.
+
+---
+
 ## 2026-07-23 - Concepto por sede/entidad, formulario en el wizard y Configuracion de actividades
 
 **Agentes**: Claude (Opus 4.8) + subagente Explore (mapeo de los catalogos de actividades).

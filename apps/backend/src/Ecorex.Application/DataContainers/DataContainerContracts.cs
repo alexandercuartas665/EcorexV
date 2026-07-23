@@ -155,6 +155,8 @@ public interface IDataContainerService
     Task<IReadOnlyList<RowOptionDto>> ListRowOptionsAsync(Guid containerId, int take = 500, CancellationToken ct = default);
     Task<DataContainerRowDto?> SaveRowAsync(SaveDataRowRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteRowAsync(Guid rowId, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Borra TODAS las filas de la tabla (y sus vinculos). Devuelve cuantas se borraron.</summary>
+    Task<int> ClearRowsAsync(Guid containerId, Guid actorUserId, CancellationToken ct = default);
 
     Task<DataImportResult> ImportFromExcelAsync(Guid containerId, Stream xlsxStream, Guid actorUserId, CancellationToken ct = default);
     Task<DataExportResult?> ExportToExcelAsync(Guid containerId, CancellationToken ct = default);

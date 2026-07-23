@@ -1,4 +1,5 @@
 @using Ecorex.Application.DataLookups
+@using Ecorex.SuperAdmin.Components.Shared.Data
 @inject IDataLookupService LookupSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 
@@ -11,29 +12,48 @@
    producen "A second operation was started on this context instance". *@
 
 <div class="dlf">
-    @if (_bloqueado)
-    {
-        <input class="form-control" disabled placeholder="@BloqueoTexto()" />
-    }
-    else if (_seleccion is not null)
-    {
-        <div class="dlf-sel">
-            <span class="dlf-sel-txt" title="@_seleccion.Label">@_seleccion.Label</span>
-            @if (!Disabled)
-            {
-                <button type="button" class="dlf-x" title="Quitar" @onclick="ClearAsync">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-            }
-        </div>
-    }
-    else
-    {
-        <input class="form-control" placeholder="@(Placeholder ?? "Buscar...")" disabled="@Disabled"
-               value="@_texto" @oninput="OnTypeAsync" @onfocus="OnFocusAsync" />
-    }
+    <div class="dlf-row">
+        @if (_bloqueado)
+        {
+            <input class="form-control" disabled placeholder="@BloqueoTexto()" />
+        }
+        else if (_seleccion is not null)
+        {
+            <div class="dlf-sel">
+                <span class="dlf-sel-txt" title="@_seleccion.Label">@_seleccion.Label</span>
+                @if (!Disabled)
+                {
+                    <button type="button" class="dlf-x" title="Quitar" @onclick="ClearAsync">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                }
+            </div>
+        }
+        else if (Config.DisplayMode == DataLookupDisplayMode.List)
+        {
+            @* Lista desplegable: se cargan todas las filas (topadas) al no estar bloqueado. *@
+            <select class="form-control" disabled="@Disabled" value="@(Value ?? "")" @onchange="OnListChangedAsync">
+                <option value="">@(Placeholder ?? "-- Elige --")</option>
+                @foreach (var r in _resultados)
+                {
+                    <option value="@r.RowId">@r.Label</option>
+                }
+            </select>
+        }
+        else
+        {
+            <input class="form-control" placeholder="@(Placeholder ?? "Buscar...")" disabled="@Disabled"
+                   value="@_texto" @oninput="OnTypeAsync" @onfocus="OnFocusAsync" />
+        }
 
-    @if (_abierto && _resultados.Count > 0)
+        @if (Config.AllowCreate && !Disabled && !_bloqueado)
+        {
+            <button type="button" class="dlf-new" title="Crear un registro nuevo en la tabla" @onclick="OpenCrear">+ Nuevo</button>
+        }
+    </div>
+
+    @* El popup del autocompletado no aplica en modo lista. *@
+    @if (Config.DisplayMode != DataLookupDisplayMode.List && _abierto && _resultados.Count > 0)
     {
         <div class="dlf-pop">
             @foreach (var r in _resultados)
@@ -47,11 +67,35 @@
             }
         </div>
     }
-    else if (_abierto && !_buscando)
+    else if (Config.DisplayMode != DataLookupDisplayMode.List && _abierto && !_buscando)
     {
         <div class="dlf-pop"><div class="dlf-more">Sin coincidencias</div></div>
     }
 </div>
+
+@if (_crearOpen)
+{
+    <div class="modal-overlay" style="z-index:1090;" @onclick="() => _crearOpen = false">
+        <div class="modal-dialog" style="max-width:1000px;width:92vw;max-height:88vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Nuevo registro &#183; @(Config.TableName ?? "tabla")</h3>
+                <button class="modal-close" @onclick="() => _crearOpen = false">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow:auto;">
+                @* Reusa el MISMO gestor de registros del Contenedor de datos: alta, edicion,
+                   importar Excel. Al cambiar, se recargan las opciones del campo. *@
+                <DataRecordsGrid ContainerId="@Config.TableId"
+                                 ActorUserId="@ActorUserId"
+                                 CanCreate="true" CanEdit="true" CanDelete="false"
+                                 OnChanged="OnCrearChangedAsync"
+                                 EmptyText="Sin filas. Usa &quot;+ Fila&quot; o importa un Excel." />
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _crearOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public DataLookupConfig Config { get; set; } = null!;
@@ -69,6 +113,10 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string? Placeholder { get; set; }
 
+    /// <summary>Actor para el alta de registros desde el propio campo (Config.AllowCreate).</summary>
+    [Parameter] public Guid ActorUserId { get; set; }
+
+    private bool _crearOpen;
     private readonly List<DataLookupRowDto> _resultados = new();
     private DataLookupRowDto? _seleccion;
     private string _texto = "";
@@ -81,18 +129,61 @@
     private string _firmaDeps = "";
     private string? _valorResuelto;
 
+    private bool _listaCargada;
+
     protected override async Task OnParametersSetAsync()
     {
         var firma = FirmaDeps();
         var cambioValor = !string.Equals(_valorResuelto, Value, StringComparison.Ordinal);
         var cambioDeps = !string.Equals(_firmaDeps, firma, StringComparison.Ordinal);
-        if (!cambioValor && !cambioDeps) { return; }
+        // En modo lista hay que cargar las opciones aunque no haya valor ni dependencias.
+        var faltaLista = Config.DisplayMode == DataLookupDisplayMode.List && !_listaCargada;
+        if (!cambioValor && !cambioDeps && !faltaLista) { return; }
 
         _firmaDeps = firma;
         _valorResuelto = Value;
         _bloqueado = DataLookupBinder.ResolveFilters(Config, FormValues).Blocked;
+        if (cambioDeps) { _listaCargada = false; } // las dependencias filtran la lista: recargar.
 
         await ResolverSeleccionAsync(cambioDeps);
+
+        if (Config.DisplayMode == DataLookupDisplayMode.List && !_bloqueado && !_listaCargada)
+        {
+            await CargarListaAsync();
+        }
+    }
+
+    /// <summary>Carga TODAS las filas (topadas por el motor) para la lista desplegable.</summary>
+    private async Task CargarListaAsync()
+    {
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var page = await LookupSvc.SearchForFieldAsync(Config, FormValues, null);
+            _resultados.Clear();
+            _resultados.AddRange(page.Rows);
+            _total = page.Total;
+            _listaCargada = true;
+        }
+        finally { FormGate.Gate.Release(); }
+    }
+
+    private async Task OnListChangedAsync(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val)) { await ClearAsync(); return; }
+        var row = _resultados.FirstOrDefault(r => r.RowId.ToString() == val);
+        if (row is not null) { await ChooseAsync(row); }
+    }
+
+    private void OpenCrear() => _crearOpen = true;
+
+    /// <summary>Tras crear/editar filas en el modal, refresca las opciones del campo.</summary>
+    private async Task OnCrearChangedAsync()
+    {
+        _listaCargada = false;
+        if (Config.DisplayMode == DataLookupDisplayMode.List && !_bloqueado) { await CargarListaAsync(); }
+        // En typeahead no hace falta: la proxima busqueda ya trae las filas nuevas.
     }
 
     /// <summary>

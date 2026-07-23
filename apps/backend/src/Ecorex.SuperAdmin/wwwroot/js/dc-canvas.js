@@ -10,6 +10,16 @@ window.ecorexDcCanvas = (function () {
 
   function nodeOf(t) { return t && t.closest ? t.closest('.dc-table-node') : null; }
 
+  // Escala actual del lienzo (transform:scale del wrapper). Se calcula por geometria real
+  // (ancho renderizado / ancho logico) para no tener que parsear el transform ni pasar el zoom.
+  function scaleOf(content) {
+    if (!content) { return 1; }
+    const w = content.offsetWidth;
+    if (!w) { return 1; }
+    const s = content.getBoundingClientRect().width / w;
+    return (s && isFinite(s) && s > 0) ? s : 1;
+  }
+
   function onDown(e) {
     if (e.button !== 0) { return; }
     const head = e.target && e.target.closest ? e.target.closest('.dc-node-head') : null;
@@ -18,15 +28,17 @@ window.ecorexDcCanvas = (function () {
     if (e.target.closest('button')) { return; }
     const node = nodeOf(head);
     if (!node) { return; }
-    const canvas = node.closest('.dc-canvas');
-    if (!canvas) { return; }
-    const nRect = node.getBoundingClientRect();
+    const content = node.closest('.dc-canvas-content');
+    // Posicion LOGICA (sin escalar) de partida; el movimiento se acumula sobre ella / escala.
     drag = {
       node: node,
-      canvas: canvas,
+      content: content,
+      scale: scaleOf(content),
       id: node.getAttribute('data-table-id'),
-      offX: e.clientX - nRect.left,
-      offY: e.clientY - nRect.top
+      startLeft: parseFloat(node.style.left) || 0,
+      startTop: parseFloat(node.style.top) || 0,
+      startClientX: e.clientX,
+      startClientY: e.clientY
     };
     node.classList.add('dragging');
     try { node.setPointerCapture(e.pointerId); } catch (_) { }
@@ -35,9 +47,9 @@ window.ecorexDcCanvas = (function () {
 
   function onMove(e) {
     if (!drag) { return; }
-    const cRect = drag.canvas.getBoundingClientRect();
-    let x = e.clientX - cRect.left - drag.offX + drag.canvas.scrollLeft;
-    let y = e.clientY - cRect.top - drag.offY + drag.canvas.scrollTop;
+    const s = drag.scale || 1;
+    let x = drag.startLeft + (e.clientX - drag.startClientX) / s;
+    let y = drag.startTop + (e.clientY - drag.startClientY) / s;
     if (x < 0) { x = 0; }
     if (y < 0) { y = 0; }
     drag.node.style.left = x + 'px';
@@ -85,9 +97,16 @@ window.ecorexDcCanvas = (function () {
     } catch (e) { return false; }
   }
 
+  // Tamano visible (clientWidth/Height) del area con scroll del lienzo, para el "Ajustar" zoom.
+  function viewport(sel) {
+    const el = document.querySelector(sel || '.dc-canvas');
+    return el ? [el.clientWidth, el.clientHeight] : [0, 0];
+  }
+
   return {
     init: function (ref) { dotnet = ref; wire(); },
     dispose: function () { dotnet = null; },
-    downloadBase64: downloadBase64
+    downloadBase64: downloadBase64,
+    viewport: viewport
   };
 })();

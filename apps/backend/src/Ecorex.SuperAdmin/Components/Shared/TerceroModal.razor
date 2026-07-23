@@ -300,6 +300,7 @@
                                                                                                          ValueChanged="v => SetFicha(fc.Key, f.FieldKey, v)"
                                                                                                          FormValues="TodosLosValores()"
                                                                                                          OnAutofill="AplicarAutollenado"
+                                                                                                         ActorUserId="_actorId"
                                                                                                          Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
                                                                                     }
                                                                                     else
@@ -773,6 +774,7 @@
     private readonly Dictionary<string, List<TerceroFieldDto>> _fichaFields = new(StringComparer.Ordinal);
 
     private bool _permsLoaded;
+    private Guid _actorId;
 
     // Permisos + defaults de campos se cargan PEREZOSAMENTE al abrir el modal (evento de usuario),
     // NO en OnInitializedAsync: el host y este componente comparten el mismo DbContext scoped y sus
@@ -785,6 +787,7 @@
             _canCrearEmpresa = eff.Can(DirectorioSubPermisos.CrearEmpresa, PermissionAction.Create);
             _canCrearCliente = eff.Can(DirectorioSubPermisos.CrearCliente, PermissionAction.Create);
             _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
+            _actorId = await ActorIdAsync();
             _permsLoaded = true;
         }
         await FieldSvc.EnsureDefaultsAsync();

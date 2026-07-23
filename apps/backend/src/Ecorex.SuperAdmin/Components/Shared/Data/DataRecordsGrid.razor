@@ -36,6 +36,10 @@
         {
             <button class="btn btn-sm btn-primary" @onclick="OpenNewRow" disabled="@_busy">+ Fila</button>
         }
+        @if (CanDelete && _page.Total > 0)
+        {
+            <button class="btn btn-sm btn-outline-danger" @onclick="ClearTableAsync" disabled="@_busy" title="Borrar TODAS las filas de la tabla">Limpiar tabla</button>
+        }
         <input class="form-control form-control-sm dr-search" placeholder="Buscar..." value="@_search"
                @onchange="OnSearchChangedAsync" />
         <span class="dr-count">@_page.Total registro@(_page.Total == 1 ? "" : "s")</span>
@@ -412,6 +416,27 @@
             if (_page.Rows.Count == 1 && _pageNo > 1) { _pageNo--; }
             await ReloadAsync();
             await OnChanged.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ClearTableAsync()
+    {
+        if (_busy) { return; }
+        var total = _page.Total;
+        if (total == 0) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm",
+            $"Borrar TODAS las filas de la tabla ({total})? Esta accion no se puede deshacer.")) { return; }
+        _busy = true;
+        _error = _flash = null;
+        try
+        {
+            var n = await ContainerSvc.ClearRowsAsync(ContainerId, ActorUserId);
+            _pageNo = 1;
+            await ReloadAsync();
+            await OnChanged.InvokeAsync();
+            _flash = $"Tabla limpiada: {n} fila(s) borrada(s).";
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

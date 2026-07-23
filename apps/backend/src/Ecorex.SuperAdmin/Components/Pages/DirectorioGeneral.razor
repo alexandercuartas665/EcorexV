@@ -409,7 +409,9 @@
                         </div>
                         <div style="min-width:0">
                             <label class="dg-flabel">Tipo</label>
-                            <select class="dg-input" @bind="_cfgType">
+                            @* @bind:after: al pasar el campo a "Lista del Contenedor" hay que cargar los
+                               modelos de datos; sin esto el desplegable "Modelo de datos" salia vacio. *@
+                            <select class="dg-input" @bind="_cfgType" @bind:after="OnCfgTypeChangedAsync">
                                 <option value="@TerceroFieldType.Text">Texto</option>
                                 <option value="@TerceroFieldType.Number">Numero</option>
                                 <option value="@TerceroFieldType.Currency">Moneda</option>
@@ -480,6 +482,21 @@
                                                 <option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>
                                             }
                                         </select>
+                                    </div>
+                                    <div>
+                                        <label class="dg-flabel">Presentacion</label>
+                                        <select class="dg-input" value="@_lkDisplayMode"
+                                                @onchange="e => _lkDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                            <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                            <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                        </select>
+                                    </div>
+                                    <div style="display:flex;align-items:flex-end;">
+                                        <label class="dg-check" style="display:flex;align-items:center;gap:8px;">
+                                            <input type="checkbox" checked="@_lkAllowCreate"
+                                                   @onchange="e => _lkAllowCreate = (bool)(e.Value ?? false)" />
+                                            <span>Permitir crear registros nuevos desde el campo</span>
+                                        </label>
                                     </div>
                                 </div>
 
@@ -1052,6 +1069,8 @@
     private Guid? _lkModelId;
     private Guid? _lkTableId;
     private Guid? _lkDisplayCol;
+    private DataLookupDisplayMode _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+    private bool _lkAllowCreate;
     private readonly List<AutofillRow> _lkAutofill = new();
     private readonly List<FilterRow> _lkFilters = new();
 
@@ -1088,6 +1107,13 @@
         if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
     }
 
+    /// <summary>Al elegir el tipo "Lista del Contenedor" carga el catalogo de modelos de datos para
+    /// que el desplegable "Modelo de datos" no salga vacio.</summary>
+    private async Task OnCfgTypeChangedAsync()
+    {
+        if (_cfgType == TerceroFieldType.Lookup) { await LoadLookupCatalogAsync(); }
+    }
+
     private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
     {
         _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
@@ -1114,6 +1140,8 @@
         _lkModelId = null;
         _lkTableId = null;
         _lkDisplayCol = null;
+        _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+        _lkAllowCreate = false;
         _lkTables = new();
         _lkColumns = new();
         _lkAutofill.Clear();
@@ -1130,6 +1158,8 @@
         await LoadLookupCatalogAsync();
         _lkTableId = cfg.TableId;
         _lkDisplayCol = cfg.DisplayColumnId;
+        _lkDisplayMode = cfg.DisplayMode;
+        _lkAllowCreate = cfg.AllowCreate;
         _lkModelId = cfg.ModelId;
         if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
         _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
@@ -1174,7 +1204,9 @@
                 .Select(a => new DataLookupAutofillConfig(a.ColumnId, a.TargetKey))
                 .ToList(),
             TableName: tabla?.Name,
-            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name);
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name,
+            DisplayMode: _lkDisplayMode,
+            AllowCreate: _lkAllowCreate);
         return cfg.ToJson();
     }
 

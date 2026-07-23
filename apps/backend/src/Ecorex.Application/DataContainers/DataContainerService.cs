@@ -514,6 +514,27 @@ public sealed class DataContainerService : IDataContainerService
         return true;
     }
 
+    public async Task<int> ClearRowsAsync(Guid containerId, Guid actorUserId, CancellationToken ct = default)
+    {
+        var rowIds = await _db.DataContainerRows
+            .Where(r => r.ContainerId == containerId).Select(r => r.Id).ToListAsync(ct);
+        if (rowIds.Count == 0) { return 0; }
+
+        // Mismos vinculos que en el borrado de una fila, pero en bloque. Todo en una transaccion.
+        var links = await _db.DataContainerLinks
+            .Where(l => rowIds.Contains(l.RowId) || rowIds.Contains(l.TargetRowId)).ToListAsync(ct);
+        if (links.Count > 0) { _db.DataContainerLinks.RemoveRange(links); }
+
+        var relationLinks = await _db.DataModelRelationLinks
+            .Where(l => rowIds.Contains(l.FromRowId) || rowIds.Contains(l.ToRowId)).ToListAsync(ct);
+        if (relationLinks.Count > 0) { _db.DataModelRelationLinks.RemoveRange(relationLinks); }
+
+        var rows = await _db.DataContainerRows.Where(r => r.ContainerId == containerId).ToListAsync(ct);
+        _db.DataContainerRows.RemoveRange(rows);
+        await _db.SaveChangesAsync(ct);
+        return rows.Count;
+    }
+
     public async Task<DataImportResult> ImportFromExcelAsync(Guid containerId, Stream xlsxStream, Guid actorUserId, CancellationToken ct = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)

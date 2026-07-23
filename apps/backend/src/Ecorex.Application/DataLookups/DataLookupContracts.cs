@@ -44,6 +44,15 @@ public sealed record DataLookupFilterConfig(
 /// <summary>Al elegir una fila, el valor de <paramref name="ColumnId"/> se copia al campo destino.</summary>
 public sealed record DataLookupAutofillConfig(Guid ColumnId, string TargetFieldKey);
 
+/// <summary>Como se presenta el campo al llenar: buscador con sugerencias o lista desplegable.</summary>
+public enum DataLookupDisplayMode
+{
+    /// <summary>Buscador tipo autocompletado (por defecto): ideal para tablas grandes.</summary>
+    Typeahead = 0,
+    /// <summary>Lista desplegable con todas las filas: comodo para tablas cortas.</summary>
+    List
+}
+
 /// <summary>
 /// Configuracion completa de un campo tipo lista. Se guarda serializada como JSON en el mismo
 /// sitio donde cada modulo guarda hoy sus opciones de texto, asi que NO requiere columnas nuevas.
@@ -60,7 +69,10 @@ public sealed record DataLookupConfig(
     IReadOnlyList<DataLookupFilterConfig>? Filters = null,
     IReadOnlyList<DataLookupAutofillConfig>? Autofill = null,
     string? TableName = null,
-    string? DisplayColumnName = null)
+    string? DisplayColumnName = null,
+    DataLookupDisplayMode DisplayMode = DataLookupDisplayMode.Typeahead,
+    // Permitir crear filas nuevas en la tabla desde el propio campo (reusa el gestor de registros).
+    bool AllowCreate = false)
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
     {

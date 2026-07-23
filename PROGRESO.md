@@ -5926,6 +5926,23 @@ Maria Fernanda Lopez, Roberto Salcedo) mas "fulano" en BITCODE.
 > Maria Fernanda Lopez, Roberto Salcedo) mezclados con los 38 clientes reales del Cotizador (43 en
 > total). No se tocaron porque el usuario acoto la limpieza a los otros tres tenants.
 
+**Contenedor de datos "GESTION COMERCIAL" en SOLDARCO (2026-07-23, por SQL directo):** el usuario pidio
+crear un contenedor (DataModel) con varias tablas y llenarlas desde `MAESTRO ECOREX V2.xlsx` (SOLO la
+hoja **TABLAS**). Es carga MANUAL de catalogos maestros para usarlos luego en el resto del sistema (no
+hay ingesta automatica todavia). Backup `ecorex-2026-07-23-0912.sql.gz`. Modelo del modulo:
+`data_models` (contenedor) -> `data_containers` (tablas, source_kind=Manual, con canvas_x/y para el
+lienzo ER) -> `data_container_columns` -> `data_container_rows` + `data_container_cells`.
+- **9 tablas, 142 filas** (todas columnas Text): Estado del ciclo de vida (9), Origen del cliente (9),
+  Calificacion comercial (4), Atencion comercial (10), Canal de contacto (32), Frecuencia de compra
+  (6), Sector economico (22), Nivel de organizacion (3), y la tabla puente **Canal por mercado** (47).
+- Los nombres de columna se derivaron de los encabezados de cada bloque del Excel; la 1a columna
+  (Codigo) quedo `is_required`.
+- **Bug propio detectado y corregido en el acto:** la idempotencia por "valor de la 1a columna" fallo
+  en la tabla puente (su "Codigo canal" se repite entre mercados) -> cargo 29 de 47. Se recargo esa
+  tabla completa (delete + insert de las 47). Las otras 8 tienen codigo unico y cargaron bien al 1er
+  intento. Verificado: los 9 conteos coinciden con el Excel; acentos correctos (Sector economico).
+- NO se modifico codigo (peticion del usuario): solo INSERTs en el modulo existente.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

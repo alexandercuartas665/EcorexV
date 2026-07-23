@@ -167,6 +167,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
 
     // Inventarios (grupo Sistema - Inventarios): catalogos normalizados (bodegas, marcas,
     // grupos, subgrupos, tipos) + items con imagenes por URL y existencias por bodega.
+    public DbSet<ActivityPriority> ActivityPriorities => Set<ActivityPriority>();
+    public DbSet<ActivityState> ActivityStates => Set<ActivityState>();
+    public DbSet<ProjectType> ProjectTypes => Set<ProjectType>();
     public DbSet<Warehouse> Warehouses => Set<Warehouse>();
     public DbSet<Brand> Brands => Set<Brand>();
     public DbSet<ItemGroup> ItemGroups => Set<ItemGroup>();
@@ -230,6 +233,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => Set<ActividadSubcategoriaCargo>();
     public DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros => Set<ActividadSubcategoriaTercero>();
     public DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones => Set<ActividadSubcategoriaNotificacion>();
+    public DbSet<ActividadSubcategoriaSede> ActividadSubcategoriaSedes => Set<ActividadSubcategoriaSede>();
 
     // Motor de programaciones (modulo 000889 "Programar actividad"): "cron de negocio" gobernado.
     // Cabecera + reglas de recurrencia 1:N + canales N + bitacora de ejecucion (KPIs/idempotencia).
@@ -1035,6 +1039,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // ambos motores; la incrementa el AuditableTenantInterceptor en cada UPDATE.
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasOne(x => x.OwnerTenantUser).WithMany().HasForeignKey(x => x.OwnerTenantUserId).OnDelete(DeleteBehavior.Restrict);
+            // Tipo de proyecto (catalogo 000690): NO ACTION, archivar el tipo no toca el proyecto.
+            b.HasOne(x => x.ProjectType).WithMany().HasForeignKey(x => x.ProjectTypeId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });
@@ -1764,7 +1770,6 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Descripcion).HasMaxLength(2000);
             b.Property(x => x.TituloAuto).HasMaxLength(300);
             b.Property(x => x.DetalleAuto).HasMaxLength(2000);
-            b.Property(x => x.Sedes).HasMaxLength(2000);
             // Vinculos opcionales a otros modulos: NO ACTION (borrar el destino no toca el catalogo).
             b.HasOne(x => x.WorkflowDefinition).WithMany()
                 .HasForeignKey(x => x.WorkflowDefinitionId).OnDelete(DeleteBehavior.Restrict);
@@ -1824,6 +1829,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.SubcategoriaId, x.TenantUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        modelBuilder.Entity<ActividadSubcategoriaSede>(b =>
+        {
+            // Vive y muere con la subcategoria (Cascade). La FK a la entidad es NO ACTION.
+            b.HasOne(x => x.Subcategoria).WithMany(x => x.Sedes)
+                .HasForeignKey(x => x.SubcategoriaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Entidad).WithMany()
+                .HasForeignKey(x => x.EntidadId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.SubcategoriaId, x.EntidadId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.EntidadId });
         });
 
         // ---- Gestor de Clientes (000740): bolsa, oportunidades, citas, filtros, prospectos ----
@@ -1930,6 +1946,34 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+
+        // Catalogos configurables del modulo de actividades (000621/000653/000690). Mismo patron
+        // que los catalogos de inventario: nombre unico por tenant, color, activo y orden.
+        modelBuilder.Entity<ActivityPriority>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.MappedPriority).HasConversion<string>().HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+        modelBuilder.Entity<ActivityState>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
+        });
+        modelBuilder.Entity<ProjectType>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Color).HasMaxLength(20);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsActive, x.SortOrder });
         });

@@ -12,6 +12,8 @@
 @inject IProjectService ProjectsSvc
 @inject IWorkflowStartService StartSvc
 @inject ITaskBroadcaster Broadcaster
+@inject IFormResponseService FormResponsesSvc
+@inject IActivityCatalogService ActCatalogSvc
 
 @* ===== Wizard "Nueva actividad" (Ola 3): 4 pasos, milimetrico al prototipo ECOREX.dc.html =====
    Clasifica por CONCEPTO (Empresa/Area -> Tipo/categoria -> Actividad/subcategoria -> Encargado). *@
@@ -97,9 +99,13 @@
                                             <label style="@LblStyle">Actividad</label>
                                             <select style="@SelStyle" value="@(_subcategoriaId?.ToString() ?? "")" @onchange="OnSubcategoriaChanged" disabled="@(_categoriaId is null)">
                                                 <option value="">Selecciona Actividad</option>
-                                                @foreach (var s in _subcategorias) { <option value="@s.Id">@s.Nombre</option> }
+                                                @foreach (var s in SubcategoriasVisibles) { <option value="@s.Id">@s.Nombre</option> }
                                             </select>
                                             @if (_errors.TryGetValue("sub", out var subErr)) { <div style="@ErrStyle">@subErr</div> }
+                                            @if (_categoriaId is not null && _entidadId is not null && !SubcategoriasVisibles.Any())
+                                            {
+                                                <div style="@ErrStyle">Ningun concepto de este tipo aplica a la Empresa/Area seleccionada.</div>
+                                            }
                                         </div>
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -155,10 +161,24 @@
                                         </div>
                                         <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 16px 41px">Que tan urgente es?</p>
                                         <div style="display:flex;gap:10px;flex-wrap:wrap">
-                                            @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                                            @if (_priorities.Count > 0)
                                             {
-                                                var on = _priority == p;
-                                                <button type="button" @onclick="@(() => _priority = p)" style="height:34px;padding:0 15px;border-radius:9px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;@(on ? $"border:1px solid {PrioColor(p)};background:{PrioSoft(p)};color:{PrioColor(p)}" : "border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2)")">@TaskUi.PriorityLabel(p)</button>
+                                                @* Chips desde el catalogo configurable (Configuracion actividades). La tarea
+                                                   guarda el nivel mapeado (High/Medium/Low); el catalogo aporta etiqueta/color/orden. *@
+                                                @foreach (var p in _priorities)
+                                                {
+                                                    var on = _selectedPriorityId == p.Id;
+                                                    var col = string.IsNullOrWhiteSpace(p.Color) ? "#7c5cff" : p.Color;
+                                                    <button type="button" @onclick="@(() => { _selectedPriorityId = p.Id; _priority = p.MappedPriority ?? TaskPriority.Medium; })" style="height:34px;padding:0 15px;border-radius:9px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;@(on ? $"border:1px solid {col};background:{col}22;color:{col}" : "border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2)")">@p.Name</button>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                @foreach (var p in new[] { TaskPriority.High, TaskPriority.Medium, TaskPriority.Low })
+                                                {
+                                                    var on = _priority == p;
+                                                    <button type="button" @onclick="@(() => _priority = p)" style="height:34px;padding:0 15px;border-radius:9px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;@(on ? $"border:1px solid {PrioColor(p)};background:{PrioSoft(p)};color:{PrioColor(p)}" : "border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2)")">@TaskUi.PriorityLabel(p)</button>
+                                                }
                                             }
                                         </div>
                                     </div>
@@ -227,16 +247,34 @@
                                formulario DIRECTO y crea la actividad recien al validarlo. Aqui el formulario
                                es solo informativo: se diligencia desde el detalle de la tarea (ADR-0038). *@
                             <div style="width:100%">
-                                @if (HasForm)
+                                @if (SelectedSub?.FormDefinitionId is Guid formDefId)
                                 {
-                                    <div style="@CardStyle">
-                                        <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
-                                        <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Esta actividad tiene un formulario asociado: se diligencia desde el detalle de la actividad, una vez creada.</p>
-                                        <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-2);font-size:13px">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
-                                            Formulario del proceso disponible.
+                                    @if (_formResponseId is null)
+                                    {
+                                        @* El formulario del CONCEPTO se diligencia AQUI. Al enviarlo se captura la
+                                           respuesta (borrador -> enviado); recien al "Guardar actividad" se ancla al
+                                           numero de la actividad creada. No sustituye al formulario por paso del
+                                           proceso (ese sigue viviendo en el detalle/atencion del paso). *@
+                                        <div style="@CardStyle">
+                                            <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
+                                            <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Diligencia el formulario asociado a este concepto. Al enviarlo, quedara ligado a la actividad cuando la guardes.</p>
+                                            <DynamicFormRenderer DefinitionId="@formDefId"
+                                                                 Mode="FormRenderMode.Fill"
+                                                                 ShowHeader="false"
+                                                                 OnSubmitted="OnWizardFormSubmittedAsync" />
                                         </div>
-                                    </div>
+                                    }
+                                    else
+                                    {
+                                        <div style="@CardStyle;display:flex;align-items:center;gap:12px">
+                                            <span style="width:34px;height:34px;border-radius:10px;background:var(--t-green-bg, rgba(20,160,120,.14));color:var(--t-green);display:grid;place-items:center;flex:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>
+                                            <div style="flex:1">
+                                                <div style="font-weight:700;font-size:14px">Formulario diligenciado</div>
+                                                <div style="font-size:12px;color:var(--ink-3)">Quedara ligado a la actividad al guardar. Podras editarlo desde el detalle.</div>
+                                            </div>
+                                            <button type="button" @onclick="@(() => _formResponseId = null)" style="height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12.5px;color:var(--ink-2);cursor:pointer">Rehacer</button>
+                                        </div>
+                                    }
                                 }
                                 else
                                 {
@@ -340,6 +378,8 @@
 
     // Datos
     private List<EntidadOptionDto> _entidades = new();
+    private List<ActivityCatalogEntryDto> _priorities = new();
+    private Guid? _selectedPriorityId;
     private List<ActividadCategoriaDto> _categorias = new();
     private List<ActividadSubcategoriaDto> _subcategorias = new();
     private List<TenantUserDto> _users = new();
@@ -382,6 +422,17 @@
 
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
     private bool HasForm => SelectedSub?.FormDefinitionId is not null;
+
+    /// <summary>Respuesta del formulario del concepto diligenciada en el paso 3 (aun sin anclar a la
+    /// actividad, que todavia no existe). Se ancla por Number al guardar.</summary>
+    private Guid? _formResponseId;
+
+    /// <summary>El usuario envio (y el servidor valido) el formulario del concepto en el paso 3.</summary>
+    private Task OnWizardFormSubmittedAsync(FormResponseDto response)
+    {
+        _formResponseId = response.Id;
+        return Task.CompletedTask;
+    }
 
     // Restringido: SOLO los candidatos del cargo del nodo (aunque la lista quede vacia).
     // Libre: los cargos del concepto, y si el concepto no acota ningun cargo, todos los usuarios.
@@ -443,6 +494,10 @@
         _presetColumnId = presetColumnId;
 
         _entidades = (await EntidadSvc.ListOptionsAsync()).ToList();
+        _priorities = (await ActCatalogSvc.ListAsync(ActivityCatalogKind.Priority)).ToList();
+        // Preselecciona la prioridad del catalogo que mapea al default (Medium), o la primera.
+        var defPrio = _priorities.FirstOrDefault(p => p.MappedPriority == _priority) ?? _priorities.FirstOrDefault();
+        if (defPrio is not null) { _selectedPriorityId = defPrio.Id; _priority = defPrio.MappedPriority ?? _priority; }
         _categorias = (await CatalogoSvc.ListCategoriasAsync(includeArchived: false)).ToList();
         _users = (await TenantUsersSvc.ListAsync()).ToList();
         _projects = (await ProjectsSvc.ListAsync()).ToList();
@@ -494,6 +549,7 @@
         _ccEmails.Clear(); _ccInput = "";
         if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
         _milestoneId = null;
+        _formResponseId = null;
         _errors.Clear();
         _step = 1;
     }
@@ -516,8 +572,30 @@
         }
     }
 
+    /// <summary>
+    /// Conceptos visibles segun la Empresa/Area elegida (decision: Empresa/Area filtra conceptos).
+    /// Un concepto se muestra si aplica a TODAS las sedes (sin entidades asociadas) o si incluye la
+    /// entidad seleccionada. Sin Empresa/Area elegida no se filtra.
+    /// </summary>
+    private IEnumerable<ActividadSubcategoriaDto> SubcategoriasVisibles
+        => _entidadId is Guid ent
+            ? _subcategorias.Where(s => s.SedeEntidadIds.Count == 0 || s.SedeEntidadIds.Contains(ent))
+            : _subcategorias;
+
     private void OnEntidadChanged(ChangeEventArgs e)
-        => _entidadId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+    {
+        _entidadId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        // Si el concepto ya elegido deja de aplicar a la nueva Empresa/Area, se limpia junto con lo
+        // que depende de el (encargado, primer paso), para no arrastrar una seleccion invalida.
+        if (_subcategoriaId is Guid sub && !SubcategoriasVisibles.Any(s => s.Id == sub))
+        {
+            _subcategoriaId = null;
+            _assigneeId = null;
+            _encargadoIds = Array.Empty<Guid>();
+            _firstStep = null;
+            _encargadoRestringido = false;
+        }
+    }
 
     // Proyectos P3: al elegir proyecto, cargar sus hitos y resetear el hito seleccionado.
     private async Task OnProjectChanged(ChangeEventArgs e)
@@ -710,6 +788,14 @@
                 _errors["create"] = result.Error ?? "No se pudo crear la actividad.";
                 return;
             }
+
+            // Si se diligencio el formulario del concepto en el paso 3, se ancla ahora a la actividad
+            // recien creada (misma mecanica que FormFirstStarter: Reference = numero de la actividad).
+            if (_formResponseId is Guid formResponseId)
+            {
+                await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number);
+            }
+
             await OnCreated.InvokeAsync(result.Value!);
 
             if (keepOpen)

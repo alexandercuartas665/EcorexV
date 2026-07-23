@@ -493,6 +493,25 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ACTIVIDADES"),
     }
 }
 
+// Unifica los 3 catalogos de actividades (prioridades/estados/tipos de proyecto) en un solo item
+// "Configuracion actividades" y siembra sus valores por defecto, en TODOS los tenants
+// (ECOREX_MENU_ACTCONFIG=true). Idempotente.
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ACTCONFIG"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureActividadConfigMenuAsync(t.Id);
+        await seeder.EnsureActivityCatalogDefaultsAsync(t.Id);
+        app.Logger.LogWarning("[menu-actconfig] Configuracion actividades unificada + defaults para {Name}", t.Name);
+    }
+}
+
 // Deja el menu de los tenants CLIENTE (Kind = Standard) como el de SOLDARCO, que es el depurado:
 // quita los 6 stubs muertos de "Sistema - Desarrollo", muda el CRM de sistema de "syscrm" a "crm"
 // y reubica Contenedor de datos / Plantillas / Extraccion de datos (ECOREX_MENU_DEPURAR=true).

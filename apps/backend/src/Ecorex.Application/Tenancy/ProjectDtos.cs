@@ -5,16 +5,20 @@ namespace Ecorex.Application.Tenancy;
 public sealed record ProjectDto(
     Guid Id, string Code, string Name, string? Description, ProjectStatus Status,
     DateOnly? StartDate, DateOnly? EndDate, Guid OwnerTenantUserId, bool IsArchived,
-    long Version, int TaskCount, int MemberCount);
+    long Version, int TaskCount, int MemberCount,
+    // Tipo de proyecto (catalogo 000690): id y nombre para mostrar sin otra consulta.
+    Guid? ProjectTypeId = null, string? ProjectTypeName = null);
 
 public sealed record CreateProjectRequest(
     string Code, string Name, Guid OwnerTenantUserId, string? Description = null,
-    ProjectStatus Status = ProjectStatus.Planning, DateOnly? StartDate = null, DateOnly? EndDate = null);
+    ProjectStatus Status = ProjectStatus.Planning, DateOnly? StartDate = null, DateOnly? EndDate = null,
+    Guid? ProjectTypeId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateProjectRequest(
     string Name, string? Description, ProjectStatus Status,
-    DateOnly? StartDate, DateOnly? EndDate, Guid OwnerTenantUserId, long Version);
+    DateOnly? StartDate, DateOnly? EndDate, Guid OwnerTenantUserId, long Version,
+    Guid? ProjectTypeId = null);
 
 public sealed record ProjectMemberDto(Guid TenantUserId, string Email, bool CanEdit, bool IsOwner);
 

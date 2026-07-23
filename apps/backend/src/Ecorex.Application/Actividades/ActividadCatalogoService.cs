@@ -150,6 +150,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
+            .Include(s => s.Sedes)
             .AsQueryable();
         if (categoriaId is Guid cid) { query = query.Where(s => s.CategoriaId == cid); }
         if (!includeArchived) { query = query.Where(s => !s.IsArchived); }
@@ -167,6 +168,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
+            .Include(s => s.Sedes)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         return entity is null ? null : ToDto(entity);
     }
@@ -207,6 +209,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
+        SyncSedes(entity, request.SedeEntidadIds, tenantId);
         // Coherencia: cada concepto tiene su tablero. Si no se eligio uno, se crea y enlaza.
         await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
@@ -229,6 +232,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
+            .Include(s => s.Sedes)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -254,6 +258,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         SyncCargos(entity, request.CargoIds, tenantId);
         SyncTerceros(entity, request.TerceroIds, tenantId);
         SyncNotificaciones(entity, request.NotificacionUserIds, tenantId);
+        SyncSedes(entity, request.SedeEntidadIds, tenantId);
         // Coherencia: si tras editar el concepto queda sin tablero, se le crea y enlaza uno dedicado.
         await EnsureConceptBoardAsync(entity, tenantId, cancellationToken);
 
@@ -270,6 +275,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Include(s => s.Cargos)
             .Include(s => s.Terceros)
             .Include(s => s.Notificaciones)
+            .Include(s => s.Sedes)
             .FirstOrDefaultAsync(s => s.Id == subcategoriaId, cancellationToken);
         if (entity is null)
         {
@@ -281,6 +287,7 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         _db.ActividadSubcategoriaCargos.RemoveRange(entity.Cargos);
         _db.ActividadSubcategoriaTerceros.RemoveRange(entity.Terceros);
         _db.ActividadSubcategoriaNotificaciones.RemoveRange(entity.Notificaciones);
+        _db.ActividadSubcategoriaSedes.RemoveRange(entity.Sedes);
         _db.ActividadSubcategorias.Remove(entity);
         await _db.SaveChangesAsync(cancellationToken);
         return TaskCoreResult<bool>.Ok(true);
@@ -355,7 +362,14 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
             .Select(u => new UsuarioOptionDto(u.Id, u.Email))
             .ToListAsync(cancellationToken);
 
-        return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros, usuarios);
+        // Entidades (agencias/areas/sucursales) para el picker de "Sedes que aplica".
+        var sedes = await _db.Entidades.AsNoTracking()
+            .Where(e => !e.IsArchived)
+            .OrderBy(e => e.Nombre).ThenBy(e => e.Codigo)
+            .Select(e => new SedeOptionDto(e.Id, e.Codigo, e.Nombre))
+            .ToListAsync(cancellationToken);
+
+        return new ActividadComboOptionsDto(workflows, forms, boards, cargos, terceros, usuarios, sedes);
     }
 
     public async Task<IReadOnlyList<Guid>> ListEncargadoUserIdsAsync(
@@ -491,7 +505,6 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         entity.TaskBoardId = request.TaskBoardId;
         // La columna terminal solo aplica si hay tablero; si no, se limpia.
         entity.TaskBoardColumnId = request.TaskBoardId is null ? null : request.TaskBoardColumnId;
-        entity.Sedes = NormalizeSedes(request.Sedes);
     }
 
     /// <summary>
@@ -590,6 +603,22 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         }
     }
 
+    private void SyncSedes(ActividadSubcategoria entity, IReadOnlyList<Guid>? entidadIds, Guid tenantId)
+    {
+        _db.ActividadSubcategoriaSedes.RemoveRange(entity.Sedes);
+        entity.Sedes.Clear();
+        if (entidadIds is null) { return; }
+        foreach (var id in entidadIds.Distinct())
+        {
+            _db.ActividadSubcategoriaSedes.Add(new ActividadSubcategoriaSede
+            {
+                TenantId = tenantId,
+                SubcategoriaId = entity.Id,
+                EntidadId = id
+            });
+        }
+    }
+
     private async Task<string?> ValidateSubcategoriaAsync(
         SaveSubcategoriaRequest request, CancellationToken cancellationToken)
     {
@@ -656,29 +685,11 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
         s.WorkflowDefinitionId, s.FormDefinitionId, s.TaskBoardId, s.TaskBoardColumnId,
         s.Cargos.Select(c => c.OrgUnitId).ToList(),
         s.Terceros.Select(t => t.TerceroId).ToList(),
-        SplitSedes(s.Sedes),
+        s.Sedes.Select(x => x.EntidadId).ToList(),
         s.Notificaciones.Select(n => n.TenantUserId).ToList());
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    /// <summary>Normaliza la lista de sedes (nombres libres): recorta, descarta vacios y duplicados,
-    /// une con ';'.</summary>
-    private static string? NormalizeSedes(IReadOnlyList<string>? sedes)
-    {
-        if (sedes is null) { return null; }
-        var items = sedes
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        return items.Count == 0 ? null : string.Join(";", items);
-    }
-
-    private static IReadOnlyList<string> SplitSedes(string? value)
-        => string.IsNullOrWhiteSpace(value)
-            ? Array.Empty<string>()
-            : value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>Normaliza la lista de chequeo: recorta cada item y descarta vacios, une con ';'.</summary>
     private static string? NormalizeChequeo(string? value)

@@ -3,10 +3,12 @@
 @* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Tenancy
+@using Ecorex.Application.Actividades
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Tasks
 @inject IProjectService ProjectsSvc
 @inject ITenantUserService TenantUsersSvc
+@inject IActivityCatalogService ActCatalogSvc
 @inject NavigationManager Nav
 
 <PageTitle>Proyectos - ECOREX.tareas</PageTitle>
@@ -127,6 +129,20 @@ else
                     }
                 </div>
                 <div class="field">
+                    <label class="form-label">Tipo de proyecto</label>
+                    <select class="form-control" value="@(_projectTypeId?.ToString() ?? "")" @onchange="@(e => _projectTypeId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null)">
+                        <option value="">-- Sin tipo --</option>
+                        @foreach (var t in _projectTypes)
+                        {
+                            <option value="@t.Id">@t.Name</option>
+                        }
+                    </select>
+                    @if (_projectTypes.Count == 0)
+                    {
+                        <div class="cn-hint" style="margin-top:4px;">Configura tipos en <a href="/actividad-configuracion">Configuracion actividades</a>.</div>
+                    }
+                </div>
+                <div class="field">
                     <label class="form-label">Descripcion</label>
                     <textarea class="form-control" rows="3" @bind="_description"></textarea>
                 </div>
@@ -184,6 +200,7 @@ else
     private bool _includeArchived;
     private List<ProjectDto> _projects = new();
     private List<TenantUserDto> _users = new();
+    private List<ActivityCatalogEntryDto> _projectTypes = new();
 
     // Editor
     private bool _showEditor;
@@ -196,10 +213,12 @@ else
     private DateTime? _startDate;
     private DateTime? _endDate;
     private Guid? _ownerId;
+    private Guid? _projectTypeId;
 
     protected override async Task OnInitializedAsync()
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
+        _projectTypes = (await ActCatalogSvc.ListAsync(ActivityCatalogKind.ProjectType)).ToList();
         await LoadAsync();
         _loading = false;
     }
@@ -223,6 +242,7 @@ else
         _startDate = project?.StartDate?.ToDateTime(TimeOnly.MinValue);
         _endDate = project?.EndDate?.ToDateTime(TimeOnly.MinValue);
         _ownerId = project?.OwnerTenantUserId;
+        _projectTypeId = project?.ProjectTypeId;
         _showEditor = true;
     }
 
@@ -252,7 +272,7 @@ else
                 var result = await ProjectsSvc.CreateAsync(new CreateProjectRequest(
                     _code.Trim(), _name.Trim(), _ownerId!.Value,
                     string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
-                    _status, start, end));
+                    _status, start, end, _projectTypeId));
                 if (!result.IsOk) { _errors["save"] = result.Error ?? "No se pudo crear el proyecto."; return; }
             }
             else
@@ -260,7 +280,7 @@ else
                 var result = await ProjectsSvc.UpdateAsync(_editing.Id, new UpdateProjectRequest(
                     _name.Trim(),
                     string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
-                    _status, start, end, _ownerId!.Value, _editing.Version));
+                    _status, start, end, _ownerId!.Value, _editing.Version, _projectTypeId));
                 if (!result.IsOk)
                 {
                     _errors["save"] = result.Status == TaskCoreStatus.Conflict

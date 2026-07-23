@@ -2936,10 +2936,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // que no habia forma de llegar a el salvo escribiendo la URL.
         Item(act.Id, "Tableros", "tableros", "000635");
         Item(act.Id, "Administrar actividades", "actividades", "000636");
-        Item(act.Id, "Prioridades", "modulo/prioridades", "000621");
-        Item(act.Id, "Tipos de proyecto", "modulo/tipos-de-proyecto", "000690");
         Item(act.Id, "Conceptos", "conceptos", "000270");
-        Item(act.Id, "Estados", "modulo/estados", "000653");
+        // Prioridades, Estados y Tipos de proyecto se unificaron en un solo modulo con CRUD
+        // (cards + modal), igual que se hizo con inventarios. Un solo item de menu.
+        Item(act.Id, "Configuracion actividades", "actividad-configuracion", "000691");
 
         // ---- Seccion: Sistema - CRM (slug syscrm) ----
         var syscrm = Add(MenuNodeKind.Section, "Sistema \u00b7 CRM", null, "syscrm", iconKey: "users");
@@ -3231,6 +3231,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "nego", route: "modulo/seguimiento-de-clientes", cancellationToken);
 
         await EnsureInventarioConfigMenuAsync(tenantId, cancellationToken);
+        await EnsureActividadConfigMenuAsync(tenantId, cancellationToken);
+        await EnsureActivityCatalogDefaultsAsync(tenantId, cancellationToken);
         await EnsureActividadesEnSistemaAsync(tenantId, cancellationToken);
     }
 
@@ -3443,6 +3445,59 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         {
             await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "inv", route: ruta, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Unifica en la seccion "act" los tres catalogos de actividades (prioridades, estados, tipos
+    /// de proyecto) en un solo item "Configuracion actividades", igual que se hizo con inventarios.
+    /// Alta primero, bajas despues (si se interrumpe, la seccion nunca queda sin acceso). Idempotente.
+    /// </summary>
+    public async Task EnsureActividadConfigMenuAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        await EnsureMenuItemInSectionAsync(
+            tenantId, sectionSlug: "act", route: "actividad-configuracion",
+            name: "Configuracion actividades", legacyCode: "000691", cancellationToken);
+
+        foreach (var ruta in new[] { "modulo/prioridades", "modulo/estados", "modulo/tipos-de-proyecto" })
+        {
+            await RemoveMenuItemFromSectionAsync(tenantId, sectionSlug: "act", route: ruta, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Siembra los valores por defecto de los catalogos de actividades para un tenant que aun no
+    /// los tenga (idempotente por catalogo: si ya hay filas, no toca ese catalogo). Las prioridades
+    /// se mapean a los valores del enum TaskPriority para alimentar el wizard.
+    /// </summary>
+    public async Task EnsureActivityCatalogDefaultsAsync(
+        Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (!await _db.ActivityPriorities.IgnoreQueryFilters().AnyAsync(x => x.TenantId == tenantId, cancellationToken))
+        {
+            _db.ActivityPriorities.AddRange(
+                new ActivityPriority { TenantId = tenantId, Name = "Alta", Color = "#ef4444", SortOrder = 0, MappedPriority = TaskPriority.High },
+                new ActivityPriority { TenantId = tenantId, Name = "Media", Color = "#f59e0b", SortOrder = 1, MappedPriority = TaskPriority.Medium },
+                new ActivityPriority { TenantId = tenantId, Name = "Baja", Color = "#94a3b8", SortOrder = 2, MappedPriority = TaskPriority.Low });
+        }
+
+        if (!await _db.ActivityStates.IgnoreQueryFilters().AnyAsync(x => x.TenantId == tenantId, cancellationToken))
+        {
+            _db.ActivityStates.AddRange(
+                new ActivityState { TenantId = tenantId, Name = "Por hacer", Color = "#94a3b8", SortOrder = 0 },
+                new ActivityState { TenantId = tenantId, Name = "En progreso", Color = "#3b82f6", SortOrder = 1 },
+                new ActivityState { TenantId = tenantId, Name = "En revision", Color = "#f59e0b", SortOrder = 2 },
+                new ActivityState { TenantId = tenantId, Name = "Completado", Color = "#22c55e", SortOrder = 3 });
+        }
+
+        if (!await _db.ProjectTypes.IgnoreQueryFilters().AnyAsync(x => x.TenantId == tenantId, cancellationToken))
+        {
+            _db.ProjectTypes.AddRange(
+                new ProjectType { TenantId = tenantId, Name = "Interno", Color = "#6366f1", SortOrder = 0 },
+                new ProjectType { TenantId = tenantId, Name = "Cliente", Color = "#06b6d4", SortOrder = 1 });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>

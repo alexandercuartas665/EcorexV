@@ -551,30 +551,40 @@
                 @* -- 9. Sedes que aplica -- *@
                 <div class="cn-acc @(_acc9 ? "open" : "")">
                     <div class="cn-acc-head" @onclick="@(() => _acc9 = !_acc9)">
-                        <div class="cn-acc-title">Sedes que aplica <span class="cn-chip">@_mSedes.Count</span></div>
+                        <div class="cn-acc-title">Sedes que aplica <span class="cn-chip">@_mSedeIds.Count</span></div>
                         <span>@(_acc9 ? "-" : "+")</span>
                     </div>
                     <div class="cn-acc-body">
-                        <p class="cn-hint">Sucursales / sedes donde aplica el concepto (texto libre).</p>
+                        <p class="cn-hint">Entidades (agencias, areas o sucursales) de "Configuracion de la entidad" donde aplica el concepto. Al crear una actividad de este concepto, el selector "Empresa/Area" solo mostrara estas. Vacio = aplica a todas.</p>
                         <div class="cn-chip-list">
-                            @foreach (var sede in _mSedes)
+                            @foreach (var id in _mSedeIds)
                             {
-                                <span class="cn-chip removable">@sede
-                                    <button class="cn-chip-x" @onclick="@(() => _mSedes.Remove(sede))">&times;</button>
+                                <span class="cn-chip removable">@SedeLabel(id)
+                                    <button class="cn-chip-x" @onclick="@(() => _mSedeIds.Remove(id))">&times;</button>
                                 </span>
                             }
-                            @if (_mSedes.Count == 0)
+                            @if (_mSedeIds.Count == 0)
                             {
                                 <span class="cn-chip dashed">Aplica a todas las sedes</span>
                             }
                         </div>
-                        <div class="cn-field cn-field-add cn-sede-add">
-                            <label>Agregar sede</label>
-                            <input placeholder="Ej. Sucursal Cali (Enter para agregar)" value="@_sedeDraft"
-                                   @oninput="@(e => _sedeDraft = e.Value?.ToString() ?? "")"
-                                   @onkeydown="OnSedeKeyDown" />
-                            <button class="cn-btn sm" @onclick="AddSede" disabled="@string.IsNullOrWhiteSpace(_sedeDraft)">Agregar</button>
-                        </div>
+                        @if (_combos.Sedes.Count == 0)
+                        {
+                            <p class="cn-hint">No hay entidades creadas todavia. Crea agencias, areas o sucursales en <a href="/configuracion-entidad">Configuracion de la entidad</a>.</p>
+                        }
+                        else
+                        {
+                            <div class="cn-field cn-field-add">
+                                <label>Agregar sede</label>
+                                <select value="" @onchange="AddSede">
+                                    <option value="">-- Selecciona una entidad --</option>
+                                    @foreach (var s in _combos.Sedes.Where(s => !_mSedeIds.Contains(s.Id)))
+                                    {
+                                        <option value="@s.Id">@s.Nombre (@s.Codigo)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                     </div>
                 </div>
 
@@ -648,7 +658,7 @@
     private List<ActividadCategoriaDto> _cats = new();
     private List<ActividadSubcategoriaDto> _subs = new();
     private ActividadKpisDto _kpis = new(0, 0, 0, 0);
-    private ActividadComboOptionsDto _combos = new([], [], [], [], [], []);
+    private ActividadComboOptionsDto _combos = new([], [], [], [], [], [], []);
 
     private Guid? _selectedCatId;
     private string _catSearch = "";
@@ -676,8 +686,7 @@
     private readonly List<Guid> _mCargoIds = new();
     private readonly List<Guid> _mTerceroIds = new();
     private readonly List<Guid> _mNotifUserIds = new();
-    private readonly List<string> _mSedes = new();
-    private string _sedeDraft = "";
+    private readonly List<Guid> _mSedeIds = new();
     private string? _mError;
     private bool _confirmDelete;
     private bool _acc1 = true, _acc2 = true, _acc3, _acc4, _acc5, _acc6, _acc7, _acc8, _acc9;
@@ -796,8 +805,7 @@
         _mCargoIds.Clear();
         _mTerceroIds.Clear();
         _mNotifUserIds.Clear();
-        _mSedes.Clear();
-        _sedeDraft = "";
+        _mSedeIds.Clear();
         if (sub is null)
         {
             _mId = null;
@@ -834,7 +842,7 @@
             _mCargoIds.AddRange(sub.CargoIds);
             _mTerceroIds.AddRange(sub.TerceroIds);
             _mNotifUserIds.AddRange(sub.NotificacionUserIds);
-            _mSedes.AddRange(sub.Sedes);
+            _mSedeIds.AddRange(sub.SedeEntidadIds);
         }
         _mOpen = true;
 
@@ -893,20 +901,16 @@
         }
     }
 
-    private void AddSede()
+    private void AddSede(ChangeEventArgs e)
     {
-        var sede = _sedeDraft.Trim();
-        if (sede.Length > 0 && !_mSedes.Contains(sede, StringComparer.OrdinalIgnoreCase))
+        if (Guid.TryParse(e.Value?.ToString(), out var g) && !_mSedeIds.Contains(g))
         {
-            _mSedes.Add(sede);
+            _mSedeIds.Add(g);
         }
-        _sedeDraft = "";
     }
 
-    private void OnSedeKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") { AddSede(); }
-    }
+    private string SedeLabel(Guid id)
+        => _combos.Sedes.FirstOrDefault(s => s.Id == id)?.Nombre ?? "(entidad)";
 
     private async Task SaveSubAsync()
     {
@@ -941,7 +945,7 @@
                 _mColumnId,
                 _mCargoIds.ToList(),
                 _mTerceroIds.ToList(),
-                _mSedes.ToList(),
+                _mSedeIds.ToList(),
                 _mNotifUserIds.ToList());
 
             var result = _mId is Guid id

@@ -203,11 +203,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("requiere_cliente");
 
-                    b.Property<string>("Sedes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)")
-                        .HasColumnName("sedes");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("int")
                         .HasColumnName("sort_order");
@@ -371,6 +366,57 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("actividad_subcategoria_notificaciones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaSede", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("EntidadId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("entidad_id");
+
+                    b.Property<Guid>("SubcategoriaId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("subcategoria_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_actividad_subcategoria_sedes");
+
+                    b.HasIndex("EntidadId")
+                        .HasDatabaseName("ix_actividad_subcategoria_sedes_entidad_id");
+
+                    b.HasIndex("SubcategoriaId", "EntidadId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_actividad_subcategoria_sedes_subcategoria_id_entidad_id");
+
+                    b.HasIndex("TenantId", "EntidadId")
+                        .HasDatabaseName("ix_actividad_subcategoria_sedes_tenant_id_entidad_id");
+
+                    b.ToTable("actividad_subcategoria_sedes", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaTercero", b =>
                 {
                     b.Property<Guid>("Id")
@@ -420,6 +466,140 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_actividad_subcategoria_terceros_tenant_id_tercero_id");
 
                     b.ToTable("actividad_subcategoria_terceros", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActivityPriority", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("MappedPriority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("mapped_priority");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_activity_priorities");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_activity_priorities_tenant_id_name");
+
+                    b.HasIndex("TenantId", "IsActive", "SortOrder")
+                        .HasDatabaseName("ix_activity_priorities_tenant_id_is_active_sort_order");
+
+                    b.ToTable("activity_priorities", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActivityState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_activity_states");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_activity_states_tenant_id_name");
+
+                    b.HasIndex("TenantId", "IsActive", "SortOrder")
+                        .HasDatabaseName("ix_activity_states_tenant_id_is_active_sort_order");
+
+                    b.ToTable("activity_states", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ActivityType", b =>
@@ -6083,6 +6263,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("owner_tenant_user_id");
 
+                    b.Property<Guid?>("ProjectTypeId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("project_type_id");
+
                     b.Property<DateOnly?>("StartDate")
                         .HasColumnType("date")
                         .HasColumnName("start_date");
@@ -6115,6 +6299,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("OwnerTenantUserId")
                         .HasDatabaseName("ix_projects_owner_tenant_user_id");
+
+                    b.HasIndex("ProjectTypeId")
+                        .HasDatabaseName("ix_projects_project_type_id");
 
                     b.HasIndex("TenantId", "Code")
                         .IsUnique()
@@ -6369,6 +6556,70 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_project_milestones_project_id_sort_order");
 
                     b.ToTable("project_milestones", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ProjectType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_types");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_project_types_tenant_id_name");
+
+                    b.HasIndex("TenantId", "IsActive", "SortOrder")
+                        .HasDatabaseName("ix_project_types_tenant_id_is_active_sort_order");
+
+                    b.ToTable("project_types", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ProspectoScrapeado", b =>
@@ -11684,6 +11935,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaSede", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Entidad", "Entidad")
+                        .WithMany()
+                        .HasForeignKey("EntidadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_actividad_subcategoria_sedes_entidades_entidad_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
+                        .WithMany("Sedes")
+                        .HasForeignKey("SubcategoriaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_actividad_subcategoria_sedes_actividad_subcategorias_subcategoria_id");
+
+                    b.Navigation("Entidad");
+
+                    b.Navigation("Subcategoria");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ActividadSubcategoriaTercero", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", "Subcategoria")
@@ -12475,7 +12747,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_projects_tenant_users_owner_tenant_user_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.ProjectType", "ProjectType")
+                        .WithMany()
+                        .HasForeignKey("ProjectTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_projects_project_types_project_type_id");
+
                     b.Navigation("OwnerTenantUser");
+
+                    b.Navigation("ProjectType");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ProjectBudgetItem", b =>
@@ -13335,6 +13615,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Cargos");
 
                     b.Navigation("Notificaciones");
+
+                    b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
                 });

@@ -114,6 +114,9 @@ public interface IApplicationDbContext
     DbSet<ScrapeRun> ScrapeRuns { get; }
 
     // Inventarios (grupo Sistema - Inventarios): catalogos normalizados + items con stock por bodega.
+    DbSet<ActivityPriority> ActivityPriorities { get; }
+    DbSet<ActivityState> ActivityStates { get; }
+    DbSet<ProjectType> ProjectTypes { get; }
     DbSet<Warehouse> Warehouses { get; }
     DbSet<Brand> Brands { get; }
     DbSet<ItemGroup> ItemGroups { get; }
@@ -193,6 +196,7 @@ public interface IApplicationDbContext
     DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos { get; }
     DbSet<ActividadSubcategoriaTercero> ActividadSubcategoriaTerceros { get; }
     DbSet<ActividadSubcategoriaNotificacion> ActividadSubcategoriaNotificaciones { get; }
+    DbSet<ActividadSubcategoriaSede> ActividadSubcategoriaSedes { get; }
 
     /// <summary>Conceptos de actividad del CRM (000125): catalogo propio del gestor de contactos.</summary>
     DbSet<ConceptoActividad> ConceptosActividad { get; }

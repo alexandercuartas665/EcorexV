@@ -46,10 +46,6 @@ public class ActividadSubcategoria : TenantEntity
     /// <summary>Detalle predeterminado de la tarea (DETALLE_AUTO).</summary>
     public string? DetalleAuto { get; set; }
 
-    /// <summary>Sedes/sucursales donde aplica el concepto (nombres libres, separados por ';').
-    /// Calca del legacy TIPO_TAR_EMPRESA; no hay catalogo de sedes, por eso es texto libre.</summary>
-    public string? Sedes { get; set; }
-
     // ---- Vinculos OPCIONALES a otros modulos (FK Restrict: no cascada) ----
 
     /// <summary>Flujo de proceso asociado (000291). NO ACTION.</summary>
@@ -79,4 +75,9 @@ public class ActividadSubcategoria : TenantEntity
     /// <summary>Usuarios del tenant que reciben notificacion cuando se crea una tarea de este concepto
     /// (calca del legacy TIPO_TAR_N).</summary>
     public ICollection<ActividadSubcategoriaNotificacion> Notificaciones { get; set; } = new List<ActividadSubcategoriaNotificacion>();
+
+    /// <summary>Sedes/entidades (agencias, areas o sucursales de "Configuracion de la entidad") donde
+    /// aplica el concepto. Vacio = aplica a TODAS. Alimenta el selector "Empresa/Area" del alta de
+    /// actividades.</summary>
+    public ICollection<ActividadSubcategoriaSede> Sedes { get; set; } = new List<ActividadSubcategoriaSede>();
 }

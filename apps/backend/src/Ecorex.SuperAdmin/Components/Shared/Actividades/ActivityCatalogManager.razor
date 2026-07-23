@@ -1,0 +1,222 @@
+@using Ecorex.Application.Actividades
+@using Ecorex.Domain.Enums
+@inject IActivityCatalogService CatalogSvc
+
+@* Componente generico de catalogo de actividades (prioridades 000621, estados 000653, tipos de
+   proyecto 000690). Tabla + busqueda + modal crear/editar + activar/archivar. Las prioridades
+   agregan un select para mapear al enum de la tarea (High/Medium/Low). Mismo patron que
+   CatalogManager de inventarios. Con ShowHeader=false vive dentro del modal de configuracion. *@
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <input class="form-control" style="max-width:280px;" placeholder="Buscar @Title.ToLowerInvariant()..." @bind="_search" @bind:event="oninput" />
+        <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
+        <label class="pl-toggle" style="margin-left:auto;">
+            <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await LoadAsync(); })" />
+            Ver archivados
+        </label>
+    </div>
+
+    @if (Filtered.Count == 0)
+    {
+        <div class="coming-soon" style="padding:40px 24px;">
+            <h3>Sin registros todavia</h3>
+            <p>Crea el primer registro de @Title.ToLowerInvariant().</p>
+            <button class="btn btn-primary" style="margin-top:14px;" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
+        </div>
+    }
+    else
+    {
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Nombre</th>
+                    @if (Kind == ActivityCatalogKind.Priority)
+                    {
+                        <th>Nivel</th>
+                    }
+                    <th>Descripcion</th>
+                    @if (Kind == ActivityCatalogKind.ProjectType)
+                    {
+                        <th style="text-align:center;">Proyectos</th>
+                    }
+                    <th style="text-align:center;">Estado</th>
+                    <th style="text-align:right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in Filtered)
+                {
+                    <tr class="@(c.IsActive ? "" : "inactive-row")">
+                        <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:@(string.IsNullOrWhiteSpace(c.Color) ? "var(--border)" : c.Color);"></span></td>
+                        <td><strong>@c.Name</strong></td>
+                        @if (Kind == ActivityCatalogKind.Priority)
+                        {
+                            <td>@PriorityLabel(c.MappedPriority)</td>
+                        }
+                        <td class="muted-cell">@(string.IsNullOrWhiteSpace(c.Description) ? "-" : c.Description)</td>
+                        @if (Kind == ActivityCatalogKind.ProjectType)
+                        {
+                            <td style="text-align:center;font-variant-numeric:tabular-nums;">@c.UsageCount</td>
+                        }
+                        <td style="text-align:center;">
+                            <span class="tk-status @(c.IsActive ? "st-done" : "st-closed")">@(c.IsActive ? "Activo" : "Archivado")</span>
+                        </td>
+                        <td style="text-align:right;white-space:nowrap;">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditor(c))">Editar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(c))" disabled="@_busy">
+                                @(c.IsActive ? "Archivar" : "Restaurar")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    @if (_pageError is not null)
+    {
+        <div class="tk-field-error">@_pageError</div>
+    }
+}
+
+@if (_showEditor)
+{
+    <div class="modal-overlay" @onclick="@(() => _showEditor = false)">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_editing is null ? NewLabel : $"Editar {_editing.Name}")</h3>
+                <button class="modal-close" @onclick="@(() => _showEditor = false)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-control" @bind="_fName" maxlength="120" />
+                </div>
+                @if (Kind == ActivityCatalogKind.Priority)
+                {
+                    <div class="field">
+                        <label class="form-label">Nivel del sistema *</label>
+                        <select class="form-control" @bind="_fMapped">
+                            <option value="@TaskPriority.High">Alta</option>
+                            <option value="@TaskPriority.Medium">Media</option>
+                            <option value="@TaskPriority.Low">Baja</option>
+                        </select>
+                        <p class="cn-hint" style="margin-top:6px;">La tarea guarda este nivel; el catalogo controla la etiqueta, el color y el orden que ves en el wizard.</p>
+                    </div>
+                }
+                <div class="row g-2">
+                    <div class="col-md-6 field">
+                        <label class="form-label">Color</label>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="color" style="height:34px;width:46px;padding:2px;border:1px solid var(--border);border-radius:6px;cursor:pointer;" value="@(string.IsNullOrEmpty(_fColor) ? "#7c4dff" : _fColor)" @onchange="@(e => _fColor = e.Value?.ToString())" />
+                            <input class="form-control" @bind="_fColor" placeholder="#7c4dff" maxlength="20" />
+                        </div>
+                    </div>
+                    <div class="col-md-6 field">
+                        <label class="form-label">Orden</label>
+                        <input type="number" class="form-control" @bind="_fSortOrder" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="form-control" rows="2" maxlength="600" @bind="_fDescription"></textarea>
+                </div>
+                @if (_editorError is not null)
+                {
+                    <div class="tk-field-error">@_editorError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="@(() => _showEditor = false)" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_editing is null ? "Crear" : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public ActivityCatalogKind Kind { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public string NewLabel { get; set; } = "";
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeInactive;
+    private string _search = "";
+    private string? _pageError;
+
+    private IReadOnlyList<ActivityCatalogEntryDto> _entries = [];
+
+    private bool _showEditor;
+    private ActivityCatalogEntryDto? _editing;
+    private string _fName = "";
+    private string? _fColor;
+    private string? _fDescription;
+    private int _fSortOrder;
+    private TaskPriority _fMapped = TaskPriority.Medium;
+    private string? _editorError;
+
+    private List<ActivityCatalogEntryDto> Filtered => _entries
+        .Where(c => string.IsNullOrWhiteSpace(_search)
+            || c.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync() => _entries = await CatalogSvc.ListAsync(Kind, _includeInactive);
+
+    private void OpenEditor(ActivityCatalogEntryDto? entry)
+    {
+        _editing = entry;
+        _fName = entry?.Name ?? "";
+        _fColor = entry?.Color;
+        _fDescription = entry?.Description;
+        _fSortOrder = entry?.SortOrder ?? 0;
+        _fMapped = entry?.MappedPriority ?? TaskPriority.Medium;
+        _editorError = null;
+        _showEditor = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _editorError = null;
+        var request = new SaveActivityCatalogRequest(
+            _fName, _fDescription, _fColor, _fSortOrder,
+            Kind == ActivityCatalogKind.Priority ? _fMapped : null);
+        var result = _editing is null
+            ? await CatalogSvc.CreateAsync(Kind, request)
+            : await CatalogSvc.UpdateAsync(Kind, _editing.Id, request);
+        if (!result.IsOk) { _editorError = result.Error; }
+        else { _showEditor = false; await LoadAsync(); }
+        _busy = false;
+    }
+
+    private async Task ToggleActiveAsync(ActivityCatalogEntryDto entry)
+    {
+        _busy = true;
+        _pageError = null;
+        var result = await CatalogSvc.SetActiveAsync(Kind, entry.Id, !entry.IsActive);
+        if (!result.IsOk) { _pageError = result.Error; }
+        else { await LoadAsync(); }
+        _busy = false;
+    }
+
+    private static string PriorityLabel(TaskPriority? p) => p switch
+    {
+        TaskPriority.High => "Alta",
+        TaskPriority.Medium => "Media",
+        TaskPriority.Low => "Baja",
+        _ => "-"
+    };
+}

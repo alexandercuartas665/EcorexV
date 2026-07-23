@@ -18,6 +18,7 @@ public sealed class ProjectService : IProjectService
     public async Task<IReadOnlyList<ProjectDto>> ListAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
     {
         var projects = await _db.Projects.AsNoTracking()
+            .Include(p => p.ProjectType)
             .Where(p => includeArchived || !p.IsArchived)
             .OrderBy(p => p.Code)
             .ToListAsync(cancellationToken);
@@ -42,7 +43,9 @@ public sealed class ProjectService : IProjectService
 
     public async Task<ProjectDto?> GetAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
-        var project = await _db.Projects.AsNoTracking().FirstOrDefaultAsync(p => p.Id == projectId, cancellationToken);
+        var project = await _db.Projects.AsNoTracking()
+            .Include(p => p.ProjectType)
+            .FirstOrDefaultAsync(p => p.Id == projectId, cancellationToken);
         if (project is null) { return null; }
         var taskCount = await _db.TaskItems.CountAsync(t => t.ProjectId == projectId && !t.IsArchived, cancellationToken);
         var memberCount = await _db.ProjectMembers.CountAsync(m => m.ProjectId == projectId, cancellationToken);
@@ -85,7 +88,8 @@ public sealed class ProjectService : IProjectService
             Status = request.Status,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
-            OwnerTenantUserId = request.OwnerTenantUserId
+            OwnerTenantUserId = request.OwnerTenantUserId,
+            ProjectTypeId = request.ProjectTypeId
         };
         _db.Projects.Add(project);
         await _db.SaveChangesAsync(cancellationToken);
@@ -125,6 +129,7 @@ public sealed class ProjectService : IProjectService
         project.StartDate = request.StartDate;
         project.EndDate = request.EndDate;
         project.OwnerTenantUserId = request.OwnerTenantUserId;
+        project.ProjectTypeId = request.ProjectTypeId;
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
@@ -486,7 +491,8 @@ public sealed class ProjectService : IProjectService
 
     private static ProjectDto ToDto(Project p, int taskCount, int memberCount) => new(
         p.Id, p.Code, p.Name, p.Description, p.Status, p.StartDate, p.EndDate,
-        p.OwnerTenantUserId, p.IsArchived, p.Version, taskCount, memberCount);
+        p.OwnerTenantUserId, p.IsArchived, p.Version, taskCount, memberCount,
+        p.ProjectTypeId, p.ProjectType?.Name);
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

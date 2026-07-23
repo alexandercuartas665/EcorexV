@@ -35,7 +35,7 @@ public sealed record ActividadSubcategoriaDto(
     Guid? TaskBoardColumnId,
     IReadOnlyList<Guid> CargoIds,
     IReadOnlyList<Guid> TerceroIds,
-    IReadOnlyList<string> Sedes,
+    IReadOnlyList<Guid> SedeEntidadIds,
     IReadOnlyList<Guid> NotificacionUserIds)
 {
     /// <summary>Numero de items de la lista de chequeo (separados por ';').</summary>
@@ -68,7 +68,7 @@ public sealed record SaveSubcategoriaRequest(
     Guid? TaskBoardColumnId = null,
     IReadOnlyList<Guid>? CargoIds = null,
     IReadOnlyList<Guid>? TerceroIds = null,
-    IReadOnlyList<string>? Sedes = null,
+    IReadOnlyList<Guid>? SedeEntidadIds = null,
     IReadOnlyList<Guid>? NotificacionUserIds = null);
 
 /// <summary>KPIs de cabecera del modulo (como el prototipo).</summary>
@@ -87,6 +87,8 @@ public sealed record BoardColumnOptionDto(Guid Id, string Nombre, bool IsDone);
 public sealed record CargoOptionDto(Guid Id, string Nombre);
 public sealed record TerceroOptionDto(Guid Id, string Nombre);
 public sealed record UsuarioOptionDto(Guid Id, string Nombre);
+/// <summary>Entidad (agencia/area/sucursal de "Configuracion de la entidad") para el picker de sedes.</summary>
+public sealed record SedeOptionDto(Guid Id, string Codigo, string Nombre);
 
 /// <summary>Todas las opciones de los combos del editor, cargadas de una sola vez.</summary>
 public sealed record ActividadComboOptionsDto(
@@ -95,4 +97,5 @@ public sealed record ActividadComboOptionsDto(
     IReadOnlyList<BoardOptionDto> Boards,
     IReadOnlyList<CargoOptionDto> Cargos,
     IReadOnlyList<TerceroOptionDto> Terceros,
-    IReadOnlyList<UsuarioOptionDto> Usuarios);
+    IReadOnlyList<UsuarioOptionDto> Usuarios,
+    IReadOnlyList<SedeOptionDto> Sedes);

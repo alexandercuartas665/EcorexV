@@ -1,0 +1,83 @@
+@page "/actividad-configuracion"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Actividades
+@using Ecorex.SuperAdmin.Components.Shared.Actividades
+
+@* Configuracion de actividades: reune en UN solo modulo los tres catalogos que antes ocupaban
+   tres entradas de menu (prioridades, estados y tipos de proyecto). Cada tarjeta abre un modal
+   con el mismo ActivityCatalogManager, sin logica duplicada. *@
+
+<PageTitle>Configuracion de actividades - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Sistema</span>
+    <span class="sep">/</span>
+    <span>Actividades</span>
+    <span class="sep">/</span>
+    <span class="cur">Configuracion</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+            </div>
+            <span>Sistema &#183; Actividades</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Configuracion de actividades</h1>
+        <p class="page-sub" style="margin-bottom:0;">Prioridades, estados y tipos de proyecto en un solo lugar. Elige que quieres configurar.</p>
+    </div>
+</div>
+
+<div class="inv-cfg-grid">
+    @foreach (var c in Catalogos)
+    {
+        var cc = c;
+        <button type="button" class="inv-cfg-card" @onclick="() => _abierto = cc.Kind">
+            <span class="inv-cfg-ic">@((MarkupString)cc.Icon)</span>
+            <span class="inv-cfg-body">
+                <span class="inv-cfg-title">@cc.Title</span>
+                <span class="inv-cfg-sub">@cc.Subtitle</span>
+            </span>
+            <span class="inv-cfg-code">@cc.LegacyCode</span>
+        </button>
+    }
+</div>
+
+@if (_abierto is ActivityCatalogKind kind && Catalogos.FirstOrDefault(c => c.Kind == kind) is { } sel)
+{
+    <div class="modal-overlay" @onclick="() => _abierto = null">
+        <div class="modal-dialog inv-cfg-modal" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@sel.Title</h3>
+                <button class="modal-close" @onclick="() => _abierto = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <ActivityCatalogManager Kind="kind" Title="@sel.Title" NewLabel="@sel.NewLabel" />
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ActivityCatalogKind? _abierto;
+
+    private sealed record Catalogo(ActivityCatalogKind Kind, string Title, string Subtitle, string NewLabel, string LegacyCode, string Icon);
+
+    private static readonly Catalogo[] Catalogos =
+    [
+        new(ActivityCatalogKind.Priority,
+            "Prioridades", "Que tan urgente es una actividad. Alimenta el wizard.", "Nueva prioridad", "000621",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1Z\"/><path d=\"M4 22v-7\"/></svg>"),
+        new(ActivityCatalogKind.State,
+            "Estados", "Etiquetas de clasificacion de actividades.", "Nuevo estado", "000653",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/></svg>"),
+        new(ActivityCatalogKind.ProjectType,
+            "Tipos de proyecto", "Clasifica los proyectos por tipo.", "Nuevo tipo", "000690",
+            "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 7V5a2 2 0 0 1 2-2h2\"/><path d=\"M17 3h2a2 2 0 0 1 2 2v2\"/><path d=\"M21 17v2a2 2 0 0 1-2 2h-2\"/><path d=\"M7 21H5a2 2 0 0 1-2-2v-2\"/><rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" rx=\"1\"/></svg>"),
+    ];
+}

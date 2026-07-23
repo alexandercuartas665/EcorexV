@@ -137,6 +137,7 @@ public static class DependencyInjection
         // (nombre/orden/color/tipo) que reemplaza el enum fijo OportunidadEtapa; seed + backfill.
         services.AddScoped<Crm.IOportunidadEstadoService, Crm.OportunidadEstadoService>();
         services.AddScoped<Inventory.IInventoryCatalogService, Inventory.InventoryCatalogService>();
+        services.AddScoped<Actividades.IActivityCatalogService, Actividades.ActivityCatalogService>();
         services.AddScoped<Inventory.IItemService, Inventory.ItemService>();
         // Campos configurables del item POR tipo (000066): definiciones que gobiernan la ficha.
         services.AddScoped<Inventory.IItemFieldService, Inventory.ItemFieldService>();

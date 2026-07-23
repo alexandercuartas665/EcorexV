@@ -5,6 +5,64 @@
 
 ---
 
+## 2026-07-23 - Concepto por sede/entidad, formulario en el wizard y Configuracion de actividades
+
+**Agentes**: Claude (Opus 4.8) + subagente Explore (mapeo de los catalogos de actividades).
+
+### Hecho
+
+**1. El concepto apunta a SEDES reales (entidades), no a texto libre.** El campo "Sedes que aplica"
+del concepto (000270) era `string?` libre y estaba vacio en los 3 tenants. Se reemplazo por una
+union M:N `ActividadSubcategoriaSede` (concepto <-> Entidad de "Configuracion de la entidad",
+Cascade al concepto, Restrict a la entidad). El UI de Conceptos pasa a multi-seleccion de entidades
+(chips + dropdown); vacio = aplica a todas. En el wizard, al elegir Empresa/Area la lista de
+conceptos se filtra a los que aplican a esa entidad o a todas. Migracion dual `AddConceptoSedeEntidad`
+(drop de la columna `sedes` vacia + tabla join). Enum TerceroFieldType.Lookup ya no aplica aqui.
+
+**2. El wizard diligencia el formulario del concepto en el paso 3.** Antes el paso "Formulario" era
+informativo. Ahora renderiza el DynamicFormRenderer (Fill) del formulario ligado al concepto; al
+enviarlo captura la respuesta y, al guardar la actividad, la ancla por Number (misma mecanica que
+FormFirstStarter). NO se toco el formulario por paso/proceso (sigue en el detalle) ni el form-first.
+
+**3. Configuracion de actividades: 3 catalogos configurables desde cero.** Prioridades (000621),
+Estados (000653) y Tipos de proyecto (000690) eran STUBS vacios sobre enums fijos. Se construyeron
+como catalogos por tenant (entidades ActivityPriority/ActivityState/ProjectType con
+IActivityCatalogEntity, IActivityCatalogService generico por kind, migracion dual AddActivityCatalogs).
+Nuevo modulo /actividad-configuracion (cards + modal, patron inventarios) que reemplaza los 3 items
+de menu por uno solo "Configuracion actividades". Cableado:
+- Prioridades alimentan los chips del wizard (cada fila mapea a TaskPriority; la tarea guarda el enum).
+- Tipos de proyecto: FK `Project.ProjectTypeId` + selector en crear/editar proyecto.
+- Estados: catalogo de etiquetas DECOUPLED de TaskItemStateMachine (el ciclo de vida sigue en el enum).
+Sembrado de valores por defecto por tenant. Reconciliacion de menu para los tenants existentes
+(env ECOREX_MENU_ACTCONFIG).
+
+### Decisiones (confirmadas con el usuario)
+
+- Sedes: reemplazo total del texto libre (no habia datos que migrar).
+- Concepto sin sedes = aplica a todas; el wizard filtra conceptos por Empresa/Area (no al reves).
+- Los 3 catalogos se construyen reales y alimentan el wizard/proyectos, PERO sin rewire de los enums
+  load-bearing: Estados queda desacoplado de la maquina de estados.
+
+### Aplicado a prod (autorizado)
+
+Backups previos (ecorex-2026-07-23-0837 y -0931). Migraciones duales aplicadas al arrancar el dev
+contra la BD de prod (tunel SSH): `AddConceptoSedeEntidad` y `AddActivityCatalogs` (3 tablas +
+project_type_id). Menu unificado + defaults sembrados en los 7 tenants. 572/572 tests unitarios verdes.
+
+### Doc de deploy (vault)
+
+Se documento el inventario del host de produccion (10.0.0.3) para que otra sesion despliegue un
+segundo stack (DokTrino) sin tocar Visal/ECOREX: SSH, puertos (5580 libre sugerido), /opt/doktrino,
+imagen GHCR publica, sin volumenes previos. En `06. Deploy/Host de produccion - Inventario...md`.
+Sin secretos.
+
+### Siguiente
+
+- Validar en Chrome (hecho parcialmente) y pendientes previos: UI de agentes de IA en nodos,
+  migraciones de agentes sin aplicar, validacion visual del Cotizador.
+
+---
+
 ## 2026-07-22 - Administrador de tableros unificado + menu de tenants cliente alineado
 
 **Agentes**: Claude (Opus 4.8).

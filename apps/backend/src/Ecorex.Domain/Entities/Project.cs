@@ -18,6 +18,11 @@ public class Project : TenantEntity, IVersioned
 
     public ProjectStatus Status { get; set; } = ProjectStatus.Planning;
 
+    /// <summary>Tipo de proyecto (catalogo configurable 000690). FK opcional NO ACTION: archivar el
+    /// tipo no borra el proyecto.</summary>
+    public Guid? ProjectTypeId { get; set; }
+    public ProjectType? ProjectType { get; set; }
+
     public DateOnly? StartDate { get; set; }
 
     public DateOnly? EndDate { get; set; }

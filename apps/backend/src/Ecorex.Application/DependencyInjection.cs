@@ -154,6 +154,11 @@ public static class DependencyInjection
         // consumen los campos configurables del tercero y del item (y mas adelante el motor de
         // formularios): un solo lugar donde vive "elegir una fila y propagar sus valores".
         services.AddScoped<DataLookups.IDataLookupService, DataLookups.DataLookupService>();
+        // Gestor Documental (portado del modulo 2.15 del hermano PROPIA). Dos mitades: el Archivo
+        // central (categoria/carpeta/documento con versiones) y los Expedientes (TRD).
+        // IDocumentoFileStore lo registra la capa de presentacion: es la unica que conoce wwwroot.
+        services.AddScoped<Documentos.IDocumentoService, Documentos.DocumentoService>();
+        services.AddScoped<Documentos.IExpedienteService, Documentos.ExpedienteService>();
         // Cliente/agente colmena como recurso transversal propio (ADR-0045): duenio del ciclo de vida de
         // los clientes; Contenedores/Extraccion lo reusan. DataImportConfigService delega aqui.
         services.AddScoped<Agents.IAgentClientService, Agents.AgentClientService>();

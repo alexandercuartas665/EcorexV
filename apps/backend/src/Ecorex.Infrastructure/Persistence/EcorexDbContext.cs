@@ -199,6 +199,24 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ImportProcess> ImportProcesses => Set<ImportProcess>();
     public DbSet<ImportRun> ImportRuns => Set<ImportRun>();
 
+    // Gestor Documental: Archivo central + Expedientes (TRD).
+    public DbSet<DocumentoCategoria> DocumentoCategorias => Set<DocumentoCategoria>();
+    public DbSet<DocumentoCarpeta> DocumentoCarpetas => Set<DocumentoCarpeta>();
+    public DbSet<Documento> Documentos => Set<Documento>();
+    public DbSet<DocumentoVersion> DocumentoVersiones => Set<DocumentoVersion>();
+    public DbSet<DocumentoEtiquetaCatalogo> DocumentoEtiquetaCatalogos => Set<DocumentoEtiquetaCatalogo>();
+    public DbSet<DocumentoEtiqueta> DocumentoEtiquetas => Set<DocumentoEtiqueta>();
+    public DbSet<DocumentoDestacadoPersonal> DocumentoDestacadosPersonales => Set<DocumentoDestacadoPersonal>();
+    public DbSet<DocumentoAuditoria> DocumentoAuditorias => Set<DocumentoAuditoria>();
+    public DbSet<DocumentoConsumo> DocumentoConsumos => Set<DocumentoConsumo>();
+    public DbSet<SerieDocumental> SeriesDocumentales => Set<SerieDocumental>();
+    public DbSet<SubserieDocumental> SubseriesDocumentales => Set<SubserieDocumental>();
+    public DbSet<SubserieTipologia> SubserieTipologias => Set<SubserieTipologia>();
+    public DbSet<SubserieCampo> SubserieCampos => Set<SubserieCampo>();
+    public DbSet<Expediente> Expedientes => Set<Expediente>();
+    public DbSet<ExpedienteTipologia> ExpedienteTipologias => Set<ExpedienteTipologia>();
+    public DbSet<ExpedienteCampo> ExpedienteCampos => Set<ExpedienteCampo>();
+
     // Plantillas HSM de WhatsApp (ADR-0029): mensajes plantilla con ciclo de aprobacion.
     public DbSet<WhatsAppTemplate> WhatsAppTemplates => Set<WhatsAppTemplate>();
 
@@ -351,6 +369,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ConnectorKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DbEngine>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<DestinationKind>().HaveConversion<string>().HaveMaxLength(40);
+        // Gestor Documental: enums como texto (legibles en la BD y estables ante reordenamientos).
+        configurationBuilder.Properties<OrigenDocumento>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<EstadoDocumento>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<VisibilidadDocumento>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TipoEventoDocumento>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TipoEventoConsumo>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<DispositivoConsumo>().HaveConversion<string>().HaveMaxLength(40);
         // Motor de programaciones (000889 "Programar actividad"): enums como texto legible.
         configurationBuilder.Properties<ScheduledJobType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScheduledJobStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -2278,6 +2303,197 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Un vinculo por (columna, fila, destino).
             b.HasIndex(x => new { x.ColumnId, x.RowId, x.TargetRowId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TargetRowId });
+        });
+
+        // ===================================================================
+        // Gestor Documental - Archivo central.
+        //
+        // Criterio de borrado (regla 5, cascada diferida): los AGREGADOS no se borran en cascada.
+        // Una categoria o carpeta con documentos NO se puede borrar (Restrict): se desactiva. Solo
+        // los DETALLES que no significan nada sin su documento (etiquetas, pines, bitacora, consumo)
+        // caen con el. La version es la excepcion: cae por Restrict porque documento.version_actual_id
+        // apunta de vuelta a ella y ese ciclo lo rechaza SQL Server (error 1785); el purgado lo hace
+        // la aplicacion, en transaccion.
+        // ===================================================================
+        modelBuilder.Entity<DocumentoCategoria>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(600);
+            b.Property(x => x.Icono).HasMaxLength(60);
+            b.Property(x => x.Color).HasMaxLength(20);
+            // Nombre unico por tenant: dos categorias homonimas hacen inutil el arbol.
+            b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Activa, x.Orden });
+        });
+
+        modelBuilder.Entity<DocumentoCarpeta>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(600);
+            // La carpeta pertenece a la categoria: si la categoria muriera, sus carpetas no tienen sentido.
+            b.HasOne(x => x.Categoria).WithMany(x => x.Carpetas)
+                .HasForeignKey(x => x.CategoriaId).OnDelete(DeleteBehavior.Restrict);
+            // Arbol de carpetas. DAL-dual: la auto-referencia con cascada es un ciclo prohibido en
+            // SQL Server (error 1785) -> Restrict alli; el borrado del subarbol lo hace la aplicacion.
+            b.HasOne(x => x.Padre).WithMany(x => x.Subcarpetas)
+                .HasForeignKey(x => x.PadreId)
+                .OnDelete(isNpgsql ? DeleteBehavior.Cascade : DeleteBehavior.Restrict);
+            // No se pone UNIQUE sobre (categoria, padre, nombre): PadreId es nullable y los dos
+            // motores tratan los NULL distinto en indices unicos. La unicidad la valida el servicio.
+            b.HasIndex(x => new { x.TenantId, x.CategoriaId, x.PadreId });
+        });
+
+        modelBuilder.Entity<Documento>(b =>
+        {
+            b.Property(x => x.Titulo).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(2000);
+            b.Property(x => x.NombreArchivoOriginal).HasMaxLength(255).IsRequired();
+            // Restrict: una categoria/carpeta con documentos se desactiva, no se borra.
+            b.HasOne(x => x.Categoria).WithMany()
+                .HasForeignKey(x => x.CategoriaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Carpeta).WithMany()
+                .HasForeignKey(x => x.CarpetaId).OnDelete(DeleteBehavior.Restrict);
+            // Puntero a la version vigente. NoAction en AMBOS motores: junto con
+            // DocumentoVersion.DocumentoId formaria un ciclo de cascada.
+            b.HasOne(x => x.VersionActual).WithMany()
+                .HasForeignKey(x => x.VersionActualId).OnDelete(DeleteBehavior.NoAction);
+            b.HasIndex(x => new { x.TenantId, x.Activo, x.CategoriaId });
+            b.HasIndex(x => new { x.TenantId, x.CarpetaId });
+            b.HasIndex(x => new { x.TenantId, x.Estado });
+            // El origen es polimorfico (tarea, flujo, formulario...): se indexa el par, sin FK.
+            b.HasIndex(x => new { x.TenantId, x.Origen, x.OrigenEntidadId });
+        });
+
+        modelBuilder.Entity<DocumentoVersion>(b =>
+        {
+            b.Property(x => x.NombreArchivo).HasMaxLength(255).IsRequired();
+            b.Property(x => x.TipoMime).HasMaxLength(150).IsRequired();
+            b.Property(x => x.UrlStorage).HasMaxLength(1000).IsRequired();
+            // SHA-256 en hex = 64 caracteres exactos.
+            b.Property(x => x.HashSha256).HasMaxLength(64).IsRequired();
+            b.Property(x => x.NotasCambio).HasMaxLength(1000);
+            b.HasOne(x => x.Documento).WithMany(x => x.Versiones)
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Restrict);
+            // Un numero de version por documento: es lo que hace citable "la v3".
+            b.HasIndex(x => new { x.DocumentoId, x.Numero }).IsUnique();
+        });
+
+        modelBuilder.Entity<DocumentoEtiquetaCatalogo>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
+        });
+
+        modelBuilder.Entity<DocumentoEtiqueta>(b =>
+        {
+            b.HasOne(x => x.Documento).WithMany(x => x.Etiquetas)
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Cascade);
+            // Restrict: una etiqueta en uso se desactiva, no se borra dejando documentos sin marca.
+            b.HasOne(x => x.EtiquetaCatalogo).WithMany()
+                .HasForeignKey(x => x.EtiquetaCatalogoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.DocumentoId, x.EtiquetaCatalogoId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.EtiquetaCatalogoId });
+        });
+
+        modelBuilder.Entity<DocumentoDestacadoPersonal>(b =>
+        {
+            b.HasOne(x => x.Documento).WithMany()
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Cascade);
+            // Un pin por (documento, usuario): marcar dos veces no debe duplicar.
+            b.HasIndex(x => new { x.DocumentoId, x.UsuarioId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.UsuarioId });
+        });
+
+        modelBuilder.Entity<DocumentoAuditoria>(b =>
+        {
+            b.Property(x => x.DetalleJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Documento).WithMany()
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.OcurridoAt });
+        });
+
+        modelBuilder.Entity<DocumentoConsumo>(b =>
+        {
+            b.HasOne(x => x.Documento).WithMany()
+                .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Cascade);
+            // Segunda ruta hacia el mismo agregado: Restrict para no crear multi-cascada (error 1785).
+            b.HasOne(x => x.Version).WithMany()
+                .HasForeignKey(x => x.VersionId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.OcurridoAt });
+        });
+
+        // ===================================================================
+        // Gestor Documental - Expedientes (Tabla de Retencion Documental).
+        // La TRD es configuracion pura (serie -> subserie -> tipologias/campos) y se borra en
+        // cascada de arriba abajo: una tipologia sin su subserie no significa nada. Los
+        // EXPEDIENTES ya abiertos NO cuelgan de la subserie (guardan snapshot), asi que borrar
+        // la TRD no se lleva por delante la historia.
+        // ===================================================================
+        modelBuilder.Entity<SerieDocumental>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Nombre }).IsUnique();
+        });
+
+        modelBuilder.Entity<SubserieDocumental>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.HasOne(x => x.Serie).WithMany(x => x.Subseries)
+                .HasForeignKey(x => x.SerieId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.SerieId, x.Nombre }).IsUnique();
+        });
+
+        modelBuilder.Entity<SubserieTipologia>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.HasOne(x => x.Subserie).WithMany(x => x.Tipologias)
+                .HasForeignKey(x => x.SubserieId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.SubserieId, x.Orden });
+        });
+
+        modelBuilder.Entity<SubserieCampo>(b =>
+        {
+            b.Property(x => x.Clave).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            b.HasOne(x => x.Subserie).WithMany(x => x.Campos)
+                .HasForeignKey(x => x.SubserieId).OnDelete(DeleteBehavior.Cascade);
+            // La clave viaja en el JSON de metadatos: repetida, el valor seria ambiguo.
+            b.HasIndex(x => new { x.SubserieId, x.Clave }).IsUnique();
+        });
+
+        modelBuilder.Entity<Expediente>(b =>
+        {
+            b.Property(x => x.Codigo).HasMaxLength(60).IsRequired();
+            b.Property(x => x.Nombre).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Serie).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Subserie).HasMaxLength(200).IsRequired();
+            // SubserieId es un puntero de trazabilidad, NO una FK: la subserie puede desaparecer y
+            // el expediente debe sobrevivir con su snapshot de serie/subserie.
+            b.HasIndex(x => new { x.TenantId, x.Codigo }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Activo });
+        });
+
+        modelBuilder.Entity<ExpedienteTipologia>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.ArchivoUrl).HasMaxLength(1000);
+            b.Property(x => x.ArchivoNombre).HasMaxLength(255);
+            b.Property(x => x.ArchivoMime).HasMaxLength(150);
+            b.Property(x => x.ArchivoHashSha256).HasMaxLength(64);
+            b.Property(x => x.MetaJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.Expediente).WithMany(x => x.Tipologias)
+                .HasForeignKey(x => x.ExpedienteId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ExpedienteId, x.Orden });
+        });
+
+        modelBuilder.Entity<ExpedienteCampo>(b =>
+        {
+            b.Property(x => x.Clave).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            b.HasOne(x => x.Expediente).WithMany(x => x.Campos)
+                .HasForeignKey(x => x.ExpedienteId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ExpedienteId, x.Clave }).IsUnique();
         });
 
         modelBuilder.Entity<DataConnector>(b =>

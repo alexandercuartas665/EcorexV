@@ -38,6 +38,23 @@ public class RowIngestServiceTests
         // ingesta no los toca, pero la interfaz los exige.
         public DbSet<DataModelRelation> DataModelRelations => throw new NotSupportedException();
         public DbSet<DataModelRelationLink> DataModelRelationLinks => throw new NotSupportedException();
+        // Gestor Documental: la ingesta EAV no lo toca, pero la interfaz lo exige.
+        public DbSet<DocumentoCategoria> DocumentoCategorias => throw new NotSupportedException();
+        public DbSet<DocumentoCarpeta> DocumentoCarpetas => throw new NotSupportedException();
+        public DbSet<Documento> Documentos => throw new NotSupportedException();
+        public DbSet<DocumentoVersion> DocumentoVersiones => throw new NotSupportedException();
+        public DbSet<DocumentoEtiquetaCatalogo> DocumentoEtiquetaCatalogos => throw new NotSupportedException();
+        public DbSet<DocumentoEtiqueta> DocumentoEtiquetas => throw new NotSupportedException();
+        public DbSet<DocumentoDestacadoPersonal> DocumentoDestacadosPersonales => throw new NotSupportedException();
+        public DbSet<DocumentoAuditoria> DocumentoAuditorias => throw new NotSupportedException();
+        public DbSet<DocumentoConsumo> DocumentoConsumos => throw new NotSupportedException();
+        public DbSet<SerieDocumental> SeriesDocumentales => throw new NotSupportedException();
+        public DbSet<SubserieDocumental> SubseriesDocumentales => throw new NotSupportedException();
+        public DbSet<SubserieTipologia> SubserieTipologias => throw new NotSupportedException();
+        public DbSet<SubserieCampo> SubserieCampos => throw new NotSupportedException();
+        public DbSet<Expediente> Expedientes => throw new NotSupportedException();
+        public DbSet<ExpedienteTipologia> ExpedienteTipologias => throw new NotSupportedException();
+        public DbSet<ExpedienteCampo> ExpedienteCampos => throw new NotSupportedException();
         public DbSet<TerceroFormLink> TerceroFormLinks => throw new NotSupportedException();
         public DbSet<TenantConfiguration> TenantConfigurations => throw new NotSupportedException();
         public DbSet<ConceptoActividad> ConceptosActividad => throw new NotSupportedException();

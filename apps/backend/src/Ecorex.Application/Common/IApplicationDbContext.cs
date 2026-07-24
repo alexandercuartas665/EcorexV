@@ -149,6 +149,28 @@ public interface IApplicationDbContext
     /// <summary>Bitacora de corridas de importacion (manual y programada).</summary>
     DbSet<ImportRun> ImportRuns { get; }
 
+    // Gestor Documental (portado del modulo 2.15 del hermano PROPIA). Dos mitades independientes:
+    // "Archivo central" (categoria -> carpeta -> documento con versiones inmutables) y
+    // "Expedientes" (Tabla de Retencion Documental: serie -> subserie -> tipologias/campos).
+    DbSet<DocumentoCategoria> DocumentoCategorias { get; }
+    DbSet<DocumentoCarpeta> DocumentoCarpetas { get; }
+    DbSet<Documento> Documentos { get; }
+    DbSet<DocumentoVersion> DocumentoVersiones { get; }
+    DbSet<DocumentoEtiquetaCatalogo> DocumentoEtiquetaCatalogos { get; }
+    DbSet<DocumentoEtiqueta> DocumentoEtiquetas { get; }
+    DbSet<DocumentoDestacadoPersonal> DocumentoDestacadosPersonales { get; }
+    /// <summary>Bitacora del documento. APPEND-ONLY: se inserta, nunca se actualiza ni se borra.</summary>
+    DbSet<DocumentoAuditoria> DocumentoAuditorias { get; }
+    /// <summary>Vistas y descargas. Append-only; alimenta las estadisticas de uso.</summary>
+    DbSet<DocumentoConsumo> DocumentoConsumos { get; }
+    DbSet<SerieDocumental> SeriesDocumentales { get; }
+    DbSet<SubserieDocumental> SubseriesDocumentales { get; }
+    DbSet<SubserieTipologia> SubserieTipologias { get; }
+    DbSet<SubserieCampo> SubserieCampos { get; }
+    DbSet<Expediente> Expedientes { get; }
+    DbSet<ExpedienteTipologia> ExpedienteTipologias { get; }
+    DbSet<ExpedienteCampo> ExpedienteCampos { get; }
+
     // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
     DbSet<ScrapeFlow> ScrapeFlows { get; }
     DbSet<ScrapeStep> ScrapeSteps { get; }

@@ -5,6 +5,106 @@
 
 ---
 
+## 2026-07-24 - Gestor Documental portado desde PROPIA (backend + UI, sin desplegar)
+
+**Agentes**: Claude (Opus 4.8).
+
+### Contexto
+
+El usuario pidio traer el modulo **DOCUMENTOS** del sistema `C:\DesarrolloIA\Propia` (menu
+"Comunicacion y documentos") y adaptarlo a ECOREX. **PROPIA NO es hermano del backbone**: es otro
+sistema (.NET 9, Blazor Web App Auto + MudBlazor/NexLink, API separada con JWT, OpenIddict, solo
+PostgreSQL). El modelo de datos y la logica se portan; la pagina se REESCRIBE.
+
+Decisiones del usuario: las **dos mitades completas**, seccion de menu **nueva "Gestor Documental"**,
+y los **5 tenants Standard** (AGROMETALICAS, BITCODE, CHUZO DE IVAN, EPRING, SOLDARCO).
+
+### Hecho
+
+**1. Dominio: 16 entidades nuevas.** `DocumentoEntities.cs` (Archivo central: categoria, carpeta,
+documento, version, catalogo de etiquetas, union M:N, destacado personal, auditoria, consumo) y
+`ExpedienteEntities.cs` (TRD: serie, subserie, tipologia, campo, expediente + sus tipologias y
+campos). `DocumentoEnums.cs` con 6 enums, todos persistidos como TEXTO.
+
+**2. Correcciones al portar (no son copia literal):**
+- **Categorias y etiquetas base**: en PROPIA son GLOBALES (`TenantId NULL` + `EsBase`). Aqui eso
+  viola la regla 1 (TenantId obligatorio + filtro global). Se siembra **una copia por tenant** y
+  `EsBase` pasa a significar "sembrada por el sistema, no editable", no "compartida".
+- **`OrigenDocumento`**: los origenes de PROPIA eran modulos de copropiedad (asamblea, pqrsd,
+  porteria, mantenimiento). Se reemplazan por los de ECOREX: Tarea, Flujo, Formulario, Proyecto,
+  Comunicacion, Sistema, Manual.
+- **`Visibilidad`** era `string` libre ("PRIVADO"/"EQUIPO"/"PUBLICO"); pasa a enum verificable.
+- **Obligatoriedad de las tipologias**: PROPIA la fijaba a fuego con `orden < 3` porque su subserie
+  no guardaba la bandera. Aqui `SubserieTipologia.Obligatoria` existe y el expediente la COPIA.
+- **Consecutivo del expediente**: PROPIA usaba `COUNT + 1`, que reutiliza un codigo ya emitido si
+  se borra un expediente. Se calcula desde el MAXIMO.
+- **Base64 -> byte[]**: PROPIA movia el binario en base64 porque la pagina hablaba por HTTP con una
+  API. Aqui la consola es Blazor Server y llama en proceso: los bytes viajan como `byte[]`.
+
+**3. Aplicacion:** `IDocumentoService`/`DocumentoService` (~700 lineas) y
+`IExpedienteService`/`ExpedienteService`. Soft-delete en todo, transacciones en las operaciones
+multi-tabla, bitacora append-only por cada cambio, y conteos por GROUP BY (sin N+1).
+`IDocumentoFileStore` abstrae el almacen del binario.
+
+**4. Infraestructura:** DbSets en `IApplicationDbContext` + `EcorexDbContext`, configuracion EF con
+el criterio de borrado explicito y **consciente del DAL dual**: `Documento.VersionActualId` apunta
+de vuelta a `DocumentoVersion`, asi que esa pareja va en `NoAction`/`Restrict` en AMBOS motores
+para no formar el ciclo que SQL Server rechaza (error 1785).
+
+**5. UI:** `/gestor-documental` (Blazor Server, ~900 lineas) con las dos vistas del origen
+(Archivo central y Expedientes) reescritas con los tokens del workspace ECOREX
+(`--brand`/`--ink`/`--surface`/`--line`), SVG inline y `.razor.css` con alcance, como
+/conceptos y /contenedor-datos. Nada de MudBlazor ni de flaticon `fi fi-rr-*`.
+
+**6. Subida de archivos con validacion REAL de contenido.** `DocumentUploadGuard` (hermano de
+`ImageUploadGuard`): lista blanca de extensiones, tope de 25 MB y **bytes magicos** (PDF `%PDF`,
+OOXML/ZIP `PK`, OLE `D0CF11E0`, imagenes). Sin `.svg` ni `.html` (XSS almacenado). La descarga NO
+expone `/uploads/...`: pasa por el servicio, que comprueba el tenant y registra el consumo.
+`DocumentoFileStore` resuelve la ruta y verifica que quede DENTRO de `wwwroot/uploads/documentos`.
+
+**7. Menu y roles:** `EnsureGestorDocumentalMenuAsync` crea la seccion "Gestor Documental" (slug
+`gesdoc`, al FINAL para no reordenar el menu validado el 2026-07-22) con su item "Documentos", y
+`EnsureGestorDocumentalDefaultsAsync` siembra 9 categorias + 7 etiquetas por tenant. Disparador
+`ECOREX_MENU_GESDOC=true`, limitado a `Kind == Standard`. La matriz de **roles no necesita codigo**:
+`RolService.GetModuleCatalogAsync` la deriva de los nodos del menu, asi que el modulo aparece solo.
+
+### Validacion
+
+- `dotnet build Ecorex.sln`: 0 errores.
+- **572/572 pruebas unitarias verdes** (35 Domain + 537 Application).
+- **Migraciones duales aplicadas de verdad en local**, no solo generadas: `AddGestorDocumental`
+  corrio contra PostgreSQL (5442) Y SQL Server (1443) en BD desechables, 16 tablas en cada motor.
+  Que SQL Server la aceptara es la prueba de que no hay rutas de cascada multiples. Ambas BD de
+  prueba borradas despues.
+
+### Bloqueos
+
+- **`legacy_code` del modulo: PENDIENTE.** La regla del 2026-07-22 prohibe inventar correlativos.
+  Esta como `GesDocLegacyCode = null` en `DatabaseSeeder`, con el porque escrito al lado. El item
+  de menu se crea sin codigo; poner el real es cambiar esa linea. Falta tambien la fila en
+  `module_definitions`, que se indexa por `legacy_code`.
+- **NADA aplicado a produccion.** La migracion NO se aplico a la BD de prod y el menu NO se
+  reconcilio en los 5 tenants: ambas cosas exigen arrancar el dev (que en Development corre
+  `MigrateAsync` contra la BD de prod por el tunel) y eso requiere autorizacion explicita.
+- La app local quedo DETENIDA por lo mismo: relanzarla aplicaria la migracion a produccion.
+
+### Pendiente del modulo (declarado, no silenciado)
+
+Tres botones avisan "llega en la siguiente entrega" en vez de fingir que funcionan: el editor de
+categorias/etiquetas, el editor de la TRD (series/subseries/tipologias/campos) y la creacion de
+carpetas desde la UI. Los servicios YA tienen esas operaciones implementadas y probadas por
+compilacion; lo que falta es su pantalla.
+
+### Otro
+
+- Validacion del lookup de Items de inventario (tarea con la que arranco la sesion): **sin hacer**.
+  Se descubrio que SOLDARCO no tiene ningun `item_type`, asi que hay que crear el tipo "Producto"
+  primero; el usuario lo autorizo, pero la sesion se desvio a este modulo antes de ejecutarlo.
+- La sesion del dev se cayo sola dos veces al navegar; `AccessDeniedPath = "/login"` hace que un
+  403 y una sesion muerta se vean IGUAL desde fuera. Deuda: mandar el 403 a una pantalla propia.
+
+---
+
 ## 2026-07-23 (cont.) - Zoom del lienzo ER, fix del lookup y mejoras de listas del Contenedor
 
 **Agentes**: Claude (Opus 4.8).

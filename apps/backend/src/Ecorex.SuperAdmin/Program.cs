@@ -171,6 +171,10 @@ builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.Supe
 // Gate por circuito que serializa el acceso al DbContext desde todos los DynamicFormRenderer del
 // mismo circuito (evita "second operation on this context" cuando dos formularios cargan a la vez).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Services.CircuitFormGate>();
+// Almacen de los binarios del Gestor Documental. Se registra AQUI y no en Application porque es
+// la unica capa que conoce WebRootPath; el servicio documental solo ve la interfaz.
+builder.Services.AddScoped<Ecorex.Application.Documentos.IDocumentoFileStore,
+    Ecorex.SuperAdmin.Services.DocumentoFileStore>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
 // Onboarding one-shot desde db3dev (crea tenants cliente + usuarios). Se dispara con
@@ -509,6 +513,27 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ACTCONFIG"), "
         await seeder.EnsureActividadConfigMenuAsync(t.Id);
         await seeder.EnsureActivityCatalogDefaultsAsync(t.Id);
         app.Logger.LogWarning("[menu-actconfig] Configuracion actividades unificada + defaults para {Name}", t.Name);
+    }
+}
+
+// Gestor Documental (portado del modulo 2.15 del hermano PROPIA): crea la seccion "Gestor
+// Documental" con su item "Documentos" y siembra las categorias/etiquetas base en los tenants
+// CLIENTE (Kind = Standard), que son los 5 que el usuario pidio: AGROMETALICAS, BITCODE,
+// CHUZO DE IVAN, EPRING y SOLDARCO. Idempotente (ECOREX_MENU_GESDOC=true).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_GESDOC"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind == TenantKind.Standard)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureGestorDocumentalDefaultsAsync(t.Id);
+        await seeder.EnsureGestorDocumentalMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-gesdoc] Gestor Documental habilitado para {Name}", t.Name);
     }
 }
 

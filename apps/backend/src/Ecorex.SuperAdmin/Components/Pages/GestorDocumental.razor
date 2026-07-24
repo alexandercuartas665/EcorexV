@@ -1,0 +1,1079 @@
+@page "/gestor-documental"
+@attribute [Authorize(Policy = "Perm:gestor-documental:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Documentos
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDocumentoService DocSvc
+@inject IExpedienteService ExpSvc
+@inject ICurrentPermissions Perms
+@inject IJSRuntime JS
+
+@* Gestor Documental (portado del modulo 2.15 del hermano PROPIA).
+   Dos vistas independientes en una pantalla, igual que en el origen:
+     - Archivo central: categoria -> carpetas -> documentos con versionado.
+     - Expedientes: Tabla de Retencion Documental y su checklist.
+   Estructura y tokens del workspace ECOREX (--brand/--ink/--surface/--line), NO los de PROPIA. *@
+
+<PageTitle>Gestor Documental - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span>Gestor Documental</span>
+    <span class="sep">/</span>
+    <span class="cur">@(_vista == Vista.Archivo ? "Archivo central" : "Expedientes")</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+            </div>
+            <span>Gestor Documental</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Documentos</h1>
+        <p class="page-sub" style="margin-bottom:0;">
+            Archivo digital del tenant: expedientes por serie documental y archivo central con versionado.
+        </p>
+    </div>
+    <div class="gd-head-actions">
+        @if (_vista == Vista.Archivo && _canCreate)
+        {
+            <button class="gd-btn" @onclick="AbrirConfiguracion">Configuracion</button>
+            <button class="gd-btn primary" @onclick="AbrirSubir">Subir documento</button>
+        }
+        else if (_vista == Vista.Expedientes && _canCreate)
+        {
+            <button class="gd-btn" @onclick="AbrirTrd">Configuracion documental</button>
+            <button class="gd-btn primary" @onclick="AbrirNuevoExpediente">Nuevo expediente</button>
+        }
+    </div>
+</div>
+
+<div class="gd-tabs" role="tablist">
+    <button class="gd-tab @(_vista == Vista.Archivo ? "on" : "")" role="tab"
+            @onclick="() => CambiarVistaAsync(Vista.Archivo)">Archivo central</button>
+    <button class="gd-tab @(_vista == Vista.Expedientes ? "on" : "")" role="tab"
+            @onclick="() => CambiarVistaAsync(Vista.Expedientes)">Expedientes</button>
+</div>
+
+@if (_mensaje is not null)
+{
+    <div class="gd-banner @(_mensajeEsError ? "err" : "ok")">@_mensaje</div>
+}
+
+@if (_cargando)
+{
+    <p><em>Cargando...</em></p>
+}
+else if (_vista == Vista.Archivo)
+{
+    @* ================= ARCHIVO CENTRAL ================= *@
+    <div class="gd-resumen">
+        <div class="gd-kpi"><span class="lbl">Documentos</span><span class="val">@_resumen?.TotalDocumentos</span></div>
+        <div class="gd-kpi"><span class="lbl">Categorias</span><span class="val">@_resumen?.TotalCategorias</span></div>
+        <div class="gd-kpi"><span class="lbl">Carpetas</span><span class="val">@_resumen?.TotalCarpetas</span></div>
+        <div class="gd-kpi"><span class="lbl">Espacio</span><span class="val">@FormatoTamano(_resumen?.TamanoTotalBytes ?? 0)</span></div>
+        <div class="gd-kpi"><span class="lbl">Ultimos 30 dias</span><span class="val">@_resumen?.DocumentosUltimos30Dias</span></div>
+    </div>
+
+    <div class="gd-split">
+        @* ---- Panel izquierdo: categorias y arbol de carpetas ---- *@
+        <aside class="gd-side">
+            <div class="gd-side-head">Categorias</div>
+            <button class="gd-cat @(_categoriaSel is null ? "on" : "")" @onclick="() => SeleccionarCategoriaAsync(null)">
+                <span class="gd-cat-name">Todas</span>
+                <span class="gd-cat-count">@(_resumen?.TotalDocumentos ?? 0)</span>
+            </button>
+            @foreach (var c in _categorias)
+            {
+                var cat = c;
+                <button class="gd-cat @(_categoriaSel == cat.Id ? "on" : "")" @onclick="() => SeleccionarCategoriaAsync(cat.Id)">
+                    <span class="gd-cat-dot" style="background:@(cat.Color ?? "var(--brand)");"></span>
+                    <span class="gd-cat-name">@cat.Nombre</span>
+                    <span class="gd-cat-count">@cat.NumeroDocumentos</span>
+                </button>
+            }
+
+            @if (_categoriaSel is not null)
+            {
+                <div class="gd-side-head" style="margin-top:16px;">
+                    Carpetas
+                    @if (_canCreate)
+                    {
+                        <button class="gd-link" @onclick="() => AbrirNuevaCarpeta(null)">+ nueva</button>
+                    }
+                </div>
+                @if (_carpetas.Count == 0)
+                {
+                    <div class="gd-side-empty">Sin carpetas en esta categoria.</div>
+                }
+                else
+                {
+                    <button class="gd-carp @(_carpetaSel is null ? "on" : "")" @onclick="() => SeleccionarCarpetaAsync(null)">
+                        (raiz de la categoria)
+                    </button>
+                    @foreach (var nodo in _carpetas)
+                    {
+                        @RenderCarpeta(nodo, 0)
+                    }
+                }
+            }
+        </aside>
+
+        @* ---- Panel derecho: filtros + tabla de documentos ---- *@
+        <section class="gd-main">
+            <div class="gd-filtros">
+                <input class="gd-input" placeholder="Buscar por titulo o archivo..." value="@_busqueda"
+                       @onchange="OnBuscarAsync" />
+                <select class="gd-input" value="@(_estadoFiltro?.ToString() ?? "")" @onchange="OnEstadoFiltroAsync">
+                    <option value="">Todos los estados</option>
+                    <option value="@EstadoDocumento.Borrador">Borrador</option>
+                    <option value="@EstadoDocumento.Vigente">Vigente</option>
+                    <option value="@EstadoDocumento.Archivado">Archivado</option>
+                </select>
+                <select class="gd-input" value="@(_etiquetaFiltro?.ToString() ?? "")" @onchange="OnEtiquetaFiltroAsync">
+                    <option value="">Todas las etiquetas</option>
+                    @foreach (var e in _etiquetas)
+                    {
+                        <option value="@e.Id">@e.Nombre</option>
+                    }
+                </select>
+                <label class="gd-check">
+                    <input type="checkbox" checked="@_soloDestacados" @onchange="OnDestacadosFiltroAsync" />
+                    <span>Solo destacados</span>
+                </label>
+            </div>
+
+            @if (_pagina is null || _pagina.Items.Count == 0)
+            {
+                <div class="gd-empty">
+                    <h3>Sin documentos</h3>
+                    <p>No hay documentos que coincidan. Sube el primero con "Subir documento".</p>
+                </div>
+            }
+            else
+            {
+                <table class="gd-tabla">
+                    <thead>
+                        <tr>
+                            <th style="width:32px;"></th>
+                            <th>Documento</th>
+                            <th>Ubicacion</th>
+                            <th>Estado</th>
+                            <th>Ver.</th>
+                            <th>Tamano</th>
+                            <th>Fecha</th>
+                            <th style="width:150px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in _pagina.Items)
+                        {
+                            var doc = d;
+                            <tr>
+                                <td>
+                                    <button class="gd-pin @(doc.DestacadoPersonal ? "on" : "")" title="Destacar para mi"
+                                            @onclick="() => AlternarPinAsync(doc.Id)">&#9733;</button>
+                                </td>
+                                <td>
+                                    <div class="gd-doc-tit">@doc.Titulo</div>
+                                    <div class="gd-doc-sub">@doc.NombreArchivoOriginal</div>
+                                    @if (doc.Etiquetas.Count > 0)
+                                    {
+                                        <div class="gd-chips">
+                                            @foreach (var et in doc.Etiquetas)
+                                            {
+                                                <span class="gd-chip" style="border-color:@(et.Color ?? "var(--line-2)");">@et.Nombre</span>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                                <td class="gd-td-min">@doc.CategoriaNombre@(doc.CarpetaNombre is null ? "" : " / " + doc.CarpetaNombre)</td>
+                                <td><span class="gd-estado @doc.Estado.ToString().ToLowerInvariant()">@doc.Estado</span></td>
+                                <td class="gd-td-min">v@doc.NumeroVersiones</td>
+                                <td class="gd-td-min">@FormatoTamano(doc.TamanoBytes)</td>
+                                <td class="gd-td-min">@doc.CreadoAt.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td>
+                                <td class="gd-acciones">
+                                    <button class="gd-btn sm" @onclick="() => AbrirDetalleAsync(doc.Id)">Ver</button>
+                                    <button class="gd-btn sm" @onclick="() => DescargarAsync(doc.Id)" disabled="@_ocupado">Descargar</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (_pagina.Total > _pagina.PageSize)
+                {
+                    <div class="gd-paginador">
+                        <button class="gd-btn sm" disabled="@(_pagina.Page <= 1)" @onclick="() => IrPaginaAsync(_pagina.Page - 1)">Anterior</button>
+                        <span>Pagina @_pagina.Page de @((_pagina.Total + _pagina.PageSize - 1) / _pagina.PageSize) &#183; @_pagina.Total documentos</span>
+                        <button class="gd-btn sm" disabled="@(_pagina.Page * _pagina.PageSize >= _pagina.Total)" @onclick="() => IrPaginaAsync(_pagina.Page + 1)">Siguiente</button>
+                    </div>
+                }
+            }
+        </section>
+    </div>
+}
+else
+{
+    @* ================= EXPEDIENTES (TRD) ================= *@
+    @if (_expedientes.Count == 0)
+    {
+        <div class="gd-empty">
+            <h3>Sin expedientes</h3>
+            <p>Configura la tabla de retencion documental y abre el primer expediente.</p>
+        </div>
+    }
+    else
+    {
+        <div class="gd-exp-grid">
+            @foreach (var e in _expedientes)
+            {
+                var exp = e;
+                <div class="gd-exp-card">
+                    <div class="gd-exp-head">
+                        <span class="gd-exp-cod">@exp.Codigo</span>
+                        @if (exp.PendientesObligatorias > 0)
+                        {
+                            <span class="gd-exp-badge pend">@exp.PendientesObligatorias pendientes</span>
+                        }
+                        else
+                        {
+                            <span class="gd-exp-badge ok">Completo</span>
+                        }
+                    </div>
+                    <div class="gd-exp-nombre">@exp.Nombre</div>
+                    <div class="gd-exp-trd">@exp.Serie &#183; @exp.Subserie</div>
+                    <div class="gd-exp-prog">
+                        <div class="gd-exp-bar"><span style="width:@(exp.Total == 0 ? 0 : exp.Cargadas * 100 / exp.Total)%;"></span></div>
+                        <span class="gd-exp-num">@exp.Cargadas/@exp.Total</span>
+                    </div>
+                    <div class="gd-exp-actions">
+                        <button class="gd-btn sm primary" @onclick="() => AbrirExpedienteAsync(exp.Id)">Abrir</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@* ===================== MODAL: subir documento ===================== *@
+@if (_subirOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Subir documento</h3>
+                <button class="modal-close" @onclick="() => _subirOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Titulo *</label>
+                    <input class="gd-input w100" @bind="_fTitulo" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <textarea class="gd-input w100" rows="2" @bind="_fDescripcion"></textarea>
+                </div>
+                <div class="gd-row2">
+                    <div class="field">
+                        <label class="form-label">Categoria *</label>
+                        <select class="gd-input w100" value="@(_fCategoriaId?.ToString() ?? "")" @onchange="OnCategoriaFormChangedAsync">
+                            <option value="">-- Elige --</option>
+                            @foreach (var c in _categorias)
+                            {
+                                <option value="@c.Id">@c.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Carpeta</label>
+                        <select class="gd-input w100" value="@(_fCarpetaId?.ToString() ?? "")"
+                                @onchange="e => _fCarpetaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                disabled="@(_carpetasForm.Count == 0)">
+                            <option value="">(raiz de la categoria)</option>
+                            @foreach (var c in _carpetasForm)
+                            {
+                                <option value="@c.Id">@c.Ruta</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="gd-row2">
+                    <div class="field">
+                        <label class="form-label">Visibilidad</label>
+                        <select class="gd-input w100" value="@_fVisibilidad"
+                                @onchange="e => _fVisibilidad = Enum.TryParse<VisibilidadDocumento>(e.Value?.ToString(), out var v) ? v : VisibilidadDocumento.Equipo">
+                            <option value="@VisibilidadDocumento.Privado">Privado</option>
+                            <option value="@VisibilidadDocumento.Equipo">Equipo</option>
+                            <option value="@VisibilidadDocumento.Publico">Publico</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Archivo *</label>
+                        <InputFile class="gd-input w100" accept="@DocumentUploadGuard.Accept" OnChange="OnArchivoElegidoAsync" />
+                        @if (_fArchivoNombre is not null)
+                        {
+                            <small class="gd-help">@_fArchivoNombre &#183; @FormatoTamano(_fArchivoBytes?.LongLength ?? 0)</small>
+                        }
+                    </div>
+                </div>
+                @if (_etiquetas.Count > 0)
+                {
+                    <div class="field">
+                        <label class="form-label">Etiquetas</label>
+                        <div class="gd-chips">
+                            @foreach (var e in _etiquetas)
+                            {
+                                var et = e;
+                                <button type="button" class="gd-chip sel @(_fEtiquetas.Contains(et.Id) ? "on" : "")"
+                                        @onclick="() => AlternarEtiquetaForm(et.Id)">@et.Nombre</button>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _subirOpen = false">Cancelar</button>
+                <button class="gd-btn primary" @onclick="GuardarDocumentoAsync" disabled="@_ocupado">Subir</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: detalle del documento ===================== *@
+@if (_detalle is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:820px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@_detalle.Titulo</h3>
+                <button class="modal-close" @onclick="() => _detalle = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gd-det-meta">
+                    <div><span class="lbl">Ubicacion</span><span>@_detalle.CategoriaNombre@(_detalle.CarpetaNombre is null ? "" : " / " + _detalle.CarpetaNombre)</span></div>
+                    <div><span class="lbl">Estado</span><span class="gd-estado @_detalle.Estado.ToString().ToLowerInvariant()">@_detalle.Estado</span></div>
+                    <div><span class="lbl">Visibilidad</span><span>@_detalle.Visibilidad</span></div>
+                    <div><span class="lbl">Origen</span><span>@_detalle.Origen</span></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_detalle.Descripcion))
+                {
+                    <p class="gd-det-desc">@_detalle.Descripcion</p>
+                }
+
+                <div class="gd-det-tabs">
+                    <button class="gd-tab sm @(_detTab == "versiones" ? "on" : "")" @onclick='() => _detTab = "versiones"'>Versiones (@_detalle.NumeroVersiones)</button>
+                    <button class="gd-tab sm @(_detTab == "bitacora" ? "on" : "")" @onclick="MostrarBitacoraAsync">Bitacora</button>
+                    <button class="gd-tab sm @(_detTab == "uso" ? "on" : "")" @onclick="MostrarUsoAsync">Uso</button>
+                </div>
+
+                @if (_detTab == "versiones")
+                {
+                    <table class="gd-tabla compact">
+                        <thead><tr><th>Ver.</th><th>Archivo</th><th>Tamano</th><th>SHA-256</th><th>Fecha</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var v in _detalle.Historial)
+                            {
+                                var ver = v;
+                                <tr>
+                                    <td>v@ver.Numero @(ver.Id == _detalle.VersionActual?.Id ? "(actual)" : "")</td>
+                                    <td>@ver.NombreArchivo</td>
+                                    <td>@FormatoTamano(ver.TamanoBytes)</td>
+                                    <td class="gd-hash" title="@ver.HashSha256">@ver.HashSha256[..12]</td>
+                                    <td>@ver.CreadoAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                                    <td><button class="gd-btn sm" @onclick="() => DescargarAsync(_detalle!.Id, ver.Id)" disabled="@_ocupado">Descargar</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (_canEdit)
+                    {
+                        <div class="gd-nueva-ver">
+                            <label class="form-label">Subir nueva version</label>
+                            <InputFile class="gd-input" accept="@DocumentUploadGuard.Accept" OnChange="OnNuevaVersionElegidaAsync" />
+                            <input class="gd-input" placeholder="Que cambio (opcional)" @bind="_fNotasCambio" />
+                            <button class="gd-btn primary sm" @onclick="GuardarNuevaVersionAsync" disabled="@(_ocupado || _fVerBytes is null)">Guardar version</button>
+                        </div>
+                    }
+                }
+                else if (_detTab == "bitacora")
+                {
+                    <table class="gd-tabla compact">
+                        <thead><tr><th>Evento</th><th>Detalle</th><th>Fecha</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _auditoria)
+                            {
+                                <tr>
+                                    <td>@a.TipoEvento</td>
+                                    <td class="gd-hash">@a.DetalleJson</td>
+                                    <td>@a.OcurridoAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else if (_estadisticas is not null)
+                {
+                    <div class="gd-resumen">
+                        <div class="gd-kpi"><span class="lbl">Vistas</span><span class="val">@_estadisticas.TotalVistas</span></div>
+                        <div class="gd-kpi"><span class="lbl">Descargas</span><span class="val">@_estadisticas.TotalDescargas</span></div>
+                        <div class="gd-kpi"><span class="lbl">Usuarios</span><span class="val">@_estadisticas.UsuariosUnicos</span></div>
+                        <div class="gd-kpi">
+                            <span class="lbl">Ultimo acceso</span>
+                            <span class="val">@(_estadisticas.UltimoAcceso?.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "-")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_canEdit)
+                {
+                    @if (_detalle.Estado == EstadoDocumento.Vigente)
+                    {
+                        <button class="gd-btn" @onclick="() => CambiarEstadoAsync(EstadoDocumento.Archivado)" disabled="@_ocupado">Archivar</button>
+                    }
+                    else if (_detalle.Estado == EstadoDocumento.Archivado)
+                    {
+                        <button class="gd-btn" @onclick="() => CambiarEstadoAsync(EstadoDocumento.Vigente)" disabled="@_ocupado">Reactivar</button>
+                    }
+                }
+                @if (_canDelete)
+                {
+                    <button class="gd-btn danger" @onclick="EliminarDocumentoAsync" disabled="@_ocupado">Eliminar</button>
+                }
+                <button class="gd-btn" @onclick="() => _detalle = null">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: expediente ===================== *@
+@if (_expDetalle is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:900px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@_expDetalle.Codigo &#183; @_expDetalle.Nombre</h3>
+                <button class="modal-close" @onclick="() => _expDetalle = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gd-det-meta">
+                    <div><span class="lbl">Serie</span><span>@_expDetalle.Serie</span></div>
+                    <div><span class="lbl">Subserie</span><span>@_expDetalle.Subserie</span></div>
+                    <div><span class="lbl">Avance</span><span>@_expDetalle.Cargadas de @_expDetalle.Total</span></div>
+                </div>
+
+                <table class="gd-tabla compact">
+                    <thead><tr><th>Documento esperado</th><th>Estado</th><th>Archivo</th><th style="width:220px;"></th></tr></thead>
+                    <tbody>
+                        @foreach (var t in _expDetalle.Tipologias)
+                        {
+                            var tip = t;
+                            <tr>
+                                <td>
+                                    @tip.Nombre
+                                    @if (tip.Obligatoria) { <span class="gd-oblig">obligatorio</span> }
+                                </td>
+                                <td>
+                                    <span class="gd-estado @(tip.Cargado ? "vigente" : "borrador")">@(tip.Cargado ? "Cargado" : "Pendiente")</span>
+                                </td>
+                                <td class="gd-td-min">
+                                    @if (tip.Cargado)
+                                    {
+                                        @tip.ArchivoNombre <text> &#183; </text> @FormatoTamano(tip.ArchivoTamano)
+                                    }
+                                </td>
+                                <td class="gd-acciones">
+                                    @if (tip.Cargado)
+                                    {
+                                        <button class="gd-btn sm" @onclick="() => DescargarTipologiaAsync(tip.Id)" disabled="@_ocupado">Descargar</button>
+                                        @if (_canEdit)
+                                        {
+                                            <button class="gd-btn sm danger" @onclick="() => QuitarArchivoAsync(tip.Id)" disabled="@_ocupado">Quitar</button>
+                                        }
+                                    }
+                                    else if (_canEdit)
+                                    {
+                                        <InputFile class="gd-file-min" accept="@DocumentUploadGuard.Accept"
+                                                   OnChange="e => CargarTipologiaAsync(tip.Id, e)" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _expDetalle = null">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: nuevo expediente ===================== *@
+@if (_nuevoExpOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:520px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Nuevo expediente</h3>
+                <button class="modal-close" @onclick="() => _nuevoExpOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label">Serie / subserie *</label>
+                    <select class="gd-input w100" value="@(_fSubserieId?.ToString() ?? "")"
+                            @onchange="e => _fSubserieId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                        <option value="">-- Elige --</option>
+                        @foreach (var s in _trd)
+                        {
+                            @foreach (var sub in s.Subseries)
+                            {
+                                <option value="@sub.Id">@s.Nombre / @sub.Nombre</option>
+                            }
+                        }
+                    </select>
+                    @if (_trd.Count == 0)
+                    {
+                        <small class="gd-help">No hay TRD configurada. Usa "Configuracion documental" primero.</small>
+                    }
+                </div>
+                <div class="field">
+                    <label class="form-label">Nombre del expediente *</label>
+                    <input class="gd-input w100" @bind="_fExpNombre" />
+                </div>
+                @if (_modalError is not null)
+                {
+                    <div class="tk-field-error">@_modalError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _nuevoExpOpen = false">Cancelar</button>
+                <button class="gd-btn primary" @onclick="CrearExpedienteAsync" disabled="@_ocupado">Crear</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Clave del modulo en la matriz de roles. Es la RUTA, igual que en el resto (ADR-0033).</summary>
+    private const string ModuleKey = "gestor-documental";
+
+    private enum Vista { Archivo, Expedientes }
+
+    /// <summary>Carpeta aplanada con su ruta legible, para el selector del formulario.</summary>
+    private sealed record CarpetaPlana(Guid Id, string Ruta);
+
+    private Vista _vista = Vista.Archivo;
+    private bool _cargando = true;
+    private bool _ocupado;
+    private string? _mensaje;
+    private bool _mensajeEsError;
+    private string? _modalError;
+
+    private bool _canCreate, _canEdit, _canDelete;
+
+    // ---- Archivo central ----
+    private ResumenDocumentosDto? _resumen;
+    private List<CategoriaDto> _categorias = new();
+    private List<EtiquetaDto> _etiquetas = new();
+    private List<CarpetaDto> _carpetas = new();
+    private Guid? _categoriaSel;
+    private Guid? _carpetaSel;
+    private DocumentosPageDto? _pagina;
+    private string _busqueda = "";
+    private EstadoDocumento? _estadoFiltro;
+    private Guid? _etiquetaFiltro;
+    private bool _soloDestacados;
+    private int _paginaActual = 1;
+
+    // ---- Modal subir ----
+    private bool _subirOpen;
+    private string _fTitulo = "";
+    private string _fDescripcion = "";
+    private Guid? _fCategoriaId;
+    private Guid? _fCarpetaId;
+    private VisibilidadDocumento _fVisibilidad = VisibilidadDocumento.Equipo;
+    private readonly HashSet<Guid> _fEtiquetas = new();
+    private byte[]? _fArchivoBytes;
+    private string? _fArchivoNombre;
+    private string? _fArchivoMime;
+    private List<CarpetaPlana> _carpetasForm = new();
+
+    // ---- Modal detalle ----
+    private DocumentoDetalleDto? _detalle;
+    private string _detTab = "versiones";
+    private List<AuditoriaEventoDto> _auditoria = new();
+    private EstadisticasDocumentoDto? _estadisticas;
+    private byte[]? _fVerBytes;
+    private string? _fVerNombre;
+    private string? _fVerMime;
+    private string _fNotasCambio = "";
+
+    // ---- Expedientes ----
+    private List<ExpedienteListaDto> _expedientes = new();
+    private List<TrdSerieDto> _trd = new();
+    private ExpedienteDetalleDto? _expDetalle;
+    private bool _nuevoExpOpen;
+    private Guid? _fSubserieId;
+    private string _fExpNombre = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+        await RecargarArchivoAsync();
+        _cargando = false;
+    }
+
+    // =======================================================================
+    // Archivo central
+    // =======================================================================
+
+    private async Task RecargarArchivoAsync()
+    {
+        _resumen = await DocSvc.GetResumenAsync();
+        _categorias = (await DocSvc.ListarCategoriasAsync()).ToList();
+        _etiquetas = (await DocSvc.ListarEtiquetasAsync()).ToList();
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task RecargarDocumentosAsync()
+        => _pagina = await DocSvc.ListarDocumentosAsync(new DocumentosFiltro(
+            CategoriaId: _categoriaSel,
+            CarpetaId: _carpetaSel,
+            Estado: _estadoFiltro,
+            TextoBusqueda: string.IsNullOrWhiteSpace(_busqueda) ? null : _busqueda,
+            EtiquetaId: _etiquetaFiltro,
+            SoloDestacados: _soloDestacados,
+            Page: _paginaActual));
+
+    private async Task CambiarVistaAsync(Vista v)
+    {
+        _vista = v;
+        _mensaje = null;
+        _cargando = true;
+        if (v == Vista.Expedientes)
+        {
+            _trd = (await ExpSvc.ListarTrdAsync()).ToList();
+            _expedientes = (await ExpSvc.ListarExpedientesAsync()).ToList();
+        }
+        else
+        {
+            await RecargarArchivoAsync();
+        }
+        _cargando = false;
+    }
+
+    private async Task SeleccionarCategoriaAsync(Guid? id)
+    {
+        _categoriaSel = id;
+        _carpetaSel = null;
+        _paginaActual = 1;
+        _carpetas = id is Guid cid ? (await DocSvc.ListarCarpetasAsync(cid)).ToList() : new();
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task SeleccionarCarpetaAsync(Guid? id)
+    {
+        _carpetaSel = id;
+        _paginaActual = 1;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task OnBuscarAsync(ChangeEventArgs e)
+    {
+        _busqueda = e.Value?.ToString() ?? "";
+        _paginaActual = 1;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task OnEstadoFiltroAsync(ChangeEventArgs e)
+    {
+        _estadoFiltro = Enum.TryParse<EstadoDocumento>(e.Value?.ToString(), out var v) ? v : null;
+        _paginaActual = 1;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task OnEtiquetaFiltroAsync(ChangeEventArgs e)
+    {
+        _etiquetaFiltro = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _paginaActual = 1;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task OnDestacadosFiltroAsync(ChangeEventArgs e)
+    {
+        _soloDestacados = (bool)(e.Value ?? false);
+        _paginaActual = 1;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task IrPaginaAsync(int p)
+    {
+        _paginaActual = p < 1 ? 1 : p;
+        await RecargarDocumentosAsync();
+    }
+
+    private async Task AlternarPinAsync(Guid id)
+    {
+        await DocSvc.AlternarDestacadoPersonalAsync(id);
+        await RecargarDocumentosAsync();
+    }
+
+    // ---- Subida ----
+
+    private void AbrirSubir()
+    {
+        _fTitulo = "";
+        _fDescripcion = "";
+        _fCategoriaId = _categoriaSel ?? _categorias.FirstOrDefault()?.Id;
+        _fCarpetaId = _carpetaSel;
+        _fVisibilidad = VisibilidadDocumento.Equipo;
+        _fEtiquetas.Clear();
+        _fArchivoBytes = null;
+        _fArchivoNombre = null;
+        _fArchivoMime = null;
+        _carpetasForm = _fCategoriaId is null ? new() : Aplanar(_carpetas, "");
+        _modalError = null;
+        _subirOpen = true;
+    }
+
+    private async Task OnCategoriaFormChangedAsync(ChangeEventArgs e)
+    {
+        _fCategoriaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _fCarpetaId = null;
+        _carpetasForm = _fCategoriaId is Guid cid
+            ? Aplanar((await DocSvc.ListarCarpetasAsync(cid)).ToList(), "")
+            : new();
+    }
+
+    private void AlternarEtiquetaForm(Guid id)
+    {
+        if (!_fEtiquetas.Add(id)) { _fEtiquetas.Remove(id); }
+    }
+
+    private async Task OnArchivoElegidoAsync(InputFileChangeEventArgs e)
+    {
+        _modalError = null;
+        var leido = await LeerArchivoAsync(e.File);
+        if (leido is null) { return; }
+        (_fArchivoBytes, _fArchivoNombre, _fArchivoMime) = leido.Value;
+        if (string.IsNullOrWhiteSpace(_fTitulo))
+        {
+            _fTitulo = System.IO.Path.GetFileNameWithoutExtension(_fArchivoNombre ?? "");
+        }
+    }
+
+    private async Task GuardarDocumentoAsync()
+    {
+        _modalError = null;
+        if (_fCategoriaId is not Guid catId) { _modalError = "Elige una categoria."; return; }
+        if (_fArchivoBytes is null) { _modalError = "Elige un archivo."; return; }
+
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.SubirDocumentoAsync(new SubirDocumentoRequest(
+                catId, _fCarpetaId, _fTitulo, _fDescripcion,
+                _fArchivoNombre ?? "archivo", _fArchivoMime ?? "application/octet-stream",
+                _fArchivoBytes, _fVisibilidad, _fEtiquetas.ToList()));
+            if (!res.IsOk) { _modalError = res.Error; return; }
+            _subirOpen = false;
+            Avisar("Documento subido.", false);
+            await RecargarArchivoAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ---- Detalle ----
+
+    private async Task AbrirDetalleAsync(Guid id)
+    {
+        _detTab = "versiones";
+        _auditoria = new();
+        _estadisticas = null;
+        _fVerBytes = null;
+        _fVerNombre = null;
+        _fNotasCambio = "";
+        _detalle = await DocSvc.GetDocumentoAsync(id);
+        // Abrir la ficha ES una vista: se registra para que las estadisticas de uso digan la verdad.
+        if (_detalle is not null) { await DocSvc.RegistrarVistaAsync(id); }
+    }
+
+    private async Task MostrarBitacoraAsync()
+    {
+        _detTab = "bitacora";
+        if (_detalle is not null) { _auditoria = (await DocSvc.ListarAuditoriaAsync(_detalle.Id)).ToList(); }
+    }
+
+    private async Task MostrarUsoAsync()
+    {
+        _detTab = "uso";
+        if (_detalle is not null) { _estadisticas = await DocSvc.GetEstadisticasAsync(_detalle.Id); }
+    }
+
+    private async Task OnNuevaVersionElegidaAsync(InputFileChangeEventArgs e)
+    {
+        _mensaje = null;
+        var leido = await LeerArchivoAsync(e.File);
+        if (leido is null) { return; }
+        (_fVerBytes, _fVerNombre, _fVerMime) = leido.Value;
+    }
+
+    private async Task GuardarNuevaVersionAsync()
+    {
+        if (_detalle is null || _fVerBytes is null) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.SubirNuevaVersionAsync(_detalle.Id, new NuevaVersionRequest(
+                _fVerNombre ?? "archivo", _fVerMime ?? "application/octet-stream", _fVerBytes, _fNotasCambio));
+            if (!res.IsOk) { Avisar(res.Error!, true); return; }
+            _fVerBytes = null;
+            _fVerNombre = null;
+            _fNotasCambio = "";
+            await AbrirDetalleAsync(_detalle.Id);
+            await RecargarDocumentosAsync();
+            Avisar("Version guardada.", false);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CambiarEstadoAsync(EstadoDocumento nuevo)
+    {
+        if (_detalle is null) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.CambiarEstadoAsync(_detalle.Id, nuevo);
+            if (!res.IsOk) { Avisar(res.Error!, true); return; }
+            await AbrirDetalleAsync(_detalle.Id);
+            await RecargarArchivoAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task EliminarDocumentoAsync()
+    {
+        if (_detalle is null) { return; }
+        var ok = await JS.InvokeAsync<bool>("confirm",
+            $"Eliminar \"{_detalle.Titulo}\"? Se archiva y deja de aparecer; el archivo NO se borra.");
+        if (!ok) { return; }
+
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.EliminarDocumentoAsync(_detalle.Id);
+            if (!res.IsOk) { Avisar(res.Error!, true); return; }
+            _detalle = null;
+            Avisar("Documento eliminado.", false);
+            await RecargarArchivoAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task DescargarAsync(Guid documentoId, Guid? versionId = null)
+    {
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.DescargarAsync(documentoId, versionId);
+            if (res is null) { Avisar("No se pudo leer el archivo.", true); return; }
+            await EnviarAlNavegadorAsync(res.Value.NombreArchivo, res.Value.TipoMime, res.Value.Contenido);
+        }
+        finally { _ocupado = false; }
+    }
+
+    // =======================================================================
+    // Expedientes
+    // =======================================================================
+
+    private void AbrirNuevoExpediente()
+    {
+        _fSubserieId = null;
+        _fExpNombre = "";
+        _modalError = null;
+        _nuevoExpOpen = true;
+    }
+
+    private async Task CrearExpedienteAsync()
+    {
+        _modalError = null;
+        if (_fSubserieId is not Guid subId) { _modalError = "Elige la serie y la subserie."; return; }
+
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CrearExpedienteAsync(new CrearExpedienteRequest(subId, _fExpNombre));
+            if (!res.IsOk) { _modalError = res.Error; return; }
+            _nuevoExpOpen = false;
+            _expedientes = (await ExpSvc.ListarExpedientesAsync()).ToList();
+            Avisar("Expediente creado.", false);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task AbrirExpedienteAsync(Guid id) => _expDetalle = await ExpSvc.GetExpedienteAsync(id);
+
+    private async Task CargarTipologiaAsync(Guid tipologiaId, InputFileChangeEventArgs e)
+    {
+        var leido = await LeerArchivoAsync(e.File);
+        if (leido is null) { return; }
+
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CargarTipologiaAsync(tipologiaId, new CargarTipologiaRequest(
+                leido.Value.Nombre, leido.Value.Mime, leido.Value.Bytes, null));
+            if (!res.IsOk) { Avisar(res.Error!, true); return; }
+            await RefrescarExpedienteAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task QuitarArchivoAsync(Guid tipologiaId)
+    {
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.QuitarArchivoAsync(tipologiaId);
+            if (!res.IsOk) { Avisar(res.Error!, true); return; }
+            await RefrescarExpedienteAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task DescargarTipologiaAsync(Guid tipologiaId)
+    {
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.DescargarTipologiaAsync(tipologiaId);
+            if (res is null) { Avisar("No se pudo leer el archivo.", true); return; }
+            await EnviarAlNavegadorAsync(res.Value.NombreArchivo, res.Value.TipoMime, res.Value.Contenido);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task RefrescarExpedienteAsync()
+    {
+        if (_expDetalle is null) { return; }
+        _expDetalle = await ExpSvc.GetExpedienteAsync(_expDetalle.Id);
+        _expedientes = (await ExpSvc.ListarExpedientesAsync()).ToList();
+    }
+
+    // Pantallas de configuracion (categorias/etiquetas y TRD): pendientes de esta entrega.
+    private void AbrirConfiguracion() => Avisar("La configuracion de categorias y etiquetas llega en la siguiente entrega.", false);
+    private void AbrirTrd() => Avisar("El editor de la TRD llega en la siguiente entrega.", false);
+    private void AbrirNuevaCarpeta(Guid? padreId) => Avisar("La creacion de carpetas llega en la siguiente entrega.", false);
+
+    // =======================================================================
+    // Apoyo
+    // =======================================================================
+
+    /// <summary>
+    /// Lee el archivo elegido aplicando el guard: extension de lista blanca, tamano y BYTES
+    /// MAGICOS. Solo la ultima comprobacion es infalsificable renombrando el archivo, que es
+    /// justo el motivo de leer el contenido antes de aceptarlo.
+    /// </summary>
+    private async Task<(byte[] Bytes, string Nombre, string Mime)?> LeerArchivoAsync(IBrowserFile file)
+    {
+        var ext = DocumentUploadGuard.ResolveExtension(file.Name);
+        if (ext is null)
+        {
+            Avisar($"{file.Name}: formato no permitido. Solo {DocumentUploadGuard.FormatosTexto}.", true);
+            return null;
+        }
+        if (file.Size <= 0)
+        {
+            Avisar($"{file.Name}: el archivo esta vacio.", true);
+            return null;
+        }
+        if (file.Size > DocumentUploadGuard.MaxBytes)
+        {
+            Avisar($"{file.Name}: supera el limite de {DocumentUploadGuard.MaxBytes / (1024 * 1024)} MB.", true);
+            return null;
+        }
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(DocumentUploadGuard.MaxBytes).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            if (!DocumentUploadGuard.MatchesSignature(bytes, ext))
+            {
+                Avisar($"{file.Name}: el contenido no corresponde a un archivo {ext.TrimStart('.').ToUpperInvariant()}.", true);
+                return null;
+            }
+            return (bytes, file.Name, DocumentUploadGuard.MimeFor(ext));
+        }
+        catch
+        {
+            Avisar($"{file.Name}: no se pudo leer.", true);
+            return null;
+        }
+    }
+
+    /// <summary>Entrega los bytes al navegador como descarga, sin exponer la ruta fisica.</summary>
+    private async Task EnviarAlNavegadorAsync(string nombre, string mime, byte[] contenido)
+        => await JS.InvokeVoidAsync("ecorexDescargarArchivo", nombre, mime, Convert.ToBase64String(contenido));
+
+    /// <summary>Aplana el arbol de carpetas a "padre / hijo / nieto" para un desplegable.</summary>
+    private static List<CarpetaPlana> Aplanar(IReadOnlyList<CarpetaDto> nodos, string prefijo)
+    {
+        var salida = new List<CarpetaPlana>();
+        foreach (var n in nodos)
+        {
+            var ruta = prefijo.Length == 0 ? n.Nombre : $"{prefijo} / {n.Nombre}";
+            salida.Add(new CarpetaPlana(n.Id, ruta));
+            salida.AddRange(Aplanar(n.Subcarpetas, ruta));
+        }
+        return salida;
+    }
+
+    private void Avisar(string texto, bool esError)
+    {
+        _mensaje = texto;
+        _mensajeEsError = esError;
+    }
+
+    private static string FormatoTamano(long bytes)
+    {
+        if (bytes <= 0) { return "-"; }
+        string[] unidades = ["B", "KB", "MB", "GB"];
+        double valor = bytes;
+        var i = 0;
+        while (valor >= 1024 && i < unidades.Length - 1) { valor /= 1024; i++; }
+        return $"{valor.ToString(i == 0 ? "0" : "0.#", CultureInfo.InvariantCulture)} {unidades[i]}";
+    }
+
+    private RenderFragment RenderCarpeta(CarpetaDto nodo, int nivel) => __builder =>
+    {
+        <button class="gd-carp @(_carpetaSel == nodo.Id ? "on" : "")"
+                style="padding-left:@(12 + nivel * 14)px;"
+                @onclick="() => SeleccionarCarpetaAsync(nodo.Id)">
+            <span class="gd-carp-name">@nodo.Nombre</span>
+            <span class="gd-cat-count">@nodo.NumeroDocumentos</span>
+        </button>
+        @foreach (var hijo in nodo.Subcarpetas)
+        {
+            @RenderCarpeta(hijo, nivel + 1)
+        }
+    };
+}

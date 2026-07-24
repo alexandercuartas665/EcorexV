@@ -1,0 +1,231 @@
+/* ============================================================
+   GESTOR DOCUMENTAL (portado del modulo 2.15 del hermano PROPIA).
+
+   La ESTRUCTURA viene del origen (dos vistas con toggle, split
+   categorias|documentos, tarjetas de expediente con barra de
+   avance), pero TODOS los valores son los tokens del workspace
+   ECOREX: --brand/--brand-soft, --ink/--ink-2/--ink-3, --surface/
+   --surface-3, --bg, --line/--line-2, --t-green/--t-rose,
+   --danger. No queda nada de la paleta de PROPIA ni de sus
+   iconos flaticon: los SVG son inline, como en el resto.
+
+   Medidas alineadas con /conceptos y /contenedor-datos, que ya
+   estan calibradas contra el prototipo: botones 6x12 r6 12.5/500
+   (sm 4x8 11.5), tarjetas r8, tabla th 10x16 11.5 upper,
+   modal head 16x20 body 20, chips r12 11.5.
+   ============================================================ */
+
+/* ---- Cabecera y pestanas ---- */
+.gd-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.gd-tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 16px;
+}
+.gd-tab {
+    padding: 10px 18px;
+    border: none; border-bottom: 2px solid transparent;
+    background: none; color: var(--ink-2);
+    font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.gd-tab:hover { color: var(--ink); }
+.gd-tab.on { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+.gd-tab.sm { padding: 6px 12px; font-size: 12px; }
+
+/* ---- Avisos ---- */
+.gd-banner {
+    padding: 10px 14px; border-radius: 6px; margin-bottom: 14px;
+    font-size: 12.5px; border: 1px solid var(--line-2);
+}
+.gd-banner.ok { background: var(--brand-soft); color: var(--ink); border-color: var(--brand); }
+.gd-banner.err { background: var(--t-rose-bg, #fdf2f4); color: var(--danger); border-color: var(--danger); }
+
+/* ---- Botones ---- */
+.gd-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); color: var(--ink);
+    font-size: 12.5px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.gd-btn:hover:not(:disabled) { background: var(--surface-3); }
+.gd-btn:disabled { opacity: .55; cursor: default; }
+.gd-btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.gd-btn.primary:hover:not(:disabled) { opacity: .9; }
+.gd-btn.sm { padding: 4px 8px; font-size: 11.5px; }
+.gd-btn.danger { color: var(--danger); border-color: var(--danger); }
+
+.gd-link {
+    border: none; background: none; color: var(--brand);
+    font-size: 11.5px; cursor: pointer; font-family: inherit; padding: 0;
+}
+
+/* ---- Campos ---- */
+.gd-input {
+    padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 5px;
+    background: var(--surface); color: var(--ink);
+    font-size: 12.5px; font-family: inherit;
+}
+.gd-input.w100 { width: 100%; }
+.gd-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.gd-help { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ink-3); }
+.gd-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.gd-file-min { font-size: 11px; max-width: 200px; }
+
+/* ---- KPIs ---- */
+.gd-resumen {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px; margin-bottom: 16px;
+}
+.gd-kpi {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 14px 16px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px;
+}
+.gd-kpi .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
+.gd-kpi .val { font-size: 20px; font-weight: 600; color: var(--ink); }
+
+/* ---- Split: categorias | documentos ---- */
+.gd-split { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
+
+.gd-side {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; position: sticky; top: 12px;
+}
+.gd-side-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--ink-3); margin-bottom: 8px;
+}
+.gd-side-empty { font-size: 12px; color: var(--ink-3); padding: 6px 0; }
+
+.gd-cat, .gd-carp {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 8px 12px; margin-bottom: 2px;
+    border: none; border-radius: 6px; background: none;
+    color: var(--ink); font-size: 12.5px; text-align: left;
+    cursor: pointer; font-family: inherit;
+}
+.gd-cat:hover, .gd-carp:hover { background: var(--surface-3); }
+.gd-cat.on, .gd-carp.on { background: var(--brand-soft); color: var(--ink); font-weight: 600; }
+.gd-cat-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.gd-cat-name, .gd-carp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-cat-count { font-size: 11px; color: var(--ink-3); }
+
+.gd-main { min-width: 0; }
+
+/* ---- Filtros ---- */
+.gd-filtros {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 12px; margin-bottom: 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.gd-filtros .gd-input:first-child { flex: 1; min-width: 200px; }
+
+/* ---- Tabla ---- */
+.gd-tabla { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 8px; overflow: hidden; }
+.gd-tabla th {
+    padding: 10px 16px; text-align: left;
+    font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--ink-3); background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.gd-tabla td { padding: 10px 16px; font-size: 12.5px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.gd-tabla.compact th, .gd-tabla.compact td { padding: 7px 12px; font-size: 12px; }
+.gd-tabla tbody tr:hover { background: var(--surface-3); }
+.gd-td-min { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.gd-acciones { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.gd-doc-tit { font-weight: 500; color: var(--ink); }
+.gd-doc-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.gd-hash { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 11px; color: var(--ink-3); }
+
+.gd-pin {
+    border: none; background: none; cursor: pointer;
+    font-size: 15px; line-height: 1; color: var(--line-2); padding: 0;
+}
+.gd-pin.on { color: var(--t-amber, #e0a800); }
+
+/* ---- Estados y chips ---- */
+.gd-estado {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+}
+.gd-estado.vigente { background: var(--t-green-bg, #e8f6ee); color: var(--t-green, #1b7f4d); }
+.gd-estado.borrador { background: var(--surface-3); color: var(--ink-2); }
+.gd-estado.archivado { background: var(--t-rose-bg, #fdf2f4); color: var(--t-rose, #b23a5b); }
+
+.gd-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.gd-chip {
+    display: inline-block; padding: 1px 8px;
+    border: 1px solid var(--line-2); border-radius: 12px;
+    font-size: 11.5px; color: var(--ink-2); background: var(--surface);
+}
+.gd-chip.sel { cursor: pointer; font-family: inherit; }
+.gd-chip.sel.on { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+
+.gd-oblig {
+    margin-left: 6px; padding: 1px 6px; border-radius: 10px;
+    font-size: 10.5px; background: var(--brand-soft); color: var(--ink-2);
+}
+
+/* ---- Vacio y paginador ---- */
+.gd-empty {
+    padding: 40px 24px; text-align: center;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.gd-empty h3 { font-size: 15px; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
+.gd-empty p { font-size: 12.5px; color: var(--ink-2); margin: 0; }
+
+.gd-paginador {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 12px; font-size: 12px; color: var(--ink-2);
+}
+
+/* ---- Detalle ---- */
+.gd-det-meta {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; margin-bottom: 14px;
+}
+.gd-det-meta > div { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.gd-det-meta .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
+.gd-det-desc { font-size: 12.5px; color: var(--ink-2); margin: 0 0 14px; }
+.gd-det-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+
+.gd-nueva-ver {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-top: 12px; padding: 12px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+}
+.gd-nueva-ver .form-label { width: 100%; margin: 0 0 4px; }
+
+/* ---- Expedientes ---- */
+.gd-exp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.gd-exp-card {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 16px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px;
+}
+.gd-exp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gd-exp-cod {
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--brand-soft); color: var(--ink);
+}
+.gd-exp-badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.gd-exp-badge.ok { background: var(--t-green-bg, #e8f6ee); color: var(--t-green, #1b7f4d); }
+.gd-exp-badge.pend { background: var(--t-rose-bg, #fdf2f4); color: var(--t-rose, #b23a5b); }
+.gd-exp-nombre { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.gd-exp-trd { font-size: 11.5px; color: var(--ink-3); }
+.gd-exp-prog { display: flex; align-items: center; gap: 8px; }
+.gd-exp-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.gd-exp-bar span { display: block; height: 100%; background: var(--brand); }
+.gd-exp-num { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.gd-exp-actions { display: flex; gap: 6px; margin-top: 2px; }
+
+/* ---- Responsive: el split se apila y la tabla puede desplazarse ---- */
+@media (max-width: 900px) {
+    .gd-split { grid-template-columns: 1fr; }
+    .gd-side { position: static; }
+    .gd-row2 { grid-template-columns: 1fr; }
+}

@@ -182,6 +182,23 @@ public class TenantUserServiceTests
         public DbSet<DataClient> DataClients => throw new NotSupportedException();
         public DbSet<ImportProcess> ImportProcesses => throw new NotSupportedException();
         public DbSet<ImportRun> ImportRuns => throw new NotSupportedException();
+        // Gestor Documental: fuera del alcance de estas pruebas.
+        public DbSet<DocumentoCategoria> DocumentoCategorias => throw new NotSupportedException();
+        public DbSet<DocumentoCarpeta> DocumentoCarpetas => throw new NotSupportedException();
+        public DbSet<Documento> Documentos => throw new NotSupportedException();
+        public DbSet<DocumentoVersion> DocumentoVersiones => throw new NotSupportedException();
+        public DbSet<DocumentoEtiquetaCatalogo> DocumentoEtiquetaCatalogos => throw new NotSupportedException();
+        public DbSet<DocumentoEtiqueta> DocumentoEtiquetas => throw new NotSupportedException();
+        public DbSet<DocumentoDestacadoPersonal> DocumentoDestacadosPersonales => throw new NotSupportedException();
+        public DbSet<DocumentoAuditoria> DocumentoAuditorias => throw new NotSupportedException();
+        public DbSet<DocumentoConsumo> DocumentoConsumos => throw new NotSupportedException();
+        public DbSet<SerieDocumental> SeriesDocumentales => throw new NotSupportedException();
+        public DbSet<SubserieDocumental> SubseriesDocumentales => throw new NotSupportedException();
+        public DbSet<SubserieTipologia> SubserieTipologias => throw new NotSupportedException();
+        public DbSet<SubserieCampo> SubserieCampos => throw new NotSupportedException();
+        public DbSet<Expediente> Expedientes => throw new NotSupportedException();
+        public DbSet<ExpedienteTipologia> ExpedienteTipologias => throw new NotSupportedException();
+        public DbSet<ExpedienteCampo> ExpedienteCampos => throw new NotSupportedException();
         public DbSet<WhatsAppTemplate> WhatsAppTemplates => throw new NotSupportedException();
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();

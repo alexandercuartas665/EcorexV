@@ -3500,6 +3500,172 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    // =======================================================================
+    // Gestor Documental (portado del modulo 2.15 del hermano PROPIA)
+    // =======================================================================
+
+    /// <summary>Slug de la seccion nueva del menu. Es la clave por la que se busca/crea.</summary>
+    private const string GesDocSectionSlug = "gesdoc";
+
+    /// <summary>Ruta del modulo. Es tambien su CLAVE en la matriz de roles (ADR-0033).</summary>
+    private const string GesDocRoute = "gestor-documental";
+
+    /// <summary>
+    /// Codigo del modulo en el legacy (WebForms). NULL a proposito: la regla del proyecto es que
+    /// los legacy_code se LEEN de la BD legacy y nunca se inventan correlativos, y el de este
+    /// modulo esta pendiente de confirmar. Poner aqui el valor real es un cambio de una linea;
+    /// mientras tanto el item de menu vive sin codigo, que es preferible a uno inventado.
+    /// </summary>
+    private const string? GesDocLegacyCode = null;
+
+    /// <summary>
+    /// Crea (idempotente) la seccion "Gestor Documental" con su item en TODAS las vistas de menu
+    /// del tenant. A diferencia de <see cref="EnsureMenuItemInSectionAsync"/>, aqui la seccion
+    /// puede no existir todavia: es nueva, asi que se crea antes de colgar el item.
+    ///
+    /// La seccion se agrega al FINAL (mayor SortOrder + 1) para no reordenar el menu que ya se
+    /// valido con el usuario el 2026-07-22.
+    /// </summary>
+    public async Task EnsureGestorDocumentalMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
+
+        var added = 0;
+        foreach (var viewId in views)
+        {
+            // La ruta manda: si el item ya existe en esta vista (aunque sea en otra seccion), no
+            // se duplica. Mismo criterio que EnsureMenuItemInSectionAsync.
+            var itemExiste = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == viewId && n.Route == GesDocRoute, cancellationToken);
+            if (itemExiste) { continue; }
+
+            var section = await _db.MenuNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.MenuViewId == viewId
+                    && n.Kind == MenuNodeKind.Section && n.Route == GesDocSectionSlug, cancellationToken);
+
+            if (section is null)
+            {
+                var ultimoOrden = await _db.MenuNodes.IgnoreQueryFilters()
+                    .Where(n => n.MenuViewId == viewId && n.ParentId == null)
+                    .Select(n => (int?)n.SortOrder)
+                    .MaxAsync(cancellationToken);
+
+                section = new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = null,
+                    Kind = MenuNodeKind.Section,
+                    Name = "Gestor Documental",
+                    Route = GesDocSectionSlug,
+                    IconKey = "folder",
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = (ultimoOrden ?? -1) + 1
+                };
+                _db.MenuNodes.Add(section);
+                // Se persiste la seccion antes de colgarle el item: el hijo necesita su Id real.
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = viewId,
+                ParentId = section.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Documentos",
+                Route = GesDocRoute,
+                LegacyCode = GesDocLegacyCode,
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = 0
+            });
+            added++;
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Gestor Documental: item de menu agregado a {Count} vista(s) del tenant {Tenant}.",
+                added, tenantId);
+        }
+    }
+
+    /// <summary>
+    /// Siembra las categorias y etiquetas base del Gestor Documental para un tenant.
+    ///
+    /// OJO: en PROPIA estas filas son GLOBALES (TenantId NULL + EsBase). Aqui eso violaria la
+    /// regla 1 (TenantId obligatorio + filtro global), asi que cada tenant recibe SU COPIA y
+    /// EsBase pasa a significar "sembrada por el sistema, no editable", no "compartida".
+    /// Idempotente: si el tenant ya tiene categorias, no se toca nada.
+    /// </summary>
+    public async Task EnsureGestorDocumentalDefaultsAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        if (!await _db.DocumentoCategorias.IgnoreQueryFilters().AnyAsync(c => c.TenantId == tenantId, cancellationToken))
+        {
+            (string Nombre, string Descripcion, string Icono, string Color, int Orden)[] categorias =
+            {
+                ("Contratos", "Contratos, otrosies y anexos con terceros.", "file-text", "#2563eb", 0),
+                ("Legal", "Documentos societarios, poderes y actas.", "scale", "#7c3aed", 1),
+                ("Financiero", "Estados financieros, presupuestos y soportes contables.", "coins", "#059669", 2),
+                ("Recursos humanos", "Hojas de vida, contratos laborales y afiliaciones.", "users", "#d97706", 3),
+                ("Operaciones", "Procedimientos, instructivos y registros de operacion.", "settings", "#0891b2", 4),
+                ("Calidad", "Politicas, manuales y auditorias del sistema de gestion.", "check-square", "#4f46e5", 5),
+                ("Comercial", "Propuestas, cotizaciones y material de venta.", "briefcase", "#db2777", 6),
+                ("Tecnico", "Planos, fichas tecnicas y documentacion de producto.", "cube", "#0d9488", 7),
+                ("General", "Todo lo que no encaja en las demas categorias.", "folder", "#64748b", 8)
+            };
+
+            foreach (var c in categorias)
+            {
+                _db.DocumentoCategorias.Add(new DocumentoCategoria
+                {
+                    TenantId = tenantId,
+                    Nombre = c.Nombre,
+                    Descripcion = c.Descripcion,
+                    Icono = c.Icono,
+                    Color = c.Color,
+                    Orden = c.Orden,
+                    EsBase = true,
+                    Activa = true
+                });
+            }
+        }
+
+        if (!await _db.DocumentoEtiquetaCatalogos.IgnoreQueryFilters().AnyAsync(e => e.TenantId == tenantId, cancellationToken))
+        {
+            (string Nombre, string Color)[] etiquetas =
+            {
+                ("Vigente", "#059669"),
+                ("Vencido", "#dc2626"),
+                ("Confidencial", "#7c3aed"),
+                ("Borrador", "#64748b"),
+                ("Firmado", "#2563eb"),
+                ("Renovar", "#d97706"),
+                ("Archivo historico", "#0891b2")
+            };
+
+            foreach (var e in etiquetas)
+            {
+                _db.DocumentoEtiquetaCatalogos.Add(new DocumentoEtiquetaCatalogo
+                {
+                    TenantId = tenantId,
+                    Nombre = e.Nombre,
+                    Color = e.Color,
+                    EsBase = true,
+                    Activa = true
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     /// <summary>
     /// Alta idempotente de un Item hoja dentro de la seccion (por slug/route) de cada vista del
     /// tenant que aun no tenga ese Route. Tenant-scoped (IgnoreQueryFilters + filtro por TenantId).

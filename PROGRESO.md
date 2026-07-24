@@ -6138,9 +6138,18 @@ comercial, con Richard repetido -> **9 personas unicas**). Backup `ecorex-2026-0
 - **8 usuarios nuevos** rol **Admin**, Active, menu Completo, clave = cedula. El 9no (Gustavo Adolfo
   Russi) YA existia como `calidad@agrometalicas.com` con la misma cedula 1116243150: no se duplico y
   **se dejo como Owner** (decision del usuario; es el unico Owner del tenant).
-- **Organigrama** en el modulo Dependencias (`org_units`, classifier Dependencia/Cargo/Funcionario):
-  Dependencia **AGROMETALICAS** (kind Area, raiz) -> Cargo **Lider** (kind Team) con los **9 usuarios**
-  asignados en `org_unit_members`.
+- **Organigrama** en el modulo Dependencias (`org_units`, classifier Dependencia/Cargo/Funcionario).
+  1er intento (plano, corregido despues): dependencia AGROMETALICAS -> un unico cargo "Lider" con los
+  9 usuarios. **El usuario lo rechazo**: queria la JERARQUIA REAL de cargos, que el Excel si trae en
+  las columnas "Cargo" y "Area / Proceso". Estructura definitiva (rehecha 2026-07-24,
+  backup `ecorex-2026-07-24-1523.sql.gz`): **raiz AGROMETALICAS -> 7 dependencias por area -> 9 cargos
+  reales -> 1 titular por cargo**, cada uno marcado `is_responsible` y como
+  `responsible_tenant_user_id` de su cargo.
+  Gerencia/Mantenimiento(Gerente Administrativo=Diego), Planta(Supervisor de Planta=Julian),
+  Gestion de Compras(Aux. Administrativa y de Compras=Erika), Mejora Continua(Coordinador de
+  Calidad=Gustavo), Gestion Humana(Auxiliar Contable=Maria Jose), Gestion Financiera(Contador
+  externo=Carlos) y **Comercial** con 3 cargos (Coordinador Comercial=Richard, Asesor Comercial=Jorge,
+  Asesora Comercial Externa=Lilian; agrupados porque el Excel los separa en un bloque "Area Comercial").
 - Excepciones de datos del Excel: (a) **Carlos Humberto Villa no trae cedula** -> clave temporal
   `Agro-2026*`, debe cambiarla y hay que comunicarsela; (b) Lilian traia DOS correos en una celda ->
   se uso el corporativo `ventas1@` (decision del usuario); (c) correos normalizados a minuscula.

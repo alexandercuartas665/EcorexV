@@ -11,9 +11,12 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @implements IDisposable
+@using Ecorex.Application.DataLookups
+@using Ecorex.SuperAdmin.Components.Shared.Lookups
 @inject IItemService ItemSvc
 @inject IInventoryCatalogService CatalogSvc
 @inject IItemFieldService FieldSvc
+@inject IDataLookupService LookupSvc
 @inject IJSRuntime JS
 @inject ICurrentPermissions Perms
 @inject ITenantContext TenantCtx
@@ -375,6 +378,24 @@ else
                                         {
                                             <textarea class="form-control" rows="2" value="@GetFieldValue(f.FieldKey)" @onchange="@(e => SetFieldValue(f.FieldKey, e.Value?.ToString()))"></textarea>
                                         }
+                                        else if (f.FieldType == TerceroFieldType.Lookup)
+                                        {
+                                            @* Lista alimentada por el Contenedor de datos: guarda el ID de
+                                               la fila, no su texto (la etiqueta se resuelve al mostrar). *@
+                                            @if (LookupCfgOf(f) is { } lkCfg)
+                                            {
+                                                <DataLookupField Config="lkCfg"
+                                                                 Value="@GetFieldValue(f.FieldKey)"
+                                                                 ValueChanged="v => SetFieldValue(f.FieldKey, v)"
+                                                                 FormValues="_fieldValues"
+                                                                 ActorUserId="@(TenantCtx.UserId ?? Guid.Empty)"
+                                                                 Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
+                                            }
+                                            else
+                                            {
+                                                <div class="inv-calc-warn">Este campo aun no tiene configurada su tabla de origen.</div>
+                                            }
+                                        }
                                         else if (f.FieldType == TerceroFieldType.Calculated)
                                         {
                                             @* No se captura: sale de la formula y se rehace al escribir (ADR-0029). *@
@@ -654,7 +675,9 @@ else
                             </div>
                             <div class="col-md-6 field">
                                 <label class="form-label">Tipo de campo</label>
-                                <select class="form-control" @bind="_cfgFieldType">
+                                @* @bind:after: el tipo "Lista del Contenedor" necesita cargar el
+                                   catalogo de modelos de datos al elegirse. *@
+                                <select class="form-control" @bind="_cfgFieldType" @bind:after="OnCfgFieldTypeChangedAsync">
                                     <option value="@TerceroFieldType.Text">Texto</option>
                                     <option value="@TerceroFieldType.TextArea">Texto largo</option>
                                     <option value="@TerceroFieldType.Number">Numero</option>
@@ -664,6 +687,7 @@ else
                                     <option value="@TerceroFieldType.Phone">Telefono</option>
                                     <option value="@TerceroFieldType.Separator">Separador</option>
                                     <option value="@TerceroFieldType.Calculated">Calculado</option>
+                                    <option value="@TerceroFieldType.Lookup">Lista del Contenedor de datos</option>
                                 </select>
                             </div>
                         </div>
@@ -672,6 +696,68 @@ else
                             <div class="field">
                                 <label class="form-label">Opciones (una por linea)</label>
                                 <textarea class="form-control" rows="3" @bind="_cfgOptions"></textarea>
+                            </div>
+                        }
+                        @if (_cfgFieldType == TerceroFieldType.Lookup)
+                        {
+                            @* Modelo -> tabla -> columna. Todo por ID: renombrar una columna en el
+                               Contenedor no rompe la configuracion en silencio. *@
+                            <div class="row g-2">
+                                <div class="col-md-6 field">
+                                    <label class="form-label">Modelo de datos *</label>
+                                    <select class="form-control" value="@(_lkModelId?.ToString() ?? "")"
+                                            @onchange="OnLookupModelChangedAsync">
+                                        <option value="">-- Elige un modelo --</option>
+                                        @foreach (var m in _lkModels)
+                                        {
+                                            <option value="@m.Id" selected="@(_lkModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-6 field">
+                                    <label class="form-label">Tabla *</label>
+                                    <select class="form-control" value="@(_lkTableId?.ToString() ?? "")"
+                                            @onchange="OnLookupTableChangedAsync" disabled="@(_lkModelId is null)">
+                                        <option value="">-- Elige una tabla --</option>
+                                        @foreach (var t in _lkTables)
+                                        {
+                                            <option value="@t.Id" selected="@(_lkTableId == t.Id)">@t.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-6 field">
+                                    <label class="form-label">Columna que se muestra</label>
+                                    <select class="form-control" value="@(_lkDisplayCol?.ToString() ?? "")"
+                                            @onchange="e => _lkDisplayCol = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                            disabled="@(_lkColumns.Count == 0)">
+                                        <option value="">-- Automatica (primera de texto) --</option>
+                                        @foreach (var c in _lkColumns)
+                                        {
+                                            <option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-md-6 field">
+                                    <label class="form-label">Presentacion</label>
+                                    <select class="form-control" value="@_lkDisplayMode"
+                                            @onchange="e => _lkDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                        <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                        <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 field">
+                                    <label style="display:flex;align-items:center;gap:8px;">
+                                        <input type="checkbox" checked="@_lkAllowCreate"
+                                               @onchange="e => _lkAllowCreate = (bool)(e.Value ?? false)" />
+                                        <span>Permitir crear registros nuevos desde el campo</span>
+                                    </label>
+                                </div>
+                                @if (_lkModels.Count == 0)
+                                {
+                                    <div class="col-12 inv-fld-help">
+                                        No hay modelos de datos todavia. Crealos en <a href="/contenedor-datos">Contenedor de datos</a>.
+                                    </div>
+                                }
                             </div>
                         }
                         @if (_cfgFieldType == TerceroFieldType.Calculated)
@@ -955,6 +1041,16 @@ else
     private string _cfgLabel = "";
     private TerceroFieldType _cfgFieldType = TerceroFieldType.Text;
     private string? _cfgOptions;
+
+    // ---- Campo tipo "Lista del Contenedor de datos" (TerceroFieldType.Lookup) ----
+    private List<LookupModelDto> _lkModels = new();
+    private List<LookupTableDto> _lkTables = new();
+    private List<LookupColumnDto> _lkColumns = new();
+    private Guid? _lkModelId;
+    private Guid? _lkTableId;
+    private Guid? _lkDisplayCol;
+    private DataLookupDisplayMode _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+    private bool _lkAllowCreate;
     private string? _cfgDescription;
     private int _cfgColumn = 1;
     private bool _cfgRequired;
@@ -1315,12 +1411,84 @@ else
             : [];
     });
 
-    private void EditCfgField(ItemFieldDto f)
+    // ---- Lookup: catalogo, cascada y (de)serializacion de la config ----
+
+    private async Task OnCfgFieldTypeChangedAsync()
+    {
+        if (_cfgFieldType == TerceroFieldType.Lookup && _lkModels.Count == 0)
+        {
+            _lkModels = (await LookupSvc.ListModelsAsync()).ToList();
+        }
+    }
+
+    private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
+    {
+        _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkColumns.Clear();
+        _lkTables = _lkModelId is Guid mid ? (await LookupSvc.ListTablesAsync(mid)).ToList() : new();
+    }
+
+    private async Task OnLookupTableChangedAsync(ChangeEventArgs e)
+    {
+        _lkTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkDisplayCol = null; // cambiar de tabla invalida la columna elegida
+        _lkColumns = _lkTableId is Guid tid ? (await LookupSvc.ListColumnsAsync(tid)).ToList() : new();
+    }
+
+    private void ResetLookupCfg()
+    {
+        _lkModelId = null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+        _lkAllowCreate = false;
+        _lkTables = new();
+        _lkColumns = new();
+    }
+
+    private async Task LoadLookupCfgAsync(string? options)
+    {
+        ResetLookupCfg();
+        var cfg = DataLookupConfig.TryParse(options);
+        if (cfg is null) { return; }
+        if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
+        _lkModelId = cfg.ModelId;
+        _lkTableId = cfg.TableId;
+        _lkDisplayCol = cfg.DisplayColumnId;
+        _lkDisplayMode = cfg.DisplayMode;
+        _lkAllowCreate = cfg.AllowCreate;
+        if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
+        _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
+    }
+
+    /// <summary>Serializa la config del lookup al mismo campo Options (JSON), sin columnas nuevas.</summary>
+    private string? BuildLookupOptions()
+    {
+        if (_lkTableId is not Guid tid) { return null; }
+        var tabla = _lkTables.FirstOrDefault(t => t.Id == tid);
+        return new DataLookupConfig(
+            tid,
+            ModelId: _lkModelId,
+            DisplayColumnId: _lkDisplayCol,
+            TableName: tabla?.Name,
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name,
+            DisplayMode: _lkDisplayMode,
+            AllowCreate: _lkAllowCreate).ToJson();
+    }
+
+    /// <summary>Config del lookup de un campo ya guardado, para renderizarlo al llenar el item.</summary>
+    private static DataLookupConfig? LookupCfgOf(ItemFieldDto f) => DataLookupConfig.TryParse(f.Options);
+
+    private async Task EditCfgField(ItemFieldDto f)
     {
         _cfgEditId = f.Id;
         _cfgLabel = f.Label;
         _cfgFieldType = f.FieldType;
         _cfgOptions = f.Options;
+        if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
+        else { ResetLookupCfg(); }
         _cfgDescription = f.Description;
         _cfgColumn = Math.Clamp(f.Column, 1, 3);
         _cfgRequired = f.IsRequired;
@@ -1336,6 +1504,7 @@ else
         _cfgLabel = "";
         _cfgFieldType = TerceroFieldType.Text;
         _cfgOptions = null;
+        ResetLookupCfg();
         _cfgDescription = null;
         _cfgColumn = 1;
         _cfgRequired = false;
@@ -1451,6 +1620,14 @@ else
             {
                 _cfgFormulaError = await FieldSvc.ValidateFormulaAsync(formula, typeId, _cfgEditId, CfgEditingKey());
                 if (_cfgFormulaError is not null) { return; }
+            }
+
+            // La config del lookup viaja serializada en el MISMO campo Options (JSON), como en el
+            // tercero: no hace falta ninguna columna nueva.
+            if (_cfgFieldType == TerceroFieldType.Lookup)
+            {
+                _cfgOptions = BuildLookupOptions();
+                if (_cfgOptions is null) { _cfgError = "Elige el modelo y la tabla de origen."; return; }
             }
 
             if (_cfgEditId is Guid editId)

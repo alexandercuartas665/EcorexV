@@ -6132,6 +6132,23 @@ lienzo ER) -> `data_container_columns` -> `data_container_rows` + `data_containe
   intento. Verificado: los 9 conteos coinciden con el Excel; acentos correctos (Sector economico).
 - NO se modifico codigo (peticion del usuario): solo INSERTs en el modulo existente.
 
+**Lideres y organigrama de AGROMETALICAS (2026-07-24, por SQL directo):** cargados del Excel
+`consolidado de lideres y cargos AGROMETALICAS ROJAS.xlsx` (2 bloques: 7 lideres + 3 del area
+comercial, con Richard repetido -> **9 personas unicas**). Backup `ecorex-2026-07-24-1105.sql.gz`.
+- **8 usuarios nuevos** rol **Admin**, Active, menu Completo, clave = cedula. El 9no (Gustavo Adolfo
+  Russi) YA existia como `calidad@agrometalicas.com` con la misma cedula 1116243150: no se duplico y
+  **se dejo como Owner** (decision del usuario; es el unico Owner del tenant).
+- **Organigrama** en el modulo Dependencias (`org_units`, classifier Dependencia/Cargo/Funcionario):
+  Dependencia **AGROMETALICAS** (kind Area, raiz) -> Cargo **Lider** (kind Team) con los **9 usuarios**
+  asignados en `org_unit_members`.
+- Excepciones de datos del Excel: (a) **Carlos Humberto Villa no trae cedula** -> clave temporal
+  `Agro-2026*`, debe cambiarla y hay que comunicarsela; (b) Lilian traia DOS correos en una celda ->
+  se uso el corporativo `ventas1@` (decision del usuario); (c) correos normalizados a minuscula.
+- **Se intento cargar por la UI con Chrome MCP (peticion del usuario) y NO fue posible**: el login por
+  POST nativo si entro, pero la extension empezo a dar timeouts de CDP (`Page.captureScreenshot` y
+  `Runtime.evaluate` a 30-45s) y las pestanas rebotaban a `chrome://newtab`. Se verifico que **el
+  problema NO era la app** (contenedor sano: CPU 0.3%, sin excepciones en el log). Se cargo por SQL.
+
 **Diseno + construccion de CONTACTO CLIENTE (FRM-00005) (2026-07-17):** primera rama dedicada a formularios.
 (1) Se diseno el formulario (artefacto visual entregado + mapa de campos) con decisiones del usuario:
 consecutivo transaccional read-only, cliente texto libre, contactos en GridDetail, valor condicionado.

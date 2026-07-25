@@ -6150,6 +6150,26 @@ comercial, con Richard repetido -> **9 personas unicas**). Backup `ecorex-2026-0
   Calidad=Gustavo), Gestion Humana(Auxiliar Contable=Maria Jose), Gestion Financiera(Contador
   externo=Carlos) y **Comercial** con 3 cargos (Coordinador Comercial=Richard, Asesor Comercial=Jorge,
   Asesora Comercial Externa=Lilian; agrupados porque el Excel los separa en un bloque "Area Comercial").
+
+**Formulario "SIMULADOR COTIZACIONES" en AGROMETALICAS (2026-07-25, por SQL directo):** cotizador de
+lamina metalica creado desde `MODELO COTIZACION (2).xlsx`. Replica la estructura del COT de SKY: form
+`form_definitions` code **COT** (unico por tenant), transaccional, **Draft**. Backup
+`ecorex-2026-07-25-0954.sql.gz`.
+- **16 campos de cabecera** (N. Cotizacion, Cliente, Telefono, % Descuento/Lamina/Servicios,
+  encabezados de seccion, el GridDetail, y los totales Sub total / con descuento / IVA / Total /
+  % Utilidad, Observaciones).
+- **Tabla `items` (GridDetail)** con **25 columnas** en `options_json` (mismo mecanismo que COT:
+  `{id,label,type,calc}`): detalle, cantidad, espesor, calibre, tipo_lamina (select HR/INOX/ALFAJOR/
+  GALVANIZADA/CR), largo, ancho, kg_und, kg_total, precios de lamina, costos, cortes, doblez, rolado
+  (select SI/NO), servicios y costos. **9 columnas con formula aritmetica** (peso, costos, precios,
+  servicios, totales de linea): `kg_und={largo}*{ancho}*{espesor}*7.85/1000000`, etc.
+- **PENDIENTE (mismo bloque de desarrollo que el COT de SKY, D6-D11):** (a) los precios de LAMINA y de
+  SERVICIOS que en el Excel salen por LOOKUP de la hoja "32" (por tipo de lamina y por espesor) se
+  dejaron como campos de ENTRADA -> requieren el motor de lookup en columnas de tabla; (b) los TOTALES
+  de cabecera (subtotal/IVA/total) requieren SUMIF sobre la grilla; (c) el % IVA quedo implicito.
+  El formulario queda en Draft; NO evaluara las formulas hasta que ese motor exista.
+- El peso usa densidad 7.85 (acero) en todas las filas, igual que el Excel (verificado contra ITEM 1
+  y el ALFAJOR). Si INOX/otros necesitan densidad propia, es ajuste posterior.
 - Excepciones de datos del Excel: (a) **Carlos Humberto Villa no trae cedula** -> clave temporal
   `Agro-2026*`, debe cambiarla y hay que comunicarsela; (b) Lilian traia DOS correos en una celda ->
   se uso el corporativo `ventas1@` (decision del usuario); (c) correos normalizados a minuscula.

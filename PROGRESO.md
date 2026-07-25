@@ -6275,6 +6275,28 @@ evaluador soporta `+ - * /`, parentesis, comparadores, referencia a fila `{campo
   se configuraron con `aggregate` sobre la grilla -> es CONFIG, no desarrollo; (b) los precios de
   lamina/servicio siguen siendo ENTRADA -> se pueden auto-llenar via lookup a un contenedor de tarifas
   (soportado por el motor) cuando se cargue la hoja "32". Ninguna de las dos exige tocar codigo.
+
+**Ancho por columna + tarjeta ancha del cotizador, y REDESPLIEGUE de prod (2026-07-25):** el usuario
+pidio columnas mas anchas segun contenido y ver el formulario en horizontal (tarjeta ancha). La sesion
+de desarrollo lo implemento como CODIGO (commit `6e105c5`): `FormGridColumn.Width` (lee `"width"`/`"w"`
+del options_json) renderizado como `<colgroup><col style=width>` con `table-layout:fixed`; y
+`form_definitions.card_layout` (enum Normal/Ancho/Completo, migracion DUAL) aplicado via clase
+`dfr-cw-*` en el renderer cuando el host pasa `ApplyCardWidth`.
+- Esta sesion aplico los DATOS: `card_layout='Ancho'` + `"width"` por columna en el `options_json` del
+  GridDetail COT (mapa por contenido: detalle 200, cantidad 70, ... costo_total 120). Backup
+  `ecorex-2026-07-25-1226.sql.gz`.
+- **DIAGNOSTICO clave:** al probar, NADA se veia. Causa: el CONTENEDOR de la app en prod era del
+  **2026-07-23** y el commit del dev del **2026-07-25** -> prod corria el binario VIEJO (sin el render
+  de colgroup/card-width). No era dato ni bug: **faltaba redesplegar**.
+- **Redespliegue de prod (autorizado por el usuario):** backup `ecorex-2026-07-25-1256.sql.gz`, luego
+  `docker compose -f docker-compose.from-git.yml -p ecorex-prod build --no-cache` (clona la rama de
+  GitHub, que ya tenia `6e105c5`) + `up -d`. Migracion `AddFormCardLayout` ya estaba registrada (141
+  migraciones) -> sin conflicto. App arranco sana (login 200, sin errores).
+- **Verificado en la URL publica tras el deploy:** `<colgroup>` con los anchos (200/70/80...),
+  `table-layout:fixed`, tabla de 2070px con scroll horizontal dentro de la tarjeta, y la tarjeta ancha
+  (`dfr-cw-ancho`, 1160px). Las formulas siguen calculando.
+- Nota: el redespliegue trajo TODO `6e105c5` (ademas de forms: etiquetas y tiempo por columna en
+  tableros, eliminar registro, autocompletado de contacto).
 - Excepciones de datos del Excel: (a) **Carlos Humberto Villa no trae cedula** -> clave temporal
   `Agro-2026*`, debe cambiarla y hay que comunicarsela; (b) Lilian traia DOS correos en una celda ->
   se uso el corporativo `ventas1@` (decision del usuario); (c) correos normalizados a minuscula.

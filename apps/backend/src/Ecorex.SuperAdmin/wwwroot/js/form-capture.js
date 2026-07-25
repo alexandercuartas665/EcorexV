@@ -63,5 +63,58 @@ window.ecorexFormCapture = (function () {
     });
   }
 
-  return { initSignature, signatureData, clearSignature, testStroke, geolocate };
+  // ---- Panel de lookup de CELDA de tabla (GridDetail) ----
+  //
+  // El panel de resultados de una celda-lookup es position:fixed (ver .dfr-gridlk-panel) para no
+  // ser recortado por el scroller horizontal de la tabla. Aqui se ancla al input de su celda:
+  // se abre justo debajo, alineado a la izquierda, y se voltea hacia arriba si no cabe abajo.
+  // Se llama tras cada render con paneles abiertos y ante cualquier scroll/resize (por eso los
+  // listeners con capture:true, que si atrapan el scroll del div interno).
+
+  function placeOnePanel(panel) {
+    const cell = panel.closest('.dfr-gridlk');
+    const input = cell ? cell.querySelector('input') : null;
+    if (!input) { return; }
+    const r = input.getBoundingClientRect();
+    const margen = 4;
+    const anchoVp = document.documentElement.clientWidth;
+    const altoVp = document.documentElement.clientHeight;
+
+    // Ancho: al menos el del input, respetando el min-width del CSS; sin salirse del viewport.
+    const ancho = Math.min(Math.max(r.width, 240), anchoVp - 16);
+    panel.style.width = ancho + 'px';
+
+    // Izquierda: alineado al input, clampeado para no salirse por la derecha.
+    let left = r.left;
+    if (left + ancho > anchoVp - 8) { left = anchoVp - 8 - ancho; }
+    if (left < 8) { left = 8; }
+    panel.style.left = left + 'px';
+
+    // Arriba/abajo: debajo del input; si no cabe (queda mas espacio arriba), se voltea.
+    const alto = panel.offsetHeight || 260;
+    const espacioAbajo = altoVp - r.bottom;
+    if (espacioAbajo < alto + margen && r.top > espacioAbajo) {
+      panel.style.top = Math.max(8, r.top - alto - margen) + 'px';
+    } else {
+      panel.style.top = (r.bottom + margen) + 'px';
+    }
+  }
+
+  let listenersOn = false;
+  function positionCellPanels() {
+    const panels = document.querySelectorAll('.dfr-gridlk-panel');
+    panels.forEach(placeOnePanel);
+    // Alta perezosa de listeners: solo la primera vez que hay un panel. capture:true atrapa el
+    // scroll de contenedores internos (el scroller de la tabla) ademas del de la ventana.
+    if (!listenersOn && panels.length > 0) {
+      listenersOn = true;
+      const reflow = () => {
+        if (document.querySelector('.dfr-gridlk-panel')) { positionCellPanels(); }
+      };
+      window.addEventListener('scroll', reflow, true);
+      window.addEventListener('resize', reflow);
+    }
+  }
+
+  return { initSignature, signatureData, clearSignature, testStroke, geolocate, positionCellPanels };
 })();

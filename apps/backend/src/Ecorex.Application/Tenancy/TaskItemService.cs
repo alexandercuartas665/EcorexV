@@ -235,6 +235,8 @@ public sealed class TaskItemService : ITaskItemService
             BoardId = boardId,
             ColumnId = columnId,
             BoardSortOrder = boardSortOrder,
+            // Si nace dentro de una columna, el reloj de "tiempo en columna" arranca ahora.
+            ColumnEnteredAt = columnId is null ? null : DateTimeOffset.UtcNow,
             RequesterName = Normalize(request.RequesterName),
             RequesterEmail = Normalize(request.RequesterEmail),
             RequesterPhone = Normalize(request.RequesterPhone),
@@ -765,6 +767,25 @@ public sealed class TaskItemService : ITaskItemService
         return TaskCoreResult<TaskItemTagDto>.Ok(new TaskItemTagDto(tag.Id, tag.Name, tag.Color));
     }
 
+    public async Task<int> CountTagUsageAsync(Guid tagId, CancellationToken cancellationToken = default)
+        => await _db.TaskItemTagAssignments.AsNoTracking()
+            .CountAsync(a => a.TagId == tagId && !a.TaskItem!.IsArchived, cancellationToken);
+
+    public async Task<TaskCoreResult<bool>> DeleteTagAsync(Guid tagId, CancellationToken cancellationToken = default)
+    {
+        var tag = await _db.TaskItemTags.FirstOrDefaultAsync(t => t.Id == tagId, cancellationToken);
+        if (tag is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Etiqueta no encontrada.");
+        }
+        // La etiqueta es un catalogo (lookup), no un agregado de negocio con historia propia: se
+        // borra de verdad. La BD limpia en cascada sus asignaciones (task_item_tag_assignments) y
+        // las restricciones por columna (task_board_column_tags); no hace falta borrarlas a mano.
+        _db.TaskItemTags.Remove(tag);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
     public async Task<TaskCoreResult<bool>> AttachTagAsync(Guid taskId, Guid tagId, CancellationToken cancellationToken = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)
@@ -783,6 +804,20 @@ public sealed class TaskItemService : ITaskItemService
         if (await _db.TaskItemTagAssignments.AnyAsync(a => a.TaskItemId == taskId && a.TagId == tagId, cancellationToken))
         {
             return TaskCoreResult<bool>.Ok(false);
+        }
+        // Restriccion por columna: si la columna de la tarea acota etiquetas, solo se aceptan las
+        // suyas. Se valida AQUI y no solo en la UI: el servicio es el guardian, la pantalla es una
+        // conveniencia. Columna sin restriccion (o tarea sin columna) => se permite cualquiera.
+        if (task.ColumnId is Guid columnId)
+        {
+            var permitidas = await _db.TaskBoardColumnTags.AsNoTracking()
+                .Where(ct => ct.ColumnId == columnId)
+                .Select(ct => ct.TagId)
+                .ToListAsync(cancellationToken);
+            if (permitidas.Count > 0 && !permitidas.Contains(tagId))
+            {
+                return TaskCoreResult<bool>.Invalid("Esa etiqueta no esta permitida en la columna actual de la tarea.");
+            }
         }
         _db.TaskItemTagAssignments.Add(new TaskItemTagAssignment
         {
@@ -805,6 +840,82 @@ public sealed class TaskItemService : ITaskItemService
         _db.TaskItemTagAssignments.Remove(assignment);
         await _db.SaveChangesAsync(cancellationToken);
         return TaskCoreResult<bool>.Ok(true);
+    }
+
+    // ---- Etiquetas permitidas por columna (restriccion) ----
+
+    public async Task<IReadOnlyList<TaskItemTagDto>> ListColumnAllowedTagsAsync(Guid columnId, CancellationToken cancellationToken = default)
+    {
+        // Se ordena por la COLUMNA de la entidad (t.Name) antes de proyectar: ordenar por una
+        // propiedad del DTO ya construido tras el Join no es traducible a SQL (crashea la query).
+        return await _db.TaskBoardColumnTags.AsNoTracking()
+            .Where(ct => ct.ColumnId == columnId)
+            .Join(_db.TaskItemTags.AsNoTracking(), ct => ct.TagId, t => t.Id, (ct, t) => t)
+            .OrderBy(t => t.Name)
+            .Select(t => new TaskItemTagDto(t.Id, t.Name, t.Color))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<TaskCoreResult<bool>> SetColumnAllowedTagsAsync(Guid columnId, IReadOnlyList<Guid> tagIds, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return TaskCoreResult<bool>.Invalid("No hay tenant activo.");
+        }
+        var column = await _db.TaskBoardColumns.AsNoTracking().FirstOrDefaultAsync(c => c.Id == columnId, cancellationToken);
+        if (column is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Columna no encontrada.");
+        }
+
+        // Solo etiquetas del catalogo del tenant: el filtro global ya acota, pero se comprueba que
+        // los ids existan para no guardar referencias muertas.
+        var deseadas = tagIds.Distinct().ToList();
+        var validas = deseadas.Count == 0
+            ? new List<Guid>()
+            : await _db.TaskItemTags.AsNoTracking()
+                .Where(t => deseadas.Contains(t.Id))
+                .Select(t => t.Id)
+                .ToListAsync(cancellationToken);
+        var validasSet = validas.ToHashSet();
+
+        var actuales = await _db.TaskBoardColumnTags
+            .Where(ct => ct.ColumnId == columnId)
+            .ToListAsync(cancellationToken);
+        var actualesSet = actuales.Select(ct => ct.TagId).ToHashSet();
+
+        // Replace-all diferencial: se quita lo que sobra y se agrega lo que falta (evita reescribir
+        // filas que no cambian). Toda la operacion en una transaccion.
+        await using var tx = await _db.BeginTransactionAsync(cancellationToken);
+        _db.TaskBoardColumnTags.RemoveRange(actuales.Where(ct => !validasSet.Contains(ct.TagId)));
+        foreach (var tagId in validasSet.Where(id => !actualesSet.Contains(id)))
+        {
+            _db.TaskBoardColumnTags.Add(new TaskBoardColumnTag
+            {
+                TenantId = tenantId,
+                ColumnId = columnId,
+                TagId = tagId
+            });
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    public async Task<IReadOnlyList<TaskItemTagDto>> ListAssignableTagsForTaskAsync(Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var columnId = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Id == taskId)
+            .Select(t => t.ColumnId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (columnId is Guid col)
+        {
+            var permitidas = await ListColumnAllowedTagsAsync(col, cancellationToken);
+            // Columna que restringe: solo sus etiquetas. Columna sin restriccion: cae al catalogo.
+            if (permitidas.Count > 0) { return permitidas; }
+        }
+        return await ListTagsAsync(cancellationToken);
     }
 
     // ---- Checklist (ADR-0020) ----

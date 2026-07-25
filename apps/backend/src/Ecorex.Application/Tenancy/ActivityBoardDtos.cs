@@ -37,7 +37,10 @@ public sealed record ActivityBoardIndexFilter(
     DateTimeOffset? DueTo = null,
     bool IncludeArchived = false,
     // Ola 2 UI: dropdown "Fecha" del indice (Con fecha limite / Sin fecha). Null = todas.
-    bool? HasDueDate = null);
+    bool? HasDueDate = null,
+    // Dropdown "Categoria" del indice: agrupador de tipos de actividad (ActivityType.Category).
+    // Filtra los tableros con alguna tarea cuyo tipo esta en esa categoria. Null = todas.
+    string? CategoryName = null);
 
 public sealed record CreateActivityBoardRequest(
     string Name, string? Description = null, string? Color = null,
@@ -105,7 +108,10 @@ public sealed record ActivityCardDto(
     Guid ColumnId, int BoardSortOrder, long Version,
     // Ola 3 (aditivo): fecha de creacion para la vista Gantt (si la tarea no tiene
     // StartDate, la barra arranca en CreatedAt segun el prototipo).
-    DateTimeOffset CreatedAt = default);
+    DateTimeOffset CreatedAt = default,
+    // Momento en que la tarjeta entro a su columna actual. Null en tareas anteriores a la
+    // funcion; la UI cae a CreatedAt para mostrar "cuanto lleva aqui".
+    DateTimeOffset? ColumnEnteredAt = null);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,

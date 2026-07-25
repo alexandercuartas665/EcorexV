@@ -889,6 +889,26 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tb-state-row .form-control { flex: 1; }
 .tb-state-done { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap; cursor: pointer; }
 .tb-states-hint { font-size: 11.5px; color: var(--muted-foreground); margin-top: 10px; }
+/* Etiquetas permitidas por columna (restriccion): panel que se expande bajo la fila del estado. */
+.tb-icon-btn.on { background: var(--accent); color: var(--foreground); border-color: var(--foreground); }
+.tb-coltags { margin: 2px 0 6px 30px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; background: var(--accent); }
+.tb-coltags-hint { font-size: 11.5px; color: var(--muted-foreground); margin-bottom: 8px; }
+.tb-coltags-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-tagchip-wrap { display: inline-flex; align-items: center; }
+.tb-tagchip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px 0 0 999px; background: var(--card); font-size: 11.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.tb-tagchip:disabled { opacity: .55; cursor: default; }
+/* Boton "x" para borrar la etiqueta del catalogo, pegado al chip. */
+.tb-tagchip-x { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 22px; padding: 0; border: 1px solid var(--border); border-left: none; border-radius: 0 999px 999px 0; background: var(--card); color: var(--muted-foreground); font-size: 14px; line-height: 1; cursor: pointer; font-family: inherit; }
+.tb-tagchip-x:hover:not(:disabled) { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.tb-tagchip-x:disabled { opacity: .55; cursor: default; }
+/* Alta rapida de etiqueta con color, dentro del panel de la columna. */
+.tb-tagnew { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.tb-tagnew-row { display: flex; align-items: center; gap: 7px; }
+.tb-tagnew-row .form-control { flex: 1; }
+.tb-tagnew-swatch { width: 22px; height: 22px; border-radius: 6px; flex: none; border: 1px solid rgba(0,0,0,.12); }
+.tb-tagnew-palette { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.tb-tagnew-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.tb-tagnew-dot.on { border-color: var(--foreground); box-shadow: 0 0 0 2px var(--card) inset; }
 .tb-card-desc { font-size: 12.5px; color: var(--muted-foreground); margin-bottom: 12px; min-height: 32px; }
 .tb-card-foot { display: flex; gap: 8px; font-size: 11px; color: var(--muted-foreground); }
 .tb-card-stat { background: var(--accent); padding: 3px 10px; border-radius: 999px; }
@@ -1486,6 +1506,19 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-tag.tk-cc { background: var(--accent); color: var(--primary); }
 .tk-tag-x { border: none; background: none; color: inherit; font-size: 13px; line-height: 1; cursor: pointer; padding: 0 1px; opacity: .75; }
 .tk-tag-x:hover { opacity: 1; }
+/* Edicion de etiquetas de la tarea en el detalle (varias por tarea; la columna puede restringir). */
+.tk-tags-row .tk-tags-edit { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; justify-content: flex-end; }
+.tk-tag-remove { cursor: pointer; font-weight: 700; margin-left: 1px; opacity: .8; }
+.tk-tag-remove:hover { opacity: 1; }
+.tk-tags-none { font-size: 11.5px; color: var(--muted-foreground); }
+.tk-tag-add-wrap { position: relative; display: inline-block; }
+.tk-tag-add { border: 1px dashed var(--border); background: var(--card); color: var(--muted-foreground); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 5px; cursor: pointer; font-family: inherit; }
+.tk-tag-add:hover { color: var(--foreground); border-color: var(--foreground); }
+.tk-tag-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 170px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 5px; max-height: 220px; overflow-y: auto; }
+.tk-tag-menu-empty { font-size: 11.5px; color: var(--muted-foreground); padding: 8px 10px; }
+.tk-tag-menu-opt { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; border: none; background: none; padding: 6px 10px; border-radius: 6px; font-size: 12.5px; color: var(--foreground); cursor: pointer; font-family: inherit; }
+.tk-tag-menu-opt:hover { background: var(--accent); }
+.tk-tag-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .tk-tagpicker-pop { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); padding: 5px; max-height: 210px; overflow-y: auto; }
 .tk-tagpicker-item { display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
 .tk-tagpicker-item:hover { background: var(--muted); }

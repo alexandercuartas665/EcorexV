@@ -2121,7 +2121,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("000850", "Dependencias", "Organigrama del tenant: areas, equipos y responsables.", "/dependencias", ModuleArea.Sistema, false),
             ("000109", "Modulos web", "Registro de modulos del sistema y estado por tenant.", "/modulos-web", ModuleArea.Sistema, true),
             ("000788", "Power BI", "Tableros analiticos embebidos (placeholder).", null, ModuleArea.Sistema, false),
-            ("000867", "Agentes IA", "Agentes de IA gobernados por el AI Gateway (placeholder).", null, ModuleArea.Sistema, false)
+            ("000867", "Agentes IA", "Agentes de IA gobernados por el AI Gateway (placeholder).", null, ModuleArea.Sistema, false),
+            ("000894", "Documentos", "Gestor Documental: archivo central (categoria/carpeta/documento con versiones) y expedientes (TRD).", "/gestor-documental", ModuleArea.Sistema, false)
         };
 
         var existing = await _db.ModuleDefinitions
@@ -3511,12 +3512,14 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     private const string GesDocRoute = "gestor-documental";
 
     /// <summary>
-    /// Codigo del modulo en el legacy (WebForms). NULL a proposito: la regla del proyecto es que
-    /// los legacy_code se LEEN de la BD legacy y nunca se inventan correlativos, y el de este
-    /// modulo esta pendiente de confirmar. Poner aqui el valor real es un cambio de una linea;
-    /// mientras tanto el item de menu vive sin codigo, que es preferible a uno inventado.
+    /// Codigo del modulo. El Gestor Documental es un modulo NUEVO de ECOREX (no un heredado del
+    /// WebForms), asi que no hay un legacy_code que leer: por decision del usuario (2026-07-24) se
+    /// asigna el CONSECUTIVO siguiente al ultimo en uso. Al asignarlo, 000893 era el maximo entre
+    /// module_definitions y menu_nodes, de modo que este es 000894. No colisiona con la regla de
+    /// "no inventar correlativos", que aplica a modulos que SI existen en el legacy y cuyo codigo
+    /// hay que respetar; aqui simplemente no existe origen.
     /// </summary>
-    private const string? GesDocLegacyCode = null;
+    private const string GesDocLegacyCode = "000894";
 
     /// <summary>
     /// Crea (idempotente) la seccion "Gestor Documental" con su item en TODAS las vistas de menu

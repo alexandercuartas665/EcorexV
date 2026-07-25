@@ -50,6 +50,15 @@
         .fpr-toolbar { display: none; }
         .fpr-wrap { max-width: none; padding: 0; }
         .fpr-row { break-inside: avoid; }
+        /* GridDetail ancho en A4: no hay scroll en papel, asi que la tabla se ENCOGE para caber.
+           Decision (documentada en PROGRESO): imprime a lo ancho de la pagina con fuente reducida
+           y el texto de cada celda se parte; no fuerza horizontal (eso queda a criterio del que
+           imprime desde el dialogo del navegador). Con muchas columnas quedara apretado pero
+           completo y legible. */
+        .fpr-gtable { table-layout: fixed; width: 100%; font-size: 9px; }
+        .fpr-gtable th, .fpr-gtable td {
+            padding: 2px 3px; word-break: break-word; overflow-wrap: anywhere;
+        }
     }
 </style>
 

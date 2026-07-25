@@ -71,6 +71,14 @@ public class TaskItem : TenantEntity, IVersioned
     /// <summary>Posicion vertical de la tarjeta dentro de su columna (0 = arriba).</summary>
     public int BoardSortOrder { get; set; }
 
+    /// <summary>
+    /// Momento en que la tarjeta ENTRO a su columna actual. Se re-sella cada vez que la tarea
+    /// cambia de columna (mover en el tablero); NO cambia al reordenar dentro de la misma columna.
+    /// Sirve para "cuanto lleva aqui" en la tarjeta. Null en tareas anteriores a esta funcion: la
+    /// UI cae a CreatedAt, que es lo mas cercano a la verdad para una tarjeta que nunca se movio.
+    /// </summary>
+    public DateTimeOffset? ColumnEnteredAt { get; set; }
+
     // Solicitante externo (quien pidio la tarea, no necesariamente un usuario del sistema).
     public string? RequesterName { get; set; }
     public string? RequesterEmail { get; set; }

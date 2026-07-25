@@ -5,6 +5,93 @@
 
 ---
 
+## 2026-07-25 - Tableros (etiquetas por columna, tiempo en columna, filtro), eliminar registro de formulario, GridDetail responsive + ancho por columna + ancho de tarjeta, autocompletado de contacto
+
+**Agentes**: Claude (Opus 4.8) + 2 subagentes Explore (mapeo de Directorio/Tercero para el autocompletado).
+
+### Hecho (todo verificado en Chrome salvo lo anotado)
+
+**1. Autocompletado de contacto en el wizard de actividad.** Paso 2 (Contacto): el nombre del
+solicitante ahora autocompleta desde el Directorio General (000232) reusando `TerceroLookupSource`
+(via `IFormLookupService`, paginado y acotado al tenant). Nuevo componente `TerceroPicker`. El
+campo SIGUE siendo texto libre (un solicitante que no esta en el directorio se escribe a mano).
+Al elegir un tercero se rellenan identificacion/email/telefono con regla de sobreescritura
+(lo del directorio gana; lo tecleado a mano no se pisa). PENDIENTE anotado: `CreateTaskItemRequest`
+no persiste el vinculo al tercero (haria falta columna + migracion); hoy solo copia texto.
+
+**2. Tableros: 4 mejoras + fixes.** Migracion dual `AddColumnTagsAndTimeInColumn`.
+- **Etiquetas por columna** (restriccion): entidad `TaskBoardColumnTag`; en `/tableros`, cada
+  estado define que etiquetas admite (vacio = todas, fail-open). El servicio es el guardian.
+- **Crear/eliminar etiquetas con color** desde el panel de la columna (paleta de 12 tonos; la "x"
+  borra del catalogo con confirmacion que avisa cuantas tarjetas la usan).
+- **Marcar varias etiquetas al editar** la tarea (TaskDetailModal): chips con "x" + "+ Etiqueta"
+  que solo ofrece las permitidas por la columna.
+- **Tiempo en columna**: columna `ColumnEnteredAt` (se sella al mover, no al reordenar); chip
+  "hace X" en la tarjeta que se pone ambar/rojo segun antiguedad; cae a CreatedAt para tareas viejas.
+- **Fix del filtro del indice**: "Categoria" no se pasaba al filtro (corregido en DTO/servicio/UI).
+- **Fix de crash al marcar etiqueta**: el re-render llamaba GetDetailAsync (6+ consultas por el
+  tunel) y Npgsql reventaba; ahora attach/detach actualizan el DTO en memoria (sin recargar).
+
+**3. Eliminar registro de formulario.** En la bandeja del formulario-modulo (`/m/{code}`) solo
+existia "Anular" (soft-delete). Nuevo `DeleteRecordAsync` (borrado real en transaccion: limpia
+FormRecordLink y desliga TerceroNota; FormFlowLink cae por cascada; libera el numero) + boton
+"Eliminar" con confirmacion. Verificado end-to-end (creado FRM-028 de prueba, publicado, borrado
+un registro, y limpiado: despublicado + archivado).
+
+**4. GridDetail responsive (fix del cotizador COT, AGROMETALICAS, 25 columnas).**
+- Scroll horizontal AISLADO a la tabla (`.dfr-grid-scroll`; el boton "Agregar fila" queda fuera).
+- Primera columna y cabecera STICKY al desplazar (el identificador "Detalle" no se pierde).
+- Panel de lookup de celda pasa a `position:fixed` posicionado por JS
+  (`ecorexFormCapture.positionCellPanels`) para no ser recortado por el scroller.
+- Impresion (FormPrint, A4): se encoge para caber (fuente reducida, texto partido), sin rotar a
+  apaisado (decision del usuario).
+
+**5. GridDetail: ancho por columna (data-driven).** `FormGridColumn.Width` (px, en options_json,
+via "width"/"w"); `<colgroup>` + `table-layout:fixed`; default por tipo (calc 110, select 130,
+1a columna 200, texto 100). Los anchos son DATO: la sesion de datos los ajusta sin tocar codigo.
+
+**6. Ancho de tarjeta configurable por formulario (ADR-0047).** Enum `FormCardLayout`
+(Normal/Ancho/Completo) + columna `card_layout` (migracion dual `AddFormCardLayout`, default
+Normal). Selector en Propiedades del formulario. Se aplica solo en las superficies de llenado
+(`/f`, `/m`, vista previa) via `ApplyCardWidth`; los usos embebidos (tercero, tarea) no se tocan.
+No cambia la impresion.
+
+**7. Fix: "Configuracion actividades" salia sin estilar** (iconos gigantes de 526px). Las clases
+`inv-cfg-*` tenian CSS con ALCANCE en InventarioConfiguracion.razor.css y esta pagina no tenia su
+`.razor.css`. Se le creo (ActividadConfiguracion.razor.css).
+
+### Aplicado a prod (autorizado, con backups)
+
+Backups previos: ecorex-2026-07-24-1033/1611 y 2026-07-25-1132. Migraciones duales aplicadas a la
+BD de prod (arrancando el dev por el tunel): `AddGestorDocumental` (dia 24), `AddActivityCatalogs`
+(ya estaba), `AddColumnTagsAndTimeInColumn` y `AddFormCardLayout`. Menu del Gestor Documental
+reconciliado en los 5 tenants Standard con legacy_code 000894 (consecutivo, por decision del
+usuario) + fila en module_definitions. Todas las migraciones verificadas TAMBIEN en local dual
+(PG + SQL Server efimeros) antes de prod.
+
+### Verificacion en Chrome
+
+GridDetail responsive CONFIRMADO sobre el cotizador COT real (25 col): scroll horizontal, primera
+columna sticky (Detalle se queda fija al desplazar), anchos por columna (tabla 2064px). El selector
+"Ancho del formulario" aparece y funciona; card_layout persiste. QUEDO SIN CAPTURAR el preview en
+modo Ancho mas ancho porque el tunel se cayo a mitad (problema recurrente del dev-sobre-tunel, no
+del codigo); la logica de render es CSS por card_layout y el `/f` ya muestra la tarjeta fit-content.
+El panel de lookup en celda no se pudo ejercitar (ningun grid ancho usa columna lookup), pero esta
+desplegado y el JS confirmado cargado.
+
+### Bloqueos / notas
+
+- El tunel SSH a prod (15433) se cae con frecuencia; cada caida tumba el circuito Blazor y obliga a
+  reloguear. Deuda: `AccessDeniedPath="/login"` hace que un 403 y una sesion muerta se vean igual.
+- 537/537 tests unitarios verdes en cada corte.
+
+### Siguiente
+
+- Verificar el preview en modo Ancho/Completo cuando el tunel este estable.
+- Persistir el vinculo tercero<->tarea del autocompletado (columna + migracion) si se decide.
+
+---
+
 ## 2026-07-24 - Gestor Documental portado desde PROPIA (backend + UI, sin desplegar)
 
 **Agentes**: Claude (Opus 4.8).

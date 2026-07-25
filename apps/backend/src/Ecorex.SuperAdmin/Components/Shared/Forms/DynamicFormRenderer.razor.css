@@ -4,6 +4,12 @@
    exacto del prototipo. */
 
 .dfr-root { display: flex; flex-direction: column; gap: 18px; }
+/* Ancho de la tarjeta configurable por formulario (CardLayout). Se activa con ApplyCardWidth desde
+   la pagina de llenado, el modulo y la vista previa. Anchos en vw (sin dependencia del padre, que
+   se ajusta a este contenido con fit-content). No aplica a formularios embebidos. */
+.dfr-root.dfr-cw-normal { width: min(720px, 92vw); margin: 0 auto; }
+.dfr-root.dfr-cw-ancho { width: min(1160px, 94vw); margin: 0 auto; }
+.dfr-root.dfr-cw-completo { width: min(1560px, 96vw); margin: 0 auto; }
 
 .dfr-head { display: flex; flex-direction: column; gap: 4px; }
 .dfr-title { font-size: 20px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0; }
@@ -150,16 +156,39 @@
 
 /* Tabla (GridDetail) funcional. */
 .dfr-grid { display: flex; flex-direction: column; gap: 8px; }
+/* Scroll horizontal AISLADO a la tabla (con 25 columnas la tabla no cabe en la tarjeta). El
+   recorte del radio vive AQUI, no en la tabla; el borde tambien. En tactil el scroll es suave. */
+.dfr-grid-scroll {
+    overflow-x: auto; max-width: 100%;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); border-radius: 9px;
+    -webkit-overflow-scrolling: touch;
+}
 .dfr-grid-table {
-    width: 100%; border-collapse: separate; border-spacing: 0;
-    border: 1px solid var(--line-2, rgba(20,20,25,.12)); border-radius: 9px; overflow: hidden;
+    /* table-layout:fixed => los anchos del <colgroup> mandan (ancho por columna, DATO). width:auto +
+       min-width:100% => llena la tarjeta cuando la suma cabe, y crece (con scroll) cuando no. */
+    table-layout: fixed; width: auto; min-width: 100%; border-collapse: separate; border-spacing: 0;
 }
 .dfr-grid-table th {
     padding: 7px 10px; font-size: 10.5px; font-weight: 700; text-align: left;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     color: var(--ink-2, #5C5C66); background: var(--surface-3, #F2F2F3);
 }
 .dfr-grid-table th + th, .dfr-grid-table td + td { border-left: 1px solid var(--line, rgba(20,20,25,.07)); }
 .dfr-grid-table td { padding: 4px 6px; border-top: 1px solid var(--line, rgba(20,20,25,.07)); }
+/* El control llena el ancho de su columna (fijado por el colgroup) sin imponer un minimo propio. */
+.dfr-grid-table td .form-control { width: 100%; min-width: 0; }
+
+/* Primera columna FIJA (sticky) al desplazar: es el identificador de la fila ("Detalle") y no
+   debe perderse. Fondo opaco para tapar lo que pasa por debajo; borde derecho de separacion. */
+.dfr-grid-table th:first-child,
+.dfr-grid-table td:first-child {
+    position: sticky; left: 0; z-index: 2;
+    box-shadow: 1px 0 0 var(--line, rgba(20,20,25,.07));
+}
+.dfr-grid-table th:first-child { background: var(--surface-3, #F2F2F3); z-index: 3; }
+.dfr-grid-table td:first-child { background: var(--surface, #FFFFFF); }
+/* En una fila sin stock (fondo ambar) la celda fija tambien va ambar, no blanca. */
+.dfr-grid-table tr.dfr-grid-nostock td:first-child { background: var(--t-amber-bg, #FEF3C7); }
 .dfr-grid-empty { font-size: 11px; color: var(--ink-3, #A2A2AC); text-align: center; padding: 8px 10px; }
 .dfr-grid-x { width: 34px; text-align: center; }
 .dfr-grid-del {
@@ -183,9 +212,16 @@
     border: 1px solid var(--t-amber, #B45309);
 }
 
-/* Celda de tabla con lookup: mismo panel de resultados que el lookup de campo. */
-.dfr-gridlk { position: relative; min-width: 130px; }
-.dfr-gridlk-panel { min-width: 240px; }
+/* Celda de tabla con lookup: mismo panel de resultados que el lookup de campo. El ancho ya lo
+   fija el colgroup de la columna (table-layout:fixed), asi que aqui no se impone min-width. */
+.dfr-gridlk { position: relative; min-width: 0; }
+.dfr-gridlk > input { width: 100%; }
+/* CRITICO: el scroller (.dfr-grid-scroll, overflow-x:auto) recorta en AMBOS ejes, asi que un
+   panel absoluto quedaria cortado. Se saca del flujo con position:fixed y lo posiciona el JS
+   (ecorexFormCapture.positionCellPanels) por encima del scroller, anclado al input de la celda. */
+.dfr-gridlk-panel {
+    position: fixed; left: auto; right: auto; top: auto; width: auto; min-width: 240px; z-index: 60;
+}
 .dfr-gridlk-note {
     margin-top: 3px; font-size: 10.5px; font-weight: 600;
     color: var(--danger, #E11D48);

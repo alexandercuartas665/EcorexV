@@ -290,7 +290,9 @@ else
 @if (_showPreview && _def is not null)
 {
     <div class="modal-overlay" style="z-index:70;" @onclick="@(() => _showPreview = false)">
-        <div class="modal-dialog" style="max-width:820px;" @onclick:stopPropagation="true">
+        @* Ancho de la vista previa segun el CardLayout del formulario (fit-content, tope generoso):
+           un cotizador ancho se previsualiza ancho, como se vera al llenarlo. *@
+        <div class="modal-dialog fd-preview-dialog" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Vista previa - @_def.Title</h3>
                 <button class="modal-close" @onclick="@(() => _showPreview = false)">&times;</button>
@@ -300,6 +302,7 @@ else
                    constructor, ADR-0021); Design (solo lectura) mientras es borrador. *@
                 <DynamicFormRenderer DefinitionId="@_def.Id"
                                      Mode="@(_def.Status == FormStatus.Active ? FormRenderMode.Fill : FormRenderMode.Design)"
+                                     ApplyCardWidth="true"
                                      Reference="@($"PREVIEW-{_def.Code}")" />
             </div>
         </div>
@@ -387,6 +390,19 @@ else
                 <button class="modal-close" @onclick="@(() => _showFormProps = false)">&times;</button>
             </div>
             <div class="modal-body">
+                @* Ancho de la tarjeta al llenar el formulario. Util para cotizadores con tablas anchas. *@
+                <div class="field">
+                    <label class="form-label">Ancho del formulario</label>
+                    <select class="form-control" @bind="_cardLayout">
+                        <option value="@FormCardLayout.Normal">Normal (~720px)</option>
+                        <option value="@FormCardLayout.Ancho">Ancho (~1160px)</option>
+                        <option value="@FormCardLayout.Completo">Completo (casi toda la ventana)</option>
+                    </select>
+                    <p style="font-size:12px;color:var(--ink-3);margin:4px 0 0;">
+                        Se aplica al llenar (URL publica, modulo y vista previa). No cambia la impresion.
+                    </p>
+                </div>
+                <hr style="margin:14px 0;border:none;border-top:1px solid var(--line);" />
                 <label class="pl-toggle"><input type="checkbox" @bind="_txIsTransactional" /> Es transaccional (cada envio confirmado es un registro)</label>
                 @if (_txIsTransactional)
                 {
@@ -525,6 +541,7 @@ else
     private bool _txIsTransactional;
     private string _txMode = nameof(FormIdentityMode.None);
     private string? _txField;
+    private FormCardLayout _cardLayout = FormCardLayout.Normal;
     // Formulario como modulo (ola F4).
     private bool _isModule;
     private Guid? _moduleViewId;
@@ -1144,6 +1161,7 @@ else
         _txIsTransactional = _def!.IsTransactional;
         _txMode = _def.IdentityMode.ToString();
         _txField = _def.IdentitySourceFieldCode;
+        _cardLayout = _def.CardLayout;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleLabel = _def.Title;
@@ -1212,7 +1230,7 @@ else
         try
         {
             var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
-                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField));
+                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField, _cardLayout));
             if (!tx.IsOk) { _modalError = tx.Error; return; }
             _def = tx.Value;
 

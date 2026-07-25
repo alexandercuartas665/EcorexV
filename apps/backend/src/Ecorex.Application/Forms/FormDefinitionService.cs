@@ -670,7 +670,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             containers.Select(ToDto).ToList(),
             questions.Select(ToDto).ToList(),
             definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
-            definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson);
+            definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
+            definition.CardLayout);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -686,6 +687,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         definition.IdentitySourceFieldCode =
             request.IsTransactional && request.IdentityMode == FormIdentityMode.NaturalKey
                 ? Normalize(request.IdentitySourceFieldCode) : null;
+        // Ancho de tarjeta: se guarda desde el mismo panel de Propiedades del formulario.
+        definition.CardLayout = request.CardLayout;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

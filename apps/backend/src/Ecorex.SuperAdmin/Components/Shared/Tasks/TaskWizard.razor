@@ -5,6 +5,7 @@
 @using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Ecorex.SuperAdmin.Components.Shared.Lookups
 @inject ITaskItemService TasksSvc
 @inject IEntidadService EntidadSvc
 @inject IActividadCatalogoService CatalogoSvc
@@ -204,7 +205,17 @@
                             <div style="display:flex;flex-direction:column;gap:16px;width:100%">
                                 <div style="@CardStyle">
                                     <div style="font-weight:700;font-size:15px;margin-bottom:16px">Informacion del contacto</div>
-                                    <input placeholder="Nombre completo del solicitante" style="@InStyle;margin-bottom:12px" @bind="_requesterName" />
+                                    @* Autocompletado desde el Directorio General (000232): al elegir un
+                                       tercero se rellenan identificacion, email y telefono. El campo sigue
+                                       siendo LIBRE: un solicitante que aun no esta en el directorio se
+                                       escribe a mano y la actividad se crea igual. *@
+                                    <div style="margin-bottom:12px">
+                                        <TerceroPicker Value="@_requesterName"
+                                                       ValueChanged="@(v => _requesterName = v ?? string.Empty)"
+                                                       OnSelected="OnTerceroElegidoAsync"
+                                                       InputStyle="@InStyle"
+                                                       Placeholder="Nombre completo del solicitante" />
+                                    </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
                                         <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" />
                                         <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" @bind:event="oninput" />
@@ -404,6 +415,15 @@
     private string _requesterDoc = "";
     private string _requesterEmail = "";
     private string _requesterPhone = "";
+    /// <summary>
+    /// Tercero elegido en el autocompletado del Directorio General, si lo hubo. Sirve para saber
+    /// si los campos de contacto vienen del directorio o los tecleo la persona, y asi no pisar
+    /// lo escrito a mano al cambiar de sugerencia.
+    /// PENDIENTE: no se persiste. CreateTaskItemRequest no tiene donde guardar el vinculo al
+    /// tercero (TaskItem solo tiene RequesterName/Email/Phone), asi que el enlace se pierde al
+    /// crear la actividad. Ligarla de verdad exige columna nueva + migracion dual.
+    /// </summary>
+    private Guid? _requesterTerceroId;
     private readonly List<string> _ccEmails = new();
     private string _ccInput = "";
     private Guid? _projectId;
@@ -532,7 +552,7 @@
         _entidadId = null; _categoriaId = null; _subcategoriaId = null; _assigneeId = null;
         _dueDate = null; _title = ""; _description = ""; _priority = TaskPriority.Medium;
         _tags.Clear(); _tagInput = "";
-        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
+        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = ""; _requesterTerceroId = null;
         _ccEmails.Clear(); _ccInput = ""; _projectId = null; _presetProjectId = null;
         _presetBoardId = null; _presetColumnId = null;
         _milestoneId = null; _milestones = new();
@@ -545,7 +565,7 @@
     {
         _title = ""; _description = ""; _priority = TaskPriority.Medium;
         _tags.Clear(); _tagInput = ""; _dueDate = null;
-        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = "";
+        _requesterName = ""; _requesterDoc = ""; _requesterEmail = ""; _requesterPhone = ""; _requesterTerceroId = null;
         _ccEmails.Clear(); _ccInput = "";
         if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
         _milestoneId = null;
@@ -700,6 +720,38 @@
         _errors.Remove("cc");
         if (!_ccEmails.Contains(value, StringComparer.OrdinalIgnoreCase)) { _ccEmails.Add(value); }
         _ccInput = "";
+    }
+
+    /// <summary>
+    /// Vuelca los datos del tercero elegido en el Directorio General sobre los campos de contacto.
+    ///
+    /// Regla de sobreescritura: lo que el directorio SABE siempre gana (es el dato bueno). Lo que
+    /// el directorio no sabe solo se borra si venia de una eleccion ANTERIOR del directorio; si lo
+    /// habia tecleado la persona, se respeta. Asi, cambiar de sugerencia no arrastra el correo del
+    /// tercero anterior, pero tampoco borra en silencio un telefono que alguien escribio a mano.
+    /// </summary>
+    private Task OnTerceroElegidoAsync(TerceroPicker.TerceroSugerencia t)
+    {
+        var veniaDelDirectorio = _requesterTerceroId is not null;
+
+        _requesterName = t.Nombre;
+        _requesterDoc = Fusionar(_requesterDoc, t.Identificacion, veniaDelDirectorio);
+        _requesterEmail = Fusionar(_requesterEmail, t.Email, veniaDelDirectorio);
+        _requesterPhone = Fusionar(_requesterPhone, t.Telefono, veniaDelDirectorio);
+
+        _requesterTerceroId = t.Id;
+        // El email nuevo puede resolver un error de validacion que estuviera en pantalla.
+        if (!string.IsNullOrWhiteSpace(_requesterEmail) && TaskUi.IsValidEmail(_requesterEmail))
+        {
+            _errors.Remove("email");
+        }
+        return Task.CompletedTask;
+    }
+
+    private static string Fusionar(string actual, string? delDirectorio, bool actualVieneDelDirectorio)
+    {
+        if (!string.IsNullOrWhiteSpace(delDirectorio)) { return delDirectorio.Trim(); }
+        return actualVieneDelDirectorio ? "" : actual;
     }
 
     private async Task NextStep()

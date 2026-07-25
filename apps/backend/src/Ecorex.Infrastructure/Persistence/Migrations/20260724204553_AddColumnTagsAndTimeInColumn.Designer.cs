@@ -3,6 +3,7 @@ using System;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    partial class EcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260724204553_AddColumnTagsAndTimeInColumn")]
+    partial class AddColumnTagsAndTimeInColumn
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4155,14 +4158,6 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
-
-                    b.Property<string>("CardLayout")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("Normal")
-                        .HasColumnName("card_layout");
 
                     b.Property<string>("Code")
                         .IsRequired()

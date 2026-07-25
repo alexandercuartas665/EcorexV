@@ -58,6 +58,8 @@ public interface IApplicationDbContext
     DbSet<TaskItem> TaskItems { get; }
     DbSet<TaskItemTag> TaskItemTags { get; }
     DbSet<TaskItemTagAssignment> TaskItemTagAssignments { get; }
+    /// <summary>Etiquetas permitidas por columna de tablero (restriccion; columna vacia = todas).</summary>
+    DbSet<TaskBoardColumnTag> TaskBoardColumnTags { get; }
     DbSet<TaskWorkLog> TaskWorkLogs { get; }
     DbSet<TaskItemActivity> TaskItemActivities { get; }
     DbSet<Notification> Notifications { get; }

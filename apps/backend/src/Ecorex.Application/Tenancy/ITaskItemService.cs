@@ -48,8 +48,32 @@ public interface ITaskItemService
     // Etiquetas (catalogo por tenant)
     Task<IReadOnlyList<TaskItemTagDto>> ListTagsAsync(CancellationToken cancellationToken = default);
     Task<TaskCoreResult<TaskItemTagDto>> CreateTagAsync(string name, string? color, CancellationToken cancellationToken = default);
+    /// <summary>Cuantas tareas ACTIVAS tienen la etiqueta. Para avisar antes de borrarla del catalogo.</summary>
+    Task<int> CountTagUsageAsync(Guid tagId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Borra la etiqueta del catalogo del tenant. Por cascada de BD se quita tambien de las
+    /// tarjetas que la tenian y de las columnas que la restringian. Accion destructiva: la UI
+    /// confirma y avisa cuantas tarjetas la usan (ver <see cref="CountTagUsageAsync"/>).
+    /// </summary>
+    Task<TaskCoreResult<bool>> DeleteTagAsync(Guid tagId, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<bool>> AttachTagAsync(Guid taskId, Guid tagId, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<bool>> DetachTagAsync(Guid taskId, Guid tagId, CancellationToken cancellationToken = default);
+
+    /// <summary>Etiquetas del catalogo PERMITIDAS en una columna. Vacio = la columna no restringe.</summary>
+    Task<IReadOnlyList<TaskItemTagDto>> ListColumnAllowedTagsAsync(Guid columnId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reemplaza el conjunto de etiquetas permitidas en una columna (replace-all). Lista vacia =
+    /// la columna deja de restringir (se permiten todas). Solo etiquetas del catalogo del tenant.
+    /// </summary>
+    Task<TaskCoreResult<bool>> SetColumnAllowedTagsAsync(Guid columnId, IReadOnlyList<Guid> tagIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Etiquetas que una tarea PUEDE llevar segun la columna donde esta: las permitidas por su
+    /// columna, o TODO el catalogo si la columna no restringe (o si la tarea no esta en columna).
+    /// Es lo que la UI del detalle ofrece al marcar etiquetas.
+    /// </summary>
+    Task<IReadOnlyList<TaskItemTagDto>> ListAssignableTagsForTaskAsync(Guid taskId, CancellationToken cancellationToken = default);
 
     // Checklist (ADR-0020): items de subtarea visibles en la tarjeta del tablero.
     Task<TaskCoreResult<TaskItemChecklistItemDto>> AddChecklistItemAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);

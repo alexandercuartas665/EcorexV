@@ -68,4 +68,10 @@ public class FormDefinition : TenantEntity, IVersioned
 
     /// <summary>Campos de filtro de la bandeja (arreglo JSON de field codes).</summary>
     public string? FilterFieldsJson { get; set; }
+
+    /// <summary>
+    /// Ancho de la tarjeta al llenar el formulario (Normal/Ancho/Completo). Configurable por
+    /// formulario; util para cotizadores con tablas anchas. Default Normal = comportamiento actual.
+    /// </summary>
+    public FormCardLayout CardLayout { get; set; } = FormCardLayout.Normal;
 }

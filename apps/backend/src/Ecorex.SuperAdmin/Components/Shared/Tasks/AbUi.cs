@@ -119,6 +119,35 @@ public static class AbUi
         return $"{local.Day} {MonthsShort[local.Month - 1]}{suffix}";
     }
 
+    /// <summary>
+    /// "Cuanto lleva en la columna" de forma compacta: "hoy", "1 d", "3 sem", "2 mes". La
+    /// referencia es <paramref name="enteredAt"/> (o CreatedAt si la tarea es anterior a la
+    /// funcion). Redondea hacia abajo: lo que importa es el orden de magnitud, no el minuto.
+    /// </summary>
+    public static string TimeInColumn(DateTimeOffset enteredAt)
+    {
+        var dias = (int)(DateTimeOffset.UtcNow - enteredAt).TotalDays;
+        if (dias <= 0) { return "hoy"; }
+        if (dias < 7) { return $"{dias} d"; }
+        if (dias < 30) { return $"{dias / 7} sem"; }
+        if (dias < 365) { return $"{dias / 30} mes"; }
+        return $"{dias / 365} a";
+    }
+
+    /// <summary>
+    /// Color del indicador de tiempo en columna: gris hasta una semana, ambar hasta un mes, rojo
+    /// pasado el mes. Da una senal visual de tarjetas estancadas sin necesidad de leer el numero.
+    /// En una columna final (Done) siempre es gris: alli "llevar mucho" no es un problema.
+    /// </summary>
+    public static string TimeInColumnColor(DateTimeOffset enteredAt, bool columnIsDone)
+    {
+        if (columnIsDone) { return "var(--ink-3)"; }
+        var dias = (DateTimeOffset.UtcNow - enteredAt).TotalDays;
+        if (dias >= 30) { return "var(--danger)"; }
+        if (dias >= 7) { return "var(--warn)"; }
+        return "var(--ink-3)";
+    }
+
     /// <summary>Color de la fecha de la tarjeta: vencida danger, hoy warn, resto ink-2.</summary>
     public static string CardDueColor(DateTimeOffset? due, bool columnIsDone)
     {

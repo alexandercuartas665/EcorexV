@@ -170,7 +170,8 @@
             MemberTenantUserId: _fUser,
             TagId: _fTag,
             ActivityTypeId: _fType,
-            HasDueDate: _fDate switch { "conf" => true, "sinf" => false, _ => null });
+            HasDueDate: _fDate switch { "conf" => true, "sinf" => false, _ => null },
+            CategoryName: _fCat);
         await _reloadLock.WaitAsync();
         try
         {

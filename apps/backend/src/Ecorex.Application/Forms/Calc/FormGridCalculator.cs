@@ -22,7 +22,10 @@ public sealed record FormGridColumn(
     string Kind = "text",
     IReadOnlyList<FormOption>? Options = null,
     bool Required = false,
-    string? AggWhen = null)
+    string? AggWhen = null,
+    // Ancho de la columna en px (DATO, en options_json). Null = el renderer usa un default por
+    // tipo. Con esto la sesion de datos ajusta anchos sin tocar codigo.
+    int? Width = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -73,6 +76,14 @@ public static class FormGridCalculator
                 // con el campo (que usa control_type); aqui es solo "text" o "select".
                 var kind = el.TryGetProperty("type", out var pt) ? (pt.GetString() ?? "text") : "text";
                 var required = el.TryGetProperty("required", out var prq) && prq.ValueKind == JsonValueKind.True;
+                // Ancho por columna (px). Se acepta "width" o el alias corto "w". Solo si es un
+                // numero positivo razonable; cualquier otra cosa se ignora y cae al default por tipo.
+                int? width = null;
+                if ((el.TryGetProperty("width", out var pw) || el.TryGetProperty("w", out pw))
+                    && pw.ValueKind == JsonValueKind.Number && pw.TryGetInt32(out var wv) && wv is > 0 and <= 2000)
+                {
+                    width = wv;
+                }
                 List<FormOption>? options = null;
                 if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
                 {
@@ -95,7 +106,8 @@ public static class FormGridCalculator
                     string.IsNullOrWhiteSpace(kind) ? "text" : kind.Trim().ToLowerInvariant(),
                     options,
                     required,
-                    string.IsNullOrWhiteSpace(aggWhen) ? null : aggWhen));
+                    string.IsNullOrWhiteSpace(aggWhen) ? null : aggWhen,
+                    width));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

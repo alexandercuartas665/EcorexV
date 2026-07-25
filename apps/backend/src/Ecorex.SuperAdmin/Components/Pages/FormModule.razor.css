@@ -140,6 +140,15 @@
 }
 .fm-row-void:hover { border-color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
 
+/* Eliminar registro (borrado real). Relleno solido para distinguirlo de "Anular" (contorno). */
+.fm-row-del {
+    font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; cursor: pointer; margin-left: 6px;
+    border: 1px solid var(--danger, #E11D48); background: var(--danger, #E11D48); color: #FFFFFF;
+}
+.fm-row-del:hover { opacity: .9; }
+.fm-row-del:disabled { opacity: .5; cursor: not-allowed; }
+.fm-del-confirm { font-size: 12.5px; padding: 8px 14px; border-radius: 10px; margin-left: 0; }
+
 /* Modal de anulacion. */
 .fm-void-txt { font-size: 13px; color: var(--ink-2, #5C5C66); margin: 0 0 14px; }
 .fm-void-lbl { display: block; font-size: 12px; font-weight: 700; color: var(--ink-2, #5C5C66); margin-bottom: 6px; }
@@ -154,3 +163,7 @@
     border: 1px solid var(--danger, #E11D48); background: var(--danger, #E11D48); color: #FFFFFF;
 }
 .fm-void-confirm:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Modal "Nuevo registro": se ajusta al ancho del formulario (CardLayout via el renderer). Un
+   cotizador ancho abre un modal ancho; los normales quedan como antes (~720 + padding). */
+.fm-new-dialog { width: fit-content; max-width: min(96vw, 1640px); }

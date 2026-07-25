@@ -4157,6 +4157,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<string>("CardLayout")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Normal")
+                        .HasColumnName("card_layout");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -9458,6 +9466,57 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("task_board_columns", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskBoardColumnTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ColumnId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("column_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TagId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tag_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_board_column_tags");
+
+                    b.HasIndex("TagId")
+                        .HasDatabaseName("ix_task_board_column_tags_tag_id");
+
+                    b.HasIndex("ColumnId", "TagId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_board_column_tags_column_id_tag_id");
+
+                    b.HasIndex("TenantId", "ColumnId")
+                        .HasDatabaseName("ix_task_board_column_tags_tenant_id_column_id");
+
+                    b.ToTable("task_board_column_tags", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskCard", b =>
                 {
                     b.Property<Guid>("Id")
@@ -9917,6 +9976,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)")
                         .HasColumnName("color");
+
+                    b.Property<DateTimeOffset?>("ColumnEnteredAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("column_entered_at");
 
                     b.Property<Guid?>("ColumnId")
                         .HasColumnType("uniqueidentifier")
@@ -14232,6 +14295,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_task_board_columns_task_boards_board_id");
 
                     b.Navigation("Board");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskBoardColumnTag", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskBoardColumn", "Column")
+                        .WithMany()
+                        .HasForeignKey("ColumnId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_board_column_tags_task_board_columns_column_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TaskItemTag", "Tag")
+                        .WithMany()
+                        .HasForeignKey("TagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_board_column_tags_task_item_tags_tag_id");
+
+                    b.Navigation("Column");
+
+                    b.Navigation("Tag");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskCard", b =>

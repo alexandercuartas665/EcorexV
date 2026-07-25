@@ -11,7 +11,9 @@
    misma tabla task_board_columns y no tienen API propia en el servicio de actividades. *@
 @inject IActivityBoardService BoardsSvc
 @inject ITaskBoardService ColumnsSvc
+@inject ITaskItemService TasksSvc
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Tableros - ECOREX.tareas</PageTitle>
 
@@ -177,11 +179,76 @@ else
                                             <span>Cierra</span>
                                         </label>
                                         <span class="tb-card-stat">@c.CardCount</span>
+                                        <button type="button" class="tb-icon-btn @(_tagEditColId == c.Id ? "on" : "")"
+                                                title="Etiquetas permitidas en este estado"
+                                                @onclick="@(() => ToggleTagEditorAsync(c.Id))" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v5l9 9 7-7-9-9H3Z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>
+                                        </button>
                                         <button type="button" class="tb-icon-btn danger" title="Eliminar estado"
                                                 @onclick="@(() => DeleteStateAsync(c))" disabled="@_busy">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
                                         </button>
                                     </div>
+                                    @if (_tagEditColId == c.Id)
+                                    {
+                                        <div class="tb-coltags">
+                                            <div class="tb-coltags-hint">
+                                                Etiquetas que se pueden poner a una tarjeta en este estado.
+                                                <strong>Ninguna marcada = se permiten todas.</strong>
+                                            </div>
+                                            @if (_catalogTags.Count == 0)
+                                            {
+                                                <div class="tb-states-empty">
+                                                    Aun no hay etiquetas. Crea la primera abajo.
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="tb-coltags-chips">
+                                                    @foreach (var tag in _catalogTags)
+                                                    {
+                                                        var t = tag;
+                                                        var on = _colAllowed.Contains(t.Id);
+                                                        @* El chip alterna si la columna admite la etiqueta; la "x" la BORRA del
+                                                           catalogo del tenant (dos botones hermanos, no anidados). *@
+                                                        <span class="tb-tagchip-wrap">
+                                                            <button type="button" class="tb-tagchip @(on ? "on" : "")"
+                                                                    style="@ChipStyle(t.Color, on)"
+                                                                    @onclick="@(() => ToggleColTagAsync(c.Id, t.Id))" disabled="@_busy">
+                                                                @t.Name
+                                                            </button>
+                                                            <button type="button" class="tb-tagchip-x" title="Eliminar la etiqueta del catalogo"
+                                                                    @onclick="@(() => DeleteTagAsync(t))" disabled="@_busy">&times;</button>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            }
+
+                                            @* Crear una etiqueta nueva (con color) sin salir de aqui: se agrega al
+                                               catalogo del tenant y queda lista para marcarla en cualquier columna. *@
+                                            <div class="tb-tagnew">
+                                                <div class="tb-tagnew-row">
+                                                    <span class="tb-tagnew-swatch" style="background:@_newTagColor"></span>
+                                                    <input class="form-control form-control-sm" placeholder="Nueva etiqueta..."
+                                                           value="@_newTagName"
+                                                           @oninput="@(e => _newTagName = e.Value?.ToString() ?? "")"
+                                                           @onkeydown="@(e => { if (e.Key == "Enter") { return CreateTagAsync(); } return Task.CompletedTask; })" />
+                                                    <button type="button" class="btn btn-sm btn-primary"
+                                                            @onclick="CreateTagAsync"
+                                                            disabled="@(_busy || string.IsNullOrWhiteSpace(_newTagName))">Crear</button>
+                                                </div>
+                                                <div class="tb-tagnew-palette">
+                                                    @foreach (var paletteColor in _tagPalette)
+                                                    {
+                                                        var color = paletteColor;
+                                                        <button type="button" class="tb-tagnew-dot @(_newTagColor == color ? "on" : "")"
+                                                                style="background:@color" title="@color"
+                                                                @onclick="@(() => _newTagColor = color)"></button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
                                 }
                             </div>
                         }
@@ -249,6 +316,23 @@ else
     private Guid? _editId;
     private ActivityBoardSummaryDto? _deleteTarget;
     private List<TaskBoardColumnDto> _columns = new();
+
+    // Etiquetas permitidas por columna (restriccion). El catalogo del tenant se carga una vez al
+    // abrir el editor; _colAllowed es el set de la columna cuyo editor de etiquetas esta abierto.
+    private Guid? _tagEditColId;
+    private List<TaskItemTagDto> _catalogTags = new();
+    private readonly HashSet<Guid> _colAllowed = new();
+    // Alta rapida de etiqueta con color desde el panel de la columna.
+    private string _newTagName = "";
+    private string _newTagColor = "#3b82f6";
+
+    /// <summary>Paleta de colores para las etiquetas (12 tonos vivos, buen contraste sobre blanco).</summary>
+    private static readonly string[] _tagPalette = new[]
+    {
+        "#ef4444", "#f97316", "#f59e0b", "#eab308", "#22c55e", "#10b981",
+        "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#64748b"
+    };
+
     private string _fName = "";
     private TaskBoardStatus _fStatus = TaskBoardStatus.InProgress;
     private bool _fArchived;
@@ -287,6 +371,7 @@ else
         _fArchived = false;
         _error = null;
         _columns.Clear();
+        _tagEditColId = null;
         _modalOpen = true;
     }
 
@@ -299,6 +384,7 @@ else
         _fStatus = b.Status;
         _fArchived = b.IsArchived;
         _error = null;
+        _tagEditColId = null;
         _modalOpen = true;
         _columns = (await ColumnsSvc.ListColumnsAsync(b.Id)).ToList();
     }
@@ -306,6 +392,90 @@ else
     private async Task ReloadColumnsAsync()
     {
         if (_editId is Guid id) { _columns = (await ColumnsSvc.ListColumnsAsync(id)).ToList(); }
+    }
+
+    // ---- Etiquetas permitidas por columna ----
+
+    private async Task ToggleTagEditorAsync(Guid columnId)
+    {
+        // Segundo clic sobre la misma columna cierra el editor.
+        if (_tagEditColId == columnId) { _tagEditColId = null; return; }
+
+        _tagEditColId = columnId;
+        // El catalogo del tenant se carga una sola vez; las permitidas cambian por columna.
+        if (_catalogTags.Count == 0) { _catalogTags = (await TasksSvc.ListTagsAsync()).ToList(); }
+        var permitidas = await TasksSvc.ListColumnAllowedTagsAsync(columnId);
+        _colAllowed.Clear();
+        foreach (var t in permitidas) { _colAllowed.Add(t.Id); }
+    }
+
+    private async Task ToggleColTagAsync(Guid columnId, Guid tagId)
+    {
+        // Optimista en el set local + persistencia replace-all: la fuente de verdad es la BD, pero
+        // marcar/desmarcar debe sentirse inmediato. Si falla, se recarga el set real.
+        if (!_colAllowed.Remove(tagId)) { _colAllowed.Add(tagId); }
+        _busy = true;
+        try
+        {
+            var res = await TasksSvc.SetColumnAllowedTagsAsync(columnId, _colAllowed.ToList());
+            if (!res.IsOk)
+            {
+                _error = res.Error;
+                var permitidas = await TasksSvc.ListColumnAllowedTagsAsync(columnId);
+                _colAllowed.Clear();
+                foreach (var t in permitidas) { _colAllowed.Add(t.Id); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteTagAsync(TaskItemTagDto tag)
+    {
+        // Se avisa el impacto ANTES de borrar: eliminar la etiqueta la quita tambien de las
+        // tarjetas que la tienen (cascada), y eso es historia de las tareas.
+        var enUso = await TasksSvc.CountTagUsageAsync(tag.Id);
+        var aviso = enUso > 0
+            ? $"La etiqueta \"{tag.Name}\" esta en {enUso} tarjeta(s). Al eliminarla se quitara de todas ellas y de las columnas que la restringen. Continuar?"
+            : $"Eliminar la etiqueta \"{tag.Name}\" del catalogo?";
+        if (!await JS.InvokeAsync<bool>("confirm", aviso)) { return; }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var res = await TasksSvc.DeleteTagAsync(tag.Id);
+            if (!res.IsOk) { _error = res.Error; return; }
+            // La etiqueta ya no existe: fuera del catalogo y de las columnas permitidas.
+            _colAllowed.Remove(tag.Id);
+            _catalogTags = (await TasksSvc.ListTagsAsync()).ToList();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateTagAsync()
+    {
+        var nombre = _newTagName.Trim();
+        if (nombre.Length == 0) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            var res = await TasksSvc.CreateTagAsync(nombre, _newTagColor);
+            if (!res.IsOk) { _error = res.Error; return; }
+            _newTagName = "";
+            // Refresca el catalogo; la etiqueta nueva aparece como chip para marcarla en la columna.
+            _catalogTags = (await TasksSvc.ListTagsAsync()).ToList();
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Estilo del chip: relleno con el color de la etiqueta cuando esta seleccionada.</summary>
+    private static string ChipStyle(string? color, bool on)
+    {
+        var c = string.IsNullOrWhiteSpace(color) ? "#94a3b8" : color;
+        return on
+            ? $"background:{c};border-color:{c};color:#fff;"
+            : $"border-color:{c};color:var(--ink-2);";
     }
 
     private async Task AddStateAsync()
@@ -397,7 +567,11 @@ else
         _error = null;
     }
 
-    private void CloseModal() => _modalOpen = false;
+    private void CloseModal()
+    {
+        _modalOpen = false;
+        _tagEditColId = null;
+    }
 
     private async Task SaveAsync()
     {

@@ -51,6 +51,14 @@ public interface IFormResponseService
     /// <summary>Anula un registro transaccional confirmado (ola F3): Voided + motivo + auditoria; no libera el numero.</summary>
     Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// BORRA de verdad un registro (a diferencia de <see cref="VoidAsync"/>, que solo lo anula).
+    /// Uso: quitar registros de prueba o cargados por error. Limpia en una transaccion los enlaces
+    /// que lo referencian (maestro-detalle y notas de tercero) y libera su numero; los vinculos de
+    /// flujo caen por cascada de BD. Irreversible: la UI debe confirmar.
+    /// </summary>
+    Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default);
+
     /// <summary>Registros (respuestas enviadas) de una definicion, para la bandeja del formulario-modulo (ola F4).</summary>
     Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default);
 

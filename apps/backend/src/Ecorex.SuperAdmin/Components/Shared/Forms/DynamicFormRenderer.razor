@@ -35,7 +35,7 @@ else if (_definition is null)
 }
 else
 {
-    <div class="dfr-root">
+    <div class="dfr-root @CardWidthClass()">
         @if (ShowHeader)
         {
             <div class="dfr-head">
@@ -162,6 +162,12 @@ else
     [Parameter] public Guid? AmbientTenantId { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
+    /// <summary>
+    /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
+    /// renderer fija el ancho de su tarjeta segun FormDefinition.CardLayout (Normal/Ancho/Completo).
+    /// Los usos EMBEBIDOS (tercero, tarea) NO lo activan: su ancho lo manda el modal que los aloja.
+    /// </summary>
+    [Parameter] public bool ApplyCardWidth { get; set; }
     /// <summary>
     /// Opciones de decision de la compuerta adelante (ADR-0037). Si trae valores, el renderer
     /// pide elegir una (radio) y la propaga como approvalResult al enviar; el submit se
@@ -333,6 +339,13 @@ else
         foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.Signature))
         {
             try { await JS.InvokeVoidAsync("ecorexFormCapture.initSignature", $"sig-{q.Id}"); }
+            catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
+        }
+        // Panel de lookup de celda: es position:fixed (para escapar del scroller de la tabla) y
+        // hay que anclarlo por JS al input de su celda. Solo si hay alguno abierto (evita chatter).
+        if (_gridLookupOpen.Count > 0)
+        {
+            try { await JS.InvokeVoidAsync("ecorexFormCapture.positionCellPanels"); }
             catch (JSException) { /* JS aun no disponible: se reintenta en el siguiente render */ }
         }
     }
@@ -1030,8 +1043,36 @@ else
 
     // Parseo/agregado/recompute de tablas: helper COMPARTIDO con el servidor (FormGridCalculator),
     // para que cliente y servidor calculen igual (fuente de verdad = servidor).
+    /// <summary>Clase de ancho de tarjeta segun CardLayout, solo si el host lo pidio (ApplyCardWidth).</summary>
+    private string? CardWidthClass()
+    {
+        if (!ApplyCardWidth || _definition is null) { return null; }
+        return _definition.CardLayout switch
+        {
+            Ecorex.Domain.Enums.FormCardLayout.Ancho => "dfr-cw-ancho",
+            Ecorex.Domain.Enums.FormCardLayout.Completo => "dfr-cw-completo",
+            _ => "dfr-cw-normal"
+        };
+    }
+
     private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    /// <summary>
+    /// Ancho efectivo de una columna de tabla, en px. Prioriza el ancho declarado en el JSON
+    /// (<see cref="FormGridColumn.Width"/>); si no hay, cae a un default por tipo, subiendo el
+    /// minimo anterior (uniforme de 92px) para que texto largo no quede tan angosto como un numero:
+    ///  - calculada (numerica): 110   - lista (select): 130   - primera columna (identificador): 200
+    ///  - texto normal: 100
+    /// </summary>
+    private static int GridColWidth(FormGridColumn col, bool isFirst)
+    {
+        if (col.Width is int w) { return w; }
+        if (col.Calc is not null) { return 110; }
+        if (col.IsSelect) { return 130; }
+        if (isFirst) { return 200; }
+        return 100;
+    }
 
     /// <summary>
     /// Extras de columna (lookup, valor por defecto, comprobacion de existencias). Se parsean del
@@ -1122,12 +1163,28 @@ else
         }
         var hasTotals = columns.Any(c => c.Agg != FormAggregate.None);
         <div class="dfr-grid">
+            @* Scroll horizontal AISLADO a la tabla: el boton "Agregar fila" queda fuera y no se
+               desplaza. El wrapper es quien recorta con radio; la tabla ya no. *@
+            <div class="dfr-grid-scroll">
             <table class="dfr-grid-table">
+                @* Ancho EXACTO por columna (table-layout:fixed): el ancho sale del JSON de la columna
+                   (Width) o de un default por tipo. La suma puede exceder la tarjeta; para eso esta
+                   el scroll de .dfr-grid-scroll. *@
+                <colgroup>
+                    @for (var ci = 0; ci < columns.Count; ci++)
+                    {
+                        <col style="width:@(GridColWidth(columns[ci], ci == 0))px" />
+                    }
+                    @if (!IsDisabled)
+                    {
+                        <col style="width:34px" />
+                    }
+                </colgroup>
                 <thead>
                     <tr>
                         @foreach (var col in columns)
                         {
-                            <th>@col.Label</th>
+                            <th title="@col.Label">@col.Label</th>
                         }
                         @if (!IsDisabled)
                         {
@@ -1221,6 +1278,7 @@ else
                     </tfoot>
                 }
             </table>
+            </div>
             @if (!IsDisabled)
             {
                 <button type="button" class="dfr-grid-add" @onclick="@(() => AddGridRow(q))">+ Agregar fila</button>

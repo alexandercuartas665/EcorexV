@@ -102,6 +102,7 @@ public class RowIngestServiceTests
         public DbSet<TaskItem> TaskItems => throw new NotSupportedException();
         public DbSet<TaskItemTag> TaskItemTags => throw new NotSupportedException();
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();
+        public DbSet<TaskBoardColumnTag> TaskBoardColumnTags => throw new NotSupportedException();
         public DbSet<TaskWorkLog> TaskWorkLogs => throw new NotSupportedException();
         public DbSet<TaskItemActivity> TaskItemActivities => throw new NotSupportedException();
         public DbSet<Notification> Notifications => throw new NotSupportedException();

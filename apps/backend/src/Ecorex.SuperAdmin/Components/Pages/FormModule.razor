@@ -198,6 +198,7 @@ else
                             {
                                 <button class="fm-row-void" title="Anular este registro" @onclick="() => OpenVoid(r)">Anular</button>
                             }
+                            <button class="fm-row-del" title="Eliminar este registro (no se puede deshacer)" @onclick="() => OpenDelete(r)">Eliminar</button>
                         </td>
                     </tr>
                     @* Sub-filas: mini-tabla por cada columna-grid expandida de este registro. *@
@@ -232,7 +233,9 @@ else
     @if (_newOpen && _def is not null)
     {
         <div class="modal-overlay" style="z-index:60;" @onclick="CloseNew">
-            <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+            @* Ancho del modal segun el CardLayout del formulario: fit-content para que un cotizador
+               ancho abra un modal ancho, con tope generoso. El renderer fija el ancho interno. *@
+            <div class="modal-dialog fm-new-dialog" @onclick:stopPropagation="true">
                 <div class="modal-head">
                     <h3>Nuevo registro - @_def.Title</h3>
                     <button class="modal-close" @onclick="CloseNew">&times;</button>
@@ -240,6 +243,7 @@ else
                 <div class="modal-body">
                     <DynamicFormRenderer DefinitionId="@_def.Id"
                                          Mode="FormRenderMode.Fill"
+                                         ApplyCardWidth="true"
                                          SubmittedByTenantUserId="@_actorTenantUserId"
                                          OnSubmitted="OnNewRecordSubmittedAsync" />
                 </div>
@@ -265,6 +269,32 @@ else
                     <div class="fm-void-actions">
                         <button class="fm-export" @onclick="CloseVoid">Cancelar</button>
                         <button class="fm-void-confirm" disabled="@(_voiding || string.IsNullOrWhiteSpace(_voidReason))" @onclick="ConfirmVoidAsync">@(_voiding ? "Anulando..." : "Anular registro")</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Modal: eliminar registro (borrado real, irreversible) ===== *@
+    @if (_deleteTarget is not null)
+    {
+        <div class="modal-overlay" style="z-index:60;" @onclick="CloseDelete">
+            <div class="modal-dialog" style="max-width:440px;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Eliminar registro</h3>
+                    <button class="modal-close" @onclick="CloseDelete">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="fm-void-txt">
+                        Vas a <strong>eliminar</strong> el registro
+                        <strong>@(_deleteTarget.RecordNumber ?? _deleteTarget.Reference ?? "sin numero")</strong>.
+                        Se borra por completo y su numero queda libre. <strong>No se puede deshacer.</strong>
+                        Si solo quieres dejarlo fuera pero conservarlo, usa <em>Anular</em>.
+                    </p>
+                    @if (_deleteError is not null) { <p class="fm-void-err">@_deleteError</p> }
+                    <div class="fm-void-actions">
+                        <button class="fm-export" @onclick="CloseDelete">Cancelar</button>
+                        <button class="fm-row-del fm-del-confirm" disabled="@_deleting" @onclick="ConfirmDeleteAsync">@(_deleting ? "Eliminando..." : "Eliminar definitivamente")</button>
                     </div>
                 </div>
             </div>
@@ -304,6 +334,10 @@ else
     private string? _voidReason;
     private string? _voidError;
     private bool _voiding;
+    // Borrado real de un registro (distinto de anular): quitar registros de prueba o cargados por error.
+    private FormRecordListItemDto? _deleteTarget;
+    private string? _deleteError;
+    private bool _deleting;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -496,6 +530,38 @@ else
         {
             _voidError = res.Error ?? "No se pudo anular el registro.";
             _voiding = false;
+        }
+    }
+
+    // ---- Eliminar (borrado real: quita el registro por completo y libera su numero) ----
+    private void OpenDelete(FormRecordListItemDto r)
+    {
+        _deleteTarget = r;
+        _deleteError = null;
+    }
+
+    private void CloseDelete()
+    {
+        _deleteTarget = null;
+        _deleteError = null;
+        _deleting = false;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleteTarget is null || _def is null) { return; }
+        _deleting = true;
+        _deleteError = null;
+        var res = await ResponsesSvc.DeleteRecordAsync(_deleteTarget.Id);
+        if (res.IsOk)
+        {
+            _records = await ResponsesSvc.ListRecordsAsync(_def.Id);
+            CloseDelete();
+        }
+        else
+        {
+            _deleteError = res.Error ?? "No se pudo eliminar el registro.";
+            _deleting = false;
         }
     }
 

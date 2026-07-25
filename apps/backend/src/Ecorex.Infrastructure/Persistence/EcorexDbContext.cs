@@ -113,6 +113,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<TaskItem> TaskItems => Set<TaskItem>();
     public DbSet<TaskItemTag> TaskItemTags => Set<TaskItemTag>();
     public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => Set<TaskItemTagAssignment>();
+    public DbSet<TaskBoardColumnTag> TaskBoardColumnTags => Set<TaskBoardColumnTag>();
     public DbSet<TaskWorkLog> TaskWorkLogs => Set<TaskWorkLog>();
     public DbSet<TaskItemActivity> TaskItemActivities => Set<TaskItemActivity>();
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -326,6 +327,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<FormAggregate>().HaveConversion<string>().HaveMaxLength(40);
         // Transaccionalidad (ola F3).
         configurationBuilder.Properties<FormIdentityMode>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<FormCardLayout>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<FormRecordStatus>().HaveConversion<string>().HaveMaxLength(40);
         // Transversales (ola F6).
         configurationBuilder.Properties<FormDefaultDynamic>().HaveConversion<string>().HaveMaxLength(40);
@@ -1198,6 +1200,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TaskItemId, x.TagId }).IsUnique();
         });
 
+        modelBuilder.Entity<TaskBoardColumnTag>(b =>
+        {
+            // Dos cascadas de ORIGENES distintos (columna y etiqueta) hacia esta tabla: no forman
+            // rutas multiples desde un mismo origen, asi que ambas son Cascade en los dos motores
+            // (misma situacion que TaskItemTagAssignment). Borrar la columna o la etiqueta retira
+            // la relacion; ni la columna ni el catalogo de etiquetas dependen de esta tabla.
+            b.HasOne(x => x.Column).WithMany().HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ColumnId, x.TagId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ColumnId });
+        });
+
         modelBuilder.Entity<TaskWorkLog>(b =>
         {
             b.Property(x => x.Note).HasMaxLength(500);
@@ -1358,6 +1372,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.ModuleIcon).HasMaxLength(60);
             b.Property(x => x.ListColumnsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.FilterFieldsJson).HasColumnType(jsonColumnType);
+            // Ancho de tarjeta configurable (aditiva): default Normal para no alterar los existentes.
+            b.Property(x => x.CardLayout).HasDefaultValue(FormCardLayout.Normal);
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsArchived });
         });

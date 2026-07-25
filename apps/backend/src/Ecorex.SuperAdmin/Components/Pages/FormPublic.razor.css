@@ -8,7 +8,9 @@
     font-family: 'Hanken Grotesk', 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 .fp-card {
-    width: 100%; max-width: 760px;
+    /* Ancho: se ajusta al del formulario (lo fija el renderer segun CardLayout), con un tope
+       generoso para el modo Completo. Antes era fijo 760px; ahora sigue al contenido. */
+    width: fit-content; max-width: min(96vw, 1640px);
     background: var(--surface, #FFFFFF);
     border: 1px solid var(--line, rgba(20,20,25,.07));
     border-radius: var(--rad, 20px);

@@ -524,6 +524,55 @@ public sealed class FormResponseService : IFormResponseService
         return FormResult<FormResponseDto>.Ok(ToDto(response));
     }
 
+    public async Task<FormResult<bool>> DeleteRecordAsync(Guid responseId, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null)
+        {
+            return FormResult<bool>.NotFound("Registro no encontrado.");
+        }
+
+        var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Enlaces maestro-detalle (FormRecordLink) apuntan al registro con FK Restrict: la BD no
+            // deja borrar el registro mientras existan, asi que se retiran primero. El registro puede
+            // ser padre o hijo de otro.
+            var enlaces = await _db.FormRecordLinks
+                .Where(l => l.ParentResponseId == responseId || l.ChildResponseId == responseId)
+                .ToListAsync(cancellationToken);
+            if (enlaces.Count > 0) { _db.FormRecordLinks.RemoveRange(enlaces); }
+
+            // Notas de tercero que citan este registro (FK Restrict, nullable): se desligan sin
+            // borrar la nota (es historia del tercero, no del formulario).
+            var notas = await _db.TerceroNotas
+                .Where(n => n.FormResponseId == responseId)
+                .ToListAsync(cancellationToken);
+            foreach (var n in notas) { n.FormResponseId = null; }
+
+            // FormFlowLink cae por cascada de BD. El registro se borra de verdad y su numero se libera.
+            _db.FormResponses.Remove(response);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            if (tx is not null) { await tx.CommitAsync(cancellationToken); }
+            return FormResult<bool>.Ok(true);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
+            return FormResult<bool>.Conflict(ConflictMessage);
+        }
+        catch
+        {
+            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
+            throw;
+        }
+        finally
+        {
+            if (tx is not null) { await tx.DisposeAsync(); }
+        }
+    }
+
     public async Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default)
     {
         var task = await _db.TaskItems.AsNoTracking()

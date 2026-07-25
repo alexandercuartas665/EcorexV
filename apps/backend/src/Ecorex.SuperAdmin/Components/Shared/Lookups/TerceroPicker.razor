@@ -1,0 +1,174 @@
+@using Ecorex.Application.Forms.Lookups
+@using Ecorex.Domain.Enums
+@inject IFormLookupService LookupSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+@* Autocompletado de TERCEROS (Directorio General, 000232) sobre un campo de texto.
+
+   Decision de fondo: el campo sigue siendo TEXTO LIBRE. Un solicitante puede no estar en el
+   directorio todavia (una persona que llama por primera vez), asi que obligar a elegir de la
+   lista impediria crear la actividad. El directorio SUGIERE; no manda.
+
+   No reusa DataLookupField porque aquel esta atado a DataLookupConfig (una tabla del Contenedor
+   de datos). Aqui la fuente es la entidad Tercero, y se consulta por el adaptador que ya existe
+   (TerceroLookupSource via IFormLookupService): paginado en servidor y acotado al tenant por el
+   filtro global, asi que es imposible autocompletar con datos de otro cliente.
+
+   Las consultas pasan por el semaforo del circuito: varios campos del mismo formulario comparten
+   el DbContext y sin esto dos busquedas a la vez producen "A second operation was started on
+   this context instance". *@
+
+<div style="position:relative">
+    <input style="@InputStyle" placeholder="@Placeholder" value="@Value"
+           @oninput="OnEscribirAsync" @onfocus="OnFocoAsync" @onblur="OnDesenfocar" />
+
+    @if (_abierto && (_resultados.Count > 0 || _buscando))
+    {
+        <div style="position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;max-height:260px;overflow:auto;background:var(--surface);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--sh-lg)">
+            @if (_buscando && _resultados.Count == 0)
+            {
+                <div style="padding:10px 12px;font-size:12px;color:var(--ink-3)">Buscando...</div>
+            }
+            @foreach (var r in _resultados)
+            {
+                var fila = r;
+                @* onmousedown y NO onclick: el blur del input se dispara antes que el click y
+                   cerraria el popup, de modo que el click nunca llegaria a ejecutarse. *@
+                <div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--line)"
+                     @onmousedown:preventDefault="true" @onmousedown="() => ElegirAsync(fila)">
+                    <div style="font-size:13px;font-weight:600;color:var(--ink)">@fila.Display</div>
+                    <div style="font-size:11.5px;color:var(--ink-3)">@Subtitulo(fila)</div>
+                </div>
+            }
+            @if (_hayMas)
+            {
+                <div style="padding:7px 12px;font-size:11.5px;color:var(--ink-3)">
+                    @_resultados.Count de @_total &#183; escribe para afinar
+                </div>
+            }
+        </div>
+    }
+    else if (_abierto && !_buscando && !string.IsNullOrWhiteSpace(Value))
+    {
+        <div style="position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;background:var(--surface);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--sh-lg)">
+            <div style="padding:10px 12px;font-size:12px;color:var(--ink-3)">
+                Sin coincidencias en el directorio. Puedes escribir el nombre a mano.
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Texto actual del campo (el nombre). Sigue siendo libre.</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Se dispara SOLO al elegir a alguien del directorio, con sus datos para autollenar.</summary>
+    [Parameter] public EventCallback<TerceroSugerencia> OnSelected { get; set; }
+
+    /// <summary>Estilo del input. Lo pasa el host para que el campo sea identico a los de su lado.</summary>
+    [Parameter] public string? InputStyle { get; set; }
+
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Cuantas sugerencias se traen. Suficientes para elegir, pocas para no tapar la pantalla.</summary>
+    [Parameter] public int MaxSugerencias { get; set; } = 8;
+
+    /// <summary>Datos de un tercero elegido, listos para volcar en los campos del formulario.</summary>
+    public sealed record TerceroSugerencia(
+        Guid Id, string Nombre, string? Identificacion, string? Email, string? Telefono);
+
+    private static readonly string[] CamposPedidos =
+        ["id", "nombre", "identificacion", "email", "telefono"];
+
+    private readonly List<FormLookupItem> _resultados = new();
+    private bool _abierto;
+    private bool _buscando;
+    private bool _hayMas;
+    private int _total;
+
+    private async Task OnEscribirAsync(ChangeEventArgs e)
+    {
+        var texto = e.Value?.ToString() ?? "";
+        Value = texto;
+        // El texto se propaga SIEMPRE, se elija o no del directorio: es un campo libre.
+        await ValueChanged.InvokeAsync(texto);
+        await BuscarAsync(texto);
+    }
+
+    private async Task OnFocoAsync(FocusEventArgs _) => await BuscarAsync(Value);
+
+    private void OnDesenfocar(FocusEventArgs _) => _abierto = false;
+
+    private async Task BuscarAsync(string? texto)
+    {
+        // Con menos de 2 caracteres la busqueda devolveria casi todo el directorio: ruido, no ayuda.
+        if (string.IsNullOrWhiteSpace(texto) || texto.Trim().Length < 2)
+        {
+            _resultados.Clear();
+            _abierto = false;
+            return;
+        }
+
+        _abierto = true;
+        _buscando = true;
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                SourceKind: FormSourceKind.Tercero,
+                SourceRef: null,
+                Query: texto.Trim(),
+                FilterJson: null,
+                DisplayField: null,
+                Fields: CamposPedidos,
+                Skip: 0,
+                Take: MaxSugerencias));
+
+            _resultados.Clear();
+            _resultados.AddRange(page.Items);
+            _total = page.Total;
+            _hayMas = page.HasMore;
+        }
+        catch
+        {
+            // Que falle el directorio no puede impedir escribir el nombre a mano: se cierra
+            // el popup y el campo sigue funcionando como texto libre.
+            _resultados.Clear();
+            _abierto = false;
+        }
+        finally
+        {
+            FormGate.Gate.Release();
+            _buscando = false;
+        }
+    }
+
+    private async Task ElegirAsync(FormLookupItem item)
+    {
+        _abierto = false;
+        _resultados.Clear();
+
+        var nombre = Campo(item, "nombre") ?? item.Display;
+        Value = nombre;
+        await ValueChanged.InvokeAsync(nombre);
+
+        if (OnSelected.HasDelegate && Guid.TryParse(Campo(item, "id") ?? item.Value, out var id))
+        {
+            await OnSelected.InvokeAsync(new TerceroSugerencia(
+                id, nombre, Campo(item, "identificacion"), Campo(item, "email"), Campo(item, "telefono")));
+        }
+    }
+
+    /// <summary>Segunda linea de la sugerencia: lo que distingue a dos personas del mismo nombre.</summary>
+    private static string Subtitulo(FormLookupItem item)
+    {
+        var partes = new[] { Campo(item, "identificacion"), Campo(item, "email"), Campo(item, "telefono") }
+            .Where(p => !string.IsNullOrWhiteSpace(p));
+        var texto = string.Join(" · ", partes);
+        return texto.Length == 0 ? "Sin datos de contacto" : texto;
+    }
+
+    private static string? Campo(FormLookupItem item, string clave)
+        => item.Fields.TryGetValue(clave, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
+}

@@ -73,6 +73,14 @@ public sealed class ActivityBoardService : IActivityBoardService
             query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
                 && t.ActivityTypeId == activityTypeId));
         }
+        if (!string.IsNullOrWhiteSpace(filter.CategoryName))
+        {
+            // Categoria = agrupador de tipos de actividad. Un tablero pasa si tiene una tarea cuyo
+            // tipo esta en esa categoria (join a ActivityTypes por el ActivityTypeId de la tarea).
+            var categoria = filter.CategoryName;
+            query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
+                && _db.ActivityTypes.Any(at => at.Id == t.ActivityTypeId && at.Category == categoria)));
+        }
         if (filter.DueFrom is DateTimeOffset dueFrom)
         {
             query = query.Where(b => b.DueDate != null && b.DueDate >= dueFrom);
@@ -446,7 +454,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                     attachmentCounts.TryGetValue(t.Id, out var att) ? att : 0,
                     commentCounts.TryGetValue(t.Id, out var com) ? com : 0,
                     tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
-                    column.Id, t.BoardSortOrder, t.Version, t.CreatedAt);
+                    column.Id, t.BoardSortOrder, t.Version, t.CreatedAt, t.ColumnEnteredAt);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();
@@ -489,6 +497,9 @@ public sealed class ActivityBoardService : IActivityBoardService
         var insertAt = Math.Clamp(sortOrder, 0, siblings.Count);
         siblings.Insert(insertAt, task);
         task.ColumnId = targetColumnId;
+        // Solo se re-sella el reloj de "tiempo en columna" cuando la columna CAMBIA: reordenar
+        // dentro de la misma columna no reinicia el contador (seria enganoso).
+        if (!sameColumn) { task.ColumnEnteredAt = DateTimeOffset.UtcNow; }
         for (var i = 0; i < siblings.Count; i++)
         {
             if (siblings[i].BoardSortOrder != i) { siblings[i].BoardSortOrder = i; }

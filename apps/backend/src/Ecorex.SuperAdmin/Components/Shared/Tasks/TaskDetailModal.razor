@@ -353,18 +353,57 @@
                             @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
                             <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></div>
                             <div class="tk-progress-bar"><i style="width:@(ChecklistPct())%;background:@ProgressColor()"></i></div>
-                            @if (item.Tags.Count > 0)
-                            {
-                                <div class="tk-summary-row">
-                                    <span>Etiquetas</span>
-                                    <span>
-                                        @foreach (var tag in item.Tags)
-                                        {
-                                            <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(tag.Color) ? "" : $"background:{tag.Color};color:#fff;")">@tag.Name</span>
-                                        }
-                                    </span>
-                                </div>
-                            }
+                            <div class="tk-summary-row tk-tags-row">
+                                <span>Etiquetas</span>
+                                <span class="tk-tags-edit">
+                                    @foreach (var tag in item.Tags)
+                                    {
+                                        var t = tag;
+                                        <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(t.Color) ? "" : $"background:{t.Color};color:#fff;")">
+                                            @t.Name
+                                            @if (!readOnly)
+                                            {
+                                                <span class="tk-tag-remove" title="Quitar etiqueta" @onclick="@(() => DetachTagAsync(t.Id))">&times;</span>
+                                            }
+                                        </span>
+                                    }
+                                    @if (item.Tags.Count == 0)
+                                    {
+                                        <span class="tk-tags-none">Sin etiquetas</span>
+                                    }
+                                    @if (!readOnly)
+                                    {
+                                        <span class="tk-tag-add-wrap">
+                                            <button class="tk-tag-add" title="Agregar etiqueta" @onclick="@(() => _tagMenuOpen = !_tagMenuOpen)">+ Etiqueta</button>
+                                            @if (_tagMenuOpen)
+                                            {
+                                                var yaPuestas = item.Tags.Select(x => x.Id).ToHashSet();
+                                                var disponibles = _assignableTags.Where(x => !yaPuestas.Contains(x.Id)).ToList();
+                                                <div class="tk-tag-menu">
+                                                    @if (disponibles.Count == 0)
+                                                    {
+                                                        <div class="tk-tag-menu-empty">
+                                                            @(_assignableTags.Count == 0
+                                                                ? "La columna no tiene etiquetas permitidas."
+                                                                : "Ya tiene todas las etiquetas disponibles.")
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var opt in disponibles)
+                                                        {
+                                                            var o = opt;
+                                                            <button class="tk-tag-menu-opt" @onclick="@(() => AttachTagAsync(o.Id))">
+                                                                <span class="tk-tag-dot" style="background:@(string.IsNullOrWhiteSpace(o.Color) ? "#94a3b8" : o.Color)"></span>@o.Name
+                                                            </button>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
+                                        </span>
+                                    }
+                                </span>
+                            </div>
                         </div>
                     </div>
 
@@ -663,6 +702,11 @@
     private string _newCheckText = "";
     private string _addAssigneeId = "";
 
+    // Etiquetas asignables a la tarea (las permitidas por su columna, o todo el catalogo si la
+    // columna no restringe). Se recargan con la tarea porque cambian al mover de columna.
+    private List<TaskItemTagDto> _assignableTags = new();
+    private bool _tagMenuOpen;
+
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
     private TaskStepFormDto? _openStepForm;
@@ -683,6 +727,7 @@
         _timerNote = _manualNote = _newComment = _attName = _attUrl = "";
         _newCheckText = "";
         _addAssigneeId = "";
+        _tagMenuOpen = false;
         _manualHours = _manualMinutes = null;
         await ReloadAsync(taskId);
         StateHasChanged();
@@ -699,6 +744,8 @@
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
             // de forma idempotente si el nodo tiene formulario asignado).
             _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
+            // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
+            _assignableTags = (await TasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             var actor = await ActorAsync();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
             // Pasos del flujo de ESTA tarea que el usuario puede atender (bandeja, ola F2).
@@ -769,6 +816,58 @@
             _openMenu = null;
         }
     }
+
+    // ===== Etiquetas (varias por tarea; la columna puede restringir cuales) =====
+
+    private async Task AttachTagAsync(Guid tagId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var result = await TasksSvc.AttachTagAsync(_detail.Item.Id, tagId);
+            // El servicio es el guardian de la restriccion por columna: si rechaza, se muestra el
+            // motivo (p.ej. la etiqueta no esta permitida en la columna actual).
+            if (!result.IsOk) { _actionError = result.Error; return; }
+            _tagMenuOpen = false;
+            // Actualizacion LOCAL de las etiquetas, sin recargar todo el detalle. Un ReloadAsync
+            // aqui reejecuta GetDetailAsync (6+ consultas contra la BD, por tunel en dev) SOLO para
+            // reflejar una etiqueta; ademas era donde se disparaba el fallo de render. La etiqueta ya
+            // se guardo; basta reflejarla en el DTO en memoria.
+            AplicarEtiquetas(AgregarTag(tagId));
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DetachTagAsync(Guid tagId)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var result = await TasksSvc.DetachTagAsync(_detail.Item.Id, tagId);
+            if (!result.IsOk) { _actionError = result.Error; return; }
+            AplicarEtiquetas(_detail.Item.Tags.Where(t => t.Id != tagId).ToList());
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Lista de etiquetas con la nueva agregada (si no estaba ya), ordenada por nombre.</summary>
+    private IReadOnlyList<TaskItemTagDto> AgregarTag(Guid tagId)
+    {
+        if (_detail!.Item.Tags.Any(t => t.Id == tagId)) { return _detail.Item.Tags; }
+        var dto = _assignableTags.FirstOrDefault(t => t.Id == tagId);
+        if (dto is null) { return _detail.Item.Tags; }
+        return _detail.Item.Tags.Append(dto).OrderBy(t => t.Name).ToList();
+    }
+
+    /// <summary>Reemplaza las etiquetas del detalle en memoria (records: copia con Tags nuevas).</summary>
+    private void AplicarEtiquetas(IReadOnlyList<TaskItemTagDto> nuevas)
+        => _detail = _detail! with { Item = _detail.Item with { Tags = nuevas } };
 
     // ===== Checklist (ADR-0020) =====
 

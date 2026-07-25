@@ -6170,6 +6170,24 @@ lamina metalica creado desde `MODELO COTIZACION (2).xlsx`. Replica la estructura
   El formulario queda en Draft; NO evaluara las formulas hasta que ese motor exista.
 - El peso usa densidad 7.85 (acero) en todas las filas, igual que el Excel (verificado contra ITEM 1
   y el ALFAJOR). Si INOX/otros necesitan densidad propia, es ajuste posterior.
+
+**CORRECCION IMPORTANTE - el motor de formulas SI FUNCIONA (2026-07-25):** al publicar el cotizador y
+PROBARLO se comprobo que lo que yo habia anotado como "pendiente D6-D11" **ya esta implementado** en la
+ola F2 (`FormExpressionEvaluator` + `FormGridCalculator` + fuentes de lookup DataContainer/Item). El
+evaluador soporta `+ - * /`, parentesis, comparadores, referencia a fila `{campo}` y AL ENCABEZADO
+`{#campo}`, y funciones `SI`, `REDONDEAR`, `REDONDEAR.SUPERIOR/INFERIOR`, `MIN`, `MAX`. Corre en cliente
+(UX inmediata) y servidor (revalida al guardar).
+- **Publicado**: se activo el formulario (`status=Active`) y se emitio un `form_token` publico anonimo
+  (365 dias, reutilizable). El token se cifra SHA256 hex; se genero el claro por SQL conociendo el
+  algoritmo. URL: `https://app2.bitcode.com.co/f/<token>`.
+- **Prueba real (Chrome MCP, via app2)**: se lleno una fila con el ITEM 1 del Excel (cantidad 1,
+  espesor 12, largo 427, ancho 2480, tipo HR, precio venta 4800, costo 5000, 2 cortes a 4500) y TODAS
+  las columnas calculadas dieron EXACTO al Excel: Kg c/und=99.754032, Costo lamina=498770.16, Precio
+  unitario=478819.3536, Servicios unitarios=9000, Costo unitario=487819.35, Costo total=487819.35.
+- Lo unico NO automatico: (a) los TOTALES de cabecera (Sub total/IVA/Total) no hacen roll-up porque no
+  se configuraron con `aggregate` sobre la grilla -> es CONFIG, no desarrollo; (b) los precios de
+  lamina/servicio siguen siendo ENTRADA -> se pueden auto-llenar via lookup a un contenedor de tarifas
+  (soportado por el motor) cuando se cargue la hoja "32". Ninguna de las dos exige tocar codigo.
 - Excepciones de datos del Excel: (a) **Carlos Humberto Villa no trae cedula** -> clave temporal
   `Agro-2026*`, debe cambiarla y hay que comunicarsela; (b) Lilian traia DOS correos en una celda ->
   se uso el corporativo `ventas1@` (decision del usuario); (c) correos normalizados a minuscula.

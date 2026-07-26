@@ -485,6 +485,7 @@
 .fb-gridcol-kind { flex: none; width: 86px; }
 .fb-gridcol-req { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 .fb-gridcol-calc { flex: none; font-family: ui-monospace, monospace; font-style: italic; font-weight: 700; font-size: 11px; color: var(--t-violet); background: var(--t-violet-bg); border-radius: 5px; padding: 2px 6px; }
+.fb-gridcol-w { flex: none; width: 62px; text-align: right; }
 .fb-gridcol-del { flex: none; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink-3); cursor: pointer; line-height: 1; }
 .fb-gridcol-del:hover { border-color: var(--danger); color: var(--danger); }
 .fb-gridcol-opts { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }

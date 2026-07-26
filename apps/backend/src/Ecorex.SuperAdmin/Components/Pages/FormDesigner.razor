@@ -1782,6 +1782,9 @@ else
                                 {
                                     <span class="fb-gridcol-calc" title="Columna calculada">fx</span>
                                 }
+                                <input type="number" class="fb-input fb-gridcol-w" min="40" max="2000" step="10"
+                                       value="@col.Width" placeholder="auto" title="Ancho de la columna en px (vacio = automatico)"
+                                       @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Width = ParseColWidth(e.Value?.ToString()) }))" />
                                 <button type="button" class="fb-gridcol-del" title="Quitar columna"
                                         @onclick="@(() => RemoveGridColumnAsync(node.Q!, idx))">&times;</button>
                             </div>
@@ -2331,6 +2334,13 @@ else
     private static List<FormGridColumn> GridColumns(FormQuestionDto q)
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
 
+    /// <summary>Ancho de columna desde el input: vacio/invalido = null (automatico); si no, 40..2000 px.</summary>
+    private static int? ParseColWidth(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || !int.TryParse(raw, out var v) || v <= 0) { return null; }
+        return Math.Clamp(v, 40, 2000);
+    }
+
     /// <summary>
     /// Serializa las columnas al formato exacto que lee <see cref="FormGridCalculator.ParseColumns"/>
     /// ({id,label,type,required,options,calc,agg,rollup}). NO se serializa el record directo porque
@@ -2353,6 +2363,8 @@ else
             // C4: sin esto, guardar la columna desde el disenador BORRARIA la condicion del agregado.
             if (!string.IsNullOrWhiteSpace(c.AggWhen)) { o["aggWhen"] = c.AggWhen; }
             if (!string.IsNullOrWhiteSpace(c.Rollup)) { o["rollup"] = c.Rollup; }
+            // Ancho por columna (px). Solo se persiste si el usuario lo fijo; null cae al default por tipo.
+            if (c.Width is int w and > 0) { o["width"] = w; }
             return o;
         }).ToList();
         var json = JsonSerializer.Serialize(shaped, new JsonSerializerOptions(JsonSerializerDefaults.Web));

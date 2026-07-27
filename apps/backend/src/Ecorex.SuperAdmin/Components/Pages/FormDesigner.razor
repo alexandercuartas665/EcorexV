@@ -1762,40 +1762,104 @@ else
                     {
                         var idx = ci;
                         var col = gcols[idx];
-                        <div class="fb-gridcol">
+                        var colOpen = IsGridColOpen(node.Q!, col);
+                        <div class="fb-gridcol @(colOpen ? "open" : "")">
                             <div class="fb-gridcol-head">
-                                <input class="fb-input fb-gridcol-name" value="@col.Label"
+                                <input class="fb-input fb-gridcol-name" value="@col.Label" placeholder="Etiqueta de la columna"
                                        @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Label = e.Value?.ToString() ?? c.Label }))" />
-                                @if (col.Calc is null)
-                                {
-                                    <select class="fb-select fb-gridcol-kind"
-                                            @onchange="@(e => SetGridColumnKindAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                        <option value="text" selected="@(!col.IsSelect)">Texto</option>
-                                        <option value="select" selected="@col.IsSelect">Lista</option>
-                                    </select>
-                                    <label class="fb-gridcol-req" title="Obligatoria">
-                                        <input type="checkbox" checked="@col.Required"
-                                               @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Required = (bool)e.Value! }))" /> Obl.
-                                    </label>
-                                }
-                                else
-                                {
-                                    <span class="fb-gridcol-calc" title="Columna calculada">fx</span>
-                                }
-                                <input type="number" class="fb-input fb-gridcol-w" min="40" max="2000" step="10"
-                                       value="@col.Width" placeholder="auto" title="Ancho de la columna en px (vacio = automatico)"
-                                       @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Width = ParseColWidth(e.Value?.ToString()) }))" />
+                                <span class="fb-gridcol-badge @(col.Calc is not null ? "fx" : col.IsSelect ? "list" : "txt")"
+                                      title="@(col.Calc is not null ? "Columna calculada" : col.IsSelect ? "Lista de opciones" : "Texto")">
+                                    @(col.Calc is not null ? "fx" : col.IsSelect ? "Lista" : "Texto")
+                                </span>
+                                <button type="button" class="fb-gridcol-mv" title="Mover a la izquierda" disabled="@(idx == 0)"
+                                        @onclick="@(() => MoveGridColumnAsync(node.Q!, idx, -1))">&larr;</button>
+                                <button type="button" class="fb-gridcol-mv" title="Mover a la derecha" disabled="@(idx == gcols.Count - 1)"
+                                        @onclick="@(() => MoveGridColumnAsync(node.Q!, idx, 1))">&rarr;</button>
+                                <button type="button" class="fb-gridcol-cog @(colOpen ? "on" : "")" title="Propiedades de la columna"
+                                        @onclick="@(() => ToggleGridCol(node.Q!, col))">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                </button>
                                 <button type="button" class="fb-gridcol-del" title="Quitar columna"
                                         @onclick="@(() => RemoveGridColumnAsync(node.Q!, idx))">&times;</button>
                             </div>
-                            @if (col.IsSelect)
+                            @if (colOpen)
                             {
-                                <div class="fb-gridcol-opts">
-                                    <span class="fb-gridcol-optslbl">Opciones:</span>
-                                    @RenderChipList((col.Options ?? new List<FormOption>()).Select(o => o.Label).ToList(), "var(--t-blue)",
-                                        (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
-                                        oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
-                                        () => PatchGridColumnOptionAsync(node.Q!, idx, -1, null))
+                                <div class="fb-gridcol-body">
+                                    <div class="fb-gcp-row">
+                                        <div class="fb-gcp-field">
+                                            <label>Nombre interno</label>
+                                            <input class="fb-input ro" readonly value="@col.Id" />
+                                        </div>
+                                        <div class="fb-gcp-field fb-gcp-narrow">
+                                            <label>Ancho (px)</label>
+                                            <input type="number" class="fb-input" min="40" max="2000" step="10"
+                                                   value="@col.Width" placeholder="auto"
+                                                   @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Width = ParseColWidth(e.Value?.ToString()) }))" />
+                                        </div>
+                                    </div>
+                                    <div class="fb-gcp-row">
+                                        <div class="fb-gcp-field">
+                                            <label>Tipo de columna</label>
+                                            <select class="fb-select"
+                                                    @onchange="@(e => SetGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
+                                                <option value="text" selected="@(col.Calc is null && !col.IsSelect)">Texto</option>
+                                                <option value="select" selected="@(col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="formula" selected="@(col.Calc is not null)">Formula (calculada)</option>
+                                            </select>
+                                        </div>
+                                        @if (col.Calc is null)
+                                        {
+                                            <div class="fb-gcp-field fb-gcp-narrow">
+                                                <label>Requisito</label>
+                                                <label class="fb-gridcol-req">
+                                                    <input type="checkbox" checked="@col.Required"
+                                                           @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Required = (bool)e.Value! }))" /> Obligatoria
+                                                </label>
+                                            </div>
+                                        }
+                                    </div>
+                                    @if (col.IsSelect)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Opciones de la lista</label>
+                                            @RenderChipList((col.Options ?? new List<FormOption>()).Select(o => o.Label).ToList(), "var(--t-blue)",
+                                                (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
+                                                oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
+                                                () => PatchGridColumnOptionAsync(node.Q!, idx, -1, null))
+                                        </div>
+                                    }
+                                    @if (col.Calc is not null)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Formula</label>
+                                            <textarea class="fb-input fb-gcp-mono fb-gcp-formula" rows="3" placeholder="ej. {cantidad} * {precio}"
+                                                   @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Calc = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? "0" : e.Value!.ToString() }))">@col.Calc</textarea>
+                                            <div class="fb-hint">Referencia otras columnas con {nombre_interno}. Operadores + - * / ( ).</div>
+                                        </div>
+                                    }
+                                    <div class="fb-gcp-row">
+                                        <div class="fb-gcp-field">
+                                            <label>Total al pie</label>
+                                            <select class="fb-select"
+                                                    @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Agg = Enum.TryParse<FormAggregate>(e.Value?.ToString(), out var a) ? a : FormAggregate.None }))">
+                                                <option value="None" selected="@(col.Agg == FormAggregate.None)">Sin total</option>
+                                                <option value="Sum" selected="@(col.Agg == FormAggregate.Sum)">Suma</option>
+                                                <option value="Count" selected="@(col.Agg == FormAggregate.Count)">Conteo</option>
+                                                <option value="Avg" selected="@(col.Agg == FormAggregate.Avg)">Promedio</option>
+                                                <option value="Min" selected="@(col.Agg == FormAggregate.Min)">Minimo</option>
+                                                <option value="Max" selected="@(col.Agg == FormAggregate.Max)">Maximo</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    @if (col.Agg != FormAggregate.None)
+                                    {
+                                        <div class="fb-gcp-field">
+                                            <label>Condicion de inclusion (opcional)</label>
+                                            <input class="fb-input fb-gcp-mono" value="@col.AggWhen" placeholder="ej. {sin_stock}=0"
+                                                   @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { AggWhen = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value!.ToString() }))" />
+                                            <div class="fb-hint">Solo las filas que cumplan la condicion entran al total.</div>
+                                        </div>
+                                    }
                                 </div>
                             }
                         </div>
@@ -2394,6 +2458,16 @@ else
         return SaveGridColumnsAsync(q, cols);
     }
 
+    /// <summary>Reordena una columna dentro de la tabla (delta -1 = izquierda, +1 = derecha).</summary>
+    private Task MoveGridColumnAsync(FormQuestionDto q, int index, int delta)
+    {
+        var cols = GridColumns(q);
+        var j = index + delta;
+        if (index < 0 || index >= cols.Count || j < 0 || j >= cols.Count) { return Task.CompletedTask; }
+        (cols[index], cols[j]) = (cols[j], cols[index]);
+        return SaveGridColumnsAsync(q, cols);
+    }
+
     private Task SetGridColumnKindAsync(FormQuestionDto q, int index, string kind)
         => PatchGridColumnAsync(q, index, c => c with
         {
@@ -2401,6 +2475,29 @@ else
             // Al pasar a lista sin opciones aun, se siembra una para que el editor no quede vacio.
             Options = kind == "select" ? (c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") }) : c.Options
         });
+
+    /// <summary>
+    /// Tipo de columna elegido en el panel de propiedades: Texto, Lista (Select con opciones) o
+    /// Formula (columna calculada, Calc). Al pasar a Formula se siembra "0" para que sea valida;
+    /// al salir de Formula se borra Calc. Al pasar a Lista se siembra una opcion.
+    /// </summary>
+    private Task SetGridColumnTypeAsync(FormQuestionDto q, int index, string type)
+        => PatchGridColumnAsync(q, index, c => type switch
+        {
+            "select" => c with { Kind = "select", Calc = null, Options = c.Options is { Count: > 0 } ? c.Options : new List<FormOption> { new("op_1", "Opcion 1") } },
+            "formula" => c with { Kind = "text", Calc = string.IsNullOrWhiteSpace(c.Calc) ? "0" : c.Calc },
+            _ => c with { Kind = "text", Calc = null }
+        });
+
+    // Columna cuyo panel de propiedades esta abierto (clave "questionId:columnId"). Solo una a la vez.
+    private string? _openGridCol;
+    private static string GridColKey(FormQuestionDto q, FormGridColumn col) => $"{q.Id}:{col.Id}";
+    private bool IsGridColOpen(FormQuestionDto q, FormGridColumn col) => _openGridCol == GridColKey(q, col);
+    private void ToggleGridCol(FormQuestionDto q, FormGridColumn col)
+    {
+        var k = GridColKey(q, col);
+        _openGridCol = _openGridCol == k ? null : k;
+    }
 
     /// <summary>Edita/agrega/quita una opcion de una columna Select.</summary>
     private Task PatchGridColumnOptionAsync(FormQuestionDto q, int colIndex, int optIndex, string? value)

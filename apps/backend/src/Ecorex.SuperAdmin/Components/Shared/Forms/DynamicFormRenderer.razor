@@ -1075,6 +1075,19 @@ else
     }
 
     /// <summary>
+    /// Ancho total EXPLICITO de la tabla = suma de anchos de columna (+ la columna de acciones de 34px
+    /// cuando es editable). Necesario porque con width:auto una tabla table-layout:fixed no respeta los
+    /// anchos del colgroup; con un width explicito igual a la suma, cada columna queda EXACTA.
+    /// </summary>
+    private int GridTotalWidth(IReadOnlyList<FormGridColumn> columns)
+    {
+        var total = 0;
+        for (var i = 0; i < columns.Count; i++) { total += GridColWidth(columns[i], i == 0); }
+        if (!IsDisabled) { total += 44; }  // columna de herramientas (duplicar/eliminar)
+        return total;
+    }
+
+    /// <summary>
     /// Extras de columna (lookup, valor por defecto, comprobacion de existencias). Se parsean del
     /// MISMO OptionsJson en paralelo a GridColumnsOf: son responsabilidad de la UI, no del
     /// calculador, y asi las dos capas evolucionan sin pisarse.
@@ -1166,29 +1179,48 @@ else
             @* Scroll horizontal AISLADO a la tabla: el boton "Agregar fila" queda fuera y no se
                desplaza. El wrapper es quien recorta con radio; la tabla ya no. *@
             <div class="dfr-grid-scroll">
-            <table class="dfr-grid-table">
+            <table class="dfr-grid-table" style="width:@(GridTotalWidth(columns))px">
                 @* Ancho EXACTO por columna (table-layout:fixed): el ancho sale del JSON de la columna
-                   (Width) o de un default por tipo. La suma puede exceder la tarjeta; para eso esta
-                   el scroll de .dfr-grid-scroll. *@
+                   (Width) o de un default por tipo. CLAVE: la tabla lleva un ancho EXPLICITO igual a la
+                   suma de columnas; con width:auto, table-layout:fixed NO honra los <col> (las trata como
+                   proporciones y el contenido colapsa la columna). La suma puede exceder la tarjeta; para
+                   eso esta el scroll de .dfr-grid-scroll. *@
                 <colgroup>
+                    @* Columna de herramientas por fila (duplicar/eliminar). Va PRIMERA y queda fija
+                       (sticky) al desplazar; el manejo aparece al pasar el puntero por la fila. *@
+                    @if (!IsDisabled)
+                    {
+                        <col style="width:44px" />
+                    }
                     @for (var ci = 0; ci < columns.Count; ci++)
                     {
                         <col style="width:@(GridColWidth(columns[ci], ci == 0))px" />
                     }
-                    @if (!IsDisabled)
-                    {
-                        <col style="width:34px" />
-                    }
                 </colgroup>
                 <thead>
                     <tr>
-                        @foreach (var col in columns)
-                        {
-                            <th title="@col.Label">@col.Label</th>
-                        }
                         @if (!IsDisabled)
                         {
-                            <th class="dfr-grid-x"></th>
+                            <th class="dfr-grid-tools"></th>
+                        }
+                        @{
+                            var sort = _gridSort.GetValueOrDefault(q.FieldCode);
+                        }
+                        @foreach (var col in columns)
+                        {
+                            var colId = col.Id;
+                            <th class="dfr-grid-th-sort" title="Ordenar por @col.Label"
+                                @onclick="@(() => SortGridBy(q, colId))">
+                                <span class="dfr-th-label">@col.Label</span>
+                                @if (sort.col == colId && sort.asc)
+                                {
+                                    <span class="dfr-th-arrow">&#8593;</span>
+                                }
+                                else if (sort.col == colId)
+                                {
+                                    <span class="dfr-th-arrow">&#8595;</span>
+                                }
+                            </th>
                         }
                     </tr>
                 </thead>
@@ -1207,6 +1239,21 @@ else
                         var lowStock = IsRowShortOfStock(q, rowIndex, rows[rowIndex], extras);
                         var badgeCol = StockBadgeColumnId(columns, extras);
                         <tr class="@(lowStock ? "dfr-grid-nostock" : null)">
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-tools">
+                                    <div class="dfr-rowtools">
+                                        <button type="button" class="dfr-rowtool" title="Duplicar fila"
+                                                @onclick="@(() => DuplicateGridRow(q, rowIndex))">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        </button>
+                                        <button type="button" class="dfr-rowtool danger" title="Eliminar fila"
+                                                @onclick="@(() => RemoveGridRow(q, rowIndex))">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            }
                             @foreach (var col in columns)
                             {
                                 var colId = col.Id;
@@ -1249,13 +1296,6 @@ else
                                     }
                                 </td>
                             }
-                            @if (!IsDisabled)
-                            {
-                                <td class="dfr-grid-x">
-                                    <button type="button" class="dfr-grid-del" title="Quitar fila"
-                                            @onclick="@(() => RemoveGridRow(q, rowIndex))">&times;</button>
-                                </td>
-                            }
                         </tr>
                     }
                 </tbody>
@@ -1263,16 +1303,16 @@ else
                 {
                     <tfoot>
                         <tr class="dfr-grid-total">
+                            @if (!IsDisabled)
+                            {
+                                <td class="dfr-grid-tools"></td>
+                            }
                             @foreach (var col in columns)
                             {
                                 var total = col.Agg == FormAggregate.None ? null
                                     // C4: sobrecarga por columna, para respetar aggWhen y coincidir con el roll-up.
                                     : FormGridCalculator.Aggregate(col, rows, _values);
                                 <td>@(total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")</td>
-                            }
-                            @if (!IsDisabled)
-                            {
-                                <td class="dfr-grid-x"></td>
                             }
                         </tr>
                     </tfoot>
@@ -1617,10 +1657,70 @@ else
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
     }
 
+    // Orden actual por tabla (fieldCode -> columna + ascendente). Reordena las filas ALMACENADAS.
+    private readonly Dictionary<string, (string col, bool asc)> _gridSort = new(StringComparer.Ordinal);
+
+    private async Task SortGridBy(FormQuestionDto q, string colId)
+    {
+        var rows = GridRowsOf(q);
+        var cur = _gridSort.GetValueOrDefault(q.FieldCode);
+        // Primer clic = ascendente; volver a clic en la misma columna alterna a descendente.
+        var asc = !(cur.col == colId && cur.asc);
+        _gridSort[q.FieldCode] = (colId, asc);
+        if (rows.Count > 1)
+        {
+            rows.Sort((a, b) => CompareCells(a.GetValueOrDefault(colId), b.GetValueOrDefault(colId), asc));
+            // Los indices de fila cambian; el estado de lookup por fila quedaria desalineado.
+            ClearGridLookupState(q);
+            await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+        }
+    }
+
+    /// <summary>Compara dos celdas: numerica si ambas parsean como numero, si no alfabetica. Respeta asc/desc.</summary>
+    private static int CompareCells(string? a, string? b, bool asc)
+    {
+        var ea = string.IsNullOrWhiteSpace(a);
+        var eb = string.IsNullOrWhiteSpace(b);
+        if (ea && eb) { return 0; }
+        if (ea) { return 1; }   // vacios siempre al final, sin importar el sentido
+        if (eb) { return -1; }
+        int cmp;
+        if (double.TryParse(a, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var na)
+            && double.TryParse(b, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var nb))
+        {
+            cmp = na.CompareTo(nb);
+        }
+        else
+        {
+            cmp = string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+        return asc ? cmp : -cmp;
+    }
+
+    private async Task DuplicateGridRow(FormQuestionDto q, int rowIndex)
+    {
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return;
+        }
+        // Copia exacta de la fila (mismos valores capturados), insertada justo debajo.
+        var copy = new Dictionary<string, string?>(rows[rowIndex], StringComparer.Ordinal);
+        rows.Insert(rowIndex + 1, copy);
+        // Al insertar, los indices de fila se corren; el estado de lookup por fila quedaria desalineado.
+        ClearGridLookupState(q);
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
     private async Task RemoveGridRow(FormQuestionDto q, int rowIndex)
     {
         var rows = GridRowsOf(q);
         if (rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return;
+        }
+        // Confirmacion antes de borrar (el borrado de una linea es facil de hacer por accidente).
+        if (!await JS.InvokeAsync<bool>("confirm", "Eliminar esta fila? Esta accion no se puede deshacer."))
         {
             return;
         }

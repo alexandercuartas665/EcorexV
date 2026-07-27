@@ -160,6 +160,8 @@
    recorte del radio vive AQUI, no en la tabla; el borde tambien. En tactil el scroll es suave. */
 .dfr-grid-scroll {
     overflow-x: auto; max-width: 100%;
+    /* Alto tope => la tabla scrollea en vertical y el encabezado sticky se queda fijo arriba. */
+    max-height: 62vh; overflow-y: auto;
     border: 1px solid var(--line-2, rgba(20,20,25,.12)); border-radius: 9px;
     -webkit-overflow-scrolling: touch;
 }
@@ -173,6 +175,14 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     color: var(--ink-2, #5C5C66); background: var(--surface-3, #F2F2F3);
 }
+/* Titulos FIJOS: el encabezado se queda arriba al desplazar en vertical. */
+.dfr-grid-table thead th { position: sticky; top: 0; z-index: 4; }
+/* Esquina superior izquierda (columna de herramientas): fija en AMBOS ejes, por encima de todo. */
+.dfr-grid-table thead th:first-child { z-index: 6; }
+/* Encabezado clicable para ordenar por esa columna. */
+.dfr-grid-th-sort { cursor: pointer; user-select: none; }
+.dfr-grid-th-sort:hover { color: var(--ink, #1B1B1E); background: var(--surface-2, #FAFAFA); }
+.dfr-th-arrow { margin-left: 4px; font-weight: 800; color: var(--brand, #1B1B1E); }
 .dfr-grid-table th + th, .dfr-grid-table td + td { border-left: 1px solid var(--line, rgba(20,20,25,.07)); }
 .dfr-grid-table td { padding: 4px 6px; border-top: 1px solid var(--line, rgba(20,20,25,.07)); }
 /* El control llena el ancho de su columna (fijado por el colgroup) sin imponer un minimo propio. */
@@ -196,6 +206,20 @@
     color: var(--ink-3, #A2A2AC); font-weight: 700; cursor: pointer;
 }
 .dfr-grid-del:hover { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
+
+/* Columna de herramientas por fila (primera, fija/sticky). El manejo (duplicar/eliminar) aparece
+   al pasar el puntero por la fila; en reposo queda tenue para no competir con los datos. */
+.dfr-grid-table th.dfr-grid-tools, .dfr-grid-table td.dfr-grid-tools { padding: 0; text-align: center; }
+.dfr-rowtools { display: flex; align-items: center; justify-content: center; gap: 2px; opacity: 0; transition: opacity .12s ease; }
+.dfr-grid-table tbody tr:hover .dfr-rowtools,
+.dfr-rowtools:focus-within { opacity: 1; }
+.dfr-rowtool {
+    width: 19px; height: 22px; display: inline-grid; place-items: center; padding: 0;
+    border: none; border-radius: 5px; background: none; color: var(--ink-3, #A2A2AC); cursor: pointer;
+}
+.dfr-rowtool svg { width: 13px; height: 13px; }
+.dfr-rowtool:hover { color: var(--brand, #1B1B1E); background: var(--surface-3, #F2F2F3); }
+.dfr-rowtool.danger:hover { color: var(--danger, #E11D48); background: var(--t-rose-bg, #FEE7EC); }
 .dfr-grid-add {
     align-self: flex-start; font-size: 12px; font-weight: 600; padding: 8px 12px;
     border-radius: 9px; border: 1.5px dashed var(--line-2, rgba(20,20,25,.12));

@@ -72,9 +72,23 @@ window.ecorexFormCapture = (function () {
   // listeners con capture:true, que si atrapan el scroll del div interno).
 
   function placeOnePanel(panel) {
-    const cell = panel.closest('.dfr-gridlk');
-    const input = cell ? cell.querySelector('input') : null;
+    // El input ancla: si el panel ya se porto a <body>, .closest no lo encuentra, asi que se busca
+    // por el id que enlaza input<->panel (data-lkanchor).
+    let input = panel.dataset.lkanchor ? document.getElementById(panel.dataset.lkanchor) : null;
+    if (!input) {
+      const cell = panel.closest('.dfr-gridlk');
+      input = cell ? cell.querySelector('input') : null;
+    }
     if (!input) { return; }
+
+    // PORTAL: se mueve el panel a <body> para que NINGUN scroller intermedio (la tabla, el modal) lo
+    // recorte. En <body> el bloque contenedor del position:fixed es el viewport, asi que ademas de no
+    // recortarse, se posiciona con coordenadas de viewport. z-index alto para quedar sobre el modal.
+    if (panel.parentNode !== document.body) {
+      document.body.appendChild(panel);
+      panel.style.zIndex = '3000';
+    }
+
     const r = input.getBoundingClientRect();
     const margen = 4;
     const anchoVp = document.documentElement.clientWidth;
@@ -84,20 +98,28 @@ window.ecorexFormCapture = (function () {
     const ancho = Math.min(Math.max(r.width, 240), anchoVp - 16);
     panel.style.width = ancho + 'px';
 
-    // Izquierda: alineado al input, clampeado para no salirse por la derecha.
+    // Destino en coordenadas de VIEWPORT: alineado al input y debajo de el (o volteado hacia arriba
+    // si no cabe abajo), clampeado para no salirse por los lados.
     let left = r.left;
     if (left + ancho > anchoVp - 8) { left = anchoVp - 8 - ancho; }
     if (left < 8) { left = 8; }
-    panel.style.left = left + 'px';
-
-    // Arriba/abajo: debajo del input; si no cabe (queda mas espacio arriba), se voltea.
     const alto = panel.offsetHeight || 260;
     const espacioAbajo = altoVp - r.bottom;
-    if (espacioAbajo < alto + margen && r.top > espacioAbajo) {
-      panel.style.top = Math.max(8, r.top - alto - margen) + 'px';
-    } else {
-      panel.style.top = (r.bottom + margen) + 'px';
-    }
+    const top = (espacioAbajo < alto + margen && r.top > espacioAbajo)
+      ? Math.max(8, r.top - alto - margen)
+      : r.bottom + margen;
+
+    // CLAVE: un panel position:fixed NO siempre se ancla al viewport. Si un ancestro (el modal, que
+    // usa backdrop-filter, o cualquier elemento con transform/filter/contain/will-change) crea el
+    // bloque contenedor, entonces style.top/left son relativos a ESE bloque, no al viewport, y el
+    // panel aparece desplazado (abajo y a la derecha). Se mide el ORIGEN del bloque contenedor
+    // poniendo el panel en (0,0) y viendo donde cae; luego se posiciona como delta. Asi queda pegado
+    // al input sea cual sea el contenedor.
+    panel.style.left = '0px';
+    panel.style.top = '0px';
+    const origin = panel.getBoundingClientRect();
+    panel.style.left = (left - origin.left) + 'px';
+    panel.style.top = (top - origin.top) + 'px';
   }
 
   let listenersOn = false;

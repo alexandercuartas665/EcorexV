@@ -1456,6 +1456,9 @@ else
         var key = GridCellKey(q, rowIndex, extras.Id);
         var results = _gridLookupResults.GetValueOrDefault(key);
         var note = _gridLookupNote.GetValueOrDefault(key);
+        // Id que enlaza el input con su panel: el panel se PORTA a <body> (para escapar del recorte del
+        // scroller de la tabla), asi que ya no puede encontrar su input por el DOM; lo busca por este id.
+        var anchorId = "lkin-" + key.Replace('#', '-');
 
         @* Modo LISTA: desplegable con el catalogo de la fuente (para catalogos cortos). Si el catalogo
            esta vacio o no cargo, cae a texto plano (defensivo, no rompe). El resto de la fila queda
@@ -1494,7 +1497,7 @@ else
         }
 
         <div class="dfr-gridlk">
-            <input class="form-control form-control-sm" disabled="@IsDisabled"
+            <input id="@anchorId" class="form-control form-control-sm" disabled="@IsDisabled"
                    value="@cell"
                    @oninput="@(e => GridLookupSearchAsync(q, rowIndex, extras, cfg, e.Value?.ToString()))"
                    @onchange="@(e => GridLookupCommitAsync(q, rowIndex, extras, cfg, e.Value?.ToString()))" />
@@ -1505,7 +1508,7 @@ else
             }
             @if (_gridLookupOpen.Contains(key))
             {
-                <div class="dfr-lookup-panel dfr-gridlk-panel">
+                <div class="dfr-lookup-panel dfr-gridlk-panel" data-lkanchor="@anchorId">
                     @if (_gridLookupBusy.Contains(key))
                     {
                         <div class="dfr-lookup-empty"><em>Buscando...</em></div>

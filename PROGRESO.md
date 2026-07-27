@@ -6844,3 +6844,5 @@ salen en el diag del agente pero aun no en el feed (logging de la ruta fetch dif
 **Para unificar al tronco**: 17 commits en `feat/agente-colmena-gui` sobre `fase-0/clon-backbone`.
 Migraciones DUALES nuevas (`AgentActivityLog` PG + SqlServer, `AddConnectorQuery`). Ver prompt de
 handoff a la sesion principal.
+
+**SIMULADOR de cotizaciones TERMINADO (2026-07-27):** con C1-C5 del codigo y datos cargados, se configuro el lookup de la columna codigo (autofill de 6 campos desde Items), defaults por columna, formulas objetivo (REDONDEAR.SUPERIOR, SI, IVA del encabezado, totales excluyen sin-stock) y card_layout=Completo. Verificado en BD. Pendiente menor: la columna marca no autollena (Brand no expuesta por ItemLookupSource).

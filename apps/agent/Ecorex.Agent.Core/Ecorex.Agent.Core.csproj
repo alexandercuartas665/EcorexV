@@ -28,6 +28,7 @@
          motor; ambos derivan de DbConnection, asi que el ejecutor es UNO solo (ver GatewayExecutor). -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
     <PackageReference Include="Npgsql" Version="10.0.2" />
+    <PackageReference Include="MySqlConnector" Version="2.4.0" />
   </ItemGroup>
 
 </Project>

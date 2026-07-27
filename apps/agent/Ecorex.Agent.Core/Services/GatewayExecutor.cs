@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using Ecorex.Contracts.Agent;
 using Microsoft.Data.SqlClient;
+using MySqlConnector;
 using Npgsql;
 
 namespace Ecorex.Agent.Core.Services;
@@ -38,6 +39,7 @@ public sealed class GatewayExecutor
     {
         "sqlserver" or "mssql" => "sqlserver",
         "postgresql" or "postgres" or "npgsql" => "postgresql",
+        "mysql" or "mariadb" => "mysql",
         _ => null,
     };
 
@@ -61,6 +63,10 @@ public sealed class GatewayExecutor
                            "TrustServerCertificate=True;Connection Timeout=15",
             "postgresql" => $"Host={c.Host};Port={(c.Port is > 0 ? c.Port : 5432)};Database={c.Database};" +
                             $"Username={c.Username};Password={c.Secret};Timeout=15",
+            // OCS Inventory y demas fuentes MySQL/MariaDB de la LAN. SslMode=Preferred: cifra si el
+            // servidor lo ofrece y no falla si no (fuentes on-prem suelen no tener TLS configurado).
+            "mysql" => $"Server={c.Host};Port={(c.Port is > 0 ? c.Port : 3306)};Database={c.Database};" +
+                       $"Uid={c.Username};Pwd={c.Secret};Connection Timeout=15;SslMode=Preferred",
             _ => null,
         };
     }
@@ -69,8 +75,9 @@ public sealed class GatewayExecutor
     {
         "sqlserver" => new SqlConnection(connectionString),
         "postgresql" => new NpgsqlConnection(connectionString),
+        "mysql" => new MySqlConnection(connectionString),
         _ => throw new GatewayException("ENGINE_UNSUPPORTED",
-            $"El agente no sabe hablar con el motor '{dbEngine}'. Soportados: SqlServer, PostgreSql."),
+            $"El agente no sabe hablar con el motor '{dbEngine}'. Soportados: SqlServer, PostgreSql, MySql."),
     };
 
     public async IAsyncEnumerable<FetchResultMsg> ExecuteAsync(

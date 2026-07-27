@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-07-27 - Catalogo del SIMULADOR de SKY: remapeo de items para el lookup (sesion de DATOS)
+
+**Remapeo de los items del Cotizador en SKY SYSTEM (por SQL directo):** llego un prompt de la sesion
+de diseño para "cargar el catalogo COMPLETO (~1019 productos)" y dejar los items listos para el lookup
+del SIMULADOR (form COT `59a91ffe`). Backup `ecorex-2026-07-27-0936.sql.gz`.
+
+> **CORRECCION AL PROMPT (2a vez):** BASE_PRODUCTOS **NO tiene ~1019 productos, tiene 11**. El "1019" es
+> `max_row-4`; hay **1009 filas VACIAS** con formato. El xlsx cambio de MD5 desde el 2026-07-21
+> (`56aefcce` -> `4fee397f`) pero el conteo de productos sigue en 11 (cambio en otras hojas). Los 11 ya
+> estaban cargados desde el 2026-07-21; esta sesion NO cargo catalogo nuevo, hizo el **REMAPEO** que el
+> simulador necesita.
+
+- **Remapeo de los 11 items** a la forma que espera el simulador:
+  - `Price` = **COSTO SIN IVA (col H)** (antes tenia COSTO con IVA). Es el "costo" que autollena el grid.
+  - Campo dinamico NUEVO `costo_con_iva` (Number) = COSTO con IVA (col F), solo referencia.
+  - `exento_iva` normalizado a **"0"/"1"** (el grid es un select {0=No,1=Si}); todos los 11 traen EXENTO
+    IVA vacio -> "0". El `ItemFieldDefinition` de exento_iva paso de Select(SI/NO) a **Text** para guardar
+    el id 0/1 tal cual.
+  - Se retiro el campo dinamico `costo_sin_iva` (su valor vive ahora en Price).
+  - `proveedor` (Text) se conserva; marcas (HP/LG/SAMSUNG/LENOVO/GENERICO/GEFORCE/ASUS) y stock en
+    **Bodega Central** siguen del cargue del 2026-07-21.
+- Prerrequisitos del prompt que YA estaban hechos (2026-07-21): campos dinamicos, catalogo Brand,
+  limpieza E2E (verificado: 0 marcas E2E, 0 bodegas E2E).
+- **BLOQUEANTE para que el simulador funcione (NO es dato, es del diseñador):** el form COT `59a91ffe`
+  **NO tiene configurado el lookup** en su columna `codigo` (0 columnas del grid con config de
+  autollenado). Con los datos ya listos, falta que la sesion de diseño enganche el lookup del `codigo`
+  a la fuente Item (valueField=sku) con el mapa de autollenado producto/detalle/marca/proveedor/
+  costo<-Price/stock/exento_iva. Hasta entonces, teclear un codigo NO autollena.
+- PENDIENTE de decision del usuario (lo pedia el prompt): la BODEGA del stock quedo en **Bodega Central**
+  (del cargue anterior); si se quiere una "Bodega Sky System" dedicada, se mueve.
+
 ## 2026-07-25 - Tableros (etiquetas por columna, tiempo en columna, filtro), eliminar registro de formulario, GridDetail responsive + ancho por columna + ancho de tarjeta, autocompletado de contacto
 
 **Agentes**: Claude (Opus 4.8) + 2 subagentes Explore (mapeo de Directorio/Tercero para el autocompletado).

@@ -25,7 +25,10 @@ public sealed record FormGridLookupConfig(
     string? DisplayField,
     string? ValueField,
     string? FilterJson,
-    IReadOnlyDictionary<string, string> Autofill)
+    IReadOnlyDictionary<string, string> Autofill,
+    // Como se ofrece la celda: Autocomplete (teclear y filtrar, default), Dropdown (lista con el
+    // catalogo) o Modal (buscador grande). Default Autocomplete para no alterar lo ya configurado.
+    FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete)
 {
     /// <summary>Campos que hay que pedirle a la fuente: el de mostrar, el de la clave y los origenes del autollenado.</summary>
     public IReadOnlyList<string> Fields()
@@ -132,8 +135,17 @@ public static class FormGridColumnLookupParser
             Trimmed(lk, "displayField"),
             Trimmed(lk, "valueField"),
             filterJson,
-            autofill);
+            autofill,
+            ParsePresentation(Trimmed(lk, "presentation")));
     }
+
+    /// <summary>presentation: "list"/"dropdown" -> Dropdown, "modal" -> Modal, cualquier otro -> Autocomplete.</summary>
+    private static FormFieldPresentation ParsePresentation(string? s) => s?.Trim().ToLowerInvariant() switch
+    {
+        "list" or "dropdown" => FormFieldPresentation.Dropdown,
+        "modal" => FormFieldPresentation.Modal,
+        _ => FormFieldPresentation.Autocomplete,
+    };
 
     private static FormGridStockCheck? ParseStockCheck(JsonElement col)
     {

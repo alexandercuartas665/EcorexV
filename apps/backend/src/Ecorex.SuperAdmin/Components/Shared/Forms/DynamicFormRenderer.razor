@@ -1371,8 +1371,68 @@ else
     private readonly HashSet<string> _gridLookupOpen = new(StringComparer.Ordinal);
     private readonly HashSet<string> _gridLookupBusy = new(StringComparer.Ordinal);
 
+    // Modo LISTA (Dropdown): las opciones son las MISMAS para toda la columna (dependen del cfg, no de
+    // la fila), asi que se cachean por COLUMNA, no por celda.
+    private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _gridListOptions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _gridListLoading = new(StringComparer.Ordinal);
+
     private static string GridCellKey(FormQuestionDto q, int rowIndex, string colId)
         => $"{q.FieldCode}#{rowIndex}#{colId}";
+
+    private static string GridLookupColKey(FormQuestionDto q, string colId)
+        => $"{q.FieldCode}#col#{colId}";
+
+    /// <summary>Carga (una vez por columna) el catalogo de la fuente para el modo lista (Dropdown).</summary>
+    private async Task EnsureGridListOptionsAsync(FormQuestionDto q, FormGridColumnExtras extras, FormGridLookupConfig cfg)
+    {
+        var colKey = GridLookupColKey(q, extras.Id);
+        if (_gridListOptions.ContainsKey(colKey) || !_gridListLoading.Add(colKey)) { return; }
+        await _dbGate.WaitAsync();
+        try
+        {
+            using var ambient = BeginAmbient();
+            // Sin texto de busqueda: trae el catalogo (acotado por filtro/tenant). Tope prudente para
+            // no volcar catalogos enormes en un <select> (para eso esta el modo autocompletado).
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                cfg.SourceKind, cfg.SourceRef, null, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 200));
+            _gridListOptions[colKey] = page.Items;
+        }
+        catch (Exception)
+        {
+            // Fuente inaccesible / contenedor invalido: lista vacia -> la celda cae a texto plano.
+            _gridListOptions[colKey] = Array.Empty<FormLookupItem>();
+        }
+        finally
+        {
+            _gridListLoading.Remove(colKey);
+            _dbGate.Release();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Modo lista: el usuario eligio del desplegable. Autollena (o limpia si eligio el vacio).</summary>
+    private async Task GridListPickAsync(
+        FormQuestionDto q, int rowIndex, FormGridColumnExtras extras, FormGridLookupConfig cfg, string? chosenKey)
+    {
+        if (IsDisabled) { return; }
+        if (!string.IsNullOrEmpty(chosenKey))
+        {
+            var opts = _gridListOptions.GetValueOrDefault(GridLookupColKey(q, extras.Id));
+            var match = opts?.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), chosenKey, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                await GridLookupChooseAsync(q, rowIndex, extras, cfg, match);
+                return;
+            }
+        }
+        // Vacio (o clave sin match): limpia la celda y las columnas de autollenado de esta fila.
+        var rows = GridRowsOf(q);
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var row = rows[rowIndex];
+        row[extras.Id] = string.IsNullOrEmpty(chosenKey) ? null : chosenKey;
+        foreach (var target in cfg.Autofill.Values) { row[target] = null; }
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
 
     /// <summary>Descarta el estado de lookup de una tabla (sus claves llevan el fieldCode como prefijo).</summary>
     private void ClearGridLookupState(FormQuestionDto q)
@@ -1396,6 +1456,42 @@ else
         var key = GridCellKey(q, rowIndex, extras.Id);
         var results = _gridLookupResults.GetValueOrDefault(key);
         var note = _gridLookupNote.GetValueOrDefault(key);
+
+        @* Modo LISTA: desplegable con el catalogo de la fuente (para catalogos cortos). Si el catalogo
+           esta vacio o no cargo, cae a texto plano (defensivo, no rompe). El resto de la fila queda
+           editable igual que en autocompletado. *@
+        @if (cfg.Presentation == FormFieldPresentation.Dropdown)
+        {
+            var colKey = GridLookupColKey(q, extras.Id);
+            _ = EnsureGridListOptionsAsync(q, extras, cfg);
+            var opts = _gridListOptions.GetValueOrDefault(colKey);
+            <div class="dfr-gridlk">
+                @if (opts is null)
+                {
+                    <select class="form-control form-control-sm" disabled>
+                        <option>Cargando...</option>
+                    </select>
+                }
+                else if (opts.Count == 0)
+                {
+                    <input class="form-control form-control-sm" disabled="@IsDisabled" value="@cell"
+                           @onchange="@(e => SetGridCell(q, rowIndex, extras.Id, e.Value?.ToString()))" />
+                }
+                else
+                {
+                    <select class="form-control form-control-sm" disabled="@IsDisabled"
+                            @onchange="@(e => GridListPickAsync(q, rowIndex, extras, cfg, e.Value?.ToString()))">
+                        <option value="" selected="@string.IsNullOrEmpty(cell)">--</option>
+                        @foreach (var it in opts)
+                        {
+                            var optKey = cfg.KeyOf(it);
+                            <option value="@optKey" selected="@(optKey == cell)">@it.Display</option>
+                        }
+                    </select>
+                }
+            </div>
+            return;
+        }
 
         <div class="dfr-gridlk">
             <input class="form-control form-control-sm" disabled="@IsDisabled"

@@ -3,6 +3,7 @@
 @* Policy por modulo (paso 1: mismo requisito que TenantMember, nombre estable). TODO: derivar del Module Registry. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Text.Json
+@using System.Text.Json.Nodes
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Forms.Calc
 @using Ecorex.Application.Forms.Lookups
@@ -1756,20 +1757,22 @@ else
                 <label>Columnas de la tabla</label>
                 @{
                     var gcols = GridColumns(node.Q!);
+                    var gext = FormGridColumnLookupParser.Parse(node.Q!.OptionsJson);
                 }
                 <div class="fb-gridcols">
                     @for (var ci = 0; ci < gcols.Count; ci++)
                     {
                         var idx = ci;
                         var col = gcols[idx];
+                        var ext = gext.GetValueOrDefault(col.Id);
                         var colOpen = IsGridColOpen(node.Q!, col);
                         <div class="fb-gridcol @(colOpen ? "open" : "")">
                             <div class="fb-gridcol-head">
                                 <input class="fb-input fb-gridcol-name" value="@col.Label" placeholder="Etiqueta de la columna"
                                        @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Label = e.Value?.ToString() ?? c.Label }))" />
-                                <span class="fb-gridcol-badge @(col.Calc is not null ? "fx" : col.IsSelect ? "list" : "txt")"
-                                      title="@(col.Calc is not null ? "Columna calculada" : col.IsSelect ? "Lista de opciones" : "Texto")">
-                                    @(col.Calc is not null ? "fx" : col.IsSelect ? "Lista" : "Texto")
+                                <span class="fb-gridcol-badge @(ext?.Lookup is not null ? "lk" : col.Calc is not null ? "fx" : col.IsSelect ? "list" : "txt")"
+                                      title="@(ext?.Lookup is not null ? "Lookup con autollenado" : col.Calc is not null ? "Columna calculada" : col.IsSelect ? "Lista de opciones" : "Texto")">
+                                    @(ext?.Lookup is not null ? "Lookup" : col.Calc is not null ? "fx" : col.IsSelect ? "Lista" : "Texto")
                                 </span>
                                 <button type="button" class="fb-gridcol-mv" title="Mover a la izquierda" disabled="@(idx == 0)"
                                         @onclick="@(() => MoveGridColumnAsync(node.Q!, idx, -1))">&larr;</button>
@@ -1801,10 +1804,11 @@ else
                                         <div class="fb-gcp-field">
                                             <label>Tipo de columna</label>
                                             <select class="fb-select"
-                                                    @onchange="@(e => SetGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
-                                                <option value="text" selected="@(col.Calc is null && !col.IsSelect)">Texto</option>
-                                                <option value="select" selected="@(col.Calc is null && col.IsSelect)">Lista de opciones</option>
-                                                <option value="formula" selected="@(col.Calc is not null)">Formula (calculada)</option>
+                                                    @onchange="@(e => ChangeGridColumnTypeAsync(node.Q!, idx, e.Value?.ToString() ?? "text"))">
+                                                <option value="text" selected="@(ext?.Lookup is null && col.Calc is null && !col.IsSelect)">Texto</option>
+                                                <option value="select" selected="@(ext?.Lookup is null && col.Calc is null && col.IsSelect)">Lista de opciones</option>
+                                                <option value="formula" selected="@(ext?.Lookup is null && col.Calc is not null)">Formula (calculada)</option>
+                                                <option value="lookup" selected="@(ext?.Lookup is not null)">Lookup (autollenar)</option>
                                             </select>
                                         </div>
                                         @if (col.Calc is null)
@@ -1826,6 +1830,112 @@ else
                                                 (oi, v) => PatchGridColumnOptionAsync(node.Q!, idx, oi, v),
                                                 oi => PatchGridColumnOptionAsync(node.Q!, idx, oi, null),
                                                 () => PatchGridColumnOptionAsync(node.Q!, idx, -1, null))
+                                        </div>
+                                    }
+                                    @if (ext?.Lookup is { } lk)
+                                    {
+                                        _ = EnsureLookupMetaAsync(lk.SourceKind, lk.SourceRef);
+                                        var lkFields = LookupFieldsFor(lk.SourceKind, lk.SourceRef);
+                                        <div class="fb-gcp-row">
+                                            <div class="fb-gcp-field">
+                                                <label>Fuente de datos</label>
+                                                <select class="fb-select"
+                                                        @onchange="@(e => ChangeGridLookupSourceAsync(node.Q!, idx, e.Value?.ToString()))">
+                                                    <option value="Item" selected="@(lk.SourceKind == FormSourceKind.Item)">Inventario (items)</option>
+                                                    <option value="Tercero" selected="@(lk.SourceKind == FormSourceKind.Tercero)">Directorio (terceros)</option>
+                                                    <option value="DataContainer" selected="@(lk.SourceKind == FormSourceKind.DataContainer)">Contenedor de datos</option>
+                                                </select>
+                                            </div>
+                                            <div class="fb-gcp-field">
+                                                <label>Presentacion</label>
+                                                <select class="fb-select"
+                                                        @onchange="@(e => PatchLookupFieldAsync(node.Q!, idx, "presentation", e.Value?.ToString()))">
+                                                    <option value="autocomplete" selected="@(lk.Presentation == FormFieldPresentation.Autocomplete)">Autocompletar</option>
+                                                    <option value="list" selected="@(lk.Presentation == FormFieldPresentation.Dropdown)">Lista</option>
+                                                    <option value="modal" selected="@(lk.Presentation == FormFieldPresentation.Modal)">Buscador</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        @if (lk.SourceKind == FormSourceKind.DataContainer)
+                                        {
+                                            var sources = _lookupSources.GetValueOrDefault(FormSourceKind.DataContainer) ?? Array.Empty<FormLookupSourceOption>();
+                                            <div class="fb-gcp-field">
+                                                <label>Contenedor</label>
+                                                <select class="fb-select"
+                                                        @onchange="@(e => PatchLookupFieldAsync(node.Q!, idx, "sourceRef", e.Value?.ToString()))">
+                                                    <option value="">Selecciona...</option>
+                                                    @foreach (var s in sources)
+                                                    {
+                                                        <option value="@s.Ref" selected="@(s.Ref == lk.SourceRef)">@s.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                        <div class="fb-gcp-row">
+                                            <div class="fb-gcp-field">
+                                                <label>Campo clave (se guarda)</label>
+                                                <select class="fb-select"
+                                                        @onchange="@(e => PatchLookupFieldAsync(node.Q!, idx, "valueField", e.Value?.ToString()))">
+                                                    <option value="">(id)</option>
+                                                    @foreach (var f in lkFields)
+                                                    {
+                                                        <option value="@f.Key" selected="@(f.Key == lk.ValueField)">@f.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="fb-gcp-field">
+                                                <label>Campo a mostrar</label>
+                                                <select class="fb-select"
+                                                        @onchange="@(e => PatchLookupFieldAsync(node.Q!, idx, "displayField", e.Value?.ToString()))">
+                                                    <option value="">Automatico</option>
+                                                    @foreach (var f in lkFields)
+                                                    {
+                                                        <option value="@f.Key" selected="@(f.Key == lk.DisplayField)">@f.Label</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="fb-gcp-field">
+                                            <label>Autollenar en la fila (campo de la fuente &rarr; columna)</label>
+                                            @{
+                                                var pairs = lk.Autofill.ToList();
+                                            }
+                                            @for (var ai = 0; ai < pairs.Count; ai++)
+                                            {
+                                                var pi = ai;
+                                                var pair = pairs[pi];
+                                                <div class="fb-lk-map">
+                                                    @if (lkFields.Count > 0)
+                                                    {
+                                                        <select class="fb-select fb-lk-src"
+                                                                @onchange="@(e => SetAutofillSourceAsync(node.Q!, idx, pi, e.Value?.ToString()))">
+                                                            <option value="" selected="@(!lkFields.Any(f => string.Equals(f.Key, pair.Key, StringComparison.OrdinalIgnoreCase)))">campo fuente...</option>
+                                                            @foreach (var f in lkFields)
+                                                            {
+                                                                <option value="@f.Key" selected="@(f.Key == pair.Key)">@f.Label</option>
+                                                            }
+                                                        </select>
+                                                    }
+                                                    else
+                                                    {
+                                                        <input class="fb-input fb-lk-src" value="@pair.Key" placeholder="campo fuente"
+                                                               @onchange="@(e => SetAutofillSourceAsync(node.Q!, idx, pi, e.Value?.ToString()))" />
+                                                    }
+                                                    <span class="fb-lk-arrow">&rarr;</span>
+                                                    <select class="fb-select fb-lk-tgt"
+                                                            @onchange="@(e => SetAutofillTargetAsync(node.Q!, idx, pi, e.Value?.ToString()))">
+                                                        <option value="">(columna destino)</option>
+                                                        @foreach (var tc in gcols)
+                                                        {
+                                                            <option value="@tc.Id" selected="@(tc.Id == pair.Value)">@tc.Label</option>
+                                                        }
+                                                    </select>
+                                                    <button type="button" class="fb-gridcol-del" title="Quitar"
+                                                            @onclick="@(() => RemoveAutofillAsync(node.Q!, idx, pi))">&times;</button>
+                                                </div>
+                                            }
+                                            <button type="button" class="fb-btn-ghost fb-lk-add" @onclick="@(() => AddAutofillAsync(node.Q!, idx))">+ Autollenado</button>
+                                            <div class="fb-hint">La marca del item viaja como campo &quot;brand&quot;. Los campos de la ficha aparecen en la lista.</div>
                                         </div>
                                     }
                                     @if (col.Calc is not null)
@@ -1860,6 +1970,11 @@ else
                                             <div class="fb-hint">Solo las filas que cumplan la condicion entran al total.</div>
                                         </div>
                                     }
+                                    <div class="fb-gcp-field">
+                                        <label>Valor por defecto (al crear fila)</label>
+                                        <input class="fb-input" value="@(ext?.Default)" placeholder="(vacio)"
+                                               @onchange="@(e => SetGridColumnDefaultAsync(node.Q!, idx, e.Value?.ToString()))" />
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -2066,24 +2181,30 @@ else
     private readonly Dictionary<FormSourceKind, IReadOnlyList<FormLookupSourceOption>> _lookupSources = new();
     private readonly HashSet<string> _lookupMetaLoading = new(StringComparer.Ordinal);
 
-    private static string MetaKey(FormQuestionDto q) => $"{q.SourceKind}|{q.SourceRef}";
+    private static string MetaKey(FormQuestionDto q) => MetaKey(q.SourceKind, q.SourceRef);
+    private static string MetaKey(FormSourceKind kind, string? sourceRef) => $"{kind}|{sourceRef}";
 
     private IReadOnlyList<FormLookupFieldMeta> LookupFieldsFor(FormQuestionDto q)
-        => _lookupFields.GetValueOrDefault(MetaKey(q)) ?? Array.Empty<FormLookupFieldMeta>();
+        => LookupFieldsFor(q.SourceKind, q.SourceRef);
+    private IReadOnlyList<FormLookupFieldMeta> LookupFieldsFor(FormSourceKind kind, string? sourceRef)
+        => _lookupFields.GetValueOrDefault(MetaKey(kind, sourceRef)) ?? Array.Empty<FormLookupFieldMeta>();
 
-    /// <summary>Carga (una vez) las fuentes y campos de la fuente del campo, para los selectores.</summary>
-    private async Task EnsureLookupMetaAsync(FormQuestionDto q)
+    private Task EnsureLookupMetaAsync(FormQuestionDto q) => EnsureLookupMetaAsync(q.SourceKind, q.SourceRef);
+
+    /// <summary>Carga (una vez) las fuentes y campos de una fuente, para los selectores del disenador
+    /// (lo usan tanto el lookup de CAMPO como el de COLUMNA de tabla).</summary>
+    private async Task EnsureLookupMetaAsync(FormSourceKind kind, string? sourceRef)
     {
-        if (q.SourceKind == FormSourceKind.Options) { return; }
-        var key = MetaKey(q);
+        if (kind == FormSourceKind.Options) { return; }
+        var key = MetaKey(kind, sourceRef);
         if (_lookupFields.ContainsKey(key) || !_lookupMetaLoading.Add(key)) { return; }
         try
         {
-            if (!_lookupSources.ContainsKey(q.SourceKind))
+            if (!_lookupSources.ContainsKey(kind))
             {
-                _lookupSources[q.SourceKind] = await LookupSvc.ListSourcesAsync(q.SourceKind);
+                _lookupSources[kind] = await LookupSvc.ListSourcesAsync(kind);
             }
-            _lookupFields[key] = await LookupSvc.DescribeFieldsAsync(q.SourceKind, q.SourceRef);
+            _lookupFields[key] = await LookupSvc.DescribeFieldsAsync(kind, sourceRef);
         }
         catch (Exception)
         {
@@ -2411,8 +2532,14 @@ else
     /// el parser espera "type" (no "kind") y omite lo que este en su valor por defecto para no ensuciar
     /// las columnas viejas [{id,label}].
     /// </summary>
+    // Claves que este round-trip por FormGridColumn gestiona. Cualquier OTRA clave de la columna
+    // (lookup, default, stockCheck, ...) se PRESERVA al guardar para no borrarla.
+    private static readonly HashSet<string> GridCoreKeys = new(StringComparer.OrdinalIgnoreCase)
+        { "id", "label", "type", "options", "required", "calc", "agg", "aggWhen", "rollup", "width" };
+
     private async Task SaveGridColumnsAsync(FormQuestionDto q, IReadOnlyList<FormGridColumn> cols)
     {
+        var preserved = RawColumnExtras(q.OptionsJson);
         var shaped = cols.Select(c =>
         {
             var o = new Dictionary<string, object?> { ["id"] = c.Id, ["label"] = c.Label };
@@ -2429,11 +2556,166 @@ else
             if (!string.IsNullOrWhiteSpace(c.Rollup)) { o["rollup"] = c.Rollup; }
             // Ancho por columna (px). Solo se persiste si el usuario lo fijo; null cae al default por tipo.
             if (c.Width is int w and > 0) { o["width"] = w; }
+            // Preserva lookup/default/stockCheck y cualquier clave extra que el round-trip no conoce.
+            if (preserved.TryGetValue(c.Id, out var extra))
+            {
+                foreach (var kv in extra) { o[kv.Key] = kv.Value; }
+            }
             return o;
         }).ToList();
         var json = JsonSerializer.Serialize(shaped, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         await PatchQuestionAsync(q, r => r with { OptionsJson = json });
     }
+
+    /// <summary>Claves NO gestionadas por el round-trip (lookup/default/stockCheck/...) por id de columna, para preservarlas.</summary>
+    private static Dictionary<string, Dictionary<string, JsonElement>> RawColumnExtras(string? optionsJson)
+    {
+        var map = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return map; }
+        try
+        {
+            using var doc = JsonDocument.Parse(optionsJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return map; }
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) { continue; }
+                if (!el.TryGetProperty("id", out var pid) || pid.GetString() is not { Length: > 0 } id) { continue; }
+                var extra = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                foreach (var p in el.EnumerateObject())
+                {
+                    // Clone(): el JsonElement se invalida al liberar el JsonDocument; Clone lo desacopla.
+                    if (!GridCoreKeys.Contains(p.Name)) { extra[p.Name] = p.Value.Clone(); }
+                }
+                if (extra.Count > 0) { map[id] = extra; }
+            }
+        }
+        catch (JsonException) { /* json invalido: nada que preservar */ }
+        return map;
+    }
+
+    // ---- Edicion directa del JSON de una columna (para lookup/default/autofill, que no viven en FormGridColumn) ----
+
+    private async Task PatchGridColumnJsonAsync(FormQuestionDto q, int index, Action<JsonObject> mutate)
+    {
+        JsonArray arr;
+        try
+        {
+            arr = (JsonNode.Parse(string.IsNullOrWhiteSpace(q.OptionsJson) ? "[]" : q.OptionsJson) as JsonArray) ?? new JsonArray();
+        }
+        catch (JsonException) { return; }
+        if (index < 0 || index >= arr.Count || arr[index] is not JsonObject obj) { return; }
+        mutate(obj);
+        await PatchQuestionAsync(q, r => r with { OptionsJson = arr.ToJsonString() });
+    }
+
+    /// <summary>Cambia el tipo de columna (texto/lista/formula/lookup) preservando agregado, ancho y requisito.</summary>
+    private Task ChangeGridColumnTypeAsync(FormQuestionDto q, int index, string type)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            obj.Remove("lookup");
+            switch (type)
+            {
+                case "select":
+                    obj["type"] = "select";
+                    obj.Remove("calc");
+                    if (obj["options"] is not JsonArray)
+                    {
+                        obj["options"] = new JsonArray(new JsonObject { ["id"] = "op_1", ["label"] = "Opcion 1" });
+                    }
+                    break;
+                case "formula":
+                    obj["type"] = "text";
+                    obj.Remove("options");
+                    if (obj["calc"] is null) { obj["calc"] = "0"; }
+                    break;
+                case "lookup":
+                    obj["type"] = "text";
+                    obj.Remove("calc");
+                    obj.Remove("options");
+                    obj["lookup"] = new JsonObject
+                    {
+                        ["source"] = "Item",
+                        ["valueField"] = "sku",
+                        ["displayField"] = "name",
+                        ["autofill"] = new JsonObject(),
+                    };
+                    break;
+                default:
+                    obj["type"] = "text";
+                    obj.Remove("calc");
+                    obj.Remove("options");
+                    break;
+            }
+        });
+
+    /// <summary>Fija una propiedad simple del lookup (source/sourceRef/valueField/displayField/presentation); vacio la quita.</summary>
+    private Task PatchLookupFieldAsync(FormQuestionDto q, int index, string key, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["lookup"] is not JsonObject lk) { return; }
+            var v = value?.Trim();
+            if (string.IsNullOrEmpty(v)) { lk.Remove(key); } else { lk[key] = v; }
+        });
+
+    /// <summary>Cambia la fuente del lookup de columna; sourceRef solo aplica al contenedor.</summary>
+    private Task ChangeGridLookupSourceAsync(FormQuestionDto q, int index, string? kindStr)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["lookup"] is not JsonObject lk) { return; }
+            lk["source"] = kindStr;
+            if (!string.Equals(kindStr, nameof(FormSourceKind.DataContainer), StringComparison.OrdinalIgnoreCase))
+            {
+                lk.Remove("sourceRef");
+            }
+        });
+
+    /// <summary>Valor por defecto de la columna al crear una fila (C5); vacio lo quita.</summary>
+    private Task SetGridColumnDefaultAsync(FormQuestionDto q, int index, string? value)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            var v = value?.Trim();
+            if (string.IsNullOrEmpty(v)) { obj.Remove("default"); } else { obj["default"] = v; }
+        });
+
+    // Mapa de autollenado (campoFuente -> columnaDestino): se edita como lista ordenada y se reescribe.
+    private Task PatchAutofillListAsync(FormQuestionDto q, int index, Action<List<KeyValuePair<string, string>>> edit)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["lookup"] is not JsonObject lk) { return; }
+            var list = new List<KeyValuePair<string, string>>();
+            if (lk["autofill"] is JsonObject af)
+            {
+                foreach (var p in af) { list.Add(new(p.Key, p.Value?.GetValue<string>() ?? string.Empty)); }
+            }
+            edit(list);
+            var rebuilt = new JsonObject();
+            foreach (var kv in list)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key)) { rebuilt[kv.Key] = kv.Value; }
+            }
+            lk["autofill"] = rebuilt;
+        });
+
+    private Task AddAutofillAsync(FormQuestionDto q, int index)
+        => PatchAutofillListAsync(q, index, list => list.Add(new($"campo_{Guid.NewGuid().ToString("N")[..4]}", string.Empty)));
+
+    private Task SetAutofillSourceAsync(FormQuestionDto q, int index, int pairIndex, string? src)
+        => PatchAutofillListAsync(q, index, list =>
+        {
+            if (pairIndex >= 0 && pairIndex < list.Count) { list[pairIndex] = new(src?.Trim() ?? string.Empty, list[pairIndex].Value); }
+        });
+
+    private Task SetAutofillTargetAsync(FormQuestionDto q, int index, int pairIndex, string? tgt)
+        => PatchAutofillListAsync(q, index, list =>
+        {
+            if (pairIndex >= 0 && pairIndex < list.Count) { list[pairIndex] = new(list[pairIndex].Key, tgt ?? string.Empty); }
+        });
+
+    private Task RemoveAutofillAsync(FormQuestionDto q, int index, int pairIndex)
+        => PatchAutofillListAsync(q, index, list =>
+        {
+            if (pairIndex >= 0 && pairIndex < list.Count) { list.RemoveAt(pairIndex); }
+        });
 
     private Task AddGridColumnAsync(FormQuestionDto q)
     {

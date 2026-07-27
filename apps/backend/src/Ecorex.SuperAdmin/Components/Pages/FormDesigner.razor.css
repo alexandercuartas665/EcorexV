@@ -490,6 +490,13 @@
 .fb-gridcol-badge.txt { color: var(--ink-2); background: var(--surface-3); }
 .fb-gridcol-badge.list { color: var(--t-blue); background: var(--t-blue-bg); }
 .fb-gridcol-badge.fx { font-family: ui-monospace, monospace; font-style: italic; color: var(--t-violet); background: var(--t-violet-bg); }
+.fb-gridcol-badge.lk { color: var(--t-green, #16A34A); background: var(--t-green-bg, #DDF6E6); }
+/* Mapa de autollenado del lookup: filas [campo fuente] -> [columna destino] [x]. */
+.fb-lk-map { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.fb-lk-src { flex: 1; min-width: 0; }
+.fb-lk-tgt { flex: 1; min-width: 0; }
+.fb-lk-arrow { flex: none; color: var(--ink-3); font-weight: 700; }
+.fb-lk-add { margin-top: 2px; }
 /* Engranaje que despliega el panel de propiedades de la columna. */
 .fb-gridcol-cog { flex: none; width: 26px; height: 26px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink-3); cursor: pointer; padding: 0; }
 .fb-gridcol-cog svg { width: 15px; height: 15px; }

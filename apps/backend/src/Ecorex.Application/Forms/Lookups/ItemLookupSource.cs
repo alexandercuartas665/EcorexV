@@ -47,7 +47,8 @@ public sealed class ItemLookupSource : IFormLookupSource
             .Take(Math.Clamp(request.Take, 1, 100))
             .Select(i => new Row(
                 i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson,
-                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0))
+                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0,
+                i.Brand != null ? i.Brand.Name : null))
             .ToListAsync(cancellationToken);
 
         var items = rows.Select(r => ToItem(r, request.DisplayField, request.Fields)).ToList();
@@ -62,7 +63,8 @@ public sealed class ItemLookupSource : IFormLookupSource
             .Where(i => i.Id == id)
             .Select(i => new Row(
                 i.Id, i.Sku, i.Name, i.Description, i.Price, i.IsActive, i.FieldValuesJson,
-                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0))
+                _db.ItemStocks.Where(s => s.ItemId == i.Id).Sum(s => (int?)s.Stock) ?? 0,
+                i.Brand != null ? i.Brand.Name : null))
             .FirstOrDefaultAsync(cancellationToken);
 
         return r is null ? null : ToItem(r, displayField: null, fields);
@@ -82,6 +84,7 @@ public sealed class ItemLookupSource : IFormLookupSource
             new("sku", "SKU"),
             new("name", "Nombre"),
             new("description", "Descripcion"),
+            new("brand", "Marca"),
             new("price", "Precio"),
             new("active", "Activo"),
             // Existencias TOTALES (suma de todas las bodegas): lo que necesita una cotizacion para
@@ -111,6 +114,7 @@ public sealed class ItemLookupSource : IFormLookupSource
             ["price"] = r.Price?.ToString(CultureInfo.InvariantCulture),
             ["active"] = r.IsActive ? "true" : "false",
             ["stock"] = r.Stock.ToString(CultureInfo.InvariantCulture),
+            ["brand"] = r.BrandName,
         };
         FlattenValues(r.FieldValuesJson, all);
 
@@ -185,5 +189,5 @@ public sealed class ItemLookupSource : IFormLookupSource
 
     private sealed record Row(
         Guid Id, string? Sku, string Name, string? Description, decimal? Price, bool IsActive, string? FieldValuesJson,
-        int Stock);
+        int Stock, string? BrandName);
 }

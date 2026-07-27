@@ -156,6 +156,19 @@
 
 /* Tabla (GridDetail) funcional. */
 .dfr-grid { display: flex; flex-direction: column; gap: 8px; }
+/* Barra de la tabla: filtro a la izquierda, acciones de Excel a la derecha. */
+.dfr-grid-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dfr-grid-filter { flex: 1; min-width: 160px; max-width: 320px; }
+.dfr-grid-io { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.dfr-io-msg { font-size: 11.5px; color: var(--ink-3, #A2A2AC); margin-right: 2px; }
+.dfr-io-btn {
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+    font-size: 12px; font-weight: 600; padding: 6px 11px; border-radius: 8px;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--ink, #1B1B1E);
+}
+.dfr-io-btn:hover { border-color: var(--brand, #1B1B1E); }
+.dfr-io-import { position: relative; }
+.dfr-hidden-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 /* Scroll horizontal AISLADO a la tabla (con 25 columnas la tabla no cabe en la tarjeta). El
    recorte del radio vive AQUI, no en la tabla; el borde tambien. En tactil el scroll es suave. */
 .dfr-grid-scroll {

@@ -1176,6 +1176,30 @@ else
         }
         var hasTotals = columns.Any(c => c.Agg != FormAggregate.None);
         <div class="dfr-grid">
+            @* Barra de la tabla: filtro rapido + exportar/plantilla/importar Excel. La plantilla y la
+               importacion excluyen las columnas calculadas (las llena el motor). *@
+            <div class="dfr-grid-toolbar">
+                <input class="form-control form-control-sm dfr-grid-filter" placeholder="Filtrar filas..."
+                       value="@_gridFilter.GetValueOrDefault(q.FieldCode)"
+                       @oninput="@(e => OnGridFilterInput(q, e.Value?.ToString()))" />
+                <div class="dfr-grid-io">
+                    @if (_gridIoMsg.TryGetValue(q.FieldCode, out var ioMsg))
+                    {
+                        <span class="dfr-io-msg">@ioMsg</span>
+                    }
+                    <button type="button" class="dfr-io-btn" title="Exportar a Excel"
+                            @onclick="@(() => ExportGridXlsx(q))">Exportar</button>
+                    @if (!IsDisabled)
+                    {
+                        <button type="button" class="dfr-io-btn" title="Descargar plantilla (solo columnas capturables)"
+                                @onclick="@(() => DownloadGridTemplate(q))">Plantilla</button>
+                        <label class="dfr-io-btn dfr-io-import" title="Importar filas desde Excel (.xlsx)">
+                            Importar
+                            <InputFile class="dfr-hidden-file" accept=".xlsx" OnChange="@(e => ImportGridXlsx(e, q))" />
+                        </label>
+                    }
+                </div>
+            </div>
             @* Scroll horizontal AISLADO a la tabla: el boton "Agregar fila" queda fuera y no se
                desplaza. El wrapper es quien recorta con radio; la tabla ya no. *@
             <div class="dfr-grid-scroll">
@@ -1234,6 +1258,9 @@ else
                     @for (var r = 0; r < rows.Count; r++)
                     {
                         var rowIndex = r;
+                        @* Filtro rapido: se salta la fila si no coincide, PERO se conserva rowIndex real
+                           (los indices de edicion/borrado siguen apuntando a la fila almacenada). *@
+                        if (!GridRowVisible(q, rows[rowIndex])) { continue; }
                         @* Aviso de existencias (declarado por la columna con stockCheck): la fila se
                            marca pero NO se bloquea el guardado; se puede cotizar sobre pedido. *@
                         var lowStock = IsRowShortOfStock(q, rowIndex, rows[rowIndex], extras);
@@ -1695,6 +1722,112 @@ else
             cmp = string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
         }
         return asc ? cmp : -cmp;
+    }
+
+    // ---- Filtro rapido + intercambio Excel (exportar / plantilla / importar) por tabla ----
+
+    private readonly Dictionary<string, string> _gridFilter = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _gridIoMsg = new(StringComparer.Ordinal);
+
+    private void OnGridFilterInput(FormQuestionDto q, string? value)
+        => _gridFilter[q.FieldCode] = value ?? string.Empty;
+
+    /// <summary>La fila pasa el filtro si alguna celda contiene el texto (sin distinguir mayusculas).</summary>
+    private bool GridRowVisible(FormQuestionDto q, Dictionary<string, string?> row)
+    {
+        var f = _gridFilter.GetValueOrDefault(q.FieldCode);
+        if (string.IsNullOrWhiteSpace(f)) { return true; }
+        foreach (var v in row.Values)
+        {
+            if (!string.IsNullOrEmpty(v) && v.Contains(f, StringComparison.OrdinalIgnoreCase)) { return true; }
+        }
+        return false;
+    }
+
+    private async Task ExportGridXlsx(FormQuestionDto q)
+    {
+        var columns = GridColumnsOf(q);
+        if (columns.Count == 0) { return; }
+        _gridIoMsg.Remove(q.FieldCode);
+        var bytes = FormGridXlsx.Export(columns, GridRowsOf(q), q.Label);
+        await JS.InvokeVoidAsync("ecorexFormCapture.downloadBase64",
+            SafeFileName(q.Label) + ".xlsx", Convert.ToBase64String(bytes), FormGridXlsx.Mime);
+    }
+
+    private async Task DownloadGridTemplate(FormQuestionDto q)
+    {
+        var columns = GridColumnsOf(q);
+        if (columns.Count == 0) { return; }
+        _gridIoMsg.Remove(q.FieldCode);
+        var bytes = FormGridXlsx.Template(columns, q.Label);
+        await JS.InvokeVoidAsync("ecorexFormCapture.downloadBase64",
+            SafeFileName(q.Label) + "-plantilla.xlsx", Convert.ToBase64String(bytes), FormGridXlsx.Mime);
+    }
+
+    private async Task ImportGridXlsx(InputFileChangeEventArgs e, FormQuestionDto q)
+    {
+        var file = e.File;
+        if (file is null) { return; }
+        const long max = 5L * 1024 * 1024;
+        if (file.Size > max)
+        {
+            _gridIoMsg[q.FieldCode] = "El archivo supera el limite de 5 MB.";
+            return;
+        }
+        byte[] bytes;
+        try
+        {
+            using var buffer = new MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(buffer);
+            bytes = buffer.ToArray();
+        }
+        catch
+        {
+            _gridIoMsg[q.FieldCode] = "No se pudo leer el archivo.";
+            return;
+        }
+
+        var columns = GridColumnsOf(q);
+        List<Dictionary<string, string?>> imported;
+        try
+        {
+            imported = FormGridXlsx.Import(bytes, columns);
+        }
+        catch
+        {
+            _gridIoMsg[q.FieldCode] = "No se pudo interpretar el Excel. Debe ser .xlsx con la fila de encabezados.";
+            return;
+        }
+        if (imported.Count == 0)
+        {
+            _gridIoMsg[q.FieldCode] = "No se encontraron filas (revisa que los encabezados coincidan con las columnas).";
+            return;
+        }
+
+        var rows = GridRowsOf(q);
+        var extras = GridExtrasOf(q);
+        foreach (var imp in imported)
+        {
+            var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var col in columns)
+            {
+                // Las columnas calculadas NO se importan: las recalcula el motor al fijar el valor.
+                if (col.Calc is not null) { continue; }
+                row[col.Id] = imp.TryGetValue(col.Id, out var v) ? v : extras.GetValueOrDefault(col.Id)?.Default;
+            }
+            rows.Add(row);
+        }
+        ClearGridLookupState(q);
+        _gridIoMsg[q.FieldCode] = $"Se importaron {imported.Count} fila(s).";
+        await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    /// <summary>Nombre de archivo seguro a partir de la etiqueta de la tabla.</summary>
+    private static string SafeFileName(string? name)
+    {
+        var clean = new string((name ?? "tabla")
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' or ' ' ? ch : '_').ToArray()).Trim();
+        return string.IsNullOrEmpty(clean) ? "tabla" : clean;
     }
 
     private async Task DuplicateGridRow(FormQuestionDto q, int rowIndex)

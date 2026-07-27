@@ -116,5 +116,21 @@ window.ecorexFormCapture = (function () {
     }
   }
 
-  return { initSignature, signatureData, clearSignature, testStroke, geolocate, positionCellPanels };
+  // Descarga un archivo desde base64 (usado por exportar Excel / plantilla de la tabla).
+  function downloadBase64(filename, base64, mime) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) { bytes[i] = bin.charCodeAt(i); }
+    const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'descarga';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  return { initSignature, signatureData, clearSignature, testStroke, geolocate, positionCellPanels, downloadBase64 };
 })();

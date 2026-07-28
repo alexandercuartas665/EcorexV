@@ -828,13 +828,17 @@
     }
 
     // Refresca lista + KPIs + contactos expandidos tras un cambio en el modal compartido.
+    // Refresca los contactos expandidos ANTES que el listado: si agregas un contacto a una fila
+    // desplegada, ese sub-listado (_kids) es lo primero que el usuario espera ver actualizado, y no
+    // debe quedar a merced de que la recarga del listado principal falle.
     private async Task OnModalChangedAsync()
     {
-        await ReloadAsync();
         foreach (var id in _expanded.ToList())
         {
             _kids[id] = await TerceroSvc.ListContactosAsync(id);
         }
+        await ReloadAsync();
+        StateHasChanged();
     }
 
 

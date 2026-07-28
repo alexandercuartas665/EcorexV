@@ -442,6 +442,34 @@ public sealed class MenuConfigService : IMenuConfigService
         if (edit.State is MenuNodeState s) { node.State = s; }
         if (edit.IsProcessGroup is bool ipg) { node.IsProcessGroup = ipg; }
 
+        // Reclasificacion de tipo (p.ej. Item -> Subgroup para que aloje hijos). Se valida contra el
+        // PADRE (un subgrupo solo cuelga de una seccion) y contra los HIJOS ya existentes, para no
+        // dejar el arbol en un estado imposible (un Item con hijos, o un Subgrupo dentro de otro).
+        if (edit.Kind is MenuNodeKind newKind && newKind != node.Kind)
+        {
+            MenuNode? parent = node.ParentId is Guid pid
+                ? await _db.MenuNodes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == pid, cancellationToken)
+                : null;
+            var kindError = MenuNodeKindRules.Validate(newKind, parent?.Kind);
+            if (kindError is not null)
+            {
+                return MenuConfigResult<MenuEditorNodeDto>.Invalid(kindError);
+            }
+            if (newKind == MenuNodeKind.Item
+                && await _db.MenuNodes.AnyAsync(n => n.ParentId == node.Id, cancellationToken))
+            {
+                return MenuConfigResult<MenuEditorNodeDto>.Invalid(
+                    "Un elemento no puede tener hijos. Mueve o elimina sus hijos antes de convertirlo en elemento.");
+            }
+            if (newKind == MenuNodeKind.Subgroup
+                && await _db.MenuNodes.AnyAsync(n => n.ParentId == node.Id && n.Kind != MenuNodeKind.Item, cancellationToken))
+            {
+                return MenuConfigResult<MenuEditorNodeDto>.Invalid(
+                    "Un subnivel solo puede contener elementos (no otros subniveles ni secciones).");
+            }
+            node.Kind = newKind;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return MenuConfigResult<MenuEditorNodeDto>.Ok(ToEditorDto(node));
     }

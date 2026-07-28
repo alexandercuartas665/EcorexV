@@ -93,6 +93,10 @@
                 </button>
                 <button class="dg-m-tab @(_mTab == "rel" ? "active" : "")" @onclick='() => _mTab = "rel"'>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8v8M18 8v2a4 4 0 0 1-4 4H6" /></svg>Relaciones
+                    @if (_editingId is not null && _relContactos.Count > 0)
+                    {
+                        <span class="dg-m-tab-badge" title="@_relContactos.Count contacto(s) relacionado(s)">@_relContactos.Count</span>
+                    }
                 </button>
                 <button class="dg-m-tab @(_mTab == "notas" ? "active" : "")" @onclick='() => _mTab = "notas"'>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>Contacto Cliente
@@ -1236,9 +1240,19 @@
             _coError = res.Error;
             return;
         }
-        await RefreshRelContactosAsync(_coParentId);
+        // Actualizacion OPTIMISTA en memoria (no re-consulta): el DbContext scoped es compartido con
+        // el host y una re-consulta disparada aqui podia perderse (carrera "second operation" con el
+        // tunel lento), dejando el contacto guardado pero invisible en la lista. Con el DTO devuelto
+        // reflejamos el alta/edicion al instante y de forma deterministica.
+        if (_editingId == _coParentId && res.Value is { } dto)
+        {
+            var lista = _relContactos.Where(c => c.Id != dto.Id).ToList();
+            lista.Add(dto);
+            _relContactos = lista.OrderBy(c => c.Nombre, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
         _coOpen = false;
         await OnChanged.InvokeAsync();
+        StateHasChanged();
     }
 
     private async Task DeleteContactoAsync(Guid parentId, Guid contactoId)
@@ -1247,17 +1261,13 @@
         var res = await TerceroSvc.DeleteContactoAsync(contactoId);
         _busy = false;
         if (!res.IsOk) { return; }
-        await RefreshRelContactosAsync(parentId);
-        await OnChanged.InvokeAsync();
-    }
-
-    // Refresca la lista de contactos de la pestana Relaciones si el tercero abierto es ese padre.
-    private async Task RefreshRelContactosAsync(Guid parentId)
-    {
+        // Optimista: quita la fila borrada de la lista abierta sin re-consultar (misma razon que el alta).
         if (_editingId == parentId)
         {
-            _relContactos = await TerceroSvc.ListContactosAsync(parentId);
+            _relContactos = _relContactos.Where(c => c.Id != contactoId).ToList();
         }
+        await OnChanged.InvokeAsync();
+        StateHasChanged();
     }
 
     // ---- Notas / gestiones "Contacto Cliente" ----

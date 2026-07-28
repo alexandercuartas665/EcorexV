@@ -78,7 +78,10 @@ public sealed record MenuNodeEditDto(
     string? Description = null,
     string? HelpText = null,
     MenuNodeState? State = null,
-    bool? IsProcessGroup = null);
+    bool? IsProcessGroup = null,
+    // Reclasificacion del tipo del nodo (p.ej. convertir un elemento en subnivel para que aloje
+    // hijos). Se valida contra el padre y contra los hijos existentes en UpdateNodeAsync.
+    MenuNodeKind? Kind = null);
 
 /// <summary>Usuario del tenant con su vista asignada (para la pantalla de asignacion, Ola 2).</summary>
 public sealed record TenantUserViewDto(

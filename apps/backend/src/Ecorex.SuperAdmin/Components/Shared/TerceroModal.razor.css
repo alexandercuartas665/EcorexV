@@ -113,6 +113,9 @@
 .dg-m-tab:hover { color: var(--ink-2); }
 .dg-m-tab.active { border-bottom-color: var(--brand); color: var(--ink); font-weight: 700; }
 .dg-m-tab svg { width: 15px; height: 15px; }
+/* Badge de conteo en la pestana Relaciones: avisa que el tercero tiene contactos relacionados sin
+   tener que abrir la pestana. */
+.dg-m-tab-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--t-blue-bg, #e6f0ff); color: var(--t-blue, #2563eb); font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; }
 
 .dg-m-body { flex: 1; display: flex; min-height: 0; }
 .dg-m-main { flex: 1; overflow: auto; padding: 22px; min-width: 0; }

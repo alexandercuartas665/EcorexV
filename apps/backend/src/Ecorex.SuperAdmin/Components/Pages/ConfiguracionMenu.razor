@@ -195,6 +195,25 @@ else
                                 <label class="form-label">Codigo (legacy)</label>
                                 <input class="form-control" @bind="_pLegacyCode" maxlength="40" placeholder="Ej. 000636" />
                             </div>
+                            @* Reclasificar tipo: un elemento colgado de una seccion puede volverse SUBNIVEL
+                               (para alojar elementos), y un subnivel vacio puede volver a elemento. Solo se
+                               ofrece cuando el padre lo admite; la validacion final la hace el servicio. *@
+                            @if (_selected.ParentId is not null
+                                 && ParentKindOf(_selected) is MenuNodeKind.Section or MenuNodeKind.Subgroup
+                                 && _selected.Kind is MenuNodeKind.Item or MenuNodeKind.Subgroup)
+                            {
+                                <div class="field">
+                                    <label class="form-label">Tipo</label>
+                                    <select class="form-control" @bind="_pKind">
+                                        <option value="@MenuNodeKind.Item">Elemento</option>
+                                        @if (ParentKindOf(_selected) == MenuNodeKind.Section)
+                                        {
+                                            <option value="@MenuNodeKind.Subgroup">Subnivel (agrupa elementos)</option>
+                                        }
+                                    </select>
+                                    <small style="display:block;color:var(--muted-foreground);">Un subnivel contiene elementos. Volver a elemento exige que no tenga hijos.</small>
+                                </div>
+                            }
                             @if (_selected.Kind is MenuNodeKind.Item or MenuNodeKind.QuickLink)
                             {
                                 <div class="field">
@@ -398,6 +417,7 @@ else
     private string? _pHelpText;
     private MenuNodeState _pState;
     private bool _pIsProcessGroup;
+    private MenuNodeKind _pKind;
     private string? _propError;
 
     // ---- Asignacion ----
@@ -553,6 +573,7 @@ else
         _pHelpText = _selected.HelpText;
         _pState = _selected.State;
         _pIsProcessGroup = _selected.IsProcessGroup;
+        _pKind = _selected.Kind;
     }
 
     private async Task SaveNodeAsync()
@@ -569,7 +590,9 @@ else
                 Description: _pDescription ?? "",
                 HelpText: _pHelpText ?? "",
                 State: _pState,
-                IsProcessGroup: _pIsProcessGroup);
+                IsProcessGroup: _pIsProcessGroup,
+                // El servicio ignora el Kind si no cambio; solo valida cuando de verdad se reclasifica.
+                Kind: _pKind);
             var res = await MenuSvc.UpdateNodeAsync(_selected.Id, edit);
             if (!res.IsOk) { _propError = res.Error; return; }
             await ReloadTreeAsync();
@@ -615,6 +638,32 @@ else
         }
         finally { _busy = false; }
     }
+
+    // Crea un SUBNIVEL (Subgroup) dentro de una seccion: un contenedor que a su vez aloja elementos
+    // (Seccion > Subnivel > Elemento). Antes solo se podia crear con "Agregar elemento" + reclasificar.
+    private async Task AddSubgroupAsync(MenuEditorNodeDto parent)
+    {
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.CreateNodeAsync(_editingViewId, parent.Id, MenuNodeKind.Subgroup, "Nuevo subnivel");
+            if (res.IsOk && res.Value is not null)
+            {
+                _collapsed.Remove(parent.Id);
+                await ReloadTreeAsync();
+                var created = FlattenAll(_tree!.Roots).FirstOrDefault(n => n.Id == res.Value.Id);
+                if (created is not null) { SelectNode(created); }
+            }
+            else { Flash(res.Error ?? "No se pudo crear el subnivel.", false); }
+        }
+        finally { _busy = false; }
+    }
+
+    // Kind del padre del nodo (null si es raiz): decide que reclasificaciones ofrece el panel.
+    private MenuNodeKind? ParentKindOf(MenuEditorNodeDto node)
+        => _tree is null || node.ParentId is not Guid pid
+            ? null
+            : FlattenAll(_tree.Roots).FirstOrDefault(n => n.Id == pid)?.Kind;
 
     private async Task ToggleVisibilityAsync(MenuEditorNodeDto node)
     {
@@ -931,9 +980,15 @@ else
                 <button type="button" title="Bajar" class="mc-act" @onclick="@(() => MoveAsync(node, 1))" disabled="@_busy">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
+                @if (node.Kind is MenuNodeKind.Section)
+                {
+                    <button type="button" title="Agregar subnivel" class="mc-act" @onclick="@(() => AddSubgroupAsync(node))" disabled="@_busy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg>
+                    </button>
+                }
                 @if (node.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
                 {
-                    <button type="button" title="Agregar hijo" class="mc-act" @onclick="@(() => AddChildAsync(node))" disabled="@_busy">
+                    <button type="button" title="Agregar elemento" class="mc-act" @onclick="@(() => AddChildAsync(node))" disabled="@_busy">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     </button>
                 }

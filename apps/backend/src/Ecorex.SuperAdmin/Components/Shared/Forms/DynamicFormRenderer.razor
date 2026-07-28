@@ -864,7 +864,8 @@ else
                 {
                     @foreach (var it in results)
                     {
-                        <option value="@it.Value" selected="@(it.Value == value)">@it.Display</option>
+                        var subOpt = FieldResultSubLabel(q, it);
+                        <option value="@it.Value" selected="@(it.Value == value)">@it.Display@(string.IsNullOrEmpty(subOpt) ? "" : "  ·  " + subOpt)</option>
                     }
                 }
                 else if (!string.IsNullOrEmpty(value))
@@ -911,7 +912,14 @@ else
                         @foreach (var it in results)
                         {
                             var item = it;
-                            <button type="button" class="dfr-lookup-opt" @onclick="@(() => LookupChooseAsync(q, item))">@item.Display</button>
+                            var sub = FieldResultSubLabel(q, item);
+                            <button type="button" class="dfr-lookup-opt" @onclick="@(() => LookupChooseAsync(q, item))">
+                                <span class="dfr-lookup-main">@item.Display</span>
+                                @if (!string.IsNullOrEmpty(sub))
+                                {
+                                    <span class="dfr-lookup-key">@sub</span>
+                                }
+                            </button>
                         }
                     }
                 </div>
@@ -924,6 +932,8 @@ else
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(q.DisplayField)) { set.Add(q.DisplayField!); }
+        // Se trae tambien el valueField (ej. sku) para poder pintarlo como clave secundaria del resultado.
+        if (!string.IsNullOrWhiteSpace(q.ValueField)) { set.Add(q.ValueField!); }
         foreach (var src in ParseAutofillMap(q.AutofillMapJson).Keys) { set.Add(src); }
         return set.ToList();
     }
@@ -1295,9 +1305,9 @@ else
                                     }
                                     else if (col.Calc is not null)
                                     {
-                                        @* Columna calculada por fila (ola F2): solo lectura. *@
+                                        @* Columna calculada por fila (ola F2): solo lectura, con formato de presentacion. *@
                                         <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
-                                               value="@cell" />
+                                               value="@FormatValue(col.Format, cell)" />
                                     }
                                     else if (col.IsSelect)
                                     {
@@ -1313,9 +1323,11 @@ else
                                     }
                                     else
                                     {
+                                        @* Texto/numero editable. Con formato: muestra formateado y al salir guarda el numero CRUDO
+                                           (asi el calculo lo entiende y no se rompe). Sin formato: comportamiento de siempre. *@
                                         <input class="form-control form-control-sm" disabled="@IsDisabled"
-                                               value="@cell"
-                                               @onchange="@(e => SetGridCell(q, rowIndex, colId, e.Value?.ToString()))" />
+                                               value="@(string.IsNullOrEmpty(col.Format) ? cell : MaskInput(col.Format, cell))"
+                                               @onchange="@(e => SetGridCell(q, rowIndex, colId, UnformatNumber(col.Format, e.Value?.ToString())))" />
                                     }
                                     @if (lowStock && string.Equals(colId, badgeCol, StringComparison.Ordinal))
                                     {
@@ -1339,7 +1351,7 @@ else
                                 var total = col.Agg == FormAggregate.None ? null
                                     // C4: sobrecarga por columna, para respetar aggWhen y coincidir con el roll-up.
                                     : FormGridCalculator.Aggregate(col, rows, _values);
-                                <td>@(total?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")</td>
+                                <td>@FormatValue(col.Format, total?.ToString(System.Globalization.CultureInfo.InvariantCulture))</td>
                             }
                         </tr>
                     </tfoot>
@@ -1378,6 +1390,29 @@ else
 
     private static string GridCellKey(FormQuestionDto q, int rowIndex, string colId)
         => $"{q.FieldCode}#{rowIndex}#{colId}";
+
+    /// <summary>Clave secundaria a mostrar junto al Display de un resultado de COLUMNA (ej. el SKU).
+    /// Usa el subLabel configurado o, si no, la clave (valueField/KeyOf). No se muestra si esta vacia,
+    /// si es el id crudo, o si coincide con el Display (para no repetir).</summary>
+    private static string? GridResultSubLabel(FormGridLookupConfig cfg, FormLookupItem item)
+    {
+        var key = !string.IsNullOrWhiteSpace(cfg.SubLabel) && item.Fields.TryGetValue(cfg.SubLabel!, out var s) && !string.IsNullOrWhiteSpace(s)
+            ? s
+            : cfg.KeyOf(item);
+        if (string.IsNullOrWhiteSpace(key) || key == item.Value) { return null; }
+        return string.Equals(key, item.Display, StringComparison.OrdinalIgnoreCase) ? null : key;
+    }
+
+    /// <summary>Clave secundaria de un resultado de CAMPO: el valueField (ej. sku). No se muestra si es
+    /// "id" (el default, un guid inutil), si esta vacia, si es el id crudo o si coincide con el Display.</summary>
+    private static string? FieldResultSubLabel(FormQuestionDto q, FormLookupItem item)
+    {
+        var vf = q.ValueField;
+        if (string.IsNullOrWhiteSpace(vf) || string.Equals(vf, "id", StringComparison.OrdinalIgnoreCase)) { return null; }
+        var key = item.Fields.TryGetValue(vf!, out var s) ? s : null;
+        if (string.IsNullOrWhiteSpace(key) || key == item.Value) { return null; }
+        return string.Equals(key, item.Display, StringComparison.OrdinalIgnoreCase) ? null : key;
+    }
 
     private static string GridLookupColKey(FormQuestionDto q, string colId)
         => $"{q.FieldCode}#col#{colId}";
@@ -1525,8 +1560,15 @@ else
                         @foreach (var it in results)
                         {
                             var item = it;
+                            var sub = GridResultSubLabel(cfg, item);
                             <button type="button" class="dfr-lookup-opt"
-                                    @onclick="@(() => GridLookupChooseAsync(q, rowIndex, extras, cfg, item))">@item.Display</button>
+                                    @onclick="@(() => GridLookupChooseAsync(q, rowIndex, extras, cfg, item))">
+                                <span class="dfr-lookup-main">@item.Display</span>
+                                @if (!string.IsNullOrEmpty(sub))
+                                {
+                                    <span class="dfr-lookup-key">@sub</span>
+                                }
+                            </button>
                         }
                     }
                 </div>
@@ -2047,6 +2089,17 @@ else
             return value;
         }
         return FormatValue(format, value);
+    }
+
+    /// <summary>Quita el formato de presentacion (simbolo, %, separador de miles) y deja el numero CRUDO
+    /// para guardar. Sin formato o si no es numero, devuelve el valor tal cual (no rompe la celda).</summary>
+    private static string? UnformatNumber(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value; }
+        var cleaned = value.Replace("$", "").Replace("%", "").Replace(" ", "").Replace(",", "").Trim();
+        return decimal.TryParse(cleaned, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : value;
     }
 
     /// <summary>

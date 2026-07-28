@@ -1800,6 +1800,17 @@ else
                                                    @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Width = ParseColWidth(e.Value?.ToString()) }))" />
                                         </div>
                                     </div>
+                                    <div class="fb-gcp-field">
+                                        <label>Formato numerico</label>
+                                        <select class="fb-select"
+                                                @onchange="@(e => PatchGridColumnAsync(node.Q!, idx, c => c with { Format = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
+                                            <option value="" selected="@string.IsNullOrEmpty(col.Format)">Sin formato</option>
+                                            <option value="currency" selected="@(col.Format == "currency")">Moneda ($ 1,000)</option>
+                                            <option value="integer" selected="@(col.Format == "integer")">Entero (1,000)</option>
+                                            <option value="decimal" selected="@(col.Format == "decimal")">Decimal (1,000.00)</option>
+                                            <option value="percent" selected="@(col.Format == "percent")">Porcentaje (%)</option>
+                                        </select>
+                                    </div>
                                     <div class="fb-gcp-row">
                                         <div class="fb-gcp-field">
                                             <label>Tipo de columna</label>
@@ -1894,6 +1905,18 @@ else
                                                     }
                                                 </select>
                                             </div>
+                                        </div>
+                                        <div class="fb-gcp-field">
+                                            <label>Etiqueta secundaria en resultados</label>
+                                            <select class="fb-select"
+                                                    @onchange="@(e => PatchLookupFieldAsync(node.Q!, idx, "subLabel", e.Value?.ToString()))">
+                                                <option value="" selected="@string.IsNullOrEmpty(lk.SubLabel)">Clave (por defecto)</option>
+                                                @foreach (var f in lkFields)
+                                                {
+                                                    <option value="@f.Key" selected="@(f.Key == lk.SubLabel)">@f.Label</option>
+                                                }
+                                            </select>
+                                            <div class="fb-hint">Se muestra atenuada junto al nombre (ej. el SKU) para distinguir items parecidos.</div>
                                         </div>
                                         <div class="fb-gcp-field">
                                             <label>Autollenar en la fila (campo de la fuente &rarr; columna)</label>
@@ -2535,7 +2558,7 @@ else
     // Claves que este round-trip por FormGridColumn gestiona. Cualquier OTRA clave de la columna
     // (lookup, default, stockCheck, ...) se PRESERVA al guardar para no borrarla.
     private static readonly HashSet<string> GridCoreKeys = new(StringComparer.OrdinalIgnoreCase)
-        { "id", "label", "type", "options", "required", "calc", "agg", "aggWhen", "rollup", "width" };
+        { "id", "label", "type", "options", "required", "calc", "agg", "aggWhen", "rollup", "width", "format" };
 
     private async Task SaveGridColumnsAsync(FormQuestionDto q, IReadOnlyList<FormGridColumn> cols)
     {
@@ -2556,6 +2579,8 @@ else
             if (!string.IsNullOrWhiteSpace(c.Rollup)) { o["rollup"] = c.Rollup; }
             // Ancho por columna (px). Solo se persiste si el usuario lo fijo; null cae al default por tipo.
             if (c.Width is int w and > 0) { o["width"] = w; }
+            // Formato de presentacion (currency/percent/integer/decimal). Solo si el usuario lo eligio.
+            if (!string.IsNullOrWhiteSpace(c.Format)) { o["format"] = c.Format; }
             // Preserva lookup/default/stockCheck y cualquier clave extra que el round-trip no conoce.
             if (preserved.TryGetValue(c.Id, out var extra))
             {

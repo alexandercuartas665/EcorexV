@@ -136,6 +136,19 @@ public class FormGridColumnLookupTests
     }
 
     [Fact]
+    public void SubLabel_se_parsea_y_va_en_Fields()
+    {
+        var json = """
+        [ { "id":"codigo", "label":"Codigo", "lookup": {
+            "source":"Item", "valueField":"sku", "displayField":"name", "subLabel":"sku",
+            "autofill": { "name":"producto" } } } ]
+        """;
+        var lk = FormGridColumnLookupParser.Parse(json)["codigo"].Lookup!;
+        Assert.Equal("sku", lk.SubLabel);
+        Assert.Contains("sku", lk.Fields()); // se pide a la fuente para poder pintarlo
+    }
+
+    [Fact]
     public void Autofill_de_marca_mapea_brand_a_la_columna()
     {
         // La marca del item viaja como campo 'brand' (FK Item.Brand.Name resuelta por ItemLookupSource).

@@ -285,11 +285,17 @@
 }
 .dfr-lookup.is-modal .dfr-lookup-panel { position: static; margin-top: 6px; box-shadow: none; }
 .dfr-lookup-opt {
-    display: block; width: 100%; text-align: left; padding: 8px 10px;
+    display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 8px 10px;
     font-size: 13px; color: var(--ink, #1B1B1E); background: none; border: none;
     border-radius: 8px; cursor: pointer; font-family: inherit;
 }
 .dfr-lookup-opt:hover { background: var(--surface-2, #FAFAFA); }
+/* Nombre (principal) + clave/SKU (secundaria atenuada) en cada resultado. */
+.dfr-lookup-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dfr-lookup-key {
+    flex: none; font-size: 11.5px; font-weight: 600; color: var(--ink-3, #A2A2AC);
+    font-family: ui-monospace, monospace; white-space: nowrap;
+}
 .dfr-lookup-empty {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding: 8px 10px; font-size: 12.5px; color: var(--ink-3, #A2A2AC);

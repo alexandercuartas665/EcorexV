@@ -28,6 +28,15 @@ public class FormGridCalculatorTests
     }
 
     [Fact]
+    public void ParseColumns_lee_el_formato_de_presentacion()
+    {
+        var cols = FormGridCalculator.ParseColumns(
+            """[{"id":"precio","label":"Precio","format":"Currency"},{"id":"x","label":"X"}]""");
+        Assert.Equal("currency", cols[0].Format); // normalizado a minusculas
+        Assert.Null(cols[1].Format);              // sin formato
+    }
+
+    [Fact]
     public void ParseColumns_columnas_viejas_sin_calc_siguen_valiendo()
     {
         var cols = FormGridCalculator.ParseColumns("""[{"id":"a","label":"A"},{"id":"b","label":"B"}]""");

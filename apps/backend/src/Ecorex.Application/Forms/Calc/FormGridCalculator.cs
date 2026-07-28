@@ -25,7 +25,10 @@ public sealed record FormGridColumn(
     string? AggWhen = null,
     // Ancho de la columna en px (DATO, en options_json). Null = el renderer usa un default por
     // tipo. Con esto la sesion de datos ajusta anchos sin tocar codigo.
-    int? Width = null)
+    int? Width = null,
+    // Formato de presentacion del valor (currency | percent | integer | decimal | document). Null =
+    // sin formato (texto crudo). Solo afecta como se MUESTRA; el valor guardado sigue siendo el numero.
+    string? Format = null)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -84,6 +87,7 @@ public static class FormGridCalculator
                 {
                     width = wv;
                 }
+                var format = el.TryGetProperty("format", out var pfmt) ? pfmt.GetString() : null;
                 List<FormOption>? options = null;
                 if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
                 {
@@ -107,7 +111,8 @@ public static class FormGridCalculator
                     options,
                     required,
                     string.IsNullOrWhiteSpace(aggWhen) ? null : aggWhen,
-                    width));
+                    width,
+                    string.IsNullOrWhiteSpace(format) ? null : format.Trim().ToLowerInvariant()));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

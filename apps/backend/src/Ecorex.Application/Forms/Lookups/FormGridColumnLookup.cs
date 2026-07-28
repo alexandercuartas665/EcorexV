@@ -28,7 +28,11 @@ public sealed record FormGridLookupConfig(
     IReadOnlyDictionary<string, string> Autofill,
     // Como se ofrece la celda: Autocomplete (teclear y filtrar, default), Dropdown (lista con el
     // catalogo) o Modal (buscador grande). Default Autocomplete para no alterar lo ya configurado.
-    FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete)
+    FormFieldPresentation Presentation = FormFieldPresentation.Autocomplete,
+    // Campo secundario a mostrar junto al Display en cada resultado (ej. el SKU), para distinguir
+    // items con nombres parecidos. Null = usa la clave (valueField / KeyOf). Vacio o = Display: no se
+    // muestra.
+    string? SubLabel = null)
 {
     /// <summary>Campos que hay que pedirle a la fuente: el de mostrar, el de la clave y los origenes del autollenado.</summary>
     public IReadOnlyList<string> Fields()
@@ -36,6 +40,7 @@ public sealed record FormGridLookupConfig(
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(DisplayField)) { set.Add(DisplayField!); }
         if (!string.IsNullOrWhiteSpace(ValueField)) { set.Add(ValueField!); }
+        if (!string.IsNullOrWhiteSpace(SubLabel)) { set.Add(SubLabel!); }
         foreach (var source in Autofill.Keys) { set.Add(source); }
         return set.ToList();
     }
@@ -136,7 +141,8 @@ public static class FormGridColumnLookupParser
             Trimmed(lk, "valueField"),
             filterJson,
             autofill,
-            ParsePresentation(Trimmed(lk, "presentation")));
+            ParsePresentation(Trimmed(lk, "presentation")),
+            Trimmed(lk, "subLabel"));
     }
 
     /// <summary>presentation: "list"/"dropdown" -> Dropdown, "modal" -> Modal, cualquier otro -> Autocomplete.</summary>

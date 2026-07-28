@@ -135,6 +135,16 @@ if (builder.Environment.IsDevelopment())
         .PersistKeysToFileSystem(new System.IO.DirectoryInfo(
             System.IO.Path.Combine(builder.Environment.ContentRootPath, ".dpkeys-dev")));
 }
+else
+{
+    // PRODUCCION: persiste las llaves de DataProtection en la BD (EcorexDbContext implementa
+    // IDataProtectionKeyContext; la tabla data_protection_keys ya existe). SIN esto, cada recreacion
+    // del contenedor en un deploy generaba llaves NUEVAS e invalidaba la cookie de TODOS los usuarios
+    // (se deslogueaban en cada despliegue). Con la persistencia en BD las llaves sobreviven al deploy.
+    builder.Services.AddDataProtection()
+        .SetApplicationName("Ecorex")
+        .PersistKeysToDbContext<Ecorex.Infrastructure.Persistence.EcorexDbContext>();
+}
 // Contexto de tenant con soporte ambient: por cookie en peticiones, fijable en background (webhook -> agente).
 builder.Services.AddScoped<ITenantContext, Ecorex.SuperAdmin.Auth.AmbientTenantContext>();
 

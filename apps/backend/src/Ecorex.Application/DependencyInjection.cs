@@ -123,6 +123,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.AsignarConsecutivoVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarTareasDesdeTablaVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.NotificarVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ImprimirPlantillaVerb>();
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();

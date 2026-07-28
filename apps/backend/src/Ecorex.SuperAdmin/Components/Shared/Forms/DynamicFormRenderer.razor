@@ -163,9 +163,10 @@ else
                         {
                             <label class="dfr-print-lbl">Plantilla</label>
                             <select class="form-control" @bind="_printTemplateId">
+                                <option value="@Guid.Empty">Selecciona una plantilla...</option>
                                 @foreach (var t in _printTemplates)
                                 {
-                                    <option value="@t.Id">@t.Name@(t.IsDefault ? " (predeterminada)" : "")</option>
+                                    <option value="@t.Id">@t.Name</option>
                                 }
                             </select>
 
@@ -193,7 +194,7 @@ else
                     <div class="dfr-print-actions">
                         <button type="button" class="btn btn-outline-secondary" @onclick="ClosePrintDialog" disabled="@_printBusy">Cancelar</button>
                         <button type="button" class="btn btn-primary" @onclick="GeneratePrintAsync"
-                                disabled="@(_printBusy || _printTemplates.Count == 0)">
+                                disabled="@(_printBusy || _printTemplates.Count == 0 || _printTemplateId == Guid.Empty)">
                             @(_printBusy ? "Generando..." : "Generar")
                         </button>
                     </div>
@@ -580,17 +581,19 @@ else
                     </div>
                     break;
                 case FormControlType.Button:
-                    @* Boton con accion configurable. Hoy la unica accion es "Imprimir plantilla": abre un
-                       dialogo para elegir plantilla + formato y genera el documento con los datos del
-                       registro (no imprime el formulario). Requiere un registro guardado. *@
+                    @* Boton: su accion es una REGLA del catalogo vinculada a el (igual que un campo).
+                       Al hacer clic dispara sus reglas (trigger FormField); si alguna devuelve la accion
+                       IMPRIMIR_PLANTILLA se abre el documento con los datos del registro. Requiere un
+                       registro guardado y al menos una regla activa vinculada. *@
                     <div class="dfr-formbtn-wrap">
-                        <button type="button" class="dfr-formbtn" disabled="@(_busy || _response is null)"
-                                @onclick="@(() => OpenPrintDialogAsync(q))">
+                        <button type="button" class="dfr-formbtn"
+                                disabled="@(_busy || _response is null || !_ruleTriggerFields.Contains(q.FieldCode))"
+                                @onclick="@(() => OnButtonClickAsync(q))">
                             @if (!string.IsNullOrWhiteSpace(q.Caption))
                             {
                                 <span class="dfr-formbtn-ic" title="@q.Caption">@q.Caption</span>
                             }
-                            <span>@(string.IsNullOrWhiteSpace(q.Label) ? "Imprimir plantilla" : q.Label)</span>
+                            <span>@(string.IsNullOrWhiteSpace(q.Label) ? "Boton" : q.Label)</span>
                         </button>
                         @if (_response is null && Mode == FormRenderMode.Fill)
                         {
@@ -599,6 +602,10 @@ else
                         else if (Mode != FormRenderMode.Fill)
                         {
                             <span class="dfr-formbtn-note">Vista previa: activo al llenar el formulario.</span>
+                        }
+                        else if (!_ruleTriggerFields.Contains(q.FieldCode))
+                        {
+                            <span class="dfr-formbtn-note">Vincula una regla (ej. IMPRIMIR_PLANTILLA) a este boton en el disenador.</span>
                         }
                     </div>
                     break;
@@ -2418,7 +2425,7 @@ else
     private IDisposable? BeginAmbient()
         => AmbientTenantId is Guid tenantId ? AmbientTenantContext.Begin(tenantId) : null;
 
-    // ---- Boton "Imprimir plantilla" (accion del control Button) ----
+    // ---- Boton -> reglas del catalogo -> accion IMPRIMIR_PLANTILLA ----
 
     private bool _printOpen;
     private bool _printBusy;
@@ -2428,10 +2435,65 @@ else
     private IReadOnlyList<Ecorex.Application.Tenancy.QuoteTemplateDto> _printTemplates
         = Array.Empty<Ecorex.Application.Tenancy.QuoteTemplateDto>();
 
-    private async Task OpenPrintDialogAsync(FormQuestionDto q)
+    /// <summary>
+    /// Clic en un control Button: dispara las reglas ENLAZADAS al boton (por su FieldCode, trigger
+    /// FormField) igual que el onchange de un campo, aplica sus acciones de estado y, si alguna
+    /// devuelve IMPRIMIR_PLANTILLA, abre el flujo de impresion. La accion del boton ya no vive en
+    /// options_json: es una regla del catalogo (el mismo enlazador que usan los campos).
+    /// </summary>
+    private async Task OnButtonClickAsync(FormQuestionDto q)
     {
+        if (Mode != FormRenderMode.Fill || IsSubmitted || _response is null) { return; }
+        if (!_ruleTriggerFields.Contains(q.FieldCode)) { return; }
+
+        await _dbGate.WaitAsync();
+        FormFieldRulesOutcome outcome;
+        try
+        {
+            using var ambient = BeginAmbient();
+            outcome = await RulesDispatcher.OnFieldChangedAsync(
+                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+        }
+        finally
+        {
+            _dbGate.Release();
+        }
+
+        // Una regla del boton podria tambien tocar campos (SetFieldValue/Hide/Show/SetRequired).
+        if (outcome.Actions.Count > 0)
+        {
+            _ruleUiState.Apply(outcome.Actions, _values);
+            _dirty = true;
+            foreach (var fieldCode in outcome.Actions
+                .Where(a => a.Kind != RuleActionKind.PrintTemplate)
+                .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
+            {
+                var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
+                if (touched is not null) { ValidateField(touched); }
+            }
+        }
+
+        // La primera accion de impresion decide la plantilla y (opcional) el formato.
+        var print = outcome.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.PrintTemplate);
+        if (print is not null)
+        {
+            await StartPrintFromRuleAsync(print);
+        }
+    }
+
+    /// <summary>
+    /// Resuelve la plantilla por NOMBRE (el verbo IMPRIMIR_PLANTILLA no tiene selector de opciones)
+    /// contra IQuoteTemplateService y arranca la impresion: si el verbo trajo formato (print|pdf|img)
+    /// abre directo; si no, muestra el dialogo de formato ya existente con la plantilla preseleccionada.
+    /// Si el nombre no coincide con ninguna plantilla, abre el dialogo con un aviso para elegir.
+    /// </summary>
+    private async Task StartPrintFromRuleAsync(RuleAction action)
+    {
+        var templateName = action.Value?.Trim();
+        var format = string.IsNullOrWhiteSpace(action.FieldCode) ? null : action.FieldCode.Trim().ToLowerInvariant();
+
         _printError = null;
-        _printOpen = true;
+        _printFormat = format is "print" or "pdf" or "img" ? format : "print";
         try
         {
             await _dbGate.WaitAsync();
@@ -2440,10 +2502,26 @@ else
         }
         catch { _printTemplates = Array.Empty<Ecorex.Application.Tenancy.QuoteTemplateDto>(); }
 
-        if (_printTemplateId == Guid.Empty || _printTemplates.All(t => t.Id != _printTemplateId))
+        var match = _printTemplates.FirstOrDefault(
+            t => string.Equals(t.Name, templateName, StringComparison.OrdinalIgnoreCase));
+        if (match is null)
         {
-            _printTemplateId = (_printTemplates.FirstOrDefault(t => t.IsDefault) ?? _printTemplates.FirstOrDefault())?.Id ?? Guid.Empty;
+            // Nombre no encontrado: abre el dialogo para que el usuario elija (con aviso).
+            _printTemplateId = Guid.Empty;
+            _printError = $"No se encontro la plantilla '{templateName}'. Elige una de la lista.";
+            _printOpen = true;
+            return;
         }
+
+        _printTemplateId = match.Id;
+        if (format is "print" or "pdf" or "img")
+        {
+            // El verbo definio el formato: se imprime directo, sin dialogo.
+            await GeneratePrintAsync();
+            return;
+        }
+        // Sin formato: el usuario elige print/pdf/img en el dialogo (plantilla ya preseleccionada).
+        _printOpen = true;
     }
 
     private void ClosePrintDialog()
@@ -2455,6 +2533,7 @@ else
     private async Task GeneratePrintAsync()
     {
         if (_response is null) { _printError = "El registro no esta guardado."; return; }
+        if (_printTemplateId == Guid.Empty) { _printError = "Elige una plantilla."; return; }
         _printBusy = true;
         _printError = null;
         try

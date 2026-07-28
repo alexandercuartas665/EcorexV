@@ -256,10 +256,52 @@ public class RuleVerbTests
         Assert.False(result.Success);
     }
 
+    // ---- IMPRIMIR_PLANTILLA ----
+
+    [Fact]
+    public async Task ImprimirPlantilla_WithTemplateAndFormat_ReturnsPrintTemplateAction()
+    {
+        var verb = new ImprimirPlantillaVerb();
+        var result = await verb.ExecuteAsync(
+            BuildContext("""{"template":"Cotizacion SKY","format":"pdf"}"""), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var action = Assert.Single(result.ActionList);
+        Assert.Equal(RuleActionKind.PrintTemplate, action.Kind);
+        Assert.Equal("Cotizacion SKY", action.Value);   // Value = NOMBRE de la plantilla
+        Assert.Equal("pdf", action.FieldCode);            // FieldCode = formato
+    }
+
+    [Fact]
+    public async Task ImprimirPlantilla_WithoutFormat_ReturnsActionWithEmptyFormat()
+    {
+        var verb = new ImprimirPlantillaVerb();
+        var result = await verb.ExecuteAsync(
+            BuildContext("""{"template":"Cotizacion SKY"}"""), CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var action = Assert.Single(result.ActionList);
+        Assert.Equal(RuleActionKind.PrintTemplate, action.Kind);
+        Assert.Equal("Cotizacion SKY", action.Value);
+        Assert.Equal(string.Empty, action.FieldCode);     // sin formato => el renderer abre el dialogo
+    }
+
+    [Theory]
+    [InlineData("{}")]                                        // sin template
+    [InlineData("""{"template":"  "}""")]                     // template en blanco
+    [InlineData("""{"template":"X","format":"excel"}""")]     // formato invalido
+    public async Task ImprimirPlantilla_WithInvalidParams_Fails(string paramsJson)
+    {
+        var verb = new ImprimirPlantillaVerb();
+        var result = await verb.ExecuteAsync(BuildContext(paramsJson), CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Empty(result.ActionList);
+    }
+
     // ---- Registro tipado (catalogo) ----
 
     [Fact]
-    public void VerbCatalog_ContainsTheFiveInitialVerbs_AndUnknownVerbIsNull()
+    public void VerbCatalog_ContainsTheInitialVerbs_AndUnknownVerbIsNull()
     {
         var services = new ServiceCollection();
         services.AddScoped<IRuleVerb, PasarCamposVerb>();
@@ -267,17 +309,19 @@ public class RuleVerbTests
         services.AddScoped<IRuleVerb>(_ => new AsignarConsecutivoVerb(new FakeSequenceService("X"), db: null!));
         services.AddScoped<IRuleVerb>(_ => new GenerarTareasDesdeTablaVerb(new FakeTaskItemService()));
         services.AddScoped<IRuleVerb>(_ => new NotificarVerb(db: null!));
+        services.AddScoped<IRuleVerb, ImprimirPlantillaVerb>();
         using var provider = services.BuildServiceProvider();
         var engine = new RulesEngine(db: null!, tenantContext: new FakeTenantContext(), provider);
 
         var catalog = engine.GetVerbCatalog();
 
-        Assert.Equal(5, catalog.Count);
+        Assert.Equal(6, catalog.Count);
         Assert.Contains(catalog, v => v.VerbName == "PASAR_CAMPOS");
         Assert.Contains(catalog, v => v.VerbName == "BLOQUEAR_CAMPO_XCONDICION");
         Assert.Contains(catalog, v => v.VerbName == "ASIGNAR_CONSECUTIVO");
         Assert.Contains(catalog, v => v.VerbName == "GENERAR_TAREAS_DESDE_TABLA");
         Assert.Contains(catalog, v => v.VerbName == "NOTIFICAR");
+        Assert.Contains(catalog, v => v.VerbName == "IMPRIMIR_PLANTILLA");
         // Todos declaran su contrato de parametros para la UI.
         Assert.All(catalog, v => Assert.NotEmpty(v.Params));
         // Verbo desconocido: null tipado (nunca reflexion sobre el nombre).

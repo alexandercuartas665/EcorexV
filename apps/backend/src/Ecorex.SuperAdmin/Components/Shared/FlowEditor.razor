@@ -755,9 +755,16 @@ else
             <div class="fe-acc-empty">Selecciona un nodo guardado del canvas.</div>
             return;
         }
-        if (node.NodeType != WorkflowNodeType.Task || !node.AllowsAssignment)
+        if (node.NodeType != WorkflowNodeType.Task)
         {
-            <div class="fe-acc-empty">Este nodo no admite asignacion (solo tareas con "Permite asignacion manual").</div>
+            <div class="fe-acc-empty">Solo las <b>Tareas</b> admiten asignacion de dependencia/cargo. Cambia el tipo de
+                este nodo a <b>Tarea</b> en "Configuracion basica".</div>
+            return;
+        }
+        if (!node.AllowsAssignment)
+        {
+            <div class="fe-acc-empty">Para asignar dependencia/cargo, activa <b>"Permite asignacion manual"</b> en
+                "Configuracion basica" de este nodo.</div>
             return;
         }
         <div class="fe-rows">

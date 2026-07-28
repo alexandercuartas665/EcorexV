@@ -807,22 +807,41 @@
         await ReloadRuleContextAsync(ruleId);
     }
 
+    // Serializa las consultas de esta pagina: RuleDocumentService comparte el DbContext scoped del
+    // circuito, y si dos recargas (o renders) se cruzan, Npgsql truena ("disposed context / index out
+    // of range") y tumba el circuito. El gate impide el cruce; el try/catch evita matar el circuito.
+    private readonly SemaphoreSlim _ctxGate = new(1, 1);
+
     /// <summary>Recarga historial, metricas, auditoria y vinculos de la regla seleccionada.</summary>
     private async Task ReloadRuleContextAsync(Guid ruleId)
     {
-        _history = (await RulesSvc.ListExecutionLogsAsync(ruleId: ruleId, take: 500)).ToList();
-        _metrics = await RulesSvc.GetRuleMetricsAsync(ruleId);
-        _audit = await RulesSvc.GetRuleAuditAsync(ruleId);
-        _formLinks = (await RulesSvc.ListFormLinksAsync(ruleId)).ToList();
-        _nodeLinks = (await RulesSvc.ListNodeLinksAsync(ruleId)).ToList();
-        _formDefinitionOptions = await RulesSvc.ListFormDefinitionOptionsAsync();
-        _workflowOptions = await RulesSvc.ListWorkflowDefinitionOptionsAsync();
-        _linkFormDefinitionId = null;
-        _linkQuestionId = null;
-        _linkWorkflowId = null;
-        _linkNodeId = null;
-        _questionOptions = [];
-        _nodeOptions = [];
+        await _ctxGate.WaitAsync();
+        try
+        {
+            _history = (await RulesSvc.ListExecutionLogsAsync(ruleId: ruleId, take: 500)).ToList();
+            _metrics = await RulesSvc.GetRuleMetricsAsync(ruleId);
+            _audit = await RulesSvc.GetRuleAuditAsync(ruleId);
+            _formLinks = (await RulesSvc.ListFormLinksAsync(ruleId)).ToList();
+            _nodeLinks = (await RulesSvc.ListNodeLinksAsync(ruleId)).ToList();
+            _formDefinitionOptions = await RulesSvc.ListFormDefinitionOptionsAsync();
+            _workflowOptions = await RulesSvc.ListWorkflowDefinitionOptionsAsync();
+            _linkFormDefinitionId = null;
+            _linkQuestionId = null;
+            _linkWorkflowId = null;
+            _linkNodeId = null;
+            _questionOptions = [];
+            _nodeOptions = [];
+        }
+        catch (Exception ex)
+        {
+            // Fallo transitorio (contexto ocupado por otro render): no se tumba el circuito; se
+            // conserva lo que se alcanzo a cargar y se avisa en la UI.
+            _ruleError = "No se pudo cargar el contexto de la regla, reintenta: " + ex.Message;
+        }
+        finally
+        {
+            _ctxGate.Release();
+        }
     }
 
     // ---- Nueva regla ----

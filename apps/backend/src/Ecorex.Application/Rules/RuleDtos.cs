@@ -35,16 +35,30 @@ public enum RuleActionKind
     HideField = 0,
     ShowField,
     SetFieldValue,
-    SetRequired
+    SetRequired,
+    /// <summary>
+    /// Efecto de UNA sola vez (no estado persistente): imprimir una plantilla del modulo
+    /// Plantillas con los datos del registro. La aplica el DynamicFormRenderer (abre el
+    /// documento), NO FormRuleUiState.Apply. Se agrego al FINAL para no romper el enum.
+    /// </summary>
+    PrintTemplate
 }
 
-/// <summary>Accion de UI tipada devuelta por la ejecucion de una regla.</summary>
+/// <summary>
+/// Accion de UI tipada devuelta por la ejecucion de una regla. Para PrintTemplate el campo
+/// FieldCode transporta el FORMATO (print|pdf|img o "" = elegir en dialogo) y Value el NOMBRE
+/// de la plantilla (el motor de reglas no tiene tipo de param "opciones"; se resuelve por nombre).
+/// </summary>
 public sealed record RuleAction(RuleActionKind Kind, string FieldCode, string? Value = null, bool Required = false)
 {
     public static RuleAction Hide(string fieldCode) => new(RuleActionKind.HideField, fieldCode);
     public static RuleAction Show(string fieldCode) => new(RuleActionKind.ShowField, fieldCode);
     public static RuleAction SetValue(string fieldCode, string? value) => new(RuleActionKind.SetFieldValue, fieldCode, value);
     public static RuleAction SetRequired(string fieldCode, bool required) => new(RuleActionKind.SetRequired, fieldCode, Required: required);
+
+    /// <summary>Imprimir la plantilla <paramref name="templateName"/> (por nombre) en el formato dado (null = dialogo).</summary>
+    public static RuleAction PrintTemplate(string templateName, string? format = null)
+        => new(RuleActionKind.PrintTemplate, format ?? string.Empty, Value: templateName);
 }
 
 /// <summary>Resultado de la ejecucion de UN verbo.</summary>

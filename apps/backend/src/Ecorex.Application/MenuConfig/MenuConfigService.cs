@@ -474,6 +474,29 @@ public sealed class MenuConfigService : IMenuConfigService
         return MenuConfigResult<MenuEditorNodeDto>.Ok(ToEditorDto(node));
     }
 
+    public async Task<IReadOnlyList<MenuModuleCatalogItemDto>> ListModuleCatalogAsync(
+        CancellationToken cancellationToken = default)
+    {
+        // "Opciones que tiene el sistema" = los modulos reales, deducidos de los items YA existentes
+        // en TODAS las vistas del tenant (filtro global por tenant aplica). Cada Route distinta es un
+        // modulo; se elige un nombre/codigo representativo (preferimos el que tenga codigo legacy).
+        // Asi el desplegable ofrece pantallas reales en vez de una ruta a ciegas. Se ordena por nombre.
+        var items = await _db.MenuNodes.AsNoTracking()
+            .Where(n => n.Kind == MenuNodeKind.Item && n.Route != null && n.Route != "")
+            .Select(n => new { n.Route, n.Name, n.LegacyCode })
+            .ToListAsync(cancellationToken);
+
+        return items
+            .GroupBy(x => x.Route!, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var best = g.OrderByDescending(x => x.LegacyCode != null).ThenBy(x => x.Name).First();
+                return new MenuModuleCatalogItemDto(best.Name, g.Key, best.LegacyCode);
+            })
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     public async Task<MenuConfigResult<MenuEditorNodeDto>> ToggleNodeVisibilityAsync(
         Guid nodeId, CancellationToken cancellationToken = default)
     {

@@ -38,6 +38,50 @@
     <div class="mc-flash @(_flashOk ? "ok" : "err")">@_flash</div>
 }
 
+@* Selector de "Agregar elemento": lista los modulos reales del sistema (catalogo por ruta) para
+   que el usuario elija que agregar, en vez de crear un item en blanco a ciegas. *@
+@if (_pickOpen)
+{
+    <div class="mc-pick-overlay" @onclick="@(() => _pickOpen = false)">
+        <div class="mc-pick-modal" @onclick:stopPropagation="true">
+            <div class="mc-pick-head">
+                <div style="min-width:0;">
+                    <div class="mc-pick-title">Agregar elemento</div>
+                    <div class="mc-pick-sub">Dentro de "@(_pickParent?.Name)". Elige un modulo del sistema o crea uno personalizado.</div>
+                </div>
+                <button type="button" class="mc-act" @onclick="@(() => _pickOpen = false)">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="mc-pick-body">
+                <input class="form-control" placeholder="Buscar por nombre, ruta o codigo..." @bind="_pickSearch" @bind:event="oninput" />
+                <div class="mc-pick-list">
+                    <button type="button" class="mc-pick-item @(_pickRoute == "" ? "on" : "")" @onclick="@(() => _pickRoute = "")">
+                        <span class="mc-pick-item-name">Elemento personalizado (en blanco)</span>
+                        <span class="mc-pick-item-meta">Lo configuras a mano (nombre y ruta)</span>
+                    </button>
+                    @foreach (var m in FilteredCatalog())
+                    {
+                        var mm = m;
+                        <button type="button" class="mc-pick-item @(_pickRoute == mm.Route ? "on" : "")" @onclick="@(() => _pickRoute = mm.Route)">
+                            <span class="mc-pick-item-name">@mm.Name</span>
+                            <span class="mc-pick-item-meta">@(mm.LegacyCode is null ? "" : mm.LegacyCode + " · ")/@mm.Route</span>
+                        </button>
+                    }
+                    @if (!FilteredCatalog().Any())
+                    {
+                        <div class="mc-pick-empty">Sin modulos que coincidan con la busqueda.</div>
+                    }
+                </div>
+            </div>
+            <div class="mc-pick-foot">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="@(() => _pickOpen = false)" disabled="@_busy">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" @onclick="ConfirmAddItemAsync" disabled="@_busy">Agregar</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_loadingIndex)
 {
     <p><em>Cargando vistas...</em></p>
@@ -237,6 +281,31 @@ else
                                 <label class="form-label">Texto de ayuda</label>
                                 <textarea class="form-control" rows="2" maxlength="400" @bind="_pHelpText"></textarea>
                             </div>
+                            @* Crear contenido dentro del nodo seleccionado, con botones VISIBLES (los iconos
+                               del arbol solo salen al pasar el mouse y no se descubrian). Una seccion puede
+                               recibir un subnivel o un elemento; un subnivel solo elementos. *@
+                            @if (_selected.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
+                            {
+                                <div class="field">
+                                    <label class="form-label">Agregar dentro de "@_selected.Name"</label>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                        @if (_selected.Kind is MenuNodeKind.Section)
+                                        {
+                                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="@(() => AddSubgroupAsync(_selected!))" disabled="@_busy">
+                                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-2px;"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6M9 13h6"/></svg>Subnivel
+                                            </button>
+                                        }
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="@(() => OpenAddItemAsync(_selected!))" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:-2px;"><path d="M12 5v14M5 12h14"/></svg>Elemento
+                                        </button>
+                                    </div>
+                                    <small style="display:block;color:var(--muted-foreground);margin-top:5px;">
+                                        @(_selected.Kind is MenuNodeKind.Section
+                                            ? "Un subnivel agrupa elementos (Seccion > Subnivel > Elemento)."
+                                            : "Este subnivel contiene elementos.")
+                                    </small>
+                                </div>
+                            }
                             @if (_selected.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
                             {
                                 <div class="field">
@@ -418,6 +487,13 @@ else
     private MenuNodeState _pState;
     private bool _pIsProcessGroup;
     private MenuNodeKind _pKind;
+
+    // ---- Selector de "Agregar elemento": elige un modulo real del sistema (o uno personalizado) ----
+    private bool _pickOpen;
+    private MenuEditorNodeDto? _pickParent;
+    private IReadOnlyList<MenuModuleCatalogItemDto> _catalog = Array.Empty<MenuModuleCatalogItemDto>();
+    private string _pickRoute = "";   // ruta elegida; "" = elemento personalizado en blanco
+    private string _pickSearch = "";
     private string? _propError;
 
     // ---- Asignacion ----
@@ -618,18 +694,54 @@ else
         finally { _busy = false; }
     }
 
-    private async Task AddChildAsync(MenuEditorNodeDto parent)
+    // "Agregar elemento" ya NO crea un item en blanco: abre un SELECTOR con los modulos reales del
+    // sistema (catalogo por ruta) para que el usuario sepa que agregar. Tambien permite uno personalizado.
+    private async Task OpenAddItemAsync(MenuEditorNodeDto parent)
     {
+        _pickParent = parent;
+        _pickRoute = "";
+        _pickSearch = "";
+        if (_catalog.Count == 0)
+        {
+            try { _catalog = await MenuSvc.ListModuleCatalogAsync(); }
+            catch { _catalog = Array.Empty<MenuModuleCatalogItemDto>(); }
+        }
+        _pickOpen = true;
+    }
+
+    private IEnumerable<MenuModuleCatalogItemDto> FilteredCatalog()
+    {
+        var q = _pickSearch?.Trim();
+        if (string.IsNullOrEmpty(q)) { return _catalog; }
+        return _catalog.Where(c =>
+            c.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || c.Route.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || (c.LegacyCode?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+    }
+
+    private async Task ConfirmAddItemAsync()
+    {
+        if (_pickParent is null) { return; }
         _busy = true;
         try
         {
-            // Un Section recibe Item por defecto; un Subgroup recibe Item; se puede reclasificar luego.
-            var kind = MenuNodeKind.Item;
-            var name = parent.Kind == MenuNodeKind.Section ? "Nuevo elemento" : "Nuevo elemento";
-            var res = await MenuSvc.CreateNodeAsync(_editingViewId, parent.Id, kind, name);
+            MenuConfigResult<MenuEditorNodeDto> res;
+            if (string.IsNullOrEmpty(_pickRoute))
+            {
+                // Personalizado: item en blanco para configurar a mano (como antes).
+                res = await MenuSvc.CreateNodeAsync(_editingViewId, _pickParent.Id, MenuNodeKind.Item, "Nuevo elemento");
+            }
+            else
+            {
+                var mod = _catalog.FirstOrDefault(c => c.Route == _pickRoute);
+                if (mod is null) { Flash("El modulo seleccionado ya no esta disponible.", false); return; }
+                res = await MenuSvc.CreateNodeAsync(_editingViewId, _pickParent.Id, MenuNodeKind.Item,
+                    mod.Name, route: mod.Route, legacyCode: mod.LegacyCode);
+            }
             if (res.IsOk && res.Value is not null)
             {
-                _collapsed.Remove(parent.Id);
+                _collapsed.Remove(_pickParent.Id);
+                _pickOpen = false;
                 await ReloadTreeAsync();
                 var created = FlattenAll(_tree!.Roots).FirstOrDefault(n => n.Id == res.Value.Id);
                 if (created is not null) { SelectNode(created); }
@@ -988,7 +1100,7 @@ else
                 }
                 @if (node.Kind is MenuNodeKind.Section or MenuNodeKind.Subgroup)
                 {
-                    <button type="button" title="Agregar elemento" class="mc-act" @onclick="@(() => AddChildAsync(node))" disabled="@_busy">
+                    <button type="button" title="Agregar elemento" class="mc-act" @onclick="@(() => OpenAddItemAsync(node))" disabled="@_busy">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     </button>
                 }

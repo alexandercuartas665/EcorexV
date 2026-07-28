@@ -100,3 +100,19 @@
     .mc-props { border-top: 1px solid var(--line); }
     .mc-kpis { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- Selector "Agregar elemento" (catalogo de modulos del sistema) ---- */
+.mc-pick-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: grid; place-items: center; z-index: 1200; padding: 20px; }
+.mc-pick-modal { width: min(560px, 94vw); max-height: 84vh; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--rad, 14px); display: flex; flex-direction: column; box-shadow: var(--sh-lg, 0 20px 60px rgba(0,0,0,0.3)); overflow: hidden; }
+.mc-pick-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line-2); }
+.mc-pick-title { font-weight: 700; font-size: 15px; color: var(--ink); }
+.mc-pick-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.mc-pick-body { padding: 14px 18px; overflow: auto; }
+.mc-pick-list { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.mc-pick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--surface); cursor: pointer; }
+.mc-pick-item:hover { background: var(--surface-2); }
+.mc-pick-item.on { border-color: var(--brand); background: var(--brand-soft); }
+.mc-pick-item-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.mc-pick-item-meta { font-size: 11px; color: var(--ink-3); }
+.mc-pick-empty { padding: 18px; text-align: center; color: var(--ink-3); font-size: 13px; }
+.mc-pick-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line-2); }

@@ -83,6 +83,13 @@ public sealed record MenuNodeEditDto(
     // hijos). Se valida contra el padre y contra los hijos existentes en UpdateNodeAsync.
     MenuNodeKind? Kind = null);
 
+/// <summary>
+/// Un modulo/pantalla disponible del sistema, para el desplegable de "Agregar elemento" del editor
+/// de menu. Se deduce de los items que YA existen en los menus del tenant (cada Route distinta es un
+/// modulo), asi el usuario elige una pantalla real en vez de teclear una ruta a ciegas.
+/// </summary>
+public sealed record MenuModuleCatalogItemDto(string Name, string Route, string? LegacyCode);
+
 /// <summary>Usuario del tenant con su vista asignada (para la pantalla de asignacion, Ola 2).</summary>
 public sealed record TenantUserViewDto(
     Guid TenantUserId,

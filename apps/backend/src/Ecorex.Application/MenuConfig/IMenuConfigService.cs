@@ -61,6 +61,13 @@ public interface IMenuConfigService
     Task<MenuConfigResult<MenuEditorNodeDto>> UpdateNodeAsync(
         Guid nodeId, MenuNodeEditDto edit, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Catalogo de modulos/pantallas del sistema para elegir al "Agregar elemento" (nombre + ruta +
+    /// codigo). Se deduce de los items existentes en los menus del tenant: cada ruta es un modulo.
+    /// </summary>
+    Task<IReadOnlyList<MenuModuleCatalogItemDto>> ListModuleCatalogAsync(
+        CancellationToken cancellationToken = default);
+
     /// <summary>Alterna la visibilidad de un nodo (ojo del prototipo).</summary>
     Task<MenuConfigResult<MenuEditorNodeDto>> ToggleNodeVisibilityAsync(
         Guid nodeId, CancellationToken cancellationToken = default);

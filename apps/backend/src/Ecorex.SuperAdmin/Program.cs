@@ -1019,6 +1019,48 @@ app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
 }).AllowAnonymous();
 
+// ---- Impresion de PLANTILLA rellenada con un registro de FORMULARIO (boton "Imprimir plantilla") ----
+// No imprime el formulario, sino una plantilla (QuoteTemplate) con los datos del registro. Misma
+// mecanica que /cotizacion: HTML servible + render headless para PDF/imagen. AllowAnonymous porque
+// el Chromium interno navega aqui; acota a mano por el TenantId del registro dentro del servicio.
+app.MapGet("/formularios/plantilla/{responseId:guid}", async (
+    Guid responseId,
+    [FromQuery] Guid? templateId,
+    [FromQuery] bool print,
+    Ecorex.Application.Forms.IFormTemplateRenderService render,
+    CancellationToken ct) =>
+{
+    var html = await render.RenderHtmlAsync(responseId, templateId, ct);
+    if (html is null) { return Results.NotFound(); }
+    // print=1: al cargar, dispara el dialogo de impresion del navegador.
+    if (print) { html += "\n<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},150);});</script>"; }
+    return Results.Content(html, "text/html; charset=utf-8");
+}).AllowAnonymous();
+
+app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
+    Guid responseId,
+    [FromQuery] Guid? templateId,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
+    var url = $"http://localhost:{port}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"documento-{responseId}.pdf");
+}).AllowAnonymous();
+
+app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
+    Guid responseId,
+    [FromQuery] Guid? templateId,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
+    var url = $"http://localhost:{port}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var bytes = await pdf.RenderUrlToImageAsync(url, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "image/png", $"documento-{responseId}.png");
+}).AllowAnonymous();
+
 // Descarga del comprobante de pago (PDF). Solo pagos aprobados; el usuario de agencia solo
 // puede descargar comprobantes de su propio tenant; el operador de plataforma puede cualquiera.
 app.MapGet("/comprobante/{paymentId:guid}", async (

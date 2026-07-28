@@ -14,6 +14,7 @@
 @inject IFormLookupService LookupSvc
 @inject IJSRuntime JS
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 
 @* =====================================================================================
    DynamicFormRenderer (FASE 4 ola 2, ADR-0015): motor de render de formularios dinamicos.
@@ -140,6 +141,63 @@ else
                 <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
                     @(IsSubmitted ? "Enviado" : "Enviar")
                 </button>
+            </div>
+        }
+
+        @* Dialogo del boton "Imprimir plantilla": elige plantilla + formato y genera el documento con
+           los datos del registro guardado (no imprime el formulario). *@
+        @if (_printOpen)
+        {
+            <div class="dfr-print-overlay" @onclick="ClosePrintDialog">
+                <div class="dfr-print-dialog" @onclick:stopPropagation="true">
+                    <div class="dfr-print-head">
+                        <span>Imprimir plantilla</span>
+                        <button type="button" class="dfr-print-x" @onclick="ClosePrintDialog">&times;</button>
+                    </div>
+                    <div class="dfr-print-body">
+                        @if (_printTemplates.Count == 0)
+                        {
+                            <p class="dfr-print-empty">No hay plantillas configuradas. Crea una en el modulo Plantillas.</p>
+                        }
+                        else
+                        {
+                            <label class="dfr-print-lbl">Plantilla</label>
+                            <select class="form-control" @bind="_printTemplateId">
+                                @foreach (var t in _printTemplates)
+                                {
+                                    <option value="@t.Id">@t.Name@(t.IsDefault ? " (predeterminada)" : "")</option>
+                                }
+                            </select>
+
+                            <label class="dfr-print-lbl">Como imprimir</label>
+                            <div class="dfr-print-modes">
+                                <label class="@(_printFormat == "print" ? "on" : "")">
+                                    <input type="radio" name="pfmt" value="print" checked="@(_printFormat == "print")"
+                                           @onchange="@(() => _printFormat = "print")" /> Imprimir
+                                </label>
+                                <label class="@(_printFormat == "pdf" ? "on" : "")">
+                                    <input type="radio" name="pfmt" value="pdf" checked="@(_printFormat == "pdf")"
+                                           @onchange="@(() => _printFormat = "pdf")" /> PDF
+                                </label>
+                                <label class="@(_printFormat == "img" ? "on" : "")">
+                                    <input type="radio" name="pfmt" value="img" checked="@(_printFormat == "img")"
+                                           @onchange="@(() => _printFormat = "img")" /> Imagen
+                                </label>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(_printError))
+                        {
+                            <p class="dfr-print-err">@_printError</p>
+                        }
+                    </div>
+                    <div class="dfr-print-actions">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="ClosePrintDialog" disabled="@_printBusy">Cancelar</button>
+                        <button type="button" class="btn btn-primary" @onclick="GeneratePrintAsync"
+                                disabled="@(_printBusy || _printTemplates.Count == 0)">
+                            @(_printBusy ? "Generando..." : "Generar")
+                        </button>
+                    </div>
+                </div>
             </div>
         }
     </div>
@@ -518,6 +576,29 @@ else
                         @if (!string.IsNullOrWhiteSpace(q.Caption))
                         {
                             <div class="dfr-caption" style="margin-top:4px;">@q.Caption</div>
+                        }
+                    </div>
+                    break;
+                case FormControlType.Button:
+                    @* Boton con accion configurable. Hoy la unica accion es "Imprimir plantilla": abre un
+                       dialogo para elegir plantilla + formato y genera el documento con los datos del
+                       registro (no imprime el formulario). Requiere un registro guardado. *@
+                    <div class="dfr-formbtn-wrap">
+                        <button type="button" class="dfr-formbtn" disabled="@(_busy || _response is null)"
+                                @onclick="@(() => OpenPrintDialogAsync(q))">
+                            @if (!string.IsNullOrWhiteSpace(q.Caption))
+                            {
+                                <span class="dfr-formbtn-ic" title="@q.Caption">@q.Caption</span>
+                            }
+                            <span>@(string.IsNullOrWhiteSpace(q.Label) ? "Imprimir plantilla" : q.Label)</span>
+                        </button>
+                        @if (_response is null && Mode == FormRenderMode.Fill)
+                        {
+                            <span class="dfr-formbtn-note">Se habilita al iniciar el registro.</span>
+                        }
+                        else if (Mode != FormRenderMode.Fill)
+                        {
+                            <span class="dfr-formbtn-note">Vista previa: activo al llenar el formulario.</span>
                         }
                     </div>
                     break;
@@ -2336,6 +2417,66 @@ else
     /// <summary>Fija el tenant ambient del visor publico; no-op con sesion normal.</summary>
     private IDisposable? BeginAmbient()
         => AmbientTenantId is Guid tenantId ? AmbientTenantContext.Begin(tenantId) : null;
+
+    // ---- Boton "Imprimir plantilla" (accion del control Button) ----
+
+    private bool _printOpen;
+    private bool _printBusy;
+    private string? _printError;
+    private string _printFormat = "print";           // print | pdf | img
+    private Guid _printTemplateId;
+    private IReadOnlyList<Ecorex.Application.Tenancy.QuoteTemplateDto> _printTemplates
+        = Array.Empty<Ecorex.Application.Tenancy.QuoteTemplateDto>();
+
+    private async Task OpenPrintDialogAsync(FormQuestionDto q)
+    {
+        _printError = null;
+        _printOpen = true;
+        try
+        {
+            await _dbGate.WaitAsync();
+            try { using var ambient = BeginAmbient(); _printTemplates = await QuoteTplSvc.ListAsync(); }
+            finally { _dbGate.Release(); }
+        }
+        catch { _printTemplates = Array.Empty<Ecorex.Application.Tenancy.QuoteTemplateDto>(); }
+
+        if (_printTemplateId == Guid.Empty || _printTemplates.All(t => t.Id != _printTemplateId))
+        {
+            _printTemplateId = (_printTemplates.FirstOrDefault(t => t.IsDefault) ?? _printTemplates.FirstOrDefault())?.Id ?? Guid.Empty;
+        }
+    }
+
+    private void ClosePrintDialog()
+    {
+        _printOpen = false;
+        _printBusy = false;
+    }
+
+    private async Task GeneratePrintAsync()
+    {
+        if (_response is null) { _printError = "El registro no esta guardado."; return; }
+        _printBusy = true;
+        _printError = null;
+        try
+        {
+            // Los datos del registro alimentan la plantilla: se persiste lo capturado antes de imprimir.
+            await SaveAsync(submit: false);
+            if (_globalError is not null) { _printError = "No se pudo guardar el registro antes de imprimir."; return; }
+
+            var tid = _printTemplateId != Guid.Empty ? $"?templateId={_printTemplateId}" : "";
+            var baseUrl = $"/formularios/plantilla/{_response!.Id}";
+            var url = _printFormat switch
+            {
+                "pdf" => $"{baseUrl}/pdf{tid}",
+                "img" => $"{baseUrl}/img{tid}",
+                _ => $"{baseUrl}{tid}{(tid.Length == 0 ? "?" : "&")}print=1",
+            };
+            await JS.InvokeVoidAsync("open", url, "_blank");
+            _printOpen = false;
+        }
+        catch (Exception ex) { _printError = "No se pudo generar: " + ex.Message; }
+        finally { _printBusy = false; }
+    }
 
     public void Dispose()
     {

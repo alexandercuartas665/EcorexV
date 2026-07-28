@@ -199,6 +199,8 @@ public partial class MainWindow : Window
 
     private void ShowFromTray()
     {
+        // Restaura la barra de tareas por si el arranque fue en bandeja (--tray la habia ocultado).
+        ShowInTaskbar = true;
         Show();
         WindowState = WindowState.Normal;
         Activate();

@@ -24,6 +24,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     private readonly GatewayExecutor _gateway = new();
+    private readonly RestExecutor _rest = new();
     private readonly GatewaySourceStore _sources = new();
     private readonly IBrowserSubAgent _browser;
     private readonly FileSubAgent _files = new();
@@ -205,15 +206,22 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         var cts = new CancellationTokenSource();
         _inflight[req.CorrelationId] = cts;
 
-        var isDatabase = string.Equals(req.Connector?.Kind, "Database", StringComparison.OrdinalIgnoreCase);
+        var kindStr = req.Connector?.Kind;
+        var isDatabase = string.Equals(kindStr, "Database", StringComparison.OrdinalIgnoreCase);
+        var isRest = string.Equals(kindStr, "RestApi", StringComparison.OrdinalIgnoreCase);
         try
         {
             if (isDatabase)
             {
                 await ExecuteDatabaseAsync(conn, req, cts.Token);
             }
+            else if (isRest && req.Rest is not null)
+            {
+                await ExecuteRestAsync(conn, req, cts.Token);
+            }
             else
             {
+                // RestApi sin RestFetchSpec (o conector sin ejecutor propio): acuse que cierra el canal.
                 await AckAsync(conn, req);
                 RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, "recibido"));
             }
@@ -274,6 +282,22 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         // El token viaja hasta OpenAsync/ExecuteReaderAsync/ReadAsync del GatewayExecutor (que ya lo
         // honra): un Cancel del servidor aborta la consulta en la BD, no solo el bucle de envio.
         await foreach (var chunk in _gateway.ExecuteAsync(engine, connectionString, req.CorrelationId, query, req.Paging, ct))
+        {
+            total += chunk.RowCount;
+            await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk, ct);
+        }
+        RequestFinished?.Invoke(new HiveRequestResult(req.CorrelationId, Ok: true, $"{total} filas"));
+    }
+
+    /// <summary>
+    /// Ejecuta un conector RestApi (GET HTTP solo-lectura) y envia los chunks de FetchResult, igual que
+    /// el camino Database pero con el <see cref="RestExecutor"/>. La credencial (Basic/Bearer/ApiKey)
+    /// viaja en <c>Connector.Secret</c> (ADR-0040); nunca se loguea.
+    /// </summary>
+    private async Task ExecuteRestAsync(HubConnection conn, FetchRequestMsg req, CancellationToken ct)
+    {
+        var total = 0;
+        await foreach (var chunk in _rest.ExecuteAsync(req.Connector, req.CorrelationId, req.Rest!, ct))
         {
             total += chunk.RowCount;
             await conn.InvokeAsync(AgentHubMethods.FetchResult, chunk, ct);
@@ -406,8 +430,9 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 
     private static SubAgentKind MapKind(ConnectorSpec? connector) => connector?.Kind switch
     {
-        "RestApi" => SubAgentKind.Browser,
-        _ => SubAgentKind.Gateway, // Database (y por defecto) -> Gateway de datos.
+        // RestApi ahora es una extraccion de datos (GET HTTP solo-lectura), no navegacion: se pinta
+        // como celda Gateway igual que Database. La navegacion asistida usa BrowserRequest, no esto.
+        _ => SubAgentKind.Gateway, // Database / RestApi (y por defecto) -> Gateway de datos.
     };
 
     private static string? Shorten(string? text)

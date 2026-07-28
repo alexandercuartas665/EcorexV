@@ -365,8 +365,8 @@ else
                                                 <option value="@ConnectorAuthKind.Basic">Basic</option>
                                             </select>
                                         </div>
-                                        <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
-                                        <textarea class="form-control" rows="2" placeholder="Mapeo JSON (opcional)" @bind="_conMapping"></textarea>
+                                        <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales (Basic: usuario:clave)" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
+                                        <textarea class="form-control" rows="6" placeholder="Mapeo JSON. Opcional para importar manual; para traer via AGENTE va el RestFetchSpec: BaseUrl, ListPath, ArrayPath, Paging, Fanout (fan-out lista->detalle) y Fields (mapeo campo->columna)." @bind="_conMapping"></textarea>
                                     }
                                     else if (_conKind == ConnectorKind.Database)
                                     {

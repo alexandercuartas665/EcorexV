@@ -5,6 +5,9 @@
   <Folder Name="/sim/">
     <Project Path="sim/Ecorex.Agent.HubSim/Ecorex.Agent.HubSim.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ecorex.Agent.Core.Tests/Ecorex.Agent.Core.Tests.csproj" />
+  </Folder>
   <Project Path="Ecorex.Agent.Core/Ecorex.Agent.Core.csproj" />
   <Project Path="Ecorex.Agent.Gui/Ecorex.Agent.Gui.csproj" />
   <Project Path="Ecorex.Agent.Service/Ecorex.Agent.Service.csproj" />

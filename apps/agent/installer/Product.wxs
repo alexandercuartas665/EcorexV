@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instalador MSI del Agente Conector On-Prem "Colmena" de ECOREX.
+  WiX v5. Ver ADR-0049 y installer/README.md.
+
+  Que hace:
+   - Instala los binarios SELF-CONTAINED (Servicio + GUI) en Archivos de programa.
+   - Registra el Servicio de Windows "EcorexAgent" (arranque automatico, LocalSystem),
+     lo arranca al instalar y lo detiene/elimina al desinstalar.
+   - Registra el origen del Visor de eventos "ECOREX Agente" (Log Application).
+   - Instala la GUI de bandeja: acceso directo en el Menu Inicio + AUTOSTART (llave Run
+     de la maquina) que la arranca en la bandeja con la opcion tray al iniciar sesion.
+   - Crea (y PRESERVA) la carpeta de config compartida %ProgramData%\Ecorex\Agent, que es
+     donde el Servicio y la GUI leen la MISMA identidad cifrada (config.dat). El MSI NO
+     gestiona config.dat: lo escribe el cliente por la GUI, por eso ni el upgrade ni la
+     desinstalacion lo tocan.
+   - Soporta UPGRADE (UpgradeCode estable + MajorUpgrade que reemplaza la version previa
+     sin borrar la config) y desinstalacion limpia.
+
+  El instalador NO trae ClientId, URL del hub ni secreto: la identidad la aporta el
+  cliente desde el hexagono Configuracion de la GUI (o por linea de comandos
+  Ecorex.Agent.Service.exe save-config, con doble guion).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="Ecorex - Agente Colmena"
+           Manufacturer="Ecorex/Bitcode"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="6f3c1e2a-9d4b-4c17-8a5e-2b7f0c9d1e44"
+           Scope="perMachine"
+           Compressed="yes"
+           InstallerVersion="500">
+
+    <SummaryInformation Description="Ecorex - Agente Colmena (Agente Conector On-Prem)"
+                        Manufacturer="Ecorex/Bitcode" />
+
+    <!-- UPGRADE: reemplaza cualquier version anterior. Se agenda pronto para que la version vieja
+         se retire antes de copiar la nueva; el servicio se detiene por ServiceControl. La config en
+         %ProgramData% no la gestiona el MSI, asi que el upgrade nunca la toca. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="Ya hay instalada una version mas reciente de [ProductName]. Desinstalela antes de continuar." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Icono de Programas y caracteristicas: el propio exe de la GUI. -->
+    <Icon Id="AgentIcon.exe" SourceFile="$(var.AgentExeDir)\Ecorex.Agent.Gui.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AgentIcon.exe" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Requiere elevacion (perMachine): registrar el servicio y escribir en Archivos de programa. -->
+    <Launch Condition="Privileged" Message="Este instalador debe ejecutarse con privilegios de administrador." />
+
+    <!-- AUTO-LANZAR la bandeja al terminar la instalacion. Sin esto, la GUI solo aparecia en el
+         PROXIMO inicio de sesion (la autostart es una llave Run que dispara en el logon), asi que
+         tras instalar el servicio corria pero NO habia icono en la bandeja hasta re-loguear.
+         Tipo 18 (ejecuta un archivo ya instalado, admite argumentos): inmediata + IMPERSONADA para
+         que el icono nazca en la sesion del USUARIO instalador -no en la sesion 0 del servicio-,
+         despues de InstallFinalize (el exe ya esta en disco). La opcion tray (doble guion) la deja
+         oculta en la bandeja sin robar foco. asyncNoWait: no espera ni puede hacer fallar la
+         instalacion (p.ej. install
+         silencioso por SCCM sin usuario interactivo). Solo en instalacion/upgrade, nunca al desinstalar. -->
+    <CustomAction Id="LaunchTrayGui"
+                  FileRef="Ecorex.Agent.Gui.exe"
+                  ExeCommand="--tray"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchTrayGui" After="InstallFinalize" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+
+    <!-- ================= Arbol de directorios ================= -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="VendorFolder" Name="Ecorex">
+        <Directory Id="INSTALLFOLDER" Name="Agente Colmena" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppShortcutFolder" Name="Ecorex" />
+    </StandardDirectory>
+
+    <!-- Carpeta de config compartida: %ProgramData%\Ecorex\Agent (la misma que usa AgentVault). -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="VendorDataFolder" Name="Ecorex">
+        <Directory Id="AgentDataFolder" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- ================= Componentes ================= -->
+
+    <!-- Servicio de Windows: el exe del orquestador + su registro como servicio + su origen de eventos. -->
+    <ComponentGroup Id="ServiceComponents" Directory="INSTALLFOLDER">
+      <Component Id="ServiceExe" Bitness="always64">
+        <File Id="Ecorex.Agent.Service.exe"
+              Source="$(var.AgentExeDir)\Ecorex.Agent.Service.exe"
+              KeyPath="yes" />
+
+        <!-- Registro como Servicio de Windows. Nombre "EcorexAgent" (el que espera Program.cs).
+             LocalSystem, arranque automatico. -->
+        <ServiceInstall Id="EcorexAgentServiceInstall"
+                        Name="EcorexAgent"
+                        DisplayName="ECOREX Agente Colmena"
+                        Description="Orquestador local del Agente Conector On-Prem de ECOREX: mantiene el canal SignalR saliente y ejecuta los sub-agentes (Gateway de datos, REST)."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem"
+                        Vital="yes" />
+
+        <!-- Arranca al instalar; detiene al instalar (upgrade) y al desinstalar; se elimina al desinstalar. -->
+        <ServiceControl Id="EcorexAgentServiceControl"
+                        Name="EcorexAgent"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+
+        <!-- Origen del Visor de eventos "ECOREX Agente". Program.cs lo usa pero no lo crea (crear un
+             origen exige privilegio): lo hace el instalador. EventMessageFile apunta a la libreria de
+             mensajes de EventLog del .NET Framework, presente en todo Windows 10/11. -->
+        <util:EventSource Name="ECOREX Agente"
+                          Log="Application"
+                          EventMessageFile="%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- GUI de bandeja: exe + acceso directo en el Menu Inicio + AUTOSTART (llave Run de la maquina).
+         Cada preocupacion en SU componente para pasar la validacion ICE (un exe con keypath de
+         archivo, el atajo no-anunciado con keypath HKCU, la autostart con keypath HKLM). -->
+    <ComponentGroup Id="GuiComponents">
+      <Component Id="GuiExe" Directory="INSTALLFOLDER" Bitness="always64">
+        <File Id="Ecorex.Agent.Gui.exe"
+              Source="$(var.AgentExeDir)\Ecorex.Agent.Gui.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- AUTOSTART: arranca la GUI en la bandeja al iniciar sesion cualquier usuario (perMachine).
+           La opcion tray (doble guion) la deja como icono de bandeja sin abrir ventana ni robar foco. -->
+      <Component Id="GuiAutostart" Directory="INSTALLFOLDER" Bitness="always64">
+        <RegistryValue Root="HKLM"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="EcorexAgenteColmena"
+                       Type="string"
+                       Value="&quot;[INSTALLFOLDER]Ecorex.Agent.Gui.exe&quot; --tray"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Acceso directo (no anunciado) en Menu Inicio\Ecorex. Keypath HKCU (patron ICE43) y este
+           mismo componente limpia la carpeta del Menu Inicio al desinstalar. -->
+      <Component Id="GuiStartMenu" Directory="AppShortcutFolder">
+        <Shortcut Id="GuiStartMenuShortcut"
+                  Name="Ecorex - Agente Colmena"
+                  Description="Colmena del Agente Conector On-Prem de ECOREX"
+                  Target="[INSTALLFOLDER]Ecorex.Agent.Gui.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AgentIcon.exe" />
+        <RemoveFolder Id="RemoveAppShortcutFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\Ecorex\AgenteColmena"
+                       Name="startmenu"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Carpeta de config compartida: se crea si no existe y se PRESERVA (Permanent) en la
+         desinstalacion para no perder la identidad del cliente. El contenido (config.dat) no lo
+         gestiona el MSI. El endurecimiento del ACL lo hace la app (AgentVault). -->
+    <ComponentGroup Id="ConfigComponents" Directory="AgentDataFolder">
+      <Component Id="ConfigDataFolder" Permanent="yes" Bitness="always64">
+        <CreateFolder />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Ecorex\AgenteColmena"
+                       Name="configdir"
+                       Type="string"
+                       Value="[AgentDataFolder]"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Resto de los binarios self-contained (runtime .NET, WPF/WinForms, WebView2, Core, etc.):
+         cosechados de la carpeta staging. Los dos exe NO estan aqui: build-installer.ps1 los deja
+         en AgentExeDir (carpeta aparte), de modo que la cosecha no los duplica. -->
+    <ComponentGroup Id="RuntimeFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AgentPublishDir)\**" />
+    </ComponentGroup>
+
+    <!-- ================= Feature ================= -->
+    <Feature Id="Main" Title="Ecorex - Agente Colmena" Level="1">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="GuiComponents" />
+      <ComponentGroupRef Id="ConfigComponents" />
+      <ComponentGroupRef Id="RuntimeFiles" />
+    </Feature>
+
+  </Package>
+</Wix>

@@ -1,0 +1,42 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!--
+    Proyecto WiX del instalador MSI del Agente Colmena. Se construye con `dotnet build` (o
+    `dotnet build -c Release`): el SDK de WiX se restaura desde NuGet, sin necesidad de la
+    herramienta global `wix`. Ver installer/build-installer.ps1, que publica los binarios
+    self-contained ANTES de compilar este proyecto.
+
+    Requisitos previos al build de este .wixproj:
+      - AgentPublishDir: carpeta staging con el runtime self-contained (win-x64) SIN los dos exe.
+      - AgentExeDir: carpeta con los dos exe (Servicio + GUI).
+      build-installer.ps1 deja ambas (por defecto dist/publish y dist/exe).
+    Salida: bin/$(Configuration)/Ecorex-AgenteColmena-<version>.msi
+      (build-installer.ps1 lo copia a installer/dist).
+  -->
+
+  <!-- Version del producto y carpetas staging. Se pueden sobreescribir por linea de comandos:
+       dotnet build -p:ProductVersion=1.2.0 -p:AgentPublishDir=C:\ruta\publish -p:AgentExeDir=C:\ruta\exe
+       Se definen ANTES de OutputName porque este las referencia. -->
+  <PropertyGroup>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <!-- AgentPublishDir: runtime self-contained SIN los dos exe (los cosecha <Files>).
+         AgentExeDir: solo los dos exe (Servicio + GUI), declarados como componentes propios. -->
+    <AgentPublishDir Condition="'$(AgentPublishDir)' == ''">$(MSBuildProjectDirectory)\dist\publish</AgentPublishDir>
+    <AgentExeDir Condition="'$(AgentExeDir)' == ''">$(MSBuildProjectDirectory)\dist\exe</AgentExeDir>
+    <!-- Variables de preprocesador visibles en Product.wxs como $(var.Nombre). -->
+    <DefineConstants>ProductVersion=$(ProductVersion);AgentPublishDir=$(AgentPublishDir);AgentExeDir=$(AgentExeDir)</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>Ecorex-AgenteColmena-$(ProductVersion)</OutputName>
+    <!-- MSI de 64 bits (binarios win-x64). -->
+    <InstallerPlatform>x64</InstallerPlatform>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- util:EventSource (registro del origen del Visor de eventos) vive en la extension Util. -->
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+</Project>

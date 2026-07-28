@@ -8,10 +8,10 @@ namespace Ecorex.Contracts.Agent;
 /// </summary>
 public static class AgentProtocol
 {
-    /// <summary>Version del protocolo (doc 02 s11). El servidor puede rechazar agentes por debajo.</summary>
+    // Version del protocolo (doc 02 s11). El servidor puede rechazar agentes por debajo.
     public const string Version = "1.0";
 
-    /// <summary>Ruta del hub en el servidor (doc 02 s1): wss://&lt;host&gt;/hubs/agente.</summary>
+    // Ruta del hub en el servidor (doc 02 s1): wss://&lt;host&gt;/hubs/agente.
     public const string HubRoute = "/hubs/agente";
 }
 
@@ -81,13 +81,95 @@ public sealed record QuerySpec(
 /// <summary>Paginacion opcional (doc 02 s5).</summary>
 public sealed record PagingSpec(string Mode = "None", int PageSize = 500, int MaxRows = 100000);
 
+// ---- Ejecutor REST (Kind == "RestApi"): analogo a QuerySpec pero para HTTP GET ----
+//
+// RestFetchSpec es al conector RestApi lo que QuerySpec es al Database: describe -declarativamente,
+// sin hardcode de ninguna fuente- que URL(s) leer, como autenticar, como paginar, donde esta el
+// arreglo objetivo en el JSON, y opcionalmente el patron fan-out lista->detalle con aplanado de un
+// arreglo anidado. El agente NO conoce OCS ni ninguna API: recibe este spec por el canal y lo
+// ejecuta. La credencial viaja aparte, en ConnectorSpec.Secret (ADR-0040), NUNCA aqui.
+
+/// <summary>
+/// Paginacion del ejecutor REST. Modo:
+///   - "None"   -> una sola llamada (sin paginar).
+///   - "Offset" -> reescribe <see cref="OffsetParam"/>=start+page*PageSize y <see cref="LimitParam"/>=PageSize
+///                 (OCS: ?start=0&amp;limit=N). Corta cuando una pagina trae menos de PageSize elementos.
+///   - "Page"   -> reescribe <see cref="PageParam"/>=StartValue+page y opcionalmente LimitParam=PageSize.
+/// </summary>
+public sealed record RestPagingSpec(
+    string Mode = "None",
+    string OffsetParam = "start",
+    string LimitParam = "limit",
+    string PageParam = "page",
+    int StartValue = 0,
+    int PageSize = 100,
+    int MaxPages = 1000);
+
+/// <summary>
+/// Mapea UN valor del JSON a UNA columna destino. <see cref="Path"/> es una ruta con puntos que
+/// admite indices de arreglo: <c>hardware.NAME</c>, <c>bios[0].SSN</c>, <c>accountinfo[0].TAG</c>.
+/// Un segmento vacio (dos puntos seguidos, o el path <c>""</c>) referencia la propiedad de clave
+/// vacia <c>""</c> (caso OCS: el software resuelto cuelga de la clave ""). <see cref="Column"/> es
+/// el NOMBRE de la columna destino: el ingestor del servidor mapea por nombre.
+/// </summary>
+public sealed record RestFieldMap(string Column, string Path, string? Default = null);
+
+/// <summary>
+/// Patron fan-out lista->detalle con aplanado (caso OCS Inventory). Por cada item de la lista se hace
+/// un GET al detalle, se ubica un arreglo anidado (p.ej. el software instalado) y se emite UNA fila
+/// por elemento de ese arreglo, repitiendo las columnas del padre (<see cref="ParentFields"/>) y
+/// agregando las del hijo (<see cref="ChildFields"/>). Declarativo: ningun nombre de OCS esta en el
+/// codigo, todo viene aqui.
+/// </summary>
+public sealed record RestFanoutSpec(
+    // Plantilla del endpoint detalle relativa a BaseUrl; <c>{id}</c> se sustituye por el id del item. Ej: <c>/computer/{id}</c>.
+    string DetailPathTemplate,
+    // De donde sale el id del item: "key" = la clave del objeto-indexado (OCS); "field" = el valor en <see cref="IdField"/>.
+    string IdSource = "key",
+    // Ruta al id dentro del item cuando <see cref="IdSource"/>="field".
+    string? IdField = null,
+    // Si el detalle viene envuelto en un objeto-indexado por id (<c>{"228":{...}}</c>), desanida un nivel antes de buscar el arreglo hijo. OCS lo requiere.
+    bool DetailUnwrapIndexed = true,
+    // Ruta al arreglo anidado en el detalle. null=tolerante; <c>""</c>=propiedad de clave vacia (OCS software resuelto).
+    string? ChildArrayPath = null,
+    // Columnas denormalizadas del padre (item de la lista).
+    List<RestFieldMap>? ParentFields = null,
+    // Columnas del hijo (elemento del arreglo anidado del detalle).
+    List<RestFieldMap>? ChildFields = null);
+
+/// <summary>
+/// Orden de extraccion REST (analoga a <see cref="QuerySpec"/> para SQL). Viaja dentro de
+/// <see cref="FetchRequestMsg.Rest"/>. Solo GET (solo-lectura). La credencial va en
+/// <see cref="ConnectorSpec.Secret"/>.
+/// </summary>
+public sealed record RestFetchSpec(
+    // Base absoluta http(s). Ej: <c>https://host/ocsapi/v1</c>.
+    string BaseUrl,
+    // Path (o URL absoluta) del endpoint LISTA. Ej: <c>/computers</c>.
+    string ListPath,
+    string HttpMethod = "GET",
+    // None|Basic|Bearer|ApiKey (mismo criterio que ConnectorAuthKind del servidor).
+    string AuthKind = "None",
+    // Ruta al arreglo/coleccion objetivo en la LISTA. null/""=tolerante (raiz array, objeto-indexado, o envoltorios data/items/results/records/rows).
+    string? ArrayPath = null,
+    RestPagingSpec? Paging = null,
+    // Cuando esta presente: patron fan-out lista->detalle. Cuando es null: fila directa por item con <see cref="Fields"/>.
+    RestFanoutSpec? Fanout = null,
+    // Mapeo campo->columna para el modo simple (sin fan-out): una fila por item de la lista.
+    List<RestFieldMap>? Fields = null,
+    int TimeoutSeconds = 30,
+    int MaxRows = 100000,
+    int MaxDetailCalls = 5000);
+
 /// <summary>Orden "traeme estos datos" empujada por el servidor (doc 02 s5).</summary>
 public sealed record FetchRequestMsg(
     string CorrelationId,
     string TenantId,
     ConnectorSpec Connector,
     QuerySpec Query,
-    PagingSpec? Paging = null);
+    PagingSpec? Paging = null,
+    // Spec del ejecutor REST cuando <see cref="ConnectorSpec.Kind"/>=="RestApi". null para Database.
+    RestFetchSpec? Rest = null);
 
 /// <summary>Respuesta con datos (posiblemente en chunks) del agente al servidor (doc 02 s5).</summary>
 public sealed record FetchResultMsg(
@@ -154,7 +236,7 @@ public static class AgentSign
         return System.Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    /// <summary>Verifica en tiempo constante que <paramref name="signature"/> corresponda al payload.</summary>
+    // Verifica en tiempo constante que <paramref name="signature"/> corresponda al payload.
     public static bool Verify(string secret, string correlationId, string payload, string? signature)
     {
         if (string.IsNullOrEmpty(signature)) { return false; }
@@ -172,25 +254,25 @@ public static class AgentSign
 /// </summary>
 public enum BrowserActionKind
 {
-    /// <summary>Abre una URL http/https (sujeta a la allow-list de dominios LOCAL del agente).</summary>
+    // Abre una URL http/https (sujeta a la allow-list de dominios LOCAL del agente).
     Navigate,
 
-    /// <summary>Ejecuta JavaScript en la pagina actual y devuelve el resultado (acotado por dominio).</summary>
+    // Ejecuta JavaScript en la pagina actual y devuelve el resultado (acotado por dominio).
     Eval,
 
-    /// <summary>Espera unos ms, o hasta que una condicion JS sea truthy.</summary>
+    // Espera unos ms, o hasta que una condicion JS sea truthy.
     Wait,
 
-    /// <summary>Captura el navegador (PNG en base64).</summary>
+    // Captura el navegador (PNG en base64).
     Screenshot,
 
-    /// <summary>Devuelve el HTML de la pagina o de un selector CSS.</summary>
+    // Devuelve el HTML de la pagina o de un selector CSS.
     Html,
 
-    /// <summary>Ejecuta un guion "MouseBot" (JSON de pasos: click/type por selector) acotado al dominio.</summary>
+    // Ejecuta un guion "MouseBot" (JSON de pasos: click/type por selector) acotado al dominio.
     Mouse,
 
-    /// <summary>Devuelve el historial reciente de descargas del navegador.</summary>
+    // Devuelve el historial reciente de descargas del navegador.
     Downloads,
 }
 
@@ -241,25 +323,25 @@ public sealed record BrowserResultMsg(
 /// </summary>
 public enum FileActionKind
 {
-    /// <summary>Lista el contenido de un directorio.</summary>
+    // Lista el contenido de un directorio.
     List,
 
-    /// <summary>Lee el contenido de un archivo (texto UTF-8, con tope de tamano).</summary>
+    // Lee el contenido de un archivo (texto UTF-8, con tope de tamano).
     Read,
 
-    /// <summary>Lee un archivo BINARIO y lo devuelve en base64 (con tope de tamano).</summary>
+    // Lee un archivo BINARIO y lo devuelve en base64 (con tope de tamano).
     ReadBytes,
 
-    /// <summary>Escribe (crea/reemplaza) un archivo con el contenido dado.</summary>
+    // Escribe (crea/reemplaza) un archivo con el contenido dado.
     Write,
 
-    /// <summary>Borra un archivo.</summary>
+    // Borra un archivo.
     Delete,
 
-    /// <summary>Informa si una ruta existe y si es archivo o directorio.</summary>
+    // Informa si una ruta existe y si es archivo o directorio.
     Exists,
 
-    /// <summary>Crea un directorio (y los intermedios).</summary>
+    // Crea un directorio (y los intermedios).
     MakeDir,
 }
 

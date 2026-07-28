@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Contracts.Agent;
@@ -69,17 +70,31 @@ public sealed class ProcessRunner(
 
         var connector = await db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(c => c.Id == connectorId, ct);
         if (connector is null) { return new(false, null, "El conector ya no existe."); }
-        if (connector.Kind != ConnectorKind.Database)
+        // Via agente se traen conectores Database (SQL solo-lectura) Y RestApi (GET HTTP + fan-out).
+        if (connector.Kind != ConnectorKind.Database && connector.Kind != ConnectorKind.RestApi)
         {
-            return new(false, null, $"Solo los conectores de tipo Base de datos se traen via agente (este es {connector.Kind}).");
+            return new(false, null, $"Solo los conectores de tipo Base de datos o API REST se traen via agente (este es {connector.Kind}).");
         }
         if (connector.ContainerId is not Guid targetTableId)
         {
             return new(false, null, "El conector no tiene TABLA destino: eligela en el conector para poder refrescar solo.");
         }
-        if (string.IsNullOrWhiteSpace(connector.Query))
+
+        // Segun el tipo se valida lo que hace falta para despachar: SQL para Database, RestFetchSpec
+        // (endpoints/auth/fan-out/mapeo, en MappingJson) para RestApi.
+        RestFetchSpec? restSpec = null;
+        if (connector.Kind == ConnectorKind.Database)
         {
-            return new(false, null, "El conector no tiene consulta: escribe el SELECT que trae los datos.");
+            if (string.IsNullOrWhiteSpace(connector.Query))
+            {
+                return new(false, null, "El conector no tiene consulta: escribe el SELECT que trae los datos.");
+            }
+        }
+        else // RestApi
+        {
+            var (builtSpec, specError) = BuildRestSpec(connector);
+            if (builtSpec is null) { return new(false, null, specError ?? "El conector REST no esta configurado para el agente."); }
+            restSpec = builtSpec;
         }
 
         // Mapeo por NOMBRE: cada columna de la tabla se llena con el campo del mismo nombre que
@@ -120,16 +135,25 @@ public sealed class ProcessRunner(
             return new(false, null, detail);
         }
 
-        var spec = new ConnectorSpec(
-            Kind: "Database",
-            DbEngine: connector.DbEngine?.ToString(),
-            Host: connector.Host,
-            Port: connector.Port,
-            Database: connector.DatabaseName,
-            Username: connector.Username,
-            // ADR-0040: la credencial VIAJA. Se descifra aqui y va en el mensaje. Si el conector no
-            // tiene, se manda null y el agente usa su cadena local (opcion b).
-            Secret: connector.CredentialsEncrypted is { } enc ? protector.Unprotect(enc) : null);
+        // ADR-0040: la credencial VIAJA. Se descifra aqui y va en el mensaje. Si el conector no
+        // tiene, se manda null (Database: el agente usa su cadena local; RestApi: sin auth).
+        var secret = connector.CredentialsEncrypted is { } enc ? protector.Unprotect(enc) : null;
+
+        var isRest = connector.Kind == ConnectorKind.RestApi;
+        var spec = isRest
+            ? new ConnectorSpec(Kind: "RestApi", Host: connector.Host, Secret: secret)
+            : new ConnectorSpec(
+                Kind: "Database",
+                DbEngine: connector.DbEngine?.ToString(),
+                Host: connector.Host,
+                Port: connector.Port,
+                Database: connector.DatabaseName,
+                Username: connector.Username,
+                Secret: secret);
+
+        // Para REST no hay SQL; se manda una etiqueta corta (no se ejecuta como consulta) solo para la
+        // bitacora/UI. La orden real va en restSpec.
+        var queryText = isRest ? (restSpec!.ListPath ?? "REST") : connector.Query!;
 
         try
         {
@@ -138,7 +162,7 @@ public sealed class ProcessRunner(
             await imports.DispatchFetchAsync(
                 client.ClientId, tenantId, targetTableId, mapping,
                 ApiImportMode.Replace, keyColumnId: null,
-                connector.Query!, spec, ct, correlationId);
+                queryText, spec, ct, correlationId, rest: restSpec);
         }
         catch (Exception ex)
         {
@@ -160,6 +184,46 @@ public sealed class ProcessRunner(
         }
 
         return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
+    }
+
+    private static readonly JsonSerializerOptions RestJsonOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Arma el <see cref="RestFetchSpec"/> de un conector RestApi para despacharlo al agente. La parte
+    /// declarativa (arrayPath, paginacion, fan-out lista->detalle y mapeo campos->columnas) vive en
+    /// <c>connector.MappingJson</c> como JSON del propio RestFetchSpec; BaseUrl, metodo y tipo de auth
+    /// se toman de los campos normales del conector (EndpointUrl/HttpMethod/AuthKind) si el JSON no los
+    /// trae. Asi el operador configura endpoint+auth como en cualquier conector y solo describe el
+    /// fan-out/mapeo en el JSON. La credencial NO va aqui (viaja aparte, cifrada).
+    /// </summary>
+    private static (RestFetchSpec? Spec, string? Error) BuildRestSpec(Domain.Entities.DataConnector connector)
+    {
+        if (string.IsNullOrWhiteSpace(connector.MappingJson))
+        {
+            return (null, "El conector REST no tiene mapeo para el agente: define el RestFetchSpec (endpoints, arrayPath, fan-out y mapeo campos->columnas) en el mapeo del conector.");
+        }
+
+        RestFetchSpec? parsed;
+        try { parsed = JsonSerializer.Deserialize<RestFetchSpec>(connector.MappingJson, RestJsonOptions); }
+        catch (JsonException ex) { return (null, $"El mapeo REST del conector no es un RestFetchSpec valido: {ex.Message}"); }
+        if (parsed is null) { return (null, "El mapeo REST del conector quedo vacio tras interpretarlo."); }
+
+        var baseUrl = string.IsNullOrWhiteSpace(parsed.BaseUrl) ? connector.EndpointUrl : parsed.BaseUrl;
+        if (string.IsNullOrWhiteSpace(baseUrl) && string.IsNullOrWhiteSpace(parsed.ListPath))
+        {
+            return (null, "El conector REST no tiene endpoint: define EndpointUrl en el conector o BaseUrl/ListPath en el mapeo.");
+        }
+
+        var authKind = parsed.AuthKind is null or "None" && connector.AuthKind != ConnectorAuthKind.None
+            ? connector.AuthKind.ToString()
+            : (parsed.AuthKind ?? "None");
+
+        var method = string.IsNullOrWhiteSpace(parsed.HttpMethod)
+            ? (string.IsNullOrWhiteSpace(connector.HttpMethod) ? "GET" : connector.HttpMethod!)
+            : parsed.HttpMethod;
+
+        var spec = parsed with { BaseUrl = baseUrl ?? string.Empty, AuthKind = authKind, HttpMethod = method };
+        return (spec, null);
     }
 
     /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el

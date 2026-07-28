@@ -28,10 +28,15 @@ public interface IAgentImportService
     /// podria responder antes de que la corrida supiera su propio id y el resultado se perderia).
     /// null = se genera uno.
     /// </param>
+    /// <param name="rest">
+    /// Spec del ejecutor REST cuando el conector es RestApi (GET HTTP + fan-out/aplanado). null para
+    /// conectores Database (ahi manda <paramref name="query"/> el SQL).
+    /// </param>
     Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null);
+        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null,
+        RestFetchSpec? rest = null);
 
     Task OnFetchResultAsync(FetchResultMsg chunk);
     Task OnFetchFailedAsync(FetchErrorMsg error);
@@ -86,7 +91,8 @@ public sealed class AgentImportService : IAgentImportService
     public async Task<string> DispatchFetchAsync(
         string clientId, Guid tenantId, Guid containerId,
         IReadOnlyDictionary<Guid, string> mapping, ApiImportMode mode, Guid? keyColumnId,
-        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null)
+        string query, ConnectorSpec? connector, CancellationToken ct, string? correlationId = null,
+        RestFetchSpec? rest = null)
     {
         var corr = correlationId ?? NewCorrelationId();
         // Se guarda el clientId: es a QUE agente hay que mandarle el Cancel si esta peticion se vence
@@ -103,7 +109,9 @@ public sealed class AgentImportService : IAgentImportService
             // local: asi un agente configurado a mano sigue funcionando.
             Connector: connector ?? new ConnectorSpec("Database", DbEngine: "SqlServer"),
             Query: new QuerySpec(query),
-            Paging: new PagingSpec("Offset", 500, 100000));
+            Paging: new PagingSpec("Offset", 500, 100000),
+            // RestApi: la orden real viaja en Rest (endpoints/auth/fan-out/mapeo). Para Database es null.
+            Rest: rest);
 
         await _hub.Clients.Group(AgenteHub.ClientGroup(clientId)).SendAsync(AgentHubMethods.FetchRequest, req, ct);
         _log.LogInformation("[INGESTA] dispatch corr={Corr} client={Client} container={Container} mode={Mode}",

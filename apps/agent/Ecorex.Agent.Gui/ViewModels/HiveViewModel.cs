@@ -51,6 +51,18 @@ public sealed class HiveViewModel : ObservableObject
     private bool _busy;
     private bool _demoRunning;
 
+    /// <summary>
+    /// Mini-registro de conexion (mas nuevo arriba): que se probo, la transicion de estado y el motivo
+    /// EXACTO del fallo. Existe porque "Probar conexion" solo cambiaba el punto de estado; si fallaba,
+    /// la colmena no mostraba nada accionable y el operador no tenia como diagnosticar en su equipo.
+    /// </summary>
+    private readonly ObservableCollection<string> _log = new();
+
+    /// <summary>Ultimo error ya escrito al log, para no repetir la misma linea en cada StateMsg.</summary>
+    private string? _lastLoggedError;
+
+    private const int MaxLogLines = 60;
+
     public HiveViewModel(IAgentConfigStore store, IHiveConnection hive)
     {
         _store = store;
@@ -88,7 +100,7 @@ public sealed class HiveViewModel : ObservableObject
         _hive.RequestFinished += OnRequestFinished;
 
         TestConnectionCommand = new RelayCommand(async () => await TestConnectionAsync(), () => !_busy);
-        SaveConfigCommand = new RelayCommand(SaveConfig, () => !_busy);
+        SaveConfigCommand = new RelayCommand(() => { SaveConfig(); Log("Configuracion guardada."); }, () => !_busy);
         ToggleConfigCommand = new RelayCommand(() => IsConfigOpen = !IsConfigOpen);
         RunDemoCommand = new RelayCommand(async () => await RunDemoAsync(), () => _mock is not null && !_demoRunning);
         SaveCapabilityCommand = new RelayCommand(SaveCapability);
@@ -179,13 +191,28 @@ public sealed class HiveViewModel : ObservableObject
         Secret = state.HasSecret ? SecretPlaceholder : string.Empty;
         StatusDetail = state.LastError;
         OnPropertyChanged(nameof(StatusDetail));
+
+        // El motivo EXACTO del fallo (handshake rechazado, URL mala, reloj desfasado...) al registro.
+        // Solo cuando cambia, para no repetir la misma linea en cada StateMsg (heartbeats incluidos).
+        if (!string.IsNullOrWhiteSpace(state.LastError))
+        {
+            if (state.LastError != _lastLoggedError)
+            {
+                _lastLoggedError = state.LastError;
+                Log($"Error: {state.LastError}");
+            }
+        }
+        else
+        {
+            _lastLoggedError = null; // conexion limpia: un futuro error identico volvera a registrarse
+        }
     });
 
     private void OnAcked(AgentIpc.AckMsg ack) => _dispatcher.Invoke(() =>
     {
         // El rechazo tipico: cambiar la configuracion exige administrador (el servicio corre como
         // LocalSystem y su boveda no la mueve cualquiera).
-        if (!ack.Ok) { StatusDetail = ack.Error; OnPropertyChanged(nameof(StatusDetail)); }
+        if (!ack.Ok) { StatusDetail = ack.Error; OnPropertyChanged(nameof(StatusDetail)); Log($"Rechazado: {ack.Error}"); }
     });
 
     /// <summary>Marcador de "ya hay secreto guardado": nunca es el secreto real.</summary>
@@ -193,6 +220,16 @@ public sealed class HiveViewModel : ObservableObject
 
     /// <summary>Motivo del ultimo problema (fallo de conexion o rechazo del servicio), para la UI.</summary>
     public string? StatusDetail { get; private set; }
+
+    /// <summary>Mini-registro de conexion que pinta el flyout de configuracion (mas nuevo arriba).</summary>
+    public ObservableCollection<string> ConnectionLog => _log;
+
+    /// <summary>Agrega una linea (con hora) al mini-registro; recorta al maximo. Marshala al hilo de UI.</summary>
+    private void Log(string message) => _dispatcher.Invoke(() =>
+    {
+        _log.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
+        while (_log.Count > MaxLogLines) { _log.RemoveAt(_log.Count - 1); }
+    });
 
     /// <summary>Abre el flyout de una capacidad sensible (Navegador/Archivos) con su estado actual.</summary>
     public void OpenCapabilityConfig(SubAgentKind kind)
@@ -308,8 +345,12 @@ public sealed class HiveViewModel : ObservableObject
         TestConnectionCommand.RaiseCanExecuteChanged();
         try
         {
+            var cfg = CurrentConfig();
+            Log(string.IsNullOrWhiteSpace(cfg.HubUrl)
+                ? "Probar: falta la URL del hub."
+                : $"Probando conexion con {cfg.HubUrl}...");
             SaveConfig(); // persiste lo tecleado antes de probar
-            await _hive.TestConnectionAsync(CurrentConfig());
+            await _hive.TestConnectionAsync(cfg);
         }
         finally
         {
@@ -318,8 +359,16 @@ public sealed class HiveViewModel : ObservableObject
         }
     }
 
-    private void OnConnectionChanged(ConnectionState state)
-        => _dispatcher.Invoke(() => Connection = state);
+    private void OnConnectionChanged(ConnectionState state) => _dispatcher.Invoke(() =>
+    {
+        Connection = state;
+        Log(state switch
+        {
+            ConnectionState.Online => "Conectado: en linea.",
+            ConnectionState.Connecting => "Conectando...",
+            _ => "Sin conexion (offline).",
+        });
+    });
 
     // ---- Crecimiento del panal por peticiones ----
 

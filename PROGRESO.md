@@ -5,6 +5,54 @@
 
 ---
 
+## 2026-07-28 - Instalador MSI (WiX) self-contained del agente Colmena
+
+**Hecho:** el agente Conector On-Prem "Colmena" (apps/agent) ya tiene INSTALADOR. Antes se corria a
+mano; ahora hay un MSI self-contained (win-x64) que no exige runtime .NET en la maquina cliente.
+
+- **Perfiles de publicacion self-contained** (`Properties/PublishProfiles/win-x64-selfcontained.pubxml`
+  en `Ecorex.Agent.Service` y `Ecorex.Agent.Gui`): `SelfContained=true`, RID win-x64, sin PDB.
+- **Proyecto WiX v5** (`apps/agent/installer/Ecorex.Agent.Installer.wixproj` + `Product.wxs`),
+  construible con `dotnet build` via `WixToolset.Sdk/5.0.2` (sin herramienta global; extension
+  `WixToolset.Util.wixext` para el origen del Visor de eventos). El MSI:
+  - Instala en `%ProgramFiles%\Ecorex\Agente Colmena` (perMachine, elevado).
+  - Registra el **servicio de Windows `EcorexAgent`** (LocalSystem, auto; arranca al instalar,
+    detiene/elimina al desinstalar) y el origen de eventos "ECOREX Agente".
+  - Instala la **GUI de bandeja** con acceso directo en Menu Inicio + AUTOSTART (llave Run HKLM con
+    `--tray`, opcion NUEVA de la GUI que arranca minimizada a la bandeja sin parpadeo).
+  - Crea y **PRESERVA** `%ProgramData%\Ecorex\Agent` (config compartida servicio/GUI). El MSI no
+    gestiona `config.dat`, asi que el UPGRADE (UpgradeCode estable + MajorUpgrade) no borra la
+    identidad del cliente. Desinstalacion limpia.
+- **Script** `apps/agent/installer/build-installer.ps1` (idempotente): publica ambos proyectos al
+  mismo staging, separa los 2 exe, compila el MSI y lo deja en `installer/dist/`.
+  - **AUTO-LANZA la bandeja al terminar de instalar** (custom action `LaunchTrayGui`, tipo 18,
+    impersonada, `--tray`, asyncNoWait, tras InstallFinalize, `NOT Installed`): el icono aparece de
+    inmediato en la sesion del usuario sin re-login. Antes solo salia en el proximo logon (la llave
+    Run dispara en el logon), sintoma reportado ("no quedo el agente activo en el tray icon").
+- **Diagnostico de conexion (mini-log) en la GUI:** el flyout de Configuracion ahora muestra un
+  REGISTRO con hora (mas nuevo arriba) de cada "Probar conexion": "Probando con <hub>...",
+  "Conectando...", "Conectado: en linea.", "Sin conexion (offline)." y el motivo EXACTO del fallo
+  ("Error: handshake rechazado 401...", "Rechazado: no admin..."). El servicio ya producia ese
+  `LastError`; solo faltaba pintarlo. Cambios: `ViewModels/HiveViewModel.cs` + `MainWindow.xaml`.
+- **Script** `apps/agent/installer/build-installer.ps1` (idempotente): publica ambos proyectos al
+  mismo staging, separa los 2 exe, compila el MSI y lo deja en `installer/dist/`.
+- **Verificado:** `dotnet build Ecorex.Agent.slnx` verde (0/0). El MSI se genera
+  (`dist/Ecorex-AgenteColmena-1.0.0.msi`, ~58.6 MB); tablas MSI confirmadas por COM (ServiceInstall
+  LocalSystem/auto, ServiceControl, Run key `--tray`, `LaunchTrayGui` tipo 210 tras InstallFinalize,
+  Shortcut, CreateFolder config, Upgrade, EventLog source). Unico warning ICE61 benigno.
+- **Cambios de codigo** (minimos y seguros): `Ecorex.Agent.Gui/App.xaml.cs` (arranque `--tray` a la
+  bandeja) y `MainWindow.xaml.cs` (restaurar barra de tareas al abrir desde bandeja).
+
+**Decisiones (ADR-0049):** self-contained en CARPETA (no single-file, mejor para WPF/WebView2);
+autostart por llave Run HKLM (no Startup) + auto-launch al instalar; mini-log de diagnostico en la
+GUI; config preservada por no gestionarla el MSI.
+
+**Siguiente / abierto:** el MSI NO se firma (sin certificado) -> Windows muestra "editor desconocido";
+la firma con signtool + cert Authenticode es un paso posterior de release. Sin bloqueos.
+
+**Gates:** archivos nuevos en ASCII; sin secretos (la identidad la pone el cliente por la GUI); el
+agente sigue referenciando solo `libs/Ecorex.Contracts.Agent`. NO se commiteo/pusheo/desplego.
+
 ## 2026-07-27 - Catalogo del SIMULADOR de SKY: remapeo de items para el lookup (sesion de DATOS)
 
 **Remapeo de los items del Cotizador en SKY SYSTEM (por SQL directo):** llego un prompt de la sesion
@@ -6846,3 +6894,42 @@ Migraciones DUALES nuevas (`AgentActivityLog` PG + SqlServer, `AddConnectorQuery
 handoff a la sesion principal.
 
 **SIMULADOR de cotizaciones TERMINADO (2026-07-27):** con C1-C5 del codigo y datos cargados, se configuro el lookup de la columna codigo (autofill de 6 campos desde Items), defaults por columna, formulas objetivo (REDONDEAR.SUPERIOR, SI, IVA del encabezado, totales excluyen sin-stock) y card_layout=Completo. Verificado en BD. Pendiente menor: la columna marca no autollena (Brand no expuesta por ItemLookupSource).
+
+---
+
+## 2026-07-28 - Ejecutor REST en el agente Colmena (RestExecutor + fan-out OCS)
+
+**Agente**: Claude (Opus 4.8), sesion sobre `main`.
+
+**Hecho** (ADR-0048): el agente Colmena ya ejecuta conectores `RestApi` (antes caian a acuse). Tres
+olas entregadas, build verde entre olas.
+- **Ola 1 - REST simple**: `Ecorex.Agent.Core/Services/RestExecutor.cs` (analogo a `GatewayExecutor`):
+  HttpClient propio, solo GET, auth Basic/Bearer/ApiKey desde `ConnectorSpec.Secret` (ADR-0040, no se
+  loguea), paginacion Offset (start/limit) y Page (page) reescribiendo el query string, parseo
+  tolerante (arreglo | objeto-indexado `{"1":{...}}` | arrayPath | envoltorios data/items/results/
+  records/rows) en `RestJson.cs`, streaming de `FetchResultMsg` en chunks (500 filas). Contrato nuevo
+  `RestFetchSpec`/`RestPagingSpec`/`RestFanoutSpec`/`RestFieldMap` + `FetchRequestMsg.Rest` en
+  libs/Ecorex.Contracts.Agent/AgentProtocol.cs.
+- **Ola 2 - fan-out lista->detalle + aplanado**: por cada item GET al detalle, desanida el objeto
+  indexado (`DetailUnwrapIndexed`), ubica el arreglo hijo (`ChildArrayPath`, en OCS clave vacia `""`)
+  y emite UNA fila por elemento hijo repitiendo columnas del padre. Declarativo, mapea a las 18
+  columnas de "Software OCS". Rutas con puntos e indices (`hardware.NAME`, `bios[0].SSN`,
+  `accountinfo[0].TAG`).
+- **Ola 3 - wiring + UI**: `RealHiveConnection` despacha RestApi->`RestExecutor`;
+  `ProcessRunner`/`AgentImportService` dejan pasar RestApi (config en `DataConnector.MappingJson`, sin
+  migracion). UI: el textarea "Mapeo JSON" de la seccion Conectores ya persistia MappingJson -> el caso
+  OCS es configurable pegando el RestFetchSpec ahi (placeholder/ayuda mejorados). El RestFetchSpec y el
+  JSON de ejemplo OCS quedan en ADR-0048.
+
+**Tests**: nuevo proyecto `apps/agent/tests/Ecorex.Agent.Core.Tests` (29 pruebas verdes) - parseo
+tolerante (array vs objeto-indexado, arrayPath, envoltorios, clave vacia "", rutas con indices) y
+fan-out/aplanado de punta a punta con JSON tipo OCS (via costura de fetcher enlatado, sin red) +
+paginacion + MaxRows + combine de URLs.
+
+**Builds**: `dotnet build Ecorex.Agent.slnx` verde (0/0). `Ecorex.SuperAdmin` compila (0 CS/RZ);
+los MSB3021/MSB3027 al enlazar son el dev web corriendo que bloquea DLLs (verificado compilando a
+OutDir de scratch: "Compilacion correcta").
+
+**Siguiente / pendiente**: diseNador visual de fan-out en la UI (hoy JSON pegado); logging de la ruta
+fetch en el feed de la colmena (ADR-0045); credencial OCS la aporta el usuario (no se hardcodea). NO
+commit/push/deploy en esta sesion.

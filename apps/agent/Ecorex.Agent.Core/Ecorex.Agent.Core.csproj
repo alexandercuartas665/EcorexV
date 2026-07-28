@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Costura de prueba del RestExecutor (fetcher enlatado, sin red). -->
+    <InternalsVisibleTo Include="Ecorex.Agent.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Canal con el servidor: libreria CLIENTE de Microsoft, no internals del backend. -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
     <!-- Sub-agente Gateway: ejecucion solo-lectura contra la fuente de la LAN. Un proveedor por

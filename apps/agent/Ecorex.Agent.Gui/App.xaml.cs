@@ -65,6 +65,23 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        new MainWindow().Show();
+        // Arranque en la BANDEJA (autostart del instalador, llave Run de Windows): la colmena nace
+        // oculta como icono de bandeja, sin robar foco en el logon. El usuario la abre con doble clic.
+        // Se muestra minimizada y sin barra de tareas y acto seguido se oculta, evitando el parpadeo
+        // de una ventana que aparece y desaparece.
+        var startInTray = e.Args.Length >= 1 && string.Equals(e.Args[0], "--tray", StringComparison.OrdinalIgnoreCase);
+
+        var window = new MainWindow();
+        if (startInTray)
+        {
+            window.WindowState = WindowState.Minimized;
+            window.ShowInTaskbar = false;
+            window.Show();
+            window.Hide();
+        }
+        else
+        {
+            window.Show();
+        }
     }
 }

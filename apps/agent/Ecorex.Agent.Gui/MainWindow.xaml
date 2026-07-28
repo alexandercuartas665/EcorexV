@@ -112,7 +112,25 @@
                                        VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" />
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,20,0,0" HorizontalAlignment="Right">
+                        <!-- Mini-registro de conexion: cada intento, la transicion y el motivo del fallo
+                             (mas nuevo arriba). Sin esto, "Probar conexion" no dejaba rastro accionable. -->
+                        <TextBlock Text="Registro" Style="{DynamicResource FieldLabel}" Margin="0,14,0,0" />
+                        <Border CornerRadius="8" Background="#14FFFFFF" BorderBrush="{StaticResource HiveStroke}"
+                                BorderThickness="1" Height="96">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,6">
+                                <ItemsControl ItemsSource="{Binding ConnectionLog}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="{StaticResource HiveInkDim}"
+                                                       FontFamily="Consolas" FontSize="11"
+                                                       TextWrapping="Wrap" Margin="0,0,0,2" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Right">
                             <Button Content="Guardar" Command="{Binding SaveConfigCommand}"
                                     Style="{DynamicResource GhostButton}" />
                             <Button Content="Probar conexion" Command="{Binding TestConnectionCommand}"

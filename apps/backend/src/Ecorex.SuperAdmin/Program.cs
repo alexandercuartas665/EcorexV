@@ -535,6 +535,9 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_GESDOC"), "tru
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    // Ola 0 (cierre): registra la definicion del modulo 000894 en el catalogo global (una vez, no
+    // por tenant) para que el permiso gestor-documental sea asignable en la matriz de roles.
+    await seeder.EnsureGestorDocumentalModuleAsync();
     var tenantIds = await db.Tenants.IgnoreQueryFilters()
         .Where(t => t.Kind == TenantKind.Standard)
         .Select(t => new { t.Id, t.Name })

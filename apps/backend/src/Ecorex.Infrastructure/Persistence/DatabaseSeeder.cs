@@ -3522,6 +3522,31 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     private const string GesDocLegacyCode = "000894";
 
     /// <summary>
+    /// Registra la definicion del modulo Gestor Documental (000894) en el catalogo GLOBAL
+    /// (module_definitions), para que aparezca en la matriz de roles y su permiso sea asignable a
+    /// roles no-admin. Insert-if-missing: si ya existe no toca nada (no pisa personalizaciones).
+    /// Necesario en PRODUCCION, donde EnsureModuleRegistryAsync (solo Development) no corre.
+    /// </summary>
+    public async Task EnsureGestorDocumentalModuleAsync(CancellationToken cancellationToken = default)
+    {
+        if (await _db.ModuleDefinitions.AnyAsync(d => d.LegacyCode == GesDocLegacyCode, cancellationToken))
+        {
+            return;
+        }
+        _db.ModuleDefinitions.Add(new ModuleDefinition
+        {
+            LegacyCode = GesDocLegacyCode,
+            Name = "Documentos",
+            Description = "Gestor Documental: archivo central (categoria/carpeta/documento con versiones) y expedientes (TRD).",
+            Route = "/" + GesDocRoute,
+            Area = ModuleArea.Sistema,
+            IsCore = false
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Gestor Documental: definicion de modulo {Code} registrada en el catalogo global.", GesDocLegacyCode);
+    }
+
+    /// <summary>
     /// Crea (idempotente) la seccion "Gestor Documental" con su item en TODAS las vistas de menu
     /// del tenant. A diferencia de <see cref="EnsureMenuItemInSectionAsync"/>, aqui la seccion
     /// puede no existir todavia: es nueva, asi que se crea antes de colgar el item.

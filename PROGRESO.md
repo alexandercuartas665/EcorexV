@@ -91,9 +91,37 @@ conserva aunque cambie la suite.
   un layout limpio on-brand (indigo). Cuando el usuario comparta la imagen se afina milimetricamente.
 - Menu: la pagina es accesible por ruta+policy; el item en el menu dinamico es un follow-up menor.
 
-**PENDIENTE tras esto:** Ola 2 (ReportDefinition + editor/visor Bold RDL) espera la confirmacion de
-Docker con Bold. Ola 4 (autoria IA: JSON-spec -> convertidor a ECharts option / RDL) puede seguir; el
-render de dashboard ya existe (Ola 3).
+**Ola 4 CONSTRUIDA y VERIFICADA (autoria por IA, independiente de Bold):**
+- Artefacto declarativo compartido IA<->usuario: `ReportSpec` (DTO JSON amable, enums como texto) +
+  `ReportSpecRenderer` (spec + ReportDataSet -> option de ECharts: Bar/Pie/Line; Table lo pinta la UI).
+  El convertidor a RDL (imprimible) queda para la Ola 2 (Bold).
+- `IReportAuthoringService`: pipeline determinista instruccion -> catalogo -> JSON-spec -> VALIDA
+  contra el catalogo (rechaza campo/fuente fuera de catalogo) + ejecuta via el datasource tenant-safe
+  -> option. El LLM esta detras de `IReportSpecGenerator` (fakeable en tests); el generador real
+  `AiReportSpecGenerator` resuelve el agente/proveedor del tenant (patron WorkflowAgentInvoker) y
+  registra consumo (AiUsageLog, source "report-authoring"). La IA NUNCA ve SQL ni columnas fisicas.
+- Persistencia: entidad `ReportDefinition` (ITenantScoped, IVersioned, SIN soft-delete: enum de
+  estado Active/Archived) + `IReportDefinitionService` (guardar/listar/obtener/editar/archivar/
+  ejecutar). MIGRACIONES DUALES creadas (PG `jsonb` spec_json + SQL Server `nvarchar(max)`), con
+  `--context` explicito por los dos DbContext.
+- UI `/reportes/ia` (policy TenantMember): instruccion -> preview (EChart + tabla) -> guardar -> lista
+  de guardados con Abrir/Archivar. Reusa el componente `EChart` de la Ola 3.
+
+**Verificacion Ola 4:** 8 tests de integracion DUAL nuevos (`ReportAuthoringTests`) verdes -> el
+conjunto de reportes queda **22/22** (PG + SQL Server): autoria nativa (barras) + autoria contenedor
+(Sum) + rechazo de campo fuera de catalogo + persistencia y aislamiento cross-tenant del reporte
+guardado. La migracion `AddReportDefinition` se aplico LIMPIAMENTE al PG local al arrancar (CREATE
+TABLE report_definitions + indices). `/reportes/ia` validada EN VIVO (owner@sky-system): render OK,
+manejo elegante sin agente de IA ("No hay un agente de IA activo..."), lista de guardados, y **Abrir**
+ejecuta un spec guardado -> grafico ECharts + tabla con datos reales (Done 4/Suspended 1/Active 86/
+Pending 123/InProgress 5 = 219 = SKY SYSTEM), cero errores de consola. La generacion por LLM en vivo
+no se probo (local sin proveedor/clave, y no se deben versionar claves); su pipeline determinista
+queda cubierto por los tests con el generador falso.
+
+**PENDIENTE:** Ola 2 (editor/visor Bold RDL + convertidor spec->RDL) espera la confirmacion escrita
+de Docker con Bold. Follow-ups menores: items de menu dinamico para /reportes/tablero y /reportes/ia;
+imagen de referencia del dashboard para afinar milimetricamente; el `Rdl` de ReportDefinition ya esta
+en el modelo (nullable) listo para la Ola 2.
 
 ---
 

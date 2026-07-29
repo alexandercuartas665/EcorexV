@@ -1,6 +1,10 @@
 # ADR-0051 - Motor de Reportes y BI: decision de stack y gates de licencia (Ola 0)
 
-- Estado: PROPUESTA (pendiente de confirmacion del usuario en 2 puntos abiertos)
+- Estado: ACEPTADA (2026-07-29). Gate 1 confirmado por el usuario: Bitcode cumple la
+  elegibilidad Community (< 1M USD/anio, <= 5 devs, <= 10 empleados, sin > 3M USD de capital
+  externo). Se construye la Ola 1 ya (independiente de Bold/Docker); el usuario obtendra
+  confirmacion escrita de Bold sobre Docker ANTES de la Ola 2. Riesgo ambar Docker: ABIERTO,
+  no bloquea la Ola 1.
 - Fecha: 2026-07-29
 - Rama / worktree: `feat/motor-reportes` en worktree `informes` (`C:/DesarrolloIA/ecorex-informes`)
 - Relacionado: spec del vault "Capa 6 / Motor de Reportes y BI" (docs 00-03);

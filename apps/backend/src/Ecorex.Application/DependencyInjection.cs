@@ -224,6 +224,14 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();
         // Cola de auto-respuesta No-Op por defecto; el host con webhook (SuperAdmin) la reemplaza.
         services.AddSingleton<Tenancy.IAgentReplyQueue, Tenancy.NoOpAgentReplyQueue>();
+        // Motor de Reportes y BI (ADR-0051, Ola 1): la capa PROPIA e independiente de la libreria.
+        // Catalogo semantico (nativas curadas + contenedores derivados) + datasource tenant-safe
+        // (traduce el spec declarativo a EF parametrizado; el aislamiento lo garantiza el filtro
+        // global del DbContext). Sumar una entidad nativa reportable = registrar otro IReportableSource.
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TaskItemReportSource>();
+        services.AddScoped<Reporting.Sources.ContainerReportReader>();
+        services.AddScoped<Reporting.IReportCatalog, Reporting.ReportCatalog>();
+        services.AddScoped<Reporting.IReportDataSource, Reporting.ReportDataSource>();
         return services;
     }
 }

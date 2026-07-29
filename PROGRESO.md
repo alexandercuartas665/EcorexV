@@ -33,10 +33,43 @@ los 4 gates del doc 01 y documentados en `ADR-0051`. Resultado:
 Docker/Bold), construir Ola 1 (catalogo semantico + IReportDataSource tenant-safe + test de
 aislamiento dual PG/SQL Server) que es INDEPENDIENTE de Bold y de Docker.
 
-**Bloqueos:** esperando confirmacion del usuario de los 4 gates (Ola 0 es gate obligatorio).
+**Gates confirmados por el usuario:** Bitcode califica para la Community de Bold; se procede a
+construir la Ola 1 ya (independiente de Bold/Docker) mientras el usuario pide a Bold confirmacion
+escrita del deployment Docker antes de la Ola 2.
 
-**Decisiones:** ADR-0051 (stack + gates). Ola 1 desacoplada del vendor: se puede construir
-mientras se resuelven los ambares (Bold solo entra en Ola 2).
+**Ola 1 CONSTRUIDA (capa propia, independiente de la libreria):** en `Ecorex.Application/Reporting/`:
+- Modelo neutro declarativo: `ReportModel.cs` (ReportField/SourceDescriptor/DataSet, enums de tipo/
+  operador/agregacion) + `ReportQuerySpec.cs` (spec + ReportContext + ReportValidationException).
+- `IReportCatalog`/`ReportCatalog`: publica fuentes reportables = nativas curadas + contenedores del
+  tenant derivados de DataContainer (limite de seguridad: lo que no esta en el catalogo no es reportable).
+- `IReportableSource`/`TaskItemReportSource`: fuente NATIVA (Actividades) con LINQ tipado sobre el DbSet
+  ya filtrado por tenant; filtros parametrizados + tabular + group-by/Count.
+- `ContainerReportReader`: lee contenedores EAV (pivot de celdas, filtro texto por EXISTS en BD, group-by
+  + Sum/Avg/Min/Max numerico en memoria sobre el conjunto ya acotado).
+- `IReportDataSource`/`ReportDataSource`: EL CONTRATO CENTRAL. Choke point que valida el spec contra el
+  catalogo (rechaza campos/ops fuera de catalogo) y despacha; el aislamiento lo garantiza el filtro global
+  del DbContext (fail-closed), no la confianza en el ctx.
+- Endpoints `/api/reporting/catalog` y `/api/reporting/query` en SuperAdmin (`RequireAuthorization
+  ("TenantMember")`): el "JSON/Web data source" tenant-safe que consumira el visor Bold (Ola 2) / ECharts
+  (Ola 3). Nunca cadena de conexion.
+- DI: registrados en `Application/DependencyInjection.cs` (sumar una nativa = otro IReportableSource).
+
+**SIN migraciones:** la Ola 1 no agrega entidades (catalogo = codigo + derivado). `ReportDefinition`
+llega en la Ola 2.
+
+**Verificacion:** test de integracion DUAL `ReportDataSourceTests` (PG + SQL Server via Testcontainers)
+**12/12 verde**: tabular nativo, group-by/Count nativo resuelto en servidor, group-by/Sum sobre EAV,
+AISLAMIENTO cross-tenant (nativa -> vacio para el otro tenant; contenedor -> fuente inexistente en su
+catalogo) y rechazo de campo fuera de catalogo. Builds Application/SuperAdmin verdes.
+
+**Siguiente:** Ola 2 (entidad ReportDefinition + editor/visor Bold RDL + export PDF) TRAS la confirmacion
+escrita de Docker; luego Ola 3 (dashboards ECharts por interop) y Ola 4 (autoria IA sobre JSON-spec).
+
+**Bloqueos:** Ola 2 espera la confirmacion escrita de Bold sobre Docker en community (o decision de
+alternativa). Olas 1 no bloqueada.
+
+**Decisiones:** ADR-0051 (stack + gates, ACEPTADA). Ola 1 desacoplada del vendor: la capa propia se
+conserva aunque cambie la suite.
 
 ---
 

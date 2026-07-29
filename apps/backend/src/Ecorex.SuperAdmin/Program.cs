@@ -630,6 +630,8 @@ app.MapHub<Ecorex.SuperAdmin.RealTime.NotificationHub>("/hubs/notifications");
 // Agente Conector On-Prem (doc 03): hub autenticado + endpoints token/push/status.
 app.MapHub<Ecorex.SuperAdmin.RealTime.AgenteHub>(AgentChannel.HubPath);
 app.MapAgentEndpoints();
+// Motor de Reportes y BI (ADR-0051, Ola 1): catalogo + datasource tenant-safe como JSON.
+Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
 
 app.MapPost("/auth/login", async (
     HttpContext http,

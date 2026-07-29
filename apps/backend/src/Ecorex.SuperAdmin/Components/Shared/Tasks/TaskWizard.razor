@@ -21,7 +21,7 @@
 @if (_visible)
 {
     <div class="tk-wizard" style="position:fixed;inset:0;z-index:1060;background:rgba(15,15,18,.5);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:3vh 2vw" @onclick="Close">
-        <div style="width:min(1100px,97vw);height:90vh;background:var(--surface);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--sh-lg);overflow:hidden;display:flex;flex-direction:column" @onclick:stopPropagation="true">
+        <div style="position:relative;width:min(1100px,97vw);height:90vh;background:var(--surface);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--sh-lg);overflow:hidden;display:flex;flex-direction:column" @onclick:stopPropagation="true">
             @* header *@
             <div style="display:flex;align-items:center;gap:14px;padding:18px 26px;border-bottom:1px solid var(--line);flex:none">
                 <div style="width:38px;height:38px;flex:none;border-radius:11px;background:var(--brand);display:grid;place-items:center;color:var(--on-brand)">
@@ -35,6 +35,34 @@
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
                 </button>
             </div>
+
+            @* Pantalla de RESUMEN tras crear (cubre el wizard): muestra el numero asignado y deja al
+               usuario cerrar o crear otra, en vez de cerrar el modal de golpe. *@
+            @if (_created is not null)
+            {
+                <div style="position:absolute;inset:0;z-index:3;background:var(--surface);display:flex;flex-direction:column">
+                    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;gap:6px">
+                        <div style="width:64px;height:64px;border-radius:50%;background:var(--t-green-bg, rgba(20,160,120,.14));color:var(--t-green);display:grid;place-items:center;margin-bottom:8px">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                        </div>
+                        <div style="font-size:20px;font-weight:800;letter-spacing:-.01em">Actividad creada</div>
+                        <div style="font-size:13px;color:var(--ink-3);max-width:380px">Se registro correctamente. Puedes cerrar o crear otra actividad.</div>
+                        <div style="margin-top:18px;padding:16px 28px;border:1px solid var(--line-2);border-radius:14px;background:var(--surface-2);min-width:240px">
+                            <div style="font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--ink-3);margin-bottom:6px">NUMERO DE ACTIVIDAD</div>
+                            <div style="font-size:26px;font-weight:800;letter-spacing:-.02em;color:var(--brand)">@_created.Item.Number</div>
+                            @if (!string.IsNullOrWhiteSpace(_created.Item.Title))
+                            {
+                                <div style="font-size:13px;color:var(--ink-2);margin-top:8px">@_created.Item.Title</div>
+                            }
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:16px 26px;border-top:1px solid var(--line);flex:none">
+                        <div style="flex:1"></div>
+                        <button @onclick="CloseAfterCreated" style="height:40px;padding:0 18px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">Cerrar</button>
+                        <button @onclick="CreateAnother" style="height:40px;padding:0 20px;border-radius:11px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer">Crear otra actividad</button>
+                    </div>
+                </div>
+            }
 
             @* body: left column + summary aside *@
             <div class="tk-wz-body" style="flex:1;display:flex;min-height:0">
@@ -386,6 +414,9 @@
     private bool _busy;
     private int _step = 1;
     private readonly Dictionary<string, string> _errors = new();
+    // Actividad recien creada: cuando no es null, el modal muestra la pantalla de RESUMEN (con el
+    // numero asignado) en vez de cerrarse, para que el usuario cierre o cree otra.
+    private TaskItemDetailDto? _created;
 
     // Datos
     private List<EntidadOptionDto> _entidades = new();
@@ -548,7 +579,7 @@
 
     private void ResetAll()
     {
-        _step = 1; _busy = false; _errors.Clear();
+        _step = 1; _busy = false; _errors.Clear(); _created = null;
         _entidadId = null; _categoriaId = null; _subcategoriaId = null; _assigneeId = null;
         _dueDate = null; _title = ""; _description = ""; _priority = TaskPriority.Medium;
         _tags.Clear(); _tagInput = "";
@@ -578,6 +609,24 @@
     {
         if (_busy) { return; }
         _visible = false;
+        _created = null;
+    }
+
+    /// <summary>Cerrar desde la pantalla de resumen (la actividad ya se creo).</summary>
+    private void CloseAfterCreated()
+    {
+        _created = null;
+        _visible = false;
+    }
+
+    /// <summary>"Crear otra" desde el resumen: limpia el borrador y vuelve al paso 1.</summary>
+    private void CreateAnother()
+    {
+        _created = null;
+        ClearDraft();
+        _step = 1;
+        _errors.Clear();
+        StateHasChanged();
     }
 
     private async Task GoStep(int n)
@@ -852,13 +901,15 @@
 
             if (keepOpen)
             {
-                // "Guardar y crear otra": conserva la clasificacion, limpia el resto.
+                // "Guardar y crear otra": conserva la clasificacion, limpia el resto (sin resumen).
                 ClearDraft();
                 _allTags = (await TasksSvc.ListTagsAsync()).ToList();
             }
             else
             {
-                _visible = false;
+                // "Guardar actividad": NO cierra; muestra el resumen con el numero asignado, para que
+                // el usuario vea el ID y decida cerrar o crear otra.
+                _created = result.Value;
             }
         }
         finally

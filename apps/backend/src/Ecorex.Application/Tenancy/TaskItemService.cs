@@ -7,6 +7,7 @@ using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Domain.Rules;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Ecorex.Application.Tenancy;
 
@@ -34,9 +35,14 @@ public sealed class TaskItemService : ITaskItemService
     // nace ASIGNADO (no colgando) y se revalida en servidor que el encargado ocupe ese cargo (D2).
     private readonly INodeAssigneeResolver _nodeAssignees;
 
+    // Para entregar el correo en SEGUNDO PLANO con su PROPIO scope: el IEmailSender es scoped (usa el
+    // DbContext para su config), asi que no se puede reusar tras responder (el scope del request se
+    // dispone). Opcional: en pruebas es null y el correo se entrega inline (NoOpEmailSender, instantaneo).
+    private readonly IServiceScopeFactory? _scopeFactory;
+
     public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences,
         IWorkflowEngine workflowEngine, IEmailSender emailSender, INodeAssigneeResolver nodeAssignees,
-        INotificationBroadcaster? notificationBroadcaster = null)
+        INotificationBroadcaster? notificationBroadcaster = null, IServiceScopeFactory? scopeFactory = null)
     {
         _nodeAssignees = nodeAssignees;
         _db = db;
@@ -45,6 +51,7 @@ public sealed class TaskItemService : ITaskItemService
         _workflowEngine = workflowEngine;
         _emailSender = emailSender;
         _notificationBroadcaster = notificationBroadcaster;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -347,25 +354,25 @@ public sealed class TaskItemService : ITaskItemService
 
         await transaction.CommitAsync(cancellationToken);
 
-        // Entrega best-effort FUERA de la transaccion (email + badge en vivo), igual que AssignAsync:
-        // un fallo de SMTP/SignalR no revierte la tarea ya creada (la notificacion in-app ya quedo).
+        // Entrega best-effort FUERA de la transaccion: un fallo de SMTP/SignalR no revierte la tarea
+        // ya creada (la notificacion in-app ya quedo). El badge en vivo (SignalR) es rapido y se espera;
+        // el EMAIL va en SEGUNDO PLANO para NO bloquear el guardado (un SMTP lento colgaba la creacion
+        // de la actividad decenas de segundos).
+        var pendingEmails = new List<(string To, string Subject, string Html)>();
         if (assignee is not null)
         {
             var taskTitle = string.IsNullOrWhiteSpace(title) ? number : title;
-            await SendNotificationEmailAsync(assignee.Email,
-                $"Te asignaron la tarea {number}",
-                $"Te asignaron la tarea <strong>{number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.",
-                cancellationToken);
+            pendingEmails.Add((assignee.Email, $"Te asignaron la tarea {number}",
+                $"Te asignaron la tarea <strong>{number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}."));
             await BroadcastNotificationAsync(assignee.Id, cancellationToken);
         }
         foreach (var (recipientId, recipientEmail) in conceptRecipients)
         {
-            await SendNotificationEmailAsync(recipientEmail,
-                $"Nueva actividad del proceso ({number})",
-                $"Se registro la actividad <strong>{number}</strong> de un proceso en el que estas configurado como destinatario.",
-                cancellationToken);
+            pendingEmails.Add((recipientEmail, $"Nueva actividad del proceso ({number})",
+                $"Se registro la actividad <strong>{number}</strong> de un proceso en el que estas configurado como destinatario."));
             await BroadcastNotificationAsync(recipientId, cancellationToken);
         }
+        DeliverEmailsInBackground(pendingEmails);
 
         return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(task.Id, cancellationToken))!);
     }
@@ -542,21 +549,22 @@ public sealed class TaskItemService : ITaskItemService
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
 
-        // #4a: entrega REAL por email (best-effort, FUERA de la transaccion). Si el correo del tenant
-        // no esta configurado, IEmailSender devuelve Ok=false sin lanzar; cualquier fallo se ignora
-        // para no romper la asignacion (la notificacion in-app ya quedo persistida).
+        // #4a: entrega por email en SEGUNDO PLANO (best-effort, FUERA de la transaccion). Si el correo
+        // del tenant no esta configurado, IEmailSender devuelve Ok=false sin lanzar; cualquier fallo se
+        // ignora (la notificacion in-app ya quedo). Va en background para NO colgar la asignacion con un
+        // SMTP lento.
         var taskTitle = string.IsNullOrWhiteSpace(task.Title) ? task.Number : task.Title!;
-        await SendNotificationEmailAsync(assignee.Email,
-            $"Te asignaron la tarea {task.Number}",
-            $"Te asignaron la tarea <strong>{task.Number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.",
-            cancellationToken);
+        var pendingEmails = new List<(string To, string Subject, string Html)>
+        {
+            (assignee.Email, $"Te asignaron la tarea {task.Number}",
+                $"Te asignaron la tarea <strong>{task.Number}</strong>: {System.Net.WebUtility.HtmlEncode(taskTitle)}.")
+        };
         foreach (var (_, email) in conceptRecipients)
         {
-            await SendNotificationEmailAsync(email,
-                $"Nueva actividad del proceso ({task.Number})",
-                $"Se registro la actividad <strong>{task.Number}</strong> de un proceso en el que estas configurado como destinatario.",
-                cancellationToken);
+            pendingEmails.Add((email, $"Nueva actividad del proceso ({task.Number})",
+                $"Se registro la actividad <strong>{task.Number}</strong> de un proceso en el que estas configurado como destinatario."));
         }
+        DeliverEmailsInBackground(pendingEmails);
 
         // #4b: refresco EN VIVO del badge de la campana (SignalR) para el encargado y los destinatarios
         // del concepto. Best-effort: un fallo de difusion no afecta la asignacion ya persistida.
@@ -573,19 +581,46 @@ public sealed class TaskItemService : ITaskItemService
     /// #4a: envia una notificacion por email best-effort. No lanza (los errores de SMTP no deben
     /// tumbar la operacion de negocio); si el correo del tenant no esta habilitado no hace nada.
     /// </summary>
-    private async Task SendNotificationEmailAsync(string? toEmail, string subject, string htmlBody, CancellationToken cancellationToken)
+    /// <summary>
+    /// Entrega los correos de notificacion en SEGUNDO PLANO, sin bloquear la operacion que los dispara
+    /// (crear/asignar una actividad). Usa un scope PROPIO porque el IEmailSender es scoped (lee su
+    /// config del DbContext) y el del request se dispone al responder. Best-effort: cualquier fallo se
+    /// ignora (la notificacion in-app ya quedo). En pruebas (_scopeFactory null) entrega inline con el
+    /// sender inyectado (NoOpEmailSender, instantaneo), preservando el comportamiento determinista.
+    /// </summary>
+    private void DeliverEmailsInBackground(IReadOnlyList<(string To, string Subject, string Html)> emails)
     {
-        if (string.IsNullOrWhiteSpace(toEmail)) { return; }
-        try
+        if (emails.Count == 0) { return; }
+        if (_scopeFactory is null)
         {
-            var html = $"<div style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#222\">"
-                + $"<p>{htmlBody}</p>"
-                + "<p style=\"color:#888;font-size:12px\">ECOREX.tareas - notificacion automatica.</p></div>";
-            await _emailSender.SendAsync(toEmail.Trim(), subject, html, cancellationToken);
+            _ = DeliverEmailsAsync(_emailSender, emails);
+            return;
         }
-        catch
+        _ = Task.Run(async () =>
         {
-            // best-effort: la notificacion in-app ya quedo; un fallo de SMTP no rompe la asignacion.
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+                await DeliverEmailsAsync(sender, emails);
+            }
+            catch { /* best-effort: fuera del request, no hay a quien reportarle */ }
+        });
+    }
+
+    private static async Task DeliverEmailsAsync(IEmailSender sender, IReadOnlyList<(string To, string Subject, string Html)> emails)
+    {
+        foreach (var (to, subject, body) in emails)
+        {
+            if (string.IsNullOrWhiteSpace(to)) { continue; }
+            try
+            {
+                var html = $"<div style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;font-size:14px;color:#222\">"
+                    + $"<p>{body}</p>"
+                    + "<p style=\"color:#888;font-size:12px\">ECOREX.tareas - notificacion automatica.</p></div>";
+                await sender.SendAsync(to.Trim(), subject, html);
+            }
+            catch { /* best-effort: un fallo de SMTP no rompe la actividad ya creada/asignada */ }
         }
     }
 

@@ -45,7 +45,10 @@ public sealed class SmtpEmailSender : IEmailSender
             using var client = new SmtpClient(cfg.SmtpHost, cfg.SmtpPort)
             {
                 EnableSsl = cfg.UseSsl,
-                DeliveryMethod = SmtpDeliveryMethod.Network
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                // Sin esto el default de SmtpClient es 100s: un SMTP lento/inalcanzable colgaba la
+                // operacion que dispara el correo (p.ej. crear una actividad) hasta 100s. Cap a 15s.
+                Timeout = 15000
             };
             if (!string.IsNullOrWhiteSpace(cfg.SmtpUser))
             {

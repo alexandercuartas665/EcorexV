@@ -21,10 +21,21 @@
 
 ## Pre-requisito del usuario (una sola vez)
 
-1. Registrar la **Bold Reports Community License** a nombre de Bitcode en https://www.boldreports.com
-   y obtener la **clave de licencia**.
-2. Colocarla FUERA del repo (gitignored). Opcion recomendada en dev: user-secrets del proyecto
-   `Ecorex.SuperAdmin`:
+### a) Reclamar la Community License
+1. Ir a https://www.boldreports.com/account/community-license (Claim Free License).
+2. Crear/registrar la cuenta de Bitcode. Redirige al formulario de Community License.
+3. Llenar los datos de elegibilidad (< 1M USD/anio, <= 5 devs, <= 10 empleados, < 3M capital externo).
+   Se genera un ticket; Bold valida y aprueba.
+
+### b) Generar el TOKEN de licencia (tras la aprobacion)
+4. En la cuenta (https://www.boldreports.com/account), seccion **"Downloads & Keys / Claim License Key"**,
+   generar el **online license token** para el producto **Bold Reports Embedded**.
+5. IMPORTANTE: el token es **especifico por VERSION**. Debe ser el de la **v14** (nuestro paquete es
+   `BoldReports.Net.Core` 14.1.14). Un token de otra major no activa estos ensamblados.
+   (Alternativa sin internet en runtime: "offline license key file" — mismo origen.)
+
+### c) Colocar el token FUERA del repo (gitignored)
+6. Opcion recomendada en dev: user-secrets del proyecto `Ecorex.SuperAdmin`:
    ```
    cd apps/backend/src/Ecorex.SuperAdmin
    dotnet user-secrets init
@@ -43,15 +54,16 @@ controller Web API de `BoldReports.Net.Core`. Confirmar en el restore si hace fa
 Blazor especifico de la version 14.x; si existe `BoldReports.Blazor` net10, agregarlo.)
 Restaurar y compilar para confirmar que el grafo resuelve en la solucion (no solo en el .nuspec).
 
-### 2. Registro de licencia (Program.cs, antes de build)
+### 2. Registro de licencia (Program.cs, ANTES de que se inicialice cualquier control Bold)
 ```csharp
 var boldKey = builder.Configuration["Bold:LicenseKey"];
 if (!string.IsNullOrWhiteSpace(boldKey))
 {
-    BoldReports.ReportViewerControl.BoldLicenseProvider.RegisterLicense(boldKey);
+    Bold.Licensing.BoldLicenseProvider.RegisterLicense(boldKey);
 }
 ```
-(Nombre exacto del API de registro segun la version; validar en el restore.)
+(API oficial: `Bold.Licensing.BoldLicenseProvider.RegisterLicense(token)`. En ASP.NET Core/Blazor va en
+el arranque, antes de construir/usar los componentes. El token debe ser el de la v14.)
 
 ### 3. Web Reporting API (controller alojado en SuperAdmin, tenant-safe)
 - Viewer: implementar `IReportController` (namespace `BoldReports.Web`) -> endpoint p.ej.

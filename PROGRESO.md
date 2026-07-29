@@ -71,6 +71,30 @@ alternativa). Olas 1 no bloqueada.
 **Decisiones:** ADR-0051 (stack + gates, ACEPTADA). Ola 1 desacoplada del vendor: la capa propia se
 conserva aunque cambie la suite.
 
+**Ola 3 CONSTRUIDA y VERIFICADA EN VIVO (dashboards ECharts, independiente de Bold):**
+- ECharts vendorizado como `.js` ESTATICO (`wwwroot/lib/echarts/echarts.min.js`, v5.5.1 Apache-2.0,
+  ~1 MB) + interop `wwwroot/js/echart-interop.js` (`window.ecorexEChart` init/update/dispose, resize,
+  click opcional a .NET). Sin Node/npm. Scripts sumados en `App.razor`.
+- Componente Blazor `Components/Shared/Reporting/EChart.razor`: serializa una "option" (Dictionary) a
+  JSON y la pinta por interop; IAsyncDisposable con manejo de circuito cerrado.
+- Pagina `Components/Pages/Reporting/ReportDashboard.razor` (ruta `/reportes/tablero`, policy
+  `TenantMember`, InteractiveServer): 4 KPIs + dona por estado + area de creadas por dia + barras por
+  prioridad + tabla de recientes, TODO via `IReportDataSource` tenant-safe. Filtro de rango de fechas
+  (30/90 dias, Todo) que RE-CONSULTA el datasource. CSS scoped propio.
+- VERIFICADO en vivo (mi server 5260 contra BD dev local, login owner@sky-system): dashboard carga
+  datos reales (Total 219 = SOLO SKY SYSTEM, Plataforma ECOREX=0 -> aislamiento OK), 3 canvases ECharts
+  renderizados, interop cargado, tabla poblada, cero errores de consola. Filtro probado: 30 dias
+  re-consulta OK; rango futuro (2027) -> 0 en todo + "Sin actividades en el rango" (prueba que el
+  filtro fluye al datasource EF, CreatedAt Between). Mi server detenido por PID/puerto propio tras
+  verificar la ruta; el dev de la sesion principal (5234) intacto.
+- NOTA: la "imagen de referencia" del prototipo no estaba disponible en el vault; el dashboard sigue
+  un layout limpio on-brand (indigo). Cuando el usuario comparta la imagen se afina milimetricamente.
+- Menu: la pagina es accesible por ruta+policy; el item en el menu dinamico es un follow-up menor.
+
+**PENDIENTE tras esto:** Ola 2 (ReportDefinition + editor/visor Bold RDL) espera la confirmacion de
+Docker con Bold. Ola 4 (autoria IA: JSON-spec -> convertidor a ECharts option / RDL) puede seguir; el
+render de dashboard ya existe (Ola 3).
+
 ---
 
 ## 2026-07-28 - Instalador MSI (WiX) self-contained del agente Colmena

@@ -1,0 +1,75 @@
+@* Componente Blazor que pinta un grafico Apache ECharts por interop (Motor de Reportes, Ola 3).
+   Recibe una "option" (config de ECharts, tipicamente Dictionary/anonimo) que se serializa a JSON y
+   se entrega al modulo estatico window.ecorexEChart. La interactividad (tooltip/zoom) es nativa de
+   ECharts; el click de un punto/segmento puede volver a .NET via OnPointClick. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="@_id" style="width:100%;height:@Height;"></div>
+
+@code {
+    private readonly string _id = "echart-" + Guid.NewGuid().ToString("N");
+    private DotNetObjectReference<EChart>? _ref;
+    private string? _lastJson;
+    private bool _initialized;
+
+    /// <summary>La "option" de ECharts (Dictionary&lt;string,object?&gt; o anonimo). Se serializa a JSON.</summary>
+    [Parameter] public object? Option { get; set; }
+
+    [Parameter] public string Height { get; set; } = "320px";
+
+    /// <summary>Click sobre un punto/segmento: (name, value) del dato tocado.</summary>
+    [Parameter] public EventCallback<(string Name, string Value)> OnPointClick { get; set; }
+
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOpts = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var json = Option is null ? null : System.Text.Json.JsonSerializer.Serialize(Option, JsonOpts);
+
+        if (!_initialized)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            _initialized = true;
+            _lastJson = json;
+            await JS.InvokeVoidAsync("ecorexEChart.init", _id, json, OnPointClick.HasDelegate ? _ref : null);
+            return;
+        }
+
+        if (json != _lastJson)
+        {
+            _lastJson = json;
+            await JS.InvokeVoidAsync("ecorexEChart.update", _id, json);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnPointClickJs(string name, string value)
+    {
+        if (OnPointClick.HasDelegate)
+        {
+            await OnPointClick.InvokeAsync((name, value));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexEChart.dispose", _id);
+        }
+        catch (Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // El circuito ya se cerro (recarga/navegacion): nada que limpiar en el cliente.
+        }
+        catch (System.Threading.Tasks.TaskCanceledException)
+        {
+            // Igual: interop cancelado al desmontar.
+        }
+
+        _ref?.Dispose();
+    }
+}

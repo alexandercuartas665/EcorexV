@@ -89,3 +89,6 @@ appsettings.Development.local.json.bak
 # Llaves de DataProtection en dev (local, no versionar)
 .dpkeys-dev/
 **/.dpkeys-dev/
+
+# Scripts locales del tunel SSH a prod (exponen IP/usuario de prod; repo publico)
+Script/

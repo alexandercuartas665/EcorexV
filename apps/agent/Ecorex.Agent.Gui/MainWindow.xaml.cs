@@ -206,6 +206,10 @@ public partial class MainWindow : Window
         Activate();
     }
 
+    /// <summary>Trae la ventana al frente desde otra instancia (instancia unica): si un segundo
+    /// lanzamiento de la colmena aparece, en vez de abrir otra ventana confusa, esta se muestra.</summary>
+    public void ShowFromTrayPublic() => ShowFromTray();
+
     private void ExitApp()
     {
         _reallyExit = true;

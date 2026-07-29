@@ -67,13 +67,32 @@ apps/agent/installer/dist/Ecorex-AgenteColmena-<version>.msi   (~58 MB)
 El MSI es **perMachine** (requiere elevacion):
 
 ```powershell
-msiexec /i Ecorex-AgenteColmena-1.0.0.msi          # instalar (UI de progreso)
-msiexec /i Ecorex-AgenteColmena-1.0.0.msi /qn      # instalar silencioso
-msiexec /x Ecorex-AgenteColmena-1.0.0.msi          # desinstalar
+msiexec /i Ecorex-AgenteColmena-1.1.0.msi          # instalar (UI de progreso)
+msiexec /i Ecorex-AgenteColmena-1.1.0.msi /qn      # instalar silencioso
+msiexec /x Ecorex-AgenteColmena-1.1.0.msi          # desinstalar
 ```
 
-Tras instalar, el cliente configura la identidad (ClientId + URL del hub + secreto) desde el hexagono
-Configuracion de la GUI. La config sobrevive a un UPGRADE del MSI (el instalador no toca `config.dat`).
+### Configurar la identidad (ADR-0050)
+
+Dos caminos, sin abrir consolas elevadas a mano:
+
+1. **Desde la colmena (recomendado):** hexagono Configuracion -> ClientId + URL del hub + secreto ->
+   Guardar (o Probar). Si la colmena no corre elevada (lo normal, se auto-lanza a la bandeja sin
+   elevar), aparece **UN prompt de UAC**; al confirmarlo la identidad se guarda y el servicio reconecta
+   solo (vigila `config.dat`). No hay que reiniciar el servicio.
+
+2. **Install desatendido (varios servidores):** pasar la identidad como propiedades del MSI:
+
+   ```powershell
+   msiexec /i Ecorex-AgenteColmena-1.1.0.msi /qn `
+     CLIENTID=cli_xxx HUBURL=https://app2.bitcode.com.co SECRET=xxx
+   ```
+
+   Queda configurado al instalar (una custom action deferida escribe la boveda como SYSTEM). `SECRET`
+   no aparece en el log del MSI; aun asi, un secreto en linea de comandos es visible en el arbol de
+   procesos mientras corre msiexec, asi que conviene distribuirlo por un canal seguro.
+
+La config sobrevive a un UPGRADE del MSI (el instalador no toca `config.dat`).
 
 ### Notas
 

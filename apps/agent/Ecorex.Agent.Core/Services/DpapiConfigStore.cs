@@ -10,7 +10,9 @@ namespace Ecorex.Agent.Core.Services;
 /// </summary>
 public sealed class DpapiConfigStore : IAgentConfigStore
 {
-    private const string FileName = "config.dat";
+    /// <summary>Nombre del archivo de config en la boveda. Publico para que el servicio lo VIGILE
+    /// (FileSystemWatcher) y recargue la identidad al escribirse por `--save-config` o por el MSI.</summary>
+    public const string FileName = "config.dat";
 
     public AgentConfig Load()
     {

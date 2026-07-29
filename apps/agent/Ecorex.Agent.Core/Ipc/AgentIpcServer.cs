@@ -245,8 +245,10 @@ public sealed class AgentIpcServer : IAsyncDisposable
     private async Task<bool> RequireAdmin(ClientConn conn, AgentIpc.Envelope msg)
     {
         if (conn.IsAdmin) { return false; }
+        // Accionable: la colmena maneja este caso pidiendo un UAC y escribiendo la boveda elevada
+        // (--save-config), asi que el operador no necesita saber de servicios ni consolas elevadas.
         await AckAsync(conn, msg.Id, false,
-            "Cambiar la configuracion del agente exige permisos de administrador en este equipo.");
+            "Guardar la configuracion exige administrador: usa 'Guardar' en la colmena y confirma el aviso de administrador (UAC).");
         return true;
     }
 

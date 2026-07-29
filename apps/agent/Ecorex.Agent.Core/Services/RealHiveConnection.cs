@@ -109,10 +109,27 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Normaliza la URL del hub: si el operador escribio solo el dominio (sin ruta, p.ej.
+    /// "https://app2.bitcode.com.co/"), se le agrega la ruta real del hub del agente
+    /// (<see cref="AgentProtocol.HubRoute"/> = /hubs/agente). Sin esto, SignalR negocia contra la
+    /// raiz y el servidor responde 404 (error tipico de configuracion, visto en BITCODE 2026-07-28).
+    /// Si ya trae una ruta, se respeta tal cual. El endpoint del token no se ve afectado: se arma solo
+    /// con el dominio.
+    /// </summary>
+    private static string NormalizeHubUrl(string hubUrl)
+    {
+        var trimmed = (hubUrl ?? string.Empty).Trim();
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)) { return trimmed; }
+        return uri.AbsolutePath is "" or "/"
+            ? new Uri(uri, AgentProtocol.HubRoute).ToString()
+            : trimmed;
+    }
+
     private HubConnection Build(AgentConfig config)
     {
         return new HubConnectionBuilder()
-            .WithUrl(config.HubUrl, options =>
+            .WithUrl(NormalizeHubUrl(config.HubUrl), options =>
             {
                 // doc 02 s1: transporte forzado a WebSockets.
                 options.Transports = HttpTransportType.WebSockets;

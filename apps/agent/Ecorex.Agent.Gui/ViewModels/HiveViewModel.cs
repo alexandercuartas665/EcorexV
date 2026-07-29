@@ -100,11 +100,12 @@ public sealed class HiveViewModel : ObservableObject
         _hive.RequestFinished += OnRequestFinished;
 
         TestConnectionCommand = new RelayCommand(async () => await TestConnectionAsync(), () => !_busy);
-        SaveConfigCommand = new RelayCommand(() => { SaveConfig(); Log("Configuracion guardada."); }, () => !_busy);
+        SaveConfigCommand = new RelayCommand(SaveConfig, () => !_busy);
         ToggleConfigCommand = new RelayCommand(() => IsConfigOpen = !IsConfigOpen);
         RunDemoCommand = new RelayCommand(async () => await RunDemoAsync(), () => _mock is not null && !_demoRunning);
         SaveCapabilityCommand = new RelayCommand(SaveCapability);
         CloseCapabilityCommand = new RelayCommand(() => IsCapConfigOpen = false);
+        CopyLogCommand = new RelayCommand(CopyLog);
     }
 
     public ObservableCollection<HiveCellViewModel> Cells { get; }
@@ -117,6 +118,7 @@ public sealed class HiveViewModel : ObservableObject
     public RelayCommand RunDemoCommand { get; }
     public RelayCommand SaveCapabilityCommand { get; }
     public RelayCommand CloseCapabilityCommand { get; }
+    public RelayCommand CopyLogCommand { get; }
 
     public string ClientId
     {
@@ -231,6 +233,24 @@ public sealed class HiveViewModel : ObservableObject
         while (_log.Count > MaxLogLines) { _log.RemoveAt(_log.Count - 1); }
     });
 
+    /// <summary>
+    /// Copia todo el Registro al portapapeles (una linea por entrada) para pegarlo en un ticket de
+    /// soporte. Si el log esta vacio no hace nada. El portapapeles puede fallar transitoriamente
+    /// (lo tiene otro proceso), asi que el fallo se traga y se deja una nota en el propio Registro.
+    /// </summary>
+    private void CopyLog()
+    {
+        if (_log.Count == 0) { return; }
+        try
+        {
+            System.Windows.Clipboard.SetText(string.Join(Environment.NewLine, _log));
+        }
+        catch (Exception ex)
+        {
+            Log($"No se pudo copiar el registro: {ex.Message}");
+        }
+    }
+
     /// <summary>Abre el flyout de una capacidad sensible (Navegador/Archivos) con su estado actual.</summary>
     public void OpenCapabilityConfig(SubAgentKind kind)
     {
@@ -321,10 +341,34 @@ public sealed class HiveViewModel : ObservableObject
 
     private void SaveConfig()
     {
-        // Real: guarda el SERVICIO (la colmena no puede abrir la boveda). Va por el mismo camino que
-        // "Probar conexion", que es un `set-config` por el pipe.
-        if (_pipe is not null) { _ = _pipe.TestConnectionAsync(CurrentConfig()); return; }
-        _store.Save(CurrentConfig());
+        var cfg = CurrentConfig();
+
+        // Demo/captura: no hay servicio detras; el store local basta.
+        if (_pipe is null)
+        {
+            _store.Save(cfg);
+            Log("Configuracion guardada.");
+            return;
+        }
+
+        // Real y YA elevado: la ruta por pipe funciona (el servicio ve una conexion de administrador)
+        // y le avisa para reconectar de inmediato.
+        if (ElevationHelper.IsElevated())
+        {
+            _ = _pipe.TestConnectionAsync(cfg);
+            Log("Configuracion guardada.");
+            return;
+        }
+
+        // Real y NO elevado (caso tipico: la colmena se auto-lanzo tras el MSI sin elevar): el servicio
+        // rechazaria el cambio por el pipe (conexion no-admin). En vez de fallar, se pide UN prompt de
+        // UAC y se escribe la boveda directo (--save-config); el servicio recoge el cambio por su
+        // FileSystemWatcher y reconecta sin Restart-Service. Ver ADR-0050.
+        Log("Se pedira confirmacion de administrador (UAC) para guardar la configuracion...");
+        var res = ElevationHelper.SaveConfigElevated(cfg.ClientId, cfg.HubUrl, cfg.Secret);
+        Log(res.Ok
+            ? "Configuracion guardada (elevada). El servicio reconectara en unos segundos."
+            : $"No se guardo: {res.Error}");
     }
 
     private AgentConfig CurrentConfig()
@@ -349,8 +393,14 @@ public sealed class HiveViewModel : ObservableObject
             Log(string.IsNullOrWhiteSpace(cfg.HubUrl)
                 ? "Probar: falta la URL del hub."
                 : $"Probando conexion con {cfg.HubUrl}...");
-            SaveConfig(); // persiste lo tecleado antes de probar
-            await _hive.TestConnectionAsync(cfg);
+            SaveConfig(); // guarda (elevando por UAC si hace falta)
+            // La prueba activa por pipe solo aplica en demo o ya elevados: si se guardo por elevacion,
+            // el servicio reconecta por su cuenta (watcher) y una prueba por pipe seria rechazada por
+            // no-admin (el ruido "Rechazado" que justamente evitamos).
+            if (_pipe is null || ElevationHelper.IsElevated())
+            {
+                await _hive.TestConnectionAsync(cfg);
+            }
         }
         finally
         {

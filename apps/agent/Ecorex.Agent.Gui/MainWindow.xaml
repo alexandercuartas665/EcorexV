@@ -82,61 +82,81 @@
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.6" Color="#000000" />
                     </Border.Effect>
-                    <StackPanel Margin="20,18,20,18">
-                        <Grid>
-                            <TextBlock Text="Configuracion del agente" Foreground="{StaticResource HiveInk}"
-                                       FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <Button Content="&#x2715;" Command="{Binding ToggleConfigCommand}"
-                                    HorizontalAlignment="Right" Style="{DynamicResource ChromeButton}" />
-                        </Grid>
+                    <!-- 2 filas: contenido scrolleable (*) y barra de botones FIJA abajo (Auto).
+                         Asi "Guardar"/"Probar conexion" quedan anclados y siempre visibles aunque
+                         el contenido (campos + Registro) crezca. -->
+                    <Grid Margin="20,18,20,18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
 
-                        <TextBlock Text="Client ID" Style="{DynamicResource FieldLabel}" Margin="0,16,0,0" />
-                        <TextBox Text="{Binding ClientId, UpdateSourceTrigger=PropertyChanged}"
-                                 Style="{DynamicResource InkTextBox}" />
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                            <StackPanel>
+                                <Grid>
+                                    <TextBlock Text="Configuracion del agente" Foreground="{StaticResource HiveInk}"
+                                               FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <Button Content="&#x2715;" Command="{Binding ToggleConfigCommand}"
+                                            HorizontalAlignment="Right" Style="{DynamicResource ChromeButton}" />
+                                </Grid>
 
-                        <TextBlock Text="URL del Hub (SignalR)" Style="{DynamicResource FieldLabel}" Margin="0,12,0,0" />
-                        <TextBox Text="{Binding HubUrl, UpdateSourceTrigger=PropertyChanged}"
-                                 Style="{DynamicResource InkTextBox}" />
+                                <TextBlock Text="Client ID" Style="{DynamicResource FieldLabel}" Margin="0,16,0,0" />
+                                <TextBox Text="{Binding ClientId, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{DynamicResource InkTextBox}" />
 
-                        <TextBlock Text="Secreto del cliente (opcional)" Style="{DynamicResource FieldLabel}" Margin="0,12,0,0" />
-                        <TextBox Text="{Binding Secret, UpdateSourceTrigger=PropertyChanged}"
-                                 Style="{DynamicResource InkTextBox}" />
+                                <TextBlock Text="URL del Hub (SignalR)" Style="{DynamicResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox Text="{Binding HubUrl, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{DynamicResource InkTextBox}" />
 
-                        <!-- Estado de conexion. -->
-                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0" VerticalAlignment="Center">
-                            <Ellipse Width="9" Height="9" VerticalAlignment="Center"
-                                     Fill="{Binding IsOnline, Converter={StaticResource BoolToStatusBrush}}" />
-                            <TextBlock Text="Estado:" Foreground="{StaticResource HiveInkDim}"
-                                       Margin="8,0,6,0" VerticalAlignment="Center" FontSize="12" />
-                            <TextBlock Text="{Binding ConnectionLabel}" Foreground="{StaticResource HiveInk}"
-                                       VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" />
-                        </StackPanel>
+                                <TextBlock Text="Secreto del cliente (opcional)" Style="{DynamicResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox Text="{Binding Secret, UpdateSourceTrigger=PropertyChanged}"
+                                         Style="{DynamicResource InkTextBox}" />
 
-                        <!-- Mini-registro de conexion: cada intento, la transicion y el motivo del fallo
-                             (mas nuevo arriba). Sin esto, "Probar conexion" no dejaba rastro accionable. -->
-                        <TextBlock Text="Registro" Style="{DynamicResource FieldLabel}" Margin="0,14,0,0" />
-                        <Border CornerRadius="8" Background="#14FFFFFF" BorderBrush="{StaticResource HiveStroke}"
-                                BorderThickness="1" Height="96">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,6">
-                                <ItemsControl ItemsSource="{Binding ConnectionLog}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}" Foreground="{StaticResource HiveInkDim}"
-                                                       FontFamily="Consolas" FontSize="11"
-                                                       TextWrapping="Wrap" Margin="0,0,0,2" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                        </Border>
+                                <!-- Estado de conexion. -->
+                                <StackPanel Orientation="Horizontal" Margin="0,16,0,0" VerticalAlignment="Center">
+                                    <Ellipse Width="9" Height="9" VerticalAlignment="Center"
+                                             Fill="{Binding IsOnline, Converter={StaticResource BoolToStatusBrush}}" />
+                                    <TextBlock Text="Estado:" Foreground="{StaticResource HiveInkDim}"
+                                               Margin="8,0,6,0" VerticalAlignment="Center" FontSize="12" />
+                                    <TextBlock Text="{Binding ConnectionLabel}" Foreground="{StaticResource HiveInk}"
+                                               VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" />
+                                </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Right">
+                                <!-- Mini-registro de conexion: cada intento, la transicion y el motivo del fallo
+                                     (mas nuevo arriba). Sin esto, "Probar conexion" no dejaba rastro accionable.
+                                     "Copiar log" vuelca todo el Registro al portapapeles para pegarlo en soporte. -->
+                                <Grid Margin="0,14,0,0">
+                                    <TextBlock Text="Registro" Style="{DynamicResource FieldLabel}"
+                                               VerticalAlignment="Center" Margin="0" />
+                                    <Button Content="Copiar log" Command="{Binding CopyLogCommand}"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                                            Style="{DynamicResource ChromeButton}" Width="Auto" Padding="8,0"
+                                            FontSize="11" />
+                                </Grid>
+                                <Border CornerRadius="8" Background="#14FFFFFF" BorderBrush="{StaticResource HiveStroke}"
+                                        BorderThickness="1" Height="96">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="8,6">
+                                        <ItemsControl ItemsSource="{Binding ConnectionLog}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding}" Foreground="{StaticResource HiveInkDim}"
+                                                               FontFamily="Consolas" FontSize="11"
+                                                               TextWrapping="Wrap" Margin="0,0,0,2" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Right">
                             <Button Content="Guardar" Command="{Binding SaveConfigCommand}"
                                     Style="{DynamicResource GhostButton}" />
                             <Button Content="Probar conexion" Command="{Binding TestConnectionCommand}"
                                     Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
                         </StackPanel>
-                    </StackPanel>
+                    </Grid>
                 </Border>
 
                 <!-- Flyout POR capacidad (Navegador/Archivos): consentimiento local + allow-list (doc 06 s4). -->

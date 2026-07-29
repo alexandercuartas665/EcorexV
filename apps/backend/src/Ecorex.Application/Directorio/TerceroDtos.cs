@@ -57,7 +57,10 @@ public sealed record TerceroContactoDto(
     string Nombre,
     string? Cargo,
     string? Email,
-    string? Telefono);
+    string? Telefono,
+    // true = es un Tercero tipo Persona vinculado a la empresa (EmpresaId): se edita con el modal
+    // completo y su Id es el del tercero. false = contacto ligero heredado (entidad TerceroContacto).
+    bool EsTercero = false);
 
 /// <summary>Alta/edicion de un tercero.</summary>
 public sealed record SaveTerceroRequest(

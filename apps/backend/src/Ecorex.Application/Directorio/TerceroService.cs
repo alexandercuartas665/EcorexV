@@ -317,11 +317,24 @@ public sealed class TerceroService : ITerceroService
 
     public async Task<IReadOnlyList<TerceroContactoDto>> ListContactosAsync(
         Guid terceroId, CancellationToken cancellationToken = default)
-        => await _db.TerceroContactos.AsNoTracking()
+    {
+        // Un contacto asociado nuevo ES un Tercero tipo Persona vinculado por EmpresaId (modal completo).
+        // Se listan JUNTO con los contactos ligeros heredados (entidad TerceroContacto), que se siguen
+        // mostrando y editando pero ya no se crean. El flag EsTercero le dice a la UI como tratarlos.
+        var ligeros = await _db.TerceroContactos.AsNoTracking()
             .Where(c => c.TerceroId == terceroId)
-            .OrderBy(c => c.Nombre)
-            .Select(c => new TerceroContactoDto(c.Id, c.TerceroId, c.Nombre, c.Cargo, c.Email, c.Telefono))
+            .Select(c => new TerceroContactoDto(c.Id, c.TerceroId, c.Nombre, c.Cargo, c.Email, c.Telefono, false))
             .ToListAsync(cancellationToken);
+
+        var personas = await _db.Terceros.AsNoTracking()
+            .Where(p => p.EmpresaId == terceroId && p.Tipo == TerceroTipo.Persona && p.Estado != TerceroEstado.Inactivo)
+            .Select(p => new TerceroContactoDto(p.Id, terceroId, p.Nombre, p.Cargo, p.Email, p.Telefono, true))
+            .ToListAsync(cancellationToken);
+
+        return ligeros.Concat(personas)
+            .OrderBy(c => c.Nombre, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
 
     public async Task<TerceroResult<TerceroContactoDto>> AddContactoAsync(
         Guid terceroId, SaveContactoRequest request, CancellationToken cancellationToken = default)

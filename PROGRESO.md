@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-29 - Motor de Reportes y BI: Ola 0 (gate de licencia)
+
+**Agentes:** Claude (sesion worktree `informes`) + sub-agente de investigacion de licencias.
+
+**Hecho:** arranque del proyecto Motor de Reportes y BI en un git worktree DEDICADO
+`informes` (`C:/DesarrolloIA/ecorex-informes`, rama `feat/motor-reportes` desde `main`).
+Config de puerto propio `informes-5260` agregada al `launch.json` del worktree (BD dev
+local 5442), sin tocar el dev de la sesion principal (5234) ni las configs existentes.
+Ningun proceso matado.
+
+**Ola 0 (gate de licencia, SIN codigo de producto):** investigados con fuentes oficiales
+los 4 gates del doc 01 y documentados en `ADR-0051`. Resultado:
+- Gate 1 (elegibilidad Community): SI condicional. OJO: Bold Reports se separo de Syncfusion;
+  la community de Syncfusion cubre solo el Viewer, NO el Report Designer -> hay que registrar
+  la Community License PROPIA de Bold (que si incluye el editor). Elegibilidad: < 1M USD/anio,
+  <= 5 devs, <= 10 empleados, < 3M USD capital externo (la debe autoconfirmar el usuario).
+- Gate 2 (embebe en Blazor Server): SI. `BoldReports.Net.Core`, InteractiveServer, controllers.
+- Gate 3 (datasource tenant-safe JSON/Web sin connection string): SI. JSON/Web data source +
+  addDataSource/addDataSet + data-source extension.
+- Gate 4 (redistribucion SaaS a tenants): SI. Community endosa SaaS multi-tenant / ISV.
+- RIESGO AMBAR a escalar: **Docker bajo Community no esta claramente concedido** (community =
+  "Windows and Linux"; Docker/K8s = pago). Prod corre Linux Docker. Requiere confirmacion
+  escrita de Bold o alternativa de deployment/licencia.
+
+**Siguiente:** con aprobacion del usuario en los 2 puntos abiertos (elegibilidad Bitcode +
+Docker/Bold), construir Ola 1 (catalogo semantico + IReportDataSource tenant-safe + test de
+aislamiento dual PG/SQL Server) que es INDEPENDIENTE de Bold y de Docker.
+
+**Bloqueos:** esperando confirmacion del usuario de los 4 gates (Ola 0 es gate obligatorio).
+
+**Decisiones:** ADR-0051 (stack + gates). Ola 1 desacoplada del vendor: se puede construir
+mientras se resuelven los ambares (Bold solo entra en Ola 2).
+
+---
+
 ## 2026-07-28 - Instalador MSI (WiX) self-contained del agente Colmena
 
 **Hecho:** el agente Conector On-Prem "Colmena" (apps/agent) ya tiene INSTALADOR. Antes se corria a

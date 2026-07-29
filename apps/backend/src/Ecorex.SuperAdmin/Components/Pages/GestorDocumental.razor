@@ -129,6 +129,17 @@ else if (_vista == Vista.Archivo)
 
         @* ---- Panel derecho: filtros + tabla de documentos ---- *@
         <section class="gd-main">
+            @if (_categoriaSel is not null)
+            {
+                <div class="gd-ubic">
+                    <span class="gd-ubic-cat">@(_categorias.FirstOrDefault(c => c.Id == _categoriaSel)?.Nombre)</span>
+                    @foreach (var seg in RutaCarpeta())
+                    {
+                        <span class="gd-ubic-sep">/</span>
+                        <span>@seg</span>
+                    }
+                </div>
+            }
             <div class="gd-filtros">
                 <input class="gd-input" placeholder="Buscar por titulo o archivo..." value="@_busqueda"
                        @onchange="OnBuscarAsync" />
@@ -374,12 +385,40 @@ else
                 }
 
                 <div class="gd-det-tabs">
+                    <button class="gd-tab sm @(_detTab == "visor" ? "on" : "")" @onclick='() => _detTab = "visor"'>Vista previa</button>
                     <button class="gd-tab sm @(_detTab == "versiones" ? "on" : "")" @onclick='() => _detTab = "versiones"'>Versiones (@_detalle.NumeroVersiones)</button>
                     <button class="gd-tab sm @(_detTab == "bitacora" ? "on" : "")" @onclick="MostrarBitacoraAsync">Bitacora</button>
                     <button class="gd-tab sm @(_detTab == "uso" ? "on" : "")" @onclick="MostrarUsoAsync">Uso</button>
                 </div>
 
-                @if (_detTab == "versiones")
+                @if (_detTab == "visor")
+                {
+                    @if (_detalle.VersionActual is { } va)
+                    {
+                        <div class="gd-visor">
+                            @if (EsImagen(va.TipoMime))
+                            {
+                                <img src="@va.UrlStorage" alt="@va.NombreArchivo" />
+                            }
+                            else if (EsPdf(va.TipoMime))
+                            {
+                                <iframe src="@va.UrlStorage" title="@va.NombreArchivo"></iframe>
+                            }
+                            else
+                            {
+                                <div class="gd-visor-none">
+                                    <p>Sin vista previa para este formato (@va.NombreArchivo).</p>
+                                    <button class="gd-btn sm primary" @onclick="() => DescargarAsync(_detalle!.Id)" disabled="@_ocupado">Descargar</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="gd-visor-none"><p>Este documento no tiene archivo.</p></div>
+                    }
+                }
+                else if (_detTab == "versiones")
                 {
                     <table class="gd-tabla compact">
                         <thead><tr><th>Ver.</th><th>Archivo</th><th>Tamano</th><th>SHA-256</th><th>Fecha</th><th></th></tr></thead>
@@ -463,57 +502,92 @@ else
 @if (_expDetalle is not null)
 {
     <div class="modal-overlay">
-        <div class="modal-dialog" style="max-width:900px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="max-width:1060px;" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>@_expDetalle.Codigo &#183; @_expDetalle.Nombre</h3>
                 <button class="modal-close" @onclick="() => _expDetalle = null">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="gd-det-meta">
-                    <div><span class="lbl">Serie</span><span>@_expDetalle.Serie</span></div>
-                    <div><span class="lbl">Subserie</span><span>@_expDetalle.Subserie</span></div>
-                    <div><span class="lbl">Avance</span><span>@_expDetalle.Cargadas de @_expDetalle.Total</span></div>
-                </div>
+                <div class="gd-exp3">
+                    @* ---- Col izquierda: datos del expediente ---- *@
+                    <div class="gd-exp3-side">
+                        <div class="gd-det-meta col">
+                            <div><span class="lbl">Serie</span><span>@_expDetalle.Serie</span></div>
+                            <div><span class="lbl">Subserie</span><span>@_expDetalle.Subserie</span></div>
+                            <div><span class="lbl">Avance</span><span>@_expDetalle.Cargadas de @_expDetalle.Total</span></div>
+                        </div>
+                        @if (_expDetalle.Campos.Count > 0)
+                        {
+                            <div class="gd-exp3-h">Metadatos del expediente</div>
+                            @foreach (var c in _expDetalle.Campos)
+                            {
+                                <div class="gd-exp3-campo">@c.Label</div>
+                            }
+                        }
+                    </div>
 
-                <table class="gd-tabla compact">
-                    <thead><tr><th>Documento esperado</th><th>Estado</th><th>Archivo</th><th style="width:220px;"></th></tr></thead>
-                    <tbody>
+                    @* ---- Col centro: visor del documento seleccionado ---- *@
+                    <div class="gd-exp3-visor">
+                        @if (ExpTipSel is { Cargado: true } sel)
+                        {
+                            <div class="gd-visor">
+                                @if (EsImagen(sel.ArchivoMime))
+                                {
+                                    <img src="@sel.ArchivoUrl" alt="@sel.ArchivoNombre" />
+                                }
+                                else if (EsPdf(sel.ArchivoMime))
+                                {
+                                    <iframe src="@sel.ArchivoUrl" title="@sel.ArchivoNombre"></iframe>
+                                }
+                                else
+                                {
+                                    <div class="gd-visor-none">
+                                        <p>@sel.ArchivoNombre</p>
+                                        <button class="gd-btn sm primary" @onclick="() => DescargarTipologiaAsync(sel.Id)" disabled="@_ocupado">Descargar</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="gd-visor-none"><p>Elige un documento cargado del checklist para verlo aqui.</p></div>
+                        }
+                    </div>
+
+                    @* ---- Col derecha: checklist de tipologias ---- *@
+                    <div class="gd-exp3-check">
                         @foreach (var t in _expDetalle.Tipologias)
                         {
                             var tip = t;
-                            <tr>
-                                <td>
-                                    @tip.Nombre
-                                    @if (tip.Obligatoria) { <span class="gd-oblig">obligatorio</span> }
-                                </td>
-                                <td>
-                                    <span class="gd-estado @(tip.Cargado ? "vigente" : "borrador")">@(tip.Cargado ? "Cargado" : "Pendiente")</span>
-                                </td>
-                                <td class="gd-td-min">
-                                    @if (tip.Cargado)
-                                    {
-                                        @tip.ArchivoNombre <text> &#183; </text> @FormatoTamano(tip.ArchivoTamano)
-                                    }
-                                </td>
-                                <td class="gd-acciones">
-                                    @if (tip.Cargado)
-                                    {
-                                        <button class="gd-btn sm" @onclick="() => DescargarTipologiaAsync(tip.Id)" disabled="@_ocupado">Descargar</button>
+                            <div class="gd-chk @(tip.Cargado ? "ok" : "") @(_expTipSel == tip.Id ? "sel" : "")"
+                                 @onclick="() => SeleccionarTipologia(tip)">
+                                <div class="gd-chk-top">
+                                    <span class="gd-chk-dot @(tip.Cargado ? "on" : "")"></span>
+                                    <span class="gd-chk-name">@tip.Nombre</span>
+                                    @if (tip.Obligatoria) { <span class="gd-oblig">oblig</span> }
+                                </div>
+                                @if (tip.Cargado)
+                                {
+                                    <div class="gd-chk-file">@tip.ArchivoNombre &#183; @FormatoTamano(tip.ArchivoTamano)</div>
+                                    <div class="gd-chk-actions">
+                                        <button class="gd-btn sm" @onclick:stopPropagation="true" @onclick="() => DescargarTipologiaAsync(tip.Id)" disabled="@_ocupado">Descargar</button>
                                         @if (_canEdit)
                                         {
-                                            <button class="gd-btn sm danger" @onclick="() => QuitarArchivoAsync(tip.Id)" disabled="@_ocupado">Quitar</button>
+                                            <button class="gd-btn sm danger" @onclick:stopPropagation="true" @onclick="() => QuitarArchivoAsync(tip.Id)" disabled="@_ocupado">Quitar</button>
                                         }
-                                    }
-                                    else if (_canEdit)
-                                    {
+                                    </div>
+                                }
+                                else if (_canEdit)
+                                {
+                                    <div class="gd-chk-actions" @onclick:stopPropagation="true">
                                         <InputFile class="gd-file-min" accept="@DocumentUploadGuard.Accept"
                                                    OnChange="e => CargarTipologiaAsync(tip.Id, e)" />
-                                    }
-                                </td>
-                            </tr>
+                                    </div>
+                                }
+                            </div>
                         }
-                    </tbody>
-                </table>
+                    </div>
+                </div>
             </div>
             <div class="modal-foot">
                 <button class="gd-btn" @onclick="() => _expDetalle = null">Cerrar</button>
@@ -862,6 +936,7 @@ else
     private bool _nuevoExpOpen;
     private Guid? _fSubserieId;
     private string _fExpNombre = "";
+    private Guid? _expTipSel;   // tipologia seleccionada en el visor del expediente
 
     // ---- Modal configuracion (categorias + etiquetas) ----
     private bool _cfgOpen;
@@ -1068,7 +1143,7 @@ else
 
     private async Task AbrirDetalleAsync(Guid id)
     {
-        _detTab = "versiones";
+        _detTab = "visor";
         _auditoria = new();
         _estadisticas = null;
         _fVerBytes = null;
@@ -1192,7 +1267,18 @@ else
         finally { _ocupado = false; }
     }
 
-    private async Task AbrirExpedienteAsync(Guid id) => _expDetalle = await ExpSvc.GetExpedienteAsync(id);
+    private async Task AbrirExpedienteAsync(Guid id)
+    {
+        _expDetalle = await ExpSvc.GetExpedienteAsync(id);
+        // Auto-selecciona el primer documento cargado para verlo de una en el visor central.
+        _expTipSel = _expDetalle?.Tipologias.FirstOrDefault(t => t.Cargado)?.Id;
+    }
+
+    private void SeleccionarTipologia(ExpedienteTipologiaDto tip) => _expTipSel = tip.Id;
+
+    /// <summary>Tipologia actualmente elegida en el visor del expediente (si sigue existiendo).</summary>
+    private ExpedienteTipologiaDto? ExpTipSel
+        => _expTipSel is Guid id ? _expDetalle?.Tipologias.FirstOrDefault(t => t.Id == id) : null;
 
     private async Task CargarTipologiaAsync(Guid tipologiaId, InputFileChangeEventArgs e)
     {
@@ -1611,6 +1697,10 @@ else
         _mensajeEsError = esError;
     }
 
+    /// <summary>El visor embebido solo previsualiza imagenes y PDF; el resto ofrece descarga.</summary>
+    private static bool EsImagen(string? mime) => mime is not null && mime.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+    private static bool EsPdf(string? mime) => mime is not null && mime.Contains("pdf", StringComparison.OrdinalIgnoreCase);
+
     private static string FormatoTamano(long bytes)
     {
         if (bytes <= 0) { return "-"; }
@@ -1623,15 +1713,40 @@ else
 
     private RenderFragment RenderCarpeta(CarpetaDto nodo, int nivel) => __builder =>
     {
-        <button class="gd-carp @(_carpetaSel == nodo.Id ? "on" : "")"
-                style="padding-left:@(12 + nivel * 14)px;"
-                @onclick="() => SeleccionarCarpetaAsync(nodo.Id)">
-            <span class="gd-carp-name">@nodo.Nombre</span>
-            <span class="gd-cat-count">@nodo.NumeroDocumentos</span>
-        </button>
+        <div class="gd-carp-row" style="padding-left:@(nivel * 14)px;">
+            <button class="gd-carp @(_carpetaSel == nodo.Id ? "on" : "")"
+                    @onclick="() => SeleccionarCarpetaAsync(nodo.Id)">
+                <span class="gd-carp-name">@nodo.Nombre</span>
+                <span class="gd-cat-count">@nodo.NumeroDocumentos</span>
+            </button>
+            @if (_canCreate)
+            {
+                <button class="gd-carp-add" title="Crear subcarpeta" @onclick="() => AbrirNuevaCarpeta(nodo.Id)">+</button>
+            }
+        </div>
         @foreach (var hijo in nodo.Subcarpetas)
         {
             @RenderCarpeta(hijo, nivel + 1)
         }
     };
+
+    /// <summary>Nombres de carpeta desde la raiz hasta la carpeta seleccionada, para el breadcrumb.</summary>
+    private IReadOnlyList<string> RutaCarpeta()
+    {
+        if (_carpetaSel is not Guid id) { return Array.Empty<string>(); }
+        var path = new List<string>();
+        return BuscarRuta(_carpetas, id, path) ? path : Array.Empty<string>();
+    }
+
+    private static bool BuscarRuta(IReadOnlyList<CarpetaDto> nodos, Guid id, List<string> acc)
+    {
+        foreach (var n in nodos)
+        {
+            acc.Add(n.Nombre);
+            if (n.Id == id) { return true; }
+            if (BuscarRuta(n.Subcarpetas, id, acc)) { return true; }
+            acc.RemoveAt(acc.Count - 1);
+        }
+        return false;
+    }
 }

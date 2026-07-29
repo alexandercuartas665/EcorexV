@@ -232,6 +232,12 @@ public static class DependencyInjection
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         services.AddScoped<Reporting.IReportCatalog, Reporting.ReportCatalog>();
         services.AddScoped<Reporting.IReportDataSource, Reporting.ReportDataSource>();
+        // Ola 4: definiciones guardadas (ReportDefinition) + autoria por IA (instruccion -> JSON-spec
+        // validado contra el catalogo -> dashboard). El generador real usa el agente/proveedor del
+        // tenant (AiUsageLog); en pruebas se falsea IReportSpecGenerator.
+        services.AddScoped<Reporting.IReportDefinitionService, Reporting.ReportDefinitionService>();
+        services.AddScoped<Reporting.Authoring.IReportSpecGenerator, Reporting.Authoring.AiReportSpecGenerator>();
+        services.AddScoped<Reporting.Authoring.IReportAuthoringService, Reporting.Authoring.ReportAuthoringService>();
         return services;
     }
 }

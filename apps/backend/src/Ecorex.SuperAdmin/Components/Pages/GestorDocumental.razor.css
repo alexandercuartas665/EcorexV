@@ -223,9 +223,63 @@
 .gd-exp-num { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .gd-exp-actions { display: flex; gap: 6px; margin-top: 2px; }
 
+/* ---- Editores de configuracion (Ola 1): categorias/etiquetas, TRD, carpeta ---- */
+.gd-cfg-form {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.gd-cfg-form .gd-input { flex: 1; min-width: 140px; }
+.gd-color {
+    width: 38px; height: 32px; padding: 2px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+    cursor: pointer;
+}
+
+/* TRD: tres columnas serie | subserie | tipologias+campos */
+.gd-trd {
+    display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 12px;
+    min-height: 320px;
+}
+.gd-trd-col {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px;
+    min-width: 0;
+}
+.gd-trd-colhead {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .4px;
+    text-transform: uppercase; color: var(--ink-3);
+    padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.gd-trd-sub {
+    font-size: 11px; font-weight: 600; color: var(--ink-2);
+    margin-top: 8px; margin-bottom: 2px;
+}
+.gd-trd-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; border-radius: 6px;
+    border: 1px solid transparent; cursor: pointer;
+    font-size: 12.5px; color: var(--ink);
+}
+.gd-trd-item:hover { background: var(--surface-3); }
+.gd-trd-item.on { background: var(--brand-soft); border-color: var(--brand); }
+.gd-trd-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-trd-add {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line);
+}
+.gd-trd-add .gd-input { flex: 1; min-width: 90px; }
+.gd-x {
+    border: none; background: none; cursor: pointer;
+    color: var(--ink-3); font-size: 16px; line-height: 1;
+    padding: 0 4px; border-radius: 4px;
+}
+.gd-x:hover { color: var(--danger, #c0392b); background: var(--surface-3); }
+
 /* ---- Responsive: el split se apila y la tabla puede desplazarse ---- */
 @media (max-width: 900px) {
     .gd-split { grid-template-columns: 1fr; }
     .gd-side { position: static; }
     .gd-row2 { grid-template-columns: 1fr; }
+    .gd-trd { grid-template-columns: 1fr; }
 }

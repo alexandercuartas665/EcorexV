@@ -3666,6 +3666,79 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             }
         }
 
+        // TRD base (Expedientes): sin una TRD sembrada, "Nuevo expediente" no tiene subseries de
+        // donde partir y la pestana queda inservible. Espejo de la TRD base del hermano PROPIA:
+        // 4 series / 8 subseries, con las tipologias clave marcadas obligatorias y los metadatos
+        // base de cada subserie. Idempotente: solo si el tenant aun no tiene ninguna serie.
+        if (!await _db.SeriesDocumentales.IgnoreQueryFilters().AnyAsync(s => s.TenantId == tenantId, cancellationToken))
+        {
+            (string Clave, string Label)[] camposBase =
+            {
+                ("fecha_documento", "Fecha del documento"),
+                ("responsable", "Tercero / responsable"),
+                ("vigencia", "Vigencia / vence"),
+                ("folios", "N. de folios")
+            };
+
+            (string Serie, string Subserie, (string Nombre, bool Obligatoria)[] Tipologias)[] trd =
+            {
+                ("Actas y gobierno", "Actas de Asamblea", new[] { ("Convocatoria", true), ("Acta firmada", true), ("Listado de asistencia", true), ("Poderes", false) }),
+                ("Actas y gobierno", "Actas de Consejo", new[] { ("Convocatoria", true), ("Acta firmada", true), ("Soportes", false) }),
+                ("Contratos", "Contratos de servicios", new[] { ("Contrato firmado", true), ("Camara de comercio", true), ("RUT", true), ("Polizas", false) }),
+                ("Contratos", "Contratos laborales", new[] { ("Contrato firmado", true), ("Hoja de vida", true), ("Afiliaciones seguridad social", true), ("Examenes de ingreso", false) }),
+                ("Financieros", "Estados financieros", new[] { ("Balance general", true), ("Estado de resultados", true), ("Notas a los estados", true), ("Dictamen revisor fiscal", false) }),
+                ("Financieros", "Presupuestos", new[] { ("Presupuesto aprobado", true), ("Acta de aprobacion", true), ("Ejecucion presupuestal", false) }),
+                ("Legal y constitucion", "Polizas y seguros", new[] { ("Poliza vigente", true), ("Certificado", true), ("Recibo de pago", false) }),
+                ("Legal y constitucion", "Constitucion", new[] { ("Escritura de constitucion", true), ("Estatutos", true), ("Certificado de existencia", true) })
+            };
+
+            var seriesByName = new Dictionary<string, SerieDocumental>();
+            var serieOrden = 0;
+            foreach (var row in trd)
+            {
+                if (!seriesByName.TryGetValue(row.Serie, out var serie))
+                {
+                    serie = new SerieDocumental { TenantId = tenantId, Nombre = row.Serie, Orden = serieOrden++, Activa = true };
+                    seriesByName[row.Serie] = serie;
+                    _db.SeriesDocumentales.Add(serie);
+                }
+
+                var subserie = new SubserieDocumental
+                {
+                    TenantId = tenantId,
+                    Nombre = row.Subserie,
+                    Orden = serie.Subseries.Count,
+                    Activa = true
+                };
+
+                var tipOrden = 0;
+                foreach (var (nombre, obligatoria) in row.Tipologias)
+                {
+                    subserie.Tipologias.Add(new SubserieTipologia
+                    {
+                        TenantId = tenantId,
+                        Nombre = nombre,
+                        Obligatoria = obligatoria,
+                        Orden = tipOrden++
+                    });
+                }
+
+                var campoOrden = 0;
+                foreach (var (clave, label) in camposBase)
+                {
+                    subserie.Campos.Add(new SubserieCampo
+                    {
+                        TenantId = tenantId,
+                        Clave = clave,
+                        Label = label,
+                        Orden = campoOrden++
+                    });
+                }
+
+                serie.Subseries.Add(subserie);
+            }
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
     }
 

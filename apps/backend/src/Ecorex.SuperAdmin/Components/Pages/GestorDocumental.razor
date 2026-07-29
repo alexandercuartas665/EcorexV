@@ -567,6 +567,239 @@ else
     </div>
 }
 
+@* ===================== MODAL: configuracion (categorias + etiquetas) ===================== *@
+@if (_cfgOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configuracion del archivo</h3>
+                <button class="modal-close" @onclick="() => _cfgOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gd-tabs" role="tablist" style="margin-bottom:14px;">
+                    <button class="gd-tab @(_cfgTab == "categorias" ? "on" : "")" @onclick='() => _cfgTab = "categorias"'>Categorias</button>
+                    <button class="gd-tab @(_cfgTab == "etiquetas" ? "on" : "")" @onclick='() => _cfgTab = "etiquetas"'>Etiquetas</button>
+                </div>
+
+                @if (_cfgTab == "categorias")
+                {
+                    <div class="gd-cfg-form">
+                        <input class="gd-input" placeholder="Nombre de la categoria" @bind="_catNombre" />
+                        <input class="gd-input" placeholder="Descripcion (opcional)" @bind="_catDescripcion" />
+                        <input type="color" class="gd-color" @bind="_catColor" title="Color" />
+                        <button class="gd-btn primary sm" @onclick="GuardarCategoriaCfgAsync" disabled="@_ocupado">@(_catEditId is null ? "Agregar" : "Guardar")</button>
+                        @if (_catEditId is not null)
+                        {
+                            <button class="gd-btn sm" @onclick="ResetCategoriaForm">Cancelar</button>
+                        }
+                    </div>
+                    <table class="gd-tabla compact">
+                        <thead><tr><th style="width:28px;"></th><th>Categoria</th><th>Docs</th><th style="width:150px;"></th></tr></thead>
+                        <tbody>
+                            @foreach (var c in _categorias)
+                            {
+                                var cat = c;
+                                <tr>
+                                    <td><span class="gd-cat-dot" style="background:@(cat.Color ?? "var(--brand)");"></span></td>
+                                    <td>@cat.Nombre @if (cat.EsBase) { <span class="gd-oblig">base</span> }</td>
+                                    <td class="gd-td-min">@cat.NumeroDocumentos</td>
+                                    <td class="gd-acciones">
+                                        @if (!cat.EsBase)
+                                        {
+                                            <button class="gd-btn sm" @onclick="() => EditarCategoria(cat)">Editar</button>
+                                            <button class="gd-btn sm danger" @onclick="() => DesactivarCategoriaAsync(cat.Id)" disabled="@_ocupado">Quitar</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="gd-cfg-form">
+                        <input class="gd-input" placeholder="Nombre de la etiqueta" @bind="_etqNombre" />
+                        <input type="color" class="gd-color" @bind="_etqColor" title="Color" />
+                        <button class="gd-btn primary sm" @onclick="GuardarEtiquetaCfgAsync" disabled="@_ocupado">@(_etqEditId is null ? "Agregar" : "Guardar")</button>
+                        @if (_etqEditId is not null)
+                        {
+                            <button class="gd-btn sm" @onclick="ResetEtiquetaForm">Cancelar</button>
+                        }
+                    </div>
+                    <table class="gd-tabla compact">
+                        <thead><tr><th style="width:28px;"></th><th>Etiqueta</th><th>Docs</th><th style="width:150px;"></th></tr></thead>
+                        <tbody>
+                            @foreach (var e in _etiquetas)
+                            {
+                                var et = e;
+                                <tr>
+                                    <td><span class="gd-cat-dot" style="background:@(et.Color ?? "var(--brand)");"></span></td>
+                                    <td>@et.Nombre @if (et.EsBase) { <span class="gd-oblig">base</span> }</td>
+                                    <td class="gd-td-min">@et.NumeroDocumentos</td>
+                                    <td class="gd-acciones">
+                                        @if (!et.EsBase)
+                                        {
+                                            <button class="gd-btn sm" @onclick="() => EditarEtiqueta(et)">Editar</button>
+                                            <button class="gd-btn sm danger" @onclick="() => DesactivarEtiquetaAsync(et.Id)" disabled="@_ocupado">Quitar</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                @if (_cfgError is not null)
+                {
+                    <div class="tk-field-error">@_cfgError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _cfgOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: editor de la TRD ===================== *@
+@if (_trdOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:980px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Tabla de retencion documental</h3>
+                <button class="modal-close" @onclick="() => _trdOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gd-trd">
+                    @* Col 1: series *@
+                    <div class="gd-trd-col">
+                        <div class="gd-trd-colhead">Series</div>
+                        @foreach (var s in _trd)
+                        {
+                            var serie = s;
+                            <div class="gd-trd-item @(_trdSerieSel == serie.Id ? "on" : "")" @onclick="() => SeleccionarSerie(serie.Id)">
+                                <span class="gd-trd-name">@serie.Nombre</span>
+                                <button class="gd-x" title="Quitar serie" @onclick:stopPropagation="true" @onclick="() => EliminarSerieAsync(serie.Id)">&times;</button>
+                            </div>
+                        }
+                        <div class="gd-trd-add">
+                            <input class="gd-input" placeholder="Nueva serie" @bind="_serieNombre" />
+                            <button class="gd-btn sm primary" @onclick="CrearSerieAsync" disabled="@_ocupado">+</button>
+                        </div>
+                    </div>
+
+                    @* Col 2: subseries *@
+                    <div class="gd-trd-col">
+                        <div class="gd-trd-colhead">Subseries</div>
+                        @if (_trdSerieSel is null)
+                        {
+                            <div class="gd-side-empty">Elige una serie.</div>
+                        }
+                        else
+                        {
+                            @foreach (var sub in SubseriesDe(_trdSerieSel.Value))
+                            {
+                                var subserie = sub;
+                                <div class="gd-trd-item @(_trdSubserieSel == subserie.Id ? "on" : "")" @onclick="() => SeleccionarSubserie(subserie.Id)">
+                                    <span class="gd-trd-name">@subserie.Nombre</span>
+                                    <button class="gd-x" title="Quitar subserie" @onclick:stopPropagation="true" @onclick="() => EliminarSubserieAsync(subserie.Id)">&times;</button>
+                                </div>
+                            }
+                            <div class="gd-trd-add">
+                                <input class="gd-input" placeholder="Nueva subserie" @bind="_subserieNombre" />
+                                <button class="gd-btn sm primary" @onclick="CrearSubserieAsync" disabled="@_ocupado">+</button>
+                            </div>
+                        }
+                    </div>
+
+                    @* Col 3: tipologias + campos *@
+                    <div class="gd-trd-col wide">
+                        <div class="gd-trd-colhead">Documentos esperados y metadatos</div>
+                        @if (SubserieSel is null)
+                        {
+                            <div class="gd-side-empty">Elige una subserie.</div>
+                        }
+                        else
+                        {
+                            <div class="gd-trd-sub">Documentos esperados</div>
+                            @foreach (var t in SubserieSel.Tipologias)
+                            {
+                                var tip = t;
+                                <div class="gd-trd-item">
+                                    <span class="gd-trd-name">@tip.Nombre</span>
+                                    @if (tip.Obligatoria) { <span class="gd-oblig">obligatorio</span> }
+                                    <button class="gd-x" title="Quitar" @onclick="() => EliminarTipologiaCfgAsync(tip.Id)">&times;</button>
+                                </div>
+                            }
+                            <div class="gd-trd-add">
+                                <input class="gd-input" placeholder="Documento esperado" @bind="_tipoNombre" />
+                                <label class="gd-check"><input type="checkbox" @bind="_tipoOblig" /><span>Obligatorio</span></label>
+                                <button class="gd-btn sm primary" @onclick="CrearTipologiaCfgAsync" disabled="@_ocupado">+</button>
+                            </div>
+
+                            <div class="gd-trd-sub">Metadatos que se piden al cargar</div>
+                            @foreach (var cp in SubserieSel.Campos)
+                            {
+                                var campo = cp;
+                                <div class="gd-trd-item">
+                                    <span class="gd-trd-name">@campo.Label</span>
+                                    <button class="gd-x" title="Quitar" @onclick="() => EliminarCampoCfgAsync(campo.Id)">&times;</button>
+                                </div>
+                            }
+                            <div class="gd-trd-add">
+                                <input class="gd-input" placeholder="Nuevo metadato (ej. Fecha del documento)" @bind="_campoLabel" />
+                                <button class="gd-btn sm primary" @onclick="CrearCampoCfgAsync" disabled="@_ocupado">+</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (_trdError is not null)
+                {
+                    <div class="tk-field-error">@_trdError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _trdOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: nueva carpeta ===================== *@
+@if (_carpOpen)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:460px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Nueva carpeta</h3>
+                <button class="modal-close" @onclick="() => _carpOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="gd-help">En @(_categorias.FirstOrDefault(c => c.Id == _categoriaSel)?.Nombre ?? "la categoria")@(_carpPadreNombre is null ? "" : " / " + _carpPadreNombre).</p>
+                <div class="field">
+                    <label class="form-label">Nombre *</label>
+                    <input class="gd-input w100" @bind="_carpNombre" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Descripcion</label>
+                    <input class="gd-input w100" @bind="_carpDescripcion" />
+                </div>
+                @if (_carpError is not null)
+                {
+                    <div class="tk-field-error">@_carpError</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="gd-btn" @onclick="() => _carpOpen = false">Cancelar</button>
+                <button class="gd-btn primary" @onclick="GuardarCarpetaAsync" disabled="@_ocupado">Crear</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     /// <summary>Clave del modulo en la matriz de roles. Es la RUTA, igual que en el resto (ADR-0033).</summary>
     private const string ModuleKey = "gestor-documental";
@@ -629,6 +862,37 @@ else
     private bool _nuevoExpOpen;
     private Guid? _fSubserieId;
     private string _fExpNombre = "";
+
+    // ---- Modal configuracion (categorias + etiquetas) ----
+    private bool _cfgOpen;
+    private string _cfgTab = "categorias";
+    private string? _cfgError;
+    private Guid? _catEditId;
+    private string _catNombre = "";
+    private string _catDescripcion = "";
+    private string _catColor = "#2563eb";
+    private Guid? _etqEditId;
+    private string _etqNombre = "";
+    private string _etqColor = "#2563eb";
+
+    // ---- Modal editor de la TRD ----
+    private bool _trdOpen;
+    private string? _trdError;
+    private Guid? _trdSerieSel;
+    private Guid? _trdSubserieSel;
+    private string _serieNombre = "";
+    private string _subserieNombre = "";
+    private string _tipoNombre = "";
+    private bool _tipoOblig;
+    private string _campoLabel = "";
+
+    // ---- Modal nueva carpeta ----
+    private bool _carpOpen;
+    private Guid? _carpPadreId;
+    private string? _carpPadreNombre;
+    private string _carpNombre = "";
+    private string _carpDescripcion = "";
+    private string? _carpError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -977,10 +1241,304 @@ else
         _expedientes = (await ExpSvc.ListarExpedientesAsync()).ToList();
     }
 
-    // Pantallas de configuracion (categorias/etiquetas y TRD): pendientes de esta entrega.
-    private void AbrirConfiguracion() => Avisar("La configuracion de categorias y etiquetas llega en la siguiente entrega.", false);
-    private void AbrirTrd() => Avisar("El editor de la TRD llega en la siguiente entrega.", false);
-    private void AbrirNuevaCarpeta(Guid? padreId) => Avisar("La creacion de carpetas llega en la siguiente entrega.", false);
+    // =======================================================================
+    // Configuracion: categorias + etiquetas (Ola 1)
+    // =======================================================================
+
+    private void AbrirConfiguracion()
+    {
+        _cfgTab = "categorias";
+        ResetCategoriaForm();
+        ResetEtiquetaForm();
+        _cfgError = null;
+        _cfgOpen = true;
+    }
+
+    private void ResetCategoriaForm()
+    {
+        _catEditId = null;
+        _catNombre = "";
+        _catDescripcion = "";
+        _catColor = "#2563eb";
+    }
+
+    private void EditarCategoria(CategoriaDto c)
+    {
+        _catEditId = c.Id;
+        _catNombre = c.Nombre;
+        _catDescripcion = c.Descripcion ?? "";
+        _catColor = string.IsNullOrWhiteSpace(c.Color) ? "#2563eb" : c.Color!;
+    }
+
+    private async Task GuardarCategoriaCfgAsync()
+    {
+        _cfgError = null;
+        if (string.IsNullOrWhiteSpace(_catNombre)) { _cfgError = "Escribe el nombre de la categoria."; return; }
+        _ocupado = true;
+        try
+        {
+            var req = new GuardarCategoriaRequest(
+                _catNombre.Trim(),
+                string.IsNullOrWhiteSpace(_catDescripcion) ? null : _catDescripcion.Trim(),
+                "folder", _catColor, _categorias.Count);
+            var res = _catEditId is Guid id
+                ? await DocSvc.ActualizarCategoriaAsync(id, req)
+                : await DocSvc.CrearCategoriaAsync(req);
+            if (!res.IsOk) { _cfgError = res.Error; return; }
+            ResetCategoriaForm();
+            _categorias = (await DocSvc.ListarCategoriasAsync()).ToList();
+            _resumen = await DocSvc.GetResumenAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task DesactivarCategoriaAsync(Guid id)
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "Quitar esta categoria? Solo se puede si no tiene documentos activos.");
+        if (!ok) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.DesactivarCategoriaAsync(id);
+            if (!res.IsOk) { _cfgError = res.Error; return; }
+            if (_categoriaSel == id) { _categoriaSel = null; _carpetas = new(); }
+            _categorias = (await DocSvc.ListarCategoriasAsync()).ToList();
+            _resumen = await DocSvc.GetResumenAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void ResetEtiquetaForm()
+    {
+        _etqEditId = null;
+        _etqNombre = "";
+        _etqColor = "#2563eb";
+    }
+
+    private void EditarEtiqueta(EtiquetaDto e)
+    {
+        _etqEditId = e.Id;
+        _etqNombre = e.Nombre;
+        _etqColor = string.IsNullOrWhiteSpace(e.Color) ? "#2563eb" : e.Color!;
+    }
+
+    private async Task GuardarEtiquetaCfgAsync()
+    {
+        _cfgError = null;
+        if (string.IsNullOrWhiteSpace(_etqNombre)) { _cfgError = "Escribe el nombre de la etiqueta."; return; }
+        _ocupado = true;
+        try
+        {
+            var req = new GuardarEtiquetaRequest(_etqNombre.Trim(), _etqColor);
+            var res = _etqEditId is Guid id
+                ? await DocSvc.ActualizarEtiquetaAsync(id, req)
+                : await DocSvc.CrearEtiquetaAsync(req);
+            if (!res.IsOk) { _cfgError = res.Error; return; }
+            ResetEtiquetaForm();
+            _etiquetas = (await DocSvc.ListarEtiquetasAsync()).ToList();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task DesactivarEtiquetaAsync(Guid id)
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "Quitar esta etiqueta?");
+        if (!ok) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.DesactivarEtiquetaAsync(id);
+            if (!res.IsOk) { _cfgError = res.Error; return; }
+            _etiquetas = (await DocSvc.ListarEtiquetasAsync()).ToList();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // =======================================================================
+    // Editor de la TRD (Ola 1)
+    // =======================================================================
+
+    private async Task AbrirTrd()
+    {
+        _trdError = null;
+        _serieNombre = _subserieNombre = _tipoNombre = _campoLabel = "";
+        _tipoOblig = false;
+        await RecargarTrdAsync();
+        _trdOpen = true;
+    }
+
+    private async Task RecargarTrdAsync()
+    {
+        _trd = (await ExpSvc.ListarTrdAsync()).ToList();
+        // Mantener la seleccion si sigue viva; si no, limpiarla.
+        if (_trdSerieSel is Guid s && _trd.All(x => x.Id != s)) { _trdSerieSel = null; _trdSubserieSel = null; }
+        if (_trdSubserieSel is not null && SubserieSel is null) { _trdSubserieSel = null; }
+    }
+
+    private void SeleccionarSerie(Guid id) { _trdSerieSel = id; _trdSubserieSel = null; }
+    private void SeleccionarSubserie(Guid id) => _trdSubserieSel = id;
+
+    private IReadOnlyList<TrdSubserieDto> SubseriesDe(Guid serieId)
+        => _trd.FirstOrDefault(s => s.Id == serieId)?.Subseries ?? Array.Empty<TrdSubserieDto>();
+
+    private TrdSubserieDto? SubserieSel
+        => _trdSubserieSel is Guid id ? _trd.SelectMany(s => s.Subseries).FirstOrDefault(x => x.Id == id) : null;
+
+    private async Task CrearSerieAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_serieNombre)) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CrearSerieAsync(new CrearSerieRequest(_serieNombre.Trim()));
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            _serieNombre = "";
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task EliminarSerieAsync(Guid id)
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "Quitar esta serie y sus subseries? Los expedientes ya abiertos no se afectan (guardan copia).");
+        if (!ok) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.EliminarSerieAsync(id);
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            if (_trdSerieSel == id) { _trdSerieSel = null; _trdSubserieSel = null; }
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CrearSubserieAsync()
+    {
+        if (_trdSerieSel is not Guid serieId || string.IsNullOrWhiteSpace(_subserieNombre)) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CrearSubserieAsync(new CrearSubserieRequest(serieId, _subserieNombre.Trim()));
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            _subserieNombre = "";
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task EliminarSubserieAsync(Guid id)
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", "Quitar esta subserie?");
+        if (!ok) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.EliminarSubserieAsync(id);
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            if (_trdSubserieSel == id) { _trdSubserieSel = null; }
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CrearTipologiaCfgAsync()
+    {
+        if (_trdSubserieSel is not Guid subId || string.IsNullOrWhiteSpace(_tipoNombre)) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CrearTipologiaCfgAsync(new CrearTipologiaCfgRequest(subId, _tipoNombre.Trim(), _tipoOblig));
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            _tipoNombre = "";
+            _tipoOblig = false;
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task EliminarTipologiaCfgAsync(Guid id)
+    {
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.EliminarTipologiaCfgAsync(id);
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CrearCampoCfgAsync()
+    {
+        if (_trdSubserieSel is not Guid subId || string.IsNullOrWhiteSpace(_campoLabel)) { return; }
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.CrearCampoCfgAsync(new CrearCampoCfgRequest(subId, _campoLabel.Trim()));
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            _campoLabel = "";
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task EliminarCampoCfgAsync(Guid id)
+    {
+        _ocupado = true;
+        try
+        {
+            var res = await ExpSvc.EliminarCampoCfgAsync(id);
+            if (!res.IsOk) { _trdError = res.Error; return; }
+            await RecargarTrdAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // =======================================================================
+    // Nueva carpeta (Ola 1)
+    // =======================================================================
+
+    private void AbrirNuevaCarpeta(Guid? padreId)
+    {
+        if (_categoriaSel is null) { Avisar("Elige primero una categoria en el panel de la izquierda.", true); return; }
+        _carpPadreId = padreId;
+        _carpPadreNombre = padreId is Guid pid ? BuscarCarpetaNombre(_carpetas, pid) : null;
+        _carpNombre = "";
+        _carpDescripcion = "";
+        _carpError = null;
+        _carpOpen = true;
+    }
+
+    private async Task GuardarCarpetaAsync()
+    {
+        _carpError = null;
+        if (_categoriaSel is not Guid catId) { _carpError = "No hay categoria seleccionada."; return; }
+        if (string.IsNullOrWhiteSpace(_carpNombre)) { _carpError = "Escribe el nombre de la carpeta."; return; }
+        _ocupado = true;
+        try
+        {
+            var res = await DocSvc.CrearCarpetaAsync(new CrearCarpetaRequest(
+                catId, _carpPadreId, _carpNombre.Trim(),
+                string.IsNullOrWhiteSpace(_carpDescripcion) ? null : _carpDescripcion.Trim()));
+            if (!res.IsOk) { _carpError = res.Error; return; }
+            _carpOpen = false;
+            _carpetas = (await DocSvc.ListarCarpetasAsync(catId)).ToList();
+            Avisar("Carpeta creada.", false);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private static string? BuscarCarpetaNombre(IReadOnlyList<CarpetaDto> nodos, Guid id)
+    {
+        foreach (var n in nodos)
+        {
+            if (n.Id == id) { return n.Nombre; }
+            var hit = BuscarCarpetaNombre(n.Subcarpetas, id);
+            if (hit is not null) { return hit; }
+        }
+        return null;
+    }
 
     // =======================================================================
     // Apoyo

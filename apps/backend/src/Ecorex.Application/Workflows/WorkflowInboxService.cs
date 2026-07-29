@@ -28,17 +28,165 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
     private readonly ITenantContext _tenantContext;
     private readonly INodeAssigneeResolver _resolver;
     private readonly IWorkflowEngine _engine;
+    private readonly IWorkflowDesignService _design;
 
     public WorkflowInboxService(
         IApplicationDbContext db,
         ITenantContext tenantContext,
         INodeAssigneeResolver resolver,
-        IWorkflowEngine engine)
+        IWorkflowEngine engine,
+        IWorkflowDesignService design)
     {
         _db = db;
         _tenantContext = tenantContext;
         _resolver = resolver;
         _engine = engine;
+        _design = design;
+    }
+
+    public async Task<TaskFlowDiagramDto?> GetTaskFlowDiagramAsync(
+        Guid taskId, Guid viewerTenantUserId, CancellationToken cancellationToken = default)
+    {
+        // La tarea debe venir de un flujo: instancia -> definicion (geometria) + historial (estado).
+        var task = await _db.TaskItems.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task?.WorkflowInstanceId is not Guid instanceId) { return null; }
+        var instance = await _db.WorkflowInstances.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == instanceId, cancellationToken);
+        if (instance is null) { return null; }
+
+        // Geometria + aristas + nombre (reusa el canvas del editor; solo lectura).
+        var canvas = await _design.GetCanvasAsync(instance.DefinitionId, cancellationToken);
+        if (canvas is null || canvas.Nodes.Count == 0) { return null; }
+
+        // Estado por nodo: el step del CICLO vigente (mayor CycleIndex) de cada nodo de esta instancia.
+        var histories = await _db.WorkflowStepHistories.AsNoTracking()
+            .Where(s => s.InstanceId == instanceId)
+            .Select(s => new
+            {
+                s.Id, s.NodeId, s.Status, s.IsCurrent, s.CycleIndex,
+                s.ExecutedByTenantUserId, s.ApprovalComment,
+                s.AssignedToTenantUserId, s.CreatedAt, s.CompletedAt
+            })
+            .ToListAsync(cancellationToken);
+        var latestByNode = histories
+            .GroupBy(h => h.NodeId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(h => h.CycleIndex).First());
+        var stepIdToNodeId = histories.ToDictionary(h => h.Id, h => h.NodeId);
+
+        // Nodos con agente (automaticos): a lo sumo uno por nodo.
+        var nodeIds = canvas.Nodes.Select(n => n.Id).ToList();
+        var agentByNode = await (
+            from a in _db.WorkflowNodeAgents.AsNoTracking()
+            where nodeIds.Contains(a.NodeId)
+            join ag in _db.AiAgents.AsNoTracking() on a.AiAgentId equals ag.Id into agj
+            from ag in agj.DefaultIfEmpty()
+            select new { a.NodeId, AgentName = ag != null ? ag.Name : null })
+            .ToDictionaryAsync(x => x.NodeId, x => x.AgentName, cancellationToken);
+
+        var userLabels = await _db.TenantUsers.AsNoTracking()
+            .Select(u => new { u.Id, u.Email })
+            .ToDictionaryAsync(u => u.Id, u => u.Email, cancellationToken);
+
+        // Cargo(s) del nodo (WorkflowNodePolicy -> OrgUnit del organigrama): el "cargo que atiende".
+        var cargoRows = await (
+            from p in _db.WorkflowNodePolicies.AsNoTracking()
+            where nodeIds.Contains(p.WorkflowNodeId)
+            join ou in _db.OrgUnits.AsNoTracking() on p.OrgUnitId equals ou.Id
+            orderby p.SortOrder
+            select new { p.WorkflowNodeId, ou.Name }).ToListAsync(cancellationToken);
+        var cargoByNode = cargoRows
+            .GroupBy(x => x.WorkflowNodeId)
+            .ToDictionary(g => g.Key, g => string.Join(" / ", g.Select(x => x.Name)));
+
+        // Pasos que el VIEWER puede atender en esta tarea (reusa candidatura + opciones de gateway).
+        var myPending = (await GetMyPendingStepsAsync(viewerTenantUserId, cancellationToken))
+            .Where(s => s.TaskItemId == taskId)
+            .ToList();
+        var myByNode = myPending
+            .Where(p => stepIdToNodeId.ContainsKey(p.StepId))
+            .GroupBy(p => stepIdToNodeId[p.StepId])
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // Rutas de compuerta: si un nodo entra a un ExclusiveGateway, sus salidas son las RUTAS
+        // (aprobado/rechazado + paso destino) que se muestran en el menu, coloreadas verde/rojo.
+        var nameById = canvas.Nodes.ToDictionary(x => x.Id, x => x.Name);
+        var gatewayIds = canvas.Nodes
+            .Where(x => x.NodeType == WorkflowNodeType.ExclusiveGateway)
+            .Select(x => x.Id).ToHashSet();
+        var routesByNode = new Dictionary<Guid, IReadOnlyList<TaskFlowRouteDto>>();
+        foreach (var cn in canvas.Nodes)
+        {
+            var gwEdge = canvas.Edges.FirstOrDefault(x => x.SourceNodeId == cn.Id && gatewayIds.Contains(x.TargetNodeId));
+            if (gwEdge is null) { continue; }
+            var routes = canvas.Edges
+                .Where(x => x.SourceNodeId == gwEdge.TargetNodeId && !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => new TaskFlowRouteDto(
+                    x.Name!.Trim(),
+                    nameById.TryGetValue(x.TargetNodeId, out var tn) ? tn : null,
+                    ClassifyRoute(x.Name, x.ConditionExpression)))
+                .ToList();
+            if (routes.Count > 0) { routesByNode[cn.Id] = routes; }
+        }
+
+        var nodes = canvas.Nodes.Select(n =>
+        {
+            latestByNode.TryGetValue(n.Id, out var h);
+            var state = h is null
+                ? TaskFlowNodeState.Pending
+                : h.Status == WorkflowStepStatus.Completed ? TaskFlowNodeState.Completed
+                : h.Status == WorkflowStepStatus.Rejected ? TaskFlowNodeState.Rejected
+                : h.Status == WorkflowStepStatus.Skipped ? TaskFlowNodeState.Skipped
+                : h.IsCurrent ? TaskFlowNodeState.Current
+                : TaskFlowNodeState.Pending;
+            myByNode.TryGetValue(n.Id, out var my);
+            var isAuto = agentByNode.TryGetValue(n.Id, out var agentName);
+            var by = h?.ExecutedByTenantUserId is Guid ex && userLabels.TryGetValue(ex, out var em) ? em : null;
+            var assignee = h?.AssignedToTenantUserId is Guid asg && userLabels.TryGetValue(asg, out var al) ? al : null;
+            // Ultima actividad reportada: cierre si ya cerro, si no el momento en que el paso quedo vigente.
+            DateTimeOffset? lastAt = h?.CompletedAt ?? h?.CreatedAt;
+            // En espera: solo tiene sentido en el paso vigente (aun sin cerrar).
+            DateTimeOffset? waitingSince = state == TaskFlowNodeState.Current ? h?.CreatedAt : null;
+            return new TaskFlowNodeDto(
+                NodeId: n.Id,
+                Name: n.Name,
+                NodeType: n.NodeType,
+                X: n.X, Y: n.Y, W: n.W, H: n.H,
+                State: state,
+                IsCurrent: h?.IsCurrent ?? false,
+                IsMine: my?.IsMine ?? false,
+                IsClaimable: my?.IsClaimable ?? false,
+                StepId: my?.StepId,
+                HasForm: my?.HasForm ?? false,
+                ApprovalOptions: my?.ApprovalOptions ?? Array.Empty<string>(),
+                IsAuto: isAuto,
+                AgentName: agentName,
+                ByLabel: by,
+                Note: h?.ApprovalComment,
+                HasNote: !string.IsNullOrWhiteSpace(h?.ApprovalComment),
+                AssigneeLabel: assignee,
+                LastActivityAt: lastAt,
+                WaitingSince: waitingSince,
+                Routes: routesByNode.TryGetValue(n.Id, out var nodeRoutes) ? nodeRoutes : null,
+                CargoLabel: cargoByNode.TryGetValue(n.Id, out var cargo) ? cargo : null);
+        }).ToList();
+
+        var edges = canvas.Edges
+            .Select(e => new TaskFlowEdgeDto(
+                e.SourceNodeId, e.TargetNodeId, e.Name,
+                !string.IsNullOrWhiteSpace(e.ConditionExpression),
+                gatewayIds.Contains(e.SourceNodeId) ? ClassifyRoute(e.Name, e.ConditionExpression) : TaskFlowRouteKind.Neutral))
+            .ToList();
+
+        var minX = canvas.Nodes.Min(n => n.X);
+        var minY = canvas.Nodes.Min(n => n.Y);
+        var maxX = canvas.Nodes.Max(n => n.X + n.W);
+        var maxY = canvas.Nodes.Max(n => n.Y + n.H);
+
+        return new TaskFlowDiagramDto(
+            FlowName: canvas.Name,
+            MinX: minX, MinY: minY, Width: maxX - minX, Height: maxY - minY,
+            Nodes: nodes, Edges: edges);
     }
 
     public async Task<IReadOnlyList<PendingStepDto>> GetMyPendingStepsAsync(
@@ -307,5 +455,22 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
     {
         var candidates = await _resolver.ResolveCandidatesAsync(node.Id, cancellationToken);
         return candidates.Contains(tenantUserId);
+    }
+
+    /// <summary>Clasifica una rama de compuerta: aprobado (verde) o rechazado (rojo). Prioriza el NOMBRE
+    /// de la rama (lo que ve el usuario: "Aprobada"/"Rechazada") y solo cae a la condicion si el nombre no
+    /// dice nada. Ojo: la condicion de "Rechazada" suele NEGAR "Approved" (contiene 'approv'), por eso NO
+    /// se debe clasificar por la condicion cuando el nombre ya es claro (bug: rechazada salia verde).</summary>
+    private static TaskFlowRouteKind ClassifyRoute(string? name, string? condition)
+    {
+        var n = (name ?? "").ToLowerInvariant();
+        // Rechazo primero: si el nombre dice rechazo, es rojo aunque la condicion mencione "approved".
+        if (n.Contains("rech") || n.Contains("reject") || n.Contains("deneg") || n.Contains("declin")) { return TaskFlowRouteKind.Reject; }
+        if (n.Contains("aprob") || n.Contains("approv") || n.Contains("acept") || n.Contains("autoriz")) { return TaskFlowRouteKind.Approve; }
+        // Fallback: solo si el nombre no clasifica, mirar la condicion (con el mismo orden rechazo-primero).
+        var c = (condition ?? "").ToLowerInvariant();
+        if (c.Contains("rech") || c.Contains("reject") || c.Contains("!=") || c.Contains("false")) { return TaskFlowRouteKind.Reject; }
+        if (c.Contains("aprob") || c.Contains("approv") || c.Contains("==") || c.Contains("true")) { return TaskFlowRouteKind.Approve; }
+        return TaskFlowRouteKind.Neutral;
     }
 }

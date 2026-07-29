@@ -42,4 +42,14 @@ public interface IWorkflowInboxService
     Task<WorkflowResult<WorkflowInstanceDto>> CompletePendingStepAsync(
         Guid stepId, Guid tenantUserId, string? approvalResult, string? approvalComment,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Diagrama del flujo de una TAREA de proceso (ADR-0051): une la geometria de la definicion
+    /// (nodos con X/Y/W/H + aristas) con el ESTADO por nodo del runtime (cerrado/actual/pendiente)
+    /// y marca los nodos de agente. Puebla, para el viewer, StepId/IsMine/IsClaimable/ApprovalOptions
+    /// de los pasos current que puede atender (cerrar EN ORDEN, con nota). Null si la tarea no viene
+    /// de un flujo. Solo lectura.
+    /// </summary>
+    Task<TaskFlowDiagramDto?> GetTaskFlowDiagramAsync(
+        Guid taskId, Guid viewerTenantUserId, CancellationToken cancellationToken = default);
 }

@@ -21,7 +21,7 @@
     var readOnly = item.Status == TaskItemStatus.Closed;
     var targets = TaskItemStateMachine.AllowedTargets(item.Status);
     <div class="modal-overlay" @onclick="CloseAsync">
-        <div class="tk-detail" @onclick:stopPropagation="true" @onclick="CloseMenus">
+        <div class="tk-detail tk-detail-tabbed @(_flowDiagram is not null ? "tk-detail-flow" : "")" @onclick:stopPropagation="true" @onclick="CloseMenus">
             @* ===== Hero: numero + titulo + meta pills ===== *@
             <div class="tk-detail-head">
                 <div class="tk-detail-head-main">
@@ -226,7 +226,196 @@
                 }
             </div>
 
-            @* ===== Cuerpo 2 columnas ===== *@
+            @* ===== FLUJO DEL PROCESO (ADR-0051): solo si la tarea viene de un flujo ===== *@
+            @if (_flowDiagram is TaskFlowDiagramDto flow)
+            {
+                <div class="tk-flow-card">
+                    <div class="tk-flow-cardhead">
+                        <div>
+                            <div class="tk-flow-name">@flow.FlowName</div>
+                            <div class="tk-flow-hint">Abre el menu de un nodo para anotar o cerrar. Solo el paso actual asignado a ti es cerrable, y en orden.</div>
+                        </div>
+                        <div class="tk-flow-headright">
+                            <div class="tk-flow-legend">
+                                <span><span class="tk-flow-key" style="background:var(--t-blue)"></span>Automatico</span>
+                                <span><span class="tk-flow-key" style="background:var(--t-violet)"></span>Manual</span>
+                                <span><span class="tk-flow-key" style="background:var(--t-green)"></span>Cerrado</span>
+                            </div>
+                            <div class="tk-flow-zoom">
+                                <button class="tk-flow-zbtn" title="Alejar" @onclick="FlowZoomOut">&#8722;</button>
+                                <span class="tk-flow-zval">@((int)Math.Round(_flowZoom * 100))%</span>
+                                <button class="tk-flow-zbtn" title="Acercar" @onclick="FlowZoomIn">&#43;</button>
+                                <button class="tk-flow-zbtn" title="Restablecer zoom" @onclick="FlowZoomReset">&#10530;</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tk-flow-scroller">
+                        <div class="tk-flow-canvas" style="width:@(FlowCanvasW(flow))px;height:@(FlowCanvasH(flow))px;zoom:@FlowZoomStr">
+                            <svg class="tk-flow-edges" width="@(FlowCanvasW(flow))" height="@(FlowCanvasH(flow))">
+                                <defs>
+                                    <marker id="tkflowarrow" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--ink-3)" /></marker>
+                                    <marker id="tkflowarrow-a" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--t-green, #16a34a)" /></marker>
+                                    <marker id="tkflowarrow-r" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--t-rose, #dc2626)" /></marker>
+                                </defs>
+                                @foreach (var e in flow.Edges)
+                                {
+                                    var p = FlowEdgePath(flow, e);
+                                    if (p is null) { continue; }
+                                    var stroke = FlowEdgeStroke(e.Kind);
+                                    <path d="@p.Value.D" fill="none" stroke="@stroke" stroke-width="2" marker-end="url(#@FlowEdgeMarker(e.Kind))" />
+                                    <circle cx="@p.Value.Sx" cy="@p.Value.Sy" r="3.5" fill="@stroke" />
+                                    <circle cx="@p.Value.Tx" cy="@p.Value.Ty" r="3.5" fill="@stroke" />
+                                }
+                            </svg>
+                            @* Etiquetas de aristas condicionales como divs (evita el choque de <text> con Razor). *@
+                            @foreach (var e in flow.Edges)
+                            {
+                                if (!e.IsCondition || string.IsNullOrWhiteSpace(e.Label)) { continue; }
+                                var p = FlowEdgePath(flow, e);
+                                if (p is null) { continue; }
+                                <div class="tk-flow-elabel" style="left:@(p.Value.Lx)px;top:@(p.Value.Ly)px">@e.Label</div>
+                            }
+                            @foreach (var n in flow.Nodes)
+                            {
+                                var nn = n;
+                                var isGw = nn.NodeType == WorkflowNodeType.ExclusiveGateway;
+                                var isEvent = nn.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
+                                var canAct = nn.IsCurrent && nn.IsMine && nn.StepId is not null && !nn.HasForm;
+                                var accent = nn.IsAuto ? "var(--t-blue)" : "var(--t-violet)";
+                                <div class="tk-flow-node @(isGw ? "gw" : "") @(isEvent ? "ev" : "") @(nn.State == TaskFlowNodeState.Completed ? "done" : "") @(nn.IsCurrent ? "current" : "") @(_flowDragNode == nn.NodeId ? "dragging" : "")"
+                                     style="left:@(FlowNodeLeft(flow, nn))px;top:@(FlowNodeTop(flow, nn))px;width:@(FlowNodeW(nn))px;height:@(FlowNodeH(nn))px;@(isGw || isEvent ? "" : $"border-left:3px solid {accent};")"
+                                     draggable="true"
+                                     @ondragstart="@(e => FlowDragStart(nn, e))" @ondragstart:stopPropagation="true"
+                                     @ondragend="FlowDragEnd" @ondragend:stopPropagation="true"
+                                     @onclick:stopPropagation="true">
+                                    @if (isGw)
+                                    {
+                                        <div class="tk-flow-gw"></div>
+                                        <button class="tk-flow-dots tk-flow-gw-dots" title="Ver paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                    }
+                                    else if (isEvent)
+                                    {
+                                        <div class="tk-flow-ev-dot @(nn.NodeType == WorkflowNodeType.EndEvent ? "end" : "")"></div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tk-flow-node-body">
+                                            <div class="tk-flow-node-title">
+                                                <span class="tk-flow-node-name">@(nn.Name ?? "(paso)")</span>
+                                                <button class="tk-flow-dots" title="Menu del paso" @onclick="@(() => ToggleFlowMenu(nn))">&#8943;</button>
+                                            </div>
+                                            <div class="tk-flow-meta">
+                                                @if (!string.IsNullOrWhiteSpace(nn.CargoLabel) || !string.IsNullOrWhiteSpace(nn.AssigneeLabel))
+                                                {
+                                                    <div class="tk-flow-metarow" title="Cargo: @(nn.CargoLabel ?? "-") &#183; Usuario: @(nn.AssigneeLabel ?? "sin asignar")">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                                                        <span>@FlowCargoLine(nn)</span>
+                                                    </div>
+                                                }
+                                                @if (nn.LastActivityAt is not null)
+                                                {
+                                                    <div class="tk-flow-metarow" title="Ultima actividad reportada">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                                                        <span>@FlowShortDate(nn.LastActivityAt)</span>
+                                                    </div>
+                                                }
+                                                @if (nn.WaitingSince is not null)
+                                                {
+                                                    <div class="tk-flow-metarow wait" title="Tiempo en espera de este paso">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4A2 2 0 0 0 17 6.2V2" /></svg>
+                                                        <span>en espera @FlowWaiting(nn.WaitingSince)</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="tk-flow-badges">
+                                                @if (nn.IsAuto) { <span class="tk-flow-badge auto">AUTOMATICO</span> }
+                                                @if (nn.State == TaskFlowNodeState.Completed) { <span class="tk-flow-badge done">CERRADO</span> }
+                                                @if (nn.HasNote) { <span title="Tiene anotacion">&#128172;</span> }
+                                            </div>
+                                        </div>
+                                    }
+                                    @if (_flowMenuNodeId == nn.NodeId)
+                                    {
+                                        <div class="tk-flow-menu" draggable="false" @onclick:stopPropagation="true">
+                                            @if (nn.IsAuto)
+                                            {
+                                                <div class="tk-flow-menu-t">PASO AUTOMATICO</div>
+                                                <div class="tk-flow-menu-note">Lo atiende el agente@(string.IsNullOrWhiteSpace(nn.AgentName) ? "" : " " + nn.AgentName). El cierre por agente llega en una proxima ola.</div>
+                                            }
+                                            else if (canAct && (nn.Routes is { Count: > 0 } || nn.ApprovalOptions.Count > 0))
+                                            {
+                                                <div class="tk-flow-menu-t">QUE RUTA TOMAR?</div>
+                                                @if (nn.Routes is { Count: > 0 } routes)
+                                                {
+                                                    @foreach (var r in routes)
+                                                    {
+                                                        var rr = r;
+                                                        <button class="tk-flow-route @FlowRouteClass(rr.Kind)" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, rr.Option, _flowNote))">
+                                                            <span class="tk-flow-route-opt">@rr.Option</span>
+                                                            @if (!string.IsNullOrWhiteSpace(rr.TargetName))
+                                                            {
+                                                                <span class="tk-flow-route-to">&#8594; @rr.TargetName</span>
+                                                            }
+                                                        </button>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    @foreach (var opt in nn.ApprovalOptions)
+                                                    {
+                                                        var o = opt;
+                                                        <button class="tk-flow-route" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, o, _flowNote))">&#8594; @o</button>
+                                                    }
+                                                }
+                                                <textarea class="tk-flow-textarea" placeholder="Anotacion (opcional)..." @bind="_flowNote"></textarea>
+                                                <div class="tk-flow-menu-note" style="margin-top:6px;">Al elegir, el sistema toma esa ruta y la actividad pasa al usuario que corresponda.</div>
+                                            }
+                                            else if (canAct)
+                                            {
+                                                <div class="tk-flow-menu-t">ANOTACION PARA EL EQUIPO</div>
+                                                <textarea class="tk-flow-textarea" placeholder="Escribe una nota..." @bind="_flowNote"></textarea>
+                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => CompleteFlowNodeAsync(nn.StepId!.Value, null, _flowNote))">Cerrar paso</button>
+                                            }
+                                            else if (nn.IsClaimable && nn.StepId is not null)
+                                            {
+                                                <div class="tk-flow-menu-t">PASO SIN RECLAMAR</div>
+                                                <button class="tk-flow-close" disabled="@_busy" @onclick="@(() => ClaimFlowNodeAsync(nn.StepId!.Value))">Tomar este paso</button>
+                                            }
+                                            else if (nn.IsCurrent && nn.HasForm)
+                                            {
+                                                <div class="tk-flow-menu-t">PASO CON FORMULARIO</div>
+                                                <div class="tk-flow-menu-note">Este paso se atiende en la seccion "Formularios del paso".</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="tk-flow-menu-t">@FlowStateLabel(nn.State)</div>
+                                                <div class="tk-flow-menu-note">@(string.IsNullOrWhiteSpace(nn.Note) ? "Sin anotacion." : nn.Note)</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                    @if (_actionError is not null)
+                    {
+                        <div class="tk-field-error" style="margin-top:10px;">@_actionError</div>
+                    }
+                </div>
+            }
+
+            @* ===== Split: contenido con tabs (izq) + Bitacora en columna lateral (der) ===== *@
+            <div class="tk-detail-split">
+              <div class="tk-detail-left">
+                <div class="tk-detail-tabs">
+                    <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(_stepForms.Count > 0 ? $" ({_stepForms.Count})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
+                </div>
+
+                @* ===== Tab: Detalle (cuerpo 2 columnas) ===== *@
+                @if (_modalTab == "detalle")
+                {
             <div class="tk-detail-body">
                 <div class="tk-detail-main">
                     @* Descripcion *@
@@ -483,35 +672,6 @@
                         </div>
                     </div>
 
-                    @* Formularios del paso (FASE 4 ola 2, ADR-0015): pasos current del flujo
-                       cuyo nodo exige un formulario. Mientras el link este Pending, el paso
-                       se completa UNICAMENTE enviando el formulario (no hay boton manual). *@
-                    @if (_stepForms.Count > 0)
-                    {
-                        <div class="tk-card">
-                            <div class="tk-card-head"><h3>Formularios del paso</h3></div>
-                            @foreach (var sf in _stepForms)
-                            {
-                                <div class="tk-summary-row" style="align-items:center;gap:8px;">
-                                    <span style="flex:1;min-width:0;">
-                                        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
-                                        <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
-                                    </span>
-                                    @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
-                                    {
-                                        <span class="tk-status st-pending">Pendiente</span>
-                                        <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepForm(sf))" disabled="@_busy">Diligenciar</button>
-                                    }
-                                    else
-                                    {
-                                        <span class="tk-status st-done">Enviado</span>
-                                    }
-                                </div>
-                            }
-                            <p class="tk-empty-note" style="margin-top:8px;">El paso del flujo se completa al enviar el formulario.</p>
-                        </div>
-                    }
-
                     @* Flujo (runtime, ola F2, ADR-0036): paso current del flujo y, si el usuario
                        es candidato, Atender directo (completar/aprobar). Los pasos con formulario
                        se atienden por la seccion "Formularios del paso" de arriba. *@
@@ -559,62 +719,163 @@
                         </div>
                     }
 
-                    @* Actividad (comentarios + acciones) *@
-                    <div class="tk-card">
-                        <div class="tk-card-head"><h3>Actividad</h3></div>
-                        @if (!readOnly)
-                        {
-                            <div class="tk-comment-box">
-                                <textarea class="form-control" rows="2" @bind="_newComment" @bind:event="oninput" placeholder="Escribe un comentario..."></textarea>
-                                <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Comentar</button>
-                            </div>
-                        }
-                        <div class="tk-activity-list">
-                            @if (_detail.RecentActivity.Count == 0)
+                </div>
+            </div>
+                }
+
+                @* ===== Tab: Formularios del proceso ===== *@
+                @if (_modalTab == "formularios")
+                {
+                    <div class="tk-tabpane">
+                        <div class="tk-card">
+                            <div class="tk-card-head"><h3>Formularios del proceso</h3></div>
+                            @if (_stepForms.Count == 0)
                             {
-                                <p class="tk-empty-note">Sin actividad reciente.</p>
+                                <p class="tk-empty-note">Este proceso no tiene formularios pendientes en el paso actual.</p>
                             }
-                            @foreach (var a in _detail.RecentActivity)
+                            @foreach (var sf in _stepForms)
                             {
-                                <div class="tk-activity-item">
-                                    <span class="tb-avatar" title="@a.ActorName">@TaskUi.InitialsOf(a.ActorName)</span>
-                                    <div class="tk-activity-body">
-                                        @if (a.Type == TaskActivityType.Comment)
-                                        {
-                                            <div class="tk-activity-bubble">
-                                                <div class="tk-activity-meta"><strong>@a.ActorName</strong> <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
-                                                <p>@a.Text</p>
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <div class="tk-activity-action"><strong>@a.ActorName</strong> @a.Text <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
-                                        }
-                                    </div>
+                                <div class="tk-summary-row" style="align-items:center;gap:8px;">
+                                    <span style="flex:1;min-width:0;">
+                                        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
+                                        <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
+                                    </span>
+                                    @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
+                                    {
+                                        <span class="tk-status st-pending">Pendiente</span>
+                                        <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepForm(sf))" disabled="@_busy">Diligenciar</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="tk-status st-done">Enviado</span>
+                                    }
                                 </div>
+                            }
+                            @if (_stepForms.Count > 0)
+                            {
+                                <p class="tk-empty-note" style="margin-top:8px;">El paso del flujo se completa al enviar el formulario.</p>
                             }
                         </div>
                     </div>
+                }
 
-                    @* Adjuntos *@
-                    <div class="tk-card">
-                        <div class="tk-card-head"><h3>Adjuntos</h3></div>
+                @* ===== Tab: Documentos (galeria / lista / visor con mini-galeria) ===== *@
+                @if (_modalTab == "documentos")
+                {
+                    <div class="tk-tabpane">
+                        <div class="tk-doc-toolbar">
+                            <div class="tk-doc-modes">
+                                <button type="button" class="tk-doc-mode @(_docMode == "galeria" ? "active" : "")" @onclick='@(() => _docMode = "galeria")' title="Galeria">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                                    Galeria
+                                </button>
+                                <button type="button" class="tk-doc-mode @(_docMode == "lista" ? "active" : "")" @onclick='@(() => _docMode = "lista")' title="Lista">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                                    Lista
+                                </button>
+                                <button type="button" class="tk-doc-mode @(_docMode == "visor" ? "active" : "")" @onclick='@(() => _docMode = "visor")' title="Visor" disabled="@(_detail.Attachments.Count == 0)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    Visor
+                                </button>
+                            </div>
+                            <span class="tk-doc-count">@_detail.Attachments.Count documento(s)</span>
+                        </div>
+
                         @if (_detail.Attachments.Count == 0)
                         {
-                            <p class="tk-empty-note">Sin adjuntos.</p>
+                            <p class="tk-empty-note">Sin documentos.</p>
                         }
-                        @foreach (var att in _detail.Attachments)
+                        else if (_docMode == "galeria")
                         {
-                            <div class="tk-attachment">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>
-                                <a href="@att.Url" target="_blank" rel="noopener" class="tk-attachment-name">@att.FileName</a>
-                                <span class="tk-attachment-meta">@(att.UploadedByName ?? "-") - @TaskUi.FormatRelative(att.CreatedAt)</span>
-                                @if (!readOnly)
+                            <div class="tk-doc-gallery">
+                                @foreach (var att in _detail.Attachments)
                                 {
-                                    <button class="tk-tag-x" title="Eliminar adjunto" @onclick="@(() => DeleteAttachmentAsync(att.Id))">&times;</button>
+                                    var a = att;
+                                    <div class="tk-doc-tile" @onclick="@(() => OpenDocViewer(a))">
+                                        <div class="tk-doc-thumb">
+                                            @if (IsImageAtt(a))
+                                            {
+                                                <img src="@a.Url" alt="@a.FileName" loading="lazy" />
+                                            }
+                                            else
+                                            {
+                                                <span class="tk-doc-ext">@AttExt(a)</span>
+                                            }
+                                        </div>
+                                        <div class="tk-doc-tile-name" title="@a.FileName">@a.FileName</div>
+                                        <div class="tk-doc-tile-meta">@FormatSize(a.SizeBytes) - @TaskUi.FormatRelative(a.CreatedAt)</div>
+                                    </div>
                                 }
                             </div>
                         }
+                        else if (_docMode == "lista")
+                        {
+                            @foreach (var att in _detail.Attachments)
+                            {
+                                var a = att;
+                                <div class="tk-attachment">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>
+                                    <a href="@a.Url" target="_blank" rel="noopener" class="tk-attachment-name">@a.FileName</a>
+                                    <span class="tk-attachment-meta">@(a.UploadedByName ?? "-") - @TaskUi.FormatRelative(a.CreatedAt)</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenDocViewer(a))">Ver</button>
+                                    @if (!readOnly)
+                                    {
+                                        <button class="tk-tag-x" title="Eliminar adjunto" @onclick="@(() => DeleteAttachmentAsync(a.Id))">&times;</button>
+                                    }
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            @* Visor: mini-galeria a la izquierda + preview del documento activo *@
+                            <div class="tk-doc-viewer">
+                                <div class="tk-doc-filmstrip">
+                                    @{ var vi = 0; }
+                                    @foreach (var att in _detail.Attachments)
+                                    {
+                                        var a = att; var idx = vi++;
+                                        <button type="button" class="tk-doc-frame @(idx == _docIndex ? "active" : "")" @onclick="@(() => _docIndex = idx)" title="@a.FileName">
+                                            @if (IsImageAtt(a))
+                                            {
+                                                <img src="@a.Url" alt="@a.FileName" loading="lazy" />
+                                            }
+                                            else
+                                            {
+                                                <span class="tk-doc-ext sm">@AttExt(a)</span>
+                                            }
+                                        </button>
+                                    }
+                                </div>
+                                <div class="tk-doc-stage">
+                                    @{ var cur = _detail.Attachments[Math.Clamp(_docIndex, 0, _detail.Attachments.Count - 1)]; }
+                                    <div class="tk-doc-stage-head">
+                                        <button type="button" class="tk-doc-nav" @onclick="DocPrev" disabled="@(_docIndex <= 0)" title="Anterior">&#8249;</button>
+                                        <span class="tk-doc-stage-name" title="@cur.FileName">@cur.FileName</span>
+                                        <button type="button" class="tk-doc-nav" @onclick="DocNext" disabled="@(_docIndex >= _detail.Attachments.Count - 1)" title="Siguiente">&#8250;</button>
+                                        <a href="@cur.Url" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Abrir</a>
+                                    </div>
+                                    <div class="tk-doc-canvas">
+                                        @if (IsImageAtt(cur))
+                                        {
+                                            <img src="@cur.Url" alt="@cur.FileName" />
+                                        }
+                                        else if (IsPdfAtt(cur))
+                                        {
+                                            <iframe src="@cur.Url" title="@cur.FileName"></iframe>
+                                        }
+                                        else
+                                        {
+                                            <div class="tk-doc-noview">
+                                                <span class="tk-doc-ext lg">@AttExt(cur)</span>
+                                                <p>Vista previa no disponible para este tipo de archivo.</p>
+                                                <a href="@cur.Url" target="_blank" rel="noopener" class="btn btn-sm btn-primary">Descargar / Abrir</a>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
                         @if (!readOnly)
                         {
                             @* TODO FASE posterior: upload real a object storage; por ahora se referencia por URL. *@
@@ -629,7 +890,45 @@
                             }
                         }
                     </div>
-                </div>
+                }
+              </div>
+
+              @* ===== Columna lateral: Bitacora (timeline de la tarea) ===== *@
+              <aside class="tk-detail-bitacora">
+                    <div class="tk-card-head"><h3>Bitacora</h3></div>
+                    @if (!readOnly)
+                    {
+                        <div class="tk-comment-box">
+                            <textarea class="form-control" rows="2" @bind="_newComment" @bind:event="oninput" placeholder="Escribe un comentario..."></textarea>
+                            <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Comentar</button>
+                        </div>
+                    }
+                    <div class="tk-activity-list">
+                        @if (_detail.RecentActivity.Count == 0)
+                        {
+                            <p class="tk-empty-note">Sin actividad reciente.</p>
+                        }
+                        @foreach (var a in _detail.RecentActivity)
+                        {
+                            <div class="tk-activity-item">
+                                <span class="tb-avatar" title="@a.ActorName">@TaskUi.InitialsOf(a.ActorName)</span>
+                                <div class="tk-activity-body">
+                                    @if (a.Type == TaskActivityType.Comment)
+                                    {
+                                        <div class="tk-activity-bubble">
+                                            <div class="tk-activity-meta"><strong>@a.ActorName</strong> <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
+                                            <p>@a.Text</p>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tk-activity-action"><strong>@a.ActorName</strong> @a.Text <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+              </aside>
             </div>
         </div>
     </div>
@@ -715,6 +1014,17 @@
     // Pasos del flujo atendibles por el usuario (bandeja, ola F2, ADR-0036).
     private List<PendingStepDto> _flowSteps = new();
 
+    // Diagrama del flujo de la tarea (ADR-0051): grafo + estado por nodo, para pintar el proceso.
+    private TaskFlowDiagramDto? _flowDiagram;
+    private Guid? _flowMenuNodeId;   // nodo cuyo menu (anotar/cerrar/rutas) esta abierto
+    private string _flowNote = "";   // anotacion del menu del nodo actual
+
+    // Tabs del modal (ADR-0051): Detalle / Formularios / Documentos, con la Bitacora en columna lateral.
+    private string _modalTab = "detalle";
+    // Vista de documentos: galeria / lista / visor (con mini-galeria) + indice del documento en el visor.
+    private string _docMode = "galeria";
+    private int _docIndex;
+
     public async Task OpenAsync(Guid taskId)
     {
         _users = (await TenantUsersSvc.ListAsync()).ToList();
@@ -729,6 +1039,14 @@
         _addAssigneeId = "";
         _tagMenuOpen = false;
         _manualHours = _manualMinutes = null;
+        // Diagrama del flujo: al abrir OTRA tarea, reinicia zoom y los desplazamientos de arrastre.
+        _flowOffsets.Clear();
+        _flowZoom = 1;
+        _flowDragNode = null;
+        // Tabs/visor de documentos: al abrir OTRA tarea, vuelve al Detalle y a la galeria.
+        _modalTab = "detalle";
+        _docMode = "galeria";
+        _docIndex = 0;
         await ReloadAsync(taskId);
         StateHasChanged();
     }
@@ -753,6 +1071,9 @@
             _flowSteps = _actorTenantUserId is Guid me
                 ? (await InboxSvc.GetMyPendingStepsAsync(me)).Where(s => s.TaskItemId == taskId).ToList()
                 : new List<PendingStepDto>();
+            _flowDiagram = null;
+            _flowMenuNodeId = null;
+            _flowNote = "";
             // Columnas del tablero para el dropdown "Mover a" (solo si la tarea esta en un tablero).
             _boardColumns = new List<ActivityBoardColumnDto>();
             if (_detail.Item.BoardId is Guid boardId)
@@ -761,6 +1082,23 @@
                 if (board.IsOk)
                 {
                     _boardColumns = board.Value!.Columns.ToList();
+                }
+            }
+
+            // Diagrama del flujo (ADR-0051): OPCIONAL y al FINAL, para que su carga no afecte lo esencial.
+            // Si falla (p.ej. un corte transitorio de la BD por el tunel de dev), se degrada a "sin
+            // diagrama" SIN tumbar el circuito ni impedir abrir la tarea. Ensancha el modal y pinta el
+            // estado del flujo; el menu de cada nodo actual mio permite cerrar EN ORDEN con nota.
+            if (_actorTenantUserId is Guid meForFlow)
+            {
+                try
+                {
+                    _flowDiagram = await InboxSvc.GetTaskFlowDiagramAsync(taskId, meForFlow);
+                }
+                catch (Exception ex)
+                {
+                    _flowDiagram = null;
+                    Console.Error.WriteLine($"[TaskDetailModal] diagrama de flujo no disponible: {ex.Message}");
                 }
             }
         }
@@ -1017,7 +1355,225 @@
         finally { _busy = false; }
     }
 
+    // ===== Diagrama del flujo (ADR-0051): geometria de edges + acciones por nodo =====
+
+    // Separacion horizontal entre columnas del layout BPMN (algo de aire entre tarjetas). El eje Y se respeta.
+    private const double FlowXScale = 1.02;
+
+    private static string FlowEdgeStroke(TaskFlowRouteKind k) => k switch
+    {
+        TaskFlowRouteKind.Approve => "var(--t-green, #16a34a)",
+        TaskFlowRouteKind.Reject => "var(--t-rose, #dc2626)",
+        _ => "var(--ink-3)"
+    };
+    private static string FlowEdgeMarker(TaskFlowRouteKind k) => k switch
+    {
+        TaskFlowRouteKind.Approve => "tkflowarrow-a",
+        TaskFlowRouteKind.Reject => "tkflowarrow-r",
+        _ => "tkflowarrow"
+    };
+    private static string FlowRouteClass(TaskFlowRouteKind k) => k switch
+    {
+        TaskFlowRouteKind.Approve => "approve",
+        TaskFlowRouteKind.Reject => "reject",
+        _ => ""
+    };
+
+    /// <summary>Linea del footer del nodo: cargo y (si hay) el usuario que lo ocupa. "Cargo: Usuario".</summary>
+    private static string FlowCargoLine(TaskFlowNodeDto n)
+    {
+        var user = FlowShortName(n.AssigneeLabel);
+        if (!string.IsNullOrWhiteSpace(n.CargoLabel) && !string.IsNullOrWhiteSpace(user)) { return $"{n.CargoLabel}: {user}"; }
+        if (!string.IsNullOrWhiteSpace(n.CargoLabel)) { return n.CargoLabel!; }
+        return string.IsNullOrWhiteSpace(user) ? "sin asignar" : user;
+    }
+    // Tamano de render: eventos (inicio/fin) compactos; tareas mas anchas/altas para las etiquetas.
+    private static bool FlowIsEvent(TaskFlowNodeDto n) => n.NodeType is WorkflowNodeType.StartEvent or WorkflowNodeType.EndEvent;
+    private static int FlowNodeW(TaskFlowNodeDto n) => FlowIsEvent(n) ? Math.Min(n.W, 38) : Math.Max(n.W, 132);
+    private static int FlowNodeH(TaskFlowNodeDto n) => FlowIsEvent(n) ? Math.Min(n.H, 38) : Math.Max(n.H, 112);
+
+    // Arrastre "un poco": desplazamiento por nodo (solo de sesion, no se persiste) para reacomodar el
+    // diagrama a gusto. Se suma a la posicion calculada. Se usa HTML5 drag (ondragstart/ondragend), que
+    // NO manda un evento por cada pixel -> nada de lag en Blazor Server (a diferencia de pointermove).
+    private readonly Dictionary<Guid, (int dx, int dy)> _flowOffsets = new();
+    private Guid? _flowDragNode;
+    private double _flowDragStartX, _flowDragStartY;
+
+    private int FlowOffX(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dx : 0;
+    private int FlowOffY(Guid id) => _flowOffsets.TryGetValue(id, out var o) ? o.dy : 0;
+    private int FlowNodeLeft(TaskFlowDiagramDto flow, TaskFlowNodeDto n) => (int)((n.X - flow.MinX) * FlowXScale) + 16 + FlowOffX(n.NodeId);
+    private int FlowNodeTop(TaskFlowDiagramDto flow, TaskFlowNodeDto n) => (n.Y - flow.MinY) + 16 + FlowOffY(n.NodeId);
+    private int FlowCanvasW(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 200 : flow.Nodes.Max(n => FlowNodeLeft(flow, n) + FlowNodeW(n)) + 20;
+    private int FlowCanvasH(TaskFlowDiagramDto flow) => flow.Nodes.Count == 0 ? 140 : flow.Nodes.Max(n => FlowNodeTop(flow, n) + FlowNodeH(n)) + 20;
+
+    private void FlowDragStart(TaskFlowNodeDto n, DragEventArgs e)
+    {
+        _flowDragNode = n.NodeId;
+        _flowDragStartX = e.ClientX;
+        _flowDragStartY = e.ClientY;
+    }
+
+    private void FlowDragEnd(DragEventArgs e)
+    {
+        if (_flowDragNode is not Guid id) { return; }
+        // El canvas esta escalado por CSS zoom: el delta en pantalla se divide por el zoom.
+        var z = _flowZoom <= 0 ? 1 : _flowZoom;
+        var dx = (int)((e.ClientX - _flowDragStartX) / z);
+        var dy = (int)((e.ClientY - _flowDragStartY) / z);
+        var cur = _flowOffsets.TryGetValue(id, out var o) ? o : (dx: 0, dy: 0);
+        _flowOffsets[id] = (cur.dx + dx, cur.dy + dy);
+        _flowDragNode = null;
+    }
+
+    // Zoom del diagrama (CSS zoom sobre el canvas; el scroller reajusta las barras).
+    private double _flowZoom = 1;
+    private string FlowZoomStr => _flowZoom.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    private void FlowZoomIn() => _flowZoom = Math.Min(1.6, Math.Round(_flowZoom + 0.15, 2));
+    private void FlowZoomOut() => _flowZoom = Math.Max(0.5, Math.Round(_flowZoom - 0.15, 2));
+    private void FlowZoomReset() => _flowZoom = 1;
+
+    private static string FlowShortName(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) { return ""; }
+        var at = label.IndexOf('@');
+        var name = at > 0 ? label[..at] : label;
+        return name.Length <= 16 ? name : name[..16] + "...";
+    }
+
+    private static string FlowShortDate(DateTimeOffset? d)
+        => d is DateTimeOffset dt ? dt.ToLocalTime().ToString("dd MMM HH:mm") : "-";
+
+    private static string FlowWaiting(DateTimeOffset? since)
+    {
+        if (since is not DateTimeOffset s) { return ""; }
+        var span = DateTimeOffset.Now - s;
+        if (span.TotalMinutes < 1) { return "recien"; }
+        if (span.TotalHours < 1) { return $"{(int)span.TotalMinutes}m"; }
+        if (span.TotalDays < 1) { return $"{(int)span.TotalHours}h"; }
+        return $"{(int)span.TotalDays}d {span.Hours}h";
+    }
+
+    /// <summary>Path bezier del edge del borde derecho del origen al izquierdo del destino, usando el
+    /// posicionamiento compactado y los tamanos de render. Devuelve el punto medio para la etiqueta.</summary>
+    private (string D, int Sx, int Sy, int Tx, int Ty, int Lx, int Ly)? FlowEdgePath(TaskFlowDiagramDto flow, TaskFlowEdgeDto e)
+    {
+        var s = flow.Nodes.FirstOrDefault(n => n.NodeId == e.SourceNodeId);
+        var t = flow.Nodes.FirstOrDefault(n => n.NodeId == e.TargetNodeId);
+        if (s is null || t is null) { return null; }
+        var sx = FlowNodeLeft(flow, s) + FlowNodeW(s); var sy = FlowNodeTop(flow, s) + FlowNodeH(s) / 2;
+        var tx = FlowNodeLeft(flow, t); var ty = FlowNodeTop(flow, t) + FlowNodeH(t) / 2;
+        var mx = (sx + tx) / 2;
+        var d = $"M {sx} {sy} C {mx} {sy} {mx} {ty} {tx} {ty}";
+        return (d, sx, sy, tx, ty, mx, (sy + ty) / 2 - 4);
+    }
+
+    private void ToggleFlowMenu(TaskFlowNodeDto n)
+    {
+        _flowMenuNodeId = _flowMenuNodeId == n.NodeId ? null : n.NodeId;
+        _flowNote = "";
+    }
+
+    private static string FlowStateLabel(TaskFlowNodeState s) => s switch
+    {
+        TaskFlowNodeState.Completed => "PASO CERRADO",
+        TaskFlowNodeState.Rejected => "PASO RECHAZADO",
+        TaskFlowNodeState.Skipped => "PASO OMITIDO",
+        TaskFlowNodeState.Current => "PASO ACTUAL",
+        _ => "PASO PENDIENTE",
+    };
+
+    /// <summary>Cierra el paso del nodo (con ruta opcional de gateway y nota). Reusa
+    /// CompletePendingStepAsync; el orden lo garantiza el motor (solo el paso actual es vigente).</summary>
+    private async Task CompleteFlowNodeAsync(Guid stepId, string? approvalResult, string? note)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            var comment = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+            var result = await InboxSvc.CompletePendingStepAsync(stepId, me, approvalResult, comment);
+            if (!result.IsOk && result.Status != WorkflowEngineStatus.StuckDetected)
+            {
+                _actionError = result.Error;
+            }
+            _flowMenuNodeId = null;
+            _flowNote = "";
+            await ReloadAsync(taskId);
+            await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ClaimFlowNodeAsync(Guid stepId)
+    {
+        if (_detail is null || _actorTenantUserId is not Guid me) { return; }
+        _busy = true;
+        _actionError = null;
+        try
+        {
+            var result = await InboxSvc.ClaimStepAsync(stepId, me);
+            if (!result.IsOk) { _actionError = result.Error; }
+            _flowMenuNodeId = null;
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally { _busy = false; }
+    }
+
     private void OpenStepForm(TaskStepFormDto stepForm) => _openStepForm = stepForm;
+
+    // ---- Visor de documentos (tab Documentos): galeria / lista / visor con mini-galeria ----
+    // Abrir un documento en el visor: fija su indice y cambia al modo visor.
+    private void OpenDocViewer(TaskItemAttachmentDto att)
+    {
+        if (_detail is null) return;
+        var i = _detail.Attachments.ToList().FindIndex(a => a.Id == att.Id);
+        _docIndex = i < 0 ? 0 : i;
+        _docMode = "visor";
+    }
+
+    private void DocPrev() { if (_docIndex > 0) _docIndex--; }
+
+    private void DocNext()
+    {
+        if (_detail is not null && _docIndex < _detail.Attachments.Count - 1) _docIndex++;
+    }
+
+    // Extension en mayusculas (para el icono/etiqueta del documento sin miniatura).
+    private static string AttExt(TaskItemAttachmentDto att)
+    {
+        var name = att.FileName ?? "";
+        var dot = name.LastIndexOf('.');
+        var ext = dot >= 0 && dot < name.Length - 1 ? name[(dot + 1)..] : "";
+        return string.IsNullOrWhiteSpace(ext) ? "DOC" : ext.ToUpperInvariant();
+    }
+
+    // Es imagen (por MimeType o por extension) -> se puede pintar miniatura/preview directo.
+    private static bool IsImageAtt(TaskItemAttachmentDto att)
+    {
+        if (!string.IsNullOrEmpty(att.MimeType) && att.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return AttExt(att) is "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" or "SVG" or "AVIF";
+    }
+
+    // Es PDF -> se puede embeber en un iframe para vista previa.
+    private static bool IsPdfAtt(TaskItemAttachmentDto att)
+    {
+        if (!string.IsNullOrEmpty(att.MimeType) && att.MimeType.Contains("pdf", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return AttExt(att) == "PDF";
+    }
+
+    // Tamano legible del archivo para las tarjetas de la galeria.
+    private static string FormatSize(long bytes)
+    {
+        if (bytes <= 0) return "-";
+        string[] u = { "B", "KB", "MB", "GB", "TB" };
+        double v = bytes; int i = 0;
+        while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+        return i == 0 ? $"{(long)v} {u[i]}" : $"{v:0.#} {u[i]}";
+    }
 
     private async Task OnStepFormSubmittedAsync(FormResponseDto _)
     {
@@ -1049,7 +1605,11 @@
     }
 
     private void ToggleMenu(string name) => _openMenu = _openMenu == name ? null : name;
-    private void CloseMenus() => _openMenu = null;
+    private void CloseMenus()
+    {
+        _openMenu = null;
+        _flowMenuNodeId = null;
+    }
 
     private string? AssigneeEmail(Guid? tenantUserId)
         => tenantUserId is Guid id && _users.FirstOrDefault(u => u.Id == id) is TenantUserDto u ? TaskUi.UserLabel(u) : null;

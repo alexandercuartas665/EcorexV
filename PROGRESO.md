@@ -118,10 +118,26 @@ Pending 123/InProgress 5 = 219 = SKY SYSTEM), cero errores de consola. La genera
 no se probo (local sin proveedor/clave, y no se deben versionar claves); su pipeline determinista
 queda cubierto por los tests con el generador falso.
 
-**PENDIENTE:** Ola 2 (editor/visor Bold RDL + convertidor spec->RDL) espera la confirmacion escrita
-de Docker con Bold. Follow-ups menores: items de menu dinamico para /reportes/tablero y /reportes/ia;
-imagen de referencia del dashboard para afinar milimetricamente; el `Rdl` de ReportDefinition ya esta
-en el modelo (nullable) listo para la Ola 2.
+**Ola 2 - PARCIAL (parte independiente del vendor construida; el embed Bold sigue bloqueado):**
+- Convertidor `ReportSpecToRdl` (`Ecorex.Application/Reporting/Authoring/ReportSpecToRdl.cs`): genera un
+  RDL 2016 estandar (DataSources JSON logico "EcorexTenantSafe" -> endpoint tenant-safe, DataSet con un
+  Field por columna del resultado, Tablix con una columna por campo + titulo). Es el camino T1/D6: la
+  IA/usuario generan el MISMO artefacto RDL que abrira el editor/visor Bold.
+- `IReportDefinitionService.SavePrintableAsync(spec, dataset, desc)`: persiste el imprimible con
+  Kind=Printable + Rdl generado (el campo Rdl ya existia en la entidad desde la Ola 4).
+- Test unitario `ReportRdlTests` (2/2 verde, puro, sin Docker): well-formed RDL 2016, namespace correcto,
+  Field por columna, Tablix con enlace =Fields!X.Value por columna, y data source JSON logico (NUNCA
+  cadena de conexion a BD). Se corrigieron dos test-doubles FakeAppDb (RowIngest/TenantUser) que
+  implementan IApplicationDbContext y necesitaban el nuevo DbSet ReportDefinitions.
+
+**Ola 2 - BLOQUEADA (embed Bold, requiere accion del usuario):** el editor drag-drop + visor + export
+PDF de Bold Reports necesita: (1) la CLAVE de licencia Community de Bold registrada a nombre de Bitcode
+(secreto: va en config gitignored, NUNCA en el repo publico; no la puedo obtener ni versionar); (2)
+confirmar que los paquetes Bold Blazor restauran en net10; (3) la decision de Docker en prod. El
+convertidor RDL y la persistencia ya dejan el artefacto listo para cuando el visor este embebido.
+
+**Follow-ups menores:** items de menu dinamico para /reportes/tablero, /reportes/ia; imagen de
+referencia del dashboard para afinar milimetricamente.
 
 ---
 

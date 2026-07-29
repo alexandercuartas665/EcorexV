@@ -5,6 +5,126 @@
 
 ---
 
+## 2026-07-29 - Motor de Reportes y BI: Ola 0 (gate de licencia)
+
+**Agentes:** Claude (sesion worktree `informes`) + sub-agente de investigacion de licencias.
+
+**Hecho:** arranque del proyecto Motor de Reportes y BI en un git worktree DEDICADO
+`informes` (`C:/DesarrolloIA/ecorex-informes`, rama `feat/motor-reportes` desde `main`).
+Config de puerto propio `informes-5260` agregada al `launch.json` del worktree (BD dev
+local 5442), sin tocar el dev de la sesion principal (5234) ni las configs existentes.
+Ningun proceso matado.
+
+**Ola 0 (gate de licencia, SIN codigo de producto):** investigados con fuentes oficiales
+los 4 gates del doc 01 y documentados en `ADR-0051`. Resultado:
+- Gate 1 (elegibilidad Community): SI condicional. OJO: Bold Reports se separo de Syncfusion;
+  la community de Syncfusion cubre solo el Viewer, NO el Report Designer -> hay que registrar
+  la Community License PROPIA de Bold (que si incluye el editor). Elegibilidad: < 1M USD/anio,
+  <= 5 devs, <= 10 empleados, < 3M USD capital externo (la debe autoconfirmar el usuario).
+- Gate 2 (embebe en Blazor Server): SI. `BoldReports.Net.Core`, InteractiveServer, controllers.
+- Gate 3 (datasource tenant-safe JSON/Web sin connection string): SI. JSON/Web data source +
+  addDataSource/addDataSet + data-source extension.
+- Gate 4 (redistribucion SaaS a tenants): SI. Community endosa SaaS multi-tenant / ISV.
+- RIESGO AMBAR a escalar: **Docker bajo Community no esta claramente concedido** (community =
+  "Windows and Linux"; Docker/K8s = pago). Prod corre Linux Docker. Requiere confirmacion
+  escrita de Bold o alternativa de deployment/licencia.
+
+**Siguiente:** con aprobacion del usuario en los 2 puntos abiertos (elegibilidad Bitcode +
+Docker/Bold), construir Ola 1 (catalogo semantico + IReportDataSource tenant-safe + test de
+aislamiento dual PG/SQL Server) que es INDEPENDIENTE de Bold y de Docker.
+
+**Gates confirmados por el usuario:** Bitcode califica para la Community de Bold; se procede a
+construir la Ola 1 ya (independiente de Bold/Docker) mientras el usuario pide a Bold confirmacion
+escrita del deployment Docker antes de la Ola 2.
+
+**Ola 1 CONSTRUIDA (capa propia, independiente de la libreria):** en `Ecorex.Application/Reporting/`:
+- Modelo neutro declarativo: `ReportModel.cs` (ReportField/SourceDescriptor/DataSet, enums de tipo/
+  operador/agregacion) + `ReportQuerySpec.cs` (spec + ReportContext + ReportValidationException).
+- `IReportCatalog`/`ReportCatalog`: publica fuentes reportables = nativas curadas + contenedores del
+  tenant derivados de DataContainer (limite de seguridad: lo que no esta en el catalogo no es reportable).
+- `IReportableSource`/`TaskItemReportSource`: fuente NATIVA (Actividades) con LINQ tipado sobre el DbSet
+  ya filtrado por tenant; filtros parametrizados + tabular + group-by/Count.
+- `ContainerReportReader`: lee contenedores EAV (pivot de celdas, filtro texto por EXISTS en BD, group-by
+  + Sum/Avg/Min/Max numerico en memoria sobre el conjunto ya acotado).
+- `IReportDataSource`/`ReportDataSource`: EL CONTRATO CENTRAL. Choke point que valida el spec contra el
+  catalogo (rechaza campos/ops fuera de catalogo) y despacha; el aislamiento lo garantiza el filtro global
+  del DbContext (fail-closed), no la confianza en el ctx.
+- Endpoints `/api/reporting/catalog` y `/api/reporting/query` en SuperAdmin (`RequireAuthorization
+  ("TenantMember")`): el "JSON/Web data source" tenant-safe que consumira el visor Bold (Ola 2) / ECharts
+  (Ola 3). Nunca cadena de conexion.
+- DI: registrados en `Application/DependencyInjection.cs` (sumar una nativa = otro IReportableSource).
+
+**SIN migraciones:** la Ola 1 no agrega entidades (catalogo = codigo + derivado). `ReportDefinition`
+llega en la Ola 2.
+
+**Verificacion:** test de integracion DUAL `ReportDataSourceTests` (PG + SQL Server via Testcontainers)
+**12/12 verde**: tabular nativo, group-by/Count nativo resuelto en servidor, group-by/Sum sobre EAV,
+AISLAMIENTO cross-tenant (nativa -> vacio para el otro tenant; contenedor -> fuente inexistente en su
+catalogo) y rechazo de campo fuera de catalogo. Builds Application/SuperAdmin verdes.
+
+**Siguiente:** Ola 2 (entidad ReportDefinition + editor/visor Bold RDL + export PDF) TRAS la confirmacion
+escrita de Docker; luego Ola 3 (dashboards ECharts por interop) y Ola 4 (autoria IA sobre JSON-spec).
+
+**Bloqueos:** Ola 2 espera la confirmacion escrita de Bold sobre Docker en community (o decision de
+alternativa). Olas 1 no bloqueada.
+
+**Decisiones:** ADR-0051 (stack + gates, ACEPTADA). Ola 1 desacoplada del vendor: la capa propia se
+conserva aunque cambie la suite.
+
+**Ola 3 CONSTRUIDA y VERIFICADA EN VIVO (dashboards ECharts, independiente de Bold):**
+- ECharts vendorizado como `.js` ESTATICO (`wwwroot/lib/echarts/echarts.min.js`, v5.5.1 Apache-2.0,
+  ~1 MB) + interop `wwwroot/js/echart-interop.js` (`window.ecorexEChart` init/update/dispose, resize,
+  click opcional a .NET). Sin Node/npm. Scripts sumados en `App.razor`.
+- Componente Blazor `Components/Shared/Reporting/EChart.razor`: serializa una "option" (Dictionary) a
+  JSON y la pinta por interop; IAsyncDisposable con manejo de circuito cerrado.
+- Pagina `Components/Pages/Reporting/ReportDashboard.razor` (ruta `/reportes/tablero`, policy
+  `TenantMember`, InteractiveServer): 4 KPIs + dona por estado + area de creadas por dia + barras por
+  prioridad + tabla de recientes, TODO via `IReportDataSource` tenant-safe. Filtro de rango de fechas
+  (30/90 dias, Todo) que RE-CONSULTA el datasource. CSS scoped propio.
+- VERIFICADO en vivo (mi server 5260 contra BD dev local, login owner@sky-system): dashboard carga
+  datos reales (Total 219 = SOLO SKY SYSTEM, Plataforma ECOREX=0 -> aislamiento OK), 3 canvases ECharts
+  renderizados, interop cargado, tabla poblada, cero errores de consola. Filtro probado: 30 dias
+  re-consulta OK; rango futuro (2027) -> 0 en todo + "Sin actividades en el rango" (prueba que el
+  filtro fluye al datasource EF, CreatedAt Between). Mi server detenido por PID/puerto propio tras
+  verificar la ruta; el dev de la sesion principal (5234) intacto.
+- NOTA: la "imagen de referencia" del prototipo no estaba disponible en el vault; el dashboard sigue
+  un layout limpio on-brand (indigo). Cuando el usuario comparta la imagen se afina milimetricamente.
+- Menu: la pagina es accesible por ruta+policy; el item en el menu dinamico es un follow-up menor.
+
+**Ola 4 CONSTRUIDA y VERIFICADA (autoria por IA, independiente de Bold):**
+- Artefacto declarativo compartido IA<->usuario: `ReportSpec` (DTO JSON amable, enums como texto) +
+  `ReportSpecRenderer` (spec + ReportDataSet -> option de ECharts: Bar/Pie/Line; Table lo pinta la UI).
+  El convertidor a RDL (imprimible) queda para la Ola 2 (Bold).
+- `IReportAuthoringService`: pipeline determinista instruccion -> catalogo -> JSON-spec -> VALIDA
+  contra el catalogo (rechaza campo/fuente fuera de catalogo) + ejecuta via el datasource tenant-safe
+  -> option. El LLM esta detras de `IReportSpecGenerator` (fakeable en tests); el generador real
+  `AiReportSpecGenerator` resuelve el agente/proveedor del tenant (patron WorkflowAgentInvoker) y
+  registra consumo (AiUsageLog, source "report-authoring"). La IA NUNCA ve SQL ni columnas fisicas.
+- Persistencia: entidad `ReportDefinition` (ITenantScoped, IVersioned, SIN soft-delete: enum de
+  estado Active/Archived) + `IReportDefinitionService` (guardar/listar/obtener/editar/archivar/
+  ejecutar). MIGRACIONES DUALES creadas (PG `jsonb` spec_json + SQL Server `nvarchar(max)`), con
+  `--context` explicito por los dos DbContext.
+- UI `/reportes/ia` (policy TenantMember): instruccion -> preview (EChart + tabla) -> guardar -> lista
+  de guardados con Abrir/Archivar. Reusa el componente `EChart` de la Ola 3.
+
+**Verificacion Ola 4:** 8 tests de integracion DUAL nuevos (`ReportAuthoringTests`) verdes -> el
+conjunto de reportes queda **22/22** (PG + SQL Server): autoria nativa (barras) + autoria contenedor
+(Sum) + rechazo de campo fuera de catalogo + persistencia y aislamiento cross-tenant del reporte
+guardado. La migracion `AddReportDefinition` se aplico LIMPIAMENTE al PG local al arrancar (CREATE
+TABLE report_definitions + indices). `/reportes/ia` validada EN VIVO (owner@sky-system): render OK,
+manejo elegante sin agente de IA ("No hay un agente de IA activo..."), lista de guardados, y **Abrir**
+ejecuta un spec guardado -> grafico ECharts + tabla con datos reales (Done 4/Suspended 1/Active 86/
+Pending 123/InProgress 5 = 219 = SKY SYSTEM), cero errores de consola. La generacion por LLM en vivo
+no se probo (local sin proveedor/clave, y no se deben versionar claves); su pipeline determinista
+queda cubierto por los tests con el generador falso.
+
+**PENDIENTE:** Ola 2 (editor/visor Bold RDL + convertidor spec->RDL) espera la confirmacion escrita
+de Docker con Bold. Follow-ups menores: items de menu dinamico para /reportes/tablero y /reportes/ia;
+imagen de referencia del dashboard para afinar milimetricamente; el `Rdl` de ReportDefinition ya esta
+en el modelo (nullable) listo para la Ola 2.
+
+---
+
 ## 2026-07-28 - Instalador MSI (WiX) self-contained del agente Colmena
 
 **Hecho:** el agente Conector On-Prem "Colmena" (apps/agent) ya tiene INSTALADOR. Antes se corria a

@@ -87,6 +87,8 @@ public interface IApplicationDbContext
     DbSet<ScheduledJobRule> ScheduledJobRules { get; }
     DbSet<ScheduledJobChannel> ScheduledJobChannels { get; }
     DbSet<ScheduledJobRun> ScheduledJobRuns { get; }
+    // Motor de Reportes y BI (ADR-0051): definiciones guardadas (dashboards/imprimibles).
+    DbSet<ReportDefinition> ReportDefinitions { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }

@@ -1,0 +1,191 @@
+@page "/reportes/ia"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Authoring
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
+@inject IReportAuthoringService Authoring
+@inject IReportDefinitionService Defs
+
+@* Autoria por IA del Motor de Reportes (ADR-0051, Ola 4). El usuario escribe una instruccion; la IA
+   devuelve un JSON-spec que referencia SOLO el catalogo (validado antes de ejecutarse), se ejecuta via
+   el datasource tenant-safe y se previsualiza como dashboard ECharts + tabla. Se guarda como
+   ReportDefinition (editable/reejecutable). Sin SQL ni cadena de conexion en ningun punto. *@
+
+<PageTitle>Reportes con IA - ECOREX.tareas</PageTitle>
+
+<div class="rpt-ia">
+    <div class="rpt-ia-head">
+        <h1>Reportes con IA</h1>
+        <p class="rpt-sub">Describe el reporte en lenguaje natural. La IA solo usa las fuentes del catalogo del tenant.</p>
+    </div>
+
+    <div class="rpt-ia-box">
+        <textarea @bind="_instruction" rows="3" placeholder="Ej: actividades por estado en un grafico de barras"></textarea>
+        <div class="rpt-ia-actions">
+            <button class="rpt-btn" @onclick="GenerateAsync" disabled="@_busy">@(_busy ? "Generando..." : "Generar")</button>
+            <span class="rpt-ia-hints">
+                <button class="chip" @onclick='() => Prefill("actividades por estado en un grafico de barras")'>por estado (barras)</button>
+                <button class="chip" @onclick='() => Prefill("distribucion de actividades por prioridad en torta")'>por prioridad (torta)</button>
+            </span>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="rpt-error">@_error</div>
+    }
+
+    @if (_result is { Ok: true })
+    {
+        <div class="rpt-card rpt-ia-preview">
+            <div class="rpt-ia-preview-head">
+                <h3>@(_result.Spec!.Title)</h3>
+                <div>
+                    <span class="rpt-tag">@_result.Spec.Chart</span>
+                    <button class="rpt-btn ghost" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+                </div>
+            </div>
+
+            @if (_result.Option is not null)
+            {
+                <EChart Option="_result.Option" Height="320px" />
+            }
+
+            <table class="rpt-table">
+                <thead>
+                    <tr>@foreach (var c in _result.DataSet!.Columns) { <th>@c.DisplayName</th> }</tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _result.DataSet.Rows.Take(20))
+                    {
+                        <tr>@foreach (var v in row) { <td>@FormatCell(v)</td> }</tr>
+                    }
+                    @if (_result.DataSet.Rows.Count == 0)
+                    {
+                        <tr><td class="rpt-empty" colspan="@_result.DataSet.Columns.Count">Sin datos.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <div class="rpt-card">
+        <h3>Reportes guardados</h3>
+        @if (_saved.Count == 0)
+        {
+            <p class="rpt-empty">Aun no hay reportes guardados.</p>
+        }
+        else
+        {
+            <table class="rpt-table">
+                <thead><tr><th>Nombre</th><th>Tipo</th><th>Fuente</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var s in _saved)
+                    {
+                        <tr>
+                            <td>@s.Name</td>
+                            <td>@s.Kind</td>
+                            <td class="mono">@s.SourceKey</td>
+                            <td class="rpt-row-actions">
+                                <button class="rpt-btn ghost" @onclick="() => OpenAsync(s.Id)">Abrir</button>
+                                <button class="rpt-btn ghost" @onclick="() => ArchiveAsync(s.Id)">Archivar</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private string _instruction = "";
+    private bool _busy;
+    private string? _error;
+    private ReportAuthoringResult? _result;
+    private IReadOnlyList<ReportDefinitionSummary> _saved = Array.Empty<ReportDefinitionSummary>();
+
+    protected override async Task OnInitializedAsync() => await RefreshSavedAsync();
+
+    private void Prefill(string text) => _instruction = text;
+
+    private async Task GenerateAsync()
+    {
+        _error = null;
+        _result = null;
+        _busy = true;
+        try
+        {
+            var r = await Authoring.AuthorAsync(_instruction);
+            if (!r.Ok)
+            {
+                _error = r.Error;
+            }
+            else
+            {
+                _result = r;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_result is not { Ok: true, Spec: not null })
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await Defs.SaveAsync(_result.Spec, null);
+            await RefreshSavedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenAsync(Guid id)
+    {
+        _error = null;
+        var run = await Defs.RunAsync(id);
+        if (run is null)
+        {
+            _error = "No se pudo abrir el reporte.";
+            return;
+        }
+
+        _result = ReportAuthoringResult.Success(run.Spec, run.DataSet, run.Option);
+    }
+
+    private async Task ArchiveAsync(Guid id)
+    {
+        await Defs.ArchiveAsync(id);
+        await RefreshSavedAsync();
+    }
+
+    private async Task RefreshSavedAsync() => _saved = await Defs.ListAsync();
+
+    private static string FormatCell(object? v) => v switch
+    {
+        null => "",
+        DateTimeOffset d => d.ToString("yyyy-MM-dd"),
+        decimal dec => dec.ToString("0.##"),
+        _ => v.ToString() ?? ""
+    };
+}

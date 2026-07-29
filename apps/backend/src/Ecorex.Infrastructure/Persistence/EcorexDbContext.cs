@@ -260,6 +260,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScheduledJobRule> ScheduledJobRules => Set<ScheduledJobRule>();
     public DbSet<ScheduledJobChannel> ScheduledJobChannels => Set<ScheduledJobChannel>();
     public DbSet<ScheduledJobRun> ScheduledJobRuns => Set<ScheduledJobRun>();
+    public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -385,6 +386,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<ScheduledJobFrequency>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScheduledJobChannelType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ScheduledJobRunResult>().HaveConversion<string>().HaveMaxLength(40);
+        // Motor de Reportes y BI (ADR-0051).
+        configurationBuilder.Properties<ReportDefinitionKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ReportDefinitionStatus>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1493,6 +1497,21 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Concurrencia optimista portable (ADR-0013), igual que FormDefinition/TaskItem.
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasIndex(x => new { x.TenantId, x.Code }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.Status });
+        });
+
+        // Motor de Reportes y BI (ADR-0051): definiciones guardadas (dashboards/imprimibles). El
+        // SpecJson es el artefacto declarativo compartido IA<->usuario; el Rdl llega en la Ola 2.
+        modelBuilder.Entity<ReportDefinition>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.SourceKey).HasMaxLength(200);
+            b.Property(x => x.SpecJson).HasColumnType(jsonColumnType).IsRequired();
+            b.Property(x => x.Rdl).HasColumnType(longTextColumnType);
+            // Concurrencia optimista portable (ADR-0013), igual que ScheduledJob/TaskItem.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Name });
             b.HasIndex(x => new { x.TenantId, x.Status });
         });
 

@@ -46,6 +46,10 @@
         <p class="page-sub" style="margin-bottom:0;">Catalogo de items con marca, grupo y tipo normalizados, imagenes y stock por bodega.</p>
     </div>
     <div style="display:flex;gap:8px;">
+        @if (_canCreate)
+        {
+            <button class="btn btn-outline-secondary" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con datos de ejemplo y hojas de codigos para importar">&#8681; Plantilla Excel</button>
+        }
         @if (_canEdit)
         {
             <button class="btn btn-outline-secondary" @onclick="OpenFieldsConfig">&#9881; Configurar campos</button>
@@ -1095,6 +1099,21 @@ else
         => Guid.TryParse(_fGroup, out var gid)
             ? _subgroups.Where(s => s.GroupId == gid)
             : _subgroups;
+
+    private bool _downloadingTpl;
+
+    /// <summary>Descarga la plantilla Excel de importacion: hoja "Items" con filas de ejemplo + hojas
+    /// de codigos (Marcas/Grupos/Subgrupos/Tipos/Bodegas) para cargar items con su relacionalidad.</summary>
+    private async Task DownloadTemplateAsync()
+    {
+        _downloadingTpl = true;
+        try
+        {
+            var bytes = ItemTemplateXlsx.Build(_brands, _groups, _subgroups, _types, _warehouses);
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-items.xlsx", ItemTemplateXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _downloadingTpl = false; }
+    }
 
     protected override async Task OnInitializedAsync()
     {

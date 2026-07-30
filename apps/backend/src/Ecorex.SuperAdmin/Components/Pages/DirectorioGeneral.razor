@@ -14,6 +14,7 @@
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFormService FormsSvc
 @inject ICurrentPermissions Perms
+@inject IJSRuntime JS
 @inject Ecorex.Application.DataLookups.IDataLookupService LookupSvc
 @using Ecorex.Application.DataLookups
 
@@ -35,6 +36,12 @@
             <p class="dg-sub">Clientes tipo empresa o persona natural. Las empresas agrupan sus contactos asociados.</p>
         </div>
         <div class="dg-head-actions">
+            @if (CanCreateAny)
+            {
+                <button class="dg-btn-cfg" @onclick="DownloadTemplateAsync" disabled="@_downloadingTpl" title="Plantilla Excel con datos de ejemplo y hojas de codigos para importar">
+                    &#8681; Plantilla Excel
+                </button>
+            }
             @if (_canEdit)
             {
                 <button class="dg-btn-cfg" @onclick="OpenConfigAsync" disabled="@(_loading || _reloading)" title="Configurar los campos de cada ficha">
@@ -812,6 +819,21 @@
     private int CountTodos => _allRows.Count;
     private int CountEmpresas => _allRows.Count(r => r.EsEmpresa);
     private int CountContactos => _allRows.Count(r => r.EsPersona);
+
+    private bool _downloadingTpl;
+
+    /// <summary>Descarga la plantilla Excel de importacion de terceros: hoja "Terceros" con filas de
+    /// ejemplo + hojas de codigos (Tipos/Perfiles/Estados/TiposId) con los valores validos.</summary>
+    private async Task DownloadTemplateAsync()
+    {
+        _downloadingTpl = true;
+        try
+        {
+            var bytes = TerceroTemplateXlsx.Build();
+            await JS.InvokeVoidAsync("ecorexDescargarArchivo", "plantilla-directorio.xlsx", TerceroTemplateXlsx.Mime, Convert.ToBase64String(bytes));
+        }
+        finally { _downloadingTpl = false; }
+    }
 
     protected override async Task OnInitializedAsync()
     {

@@ -24,6 +24,11 @@ public interface IReportDefinitionService
     /// <summary>Guarda un imprimible con un RDL YA CONSTRUIDO (p.ej. el reporte rico multi-pagina).</summary>
     Task<Guid> SavePrintableRdlAsync(ReportSpec spec, string rdl, string? description, CancellationToken ct = default);
 
+    /// <summary>Crea un imprimible NUEVO en blanco (Kind=Printable) a partir de un punto de partida
+    /// editable (tabla de actividades recientes), listo para abrirlo en el diseniador Bold y reestilizar.
+    /// Devuelve el id del reporte creado. Tenant-scoped.</summary>
+    Task<Guid> CreateBlankPrintableAsync(string? title, CancellationToken ct = default);
+
     Task UpdateSpecAsync(Guid id, ReportSpec spec, CancellationToken ct = default);
 
     /// <summary>
@@ -162,6 +167,30 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         _db.ReportDefinitions.Add(def);
         await _db.SaveChangesAsync(ct);
         return def.Id;
+    }
+
+    public async Task<Guid> CreateBlankPrintableAsync(string? title, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+
+        // Punto de partida editable: una tabla de actividades recientes cuya fuente el datasource
+        // tenant-safe sabe servir. El usuario reordena columnas y reestiliza el layout en el diseniador.
+        var spec = new ReportSpec
+        {
+            Title = string.IsNullOrWhiteSpace(title) ? "Nuevo imprimible" : title.Trim(),
+            SourceKey = TaskItemReportSource.SourceKey,
+            Chart = ReportChartKind.Table,
+            Fields = { "Number", "Title", "Status", "Priority", "CreatedAt" },
+            Sort = { new ReportSortSpec { Field = "CreatedAt", Desc = true } },
+            Top = 50
+        };
+
+        var ds = await _dataSource.QueryAsync(spec.ToQuerySpec(), new ReportContext(tenantId), ct);
+        var rdl = ReportSpecToRdl.ToRdl(spec, ds);
+        return await SavePrintableRdlAsync(spec, rdl, "Imprimible en blanco (editable en el diseniador)", ct);
     }
 
     public async Task UpdateSpecAsync(Guid id, ReportSpec spec, CancellationToken ct = default)

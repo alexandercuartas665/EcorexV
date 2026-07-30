@@ -3559,14 +3559,15 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     {
         ("Galeria de reportes", "reportes/galeria", "000899"),
         ("Reportes con IA", "reportes/ia", "000896"),
+        ("Editor de reportes", "reportes/imprimibles", "000897"),
         ("Administrador de reportes", "reportes/admin", "000898")
     };
 
     // Items que SE QUITAN del menu (2026-07-30): el panel/tablero demo pasa a ser un reporte de la
-    // galeria. IA vuelve al menu (2026-07-30) porque es el EDITOR/creador de reportes ("Guardar" /
-    // "Guardar como imprimible"); sin el, no habia camino visible para crear uno. El indice de
-    // imprimibles se usa por dentro de la galeria. Las paginas siguen existiendo.
-    private static readonly string[] ReportesMenuDeprecados = { "reportes/tablero", "reportes/imprimibles" };
+    // galeria. IA e Imprimibles vuelven al menu (2026-07-30): son los EDITORES/creadores de reportes
+    // (IA: "Guardar" / "Guardar como imprimible"; Imprimibles: "+ Nuevo imprimible" -> diseniador Bold,
+    // o editar uno existente). Sin ellos no habia camino visible para crear/editar. Las paginas ya existian.
+    private static readonly string[] ReportesMenuDeprecados = { "reportes/tablero" };
 
     /// <summary>Registra (insert-if-missing) las definiciones de modulo de Reportes en el catalogo
     /// global (module_definitions), para el modulo 000109 y como respaldo del catalogo de roles.
@@ -3654,9 +3655,20 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             var orden = 0;
             foreach (var it in ReportesMenuItems)
             {
-                var existe = await _db.MenuNodes.IgnoreQueryFilters()
-                    .AnyAsync(n => n.MenuViewId == viewId && n.Route == it.Route, cancellationToken);
-                if (existe) { orden++; continue; }
+                var actual = await _db.MenuNodes.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(n => n.MenuViewId == viewId && n.Route == it.Route, cancellationToken);
+                if (actual is not null)
+                {
+                    // Reconcilia el rotulo/codigo si cambio (p.ej. "Imprimibles" -> "Editor de reportes").
+                    if (actual.Name != it.Name || actual.LegacyCode != it.Code)
+                    {
+                        actual.Name = it.Name;
+                        actual.LegacyCode = it.Code;
+                        added++;
+                    }
+                    orden++;
+                    continue;
+                }
                 _db.MenuNodes.Add(new MenuNode
                 {
                     TenantId = tenantId,

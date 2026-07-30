@@ -10,33 +10,42 @@
 @inject ICurrentPermissions Perms
 @inject NavigationManager Nav
 
-@* Indice de reportes imprimibles (RDL) del tenant. Se crean desde /reportes/ia ("Guardar como
-   imprimible") y se abren en el visor Bold. Ola 2, ADR-0051. *@
+@* Editor de reportes (ADR-0051): lista TODOS los reportes del tenant y abre CUALQUIERA en el
+   diseniador Bold (drag-drop). "Editar" asegura primero que el reporte tenga un RDL imprimible (lo
+   genera desde su spec si no lo tiene), de modo que un tablero tambien se puede reestilizar como
+   documento. Los reportes tipo panel (dashboard compuesto) no aplican al diseniador. *@
 
-<PageTitle>Imprimibles - ECOREX.tareas</PageTitle>
+<PageTitle>Editor de reportes - ECOREX.tareas</PageTitle>
 
-<div style="padding:24px 28px;max-width:900px;">
-    <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Reportes imprimibles</h1>
+<div style="padding:24px 28px;max-width:960px;">
+    <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Editor de reportes</h1>
     <p style="font-size:13px;color:#6b7280;margin:4px 0 16px;">
-        Documentos RDL que se ven y exportan (PDF/Excel) con el visor Bold. Crea uno desde
-        <a href="/reportes/ia" style="color:#4338ca;">Reportes con IA</a> (boton "Guardar como imprimible"),
-        o genera el reporte completo multi-pagina de demostracion:
+        Todos los reportes del tenant. <strong>Editar</strong> abre el reporte en el disenador Bold
+        (arrastrar/soltar, exporta PDF/Excel). Crea uno en blanco con <strong>Nuevo reporte</strong>,
+        desde <a href="/reportes/ia" style="color:#4338ca;">Reportes con IA</a>, o genera el reporte
+        completo multi-pagina de demostracion.
     </p>
     @if (_canDesign)
     {
-        <button @onclick="CreateShowcaseAsync" disabled="@_busy"
-                style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:16px;">
-            @(_busy ? "Generando..." : "Generar reporte completo (demo)")
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+            <button @onclick="CreateBlankAsync" disabled="@_busy"
+                    style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+                @(_busy ? "Creando..." : "+ Nuevo reporte")
+            </button>
+            <button @onclick="CreateShowcaseAsync" disabled="@_busy"
+                    style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+                @(_busy ? "Generando..." : "Generar reporte completo (demo)")
+            </button>
+        </div>
     }
     @if (_error is not null)
     {
-        <span style="color:#b91c1c;font-size:13px;margin-left:10px;">@_error</span>
+        <div style="color:#b91c1c;font-size:13px;margin-bottom:10px;">@_error</div>
     }
 
     @if (_items.Count == 0)
     {
-        <p style="text-align:center;color:#9ca3af;padding:24px 0;">Aun no hay imprimibles. Crea uno desde Reportes con IA.</p>
+        <p style="text-align:center;color:#9ca3af;padding:24px 0;">Aun no hay reportes. Crea uno con "Nuevo reporte" o desde Reportes con IA.</p>
     }
     else
     {
@@ -44,6 +53,7 @@
             <thead>
                 <tr>
                     <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Nombre</th>
+                    <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Tipo</th>
                     <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Fuente</th>
                     <th style="border-bottom:1px solid #e5e7eb;"></th>
                 </tr>
@@ -51,15 +61,22 @@
             <tbody>
                 @foreach (var s in _items)
                 {
+                    var report = s;
+                    var isPanel = report.SourceKey is not null && report.SourceKey.StartsWith("panel:", StringComparison.OrdinalIgnoreCase);
                     <tr>
-                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">@s.Name</td>
-                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;font-family:monospace;color:#6b7280;">@s.SourceKey</td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;font-weight:600;color:#111827;">@report.Name</td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;color:#6b7280;">@(report.Kind == ReportDefinitionKind.Printable ? "Imprimible" : (isPanel ? "Panel" : "Tablero"))</td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;font-family:monospace;color:#6b7280;">@report.SourceKey</td>
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap;">
-                            @if (_canDesign)
+                            @if (_canDesign && !isPanel)
                             {
-                                <button @onclick="() => Edit(s.Id)" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">Editar</button>
+                                <button @onclick="() => EditAsync(report)" disabled="@_busy" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">Editar</button>
                             }
-                            <button @onclick="() => Open(s.Id)" style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">Ver</button>
+                            else if (isPanel)
+                            {
+                                <span style="color:#9ca3af;font-size:12px;margin-right:6px;">Panel (no editable)</span>
+                            }
+                            <button @onclick="() => Open(report.Id)" style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">Ver</button>
                         </td>
                     </tr>
                 }
@@ -80,8 +97,8 @@
         var seeAll = eff.Unrestricted || eff.Can("reportes/admin", PermissionAction.View);
         // "Disenar" = permiso de Editar sobre imprimibles: habilita el boton Editar y el generador.
         _canDesign = eff.Unrestricted || eff.Can("reportes/imprimibles", PermissionAction.Edit);
-        var all = await Defs.ListAsync(seeAll, eff.RolId);
-        _items = all.Where(x => x.Kind == ReportDefinitionKind.Printable).ToList();
+        // TODOS los reportes del tenant (no solo los imprimibles): cualquiera es editable en el disenador.
+        _items = await Defs.ListAsync(seeAll, eff.RolId);
     }
 
     private bool _busy;
@@ -89,7 +106,51 @@
 
     private void Open(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/{id}");
 
-    private void Edit(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/editor/{id}");
+    private async Task EditAsync(ReportDefinitionSummary report)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            // Asegura que el reporte tenga un RDL imprimible (lo genera desde su spec si no lo tiene),
+            // asi CUALQUIER reporte -tablero o imprimible- se abre en el disenador.
+            var ok = await Defs.EnsurePrintableRdlAsync(report.Id);
+            if (!ok)
+            {
+                _error = "No se pudo preparar este reporte para editar (sin definicion valida).";
+                return;
+            }
+            Nav.NavigateTo($"/reportes/imprimibles/editor/{report.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateBlankAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            // Crea el reporte base y salta directo al diseniador para editarlo.
+            var id = await Defs.CreateBlankPrintableAsync(null);
+            Nav.NavigateTo($"/reportes/imprimibles/editor/{id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private async Task CreateShowcaseAsync()
     {
@@ -99,7 +160,7 @@
         {
             var (spec, rdl) = RichActivityReportRdl.Build();
             var id = await Defs.SavePrintableRdlAsync(spec, rdl, "Reporte completo multi-pagina de demostracion");
-            Nav.NavigateTo($"/reportes/imprimibles/{id}");
+            Nav.NavigateTo($"/reportes/imprimibles/editor/{id}");
         }
         catch (Exception ex)
         {

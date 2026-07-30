@@ -1,5 +1,5 @@
 @page "/reportes/imprimibles/{Id:guid}"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Perm:reportes/imprimibles:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @inject IJSRuntime JS
 

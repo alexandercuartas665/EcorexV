@@ -18,7 +18,7 @@ namespace Ecorex.SuperAdmin.Controllers;
 /// diseniador: la previa inyecta los datos YA FILTRADOS POR TENANT en ProcessingMode.Local (nunca una
 /// cadena de conexion). Tenant resuelto por la cookie (AmbientTenantContext).
 /// </summary>
-[Authorize(Policy = "TenantMember")]
+[Authorize(Policy = "Perm:reportes/imprimibles:Edit")]
 [Route("api/{controller}/{action}")]
 public sealed class BoldReportsDesignerController : Controller, IReportDesignerController
 {

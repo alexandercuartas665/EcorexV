@@ -1,5 +1,5 @@
 @page "/reportes/tablero"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Perm:reportes/tablero:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
 @using Ecorex.Application.Reporting.Sources

@@ -1,0 +1,162 @@
+@page "/reportes/admin"
+@attribute [Authorize(Policy = "Perm:reportes/admin:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@inject IReportDefinitionService Defs
+@inject IRolService Roles
+@inject NavigationManager Nav
+
+@* Administrador de reportes (ADR-0051): asigna cada reporte a uno o mas roles del tenant. Solo esos
+   roles lo veran (los administradores ven todos; un reporte sin asignaciones es visible para todos).
+   Gobernado por la policy Perm:reportes/admin:View (= "Reportes.Administrar"). *@
+
+<PageTitle>Administrador de reportes - ECOREX.tareas</PageTitle>
+
+<div style="padding:24px 28px;max-width:1100px;">
+    <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Administrador de reportes</h1>
+    <p style="font-size:13px;color:#6b7280;margin:4px 0 16px;">
+        Asigna cada reporte a uno o mas roles: solo esos roles lo veran. Un reporte SIN roles asignados
+        queda visible para todos. Los administradores ven todos.
+    </p>
+
+    @if (_error is not null)
+    {
+        <div style="color:#b91c1c;font-size:13px;margin-bottom:10px;">@_error</div>
+    }
+    @if (_ok is not null)
+    {
+        <div style="color:#047857;font-size:13px;margin-bottom:10px;">@_ok</div>
+    }
+
+    @if (_reports.Count == 0)
+    {
+        <p style="text-align:center;color:#9ca3af;padding:24px 0;">No hay reportes guardados todavia.</p>
+    }
+    else
+    {
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Reporte</th>
+                    <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Tipo</th>
+                    <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Estado</th>
+                    <th style="text-align:left;color:#6b7280;padding:8px 6px;border-bottom:1px solid #e5e7eb;">Roles con acceso</th>
+                    <th style="border-bottom:1px solid #e5e7eb;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _reports)
+                {
+                    var rep = r;
+                    <tr>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">
+                            <div style="font-weight:600;color:#111827;">@rep.Name</div>
+                            <div style="font-family:monospace;color:#9ca3af;font-size:11px;">@rep.SourceKey</div>
+                        </td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">@(rep.Kind == ReportDefinitionKind.Printable ? "Imprimible" : "Dashboard")</td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">@(rep.Status == ReportDefinitionStatus.Archived ? "Archivado" : "Activo")</td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">
+                            @if (_roles.Count == 0)
+                            {
+                                <span style="color:#9ca3af;">No hay roles configurados en el tenant.</span>
+                            }
+                            else
+                            {
+                                <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                                    @foreach (var role in _roles)
+                                    {
+                                        var ro = role;
+                                        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;">
+                                            <input type="checkbox"
+                                                   checked="@IsAssigned(rep.Id, ro.Id)"
+                                                   @onchange="e => Toggle(rep.Id, ro.Id, (bool)(e.Value ?? false))" />
+                                            @ro.Name
+                                        </label>
+                                    }
+                                </div>
+                                @if (Count(rep.Id) == 0)
+                                {
+                                    <div style="color:#9ca3af;font-size:11px;margin-top:2px;">Sin asignaciones: visible para todos.</div>
+                                }
+                            }
+                        </td>
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap;">
+                            <button @onclick="() => SaveAsync(rep.Id)" disabled="@_busy"
+                                    style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;margin-right:6px;">Guardar</button>
+                            @if (rep.Status != ReportDefinitionStatus.Archived)
+                            {
+                                <button @onclick="() => ArchiveAsync(rep.Id)" disabled="@_busy"
+                                        style="background:#fef2f2;color:#b91c1c;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;">Archivar</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<ReportDefinitionSummary> _reports = Array.Empty<ReportDefinitionSummary>();
+    private IReadOnlyList<RolDto> _roles = Array.Empty<RolDto>();
+    private readonly Dictionary<Guid, HashSet<Guid>> _assigned = new();
+    private bool _busy;
+    private string? _error;
+    private string? _ok;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _roles = await Roles.ListAsync();
+        _reports = await Defs.ListAllAsync();
+        foreach (var r in _reports)
+        {
+            var ids = await Defs.GetAssignedRolesAsync(r.Id);
+            _assigned[r.Id] = ids.ToHashSet();
+        }
+    }
+
+    private bool IsAssigned(Guid reportId, Guid rolId)
+        => _assigned.TryGetValue(reportId, out var s) && s.Contains(rolId);
+
+    private int Count(Guid reportId) => _assigned.TryGetValue(reportId, out var s) ? s.Count : 0;
+
+    private void Toggle(Guid reportId, Guid rolId, bool on)
+    {
+        if (!_assigned.TryGetValue(reportId, out var s))
+        {
+            s = new HashSet<Guid>();
+            _assigned[reportId] = s;
+        }
+        if (on) { s.Add(rolId); } else { s.Remove(rolId); }
+    }
+
+    private async Task SaveAsync(Guid reportId)
+    {
+        _error = _ok = null;
+        _busy = true;
+        try
+        {
+            var ids = _assigned.TryGetValue(reportId, out var s) ? s.ToList() : new List<Guid>();
+            await Defs.AssignRolesAsync(reportId, ids);
+            _ok = "Asignacion guardada.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ArchiveAsync(Guid reportId)
+    {
+        _error = _ok = null;
+        _busy = true;
+        try
+        {
+            await Defs.ArchiveAsync(reportId);
+            _reports = await Defs.ListAllAsync();
+            _ok = "Reporte archivado.";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

@@ -2122,7 +2122,11 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("000109", "Modulos web", "Registro de modulos del sistema y estado por tenant.", "/modulos-web", ModuleArea.Sistema, true),
             ("000788", "Power BI", "Tableros analiticos embebidos (placeholder).", null, ModuleArea.Sistema, false),
             ("000867", "Agentes IA", "Agentes de IA gobernados por el AI Gateway (placeholder).", null, ModuleArea.Sistema, false),
-            ("000894", "Documentos", "Gestor Documental: archivo central (categoria/carpeta/documento con versiones) y expedientes (TRD).", "/gestor-documental", ModuleArea.Sistema, false)
+            ("000894", "Documentos", "Gestor Documental: archivo central (categoria/carpeta/documento con versiones) y expedientes (TRD).", "/gestor-documental", ModuleArea.Sistema, false),
+            ("000895", "Panel / Dashboards", "Reportes: dashboards interactivos (ADR-0051).", "/reportes/tablero", ModuleArea.Sistema, false),
+            ("000896", "Reportes con IA", "Reportes: autoria por IA (ADR-0051).", "/reportes/ia", ModuleArea.Sistema, false),
+            ("000897", "Reportes imprimibles", "Reportes: imprimibles Bold RDL (ADR-0051).", "/reportes/imprimibles", ModuleArea.Sistema, false),
+            ("000898", "Administrador de reportes", "Reportes: asignacion de reportes a roles (ADR-0051).", "/reportes/admin", ModuleArea.Sistema, false)
         };
 
         var existing = await _db.ModuleDefinitions
@@ -3544,6 +3548,121 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         });
         await _db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Gestor Documental: definicion de modulo {Code} registrada en el catalogo global.", GesDocLegacyCode);
+    }
+
+    // ---- Reportes: grupo de menu + registro de modulos (gobernanza por rol, ADR-0051) ----
+    // Los 4 modulos de la matriz de roles derivan de los ITEMS de menu (GetModuleCatalogAsync usa el
+    // Route del Item como ModuleKey). Ademas se registran en el catalogo global para el modulo 000109.
+    private const string ReportesSectionSlug = "reportes-grp";
+    private static readonly (string Name, string Route, string Code)[] ReportesMenuItems =
+    {
+        ("Panel / Dashboards", "reportes/tablero", "000895"),
+        ("Reportes con IA", "reportes/ia", "000896"),
+        ("Imprimibles", "reportes/imprimibles", "000897"),
+        ("Administrador de reportes", "reportes/admin", "000898")
+    };
+
+    /// <summary>Registra (insert-if-missing) las definiciones de modulo de Reportes en el catalogo
+    /// global (module_definitions), para el modulo 000109 y como respaldo del catalogo de roles.
+    /// Necesario en produccion, donde EnsureModuleRegistryAsync (solo Development) no corre.</summary>
+    public async Task EnsureReportesModulesAsync(CancellationToken cancellationToken = default)
+    {
+        var codes = ReportesMenuItems.Select(m => m.Code).ToList();
+        var existing = (await _db.ModuleDefinitions
+            .Where(d => codes.Contains(d.LegacyCode))
+            .Select(d => d.LegacyCode)
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        var added = 0;
+        foreach (var m in ReportesMenuItems)
+        {
+            if (existing.Contains(m.Code)) { continue; }
+            _db.ModuleDefinitions.Add(new ModuleDefinition
+            {
+                LegacyCode = m.Code,
+                Name = m.Name,
+                Description = "Motor de Reportes y BI (ADR-0051).",
+                Route = "/" + m.Route,
+                Area = ModuleArea.Sistema,
+                IsCore = false
+            });
+            added++;
+        }
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Reportes: {Count} definiciones de modulo registradas en el catalogo.", added);
+        }
+    }
+
+    /// <summary>Crea (idempotente) la seccion "Reportes" con sus items en TODAS las vistas de menu del
+    /// tenant. El Route de cada Item es su ModuleKey en la matriz de roles; el menu se poda por
+    /// permiso de "Ver" (MenuPermissionFilter), asi el item "Administrador" solo lo ven quienes tienen
+    /// acceso a reportes/admin.</summary>
+    public async Task EnsureReportesMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
+
+        var added = 0;
+        foreach (var viewId in views)
+        {
+            var section = await _db.MenuNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.MenuViewId == viewId
+                    && n.Kind == MenuNodeKind.Section && n.Route == ReportesSectionSlug, cancellationToken);
+            if (section is null)
+            {
+                var ultimoOrden = await _db.MenuNodes.IgnoreQueryFilters()
+                    .Where(n => n.MenuViewId == viewId && n.ParentId == null)
+                    .Select(n => (int?)n.SortOrder)
+                    .MaxAsync(cancellationToken);
+                section = new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = null,
+                    Kind = MenuNodeKind.Section,
+                    Name = "Reportes",
+                    Route = ReportesSectionSlug,
+                    IconKey = "chart",
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = (ultimoOrden ?? -1) + 1
+                };
+                _db.MenuNodes.Add(section);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            var orden = 0;
+            foreach (var it in ReportesMenuItems)
+            {
+                var existe = await _db.MenuNodes.IgnoreQueryFilters()
+                    .AnyAsync(n => n.MenuViewId == viewId && n.Route == it.Route, cancellationToken);
+                if (existe) { orden++; continue; }
+                _db.MenuNodes.Add(new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = section.Id,
+                    Kind = MenuNodeKind.Item,
+                    Name = it.Name,
+                    Route = it.Route,
+                    LegacyCode = it.Code,
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = orden++
+                });
+                added++;
+            }
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Reportes: menu sembrado ({Count} items) para el tenant {Tenant}.", added, tenantId);
+        }
     }
 
     /// <summary>

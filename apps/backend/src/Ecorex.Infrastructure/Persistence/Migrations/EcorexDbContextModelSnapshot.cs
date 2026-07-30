@@ -7705,6 +7705,60 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("report_definitions", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ReportDefinitionRole", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("ReportDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("report_definition_id");
+
+                    b.Property<Guid>("RolId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rol_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_report_definition_roles");
+
+                    b.HasIndex("ReportDefinitionId")
+                        .HasDatabaseName("ix_report_definition_roles_report_definition_id");
+
+                    b.HasIndex("RolId")
+                        .HasDatabaseName("ix_report_definition_roles_rol_id");
+
+                    b.HasIndex("TenantId", "RolId")
+                        .HasDatabaseName("ix_report_definition_roles_tenant_id_rol_id");
+
+                    b.HasIndex("TenantId", "ReportDefinitionId", "RolId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_report_definition_roles_tenant_id_report_definition_id_rol_");
+
+                    b.ToTable("report_definition_roles", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Rol", b =>
                 {
                     b.Property<Guid>("Id")
@@ -14175,6 +14229,27 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_prospectos_scrapeados_terceros_tercero_id");
 
                     b.Navigation("Tercero");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ReportDefinitionRole", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ReportDefinition", "ReportDefinition")
+                        .WithMany()
+                        .HasForeignKey("ReportDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_report_definition_roles_report_definitions_report_definitio");
+
+                    b.HasOne("Ecorex.Domain.Entities.Rol", "Rol")
+                        .WithMany()
+                        .HasForeignKey("RolId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_report_definition_roles_roles_rol_id");
+
+                    b.Navigation("ReportDefinition");
+
+                    b.Navigation("Rol");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>

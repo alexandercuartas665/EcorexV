@@ -1,11 +1,14 @@
 @page "/reportes/ia"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Perm:reportes/ia:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
 @using Ecorex.Application.Reporting.Authoring
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.Reporting
 @inject IReportAuthoringService Authoring
 @inject IReportDefinitionService Defs
+@inject ICurrentPermissions Perms
 @inject NavigationManager Nav
 
 @* Autoria por IA del Motor de Reportes (ADR-0051, Ola 4). El usuario escribe una instruccion; la IA
@@ -204,7 +207,12 @@
         await RefreshSavedAsync();
     }
 
-    private async Task RefreshSavedAsync() => _saved = await Defs.ListAsync();
+    private async Task RefreshSavedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        var seeAll = eff.Unrestricted || eff.Can("reportes/admin", PermissionAction.View);
+        _saved = await Defs.ListAsync(seeAll, eff.RolId);
+    }
 
     private static string FormatCell(object? v) => v switch
     {

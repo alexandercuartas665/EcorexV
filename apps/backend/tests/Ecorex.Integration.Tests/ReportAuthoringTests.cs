@@ -100,7 +100,7 @@ public abstract class ReportAuthoringTestsBase
         {
             var svc = BuildDefinitionService(ctx, a);
             savedId = await svc.SaveAsync(spec, "demo", default);
-            var list = await svc.ListAsync();
+            var list = await svc.ListAsync(seeAll: true, rolId: null);
             Assert.Single(list);
             var run = await svc.RunAsync(savedId);
             Assert.NotNull(run);
@@ -111,7 +111,7 @@ public abstract class ReportAuthoringTestsBase
         await using (var ctx = _fixture.CreateContext(b))
         {
             var svc = BuildDefinitionService(ctx, b);
-            Assert.Empty(await svc.ListAsync());
+            Assert.Empty(await svc.ListAsync(seeAll: true, rolId: null));
             Assert.Null(await svc.GetAsync(savedId));
             Assert.Null(await svc.RunAsync(savedId));
         }

@@ -562,6 +562,26 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_GESDOC"), "tru
     }
 }
 
+// Reportes (ADR-0051): grupo de menu "Reportes" con sus 4 items + registro de modulos en el catalogo
+// global, en los tenants CLIENTE (Kind = Standard). El Route de cada item es el ModuleKey de la matriz
+// de roles, asi la gobernanza (Ver/Crear/Disenar/Administrar) sale sola. Idempotente (ECOREX_MENU_REPORTES=true).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_REPORTES"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.EnsureReportesModulesAsync();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind == TenantKind.Standard)
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureReportesMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-reportes] Reportes habilitado para {Name}", t.Name);
+    }
+}
+
 // Deja el menu de los tenants CLIENTE (Kind = Standard) como el de SOLDARCO, que es el depurado:
 // quita los 6 stubs muertos de "Sistema - Desarrollo", muda el CRM de sistema de "syscrm" a "crm"
 // y reubica Contenedor de datos / Plantillas / Extraccion de datos (ECOREX_MENU_DEPURAR=true).

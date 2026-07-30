@@ -261,6 +261,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScheduledJobChannel> ScheduledJobChannels => Set<ScheduledJobChannel>();
     public DbSet<ScheduledJobRun> ScheduledJobRuns => Set<ScheduledJobRun>();
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
+    public DbSet<ReportDefinitionRole> ReportDefinitionRoles => Set<ReportDefinitionRole>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -1513,6 +1514,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasIndex(x => new { x.TenantId, x.Name });
             b.HasIndex(x => new { x.TenantId, x.Status });
+        });
+
+        // Gobernanza de reportes por rol (ADR-0051): que reportes ve cada rol. La asignacion vive y
+        // muere con el reporte (cascade). El FK a Rol es NoAction para no crear multiples caminos de
+        // cascada en SQL Server; la limpieza al borrar un rol la hace el servicio de roles.
+        modelBuilder.Entity<ReportDefinitionRole>(b =>
+        {
+            b.HasOne(x => x.ReportDefinition).WithMany()
+                .HasForeignKey(x => x.ReportDefinitionId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Rol).WithMany()
+                .HasForeignKey(x => x.RolId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ReportDefinitionId, x.RolId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.RolId });
         });
 
         modelBuilder.Entity<ScheduledJobRule>(b =>

@@ -1,10 +1,13 @@
 @page "/reportes/imprimibles"
-@attribute [Authorize(Policy = "TenantMember")]
+@attribute [Authorize(Policy = "Perm:reportes/imprimibles:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
 @using Ecorex.Application.Reporting.Authoring
+@using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
 @inject IReportDefinitionService Defs
+@inject ICurrentPermissions Perms
 @inject NavigationManager Nav
 
 @* Indice de reportes imprimibles (RDL) del tenant. Se crean desde /reportes/ia ("Guardar como
@@ -19,10 +22,13 @@
         <a href="/reportes/ia" style="color:#4338ca;">Reportes con IA</a> (boton "Guardar como imprimible"),
         o genera el reporte completo multi-pagina de demostracion:
     </p>
-    <button @onclick="CreateShowcaseAsync" disabled="@_busy"
-            style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:16px;">
-        @(_busy ? "Generando..." : "Generar reporte completo (demo)")
-    </button>
+    @if (_canDesign)
+    {
+        <button @onclick="CreateShowcaseAsync" disabled="@_busy"
+                style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:16px;">
+            @(_busy ? "Generando..." : "Generar reporte completo (demo)")
+        </button>
+    }
     @if (_error is not null)
     {
         <span style="color:#b91c1c;font-size:13px;margin-left:10px;">@_error</span>
@@ -49,7 +55,10 @@
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">@s.Name</td>
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;font-family:monospace;color:#6b7280;">@s.SourceKey</td>
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap;">
-                            <button @onclick="() => Edit(s.Id)" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">Editar</button>
+                            @if (_canDesign)
+                            {
+                                <button @onclick="() => Edit(s.Id)" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">Editar</button>
+                            }
                             <button @onclick="() => Open(s.Id)" style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">Ver</button>
                         </td>
                     </tr>
@@ -62,9 +71,16 @@
 @code {
     private IReadOnlyList<ReportDefinitionSummary> _items = Array.Empty<ReportDefinitionSummary>();
 
+    private bool _canDesign;
+
     protected override async Task OnInitializedAsync()
     {
-        var all = await Defs.ListAsync();
+        var eff = await Perms.GetAsync();
+        // Admin (Owner/Admin o acceso a /reportes/admin) ve todos; el resto, los asignados a su rol.
+        var seeAll = eff.Unrestricted || eff.Can("reportes/admin", PermissionAction.View);
+        // "Disenar" = permiso de Editar sobre imprimibles: habilita el boton Editar y el generador.
+        _canDesign = eff.Unrestricted || eff.Can("reportes/imprimibles", PermissionAction.Edit);
+        var all = await Defs.ListAsync(seeAll, eff.RolId);
         _items = all.Where(x => x.Kind == ReportDefinitionKind.Printable).ToList();
     }
 

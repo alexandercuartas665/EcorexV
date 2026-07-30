@@ -89,6 +89,8 @@ public interface IApplicationDbContext
     DbSet<ScheduledJobRun> ScheduledJobRuns { get; }
     // Motor de Reportes y BI (ADR-0051): definiciones guardadas (dashboards/imprimibles).
     DbSet<ReportDefinition> ReportDefinitions { get; }
+    // Gobernanza por rol: que reportes ve cada rol dinamico del tenant.
+    DbSet<ReportDefinitionRole> ReportDefinitionRoles { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }

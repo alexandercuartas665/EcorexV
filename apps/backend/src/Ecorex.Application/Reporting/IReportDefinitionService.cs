@@ -25,7 +25,22 @@ public interface IReportDefinitionService
 
     Task UpdateSpecAsync(Guid id, ReportSpec spec, CancellationToken ct = default);
 
-    Task<IReadOnlyList<ReportDefinitionSummary>> ListAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Lista los reportes ACTIVOS que el usuario puede ver (gobernanza por rol, ADR-0051):
+    /// <paramref name="seeAll"/> = true (Owner/Admin o permiso Administrar) devuelve todos; si no,
+    /// devuelve los reportes SIN asignacion (visibles para todos) mas los asignados a
+    /// <paramref name="rolId"/>. Tenant-scoped por el filtro global.
+    /// </summary>
+    Task<IReadOnlyList<ReportDefinitionSummary>> ListAsync(bool seeAll, Guid? rolId, CancellationToken ct = default);
+
+    /// <summary>Admin (Reportes.Administrar): TODOS los reportes del tenant, activos y archivados.</summary>
+    Task<IReadOnlyList<ReportDefinitionSummary>> ListAllAsync(CancellationToken ct = default);
+
+    /// <summary>Roles asignados a un reporte (ids). Vacio = visible para todos.</summary>
+    Task<IReadOnlyList<Guid>> GetAssignedRolesAsync(Guid reportId, CancellationToken ct = default);
+
+    /// <summary>Reemplaza el conjunto de roles asignados a un reporte (borra e inserta). Tenant-scoped.</summary>
+    Task AssignRolesAsync(Guid reportId, IReadOnlyCollection<Guid> rolIds, CancellationToken ct = default);
 
     Task<ReportDefinitionDetail?> GetAsync(Guid id, CancellationToken ct = default);
 
@@ -147,13 +162,67 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<IReadOnlyList<ReportDefinitionSummary>> ListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<ReportDefinitionSummary>> ListAsync(bool seeAll, Guid? rolId, CancellationToken ct = default)
     {
-        return await _db.ReportDefinitions.AsNoTracking()
-            .Where(d => d.Status == ReportDefinitionStatus.Active)
+        var q = _db.ReportDefinitions.AsNoTracking()
+            .Where(d => d.Status == ReportDefinitionStatus.Active);
+
+        if (!seeAll)
+        {
+            // Visible si el reporte NO tiene ninguna asignacion (para todos), o si alguna de sus
+            // asignaciones coincide con el rol del usuario. Ambas tablas son tenant-scoped por el
+            // filtro global, asi que el cruce jamas sale del tenant.
+            q = q.Where(d => !_db.ReportDefinitionRoles.Any(r => r.ReportDefinitionId == d.Id)
+                          || (rolId != null && _db.ReportDefinitionRoles.Any(r => r.ReportDefinitionId == d.Id && r.RolId == rolId)));
+        }
+
+        return await q
             .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
             .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ReportDefinitionSummary>> ListAllAsync(CancellationToken ct = default)
+    {
+        return await _db.ReportDefinitions.AsNoTracking()
+            .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
+            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetAssignedRolesAsync(Guid reportId, CancellationToken ct = default)
+    {
+        return await _db.ReportDefinitionRoles.AsNoTracking()
+            .Where(r => r.ReportDefinitionId == reportId)
+            .Select(r => r.RolId)
+            .ToListAsync(ct);
+    }
+
+    public async Task AssignRolesAsync(Guid reportId, IReadOnlyCollection<Guid> rolIds, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+
+        // El reporte debe existir dentro del tenant (filtro global) para poder asignarlo.
+        if (!await _db.ReportDefinitions.AnyAsync(d => d.Id == reportId, ct))
+        {
+            return;
+        }
+
+        var actuales = await _db.ReportDefinitionRoles.Where(r => r.ReportDefinitionId == reportId).ToListAsync(ct);
+        _db.ReportDefinitionRoles.RemoveRange(actuales);
+        foreach (var rolId in rolIds.Distinct())
+        {
+            _db.ReportDefinitionRoles.Add(new ReportDefinitionRole
+            {
+                Id = Guid.CreateVersion7(),
+                ReportDefinitionId = reportId,
+                RolId = rolId
+            });
+        }
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<ReportDefinitionDetail?> GetAsync(Guid id, CancellationToken ct = default)

@@ -82,7 +82,7 @@ public static class ReportingEndpoints
         {
             var rdl = await defs.GetRdlAsync(id, ct);
             return rdl is null ? Results.NotFound() : Results.Content(rdl, "application/xml");
-        }).RequireAuthorization("TenantMember");
+        }).RequireAuthorization("Perm:reportes/imprimibles:View");
 
         // Guardado del RDL editado en el diseniador (saveReportDefinition -> POST). Tenant-safe.
         app.MapPost("/api/reporting/rdl/{id:guid}", async (
@@ -100,6 +100,6 @@ public static class ReportingEndpoints
 
             var ok = await defs.UpdateRdlAsync(id, rdl, ct);
             return ok ? Results.Ok(new { ok = true }) : Results.NotFound();
-        }).RequireAuthorization("TenantMember").DisableAntiforgery();
+        }).RequireAuthorization("Perm:reportes/imprimibles:Edit").DisableAntiforgery();
     }
 }

@@ -8,10 +8,10 @@ namespace Ecorex.Application.Reporting.Authoring;
 /// de una columna por campo del resultado. Es el camino T1/D6 del ADR-0051: la IA o el usuario generan
 /// el MISMO artefacto RDL que luego abre el editor/visor Bold.
 ///
-/// El binding de datos apunta a un data source JSON logico ("EcorexTenantSafe") que el visor Bold
-/// resuelve contra el endpoint tenant-safe (/api/reporting/query); NUNCA una cadena de conexion a BD.
-/// El RDL generado es RDL 2016 estandar: su ESTRUCTURA se valida en pruebas; el render pixel-perfect
-/// se afina cuando el editor/visor Bold este embebido (requiere la clave de licencia Community).
+/// El data source es EMBEBIDO ("EcorexTenantSafe"); el visor Bold corre en ProcessingMode.Local y el
+/// controller inyecta las filas YA FILTRADAS POR TENANT como ReportDataSource (Name == el nombre del
+/// data source), de modo que Bold NUNCA abre una conexion a BD (la ConnectString se ignora en Local).
+/// El RDL es RDL 2016 estandar; su estructura se valida en pruebas y el render se verifico en vivo.
 /// </summary>
 public static class ReportSpecToRdl
 {
@@ -55,12 +55,13 @@ public static class ReportSpecToRdl
         new(R + "DataSources",
             new XElement(R + "DataSource",
                 new XAttribute("Name", DataSourceName),
+                // Data source EMBEBIDO. El visor corre en ProcessingMode.Local y el controller inyecta
+                // las filas ya filtradas por tenant como ReportDataSource (Name == este DataSource);
+                // por eso la ConnectString se IGNORA (nunca se abre una conexion a BD). El sourceKey
+                // queda como pista informativa.
                 new XElement(R + "ConnectionProperties",
-                    new XElement(R + "DataProvider", "JSON"),
-                    // El sourceKey viaja como ConnectString logico; el visor Bold lo mapea al endpoint
-                    // /api/reporting/query (autenticado por cookie), NUNCA una cadena de conexion a BD.
-                    new XElement(R + "ConnectString", "reporting/query?source=" + sourceKey)),
-                new XElement(Rd + "SecurityType", "None")));
+                    new XElement(R + "DataProvider", "System.Data.DataSet"),
+                    new XElement(R + "ConnectString", "provided-at-runtime:" + sourceKey))));
 
     private static XElement BuildDataSet(IReadOnlyList<ReportColumn> columns)
     {
@@ -73,9 +74,11 @@ public static class ReportSpecToRdl
                 new XElement(Rd + "TypeName", ClrTypeName(c.Type))));
         }
 
+        // El nombre del DataSet coincide con el del DataSource (y con el ReportDataSource inyectado):
+        // asi Bold enlaza las filas en memoria al dataset en ProcessingMode.Local.
         return new XElement(R + "DataSets",
             new XElement(R + "DataSet",
-                new XAttribute("Name", "Data"),
+                new XAttribute("Name", DataSourceName),
                 new XElement(R + "Query",
                     new XElement(R + "DataSourceName", DataSourceName),
                     new XElement(R + "CommandText", "")),
@@ -150,7 +153,7 @@ public static class ReportSpecToRdl
                     new XElement(R + "TablixMember",
                         new XElement(R + "Group", new XAttribute("Name", "Detalle")),
                         new XElement(R + "TablixMembers", new XElement(R + "TablixMember"))))),
-            new XElement(R + "DataSetName", "Data"),
+            new XElement(R + "DataSetName", DataSourceName),
             new XElement(R + "Top", "0.5in"),
             new XElement(R + "Left", "0in"),
             new XElement(R + "Height", "0.53in"),

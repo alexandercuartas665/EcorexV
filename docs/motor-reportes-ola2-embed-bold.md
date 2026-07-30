@@ -1,9 +1,48 @@
-# Ola 2 - Embed del editor/visor Bold Reports (runbook turnkey)
+# Ola 2 - Embed del editor/visor Bold Reports (runbook)
 
-> Estado: LISTO PARA EJECUTAR cuando el usuario provea la clave de licencia Community de Bold.
-> El resto de la Ola 2 (convertidor `ReportSpec -> RDL` + persistencia del imprimible) ya esta hecho
-> y probado (commit 71c6624, `ReportSpecToRdl` + `SavePrintableAsync` + `ReportRdlTests`).
-> Contexto: ADR-0051. Regla inviolable: la clave NUNCA se versiona (repo publico).
+> Estado: **VISOR EMBEBIDO Y VERIFICADO EN VIVO (modo evaluacion, sin clave)**. Un imprimible RDL se
+> renderiza en el visor Bold con datos reales del tenant (tenant-safe, inyectados en memoria) y la
+> barra de export (PDF/Excel). Falta solo: la CLAVE de licencia (quita la marca de agua, la pones tu),
+> y el DISENIADOR drag-drop (pendiente). Contexto: ADR-0051. La clave NUNCA se versiona (repo publico).
+
+## APRENDIZAJE CLAVE (resuelto en vivo): datos in-memory tenant-safe
+
+Bold usa los datos inyectados por el controller SOLO en **ProcessingMode.Local** (en remote/RDL intenta
+conectar a la BD del RDL e ignora la inyeccion). La receta que FUNCIONA:
+- Cliente: `boldReportViewer({ processingMode: "local", ... })`.
+- Controller `OnInitReportOptions`: `reportOption.ReportModel.ProcessingMode = ProcessingMode.Local;`
+  + `ReportModel.Stream = <RDL>` + `ReportModel.DataSources.Add(new BoldReports.Web.ReportDataSource
+  { Name = "<nombre>", Value = <DataTable tenant-safe> })`.
+- El `ReportDataSource.Name` debe COINCIDIR con el `<DataSource Name>` del RDL Y con el `<DataSet Name>`
+  y el `<Query><DataSourceName>` (todos alineados a un mismo valor, ej. "EcorexTenantSafe"). Si difieren,
+  Bold reporta "data input collection null or empty for the data set".
+- El `<DataSource>` del RDL usa `<ConnectionProperties>` embebido (provider "System.Data.DataSet",
+  connectstring throwaway; se IGNORA en Local). NO usar `<DataSourceReference>` (Bold busca un data
+  source compartido en disco -> error).
+Esto ya esta implementado: `ReportSpecToRdl` (nombres alineados) + `BoldReportsApiController`
+(ProcessingMode.Local + inyeccion) + `boldreports-interop.js` (processingMode local).
+
+## Lo que YA esta hecho y verificado
+
+- Paquete `BoldReports.Net.Core` 14.1.14 + `Microsoft.AspNetCore.Mvc.NewtonsoftJson` (restaura en net10).
+- Assets Bold self-hosted en `wwwroot/lib/boldreports` + `wwwroot/lib/jquery` (carga on-demand por
+  `boldreports-interop.js`, sin CDN en runtime).
+- `BoldReportsApiController` (IReportController, policy TenantMember): carga el RDL de la
+  `ReportDefinition` e inyecta las filas tenant-safe (via `IReportDefinitionService.GetPrintableAsync`).
+- Paginas: `/reportes/imprimibles` (indice) + `/reportes/imprimibles/{id}` (visor) + boton "Guardar
+  como imprimible" en `/reportes/ia` (genera el RDL y navega al visor).
+- Registro de licencia en Program.cs (lee `Bold:LicenseKey`; sin clave = evaluacion).
+- Convertidor `ReportSpecToRdl` + `SavePrintableAsync` + test `ReportRdlTests`.
+
+## Lo que FALTA (accion del usuario / trabajo pendiente)
+
+1. **Clave de licencia** (quita la marca de agua): registrar la Community de Bold y ponerla en
+   `Bold:LicenseKey` (ver abajo). El visor ya funciona en evaluacion sin ella.
+2. **Diseniador drag-drop** (`IReportDesignerController` + pagina editor con GetData/SetData contra
+   `ReportDefinition.Rdl`): PENDIENTE. Hoy los RDL se generan desde el spec (IA/usuario) via
+   `ReportSpecToRdl`; el editor visual Bold es el siguiente incremento.
+3. **Docker prod**: `System.Drawing.Common` + `Microsoft.Windows.Compatibility` pueden exigir libs
+   nativas en Linux; confirmar con Bold antes del deploy.
 
 ## Gates de la Ola 2 (estado)
 

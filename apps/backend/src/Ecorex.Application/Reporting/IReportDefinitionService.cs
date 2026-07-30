@@ -29,7 +29,14 @@ public interface IReportDefinitionService
     Task ArchiveAsync(Guid id, CancellationToken ct = default);
 
     Task<ReportRunResult?> RunAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Devuelve el RDL de un imprimible + su dataset ya ejecutado por el datasource tenant-safe,
+    /// para alimentar al visor Bold. Null si no existe o no tiene RDL. Tenant-scoped por construccion.</summary>
+    Task<ReportPrintable?> GetPrintableAsync(Guid id, CancellationToken ct = default);
 }
+
+/// <summary>RDL de un imprimible + las filas ya filtradas por tenant que lo alimentan.</summary>
+public sealed record ReportPrintable(string Rdl, ReportDataSet DataSet);
 
 public sealed record ReportDefinitionSummary(
     Guid Id, string Name, ReportDefinitionKind Kind, string? SourceKey,
@@ -163,5 +170,28 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         var ds = await _dataSource.QueryAsync(spec.ToQuerySpec(), new ReportContext(tenantId), ct);
         var option = ReportSpecRenderer.BuildOption(spec, ds);
         return new ReportRunResult(spec, ds, option);
+    }
+
+    public async Task<ReportPrintable?> GetPrintableAsync(Guid id, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return null;
+        }
+
+        var def = await _db.ReportDefinitions.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null || string.IsNullOrWhiteSpace(def.Rdl))
+        {
+            return null;
+        }
+
+        var spec = ReportSpec.FromJson(def.SpecJson);
+        if (spec is null)
+        {
+            return null;
+        }
+
+        var ds = await _dataSource.QueryAsync(spec.ToQuerySpec(), new ReportContext(tenantId), ct);
+        return new ReportPrintable(def.Rdl!, ds);
     }
 }

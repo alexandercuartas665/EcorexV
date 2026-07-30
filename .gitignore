@@ -89,3 +89,8 @@ appsettings.Development.local.json.bak
 # Llaves de DataProtection en dev (local, no versionar)
 .dpkeys-dev/
 **/.dpkeys-dev/
+
+# Motor de Reportes / Ola 2: assets de Bold Reports (JS propietario ~18MB) y jQuery se cargan
+# desde la CDN oficial en runtime; NO se versionan. Ver docs/motor-reportes-ola2-embed-bold.md
+apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/boldreports/
+apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/jquery/

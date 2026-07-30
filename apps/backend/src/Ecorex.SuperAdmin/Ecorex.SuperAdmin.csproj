@@ -14,6 +14,12 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <!-- Motor de Reportes / Ola 2: editor+visor Bold Reports (RDL). net10.0 soportado por 14.1.14.
+         La clave de licencia NO se versiona: se lee de Bold:LicenseKey (user-secrets/env); sin clave
+         corre en modo evaluacion (marca de agua). -->
+    <PackageReference Include="BoldReports.Net.Core" Version="14.1.14" />
+    <!-- El Web Reporting API de Bold es un controller MVC que usa Newtonsoft para (de)serializar. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.9" />
     <!-- Esquema bearer "Agent" (no-default) para autenticar el AgenteHub con el JWT corto del agente. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
   </ItemGroup>

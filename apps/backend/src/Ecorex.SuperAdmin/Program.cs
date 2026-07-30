@@ -35,6 +35,18 @@ builder.Services.AddRazorComponents()
     // rechazaba en silencio. 32 MB cubre el tope de 16 MB del archivo (~21 MB en base64).
     .AddHubOptions(options => options.MaximumReceiveMessageSize = 32L * 1024 * 1024);
 
+// Motor de Reportes / Ola 2 (ADR-0051): editor+visor Bold Reports (RDL).
+// Registro de licencia: la clave se lee de Bold:LicenseKey (user-secrets/env, NUNCA versionada).
+// Sin clave, los componentes corren en modo EVALUACION (marca de agua), no fallan.
+var boldLicenseKey = builder.Configuration["Bold:LicenseKey"];
+if (!string.IsNullOrWhiteSpace(boldLicenseKey))
+{
+    Bold.Licensing.BoldLicenseProvider.RegisterLicense(boldLicenseKey);
+}
+// El Web Reporting API de Bold es un controller MVC (necesita Newtonsoft) + cache en memoria.
+builder.Services.AddControllers().AddNewtonsoftJson();
+builder.Services.AddMemoryCache();
+
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
 builder.Services
@@ -632,6 +644,8 @@ app.MapHub<Ecorex.SuperAdmin.RealTime.AgenteHub>(AgentChannel.HubPath);
 app.MapAgentEndpoints();
 // Motor de Reportes y BI (ADR-0051, Ola 1): catalogo + datasource tenant-safe como JSON.
 Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
+// Web Reporting API de Bold (Ola 2): controllers del visor/diseniador RDL.
+app.MapControllers();
 
 app.MapPost("/auth/login", async (
     HttpContext http,

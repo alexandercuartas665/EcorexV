@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-07-30 - Motor de Reportes: Ola 2 (embed VISOR Bold) + convertidor RDL
+
+**Agentes:** Claude (worktree `informes`) + sub-agente de investigacion de la integracion Bold Blazor.
+
+**Hecho:** VISOR Bold Reports EMBEBIDO y verificado en vivo (modo evaluacion, sin clave) +
+convertidor `ReportSpecToRdl` y persistencia del imprimible.
+- Gate #2 (net10) CONFIRMADO: `BoldReports.Net.Core` 14.1.14 publica net10.0 y restaura en la solucion
+  (+ `Microsoft.AspNetCore.Mvc.NewtonsoftJson`).
+- `BoldReportsApiController` (IReportController, policy TenantMember): carga el RDL de la
+  ReportDefinition e inyecta las filas TENANT-SAFE (`IReportDefinitionService.GetPrintableAsync`), en
+  ProcessingMode.Local. Paginas `/reportes/imprimibles` (indice) + `/reportes/imprimibles/{id}` (visor)
+  + boton "Guardar como imprimible" en `/reportes/ia`. Registro de licencia en Program.cs (lee
+  `Bold:LicenseKey`, sin clave = evaluacion). Assets Bold + jQuery desde la CDN oficial en runtime
+  (interop `boldreports-interop.js`, on-demand) -> JS propietario NO versionado (gitignore).
+- Convertidor `ReportSpecToRdl` (RDL 2016, nombres data source/dataset/inyeccion alineados) +
+  `SavePrintableAsync` (Kind=Printable + Rdl). Test `ReportRdlTests` 2/2 (puro).
+- APRENDIZAJE (resuelto en vivo): los datos inyectados solo se usan en **ProcessingMode.Local**; el
+  `ReportDataSource.Name` == `<DataSource Name>` == `<DataSet Name>` == `<Query><DataSourceName>`; data
+  source con ConnectionProperties embebido (connectstring ignorado en Local), NO DataSourceReference.
+  Documentado en `docs/motor-reportes-ola2-embed-bold.md`.
+
+**Verificacion en vivo** (owner@sky-system, server propio 5260 vs BD local): imprimible RECIEN creado
+(convertidor -> RDL, sin parches) renderiza en el visor Bold con datos reales del tenant (Done 4/
+Suspended 1/Active 86/Pending 123/InProgress 5 = 219 = SKY SYSTEM) + barra export. Assets via CDN:
+servidor sirve el loader CDN y las 6 URLs responden 200. Migracion `AddReportDefinition` aplicada al PG
+local. `POST /api/BoldReportsApi/PostReportAction -> 200`. Server propio detenido por PID/ruta; dev
+principal (5234) intacto.
+
+**Siguiente:** clave de licencia (marca de agua; la coloca el usuario), DISENIADOR drag-drop Bold
+(IReportDesignerController + editor con GetData/SetData), confirmar Docker prod.
+
+**Bloqueos:** ninguno para el visor; el diseniador y la marca de agua dependen de accion del usuario.
+
+**Decisiones:** ADR-0051 (stack). Assets Bold por CDN (no versionar JS propietario). Datos in-memory
+tenant-safe en ProcessingMode.Local.
+
+---
+
 ## 2026-07-29 - Motor de Reportes y BI: Ola 0 (gate de licencia)
 
 **Agentes:** Claude (sesion worktree `informes`) + sub-agente de investigacion de licencias.
@@ -130,14 +168,17 @@ queda cubierto por los tests con el generador falso.
   cadena de conexion a BD). Se corrigieron dos test-doubles FakeAppDb (RowIngest/TenantUser) que
   implementan IApplicationDbContext y necesitaban el nuevo DbSet ReportDefinitions.
 
-**Ola 2 - BLOQUEADA (embed Bold, requiere accion del usuario):** el editor drag-drop + visor + export
-PDF de Bold Reports necesita: (1) la CLAVE de licencia Community de Bold registrada a nombre de Bitcode
-(secreto: va en config gitignored, NUNCA en el repo publico; no la puedo obtener ni versionar); (2)
-confirmar que los paquetes Bold Blazor restauran en net10; (3) la decision de Docker en prod. El
-convertidor RDL y la persistencia ya dejan el artefacto listo para cuando el visor este embebido.
+**Ola 2 - VISOR BOLD EMBEBIDO Y VERIFICADO (2026-07-30, modo evaluacion):** ver la entrada fechada
+2026-07-30 arriba. Resumen: gate #2 (net10) confirmado; `BoldReportsApiController` (IReportController,
+policy TenantMember) carga el RDL de la ReportDefinition e inyecta las filas TENANT-SAFE en
+ProcessingMode.Local; paginas `/reportes/imprimibles` + `/reportes/imprimibles/{id}` + boton "Guardar
+como imprimible"; assets Bold via CDN (no se versiona JS propietario). Verificado en vivo: imprimible
+fresco renderiza en el visor Bold con datos reales del tenant (219 = SKY SYSTEM) + export. PENDIENTE:
+clave de licencia (marca de agua; la coloca el usuario en `Bold:LicenseKey`), DISENIADOR drag-drop Bold,
+confirmar Docker prod.
 
-**Follow-ups menores:** items de menu dinamico para /reportes/tablero, /reportes/ia; imagen de
-referencia del dashboard para afinar milimetricamente.
+**Follow-ups menores:** items de menu dinamico para /reportes/tablero, /reportes/ia, /reportes/imprimibles;
+imagen de referencia del dashboard para afinar milimetricamente.
 
 ---
 

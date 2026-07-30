@@ -53,19 +53,21 @@ public class ReportRdlTests
     }
 
     [Fact]
-    public void ToRdl_BindsToLogicalJsonDataSource_NotAConnectionString()
+    public void ToRdl_UsesEmbeddedDataSource_ForInMemoryLocalBinding_NotAConnectionString()
     {
         var spec = new ReportSpec { Title = "x", SourceKey = "container:abc", Chart = ReportChartKind.Table };
 
         var rdl = ReportSpecToRdl.ToRdl(spec, SampleDataSet());
         var doc = XDocument.Parse(rdl);
 
-        // Data source JSON logico, apuntando al endpoint tenant-safe; nunca una cadena de conexion a BD.
+        // Data source EMBEBIDO cuyo nombre coincide con el ReportDataSource que inyecta el controller
+        // (ProcessingMode.Local): Bold usa las filas en memoria y jamas abre una conexion a BD.
         Assert.Contains(ReportSpecToRdl.DataSourceName, doc.Descendants(R + "DataSource").Select(d => d.Attribute("Name")!.Value));
+        Assert.Contains(ReportSpecToRdl.DataSourceName, doc.Descendants(R + "DataSourceName").Select(d => d.Value));
         var connect = doc.Descendants(R + "ConnectString").Select(c => c.Value).FirstOrDefault() ?? "";
-        Assert.Equal("JSON", doc.Descendants(R + "DataProvider").First().Value);
-        Assert.Contains("reporting/query", connect);
         Assert.DoesNotContain("Password", connect, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Host=", connect, StringComparison.OrdinalIgnoreCase);
+        // Sin DataSourceReference (haria que Bold busque un data source compartido en disco).
+        Assert.Empty(doc.Descendants(R + "DataSourceReference"));
     }
 }

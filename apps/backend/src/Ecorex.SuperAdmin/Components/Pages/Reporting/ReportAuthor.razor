@@ -6,6 +6,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Reporting
 @inject IReportAuthoringService Authoring
 @inject IReportDefinitionService Defs
+@inject NavigationManager Nav
 
 @* Autoria por IA del Motor de Reportes (ADR-0051, Ola 4). El usuario escribe una instruccion; la IA
    devuelve un JSON-spec que referencia SOLO el catalogo (validado antes de ejecutarse), se ejecuta via
@@ -44,6 +45,7 @@
                 <div>
                     <span class="rpt-tag">@_result.Spec.Chart</span>
                     <button class="rpt-btn ghost" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+                    <button class="rpt-btn ghost" @onclick="SavePrintableAsync" disabled="@_busy">Guardar como imprimible</button>
                 </div>
             </div>
 
@@ -149,6 +151,29 @@
         {
             await Defs.SaveAsync(_result.Spec, null);
             await RefreshSavedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SavePrintableAsync()
+    {
+        if (_result is not { Ok: true, Spec: not null, DataSet: not null })
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var id = await Defs.SavePrintableAsync(_result.Spec, _result.DataSet, null);
+            Nav.NavigateTo($"/reportes/imprimibles/{id}");
         }
         catch (Exception ex)
         {

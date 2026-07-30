@@ -72,5 +72,34 @@ public static class ReportingEndpoints
                 return Results.BadRequest(new { error = ex.Message });
             }
         }).RequireAuthorization("TenantMember").DisableAntiforgery();
+
+        // RDL de un imprimible: lo carga el diseniador Bold via openReportDefinition (client-side),
+        // evitando el flujo openReport(path) que asume Report Server. Tenant-safe (GetRdlAsync).
+        app.MapGet("/api/reporting/rdl/{id:guid}", async (
+            Guid id,
+            IReportDefinitionService defs,
+            CancellationToken ct) =>
+        {
+            var rdl = await defs.GetRdlAsync(id, ct);
+            return rdl is null ? Results.NotFound() : Results.Content(rdl, "application/xml");
+        }).RequireAuthorization("TenantMember");
+
+        // Guardado del RDL editado en el diseniador (saveReportDefinition -> POST). Tenant-safe.
+        app.MapPost("/api/reporting/rdl/{id:guid}", async (
+            Guid id,
+            HttpRequest request,
+            IReportDefinitionService defs,
+            CancellationToken ct) =>
+        {
+            using var reader = new StreamReader(request.Body);
+            var rdl = await reader.ReadToEndAsync(ct);
+            if (string.IsNullOrWhiteSpace(rdl))
+            {
+                return Results.BadRequest(new { error = "RDL vacio." });
+            }
+
+            var ok = await defs.UpdateRdlAsync(id, rdl, ct);
+            return ok ? Results.Ok(new { ok = true }) : Results.NotFound();
+        }).RequireAuthorization("TenantMember").DisableAntiforgery();
     }
 }

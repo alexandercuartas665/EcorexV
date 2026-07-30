@@ -1,0 +1,362 @@
+@page "/reportes/actividades-sistema"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Sources
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
+@inject IReportDataSource ReportDs
+
+@* Reporte INTEGRAL de Actividades del Sistema (Motor de Reportes y BI, ADR-0051): demuestra toda la
+   capacidad del motor sobre el datasource tenant-safe con UNA sola consulta tabular pivotada en el
+   servidor: 6 KPIs, dona por estado, area de tendencia (creadas/dia), barras por prioridad, barras
+   APILADAS estado x prioridad, una TABLA MATRIZ (cross-tab estado x prioridad con totales) y el detalle
+   reciente. Todo tenant-safe (nunca cadena de conexion) y con ECharts por interop. *@
+
+<PageTitle>Actividades del Sistema - ECOREX.tareas</PageTitle>
+
+<div class="pa">
+    <div class="pa-head">
+        <div>
+            <h1>Panel de Actividades del Sistema</h1>
+            <p class="pa-sub">Vision 360 del trabajo del tenant. Datos en vivo via el motor de reportes tenant-safe.</p>
+        </div>
+        <div class="pa-filters">
+            <label>Desde <input type="date" @bind="_from" /></label>
+            <label>Hasta <input type="date" @bind="_to" /></label>
+            <button class="pa-btn" @onclick="LoadAsync">Aplicar</button>
+            <button class="pa-btn ghost" @onclick="() => Quick(30)">30d</button>
+            <button class="pa-btn ghost" @onclick="() => Quick(90)">90d</button>
+            <button class="pa-btn ghost" @onclick="ClearRange">Todo</button>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="pa-error">@_error</div>
+    }
+
+    <div class="pa-kpis">
+        <div class="pa-kpi"><span class="v">@_total</span><span class="l">Total</span></div>
+        <div class="pa-kpi open"><span class="v">@_open</span><span class="l">Abiertas</span></div>
+        <div class="pa-kpi prog"><span class="v">@_inprog</span><span class="l">En progreso</span></div>
+        <div class="pa-kpi done"><span class="v">@_closed</span><span class="l">Cerradas</span></div>
+        <div class="pa-kpi susp"><span class="v">@_suspended</span><span class="l">Suspendidas</span></div>
+        <div class="pa-kpi over"><span class="v">@_overdue</span><span class="l">Vencidas</span></div>
+    </div>
+
+    <div class="pa-grid">
+        <div class="pa-card">
+            <h3>Distribucion por estado</h3>
+            <EChart Option="_donut" Height="300px" />
+        </div>
+        <div class="pa-card wide">
+            <h3>Actividades creadas por dia</h3>
+            <EChart Option="_area" Height="300px" />
+        </div>
+        <div class="pa-card">
+            <h3>Por prioridad</h3>
+            <EChart Option="_bar" Height="300px" />
+        </div>
+        <div class="pa-card wide">
+            <h3>Estado por prioridad (apilado)</h3>
+            <EChart Option="_stacked" Height="300px" />
+        </div>
+    </div>
+
+    <div class="pa-card">
+        <h3>Tabla matriz &mdash; Estado &times; Prioridad</h3>
+        @if (_statuses.Count == 0)
+        {
+            <p class="pa-empty">Sin datos en el rango.</p>
+        }
+        else
+        {
+            <table class="pa-matrix">
+                <thead>
+                    <tr>
+                        <th class="corner">Estado \ Prioridad</th>
+                        @foreach (var p in _priorities) { <th>@p</th> }
+                        <th class="tot">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _statuses)
+                    {
+                        <tr>
+                            <td class="rowhead">@s</td>
+                            @foreach (var p in _priorities)
+                            {
+                                var v = Cell(s, p);
+                                <td class="num @(v == 0 ? "zero" : "")" style="@HeatStyle(v)">@(v == 0 ? "" : v.ToString())</td>
+                            }
+                            <td class="num tot">@RowTotal(s)</td>
+                        </tr>
+                    }
+                    <tr class="totalrow">
+                        <td class="rowhead">Total</td>
+                        @foreach (var p in _priorities) { <td class="num tot">@ColTotal(p)</td> }
+                        <td class="num grand">@_total</td>
+                    </tr>
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="pa-card">
+        <h3>Actividades recientes</h3>
+        <table class="pa-table">
+            <thead><tr><th>Numero</th><th>Titulo</th><th>Estado</th><th>Prioridad</th><th>Creada</th><th>Vence</th></tr></thead>
+            <tbody>
+                @foreach (var r in _recent)
+                {
+                    <tr>
+                        <td>@r.Number</td>
+                        <td>@r.Title</td>
+                        <td><span class="chip s-@r.Status.ToLowerInvariant()">@r.Status</span></td>
+                        <td>@r.Priority</td>
+                        <td>@r.Created</td>
+                        <td class="@(r.Overdue ? "overdue" : "")">@r.Due</td>
+                    </tr>
+                }
+                @if (_recent.Count == 0)
+                {
+                    <tr><td colspan="6" class="pa-empty">Sin actividades en el rango.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private DateTime? _from;
+    private DateTime? _to;
+    private string? _error;
+
+    private long _total, _open, _inprog, _closed, _suspended, _overdue;
+    private object? _donut, _area, _bar, _stacked;
+
+    private readonly List<string> _statuses = new();
+    private readonly List<string> _priorities = new();
+    private readonly Dictionary<(string, string), long> _matrix = new();
+    private long _matrixMax;
+    private List<RecentRow> _recent = new();
+
+    private static readonly string[] Palette = { "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6" };
+    private static readonly string[] StatusOrder = { "Pending", "Active", "InProgress", "Done", "Suspended", "Closed" };
+    private static readonly string[] PriorityOrder = { "High", "Medium", "Low" };
+    private static readonly string[] OpenStates = { "Pending", "Active", "InProgress" };
+    private static readonly string[] ClosedStates = { "Done", "Closed" };
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private void Quick(int days)
+    {
+        _to = DateTime.UtcNow.Date;
+        _from = _to.Value.AddDays(-days);
+    }
+
+    private async Task ClearRange()
+    {
+        _from = null;
+        _to = null;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            var filters = new List<ReportFilter>();
+            if (_from is not null || _to is not null)
+            {
+                var from = (_from ?? DateTime.UtcNow.AddYears(-50).Date).ToString("yyyy-MM-dd");
+                var to = (_to ?? DateTime.UtcNow.Date).AddDays(1).ToString("yyyy-MM-dd");
+                filters.Add(ReportFilter.Between("CreatedAt", from, to));
+            }
+
+            // UNA consulta tabular tenant-safe -> se pivotea todo en el servidor.
+            var ds = await ReportDs.QueryAsync(new ReportQuerySpec
+            {
+                SourceKey = TaskItemReportSource.SourceKey,
+                Fields = new[] { "Number", "Title", "Status", "Priority", "CreatedAt", "DueDate" },
+                Filters = filters,
+                Sort = new[] { new ReportSort("CreatedAt", Descending: true) }
+            }, new ReportContext(Guid.Empty));
+
+            var idx = ds.Columns.Select((c, i) => (c.Key, i)).ToDictionary(x => x.Key, x => x.i, StringComparer.OrdinalIgnoreCase);
+            var now = DateTimeOffset.UtcNow;
+
+            var statusCounts = new Dictionary<string, long>();
+            var priorityCounts = new Dictionary<string, long>();
+            var byDay = new SortedDictionary<string, long>(StringComparer.Ordinal);
+            _matrix.Clear();
+            var seenStatus = new HashSet<string>();
+            var seenPriority = new HashSet<string>();
+            _recent = new List<RecentRow>();
+            _total = _open = _inprog = _closed = _suspended = _overdue = 0;
+
+            foreach (var row in ds.Rows)
+            {
+                var status = row[idx["Status"]]?.ToString() ?? "(sin estado)";
+                var priority = row[idx["Priority"]]?.ToString() ?? "(sin prioridad)";
+                var created = row[idx["CreatedAt"]] as DateTimeOffset?;
+                var due = row[idx["DueDate"]] as DateTimeOffset?;
+
+                _total++;
+                if (OpenStates.Contains(status)) { _open++; }
+                if (status == "InProgress") { _inprog++; }
+                if (ClosedStates.Contains(status)) { _closed++; }
+                if (status == "Suspended") { _suspended++; }
+                if (due is { } d && d < now && !ClosedStates.Contains(status)) { _overdue++; }
+
+                statusCounts[status] = statusCounts.GetValueOrDefault(status) + 1;
+                priorityCounts[priority] = priorityCounts.GetValueOrDefault(priority) + 1;
+                seenStatus.Add(status);
+                seenPriority.Add(priority);
+                var key = (status, priority);
+                _matrix[key] = _matrix.GetValueOrDefault(key) + 1;
+
+                if (created is { } cr)
+                {
+                    var day = cr.ToString("yyyy-MM-dd");
+                    byDay[day] = byDay.GetValueOrDefault(day) + 1;
+                }
+
+                if (_recent.Count < 10)
+                {
+                    _recent.Add(new RecentRow(
+                        row[idx["Number"]]?.ToString() ?? "",
+                        row[idx["Title"]]?.ToString() ?? "",
+                        status, priority,
+                        created?.ToString("yyyy-MM-dd") ?? "",
+                        due?.ToString("yyyy-MM-dd") ?? "",
+                        due is { } dd && dd < now && !ClosedStates.Contains(status)));
+                }
+            }
+
+            _statuses.Clear();
+            _statuses.AddRange(StatusOrder.Where(seenStatus.Contains).Concat(seenStatus.Where(s => !StatusOrder.Contains(s))));
+            _priorities.Clear();
+            _priorities.AddRange(PriorityOrder.Where(seenPriority.Contains).Concat(seenPriority.Where(p => !PriorityOrder.Contains(p))));
+            _matrixMax = _matrix.Count > 0 ? _matrix.Values.Max() : 0;
+
+            _donut = BuildDonut(statusCounts);
+            _bar = BuildBar(priorityCounts);
+            _area = BuildArea(byDay);
+            _stacked = BuildStacked();
+        }
+        catch (ReportValidationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private long Cell(string s, string p) => _matrix.GetValueOrDefault((s, p));
+    private long RowTotal(string s) => _priorities.Sum(p => Cell(s, p));
+    private long ColTotal(string p) => _statuses.Sum(s => Cell(s, p));
+
+    private string HeatStyle(long v)
+    {
+        if (v == 0 || _matrixMax == 0) { return ""; }
+        var t = (double)v / _matrixMax;
+        var alpha = (0.08 + t * 0.42).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        return $"background: rgba(79,70,229,{alpha});";
+    }
+
+    private object BuildDonut(Dictionary<string, long> counts) => new Dictionary<string, object?>
+    {
+        ["color"] = Palette,
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "item" },
+        ["legend"] = new Dictionary<string, object?> { ["bottom"] = 0, ["type"] = "scroll" },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "pie",
+                ["radius"] = new[] { "45%", "72%" },
+                ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = 6, ["borderColor"] = "#fff", ["borderWidth"] = 2 },
+                ["label"] = new Dictionary<string, object?> { ["formatter"] = "{b}: {c}" },
+                ["data"] = OrderKeys(counts.Keys, StatusOrder).Select(k => new Dictionary<string, object?> { ["name"] = k, ["value"] = counts[k] }).ToArray()
+            }
+        }
+    };
+
+    private object BuildBar(Dictionary<string, long> counts)
+    {
+        var cats = OrderKeys(counts.Keys, PriorityOrder).ToArray();
+        return new Dictionary<string, object?>
+        {
+            ["color"] = new[] { Palette[0] },
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 40, ["right"] = 16, ["top"] = 16, ["bottom"] = 28 },
+            ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = cats },
+            ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+            ["series"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "bar",
+                    ["barMaxWidth"] = 56,
+                    ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = new[] { 6, 6, 0, 0 } },
+                    ["data"] = cats.Select(c => (object)counts.GetValueOrDefault(c)).ToArray()
+                }
+            }
+        };
+    }
+
+    private object BuildArea(SortedDictionary<string, long> byDay) => new Dictionary<string, object?>
+    {
+        ["color"] = new[] { Palette[1] },
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+        ["grid"] = new Dictionary<string, object?> { ["left"] = 40, ["right"] = 16, ["top"] = 16, ["bottom"] = 28 },
+        ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["boundaryGap"] = false, ["data"] = byDay.Keys.ToArray() },
+        ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "line",
+                ["smooth"] = true,
+                ["showSymbol"] = false,
+                ["areaStyle"] = new Dictionary<string, object?> { ["opacity"] = 0.25 },
+                ["data"] = byDay.Values.Select(v => (object)v).ToArray()
+            }
+        }
+    };
+
+    private object BuildStacked()
+    {
+        var series = _priorities.Select((p, i) => (object)new Dictionary<string, object?>
+        {
+            ["name"] = p,
+            ["type"] = "bar",
+            ["stack"] = "total",
+            ["emphasis"] = new Dictionary<string, object?> { ["focus"] = "series" },
+            ["data"] = _statuses.Select(s => (object)Cell(s, p)).ToArray()
+        }).ToArray();
+
+        return new Dictionary<string, object?>
+        {
+            ["color"] = Palette,
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis", ["axisPointer"] = new Dictionary<string, object?> { ["type"] = "shadow" } },
+            ["legend"] = new Dictionary<string, object?> { ["bottom"] = 0 },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 40, ["right"] = 16, ["top"] = 16, ["bottom"] = 34 },
+            ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = _statuses.ToArray() },
+            ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+            ["series"] = series
+        };
+    }
+
+    private static IEnumerable<string> OrderKeys(IEnumerable<string> keys, string[] order)
+    {
+        var set = keys.ToHashSet();
+        return order.Where(set.Contains).Concat(set.Where(k => !order.Contains(k)));
+    }
+
+    private sealed record RecentRow(string Number, string Title, string Status, string Priority, string Created, string Due, bool Overdue);
+}

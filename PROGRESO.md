@@ -5,6 +5,89 @@
 
 ---
 
+## 2026-07-30 - Motor de Reportes: Ola 2 (embed VISOR Bold) + convertidor RDL
+
+**Agentes:** Claude (worktree `informes`) + sub-agente de investigacion de la integracion Bold Blazor.
+
+**Hecho:** VISOR Bold Reports EMBEBIDO y verificado en vivo (modo evaluacion, sin clave) +
+convertidor `ReportSpecToRdl` y persistencia del imprimible.
+- Gate #2 (net10) CONFIRMADO: `BoldReports.Net.Core` 14.1.14 publica net10.0 y restaura en la solucion
+  (+ `Microsoft.AspNetCore.Mvc.NewtonsoftJson`).
+- `BoldReportsApiController` (IReportController, policy TenantMember): carga el RDL de la
+  ReportDefinition e inyecta las filas TENANT-SAFE (`IReportDefinitionService.GetPrintableAsync`), en
+  ProcessingMode.Local. Paginas `/reportes/imprimibles` (indice) + `/reportes/imprimibles/{id}` (visor)
+  + boton "Guardar como imprimible" en `/reportes/ia`. Registro de licencia en Program.cs (lee
+  `Bold:LicenseKey`, sin clave = evaluacion). Assets Bold + jQuery desde la CDN oficial en runtime
+  (interop `boldreports-interop.js`, on-demand) -> JS propietario NO versionado (gitignore).
+- Convertidor `ReportSpecToRdl` (RDL 2016, nombres data source/dataset/inyeccion alineados) +
+  `SavePrintableAsync` (Kind=Printable + Rdl). Test `ReportRdlTests` 2/2 (puro).
+- APRENDIZAJE (resuelto en vivo): los datos inyectados solo se usan en **ProcessingMode.Local**; el
+  `ReportDataSource.Name` == `<DataSource Name>` == `<DataSet Name>` == `<Query><DataSourceName>`; data
+  source con ConnectionProperties embebido (connectstring ignorado en Local), NO DataSourceReference.
+  Documentado en `docs/motor-reportes-ola2-embed-bold.md`.
+
+**Verificacion en vivo** (owner@sky-system, server propio 5260 vs BD local): imprimible RECIEN creado
+(convertidor -> RDL, sin parches) renderiza en el visor Bold con datos reales del tenant (Done 4/
+Suspended 1/Active 86/Pending 123/InProgress 5 = 219 = SKY SYSTEM) + barra export. Assets via CDN:
+servidor sirve el loader CDN y las 6 URLs responden 200. Migracion `AddReportDefinition` aplicada al PG
+local. `POST /api/BoldReportsApi/PostReportAction -> 200`. Server propio detenido por PID/ruta; dev
+principal (5234) intacto.
+
+**Ampliacion (misma fecha): DISENIADOR drag-drop Bold + RDL afinado.**
+- `BoldReportsDesignerController` (IReportDesignerController, que hereda IReportController): abre el RDL
+  de la ReportDefinition (GetData por itemId=Id) y lo guarda (SetData -> `UpdateRdlAsync`); la vista
+  previa del diseniador reusa la inyeccion tenant-safe en Local. Servicio: `GetRdlAsync`/`UpdateRdlAsync`.
+- Pagina `/reportes/imprimibles/editor/{id}` (mount del diseniador via interop `renderDesigner` que hace
+  `openReport(id)`) + boton "Editar" en el indice.
+- RDL afinado (`ReportSpecToRdl`): encabezado con fondo indigo + texto blanco/negrita centrado, celdas
+  con borde/padding, alineacion a la derecha y formato de numeros (N0/N2) y fechas (yyyy-MM-dd).
+- VERIFICADO en vivo: el diseniador se monta con toolbox completo (TextBox/Image/graficos/Table/Matrix/
+  Tablix Wizard/KPI/Gauges/SubReport), abre el reporte (`POST /api/BoldReportsDesigner/PostDesignerAction
+  -> 200`), y el imprimible afinado renderiza en el visor con datos reales. Log del servidor sin
+  excepciones (los errores de circuito en el navegador integrado son negociacion SignalR del preview
+  bajo la pagina pesada, ajenos al codigo).
+
+**FIX del diseniador + ciclo editar->guardar VALIDADO end-to-end (2026-07-30):** el diseniador lanzaba
+NRE al abrir. CAUSA (hallada por logging): `openReport(path)` asume Report Server; y el diseniador usa
+GetData/SetData como ALMACEN TEMPORAL DE SESION (pedia `_setting.txt` y mi GetData devolvia vacio -> NRE).
+FIX (patron documentado): (1) GetData/SetData reescritos como almacen de archivos temporal generico
+(`%TEMP%/ecorex-bold-designer`); (2) abrir con `openReportDefinition(rdl)` CLIENT-SIDE, trayendo el RDL
+del nuevo endpoint GET `/api/reporting/rdl/{id}`; (3) guardar con `saveReportDefinition(cb,"XML")` ->
+POST al endpoint POST `/api/reporting/rdl/{id}` -> `UpdateRdlAsync`. Boton "Guardar" en la pagina del
+editor. VALIDADO EN VIVO (Chrome MCP): crear reporte -> abrir diseniador (SIN NRE, muestra el Tablix con
+encabezado indigo) -> editar el titulo -> Guardar ("Guardado.") -> el RDL en BD queda como la
+serializacion propia de Bold (~13 KB) con "EDITADO EN EL DISENIADOR 2026" y SIN el titulo viejo -> el
+VISOR renderiza el titulo editado + datos reales del tenant. Ciclo completo cerrado.
+
+**Siguiente:** clave de licencia (marca de agua; la coloca el usuario) + confirmar Docker prod.
+
+**Bloqueos:** solo la marca de agua (clave del usuario) y Docker prod.
+
+**Reporte SHOWCASE "Panel de Actividades del Sistema" (2026-07-30):** pagina
+`/reportes/actividades-sistema` que demuestra TODA la capacidad del motor sobre el datasource
+tenant-safe con UNA consulta tabular pivotada en el servidor: 6 KPIs (Total/Abiertas/En progreso/
+Cerradas/Suspendidas/Vencidas), dona por estado, area de tendencia (creadas/dia), barras por
+prioridad, barras APILADAS estado x prioridad, una TABLA MATRIZ cross-tab Estado x Prioridad (con
+totales de fila/columna, gran total y heatmap) y detalle reciente con chips de estado. Verificado en
+vivo (Chrome): 4 canvases ECharts, matriz 6 filas, KPIs 219/214/5/4/1/33 (Vencidas por DueDate). Todo
+ECharts por interop, cero cadena de conexion.
+
+**Imprimible NATIVO Bold MULTI-PAGINA tipo "cuaderno" Power BI (2026-07-30):** `RichActivityReportRdl`
+genera un RDL 2016 rico que Bold renderiza y exporta a PDF: Pag 1 = portada (titulo + subtitulo con
+`=Count(...)`) + 6 KPIs (textboxes con expresiones de agregacion) + TABLA MATRIZ nativa (Tablix con
+grupos de fila Estado y columna Prioridad + subtotales + gran total); Pag 2 = GRAFICO de columnas nativo
+por estado (`<Chart>` RDL); Pags 3+ = Tablix de detalle (paginado). Datos = una consulta tabular
+tenant-safe inyectada en ProcessingMode.Local. Servicio `SavePrintableRdlAsync(spec, rdl)`; boton
+"Generar reporte completo (demo)" en `/reportes/imprimibles`. Verificado en vivo (Chrome, DOM): "of 6"
+paginas, KPIs 219/214/5/4/1/33, matriz con totales (51+1+167=219). NOTA: el navegador integrado congela
+el screenshot con el canvas pesado de 6 paginas; el contenido se confirma por el DOM y renderiza/exporta
+en navegador normal. Bug corregido: los KPIs no salian por un Rectangle contenedor de tamanio 0.
+
+**Decisiones:** ADR-0051 (stack). Assets Bold por CDN (no versionar JS propietario). Datos in-memory
+tenant-safe en ProcessingMode.Local.
+
+---
+
 ## 2026-07-29 - Motor de Reportes y BI: Ola 0 (gate de licencia)
 
 **Agentes:** Claude (sesion worktree `informes`) + sub-agente de investigacion de licencias.
@@ -118,10 +201,29 @@ Pending 123/InProgress 5 = 219 = SKY SYSTEM), cero errores de consola. La genera
 no se probo (local sin proveedor/clave, y no se deben versionar claves); su pipeline determinista
 queda cubierto por los tests con el generador falso.
 
-**PENDIENTE:** Ola 2 (editor/visor Bold RDL + convertidor spec->RDL) espera la confirmacion escrita
-de Docker con Bold. Follow-ups menores: items de menu dinamico para /reportes/tablero y /reportes/ia;
-imagen de referencia del dashboard para afinar milimetricamente; el `Rdl` de ReportDefinition ya esta
-en el modelo (nullable) listo para la Ola 2.
+**Ola 2 - PARCIAL (parte independiente del vendor construida; el embed Bold sigue bloqueado):**
+- Convertidor `ReportSpecToRdl` (`Ecorex.Application/Reporting/Authoring/ReportSpecToRdl.cs`): genera un
+  RDL 2016 estandar (DataSources JSON logico "EcorexTenantSafe" -> endpoint tenant-safe, DataSet con un
+  Field por columna del resultado, Tablix con una columna por campo + titulo). Es el camino T1/D6: la
+  IA/usuario generan el MISMO artefacto RDL que abrira el editor/visor Bold.
+- `IReportDefinitionService.SavePrintableAsync(spec, dataset, desc)`: persiste el imprimible con
+  Kind=Printable + Rdl generado (el campo Rdl ya existia en la entidad desde la Ola 4).
+- Test unitario `ReportRdlTests` (2/2 verde, puro, sin Docker): well-formed RDL 2016, namespace correcto,
+  Field por columna, Tablix con enlace =Fields!X.Value por columna, y data source JSON logico (NUNCA
+  cadena de conexion a BD). Se corrigieron dos test-doubles FakeAppDb (RowIngest/TenantUser) que
+  implementan IApplicationDbContext y necesitaban el nuevo DbSet ReportDefinitions.
+
+**Ola 2 - VISOR BOLD EMBEBIDO Y VERIFICADO (2026-07-30, modo evaluacion):** ver la entrada fechada
+2026-07-30 arriba. Resumen: gate #2 (net10) confirmado; `BoldReportsApiController` (IReportController,
+policy TenantMember) carga el RDL de la ReportDefinition e inyecta las filas TENANT-SAFE en
+ProcessingMode.Local; paginas `/reportes/imprimibles` + `/reportes/imprimibles/{id}` + boton "Guardar
+como imprimible"; assets Bold via CDN (no se versiona JS propietario). Verificado en vivo: imprimible
+fresco renderiza en el visor Bold con datos reales del tenant (219 = SKY SYSTEM) + export. PENDIENTE:
+clave de licencia (marca de agua; la coloca el usuario en `Bold:LicenseKey`), DISENIADOR drag-drop Bold,
+confirmar Docker prod.
+
+**Follow-ups menores:** items de menu dinamico para /reportes/tablero, /reportes/ia, /reportes/imprimibles;
+imagen de referencia del dashboard para afinar milimetricamente.
 
 ---
 

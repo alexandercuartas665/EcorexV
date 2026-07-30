@@ -63,6 +63,15 @@ VISOR renderiza el titulo editado + datos reales del tenant. Ciclo completo cerr
 
 **Bloqueos:** solo la marca de agua (clave del usuario) y Docker prod.
 
+**Reporte SHOWCASE "Panel de Actividades del Sistema" (2026-07-30):** pagina
+`/reportes/actividades-sistema` que demuestra TODA la capacidad del motor sobre el datasource
+tenant-safe con UNA consulta tabular pivotada en el servidor: 6 KPIs (Total/Abiertas/En progreso/
+Cerradas/Suspendidas/Vencidas), dona por estado, area de tendencia (creadas/dia), barras por
+prioridad, barras APILADAS estado x prioridad, una TABLA MATRIZ cross-tab Estado x Prioridad (con
+totales de fila/columna, gran total y heatmap) y detalle reciente con chips de estado. Verificado en
+vivo (Chrome): 4 canvases ECharts, matriz 6 filas, KPIs 219/214/5/4/1/33 (Vencidas por DueDate). Todo
+ECharts por interop, cero cadena de conexion.
+
 **Decisiones:** ADR-0051 (stack). Assets Bold por CDN (no versionar JS propietario). Datos in-memory
 tenant-safe en ProcessingMode.Local.
 

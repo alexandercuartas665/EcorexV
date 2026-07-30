@@ -113,18 +113,18 @@ public static class ReportSpecToRdl
                 new XElement(R + "Width", colWidth.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "in")));
         }
 
-        // Fila de encabezados (labels estaticos).
+        // Fila de encabezados (labels estaticos, fondo indigo + texto blanco).
         var headerCells = new XElement(R + "TablixCells");
         foreach (var c in columns)
         {
-            headerCells.Add(Cell($"h_{c.Key}", c.DisplayName, bold: true));
+            headerCells.Add(Cell($"h_{c.Key}", c.DisplayName, isHeader: true, c.Type));
         }
 
-        // Fila de detalle (=Fields!Key.Value).
+        // Fila de detalle (=Fields!Key.Value), alineada y formateada segun el tipo.
         var detailCells = new XElement(R + "TablixCells");
         foreach (var c in columns)
         {
-            detailCells.Add(Cell($"d_{c.Key}", $"=Fields!{c.Key}.Value", bold: false));
+            detailCells.Add(Cell($"d_{c.Key}", $"=Fields!{c.Key}.Value", isHeader: false, c.Type));
         }
 
         var tablixRows = new XElement(R + "TablixRows",
@@ -160,13 +160,46 @@ public static class ReportSpecToRdl
             new XElement(R + "Width", "6.5in"));
     }
 
-    private static XElement Cell(string name, string value, bool bold)
+    private static XElement Cell(string name, string value, bool isHeader, ReportFieldType type)
     {
-        var style = new XElement(R + "Style",
-            new XElement(R + "Border", new XElement(R + "Style", "Solid"), new XElement(R + "Width", "0.5pt")));
-        if (bold)
+        var isNumeric = type is ReportFieldType.Number or ReportFieldType.Decimal;
+        var align = isHeader ? "Center" : (isNumeric ? "Right" : "Left");
+
+        // Estilo de la CELDA: borde gris, padding y (encabezado) fondo indigo.
+        var boxStyle = new XElement(R + "Style",
+            new XElement(R + "Border",
+                new XElement(R + "Color", "#d1d5db"),
+                new XElement(R + "Style", "Solid"),
+                new XElement(R + "Width", "0.5pt")),
+            new XElement(R + "PaddingLeft", "4pt"),
+            new XElement(R + "PaddingRight", "4pt"),
+            new XElement(R + "PaddingTop", "2pt"),
+            new XElement(R + "PaddingBottom", "2pt"),
+            new XElement(R + "VerticalAlign", "Middle"));
+        if (isHeader)
         {
-            style.Add(new XElement(R + "FontWeight", "Bold"));
+            boxStyle.Add(new XElement(R + "BackgroundColor", "#4f46e5"));
+        }
+
+        // Estilo del TEXTO: color, negrita (encabezado) y formato numerico/fecha.
+        var runStyle = new XElement(R + "Style",
+            new XElement(R + "FontSize", "9pt"),
+            new XElement(R + "Color", isHeader ? "#ffffff" : "#374151"));
+        if (isHeader)
+        {
+            runStyle.Add(new XElement(R + "FontWeight", "Bold"));
+        }
+
+        var format = type switch
+        {
+            ReportFieldType.Number => "N0",
+            ReportFieldType.Decimal => "N2",
+            ReportFieldType.Date => "yyyy-MM-dd",
+            _ => null
+        };
+        if (!isHeader && format is not null)
+        {
+            runStyle.Add(new XElement(R + "Format", format));
         }
 
         return new XElement(R + "TablixCell",
@@ -174,12 +207,15 @@ public static class ReportSpecToRdl
                 new XElement(R + "Textbox",
                     new XAttribute("Name", name),
                     new XElement(R + "CanGrow", "true"),
+                    new XElement(R + "KeepTogether", "true"),
                     new XElement(R + "Paragraphs",
                         new XElement(R + "Paragraph",
                             new XElement(R + "TextRuns",
                                 new XElement(R + "TextRun",
-                                    new XElement(R + "Value", value))))),
-                    style)));
+                                    new XElement(R + "Value", value),
+                                    runStyle)),
+                            new XElement(R + "Style", new XElement(R + "TextAlign", align)))),
+                    boxStyle)));
     }
 
     private static string ClrTypeName(ReportFieldType type) => type switch

@@ -38,7 +38,8 @@
                     <tr>
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;">@s.Name</td>
                         <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;font-family:monospace;color:#6b7280;">@s.SourceKey</td>
-                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;text-align:right;">
+                        <td style="padding:8px 6px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap;">
+                            <button @onclick="() => Edit(s.Id)" style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;">Editar</button>
                             <button @onclick="() => Open(s.Id)" style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">Ver</button>
                         </td>
                     </tr>
@@ -58,4 +59,6 @@
     }
 
     private void Open(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/{id}");
+
+    private void Edit(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/editor/{id}");
 }

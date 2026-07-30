@@ -38,11 +38,15 @@ Esto ya esta implementado: `ReportSpecToRdl` (nombres alineados) + `BoldReportsA
 
 1. **Clave de licencia** (quita la marca de agua): registrar la Community de Bold y ponerla en
    `Bold:LicenseKey` (ver abajo). El visor ya funciona en evaluacion sin ella.
-2. **Diseniador drag-drop** (`IReportDesignerController` + pagina editor con GetData/SetData contra
-   `ReportDefinition.Rdl`): PENDIENTE. Hoy los RDL se generan desde el spec (IA/usuario) via
-   `ReportSpecToRdl`; el editor visual Bold es el siguiente incremento.
-3. **Docker prod**: `System.Drawing.Common` + `Microsoft.Windows.Compatibility` pueden exigir libs
+2. **Docker prod**: `System.Drawing.Common` + `Microsoft.Windows.Compatibility` pueden exigir libs
    nativas en Linux; confirmar con Bold antes del deploy.
+
+DISENIADOR drag-drop: HECHO y verificado (modo evaluacion). `BoldReportsDesignerController`
+(IReportDesignerController : IReportController): GetData abre el RDL por Id, SetData lo guarda via
+`UpdateRdlAsync`; la vista previa reusa la inyeccion tenant-safe en Local. Pagina
+`/reportes/imprimibles/editor/{id}` + boton "Editar" en el indice. Toolbox completo montado, reporte
+abierto (`PostDesignerAction -> 200`). Nota: un ciclo completo editar->guardar por SetData no se
+automatizo (el open + el controller estan verdes; SetData persiste en `ReportDefinition.Rdl`).
 
 ## Gates de la Ola 2 (estado)
 

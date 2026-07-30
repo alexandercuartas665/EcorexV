@@ -33,10 +33,25 @@ servidor sirve el loader CDN y las 6 URLs responden 200. Migracion `AddReportDef
 local. `POST /api/BoldReportsApi/PostReportAction -> 200`. Server propio detenido por PID/ruta; dev
 principal (5234) intacto.
 
-**Siguiente:** clave de licencia (marca de agua; la coloca el usuario), DISENIADOR drag-drop Bold
-(IReportDesignerController + editor con GetData/SetData), confirmar Docker prod.
+**Ampliacion (misma fecha): DISENIADOR drag-drop Bold + RDL afinado.**
+- `BoldReportsDesignerController` (IReportDesignerController, que hereda IReportController): abre el RDL
+  de la ReportDefinition (GetData por itemId=Id) y lo guarda (SetData -> `UpdateRdlAsync`); la vista
+  previa del diseniador reusa la inyeccion tenant-safe en Local. Servicio: `GetRdlAsync`/`UpdateRdlAsync`.
+- Pagina `/reportes/imprimibles/editor/{id}` (mount del diseniador via interop `renderDesigner` que hace
+  `openReport(id)`) + boton "Editar" en el indice.
+- RDL afinado (`ReportSpecToRdl`): encabezado con fondo indigo + texto blanco/negrita centrado, celdas
+  con borde/padding, alineacion a la derecha y formato de numeros (N0/N2) y fechas (yyyy-MM-dd).
+- VERIFICADO en vivo: el diseniador se monta con toolbox completo (TextBox/Image/graficos/Table/Matrix/
+  Tablix Wizard/KPI/Gauges/SubReport), abre el reporte (`POST /api/BoldReportsDesigner/PostDesignerAction
+  -> 200`), y el imprimible afinado renderiza en el visor con datos reales. Log del servidor sin
+  excepciones (los errores de circuito en el navegador integrado son negociacion SignalR del preview
+  bajo la pagina pesada, ajenos al codigo).
 
-**Bloqueos:** ninguno para el visor; el diseniador y la marca de agua dependen de accion del usuario.
+**Siguiente:** clave de licencia (marca de agua; la coloca el usuario), confirmar Docker prod. El
+diseniador guarda con SetData (no probado un ciclo completo editar->guardar por automatizacion, pero el
+open + controller estan verdes).
+
+**Bloqueos:** solo la marca de agua (clave del usuario) y Docker prod.
 
 **Decisiones:** ADR-0051 (stack). Assets Bold por CDN (no versionar JS propietario). Datos in-memory
 tenant-safe en ProcessingMode.Local.

@@ -571,8 +571,9 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_REPORTES"), "t
     var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     await seeder.EnsureReportesModulesAsync();
+    // Standard (clientes) + Demo (SKY SYSTEM, tenant de validacion). Internal queda fuera.
     var tenantIds = await db.Tenants.IgnoreQueryFilters()
-        .Where(t => t.Kind == TenantKind.Standard)
+        .Where(t => t.Kind == TenantKind.Standard || t.Kind == TenantKind.Demo)
         .Select(t => new { t.Id, t.Name })
         .ToListAsync();
     foreach (var t in tenantIds)

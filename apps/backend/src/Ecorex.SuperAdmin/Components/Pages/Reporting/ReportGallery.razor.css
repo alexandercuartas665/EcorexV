@@ -1,0 +1,67 @@
+/* Galeria de reportes (ADR-0051): tarjetas con acento por tipo + hover, tokens del workspace. */
+
+.rg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.rg-card {
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+    cursor: pointer;
+    background: var(--surface, #fff);
+    border: 1px solid var(--line, #e5e7eb);
+    border-radius: 14px;
+    padding: 16px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
+}
+.rg-card:hover {
+    box-shadow: 0 10px 26px rgba(17, 24, 39, .12);
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--brand, #4f46e5) 45%, transparent);
+}
+
+/* Franja de acento a la izquierda, segun el tipo. */
+.rg-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.rg-accent.dash { background: var(--t-green, #10b981); }
+.rg-accent.print { background: var(--brand, #4f46e5); }
+
+.rg-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.rg-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 10px;
+}
+.rg-icon svg { width: 18px; height: 18px; }
+.rg-icon.dash { background: color-mix(in srgb, var(--t-green, #10b981) 14%, transparent); color: var(--t-green, #059669); }
+.rg-icon.print { background: color-mix(in srgb, var(--brand, #4f46e5) 12%, transparent); color: var(--brand, #4338ca); }
+
+.rg-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 11px;
+}
+.rg-badge.dash { background: color-mix(in srgb, var(--t-green, #10b981) 14%, transparent); color: var(--t-green, #047857); }
+.rg-badge.print { background: color-mix(in srgb, var(--brand, #4f46e5) 12%, transparent); color: var(--brand, #4338ca); }
+
+.rg-name {
+    font-weight: 650; font-size: 14.5px; color: var(--ink, #111827); margin-top: 12px;
+    line-height: 1.3;
+}
+.rg-src {
+    font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+    font-size: 11px; color: var(--ink-3, #9ca3af);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px;
+}
+.rg-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px solid var(--line, #f3f4f6);
+    font-size: 11.5px; color: var(--ink-3, #9ca3af);
+}
+.rg-open { font-weight: 600; color: var(--brand, #4f46e5); opacity: 0; transition: opacity .16s ease; }
+.rg-card:hover .rg-open { opacity: 1; }

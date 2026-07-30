@@ -2126,7 +2126,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("000895", "Panel / Dashboards", "Reportes: dashboards interactivos (ADR-0051).", "/reportes/tablero", ModuleArea.Sistema, false),
             ("000896", "Reportes con IA", "Reportes: autoria por IA (ADR-0051).", "/reportes/ia", ModuleArea.Sistema, false),
             ("000897", "Reportes imprimibles", "Reportes: imprimibles Bold RDL (ADR-0051).", "/reportes/imprimibles", ModuleArea.Sistema, false),
-            ("000898", "Administrador de reportes", "Reportes: asignacion de reportes a roles (ADR-0051).", "/reportes/admin", ModuleArea.Sistema, false)
+            ("000898", "Administrador de reportes", "Reportes: asignacion de reportes a roles (ADR-0051).", "/reportes/admin", ModuleArea.Sistema, false),
+            ("000899", "Galeria de reportes", "Reportes: galeria de tarjetas + visor de doble vista (ADR-0051).", "/reportes/galeria", ModuleArea.Sistema, false)
         };
 
         var existing = await _db.ModuleDefinitions
@@ -3556,11 +3557,13 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     private const string ReportesSectionSlug = "reportes-grp";
     private static readonly (string Name, string Route, string Code)[] ReportesMenuItems =
     {
-        ("Panel / Dashboards", "reportes/tablero", "000895"),
-        ("Reportes con IA", "reportes/ia", "000896"),
-        ("Imprimibles", "reportes/imprimibles", "000897"),
+        ("Galeria de reportes", "reportes/galeria", "000899"),
         ("Administrador de reportes", "reportes/admin", "000898")
     };
+
+    // Items que SE QUITAN del menu (2026-07-30): el panel/tablero demo pasa a ser un reporte de la
+    // galeria, y IA/Imprimibles se usan por dentro de la galeria. Las paginas siguen existiendo.
+    private static readonly string[] ReportesMenuDeprecados = { "reportes/tablero", "reportes/ia", "reportes/imprimibles" };
 
     /// <summary>Registra (insert-if-missing) las definiciones de modulo de Reportes en el catalogo
     /// global (module_definitions), para el modulo 000109 y como respaldo del catalogo de roles.
@@ -3601,6 +3604,16 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     /// acceso a reportes/admin.</summary>
     public async Task EnsureReportesMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
+        // Reconciliacion: quita del menu los items deprecados (si un sembrado anterior los creo).
+        var oldItems = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && ReportesMenuDeprecados.Contains(n.Route))
+            .ToListAsync(cancellationToken);
+        if (oldItems.Count > 0)
+        {
+            _db.MenuNodes.RemoveRange(oldItems);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         var views = await _db.MenuViews.IgnoreQueryFilters()
             .Where(v => v.TenantId == tenantId)
             .Select(v => v.Id)

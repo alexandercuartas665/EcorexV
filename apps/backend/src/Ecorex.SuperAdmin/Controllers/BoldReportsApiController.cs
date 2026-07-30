@@ -16,7 +16,7 @@ namespace Ecorex.SuperAdmin.Controllers;
 /// <see cref="ReportDataSource"/>. El tenant lo resuelve la cookie del request (AmbientTenantContext),
 /// asi que un tenant nunca ve el RDL ni los datos de otro.
 /// </summary>
-[Authorize(Policy = "Perm:reportes/imprimibles:View")]
+[Authorize(Policy = "Perm:reportes/galeria:View")]
 [Route("api/{controller}/{action}/{id?}")]
 public sealed class BoldReportsApiController : Controller, IReportController
 {

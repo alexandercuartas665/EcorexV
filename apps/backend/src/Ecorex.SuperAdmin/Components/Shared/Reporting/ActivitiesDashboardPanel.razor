@@ -1,0 +1,250 @@
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Sources
+@inject IReportDataSource ReportDs
+
+@* Panel de actividades del sistema (multi-grafico) REUTILIZABLE: KPIs + dona por estado + area de
+   creadas por dia + barras por prioridad + tabla de recientes. TODO su dato sale del
+   IReportDataSource tenant-safe. Se usa en la pagina /reportes/tablero y, sobre todo, EMBEBIDO en el
+   modal de la galeria cuando el reporte es de tipo "panel" (SourceKey = panel:system-activities). *@
+
+<div class="rpt-dash">
+    <div class="rpt-filters" style="justify-content:flex-end;">
+        <label>Desde <input type="date" @bind="_from" /></label>
+        <label>Hasta <input type="date" @bind="_to" /></label>
+        <button class="rpt-btn" @onclick="LoadAsync">Aplicar</button>
+        <button class="rpt-btn ghost" @onclick="() => QuickRange(30)">30 dias</button>
+        <button class="rpt-btn ghost" @onclick="() => QuickRange(90)">90 dias</button>
+        <button class="rpt-btn ghost" @onclick="ClearRange">Todo</button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="rpt-error">@_error</div>
+    }
+
+    <div class="rpt-kpis">
+        <div class="rpt-kpi"><span class="k-val">@_total</span><span class="k-lbl">Total</span></div>
+        <div class="rpt-kpi open"><span class="k-val">@_open</span><span class="k-lbl">Abiertas</span></div>
+        <div class="rpt-kpi done"><span class="k-val">@_closed</span><span class="k-lbl">Cerradas</span></div>
+        <div class="rpt-kpi susp"><span class="k-val">@_suspended</span><span class="k-lbl">Suspendidas</span></div>
+    </div>
+
+    <div class="rpt-grid">
+        <div class="rpt-card">
+            <h3>Actividades por estado</h3>
+            <EChart Option="_statusDonut" Height="300px" />
+        </div>
+        <div class="rpt-card">
+            <h3>Creadas por dia</h3>
+            <EChart Option="_createdArea" Height="300px" />
+        </div>
+        <div class="rpt-card">
+            <h3>Actividades por prioridad</h3>
+            <EChart Option="_priorityBar" Height="300px" />
+        </div>
+        <div class="rpt-card">
+            <h3>Actividades recientes</h3>
+            <table class="rpt-table">
+                <thead><tr><th>Numero</th><th>Titulo</th><th>Estado</th><th>Creada</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _recent)
+                    {
+                        <tr><td>@r.Number</td><td>@r.Title</td><td>@r.Status</td><td>@r.Created</td></tr>
+                    }
+                    @if (_recent.Count == 0)
+                    {
+                        <tr><td colspan="4" class="rpt-empty">Sin actividades en el rango.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime? _from;
+    private DateTime? _to;
+    private string? _error;
+
+    private long _total, _open, _closed, _suspended;
+    private object? _statusDonut;
+    private object? _priorityBar;
+    private object? _createdArea;
+    private List<RecentRow> _recent = new();
+
+    private static readonly string[] Palette =
+        { "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6" };
+
+    private static readonly string[] OpenStates = { "Pending", "Active", "InProgress" };
+    private static readonly string[] ClosedStates = { "Done", "Closed" };
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private void QuickRange(int days)
+    {
+        _to = DateTime.UtcNow.Date;
+        _from = _to.Value.AddDays(-days);
+    }
+
+    private async Task ClearRange()
+    {
+        _from = null;
+        _to = null;
+        await LoadAsync();
+    }
+
+    private IReadOnlyList<ReportFilter> DateFilters()
+    {
+        if (_from is null && _to is null)
+        {
+            return Array.Empty<ReportFilter>();
+        }
+
+        var from = (_from ?? DateTime.UtcNow.AddYears(-50).Date).ToString("yyyy-MM-dd");
+        var to = (_to ?? DateTime.UtcNow.Date).AddDays(1).ToString("yyyy-MM-dd");
+        return new[] { ReportFilter.Between("CreatedAt", from, to) };
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            var filters = DateFilters();
+            var ctx = new ReportContext(Guid.Empty); // el tenant real lo fija el datasource desde el contexto EF
+
+            var byStatus = await ReportDs.QueryAsync(new ReportQuerySpec
+            {
+                SourceKey = TaskItemReportSource.SourceKey,
+                Filters = filters,
+                GroupBy = new[] { "Status" },
+                Aggregates = new[] { new ReportAggregate("Status", ReportAggregateFunction.Count) }
+            }, ctx);
+
+            var statusCounts = ToCounts(byStatus);
+            _total = statusCounts.Values.Sum();
+            _open = statusCounts.Where(kv => OpenStates.Contains(kv.Key)).Sum(kv => kv.Value);
+            _closed = statusCounts.Where(kv => ClosedStates.Contains(kv.Key)).Sum(kv => kv.Value);
+            _suspended = statusCounts.TryGetValue("Suspended", out var s) ? s : 0;
+            _statusDonut = BuildDonut(statusCounts);
+
+            var byPriority = await ReportDs.QueryAsync(new ReportQuerySpec
+            {
+                SourceKey = TaskItemReportSource.SourceKey,
+                Filters = filters,
+                GroupBy = new[] { "Priority" },
+                Aggregates = new[] { new ReportAggregate("Priority", ReportAggregateFunction.Count) }
+            }, ctx);
+            _priorityBar = BuildBar(ToCounts(byPriority));
+
+            var tabular = await ReportDs.QueryAsync(new ReportQuerySpec
+            {
+                SourceKey = TaskItemReportSource.SourceKey,
+                Filters = filters,
+                Fields = new[] { "Number", "Title", "Status", "CreatedAt" },
+                Sort = new[] { new ReportSort("CreatedAt", Descending: true) }
+            }, ctx);
+
+            _recent = tabular.Rows.Take(8).Select(r => new RecentRow(
+                r[0]?.ToString() ?? "",
+                r[1]?.ToString() ?? "",
+                r[2]?.ToString() ?? "",
+                r[3] is DateTimeOffset d ? d.ToString("yyyy-MM-dd") : "")).ToList();
+
+            _createdArea = BuildArea(tabular);
+        }
+        catch (ReportValidationException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static Dictionary<string, long> ToCounts(ReportDataSet ds)
+    {
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var r in ds.Rows)
+        {
+            var key = r[0]?.ToString() ?? "(sin dato)";
+            result[key] = Convert.ToInt64(r[1] ?? 0L);
+        }
+
+        return result;
+    }
+
+    private static object BuildDonut(Dictionary<string, long> counts) => new Dictionary<string, object?>
+    {
+        ["color"] = Palette,
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "item" },
+        ["legend"] = new Dictionary<string, object?> { ["bottom"] = 0 },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "pie",
+                ["radius"] = new[] { "45%", "70%" },
+                ["avoidLabelOverlap"] = true,
+                ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = 6, ["borderColor"] = "#fff", ["borderWidth"] = 2 },
+                ["data"] = counts.Select(kv => new Dictionary<string, object?> { ["name"] = kv.Key, ["value"] = kv.Value }).ToArray()
+            }
+        }
+    };
+
+    private static object BuildBar(Dictionary<string, long> counts)
+    {
+        var order = new[] { "High", "Medium", "Low" };
+        var cats = order.Where(counts.ContainsKey).Concat(counts.Keys.Where(k => !order.Contains(k))).ToArray();
+        return new Dictionary<string, object?>
+        {
+            ["color"] = new[] { Palette[0] },
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 40, ["right"] = 16, ["top"] = 16, ["bottom"] = 28 },
+            ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = cats },
+            ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+            ["series"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "bar",
+                    ["barMaxWidth"] = 48,
+                    ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = new[] { 6, 6, 0, 0 } },
+                    ["data"] = cats.Select(c => (object)(counts.TryGetValue(c, out var v) ? v : 0)).ToArray()
+                }
+            }
+        };
+    }
+
+    private static object BuildArea(ReportDataSet tabular)
+    {
+        var byDay = new SortedDictionary<string, long>(StringComparer.Ordinal);
+        foreach (var r in tabular.Rows)
+        {
+            if (r[3] is DateTimeOffset d)
+            {
+                var key = d.ToString("yyyy-MM-dd");
+                byDay[key] = byDay.TryGetValue(key, out var v) ? v + 1 : 1;
+            }
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["color"] = new[] { Palette[1] },
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 40, ["right"] = 16, ["top"] = 16, ["bottom"] = 28 },
+            ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["boundaryGap"] = false, ["data"] = byDay.Keys.ToArray() },
+            ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+            ["series"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "line",
+                    ["smooth"] = true,
+                    ["showSymbol"] = false,
+                    ["areaStyle"] = new Dictionary<string, object?> { ["opacity"] = 0.25 },
+                    ["data"] = byDay.Values.Select(v => (object)v).ToArray()
+                }
+            }
+        };
+    }
+
+    private sealed record RecentRow(string Number, string Title, string Status, string Created);
+}

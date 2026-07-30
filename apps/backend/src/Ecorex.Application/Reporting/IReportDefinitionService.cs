@@ -1,5 +1,6 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Reporting.Authoring;
+using Ecorex.Application.Reporting.Sources;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -43,6 +44,17 @@ public interface IReportDefinitionService
     Task AssignRolesAsync(Guid reportId, IReadOnlyCollection<Guid> rolIds, CancellationToken ct = default);
 
     Task<ReportDefinitionDetail?> GetAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Galeria + doble vista (ADR-0051): asegura que el reporte tenga un RDL imprimible. Si ya lo
+    /// tiene, no hace nada; si no y tiene un spec, lo GENERA desde el spec (ejecutando el datasource
+    /// tenant-safe) SIN cambiar su Kind. Devuelve false si el reporte no existe o no tiene spec.
+    /// </summary>
+    Task<bool> EnsurePrintableRdlAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Crea unos reportes de ejemplo (tableros sobre actividades) para el tenant actual.
+    /// Idempotente por nombre: no duplica los que ya existen activos.</summary>
+    Task CreateExampleReportsAsync(CancellationToken ct = default);
 
     Task ArchiveAsync(Guid id, CancellationToken ct = default);
 
@@ -235,6 +247,85 @@ public sealed class ReportDefinitionService : IReportDefinitionService
 
         var spec = ReportSpec.FromJson(def.SpecJson) ?? new ReportSpec { Title = def.Name };
         return new ReportDefinitionDetail(def.Id, def.Name, def.Description, def.Kind, spec, def.Version);
+    }
+
+    public async Task<bool> EnsurePrintableRdlAsync(Guid id, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return false;
+        }
+
+        var def = await _db.ReportDefinitions.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(def.Rdl))
+        {
+            return true;
+        }
+
+        var spec = ReportSpec.FromJson(def.SpecJson);
+        if (spec is null)
+        {
+            return false;
+        }
+
+        var ds = await _dataSource.QueryAsync(spec.ToQuerySpec(), new ReportContext(tenantId), ct);
+        def.Rdl = ReportSpecToRdl.ToRdl(spec, ds);
+        // No se cambia el Kind: el reporte sigue siendo lo que era; solo gana una version imprimible.
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task CreateExampleReportsAsync(CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid)
+        {
+            return;
+        }
+
+        var src = TaskItemReportSource.SourceKey;
+        var examples = new[]
+        {
+            // Reporte tipo PANEL: al abrirlo muestra el DASHBOARD completo (KPIs + varios graficos +
+            // tabla), no un solo grafico. La galeria lo reconoce por el SourceKey "panel:...".
+            new ReportSpec
+            {
+                Title = "Tablero de actividades", SourceKey = "panel:system-activities", Chart = ReportChartKind.Table
+            },
+            new ReportSpec
+            {
+                Title = "Actividades por estado", SourceKey = src, Chart = ReportChartKind.Pie,
+                GroupBy = { "Status" },
+                Aggregates = { new ReportAggregateSpec { Field = "Status", Function = ReportAggregateFunction.Count } }
+            },
+            new ReportSpec
+            {
+                Title = "Actividades por prioridad", SourceKey = src, Chart = ReportChartKind.Bar,
+                GroupBy = { "Priority" },
+                Aggregates = { new ReportAggregateSpec { Field = "Priority", Function = ReportAggregateFunction.Count } }
+            },
+            new ReportSpec
+            {
+                Title = "Actividades recientes", SourceKey = src, Chart = ReportChartKind.Table,
+                Fields = { "Number", "Title", "Status", "CreatedAt" },
+                Sort = { new ReportSortSpec { Field = "CreatedAt", Desc = true } },
+                Top = 20
+            }
+        };
+
+        foreach (var spec in examples)
+        {
+            var existe = await _db.ReportDefinitions
+                .AnyAsync(d => d.Name == spec.Title && d.Status == ReportDefinitionStatus.Active, ct);
+            if (existe)
+            {
+                continue;
+            }
+            await SaveAsync(spec, "Reporte de ejemplo del sistema", ct);
+        }
     }
 
     public async Task ArchiveAsync(Guid id, CancellationToken ct = default)

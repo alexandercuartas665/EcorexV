@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "TenantMember")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Authoring
 @using Ecorex.Domain.Enums
 @inject IReportDefinitionService Defs
 @inject NavigationManager Nav
@@ -15,8 +16,17 @@
     <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Reportes imprimibles</h1>
     <p style="font-size:13px;color:#6b7280;margin:4px 0 16px;">
         Documentos RDL que se ven y exportan (PDF/Excel) con el visor Bold. Crea uno desde
-        <a href="/reportes/ia" style="color:#4338ca;">Reportes con IA</a> (boton "Guardar como imprimible").
+        <a href="/reportes/ia" style="color:#4338ca;">Reportes con IA</a> (boton "Guardar como imprimible"),
+        o genera el reporte completo multi-pagina de demostracion:
     </p>
+    <button @onclick="CreateShowcaseAsync" disabled="@_busy"
+            style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:16px;">
+        @(_busy ? "Generando..." : "Generar reporte completo (demo)")
+    </button>
+    @if (_error is not null)
+    {
+        <span style="color:#b91c1c;font-size:13px;margin-left:10px;">@_error</span>
+    }
 
     @if (_items.Count == 0)
     {
@@ -58,7 +68,30 @@
         _items = all.Where(x => x.Kind == ReportDefinitionKind.Printable).ToList();
     }
 
+    private bool _busy;
+    private string? _error;
+
     private void Open(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/{id}");
 
     private void Edit(Guid id) => Nav.NavigateTo($"/reportes/imprimibles/editor/{id}");
+
+    private async Task CreateShowcaseAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var (spec, rdl) = RichActivityReportRdl.Build();
+            var id = await Defs.SavePrintableRdlAsync(spec, rdl, "Reporte completo multi-pagina de demostracion");
+            Nav.NavigateTo($"/reportes/imprimibles/{id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 }

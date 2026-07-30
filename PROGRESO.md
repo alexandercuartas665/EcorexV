@@ -72,6 +72,17 @@ totales de fila/columna, gran total y heatmap) y detalle reciente con chips de e
 vivo (Chrome): 4 canvases ECharts, matriz 6 filas, KPIs 219/214/5/4/1/33 (Vencidas por DueDate). Todo
 ECharts por interop, cero cadena de conexion.
 
+**Imprimible NATIVO Bold MULTI-PAGINA tipo "cuaderno" Power BI (2026-07-30):** `RichActivityReportRdl`
+genera un RDL 2016 rico que Bold renderiza y exporta a PDF: Pag 1 = portada (titulo + subtitulo con
+`=Count(...)`) + 6 KPIs (textboxes con expresiones de agregacion) + TABLA MATRIZ nativa (Tablix con
+grupos de fila Estado y columna Prioridad + subtotales + gran total); Pag 2 = GRAFICO de columnas nativo
+por estado (`<Chart>` RDL); Pags 3+ = Tablix de detalle (paginado). Datos = una consulta tabular
+tenant-safe inyectada en ProcessingMode.Local. Servicio `SavePrintableRdlAsync(spec, rdl)`; boton
+"Generar reporte completo (demo)" en `/reportes/imprimibles`. Verificado en vivo (Chrome, DOM): "of 6"
+paginas, KPIs 219/214/5/4/1/33, matriz con totales (51+1+167=219). NOTA: el navegador integrado congela
+el screenshot con el canvas pesado de 6 paginas; el contenido se confirma por el DOM y renderiza/exporta
+en navegador normal. Bug corregido: los KPIs no salian por un Rectangle contenedor de tamanio 0.
+
 **Decisiones:** ADR-0051 (stack). Assets Bold por CDN (no versionar JS propietario). Datos in-memory
 tenant-safe en ProcessingMode.Local.
 

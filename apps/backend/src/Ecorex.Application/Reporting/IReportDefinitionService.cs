@@ -20,6 +20,9 @@ public interface IReportDefinitionService
     /// persiste con Kind=Printable. Es el artefacto que abrira el editor/visor Bold (Ola 2).</summary>
     Task<Guid> SavePrintableAsync(ReportSpec spec, ReportDataSet ds, string? description, CancellationToken ct = default);
 
+    /// <summary>Guarda un imprimible con un RDL YA CONSTRUIDO (p.ej. el reporte rico multi-pagina).</summary>
+    Task<Guid> SavePrintableRdlAsync(ReportSpec spec, string rdl, string? description, CancellationToken ct = default);
+
     Task UpdateSpecAsync(Guid id, ReportSpec spec, CancellationToken ct = default);
 
     Task<IReadOnlyList<ReportDefinitionSummary>> ListAsync(CancellationToken ct = default);
@@ -105,6 +108,29 @@ public sealed class ReportDefinitionService : IReportDefinitionService
             SourceKey = spec.SourceKey,
             SpecJson = spec.ToJson(),
             Rdl = ReportSpecToRdl.ToRdl(spec, ds)
+        };
+        _db.ReportDefinitions.Add(def);
+        await _db.SaveChangesAsync(ct);
+        return def.Id;
+    }
+
+    public async Task<Guid> SavePrintableRdlAsync(ReportSpec spec, string rdl, string? description, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+
+        var def = new ReportDefinition
+        {
+            Id = Guid.CreateVersion7(),
+            Name = string.IsNullOrWhiteSpace(spec.Title) ? "Imprimible sin titulo" : spec.Title.Trim(),
+            Description = description,
+            Kind = ReportDefinitionKind.Printable,
+            Status = ReportDefinitionStatus.Active,
+            SourceKey = spec.SourceKey,
+            SpecJson = spec.ToJson(),
+            Rdl = rdl
         };
         _db.ReportDefinitions.Add(def);
         await _db.SaveChangesAsync(ct);

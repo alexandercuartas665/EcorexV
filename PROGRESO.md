@@ -47,9 +47,19 @@ principal (5234) intacto.
   excepciones (los errores de circuito en el navegador integrado son negociacion SignalR del preview
   bajo la pagina pesada, ajenos al codigo).
 
-**Siguiente:** clave de licencia (marca de agua; la coloca el usuario), confirmar Docker prod. El
-diseniador guarda con SetData (no probado un ciclo completo editar->guardar por automatizacion, pero el
-open + controller estan verdes).
+**FIX del diseniador + ciclo editar->guardar VALIDADO end-to-end (2026-07-30):** el diseniador lanzaba
+NRE al abrir. CAUSA (hallada por logging): `openReport(path)` asume Report Server; y el diseniador usa
+GetData/SetData como ALMACEN TEMPORAL DE SESION (pedia `_setting.txt` y mi GetData devolvia vacio -> NRE).
+FIX (patron documentado): (1) GetData/SetData reescritos como almacen de archivos temporal generico
+(`%TEMP%/ecorex-bold-designer`); (2) abrir con `openReportDefinition(rdl)` CLIENT-SIDE, trayendo el RDL
+del nuevo endpoint GET `/api/reporting/rdl/{id}`; (3) guardar con `saveReportDefinition(cb,"XML")` ->
+POST al endpoint POST `/api/reporting/rdl/{id}` -> `UpdateRdlAsync`. Boton "Guardar" en la pagina del
+editor. VALIDADO EN VIVO (Chrome MCP): crear reporte -> abrir diseniador (SIN NRE, muestra el Tablix con
+encabezado indigo) -> editar el titulo -> Guardar ("Guardado.") -> el RDL en BD queda como la
+serializacion propia de Bold (~13 KB) con "EDITADO EN EL DISENIADOR 2026" y SIN el titulo viejo -> el
+VISOR renderiza el titulo editado + datos reales del tenant. Ciclo completo cerrado.
+
+**Siguiente:** clave de licencia (marca de agua; la coloca el usuario) + confirmar Docker prod.
 
 **Bloqueos:** solo la marca de agua (clave del usuario) y Docker prod.
 

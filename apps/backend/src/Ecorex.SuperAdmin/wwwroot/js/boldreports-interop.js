@@ -76,19 +76,74 @@ window.ecorexBold = (function () {
     return true;
   }
 
-  async function renderDesigner(elementId, serviceUrl, reportPath) {
+  // El reporte se carga con openReportDefinition (RDL client-side): openReport(path) asume Report
+  // Server y no aplica a nuestro almacen en BD. El serviceUrl sigue montado para recursos/preview.
+  async function renderDesigner(elementId, serviceUrl, rdlUrl) {
     await ensureAssets(true);
     const el = window.jQuery("#" + elementId);
     if (!el.length) { return false; }
-    const opts = { serviceUrl: serviceUrl };
-    el.boldReportDesigner(opts);
-    if (reportPath) {
-      const designer = el.data("boldReportDesigner");
-      if (designer && typeof designer.openReport === "function") {
-        try { designer.openReport(reportPath); } catch (e) { /* noop */ }
+    el.boldReportDesigner({ serviceUrl: serviceUrl });
+    const designer = el.data("boldReportDesigner");
+    window.__ecorexDesigner = designer;
+
+    if (designer && rdlUrl) {
+      let rdl = null;
+      try {
+        const r = await fetch(rdlUrl, { credentials: "same-origin" });
+        if (r.ok) { rdl = await r.text(); }
+      } catch (e) { console.error("ecorexBold: no se pudo traer el RDL", e); }
+
+      if (rdl) {
+        // Esperar a que el diseniador termine de inicializar antes de inyectar el RDL.
+        const div = document.getElementById(elementId);
+        let tries = 0;
+        const load = function () {
+          tries++;
+          if (div && div.childElementCount > 3 && typeof designer.openReportDefinition === "function") {
+            try { designer.openReportDefinition(rdl); } catch (e) { console.error("openReportDefinition", e); }
+          } else if (tries < 60) {
+            setTimeout(load, 250);
+          }
+        };
+        setTimeout(load, 500);
       }
     }
+
     return true;
+  }
+
+  // Guarda el RDL editado: saveReportDefinition serializa a XML y lo entrega en el callback; se
+  // POSTea a nuestro endpoint (persistencia en BD por Id). Devuelve una promesa con el resultado.
+  function saveDesigner(saveUrl) {
+    return new Promise(function (resolve) {
+      const d = window.__ecorexDesigner;
+      if (!d || typeof d.saveReportDefinition !== "function") {
+        resolve({ ok: false, error: "El diseniador no esta listo." });
+        return;
+      }
+
+      let done = false;
+      const finish = function (r) { if (!done) { done = true; resolve(r); } };
+
+      try {
+        d.saveReportDefinition(function () {
+          const a = arguments[0];
+          const rdl = (typeof a === "string") ? a : (a && (a.definition || a.reportDefinition || a.data)) || null;
+          if (!rdl || rdl.indexOf("<Report") < 0) { finish({ ok: false, error: "El diseniador no devolvio RDL." }); return; }
+          fetch(saveUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/xml" },
+            body: rdl
+          }).then(function (r) { finish({ ok: r.ok }); })
+            .catch(function (e) { finish({ ok: false, error: String(e) }); });
+        }, "XML");
+      } catch (e) {
+        finish({ ok: false, error: String(e) });
+      }
+
+      setTimeout(function () { finish({ ok: false, error: "Tiempo de espera agotado al guardar." }); }, 12000);
+    });
   }
 
   function dispose(elementId) {
@@ -98,5 +153,5 @@ window.ecorexBold = (function () {
     } catch (e) { /* noop */ }
   }
 
-  return { renderViewer, renderDesigner, dispose };
+  return { renderViewer, renderDesigner, saveDesigner, dispose };
 })();

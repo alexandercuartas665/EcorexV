@@ -51,19 +51,45 @@ public sealed class BoldReportsDesignerController : Controller, IReportDesignerC
     [AcceptVerbs("GET")]
     public object GetImage(string key, string image) => ReportDesignerHelper.GetImage(key, image, this);
 
-    // Apertura / guardado del RDL contra la ReportDefinition (itemId = Id de la definicion).
+    // GetData/SetData son el almacen de ARTEFACTOS DE SESION del diseniador (setting.txt, imagenes,
+    // estado intermedio), NO el reporte final. Bold los pide con claves (key,itemId) arbitrarias; si
+    // se devuelve algo invalido, ProcessDesigner lanza NRE. Se guardan como archivos en un temp por
+    // sesion. El reporte final se carga/guarda por separado (openReportDefinition / endpoint RDL).
+
+    private static string SessionDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ecorex-bold-designer");
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private static string PathFor(string key, string itemId)
+    {
+        var raw = (key ?? string.Empty) + "__" + (itemId ?? string.Empty);
+        var safe = string.Concat(raw.Split(Path.GetInvalidFileNameChars()));
+        if (safe.Length > 150)
+        {
+            safe = safe.Substring(0, 150) + "_" + (uint)raw.GetHashCode();
+        }
+
+        return Path.Combine(SessionDir(), safe);
+    }
 
     [NonAction]
     public ResourceInfo GetData(string key, string itemId)
     {
         var info = new ResourceInfo();
-        if (Guid.TryParse(itemId, out var id))
+        try
         {
-            var rdl = _definitions.GetRdlAsync(id).GetAwaiter().GetResult();
-            if (!string.IsNullOrEmpty(rdl))
+            var p = PathFor(key, itemId);
+            if (System.IO.File.Exists(p))
             {
-                info.Data = Encoding.UTF8.GetBytes(rdl);
+                info.Data = System.IO.File.ReadAllBytes(p);
             }
+        }
+        catch
+        {
+            // Un fallo de lectura del temp no debe tumbar al diseniador.
         }
 
         return info;
@@ -73,20 +99,20 @@ public sealed class BoldReportsDesignerController : Controller, IReportDesignerC
     public bool SetData(string key, string itemId, ItemInfo itemData, out string errorMessage)
     {
         errorMessage = string.Empty;
-        if (!Guid.TryParse(itemId, out var id) || itemData?.Data is null)
+        try
         {
-            errorMessage = "No se pudo identificar el reporte a guardar.";
+            if (itemData?.Data is not null)
+            {
+                System.IO.File.WriteAllBytes(PathFor(key, itemId), itemData.Data);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
             return false;
         }
-
-        var rdl = Encoding.UTF8.GetString(itemData.Data);
-        var ok = _definitions.UpdateRdlAsync(id, rdl).GetAwaiter().GetResult();
-        if (!ok)
-        {
-            errorMessage = "El reporte no existe.";
-        }
-
-        return ok;
     }
 
     // ---- Visor (para la vista previa del diseniador): IReportDesignerController : IReportController ----

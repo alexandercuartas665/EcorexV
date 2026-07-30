@@ -56,6 +56,9 @@ services:
       ECOREX_DB_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       # Aplica migraciones EF al arrancar (idempotente). En Production NO corren solas.
       ECOREX_RUN_MIGRATIONS: "true"
+      # Motor de Reportes (ADR-0051): siembra/reconcilia el grupo de menu "Reportes"
+      # (Galeria, Reportes con IA, Editor de reportes, Administrador) por tenant. GA en prod.
+      ECOREX_MENU_REPORTES: "true"
       # Clave del primer Super Admin (admin@ecorex.local) que se crea en Production.
       # Sin datos demo: el sistema arranca limpio y con este admin.
       ECOREX_SEED_ADMIN_PASSWORD: "${ECOREX_SEED_ADMIN_PASSWORD}"

@@ -3558,12 +3558,15 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     private static readonly (string Name, string Route, string Code)[] ReportesMenuItems =
     {
         ("Galeria de reportes", "reportes/galeria", "000899"),
+        ("Reportes con IA", "reportes/ia", "000896"),
         ("Administrador de reportes", "reportes/admin", "000898")
     };
 
     // Items que SE QUITAN del menu (2026-07-30): el panel/tablero demo pasa a ser un reporte de la
-    // galeria, y IA/Imprimibles se usan por dentro de la galeria. Las paginas siguen existiendo.
-    private static readonly string[] ReportesMenuDeprecados = { "reportes/tablero", "reportes/ia", "reportes/imprimibles" };
+    // galeria. IA vuelve al menu (2026-07-30) porque es el EDITOR/creador de reportes ("Guardar" /
+    // "Guardar como imprimible"); sin el, no habia camino visible para crear uno. El indice de
+    // imprimibles se usa por dentro de la galeria. Las paginas siguen existiendo.
+    private static readonly string[] ReportesMenuDeprecados = { "reportes/tablero", "reportes/imprimibles" };
 
     /// <summary>Registra (insert-if-missing) las definiciones de modulo de Reportes en el catalogo
     /// global (module_definitions), para el modulo 000109 y como respaldo del catalogo de roles.

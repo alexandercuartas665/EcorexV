@@ -1778,23 +1778,10 @@ else
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.CascadeConfigurator })
         {
             <div class="fb-field">
-                <label>Taxonomia del configurador (JSON)</label>
-                <textarea class="fb-input" rows="14" style="font-family:monospace;font-size:12px;line-height:1.45;"
-                          @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { CascadeConfigJson = e.Value?.ToString() }))">@node.Q!.CascadeConfigJson</textarea>
-                @{
-                    string? cascadeErr = string.IsNullOrWhiteSpace(node.Q!.CascadeConfigJson)
-                        ? "Pega la config: niveles, columns, columnSets y table. El motor la lee tal cual."
-                        : (CascadeConfig.Parse(node.Q!.CascadeConfigJson, out var cerr) is null ? cerr : null);
-                }
-                @if (cascadeErr is not null)
-                {
-                    <div class="fb-hint" style="color:#c0392f;">@cascadeErr</div>
-                }
-                else
-                {
-                    <div class="fb-hint" style="color:#0f8b5f;">Config valida. El configurador ya se renderiza en el formulario.</div>
-                }
-                <div class="fb-hint">Config-driven: el mismo motor sirve cualquier taxonomia; se replica pegando otra config en otro formulario o tenant.</div>
+                <label>Taxonomia del configurador</label>
+                <CascadeConfigEditor Json="@node.Q!.CascadeConfigJson"
+                                     JsonChanged="@(json => PatchQuestionAsync(node.Q!, r => r with { CascadeConfigJson = json }))" />
+                <div class="fb-hint">Config-driven: componelo por niveles/columnas/juegos (o pega JSON). El mismo motor sirve cualquier taxonomia y se replica en otro formulario o tenant.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })

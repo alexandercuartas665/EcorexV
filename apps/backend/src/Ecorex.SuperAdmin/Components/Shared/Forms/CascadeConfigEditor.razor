@@ -1,0 +1,427 @@
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using Ecorex.Application.Forms.Cascade
+
+@* Editor VISUAL (sin codigo) de la taxonomia de un Configurador en cascada. Edita el mismo
+   CascadeConfigJson que lee el motor, pero con controles estructurados: niveles + opciones, columnas,
+   juegos de columnas y la tabla. Permite ARMAR UNO NUEVO DESDE CERO y replicarlo. Valida en vivo con
+   CascadeConfig.Parse. Incluye un escape hatch de JSON crudo. Tema claro (clases .ce-*). *@
+
+<div class="ce-root">
+    <div class="ce-toolbar">
+        <button type="button" class="ce-btn @(_view == "visual" ? "on" : "")" @onclick="@(() => _view = "visual")">Visual</button>
+        <button type="button" class="ce-btn @(_view == "json" ? "on" : "")" @onclick="@(() => _view = "json")">JSON</button>
+        <span class="ce-status @(_error is null ? "ok" : "err")">@(_error is null ? "Config valida" : _error)</span>
+    </div>
+
+    @if (_view == "json")
+    {
+        <textarea class="ce-json" rows="16" @onchange="OnRawJsonChanged">@_rawJson</textarea>
+        <div class="ce-hint">Pega o edita el JSON crudo (util para clonar de otro formulario). Al salir del campo se valida y se aplica.</div>
+    }
+    else
+    {
+        @* ---------------- NIVELES ---------------- *@
+        <div class="ce-sec">
+            <div class="ce-sec-hd"><b>Niveles</b> <span>cascada de pasos</span>
+                <button type="button" class="ce-add" @onclick="AddLevel">+ Nivel</button>
+            </div>
+            @for (var li = 0; li < _m.Levels.Count; li++)
+            {
+                var lvl = _m.Levels[li];
+                var levelIdx = li;
+                <div class="ce-card">
+                    <div class="ce-row">
+                        <label>Clave<input class="ce-in" value="@lvl.Key" @onchange="@(e => Set(() => lvl.Key = V(e)))" placeholder="ej. portafolio" /></label>
+                        <label>Etiqueta<input class="ce-in" value="@lvl.Label" @onchange="@(e => Set(() => lvl.Label = V(e)))" /></label>
+                        <label>Seleccion
+                            <select class="ce-in" value="@lvl.Select" @onchange="@(e => Set(() => lvl.Select = V(e)))">
+                                <option value="single">Unica</option>
+                                <option value="multi">Multiple</option>
+                            </select>
+                        </label>
+                        <label>Depende de
+                            <select class="ce-in" value="@(lvl.DependsOn ?? "")" @onchange="@(e => Set(() => lvl.DependsOn = VN(e)))">
+                                <option value="">(ninguno)</option>
+                                @foreach (var pl in _m.Levels.Take(levelIdx))
+                                {
+                                    <option value="@pl.Key">@pl.Key</option>
+                                }
+                            </select>
+                        </label>
+                        <button type="button" class="ce-del" title="Quitar nivel" @onclick="@(() => Set(() => _m.Levels.RemoveAt(levelIdx)))">✕</button>
+                    </div>
+                    <div class="ce-row">
+                        <label class="ce-chk"><input type="checkbox" checked="@lvl.OpensTable" @onchange="@(e => Set(() => lvl.OpensTable = B(e)))" /> Abre tabla</label>
+                        <label>Alimenta columna
+                            <select class="ce-in" value="@(lvl.FeedsColumn ?? "")" @onchange="@(e => Set(() => lvl.FeedsColumn = VN(e)))">
+                                <option value="">(ninguna)</option>
+                                @foreach (var c in _m.Columns)
+                                {
+                                    <option value="@c.Key">@c.Key</option>
+                                }
+                            </select>
+                        </label>
+                        <label>Juego por defecto
+                            <select class="ce-in" value="@(lvl.DefaultColumnSet ?? "")" @onchange="@(e => Set(() => lvl.DefaultColumnSet = VN(e)))">
+                                <option value="">(ninguno)</option>
+                                @foreach (var s in _m.ColumnSets)
+                                {
+                                    <option value="@s.Name">@s.Name</option>
+                                }
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="ce-opts">
+                        <div class="ce-opts-hd">Opciones <button type="button" class="ce-add sm" @onclick="@(() => Set(() => lvl.Options.Add(new OptEdit())))">+ Opcion</button></div>
+                        @for (var oi = 0; oi < lvl.Options.Count; oi++)
+                        {
+                            var op = lvl.Options[oi];
+                            var optIdx = oi;
+                            var parentLevel = string.IsNullOrWhiteSpace(lvl.DependsOn) ? null : _m.Levels.FirstOrDefault(x => x.Key == lvl.DependsOn);
+                            <div class="ce-opt">
+                                <input class="ce-in" value="@op.Id" @onchange="@(e => Set(() => op.Id = V(e)))" placeholder="id" />
+                                <input class="ce-in" value="@op.Label" @onchange="@(e => Set(() => op.Label = V(e)))" placeholder="etiqueta" />
+                                @if (parentLevel is not null)
+                                {
+                                    <select class="ce-in" value="@(op.Parent ?? "")" @onchange="@(e => Set(() => op.Parent = VN(e)))">
+                                        <option value="">(padre)</option>
+                                        @foreach (var po in parentLevel.Options)
+                                        {
+                                            <option value="@po.Id">@po.Label</option>
+                                        }
+                                    </select>
+                                }
+                                <select class="ce-in" value="@(op.ColumnSet ?? "")" @onchange="@(e => Set(() => op.ColumnSet = VN(e)))">
+                                    <option value="">(juego)</option>
+                                    @foreach (var s in _m.ColumnSets)
+                                    {
+                                        <option value="@s.Name">@s.Name</option>
+                                    }
+                                </select>
+                                <input class="ce-in ce-color" type="text" value="@op.Color" @onchange="@(e => Set(() => op.Color = VN(e)))" placeholder="#color" />
+                                <button type="button" class="ce-del" @onclick="@(() => Set(() => lvl.Options.RemoveAt(optIdx)))">✕</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ---------------- COLUMNAS ---------------- *@
+        <div class="ce-sec">
+            <div class="ce-sec-hd"><b>Columnas</b> <span>definicion de cada campo de tabla</span>
+                <button type="button" class="ce-add" @onclick="AddColumn">+ Columna</button>
+            </div>
+            @for (var ci = 0; ci < _m.Columns.Count; ci++)
+            {
+                var col = _m.Columns[ci];
+                var colIdx = ci;
+                <div class="ce-colrow">
+                    <input class="ce-in" value="@col.Key" @onchange="@(e => Set(() => col.Key = V(e)))" placeholder="clave" />
+                    <input class="ce-in" value="@col.Label" @onchange="@(e => Set(() => col.Label = V(e)))" placeholder="etiqueta" />
+                    <select class="ce-in" value="@col.Kind" @onchange="@(e => Set(() => col.Kind = V(e)))">
+                        <option value="text">texto</option>
+                        <option value="number">numero</option>
+                        <option value="money">moneda</option>
+                        <option value="select">lista</option>
+                    </select>
+                    <input class="ce-in ce-w" value="@col.Width" @onchange="@(e => Set(() => col.Width = VN(e)))" placeholder="ancho" />
+                    <input class="ce-in" value="@col.Calc" @onchange="@(e => Set(() => col.Calc = VN(e)))" placeholder="formula {a}*{b}" />
+                    <select class="ce-in ce-agg" value="@(col.Agg ?? "")" @onchange="@(e => Set(() => col.Agg = VN(e)))">
+                        <option value="">agg</option>
+                        <option value="Sum">Sum</option>
+                        <option value="Count">Count</option>
+                        <option value="Avg">Avg</option>
+                        <option value="Min">Min</option>
+                        <option value="Max">Max</option>
+                    </select>
+                    <input class="ce-in" value="@col.Rollup" @onchange="@(e => Set(() => col.Rollup = VN(e)))" placeholder="destino total" />
+                    <button type="button" class="ce-del" @onclick="@(() => Set(() => _m.Columns.RemoveAt(colIdx)))">✕</button>
+                </div>
+            }
+        </div>
+
+        @* ---------------- JUEGOS DE COLUMNAS ---------------- *@
+        <div class="ce-sec">
+            <div class="ce-sec-hd"><b>Juegos de columnas</b> <span>que columnas y en que orden</span>
+                <button type="button" class="ce-add" @onclick="AddSet">+ Juego</button>
+            </div>
+            @for (var si = 0; si < _m.ColumnSets.Count; si++)
+            {
+                var set = _m.ColumnSets[si];
+                var setIdx = si;
+                <div class="ce-setrow">
+                    <input class="ce-in ce-setname" value="@set.Name" @onchange="@(e => Set(() => set.Name = V(e)))" placeholder="nombre" />
+                    <input class="ce-in ce-setkeys" value="@string.Join(", ", set.Keys)" @onchange="@(e => Set(() => set.Keys = ParseList(V(e))))"
+                           placeholder="columnas en orden: cantidad, valor, subtotal" />
+                    <button type="button" class="ce-del" @onclick="@(() => Set(() => _m.ColumnSets.RemoveAt(setIdx)))">✕</button>
+                </div>
+            }
+        </div>
+
+        @* ---------------- TABLA ---------------- *@
+        <div class="ce-sec">
+            <div class="ce-sec-hd"><b>Tabla</b> <span>como se agrupan las tablas</span></div>
+            <div class="ce-colrow">
+                <label class="ce-full">Agrupar por (keyBy)
+                    <input class="ce-in" value="@string.Join(", ", _m.KeyBy)" @onchange="@(e => Set(() => _m.KeyBy = ParseList(V(e))))"
+                           placeholder="ej. portafolio, columnSet" />
+                </label>
+            </div>
+            <div class="ce-colrow">
+                <label class="ce-full">Obligatorias en fila iniciada
+                    <input class="ce-in" value="@string.Join(", ", _m.RequiredOnStartedRow)" @onchange="@(e => Set(() => _m.RequiredOnStartedRow = ParseList(V(e))))"
+                           placeholder="ej. @@first, cantidad" />
+                </label>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Json { get; set; }
+    [Parameter] public EventCallback<string> JsonChanged { get; set; }
+
+    private string _view = "visual";
+    private string? _rawJson;
+    private string? _error;
+    private string? _lastSeen;
+    private readonly Model _m = new();
+
+    private static readonly JsonSerializerOptions SerOpts = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true
+    };
+
+    protected override void OnParametersSet()
+    {
+        if (!string.Equals(Json, _lastSeen, StringComparison.Ordinal))
+        {
+            _lastSeen = Json;
+            _rawJson = Json;
+            LoadFrom(Json);
+        }
+    }
+
+    // ---- carga leniente (permite editar configs invalidas) ----
+    private void LoadFrom(string? json)
+    {
+        _m.Levels.Clear();
+        _m.Columns.Clear();
+        _m.ColumnSets.Clear();
+        _m.KeyBy.Clear();
+        _m.RequiredOnStartedRow.Clear();
+        _m.Version = 1;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            _error = null;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("version", out var ver) && ver.ValueKind == JsonValueKind.Number)
+            {
+                _m.Version = ver.GetInt32();
+            }
+            if (root.TryGetProperty("levels", out var levels) && levels.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var l in levels.EnumerateArray())
+                {
+                    var lvl = new LevelEdit
+                    {
+                        Key = Str(l, "key"), Label = Str(l, "label"), Select = Str(l, "select", "multi"),
+                        DependsOn = StrN(l, "dependsOn"), OpensTable = Bool(l, "opensTable"),
+                        FeedsColumn = StrN(l, "feedsColumn"), DefaultColumnSet = StrN(l, "defaultColumnSet")
+                    };
+                    if (l.TryGetProperty("options", out var ops) && ops.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var o in ops.EnumerateArray())
+                        {
+                            lvl.Options.Add(new OptEdit
+                            {
+                                Id = Str(o, "id"), Label = Str(o, "label"), Parent = StrN(o, "parent"),
+                                ColumnSet = StrN(o, "columnSet"), Color = StrN(o, "color"), Desc = StrN(o, "desc")
+                            });
+                        }
+                    }
+                    _m.Levels.Add(lvl);
+                }
+            }
+            if (root.TryGetProperty("columns", out var cols) && cols.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var c in cols.EnumerateObject())
+                {
+                    var v = c.Value;
+                    _m.Columns.Add(new ColEdit
+                    {
+                        Key = c.Name, Label = Str(v, "label"), Kind = Str(v, "kind", "text"),
+                        Width = StrN(v, "width"), Placeholder = StrN(v, "placeholder"), Format = StrN(v, "format"),
+                        Calc = StrN(v, "calc"), Agg = StrN(v, "agg"), Rollup = StrN(v, "rollup"),
+                        Required = Bool(v, "required"),
+                        Suggest = v.TryGetProperty("suggest", out var sg) && sg.ValueKind == JsonValueKind.Array
+                            ? string.Join(", ", sg.EnumerateArray().Select(x => x.GetString())) : null
+                    });
+                }
+            }
+            if (root.TryGetProperty("columnSets", out var sets) && sets.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var s in sets.EnumerateObject())
+                {
+                    _m.ColumnSets.Add(new SetEdit
+                    {
+                        Name = s.Name,
+                        Keys = s.Value.ValueKind == JsonValueKind.Array
+                            ? s.Value.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()
+                            : new List<string>()
+                    });
+                }
+            }
+            if (root.TryGetProperty("table", out var table) && table.ValueKind == JsonValueKind.Object)
+            {
+                if (table.TryGetProperty("keyBy", out var kb) && kb.ValueKind == JsonValueKind.Array)
+                {
+                    _m.KeyBy.AddRange(kb.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0));
+                }
+                if (table.TryGetProperty("requiredOnStartedRow", out var rq) && rq.ValueKind == JsonValueKind.Array)
+                {
+                    _m.RequiredOnStartedRow.AddRange(rq.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0));
+                }
+            }
+            _error = CascadeConfig.Parse(json, out var e) is null ? e : null;
+        }
+        catch (JsonException ex)
+        {
+            _error = "JSON invalido: " + ex.Message;
+        }
+    }
+
+    private async Task OnRawJsonChanged(ChangeEventArgs e)
+    {
+        _rawJson = e.Value?.ToString();
+        LoadFrom(_rawJson);
+        await EmitAsync();
+    }
+
+    // ---- edicion visual: aplica y re-serializa ----
+    private async Task Set(Action mutate)
+    {
+        mutate();
+        await EmitAsync();
+    }
+
+    private Task AddLevel() => Set(() => _m.Levels.Add(new LevelEdit { Key = "nivel" + (_m.Levels.Count + 1), Label = "Nivel " + (_m.Levels.Count + 1) }));
+    private Task AddColumn() => Set(() => _m.Columns.Add(new ColEdit { Key = "col" + (_m.Columns.Count + 1), Label = "Columna", Kind = "text" }));
+    private Task AddSet() => Set(() => _m.ColumnSets.Add(new SetEdit { Name = "juego" + (_m.ColumnSets.Count + 1) }));
+
+    private async Task EmitAsync()
+    {
+        var json = Serialize();
+        _rawJson = json;
+        _lastSeen = json;
+        _error = CascadeConfig.Parse(json, out var e) is null ? e : null;
+        await JsonChanged.InvokeAsync(json);
+    }
+
+    private string Serialize()
+    {
+        static string? N(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        var payload = new Dictionary<string, object?>
+        {
+            ["version"] = _m.Version <= 0 ? 1 : _m.Version,
+            ["levels"] = _m.Levels.Select(l => new Dictionary<string, object?>
+            {
+                ["key"] = l.Key, ["label"] = l.Label, ["select"] = string.IsNullOrWhiteSpace(l.Select) ? "multi" : l.Select,
+                ["dependsOn"] = N(l.DependsOn), ["opensTable"] = l.OpensTable,
+                ["feedsColumn"] = N(l.FeedsColumn), ["defaultColumnSet"] = N(l.DefaultColumnSet),
+                ["options"] = l.Options.Select(o => new Dictionary<string, object?>
+                {
+                    ["id"] = o.Id, ["label"] = o.Label, ["parent"] = N(o.Parent),
+                    ["columnSet"] = N(o.ColumnSet), ["color"] = N(o.Color), ["desc"] = N(o.Desc)
+                }).ToList()
+            }).ToList(),
+            ["columns"] = _m.Columns.Where(c => !string.IsNullOrWhiteSpace(c.Key)).ToDictionary(c => c.Key, c => (object)new Dictionary<string, object?>
+            {
+                ["label"] = c.Label, ["kind"] = string.IsNullOrWhiteSpace(c.Kind) ? "text" : c.Kind,
+                ["width"] = N(c.Width), ["placeholder"] = N(c.Placeholder), ["format"] = N(c.Format),
+                ["calc"] = N(c.Calc), ["agg"] = N(c.Agg), ["rollup"] = N(c.Rollup),
+                ["required"] = c.Required ? true : (bool?)null,
+                ["suggest"] = string.IsNullOrWhiteSpace(c.Suggest) ? null : ParseList(c.Suggest)
+            }),
+            ["columnSets"] = _m.ColumnSets.Where(s => !string.IsNullOrWhiteSpace(s.Name)).ToDictionary(s => s.Name, s => s.Keys),
+            ["table"] = new Dictionary<string, object?>
+            {
+                ["keyBy"] = _m.KeyBy,
+                ["requiredOnStartedRow"] = _m.RequiredOnStartedRow.Count > 0 ? _m.RequiredOnStartedRow : null
+            }
+        };
+        return JsonSerializer.Serialize(payload, SerOpts);
+    }
+
+    // ---- helpers ----
+    private static string V(ChangeEventArgs e) => e.Value?.ToString() ?? "";
+    private static string? VN(ChangeEventArgs e) { var s = e.Value?.ToString(); return string.IsNullOrWhiteSpace(s) ? null : s; }
+    private static bool B(ChangeEventArgs e) => e.Value is bool b && b;
+    private static List<string> ParseList(string s) => s.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+
+    private static string Str(JsonElement el, string prop, string def = "")
+        => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? (v.GetString() ?? def) : def;
+    private static string? StrN(JsonElement el, string prop)
+        => el.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    private static bool Bool(JsonElement el, string prop)
+        => el.TryGetProperty(prop, out var v) && (v.ValueKind == JsonValueKind.True);
+
+    // ---- modelo mutable ----
+    private sealed class Model
+    {
+        public int Version = 1;
+        public List<LevelEdit> Levels = new();
+        public List<ColEdit> Columns = new();
+        public List<SetEdit> ColumnSets = new();
+        public List<string> KeyBy = new();
+        public List<string> RequiredOnStartedRow = new();
+    }
+    private sealed class LevelEdit
+    {
+        public string Key = "";
+        public string Label = "";
+        public string Select = "multi";
+        public string? DependsOn;
+        public bool OpensTable;
+        public string? FeedsColumn;
+        public string? DefaultColumnSet;
+        public List<OptEdit> Options = new();
+    }
+    private sealed class OptEdit
+    {
+        public string Id = "";
+        public string Label = "";
+        public string? Parent;
+        public string? ColumnSet;
+        public string? Color;
+        public string? Desc;
+    }
+    private sealed class ColEdit
+    {
+        public string Key = "";
+        public string Label = "";
+        public string Kind = "text";
+        public string? Width;
+        public string? Placeholder;
+        public string? Format;
+        public string? Calc;
+        public string? Agg;
+        public string? Rollup;
+        public bool Required;
+        public string? Suggest;
+    }
+    private sealed class SetEdit
+    {
+        public string Name = "";
+        public List<string> Keys = new();
+    }
+}

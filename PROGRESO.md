@@ -7217,3 +7217,24 @@ contrato cascada c7ca57d + cierre 117d330 (pusheados); F1 8353e65 + F2 65a1acd (
 **Siguiente / pendiente**: validar F2 cascada en vivo; enganchar los 3 `resolve` del COT (sesion DATOS) y
 probar el cotizador real (requiere deploy); clave de licencia Bold para reportes; push de los commits de
 formularios cuando se decida.
+
+---
+
+## 2026-07-31 (sesion datos - prod) - Listado de clientes AGROMETALICAS
+
+**Agente**: Claude Opus 4.8 (sesion de datos de produccion).
+
+**Hecho**: cargados 1206 clientes de `LISTADO DE CLIENTES JUL 2026.xlsx` (hoja Sheet1,
+cabeceras fila 7, datos desde fila 8) al Directorio (`terceros`) del tenant AGROMETALICAS
+(`019f478d-6428-7283-a5cd-b7e35f802ef3`). Mapeo: nombre<-col A; tipo NIT->Empresa /
+Cedula|Pasaporte|Doc.extranjero->Persona; id_tipo Nit|Identificacion|Ninguno; id_valor<-C;
+ciudad<-E; telefono<-F limpiado (quita guiones de envoltura, une multiples con " / ");
+email<-G; direccion<-D en `fichas_json.cliente.direccion`; perfil Cliente(1) salvo la fila
+"Cliente=No"; estado Activo/Inactivo fiel (1 inactivo real). Idempotente por (tenant,
+upper(nombre)) - nombres unicos en el archivo, sin duplicados. Backup previo
+`ecorex-2026-07-31-1013.sql.gz`. Resultado: 1084 empresas + 122 personas; total terceros del
+tenant = 1208 (1206 + 2 de prueba `perensejp`/`adreseon` que quedan). Carga por SQL directo
+(bypass de AdminAuditLog, excepcion autorizada de ETL).
+
+**Siguiente / pendiente**: (sin cambios) enganchar los 3 `resolve` multi-clave del COT
+(corte/doblez/rolado, prompt entregado a sesion de codigo); validar F2 cascada; clave Bold.

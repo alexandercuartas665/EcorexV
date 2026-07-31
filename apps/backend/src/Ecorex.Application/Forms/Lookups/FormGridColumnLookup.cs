@@ -60,16 +60,34 @@ public sealed record FormGridLookupConfig(
 public sealed record FormGridStockCheck(string Against);
 
 /// <summary>
+/// Auto-resolucion por CLAVE COMPUESTA (tipo VLOOKUP/INDEX-MATCH). A diferencia del lookup dirigido
+/// por seleccion (<see cref="FormGridLookupConfig"/>), esta columna se CALCULA sola: matchea una fila
+/// de la fuente por 1+ columnas (<see cref="Match"/>: columnaFuente -&gt; ref de celda de la fila,
+/// ej. "{tipo_lamina}") y devuelve <see cref="ReturnField"/>. Se re-resuelve cuando cambian sus
+/// dependencias (como un calc) y es de solo lectura (snapshot editable). <see cref="When"/> es una
+/// guarda opcional (refDeCelda -&gt; valor exacto): si no se cumple, la celda queda vacia (0). El match
+/// del contrato actual es EXACTO (decision del usuario): compara numerico si ambos lados son numero,
+/// si no texto (case-insensitive), asi "3"=="3.0" y "&lt;3"=="&lt;3".
+/// </summary>
+public sealed record FormGridResolveConfig(
+    FormSourceKind SourceKind,
+    string? SourceRef,
+    IReadOnlyDictionary<string, string> Match,
+    string ReturnField,
+    IReadOnlyDictionary<string, string> When);
+
+/// <summary>
 /// Extras de una columna de tabla que NO viven en FormGridColumn (calculo/agregado): lookup con
-/// autollenado, valor por defecto al crear la fila y comprobacion de existencias. Se parsean del
-/// MISMO OptionsJson de la pregunta, en paralelo a FormGridCalculator.ParseColumns, para no
-/// mezclar las dos responsabilidades ni tocar el contrato del calculador.
+/// autollenado, valor por defecto al crear la fila, comprobacion de existencias y auto-resolucion
+/// multi-clave. Se parsean del MISMO OptionsJson de la pregunta, en paralelo a
+/// FormGridCalculator.ParseColumns, para no mezclar responsabilidades ni tocar el contrato del calculador.
 /// </summary>
 public sealed record FormGridColumnExtras(
     string Id,
     FormGridLookupConfig? Lookup,
     string? Default,
-    FormGridStockCheck? StockCheck);
+    FormGridStockCheck? StockCheck,
+    FormGridResolveConfig? Resolve = null);
 
 /// <summary>
 /// Parseo de los extras de columna del OptionsJson. Defensivo: cualquier columna mal formada se
@@ -96,9 +114,10 @@ public static class FormGridColumnLookupParser
                 var lookup = ParseLookup(el);
                 var def = el.TryGetProperty("default", out var pd) ? ReadScalar(pd) : null;
                 var stock = ParseStockCheck(el);
-                if (lookup is null && def is null && stock is null) { continue; }
+                var resolve = ParseResolve(el);
+                if (lookup is null && def is null && stock is null && resolve is null) { continue; }
 
-                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock);
+                map[id!] = new FormGridColumnExtras(id!, lookup, def, stock, resolve);
             }
         }
         catch (JsonException) { /* extras invalidos: la tabla se comporta como texto plano */ }
@@ -158,6 +177,43 @@ public static class FormGridColumnLookupParser
         if (!col.TryGetProperty("stockCheck", out var sc) || sc.ValueKind != JsonValueKind.Object) { return null; }
         var against = Trimmed(sc, "against");
         return string.IsNullOrWhiteSpace(against) ? null : new FormGridStockCheck(against!);
+    }
+
+    private static FormGridResolveConfig? ParseResolve(JsonElement col)
+    {
+        if (!col.TryGetProperty("resolve", out var rv) || rv.ValueKind != JsonValueKind.Object) { return null; }
+
+        var sourceName = rv.TryGetProperty("source", out var ps) ? ps.GetString() : null;
+        if (!Enum.TryParse<FormSourceKind>(sourceName, ignoreCase: true, out var kind) || kind == FormSourceKind.Options)
+        {
+            return null;
+        }
+        var returnField = Trimmed(rv, "return");
+        if (string.IsNullOrWhiteSpace(returnField)) { return null; }
+
+        var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (rv.TryGetProperty("match", out var m) && m.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in m.EnumerateObject())
+            {
+                var v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(v)) { match[p.Name] = v!; }
+            }
+        }
+        if (match.Count == 0) { return null; }
+
+        // 'when' opcional: refDeCelda -> valor esperado (exacto). Sin 'when' la resolucion siempre corre.
+        var when = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (rv.TryGetProperty("when", out var w) && w.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in w.EnumerateObject())
+            {
+                var v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+                if (v is not null) { when[p.Name] = v; }
+            }
+        }
+
+        return new FormGridResolveConfig(kind, Trimmed(rv, "sourceRef"), match, returnField!, when);
     }
 
     private static string? Trimmed(JsonElement obj, string name)

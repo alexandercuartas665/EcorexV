@@ -119,7 +119,7 @@ public abstract class RulesEngineTestsBase
         var engine = BuildEngine(ctx, seed);
         var documents = new RuleDocumentService(ctx, tenantContext, engine);
         var definitions = new FormDefinitionService(ctx, tenantContext, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenantContext));
-        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine), new SequenceService(ctx, tenantContext), tenantContext, new NoOpFormRecordBroadcaster());
+        var responses = new FormResponseService(ctx, BuildWorkflowEngine(ctx, seed, engine), new SequenceService(ctx, tenantContext), tenantContext, new NoOpFormRecordBroadcaster(), new Ecorex.Application.Forms.Lookups.FormLookupService(System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()));
         var dispatcher = new FormRuleDispatcher(ctx, engine);
 
         // Formulario con 2 campos texto y regla PASAR_CAMPOS origen -> destino, vinculada

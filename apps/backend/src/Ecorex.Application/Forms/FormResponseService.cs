@@ -26,16 +26,19 @@ public sealed class FormResponseService : IFormResponseService
     private readonly Tenancy.ISequenceService _sequences;
     private readonly Common.ITenantContext _tenant;
     private readonly Tenancy.IFormRecordBroadcaster _recordBroadcaster;
+    private readonly Lookups.IFormLookupService _lookup;
 
     public FormResponseService(
         IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences,
-        Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster)
+        Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster,
+        Lookups.IFormLookupService lookup)
     {
         _db = db;
         _workflowEngine = workflowEngine;
         _sequences = sequences;
         _tenant = tenant;
         _recordBroadcaster = recordBroadcaster;
+        _lookup = lookup;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -156,6 +159,9 @@ public sealed class FormResponseService : IFormResponseService
             document.TryGetValue(question.FieldCode, out var gridField);
             var gridRows = FormFieldValidator.ParseGridRows(gridField?.Value)
                 .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
+            // Auto-resolucion multi-clave (VLOOKUP) AUTORITATIVA en servidor ANTES del calculo: el cliente
+            // no es fuente de verdad para los precios resueltos (igual que el calc por formula).
+            await ResolveGridColumnsAsync(question, gridRows, cancellationToken);
             var (computed, rollups) = Calc.FormGridCalculator.Recompute(gridRows, cols, headerValues);
             document[question.FieldCode] = new FormFieldValue(
                 computed.Count == 0 ? null : JsonSerializer.Serialize(computed, JsonOptions),
@@ -332,6 +338,61 @@ public sealed class FormResponseService : IFormResponseService
     /// consecutivo (una TenantSequence por formulario, prefijo = codigo del form) o clave natural
     /// (valor de un campo, unicidad garantizada por indice). None = sin numero.
     /// </summary>
+    // Auto-resolucion multi-clave (VLOOKUP/INDEX-MATCH) en SERVIDOR: para cada columna 'resolve' de la
+    // tabla, valida 'when', sustituye {campo} del match con celdas de la MISMA fila y pide el valor a la
+    // capa de lookup (tenant-safe). Mismo criterio que el renderer; el servidor manda.
+    private async Task ResolveGridColumnsAsync(Domain.Entities.FormQuestion question, List<Dictionary<string, string?>> rows, CancellationToken ct)
+    {
+        var resolvers = Lookups.FormGridColumnLookupParser.Parse(question.OptionsJson)
+            .Values.Where(e => e.Resolve is not null).ToList();
+        if (resolvers.Count == 0) { return; }
+        foreach (var row in rows)
+        {
+            foreach (var ex in resolvers)
+            {
+                var rc = ex.Resolve!;
+                if (!rc.When.All(kv => CellsEqualExact(SubstituteRowRefs(kv.Key, row), kv.Value)))
+                {
+                    row[ex.Id] = string.Empty;
+                    continue;
+                }
+                var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var complete = true;
+                foreach (var (col, refExpr) in rc.Match)
+                {
+                    var v = SubstituteRowRefs(refExpr, row);
+                    if (string.IsNullOrWhiteSpace(v)) { complete = false; break; }
+                    match[col] = v;
+                }
+                if (!complete || string.IsNullOrWhiteSpace(rc.SourceRef))
+                {
+                    row[ex.Id] = string.Empty;
+                    continue;
+                }
+                var result = await _lookup.MatchAsync(rc.SourceKind, rc.SourceRef!, match, rc.ReturnField, ct);
+                row[ex.Id] = result ?? string.Empty;
+            }
+        }
+    }
+
+    private static string SubstituteRowRefs(string expr, IReadOnlyDictionary<string, string?> row)
+        => string.IsNullOrEmpty(expr)
+            ? string.Empty
+            : System.Text.RegularExpressions.Regex.Replace(expr, "\\{([^}]+)\\}",
+                m => row.TryGetValue(m.Groups[1].Value.Trim(), out var v) ? (v ?? string.Empty) : string.Empty);
+
+    private static bool CellsEqualExact(string? a, string? b)
+    {
+        var x = (a ?? string.Empty).Trim();
+        var y = (b ?? string.Empty).Trim();
+        if (decimal.TryParse(x, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var nx)
+            && decimal.TryParse(y, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ny))
+        {
+            return nx == ny;
+        }
+        return string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<(bool Ok, string? Number, string? Error)> ResolveIdentityAsync(
         FormDefinition definition, IReadOnlyDictionary<string, FormFieldValue> document, CancellationToken cancellationToken)
     {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Domain.Enums;
@@ -72,6 +73,57 @@ public sealed class DataContainerLookupSource : IFormLookupSource
         var values = cells.ToDictionary(c => c.ColumnId, c => c.Value);
 
         return ToItem(rowId, values, nameToCol, displayField: null, fields);
+    }
+
+    public async Task<string?> MatchAsync(string sourceRef, IReadOnlyDictionary<string, string> match, string returnField, CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(sourceRef, out var containerId) || match.Count == 0 || string.IsNullOrWhiteSpace(returnField))
+        {
+            return null;
+        }
+        var nameToCol = await GetColumnMapAsync(containerId, cancellationToken);
+        if (nameToCol is null || !nameToCol.TryGetValue(returnField, out var returnColId))
+        {
+            return null;
+        }
+
+        // Traduce nombres de columna de match -> ids; una columna desconocida = no puede matchear.
+        var matchCols = new List<(Guid ColId, string Expected)>();
+        foreach (var (col, expected) in match)
+        {
+            if (!nameToCol.TryGetValue(col, out var cid)) { return null; }
+            matchCols.Add((cid, expected));
+        }
+
+        var rows = await _containers.ListRowsAsync(containerId, search: null, parentRowId: null, take: FetchCap, ct: cancellationToken);
+        foreach (var row in rows)
+        {
+            var hit = true;
+            foreach (var (colId, expected) in matchCols)
+            {
+                var cell = row.ValuesByColumnId.TryGetValue(colId, out var v) ? v : null;
+                if (!ValuesEqual(cell, expected)) { hit = false; break; }
+            }
+            if (hit)
+            {
+                return row.ValuesByColumnId.TryGetValue(returnColId, out var rv) ? rv : null;
+            }
+        }
+        return null;
+    }
+
+    // Igualdad EXACTA (decision del usuario): numerica si ambos lados son numero (3 == 3.0), si no
+    // texto case-insensitive (asi "<3" == "<3"). Espacios al borde no cuentan.
+    private static bool ValuesEqual(string? a, string? b)
+    {
+        var x = (a ?? string.Empty).Trim();
+        var y = (b ?? string.Empty).Trim();
+        if (decimal.TryParse(x, NumberStyles.Any, CultureInfo.InvariantCulture, out var nx)
+            && decimal.TryParse(y, NumberStyles.Any, CultureInfo.InvariantCulture, out var ny))
+        {
+            return nx == ny;
+        }
+        return string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<IReadOnlyList<FormLookupSourceOption>> ListSourcesAsync(CancellationToken cancellationToken = default)

@@ -31,6 +31,9 @@ public sealed class FormLookupService : IFormLookupService
     public Task<IReadOnlyList<FormLookupFieldMeta>> DescribeFieldsAsync(FormSourceKind kind, string? sourceRef, CancellationToken cancellationToken = default)
         => Resolve(kind).DescribeFieldsAsync(sourceRef, cancellationToken);
 
+    public Task<string?> MatchAsync(FormSourceKind kind, string sourceRef, IReadOnlyDictionary<string, string> match, string returnField, CancellationToken cancellationToken = default)
+        => Resolve(kind).MatchAsync(sourceRef, match, returnField, cancellationToken);
+
     private IFormLookupSource Resolve(FormSourceKind kind)
         => _sources.TryGetValue(kind, out var s)
             ? s

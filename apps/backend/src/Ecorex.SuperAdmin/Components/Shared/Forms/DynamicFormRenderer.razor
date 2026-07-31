@@ -366,6 +366,9 @@ else
                 // Lookup (ola F1): resuelve las etiquetas de los ids ya guardados para mostrar
                 // el nombre en vez del Guid (dentro del ambient de la carga).
                 await ResolveLookupDisplaysAsync();
+                // Auto-resolucion multi-clave (VLOOKUP): resuelve las columnas 'resolve' de cada fila
+                // ANTES del calculo, para que un borrador restaurado traiga los precios ya puestos.
+                await ResolveAllGridsAsync();
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
@@ -1431,6 +1434,13 @@ else
                                            Item / Tercero / DataContainer, la fuente la dice el JSON). *@
                                         @RenderGridLookupCell(q, rowIndex, colExtras, lkCfg, cell)
                                     }
+                                    else if (colExtras?.Resolve is not null && col.Calc is null)
+                                    {
+                                        @* Columna auto-resuelta (VLOOKUP multi-clave): solo lectura; se re-resuelve
+                                           al cambiar sus dependencias (match/when) de la MISMA fila. *@
+                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
+                                               value="@FormatValue(col.Format, cell)" />
+                                    }
                                     else if (col.Calc is not null)
                                     {
                                         @* Columna calculada por fila (ola F2): solo lectura, con formato de presentacion. *@
@@ -1933,7 +1943,82 @@ else
             return;
         }
         rows[rowIndex][colId] = cellValue;
+        // Re-resuelve las columnas 'resolve' de ESTA fila (sus dependencias pudieron cambiar) ANTES de
+        // persistir, para que el calculo que corre en SetValue use los precios ya resueltos.
+        await ResolveGridRowAsync(q, rows, rowIndex);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    // ---- Auto-resolucion multi-clave de columnas (VLOOKUP/INDEX-MATCH, ola actual) ----
+    // Para cada columna 'resolve' de la fila: valida la guarda 'when', sustituye los {campo} del match
+    // con celdas de la MISMA fila, y pide el valor a la capa de lookup (server-side, tenant-safe).
+    private async Task ResolveGridRowAsync(FormQuestionDto q, List<Dictionary<string, string?>> rows, int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var resolvers = GridExtrasOf(q).Values.Where(e => e.Resolve is not null).ToList();
+        if (resolvers.Count == 0) { return; }
+        var row = rows[rowIndex];
+        foreach (var ex in resolvers)
+        {
+            var rc = ex.Resolve!;
+            // 'when': todas las condiciones deben cumplir (exacto). Si no, celda vacia (0 en el calculo).
+            if (!rc.When.All(kv => CellsEqualExact(SubstituteRowRefs(kv.Key, row), kv.Value)))
+            {
+                row[ex.Id] = string.Empty;
+                continue;
+            }
+            var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var complete = true;
+            foreach (var (col, refExpr) in rc.Match)
+            {
+                var v = SubstituteRowRefs(refExpr, row);
+                if (string.IsNullOrWhiteSpace(v)) { complete = false; break; }
+                match[col] = v;
+            }
+            if (!complete || string.IsNullOrWhiteSpace(rc.SourceRef))
+            {
+                row[ex.Id] = string.Empty;
+                continue;
+            }
+            string? result;
+            try { result = await LookupSvc.MatchAsync(rc.SourceKind, rc.SourceRef!, match, rc.ReturnField); }
+            catch { result = null; }
+            row[ex.Id] = result ?? string.Empty;
+        }
+    }
+
+    // Resuelve TODAS las filas de las tablas con columnas 'resolve' (al cargar / restaurar un borrador).
+    private async Task ResolveAllGridsAsync()
+    {
+        if (_definition is null) { return; }
+        foreach (var q in _definition.Questions.Where(x => x.ControlType == FormControlType.GridDetail))
+        {
+            if (!GridExtrasOf(q).Values.Any(e => e.Resolve is not null)) { continue; }
+            var rows = GridRowsOf(q);
+            for (var i = 0; i < rows.Count; i++)
+            {
+                await ResolveGridRowAsync(q, rows, i);
+            }
+            _values[q.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+        }
+    }
+
+    private static string SubstituteRowRefs(string expr, IReadOnlyDictionary<string, string?> row)
+        => string.IsNullOrEmpty(expr)
+            ? string.Empty
+            : System.Text.RegularExpressions.Regex.Replace(expr, "\\{([^}]+)\\}",
+                m => row.GetValueOrDefault(m.Groups[1].Value.Trim()) ?? string.Empty);
+
+    private static bool CellsEqualExact(string? a, string? b)
+    {
+        var x = (a ?? string.Empty).Trim();
+        var y = (b ?? string.Empty).Trim();
+        if (decimal.TryParse(x, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var nx)
+            && decimal.TryParse(y, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ny))
+        {
+            return nx == ny;
+        }
+        return string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task AddGridRow(FormQuestionDto q)

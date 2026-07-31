@@ -28,6 +28,16 @@ public interface IFormLookupSource
 
     /// <summary>Campos disponibles de una fuente (para los selectores Mostrar/Guardar/Autollenar del designer).</summary>
     Task<IReadOnlyList<FormLookupFieldMeta>> DescribeFieldsAsync(string? sourceRef, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Auto-resolucion por CLAVE COMPUESTA (VLOOKUP/INDEX-MATCH): matchea una fila de la fuente donde
+    /// TODAS las columnas de <paramref name="match"/> (nombreColumna -&gt; valor exacto ya resuelto)
+    /// coincidan, y devuelve el valor de <paramref name="returnField"/>. Null si no hay match o la
+    /// fuente no lo soporta. Match exacto (numerico si ambos son numero, si no texto ci). Tenant-scoped.
+    /// Default: no soportado (solo la fuente que lo implementa lo atiende).
+    /// </summary>
+    Task<string?> MatchAsync(string sourceRef, IReadOnlyDictionary<string, string> match, string returnField, CancellationToken cancellationToken = default)
+        => Task.FromResult<string?>(null);
 }
 
 /// <summary>
@@ -43,6 +53,9 @@ public interface IFormLookupService
     Task<IReadOnlyList<FormLookupSourceOption>> ListSourcesAsync(FormSourceKind kind, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<FormLookupFieldMeta>> DescribeFieldsAsync(FormSourceKind kind, string? sourceRef, CancellationToken cancellationToken = default);
+
+    /// <summary>Auto-resolucion multi-clave (ver <see cref="IFormLookupSource.MatchAsync"/>).</summary>
+    Task<string?> MatchAsync(FormSourceKind kind, string sourceRef, IReadOnlyDictionary<string, string> match, string returnField, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Parametros de una busqueda de lookup. <see cref="SourceRef"/> identifica la fuente

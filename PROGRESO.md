@@ -19,6 +19,22 @@ y servicios por tipo/espesor cuando se enganche esa columna.
 Nota: bajo "Servicio rolado" el Excel tiene ademas un mini-listado SI/NO (opcion de rolado) que NO se
 cargo como tabla; son las 5 tablas de tarifas que pidio el usuario.
 
+**Lookup del cotizador enganchado al contenedor + VALIDADO (2026-07-31):** se engancho la columna
+`tipo_lamina` del cotizador de AGROMETALICAS (form COT) a la tabla **Laminas** del contenedor. Es CONFIG
+(dato en `options_json`), no codigo: el motor de lookup de columna ya existe (`FormGridColumnLookup` +
+`DataContainerLookupSource`). Config anadida a la columna:
+`"lookup": {source:"DataContainer", sourceRef:"<id Laminas>", displayField/valueField:"Lamina",
+presentation:"dropdown", autofill:{"Venta":"precio_venta_lamina","Costeo":"costo_lamina_kg"}}`.
+Backup `ecorex-2026-07-31-0901.sql.gz`.
+- **Validado en vivo (Chrome, URL publica):** `tipo_lamina` paso a ser un desplegable con las 5 laminas
+  del contenedor (CR/GALVANIZADA/ALFAJOR/INOX/HR); al elegir **HR** autollenó **Precio venta lamina =
+  4800** y **Costo lamina = 5000** (= Venta/Costeo de HR en el contenedor). Funciona.
+- **LIMITE del motor (para la sesion de diseño/codigo, NO es dato):** el lookup de columna es de UNA
+  sola clave. Los precios de **corte/doblez** dependen de (lamina + espesor) = clave COMPUESTA, y el de
+  **rolado** de la lamina pero en una tabla aparte -> el motor actual no los puede autollenar con este
+  mecanismo. Requiere lookup multi-clave o formula-con-lookup (mejora de codigo). Por ahora esos 3
+  precios siguen siendo entrada manual.
+
 ## 2026-07-30 - Motor de Reportes: Ola 2 (embed VISOR Bold) + convertidor RDL
 
 **Agentes:** Claude (worktree `informes`) + sub-agente de investigacion de la integracion Bold Blazor.

@@ -40,6 +40,7 @@ public class RowIngestServiceTests
         public DbSet<DataModelRelationLink> DataModelRelationLinks => throw new NotSupportedException();
         // Motor de Reportes: la ingesta EAV no lo toca, pero la interfaz lo exige.
         public DbSet<ReportDefinition> ReportDefinitions => throw new NotSupportedException();
+        public DbSet<ReportDefinitionRole> ReportDefinitionRoles => throw new NotSupportedException();
         // Gestor Documental: la ingesta EAV no lo toca, pero la interfaz lo exige.
         public DbSet<DocumentoCategoria> DocumentoCategorias => throw new NotSupportedException();
         public DbSet<DocumentoCarpeta> DocumentoCarpetas => throw new NotSupportedException();

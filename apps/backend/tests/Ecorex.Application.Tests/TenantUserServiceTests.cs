@@ -55,6 +55,7 @@ public class TenantUserServiceTests
         public DbSet<ScheduledJobChannel> ScheduledJobChannels => throw new NotSupportedException();
         public DbSet<ScheduledJobRun> ScheduledJobRuns => throw new NotSupportedException();
         public DbSet<ReportDefinition> ReportDefinitions => throw new NotSupportedException();
+        public DbSet<ReportDefinitionRole> ReportDefinitionRoles => throw new NotSupportedException();
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

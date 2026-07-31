@@ -1430,6 +1430,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.DefaultDynamic).HasDefaultValue(FormDefaultDynamic.None);
             b.Property(x => x.Format).HasMaxLength(40);
             b.Property(x => x.FieldVisibilityJson).HasColumnType(jsonColumnType);
+            // Configurador en cascada (config-driven): aditiva, nullable, tipo dual (jsonb / nvarchar(max)).
+            b.Property(x => x.CascadeConfigJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server

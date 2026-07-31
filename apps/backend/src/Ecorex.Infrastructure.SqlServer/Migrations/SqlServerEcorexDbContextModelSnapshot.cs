@@ -4424,6 +4424,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(300)")
                         .HasColumnName("caption");
 
+                    b.Property<string>("CascadeConfigJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("cascade_config_json");
+
                     b.Property<Guid?>("ContainerId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("container_id");

@@ -143,4 +143,16 @@ public class FormQuestion : TenantEntity
     /// pinta la fila de totales y alimenta el roll-up al encabezado. None = sin total.
     /// </summary>
     public FormAggregate Aggregate { get; set; } = FormAggregate.None;
+
+    // ---- Configurador en cascada (motor generico, config-driven) ----
+
+    /// <summary>
+    /// Configuracion del control <see cref="Ecorex.Domain.Enums.FormControlType.CascadeConfigurator"/>
+    /// como JSON (jsonb en PG / nvarchar(max) en SQL Server): niveles en cascada, sus opciones (inline
+    /// o desde una fuente via <see cref="FormSourceKind"/>), juegos de columnas y mapeo rama->tabla.
+    /// Aditiva y nullable: no afecta a las preguntas existentes. Es un CAMPO APARTE (no reusa
+    /// OptionsJson) para no mezclar responsabilidades con las columnas de grid / opciones de select.
+    /// El esquema lo define y valida <c>Ecorex.Application.Forms.Cascade.CascadeConfig</c>.
+    /// </summary>
+    public string? CascadeConfigJson { get; set; }
 }

@@ -68,5 +68,15 @@ public enum FormControlType
     /// FormRecordLink. A diferencia de GridDetail (filas en el jsonb del padre), cada hijo es un
     /// FormResponse propio, reportable aparte.
     /// </summary>
-    Subform
+    Subform,
+
+    /// <summary>
+    /// Configurador en cascada + tablas dinamicas (motor generico, config-driven): N niveles
+    /// encadenados (single/multi, con dependencia padre-hijo), juegos de columnas y mapeo rama->tabla,
+    /// TODO leido desde <see cref="Ecorex.Domain.Entities.FormQuestion.CascadeConfigJson"/> (nada
+    /// hardcodeado; el mismo motor sirve cualquier taxonomia de cualquier tenant). Las tablas reusan
+    /// el pipeline de calculo de GridDetail (FormExpressionEvaluator / FormGridCalculator). El registro
+    /// capturado se persiste en FormResponse.Data como cualquier otro formulario.
+    /// </summary>
+    CascadeConfigurator
 }

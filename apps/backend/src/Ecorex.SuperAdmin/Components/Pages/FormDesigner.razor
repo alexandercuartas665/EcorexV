@@ -6,6 +6,7 @@
 @using System.Text.Json.Nodes
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Forms.Calc
+@using Ecorex.Application.Forms.Cascade
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Rules
@@ -597,6 +598,7 @@ else
         [FormControlType.Toggle] = new("Si / No", "Bool", "<rect x=\"2\" y=\"7\" width=\"20\" height=\"10\" rx=\"5\"/><circle cx=\"16\" cy=\"12\" r=\"3\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
         [FormControlType.GridDetail] = new("Tabla", "Tabla", "<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
         [FormControlType.Subform] = new("Subformulario", "Detalle", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"7\" rx=\"1.5\"/><rect x=\"6\" y=\"13\" width=\"15\" height=\"3\" rx=\"1\"/><rect x=\"6\" y=\"18\" width=\"15\" height=\"3\" rx=\"1\"/>", "var(--t-amber)", "var(--t-amber-bg)", "control"),
+        [FormControlType.CascadeConfigurator] = new("Configurador en cascada", "Cascada", "<path d=\"M4 5h6M4 5v6M10 11h6M10 11v6M16 17h4\"/><circle cx=\"4\" cy=\"5\" r=\"1.6\"/><circle cx=\"10\" cy=\"11\" r=\"1.6\"/><circle cx=\"16\" cy=\"17\" r=\"1.6\"/>", "var(--t-blue)", "var(--t-blue-bg)", "control"),
         [FormControlType.Signature] = new("Firma", "Firma", "M3 17c3 0 4-6 6-6s2 4 4 4 3-7 5-7M3 21h18", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Photo] = new("Foto", "Foto", "<path d=\"M5 8h2l1.5-2h7L18 8h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z\"/><circle cx=\"12\" cy=\"13\" r=\"3.2\"/>", "var(--t-rose)", "var(--t-rose-bg)", "control"),
         [FormControlType.Gps] = new("GPS", "GPS", "<path d=\"M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12Z\"/><circle cx=\"12\" cy=\"10\" r=\"2.6\"/>", "var(--t-green)", "var(--t-green-bg)", "control"),
@@ -931,7 +933,7 @@ else
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
         q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-        q.DefaultDynamic, q.Format, q.FieldVisibilityJson);
+        q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
@@ -1675,7 +1677,8 @@ else
                         FormControlType.Text, FormControlType.TextArea, FormControlType.Select,
                         FormControlType.Date, FormControlType.Time, FormControlType.DateTime,
                         FormControlType.Number, FormControlType.Toggle,
-                        FormControlType.GridDetail, FormControlType.Subform, FormControlType.Signature,
+                        FormControlType.GridDetail, FormControlType.Subform, FormControlType.CascadeConfigurator,
+                        FormControlType.Signature,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
                         FormControlType.Button
                     };
@@ -1770,6 +1773,28 @@ else
                     (i, v) => PatchOptionAsync(node.Q!, i, v),
                     i => PatchOptionAsync(node.Q!, i, null),
                     () => PatchOptionAsync(node.Q!, -1, $"Opcion {OptionLabels(node.Q!).Count + 1}"))
+            </div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.CascadeConfigurator })
+        {
+            <div class="fb-field">
+                <label>Taxonomia del configurador (JSON)</label>
+                <textarea class="fb-input" rows="14" style="font-family:monospace;font-size:12px;line-height:1.45;"
+                          @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { CascadeConfigJson = e.Value?.ToString() }))">@node.Q!.CascadeConfigJson</textarea>
+                @{
+                    string? cascadeErr = string.IsNullOrWhiteSpace(node.Q!.CascadeConfigJson)
+                        ? "Pega la config: niveles, columns, columnSets y table. El motor la lee tal cual."
+                        : (CascadeConfig.Parse(node.Q!.CascadeConfigJson, out var cerr) is null ? cerr : null);
+                }
+                @if (cascadeErr is not null)
+                {
+                    <div class="fb-hint" style="color:#c0392f;">@cascadeErr</div>
+                }
+                else
+                {
+                    <div class="fb-hint" style="color:#0f8b5f;">Config valida. El configurador ya se renderiza en el formulario.</div>
+                }
+                <div class="fb-hint">Config-driven: el mismo motor sirve cualquier taxonomia; se replica pegando otra config en otro formulario o tenant.</div>
             </div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })

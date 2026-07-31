@@ -1,5 +1,6 @@
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Forms.Calc
+@using Ecorex.Application.Forms.Cascade
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
@@ -735,6 +736,11 @@ else
                    valor del campo es un arreglo JSON de filas [{colId:"valor"}]. *@
                 @RenderGrid(q, value)
                 break;
+            case FormControlType.CascadeConfigurator:
+                @* Configurador en cascada (config-driven): la taxonomia vive en CascadeConfigJson;
+                   el motor generico la renderiza. Valor = JSON reportable en el campo. *@
+                @RenderCascade(q, value)
+                break;
             case FormControlType.Subform:
                 @* Maestro-detalle (ola F5, doc 01 D7): registros HIJOS de otra definicion. *@
                 @RenderSubform(q)
@@ -1155,6 +1161,40 @@ else
 
     private static List<FormGridColumn> GridColumnsOf(FormQuestionDto q)
         => FormGridCalculator.ParseColumns(q.OptionsJson).ToList();
+
+    // ---- Configurador en cascada (motor generico) ----
+    private readonly Dictionary<string, CascadeConfig?> _cascadeCache = new(StringComparer.Ordinal);
+
+    private CascadeConfig? ParseCascade(FormQuestionDto q)
+    {
+        var json = q.CascadeConfigJson ?? "";
+        if (_cascadeCache.TryGetValue(json, out var cached))
+        {
+            return cached;
+        }
+        var cfg = CascadeConfig.Parse(json, out _);
+        _cascadeCache[json] = cfg;
+        return cfg;
+    }
+
+    private RenderFragment RenderCascade(FormQuestionDto q, string? value) => builder =>
+    {
+        var cfg = ParseCascade(q);
+        if (cfg is null)
+        {
+            builder.OpenElement(0, "div");
+            builder.AddAttribute(1, "class", "dfr-field-error");
+            builder.AddContent(2, "El configurador en cascada no tiene una taxonomia valida (CascadeConfigJson).");
+            builder.CloseElement();
+            return;
+        }
+        builder.OpenComponent<CascadeConfigurator>(3);
+        builder.AddComponentParameter(4, nameof(CascadeConfigurator.Config), cfg);
+        builder.AddComponentParameter(5, nameof(CascadeConfigurator.Value), value);
+        builder.AddComponentParameter(6, nameof(CascadeConfigurator.ValueChanged),
+            EventCallback.Factory.Create<string>(this, v => SetValue(q, v)));
+        builder.CloseComponent();
+    };
 
     /// <summary>
     /// Ancho efectivo de una columna de tabla, en px. Prioriza el ancho declarado en el JSON

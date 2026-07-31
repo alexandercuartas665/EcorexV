@@ -1,0 +1,518 @@
+@using System.Text.Json
+@using System.Globalization
+@using Ecorex.Application.Forms.Cascade
+@using Ecorex.Application.Forms.Calc
+@using Ecorex.Domain.Enums
+
+@* Configurador en cascada + tablas dinamicas (motor generico, config-driven). Lee su taxonomia de
+   `Config` (CascadeConfig, sin nada hardcodeado) y reproduce el flujo del prototipo SOLDARCO: N pasos
+   con bloqueo secuencial, filtrado por padre, tablas por rama, precarga del valor alimentado, subtotales
+   y total. El calculo reusa FormGridCalculator/FormExpressionEvaluator. Emite su valor (JSON reportable)
+   por `ValueChanged`. Tema claro forzado (clases .cc-*). *@
+
+<div class="cc-root">
+    @{
+        var levels = Config.Levels;
+    }
+
+    @* -------- Rail de progreso -------- *@
+    <nav class="cc-rail">
+        @for (var i = 0; i < levels.Count; i++)
+        {
+            var done = Selected(levels[i].Key).Count > 0;
+            var active = !done && LevelEnabled(i);
+            <div class="cc-step @(done ? "done" : active ? "active" : "idle")">
+                <span class="cc-dot">@(done ? "✓" : (i + 1).ToString())</span>
+                <span class="cc-lbl">@levels[i].Label</span>
+            </div>
+            @if (i < levels.Count - 1)
+            {
+                <span class="cc-bar"></span>
+            }
+        }
+    </nav>
+
+    @* -------- Un card por nivel -------- *@
+    @for (var i = 0; i < levels.Count; i++)
+    {
+        var level = levels[i];
+        var idx = i;
+        var enabled = LevelEnabled(idx);
+        var options = CascadeRuntime.VisibleOptions(level, SelectionsView());
+        <section class="cc-card @(enabled ? "" : "locked")">
+            <header class="cc-card-hd">
+                <span class="cc-num">@(idx + 1)</span>
+                <h3>@level.Label <span class="cc-sub">@(level.Select == "single" ? "· elige una" : "· una o varias")</span></h3>
+                @if (Selected(level.Key).Count > 0)
+                {
+                    <span class="cc-count">@Selected(level.Key).Count seleccionada(s)</span>
+                }
+                else if (!enabled)
+                {
+                    <span class="cc-lock">Completa el paso anterior</span>
+                }
+            </header>
+            @if (enabled)
+            {
+                <div class="cc-card-bd">
+                    @if (options.Count == 0)
+                    {
+                        <div class="cc-hint">Sin opciones para lo elegido.</div>
+                    }
+                    else
+                    {
+                        <div class="cc-chips">
+                            @foreach (var op in options)
+                            {
+                                var opId = op.Id;
+                                var on = Selected(level.Key).Contains(opId);
+                                <label class="cc-chip @(on ? "on" : "")" style="@(op.Color is not null ? $"--c:{op.Color}" : "")">
+                                    <input type="@(level.Select == "single" ? "radio" : "checkbox")"
+                                           name="@($"cc-{level.Key}")" checked="@on" disabled="@ReadOnly"
+                                           @onchange="@(e => Toggle(level, opId, e.Value))" />
+                                    <span>
+                                        <i class="cc-cdot"></i>@op.Label
+                                        @if (!string.IsNullOrWhiteSpace(op.Desc))
+                                        {
+                                            <em>@op.Desc</em>
+                                        }
+                                    </span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    }
+
+    @* -------- Detalle: tablas dinamicas -------- *@
+    @{
+        var tables = CascadeRuntime.DesiredTables(Config, SelectionsView());
+    }
+    @if (tables.Count > 0)
+    {
+        <section class="cc-card">
+            <header class="cc-card-hd">
+                <span class="cc-num">@(levels.Count + 1)</span>
+                <h3>Detalle</h3>
+                <span class="cc-count">@tables.Count tabla(s)</span>
+            </header>
+            <div class="cc-card-bd">
+                @foreach (var t in tables)
+                {
+                    var table = t;
+                    var cols = ColumnsOf(table.ColumnSet);
+                    var computed = Compute(table, cols);
+                    var hasValor = cols.Any(c => c.HasCalc);
+                    <div class="cc-table">
+                        <div class="cc-table-hd">
+                            <div>
+                                <div class="cc-path">@string.Join(" · ", table.KeyParts.Select(k => k.Value))</div>
+                                <div class="cc-name">
+                                    <b>@string.Join(" · ", table.ProductLabels)</b>
+                                    @foreach (var f in table.Feeds.SelectMany(kv => kv.Value).Distinct())
+                                    {
+                                        <small>@f</small>
+                                    }
+                                </div>
+                            </div>
+                            @if (hasValor)
+                            {
+                                <div class="cc-sum">@Money(TableTotal(table, cols))</div>
+                            }
+                        </div>
+                        <div class="cc-scroll">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        @foreach (var c in cols)
+                                        {
+                                            <th style="@(c.Width is not null ? $"width:{c.Width}" : "")">@c.Label</th>
+                                        }
+                                        <th class="cc-acth"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{
+                                        var rows = RowsOf(table);
+                                    }
+                                    @for (var r = 0; r < rows.Count; r++)
+                                    {
+                                        var rowIndex = r;
+                                        var row = rows[rowIndex];
+                                        <tr>
+                                            @foreach (var c in cols)
+                                            {
+                                                var col = c;
+                                                <td>@RenderCell(table, col, row, rowIndex, computed)</td>
+                                            }
+                                            <td class="cc-act">
+                                                @if (rows.Count > 1 && !ReadOnly)
+                                                {
+                                                    <button class="cc-del" type="button" title="Eliminar linea"
+                                                            @onclick="@(() => RemoveRow(table, rowIndex))">✕</button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        @if (!ReadOnly)
+                        {
+                            <div class="cc-table-ft">
+                                <button class="cc-add" type="button" @onclick="@(() => AddRow(table))">+ Agregar linea</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+
+        <div class="cc-bar">
+            <div class="cc-stat"><small>Lineas</small><strong>@TotalLines(tables)</strong></div>
+            <div class="cc-stat"><small>Tablas</small><strong>@tables.Count</strong></div>
+            <div class="cc-stat tot"><small>Total estimado</small><strong>@Money(GrandTotal(tables))</strong></div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public CascadeConfig Config { get; set; } = default!;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    // Estado: selecciones por nivel y filas por tabla.
+    private readonly Dictionary<string, List<string>> _sel = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<Dictionary<string, string?>>> _rows = new(StringComparer.Ordinal);
+    private string? _lastValueSeen;
+
+    protected override void OnParametersSet()
+    {
+        // Rehidrata desde Value solo cuando cambia desde afuera (evita pisar la edicion en curso).
+        if (!string.Equals(Value, _lastValueSeen, StringComparison.Ordinal))
+        {
+            _lastValueSeen = Value;
+            Load(Value);
+        }
+    }
+
+    private void Load(string? json)
+    {
+        _sel.Clear();
+        _rows.Clear();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("selections", out var sels) && sels.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in sels.EnumerateObject())
+                {
+                    _sel[p.Name] = p.Value.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).ToList();
+                }
+            }
+            if (doc.RootElement.TryGetProperty("rows", out var rowsEl) && rowsEl.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in rowsEl.EnumerateObject())
+                {
+                    var list = new List<Dictionary<string, string?>>();
+                    foreach (var rowEl in p.Value.EnumerateArray())
+                    {
+                        var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+                        foreach (var cell in rowEl.EnumerateObject())
+                        {
+                            row[cell.Name] = cell.Value.ValueKind == JsonValueKind.String ? cell.Value.GetString() : cell.Value.ToString();
+                        }
+                        list.Add(row);
+                    }
+                    _rows[p.Name] = list;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Valor corrupto: se arranca en blanco.
+        }
+    }
+
+    // ---- selecciones ----
+    private List<string> Selected(string levelKey)
+        => _sel.TryGetValue(levelKey, out var l) ? l : (_sel[levelKey] = new List<string>());
+
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> SelectionsView()
+        => _sel.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.Ordinal);
+
+    private bool LevelEnabled(int index)
+        => index == 0 || Selected(Config.Levels[index - 1].Key).Count > 0;
+
+    private async Task Toggle(CascadeLevel level, string optionId, object? value)
+    {
+        if (ReadOnly)
+        {
+            return;
+        }
+        var on = value is bool b ? b : true;   // radio dispara con el value del option; checkbox con bool
+        var sel = Selected(level.Key);
+        if (level.Select == "single")
+        {
+            sel.Clear();
+            sel.Add(optionId);
+        }
+        else if (on)
+        {
+            if (!sel.Contains(optionId))
+            {
+                sel.Add(optionId);
+            }
+        }
+        else
+        {
+            sel.Remove(optionId);
+        }
+        Prune();
+        await EmitAsync();
+    }
+
+    // Quita selecciones cuyo padre ya no esta, y filas de tablas que ya no existen.
+    private void Prune()
+    {
+        var index = CascadeRuntime.BuildIndex(Config);
+        foreach (var level in Config.Levels)
+        {
+            if (string.IsNullOrWhiteSpace(level.DependsOn) || level.Options is null)
+            {
+                continue;
+            }
+            var parentSel = new HashSet<string>(Selected(level.DependsOn), StringComparer.Ordinal);
+            Selected(level.Key).RemoveAll(id =>
+            {
+                var op = level.Options.FirstOrDefault(o => o.Id == id);
+                return op?.Parent is null || !parentSel.Contains(op.Parent);
+            });
+        }
+        var alive = new HashSet<string>(CascadeRuntime.DesiredTables(Config, SelectionsView()).Select(t => t.Key), StringComparer.Ordinal);
+        foreach (var key in _rows.Keys.ToList())
+        {
+            if (!alive.Contains(key))
+            {
+                _rows.Remove(key);
+            }
+        }
+    }
+
+    // ---- columnas ----
+    private sealed record Col(string Key, string Label, string Kind, string? Width, bool HasCalc, FormGridColumn Grid);
+
+    private IReadOnlyList<Col> ColumnsOf(string columnSet)
+    {
+        var keys = Config.ColumnSets.TryGetValue(columnSet, out var k) ? k : Array.Empty<string>();
+        var cols = new List<Col>();
+        foreach (var key in keys)
+        {
+            if (!Config.Columns.TryGetValue(key, out var c))
+            {
+                continue;
+            }
+            var agg = Enum.TryParse<FormAggregate>(c.Agg, ignoreCase: true, out var a) ? a : FormAggregate.None;
+            var grid = new FormGridColumn(key, c.Label, c.Calc, agg, c.Rollup, "text", null, c.Required, c.AggWhen, null, c.Format);
+            cols.Add(new Col(key, c.Label, c.Kind, c.Width, !string.IsNullOrWhiteSpace(c.Calc), grid));
+        }
+        return cols;
+    }
+
+    // ---- filas ----
+    private List<Dictionary<string, string?>> RowsOf(CascadeRuntime.CascadeTableSpec table)
+    {
+        if (!_rows.TryGetValue(table.Key, out var rows) || rows.Count == 0)
+        {
+            rows = new List<Dictionary<string, string?>> { NewRow(table) };
+            _rows[table.Key] = rows;
+        }
+        return rows;
+    }
+
+    private Dictionary<string, string?> NewRow(CascadeRuntime.CascadeTableSpec table)
+    {
+        var row = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var c in ColumnsOf(table.ColumnSet))
+        {
+            row[c.Key] = "";
+        }
+        // Precarga: el primer valor alimentado en su columna (editable).
+        foreach (var (colKey, vals) in table.Feeds)
+        {
+            if (vals.Count > 0 && row.ContainsKey(colKey))
+            {
+                row[colKey] = vals[0];
+            }
+        }
+        return row;
+    }
+
+    private async Task AddRow(CascadeRuntime.CascadeTableSpec table)
+    {
+        RowsOf(table).Add(NewRow(table));
+        await EmitAsync();
+    }
+
+    private async Task RemoveRow(CascadeRuntime.CascadeTableSpec table, int index)
+    {
+        var rows = RowsOf(table);
+        if (index >= 0 && index < rows.Count)
+        {
+            rows.RemoveAt(index);
+        }
+        await EmitAsync();
+    }
+
+    private async Task SetCell(CascadeRuntime.CascadeTableSpec table, int rowIndex, string colKey, string? value)
+    {
+        var rows = RowsOf(table);
+        if (rowIndex >= 0 && rowIndex < rows.Count)
+        {
+            rows[rowIndex][colKey] = value;
+        }
+        await EmitAsync();
+    }
+
+    // ---- calculo (reusa FormGridCalculator) ----
+    private (IReadOnlyList<Dictionary<string, string?>> Rows, IReadOnlyDictionary<string, string?> Rollups) Compute(
+        CascadeRuntime.CascadeTableSpec table, IReadOnlyList<Col> cols)
+    {
+        var (rows, rollups) = FormGridCalculator.Recompute(RowsOf(table), cols.Select(c => c.Grid).ToList());
+        return (rows, rollups);
+    }
+
+    private decimal TableTotal(CascadeRuntime.CascadeTableSpec table, IReadOnlyList<Col> cols)
+    {
+        var (_, rollups) = Compute(table, cols);
+        decimal sum = 0m;
+        foreach (var v in rollups.Values)
+        {
+            if (decimal.TryParse(v, NumberStyles.Any, CultureInfo.InvariantCulture, out var n))
+            {
+                sum += n;
+            }
+        }
+        return sum;
+    }
+
+    private decimal GrandTotal(IReadOnlyList<CascadeRuntime.CascadeTableSpec> tables)
+        => tables.Sum(t => TableTotal(t, ColumnsOf(t.ColumnSet)));
+
+    private int TotalLines(IReadOnlyList<CascadeRuntime.CascadeTableSpec> tables)
+        => tables.Sum(t => RowsOf(t).Count(r => Started(t, r)));
+
+    private bool Started(CascadeRuntime.CascadeTableSpec table, Dictionary<string, string?> row)
+    {
+        var feed = table.Feeds.Count > 0 ? table.Feeds.SelectMany(kv => kv.Value).FirstOrDefault() : null;
+        return row.Any(kv => !string.IsNullOrWhiteSpace(kv.Value) &&
+            !(feed is not null && kv.Value == feed && table.Feeds.ContainsKey(kv.Key)));
+    }
+
+    private static string Money(decimal n) => "$ " + n.ToString("N0", CultureInfo.InvariantCulture);
+
+    // ---- render de una celda ----
+    private RenderFragment RenderCell(CascadeRuntime.CascadeTableSpec table, Col col, Dictionary<string, string?> row, int rowIndex, (IReadOnlyList<Dictionary<string, string?>> Rows, IReadOnlyDictionary<string, string?> Rollups) computed) => builder =>
+    {
+        var seq = 0;
+        var val = row.GetValueOrDefault(col.Key) ?? "";
+
+        if (col.HasCalc)
+        {
+            // Celda calculada (solo lectura): toma el valor computado por FormGridCalculator.
+            var computedVal = rowIndex < computed.Rows.Count ? computed.Rows[rowIndex].GetValueOrDefault(col.Key) : null;
+            var shown = decimal.TryParse(computedVal, NumberStyles.Any, CultureInfo.InvariantCulture, out var n) ? Money(n) : "";
+            builder.OpenElement(seq++, "div");
+            builder.AddAttribute(seq++, "class", "cc-cell calc");
+            builder.AddContent(seq++, shown);
+            builder.CloseElement();
+            return;
+        }
+
+        var feedVals = table.Feeds.TryGetValue(col.Key, out var fv) ? fv : null;
+        if (feedVals is { Count: > 0 })
+        {
+            // Columna alimentada: select de los valores; conserva un valor tecleado fuera de la lista.
+            var opts = (val.Length == 0 || feedVals.Contains(val)) ? feedVals : feedVals.Append(val).ToList();
+            builder.OpenElement(seq++, "select");
+            builder.AddAttribute(seq++, "class", "cc-cell");
+            builder.AddAttribute(seq++, "disabled", ReadOnly);
+            builder.AddAttribute(seq++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetCell(table, rowIndex, col.Key, e.Value?.ToString())));
+            builder.OpenElement(seq++, "option");
+            builder.AddAttribute(seq++, "value", "");
+            builder.AddContent(seq++, "—");
+            builder.CloseElement();
+            foreach (var o in opts)
+            {
+                builder.OpenElement(seq++, "option");
+                builder.AddAttribute(seq++, "value", o);
+                if (o == val)
+                {
+                    builder.AddAttribute(seq++, "selected", true);
+                }
+                builder.AddContent(seq++, o);
+                builder.CloseElement();
+            }
+            builder.CloseElement();
+            return;
+        }
+
+        var numeric = col.Kind is "number" or "money";
+        builder.OpenElement(seq++, "input");
+        builder.AddAttribute(seq++, "class", numeric ? "cc-cell num" : "cc-cell");
+        builder.AddAttribute(seq++, "type", numeric ? "number" : "text");
+        builder.AddAttribute(seq++, "value", val);
+        builder.AddAttribute(seq++, "disabled", ReadOnly);
+        builder.AddAttribute(seq++, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => SetCell(table, rowIndex, col.Key, e.Value?.ToString())));
+        builder.CloseElement();
+    };
+
+    // ---- emision del valor (JSON reportable + rehidratable) ----
+    private async Task EmitAsync()
+    {
+        var tables = CascadeRuntime.DesiredTables(Config, SelectionsView());
+        var totals = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var tablesOut = new List<object>();
+
+        foreach (var t in tables)
+        {
+            var cols = ColumnsOf(t.ColumnSet);
+            var (rows, rollups) = Compute(t, cols);
+            foreach (var (target, v) in rollups)
+            {
+                if (decimal.TryParse(v, NumberStyles.Any, CultureInfo.InvariantCulture, out var n))
+                {
+                    totals[target] = totals.GetValueOrDefault(target) + n;
+                }
+            }
+            tablesOut.Add(new
+            {
+                key = t.Key,
+                keyBy = t.KeyParts.ToDictionary(k => k.Key, k => k.Value),
+                products = t.ProductLabels,
+                feeds = t.Feeds.ToDictionary(kv => kv.Key, kv => kv.Value),
+                rows = rows.Where(r => Started(t, new Dictionary<string, string?>(r, StringComparer.Ordinal))).ToList()
+            });
+        }
+
+        var payload = new
+        {
+            selections = _sel.ToDictionary(kv => kv.Key, kv => kv.Value),
+            rows = _rows.ToDictionary(kv => kv.Key, kv => kv.Value),
+            tables = tablesOut,
+            totals
+        };
+        var json = JsonSerializer.Serialize(payload, JsonOpts);
+        _lastValueSeen = json;
+        await ValueChanged.InvokeAsync(json);
+    }
+}

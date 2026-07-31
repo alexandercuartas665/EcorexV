@@ -7185,3 +7185,35 @@ OutDir de scratch: "Compilacion correcta").
 **Siguiente / pendiente**: diseNador visual de fan-out en la UI (hoy JSON pegado); logging de la ruta
 fetch en el feed de la colmena (ADR-0045); credencial OCS la aporta el usuario (no se hardcodea). NO
 commit/push/deploy en esta sesion.
+
+## Sesion 2026-07-31 - Reportes (galeria/editor + deploy), Configurador en cascada (F1+F2) y VLOOKUP multi-clave en formularios
+
+Sesion larga en la linea de desarrollo (main). Tres bloques:
+
+**Reportes**: galeria de tarjetas + doble vista (Tablero ECharts / Imprimible Bold) + reporte-panel;
+plantilla Excel de ejemplo (Items/Directorio); "Reportes con IA" y "Editor de reportes" repuestos al
+menu; editor unificado (todos los reportes editables) + diseNador Bold a pantalla completa. Deployado a
+prod (10.0.0.3, build-from-git @ 5651c9a) con `ECOREX_MENU_REPORTES=true`: menu Reportes sembrado para
+todos los tenants; Bold en modo evaluacion (pendiente clave de licencia). Verificado en vivo.
+
+**Configurador en cascada** (motor generico config-driven, NADA hardcodeado):
+- Contrato: `FormControlType.CascadeConfigurator` + `FormQuestion.CascadeConfigJson` (jsonb/nvarchar dual,
+  migracion `AddCascadeConfigJson`) + `CascadeConfig` (Parse/Validate). Esquema cerrado contra la config
+  REAL de SOLDARCO (resolucion mixta de columnSet por herencia, rollup=destino, width CSS).
+- F1 motor: `CascadeRuntime` (logica pura) + `CascadeConfigurator.razor` (N pasos, bloqueo secuencial,
+  filtrado por padre, tablas por rama, precarga, calc reusando FormGridCalculator). Verificado end-to-end
+  en vivo con SOLDARCO (subtotal 3x1000=3000, herencia G2#FULL).
+- F2 editor visual: `CascadeConfigEditor.razor` (componer/editar niveles/columnas/juegos/tabla sin JSON +
+  escape hatch JSON). Build verde; validacion en vivo pendiente (la sesion local cayo al reiniciar).
+
+**VLOOKUP multi-clave en GridDetail** (cotizador AGROMETALICAS): nueva llave `resolve` en options_json
+(match compuesto contra un Contenedor de datos + return + guarda `when`), match EXACTO (decision del
+usuario). Renderer re-resuelve al cambiar dependencias / al cargar; servidor autoritativo re-resuelve
+antes del calc. Reusa la capa de lookup existente. Sin migracion. ADR-0052. Tests parser 3/3.
+
+**Commits (main)**: reportes d74ef25/5ea64a7/7aa6cac/772cd73/5651c9a (pusheados+deployados);
+contrato cascada c7ca57d + cierre 117d330 (pusheados); F1 8353e65 + F2 65a1acd (local); resolve 92fe450.
+
+**Siguiente / pendiente**: validar F2 cascada en vivo; enganchar los 3 `resolve` del COT (sesion DATOS) y
+probar el cotizador real (requiere deploy); clave de licencia Bold para reportes; push de los commits de
+formularios cuando se decida.

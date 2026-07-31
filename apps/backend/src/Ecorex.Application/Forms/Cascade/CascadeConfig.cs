@@ -78,6 +78,7 @@ public sealed record CascadeConfig(
 
         var levelKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenSoFar = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var allOptionIds = new HashSet<string>(StringComparer.Ordinal);
         var columns = cfg.Columns ?? new Dictionary<string, CascadeColumn>();
         var columnSets = cfg.ColumnSets ?? new Dictionary<string, IReadOnlyList<string>>();
 
@@ -132,6 +133,10 @@ public sealed record CascadeConfig(
                     {
                         return $"Nivel '{lvl.Key}': una opcion no tiene 'id'.";
                     }
+                    if (!allOptionIds.Add(op.Id))
+                    {
+                        return $"Opcion con id duplicado (debe ser unico global): '{op.Id}'.";
+                    }
                     if (!string.IsNullOrWhiteSpace(op.ColumnSet) && !columnSets.ContainsKey(op.ColumnSet))
                     {
                         return $"Nivel '{lvl.Key}', opcion '{op.Id}': columnSet '{op.ColumnSet}' no existe.";
@@ -163,6 +168,49 @@ public sealed record CascadeConfig(
             }
         }
 
+        // Indice global de opciones inline (para resolver herencia de columnSet y validar 'parent').
+        var optionIndex = BuildOptionIndex(cfg);
+
+        // Integridad de 'parent': si una opcion declara padre, ese padre debe existir.
+        foreach (var lvl in cfg.Levels)
+        {
+            if (lvl.Options is null)
+            {
+                continue;
+            }
+            foreach (var op in lvl.Options)
+            {
+                if (!string.IsNullOrWhiteSpace(op.Parent) && !optionIndex.ContainsKey(op.Parent))
+                {
+                    return $"Nivel '{lvl.Key}', opcion '{op.Id}': 'parent' = '{op.Parent}' no existe.";
+                }
+            }
+        }
+
+        // B1 - Resolucion MIXTA del columnSet: por opcion, en orden option.columnSet -> columnSet del
+        // PADRE (recursivo) -> DefaultColumnSet del nivel. TODA opcion de un nivel que abre tabla debe
+        // resolver a un columnSet existente. Solo se valida en niveles inline (los 'source' se resuelven
+        // en runtime, cuando se conocen sus opciones).
+        foreach (var lvl in cfg.Levels)
+        {
+            if (!lvl.OpensTable || lvl.Options is null)
+            {
+                continue;
+            }
+            foreach (var op in lvl.Options)
+            {
+                var resolved = ResolveColumnSet(op, lvl, optionIndex);
+                if (string.IsNullOrWhiteSpace(resolved))
+                {
+                    return $"Nivel '{lvl.Key}', opcion '{op.Id}': no define ni hereda un columnSet.";
+                }
+                if (!columnSets.ContainsKey(resolved))
+                {
+                    return $"Nivel '{lvl.Key}', opcion '{op.Id}': el columnSet resuelto '{resolved}' no existe.";
+                }
+            }
+        }
+
         foreach (var (colKey, col) in columns)
         {
             if (!string.IsNullOrWhiteSpace(col.Calc))
@@ -173,14 +221,8 @@ public sealed record CascadeConfig(
                     return $"Columna '{colKey}', formula: {calcError}";
                 }
             }
-            if (!string.IsNullOrWhiteSpace(col.Rollup))
-            {
-                var rollupError = FormExpressionEvaluator.Validate(col.Rollup);
-                if (rollupError is not null)
-                {
-                    return $"Columna '{colKey}', roll-up: {rollupError}";
-                }
-            }
+            // 'rollup' NO es una formula: es el NOMBRE del destino de respuesta que recibe el agregado
+            // (misma semantica que FormGridCalculator: rollups[col.Rollup] = agregado). No se evalua.
             if (!string.IsNullOrWhiteSpace(col.Agg)
                 && !Enum.TryParse<FormAggregate>(col.Agg, ignoreCase: true, out _))
             {
@@ -200,7 +242,74 @@ public sealed record CascadeConfig(
             }
         }
 
+        // B2 - Obligatorias por fila iniciada: la lista puede mezclar columnas de distintos juegos (la
+        // 1a columna cambia por juego). Aqui solo se exige que cada entrada sea una columna EXISTENTE o
+        // el token '@first' (= 1a columna del juego de la fila). El RUNTIME aplica solo las que esten en
+        // el columnSet de esa fila (ignora las ausentes) y respeta la semantica de "fila iniciada".
+        if (cfg.Table.RequiredOnStartedRow is not null)
+        {
+            foreach (var req in cfg.Table.RequiredOnStartedRow)
+            {
+                if (!string.Equals(req, "@first", StringComparison.OrdinalIgnoreCase) && !columns.ContainsKey(req))
+                {
+                    return $"'table.requiredOnStartedRow': '{req}' no es una columna ni el token '@first'.";
+                }
+            }
+        }
+
         return null;
+    }
+
+    /// <summary>Resuelve el juego de columnas efectivo de una opcion (por id) de un nivel que abre tabla:
+    /// <c>option.columnSet</c> -&gt; columnSet de la opcion PADRE (recursivo) -&gt;
+    /// <c>DefaultColumnSet</c> del nivel. Null si no resuelve. Es la MISMA logica que valida el contrato;
+    /// el renderer debe reusar este metodo para no divergir.</summary>
+    public static string? ResolveColumnSet(CascadeConfig cfg, string optionId)
+    {
+        var index = BuildOptionIndex(cfg);
+        return index.TryGetValue(optionId, out var entry)
+            ? ResolveColumnSet(entry.Option, entry.Level, index)
+            : null;
+    }
+
+    private static string? ResolveColumnSet(
+        CascadeOption option,
+        CascadeLevel level,
+        IReadOnlyDictionary<string, (CascadeOption Option, CascadeLevel Level)> index)
+    {
+        var current = option;
+        var guard = 0;
+        while (current is not null && guard++ < 50)
+        {
+            if (!string.IsNullOrWhiteSpace(current.ColumnSet))
+            {
+                return current.ColumnSet;
+            }
+            if (string.IsNullOrWhiteSpace(current.Parent))
+            {
+                break;
+            }
+            current = index.TryGetValue(current.Parent, out var p) ? p.Option : null;
+        }
+        return level.DefaultColumnSet;
+    }
+
+    private static Dictionary<string, (CascadeOption Option, CascadeLevel Level)> BuildOptionIndex(CascadeConfig cfg)
+    {
+        var map = new Dictionary<string, (CascadeOption Option, CascadeLevel Level)>(StringComparer.Ordinal);
+        foreach (var lvl in cfg.Levels)
+        {
+            if (lvl.Options is null)
+            {
+                continue;
+            }
+            foreach (var op in lvl.Options)
+            {
+                map[op.Id] = (op, lvl);
+            }
+        }
+
+        return map;
     }
 }
 
@@ -212,7 +321,11 @@ public sealed record CascadeLevel(
     string? DependsOn = null,
     bool OpensTable = false,
     string? FeedsColumn = null,
+    // Pista informativa del origen del juego de columnas. La resolucion REAL es por opcion
+    // (option.columnSet -> padre -> DefaultColumnSet), no depende de este campo.
     string? ColumnSetFrom = null,
+    // Ultimo fallback del juego de columnas cuando una opcion no lo define ni lo hereda del padre.
+    string? DefaultColumnSet = null,
     IReadOnlyList<CascadeOption>? Options = null,
     CascadeSource? Source = null);
 
@@ -242,7 +355,7 @@ public sealed record CascadeSource(
 public sealed record CascadeColumn(
     string Label,
     string Kind = "text",        // text | number | money | select
-    int? Width = null,
+    string? Width = null,        // ancho CSS tal cual el prototipo: "78px", "118px", "auto"...
     string? Placeholder = null,
     string? Format = null,        // currency | percent | integer | decimal | document
     string? Calc = null,          // formula por fila (mismo lenguaje que el cotizador)

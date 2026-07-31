@@ -7269,3 +7269,30 @@ tenant = 1208 (1206 + 2 de prueba `perensejp`/`adreseon` que quedan). Carga por 
 
 **Siguiente / pendiente**: (sin cambios) enganchar los 3 `resolve` multi-clave del COT
 (corte/doblez/rolado, prompt entregado a sesion de codigo); validar F2 cascada; clave Bold.
+
+---
+
+## 2026-07-31 (sesion datos - prod) - Contenedor siigo/clientes en AGROMETALICAS (carga puntual)
+
+**Agente**: Claude Opus 4.8 (sesion de datos de produccion).
+
+**Hecho**: creado el contenedor de datos `siigo` -> tabla `clientes` (source_kind=WebService,
+14 columnas aplanadas) en el tenant AGROMETALICAS (`019f478d-6428-7283-a5cd-b7e35f802ef3`) y
+cargados los **1792 clientes reales** desde la API de Siigo (`GET /v1/customers`). El flujo real
+de Siigo es de 2 pasos: `POST /auth` {username, access_key} -> access_token (valido 24h), luego
+`GET /v1/customers` con `Authorization: Bearer` + header `Partner-Id`. Traida por paginacion
+(page/page_size=100, 18 paginas) y aplanados los campos anidados: person_type->Empresa/Persona,
+id_type.name, identification, check_digit, name[], commercial_name, active, address.address,
+address.city.city_name/state_name, phones[0].indicative+number, contacts[0].email,
+metadata.created. UUIDs deterministas (uuid5) + ON CONFLICT DO NOTHING => idempotente.
+IDs: modelo `a78491e1-7d25-5785-b24d-fa2f41d0ae1c`, contenedor `94ddca5f-dfeb-5001-9e8f-69da434c603b`.
+Backup previo `ecorex-2026-07-31-1846.sql.gz`. Credenciales de Siigo NO versionadas (repo publico).
+
+**Pendiente de codigo (sync repetible via agente Colmena)**: el motor REST (server y agente) hoy
+NO soporta (a) auth de 2 pasos POST->token con cache, ni (b) headers arbitrarios tipo Partner-Id.
+Se entrego prompt para: RestFetchSpec.Headers + preflight de token (nuevo ConnectorAuthKind), en
+`AgentProtocol.cs` + `RestExecutor.cs` + DataConnector (columnas HeadersJson/auth-preflight) +
+config UI + migracion dual + tests. Luego configurar DataConnector Upsert(siigo_id) contra el
+contenedor existente y su horario.
+
+**Siguiente / pendiente**: (sin cambios) resolve multi-clave del COT; validar F2 cascada; clave Bold.

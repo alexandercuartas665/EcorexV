@@ -57,6 +57,9 @@ public interface IEvolutionApiClient
     /// <summary>Configura el webhook entrante de la instancia (POST /webhook/set/{instance}) para recibir mensajes.</summary>
     Task<EvolutionSendResult> SetWebhookAsync(string baseUrl, string apiKey, string instanceName, string webhookUrl, string token, CancellationToken cancellationToken = default);
 
+    /// <summary>Reacciona (emoji) al mensaje original identificado por su clave (POST /message/sendReaction/{instance}). remoteJid = numero@s.whatsapp.net.</summary>
+    Task<EvolutionSendResult> SendReactionAsync(string baseUrl, string apiKey, string instanceName, string remoteJid, string messageId, string emoji, CancellationToken cancellationToken = default);
+
     /// <summary>Elimina un mensaje PARA TODOS (DELETE /chat/deleteMessageForEveryone/{instance}). remoteJid = numero@s.whatsapp.net.</summary>
     Task<EvolutionSendResult> DeleteMessageForEveryoneAsync(string baseUrl, string apiKey, string instanceName, string remoteJid, string messageId, bool fromMe, CancellationToken cancellationToken = default);
 

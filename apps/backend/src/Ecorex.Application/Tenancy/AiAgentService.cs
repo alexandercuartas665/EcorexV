@@ -61,7 +61,11 @@ public sealed class AiAgentService : IAiAgentService
             SystemPrompt = request.SystemPrompt ?? "",
             IsActive = false,
             SortOrder = nextOrder,
-            DisabledToolsJson = SerializeTools(request.DisabledTools)
+            DisabledToolsJson = SerializeTools(request.DisabledTools),
+            ReactionsEnabled = request.ReactionsEnabled,
+            ReactionRatioN = Math.Max(0, request.ReactionRatioN),
+            ReactionRatioM = Math.Max(1, request.ReactionRatioM),
+            ReactionEmojis = string.IsNullOrWhiteSpace(request.ReactionEmojis) ? null : request.ReactionEmojis.Trim()
         };
         _db.AiAgents.Add(agent);
         _audit.Write(actorUserId, "ai-agent.create", nameof(AiAgent), agent.Id,
@@ -80,6 +84,10 @@ public sealed class AiAgentService : IAiAgentService
         agent.Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
         agent.SystemPrompt = request.SystemPrompt ?? "";
         agent.DisabledToolsJson = SerializeTools(request.DisabledTools);
+        agent.ReactionsEnabled = request.ReactionsEnabled;
+        agent.ReactionRatioN = Math.Max(0, request.ReactionRatioN);
+        agent.ReactionRatioM = Math.Max(1, request.ReactionRatioM);
+        agent.ReactionEmojis = string.IsNullOrWhiteSpace(request.ReactionEmojis) ? null : request.ReactionEmojis.Trim();
 
         // Red de seguridad: guarda una instantanea {prompt base + enrutados} en el historial (ultimas 5).
         var snapshotPrompts = await _db.AiAgentPrompts.AsNoTracking()
@@ -221,7 +229,11 @@ public sealed class AiAgentService : IAiAgentService
             IsActive = false,
             SortOrder = nextOrder,
             DisabledToolsJson = src.DisabledToolsJson,
-            PromptHistoryJson = src.PromptHistoryJson
+            PromptHistoryJson = src.PromptHistoryJson,
+            ReactionsEnabled = src.ReactionsEnabled,
+            ReactionRatioN = src.ReactionRatioN,
+            ReactionRatioM = src.ReactionRatioM,
+            ReactionEmojis = src.ReactionEmojis
         };
         _db.AiAgents.Add(copy);
         await _db.SaveChangesAsync(cancellationToken); // asegura copy.Id para los hijos
@@ -341,7 +353,8 @@ public sealed class AiAgentService : IAiAgentService
     }
 
     private static AiAgentDto Map(AiAgent a, int resourceCount) =>
-        new(a.Id, a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt, a.IsActive, a.SortOrder, resourceCount, ParseTools(a.DisabledToolsJson));
+        new(a.Id, a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt, a.IsActive, a.SortOrder, resourceCount, ParseTools(a.DisabledToolsJson),
+            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis);
 
     // Serializacion de la lista de herramientas deshabilitadas del agente (jsonb).
     private static string? SerializeTools(IReadOnlyList<string>? tools)

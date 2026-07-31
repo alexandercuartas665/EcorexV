@@ -12,7 +12,11 @@ public sealed record AiAgentDto(
     bool IsActive,
     int SortOrder,
     int ResourceCount,
-    IReadOnlyList<string>? DisabledTools = null);
+    IReadOnlyList<string>? DisabledTools = null,
+    bool ReactionsEnabled = false,
+    int ReactionRatioN = 3,
+    int ReactionRatioM = 4,
+    string? ReactionEmojis = null);
 
 public sealed record AiAgentResourceDto(
     Guid Id,
@@ -28,8 +32,8 @@ public sealed record AiAgentPromptDto(Guid Id, Guid AgentId, string Name, string
 
 public sealed record AiAgentDetailDto(AiAgentDto Agent, IReadOnlyList<AiAgentResourceDto> Resources, IReadOnlyList<AiAgentPromptDto> Prompts);
 
-public sealed record CreateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null);
-public sealed record UpdateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null);
+public sealed record CreateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null, bool ReactionsEnabled = false, int ReactionRatioN = 3, int ReactionRatioM = 4, string? ReactionEmojis = null);
+public sealed record UpdateAiAgentRequest(string Name, string? Role, AiProvider Provider, string? Model, string SystemPrompt, IReadOnlyList<string>? DisabledTools = null, bool ReactionsEnabled = false, int ReactionRatioN = 3, int ReactionRatioM = 4, string? ReactionEmojis = null);
 
 // --- Historial de versiones de prompts (red de seguridad) ---
 public sealed record AgentPromptSnapshotDto(string Name, string? Rule, string Body, int SortOrder);

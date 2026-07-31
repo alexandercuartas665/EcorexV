@@ -23,6 +23,7 @@ public sealed class AgentConversationService : IAgentConversationService
     private readonly IAiInferenceService _inference;
     private readonly IChatService _chat;
     private readonly IAgentAssetReader _assets;
+    private readonly IWhatsAppConnectorService _connector;
 
     // Cuantos mensajes recientes se reconstruyen como contexto del agente.
     private const int MaxTurns = 30;
@@ -32,12 +33,13 @@ public sealed class AgentConversationService : IAgentConversationService
     // procesa las conversaciones en un bucle secuencial, asi que un delay grande frenaria a las demas.
     private const int InterAttachmentDelayMs = 1500;
 
-    public AgentConversationService(IApplicationDbContext db, IAiInferenceService inference, IChatService chat, IAgentAssetReader assets)
+    public AgentConversationService(IApplicationDbContext db, IAiInferenceService inference, IChatService chat, IAgentAssetReader assets, IWhatsAppConnectorService connector)
     {
         _db = db;
         _inference = inference;
         _chat = chat;
         _assets = assets;
+        _connector = connector;
     }
 
     public async Task RunAsync(Guid conversationId, CancellationToken cancellationToken = default)
@@ -82,6 +84,14 @@ public sealed class AgentConversationService : IAgentConversationService
 
         // Si el ultimo mensaje ya es nuestro (saliente), no hay nada nuevo que responder.
         if (messages[^1].Direction == MessageDirection.Outbound) { return; }
+
+        // Reacciones automaticas (emoji), ANTES de llamar al LLM: cero tokens. Reacciona a ~N de cada
+        // M mensajes del cliente con un emoji al azar. Un mensaje que ya tiene reaccion no recibe otra.
+        if (agent.ReactionsEnabled)
+        {
+            await MaybeReactAsync(conv.TenantId, conversationId, lineId, conv.ContactPhone,
+                agent.ReactionRatioN, agent.ReactionRatioM, agent.ReactionEmojis, agent.Id, cancellationToken);
+        }
 
         var turns = messages.Select(m => new AiChatTurn(
             m.Direction == MessageDirection.Inbound ? "user" : "model",
@@ -154,6 +164,50 @@ public sealed class AgentConversationService : IAgentConversationService
         {
             await LogAsync(conv.TenantId, conversationId, agent.Id, AiAgentRunLogKind.Reply,
                 "Respuesta enviada", result.Text, AttachmentSummary(result.Attachments), cancellationToken);
+        }
+    }
+
+    // Reaccion automatica (emoji) al ultimo mensaje entrante del cliente, sin pasar por el LLM.
+    // Aplica la frecuencia N/M como probabilidad; elige el emoji al azar del stack configurado.
+    private async Task MaybeReactAsync(Guid tenantId, Guid conversationId, Guid lineId, string phone,
+        int ratioN, int ratioM, string? emojiCsv, Guid agentId, CancellationToken ct)
+    {
+        var emojis = (emojiCsv ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        if (emojis.Count == 0) { return; } // sin emojis configurados: nada que hacer.
+        if (ratioM <= 0 || ratioN <= 0) { return; } // frecuencia invalida o cero: no reacciona.
+
+        // Dado de N de cada M: si el numerador es menor que el denominador, tiramos el dado.
+        if (ratioN < ratioM)
+        {
+            var roll = Random.Shared.Next(ratioM);
+            if (roll >= ratioN) { return; } // le toco NO reaccionar esta vez.
+        }
+
+        // Ultimo mensaje entrante con id de WhatsApp y sin reaccion previa (rastreado para poder marcarlo).
+        var lastInbound = await _db.Messages
+            .Where(m => m.ConversationId == conversationId
+                && m.Direction == MessageDirection.Inbound
+                && m.ExternalId != null
+                && m.Reaction == null)
+            .OrderByDescending(m => m.SentAt)
+            .FirstOrDefaultAsync(ct);
+        if (lastInbound is null || string.IsNullOrWhiteSpace(lastInbound.ExternalId)) { return; }
+
+        var emoji = emojis[Random.Shared.Next(emojis.Count)];
+        var result = await _connector.SendReactionAsync(lineId, phone, lastInbound.ExternalId!, emoji, ct);
+        if (result.Ok)
+        {
+            lastInbound.Reaction = emoji;
+            await _db.SaveChangesAsync(ct);
+            await LogAsync(tenantId, conversationId, agentId, AiAgentRunLogKind.Tool,
+                $"Reaccion automatica {emoji}", "Sin consumo de IA (reaccion directa).", null, ct);
+        }
+        else
+        {
+            await LogAsync(tenantId, conversationId, agentId, AiAgentRunLogKind.Error,
+                "No se pudo enviar la reaccion", result.Error, null, ct);
         }
     }
 

@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-07-31 - Port de REACCIONES del agente (desde CUBOT.redmanager)
+
+**Que:** portada la funcion de **reacciones automaticas (emoji)** del agente de IA desde el proyecto
+hermano `CUBOT.redmanager`. El agente pone un emoji (pulgar, corazon, etc.) a ~N de cada M mensajes
+del cliente **sin pasar por el LLM (cero tokens)**; un mensaje que ya tiene reaccion no recibe otra.
+
+**Cambios (7 partes):**
+- `AiAgent`: 4 campos nuevos (`ReactionsEnabled`, `ReactionRatioN`=3, `ReactionRatioM`=4, `ReactionEmojis`).
+- Migracion **dual** `AddAgentReactions` (PG `20260731200654`, SQL Server `20260731200740`): 4 columnas en
+  `ai_agents` + backfill `UPDATE ... SET n=3,m=4 WHERE m=0`. (`Message.Reaction` ya existia.)
+- `IEvolutionApiClient.SendReactionAsync` + impl (`POST /message/sendReaction/{instance}`, reaccion por
+  clave del mensaje original, `fromMe=false`).
+- `IWhatsAppConnectorService.SendReactionAsync` + impl (resuelve linea Evolution conectada, `remoteJid`,
+  `IgnoreQueryFilters` para el contexto del webhook).
+- `AgentConversationService` (dispatcher real, NO "AgentDispatcher"): inyecta `IWhatsAppConnectorService` +
+  metodo `MaybeReactAsync` llamado **antes** de la inferencia (dado N/M, emoji al azar, marca
+  `Message.Reaction`, bitacora Tool/Error).
+- `EvolutionWebhookParser.Parse`: **descarta** los `messages.upsert` con `reactionMessage` (reacciones
+  ENTRANTES no se persisten como mensaje ni disparan al agente).
+- UI `Agentes.razor`: acordeon "Reacciones" (switch, frecuencia N/M, stack de emojis) + DTOs
+  (`AiAgentDto`/Create/Update) + `AiAgentService` (Create/Update/Map/Duplicate).
+
+**Estado:** `dotnet build` verde (0 errores). Sin smoke-test local porque el dev apunta a la BD de prod
+(las columnas nuevas no existen hasta que corra la migracion en el deploy). Verificacion en vivo = tras
+el deploy (ECOREX_RUN_MIGRATIONS aplica la migracion), configurar emojis en SARA y probar por WhatsApp.
+
+**Siguiente:** commit/push al tronco; deploy a prod con confirmacion + backup. Recordatorio pendiente
+del hilo anterior: reconectar la linea AGROMETALICAS en `/lineas` para activar el webhook ya configurado.
+
+---
+
 ## 2026-07-31 - Datos (contenedor de tarifas del cotizador en AGROMETALICAS)
 
 **Contenedor "Datos de cotizacion" en AGROMETALICAS (por SQL directo):** cargadas las **5 tablas de

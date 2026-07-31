@@ -809,6 +809,22 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("provider");
 
+                    b.Property<string>("ReactionEmojis")
+                        .HasColumnType("text")
+                        .HasColumnName("reaction_emojis");
+
+                    b.Property<int>("ReactionRatioM")
+                        .HasColumnType("integer")
+                        .HasColumnName("reaction_ratio_m");
+
+                    b.Property<int>("ReactionRatioN")
+                        .HasColumnType("integer")
+                        .HasColumnName("reaction_ratio_n");
+
+                    b.Property<bool>("ReactionsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("reactions_enabled");
+
                     b.Property<string>("Role")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")

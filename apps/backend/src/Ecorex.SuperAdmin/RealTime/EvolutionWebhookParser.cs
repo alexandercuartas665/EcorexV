@@ -37,6 +37,15 @@ public static class EvolutionWebhookParser
         }
         if (data.ValueKind != JsonValueKind.Object) { return null; }
 
+        // Reacciones (emoji sobre un mensaje): WhatsApp las envia como messages.upsert con
+        // reactionMessage. NO son un mensaje de texto del cliente: no deben persistirse como mensaje
+        // (saldria "(mensaje no soportado)") ni disparar al agente. Las ignoramos por completo.
+        if (data.TryGetProperty("message", out var reactProbe) && reactProbe.ValueKind == JsonValueKind.Object
+            && reactProbe.TryGetProperty("reactionMessage", out _))
+        {
+            return null;
+        }
+
         if (!data.TryGetProperty("key", out var key) || key.ValueKind != JsonValueKind.Object) { return null; }
 
         // Ignorar los mensajes salientes (eco de lo que enviamos nosotros).

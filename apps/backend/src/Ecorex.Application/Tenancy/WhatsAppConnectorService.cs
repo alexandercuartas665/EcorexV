@@ -478,6 +478,29 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(result.Ok, result.Error);
     }
 
+    public async Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(externalMessageId) || string.IsNullOrWhiteSpace(emoji))
+        {
+            return new LineSendResult(false, "Falta el id del mensaje o el emoji.");
+        }
+        // IgnoreQueryFilters: lo llama el dispatcher del agente (webhook entrante, sin tenant en sesion).
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new LineSendResult(false, "La linea no existe."); }
+        if (line.Provider != WhatsAppProvider.Evolution)
+        {
+            return new LineSendResult(false, "Las reacciones por id solo aplican a lineas Evolution en este corte.");
+        }
+        if (line.Status != WhatsAppLineStatus.Connected) { return new LineSendResult(false, "La linea no esta conectada."); }
+        var server = await ResolveServerAsync(cancellationToken);
+        if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
+        var (baseUrl, apiKey) = server.Value;
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        var remoteJid = $"{digits}@s.whatsapp.net";
+        var result = await _client.SendReactionAsync(baseUrl, apiKey, EvoInstance(line), remoteJid, externalMessageId, emoji, cancellationToken);
+        return new LineSendResult(result.Ok, result.Error);
+    }
+
     // Resuelve linea conectada + numero normalizado (agnostico de proveedor). Error no nulo si algo falta.
     private async Task<(string? Error, WhatsAppLine? Line, string Digits)> ReadyAsync(Guid lineId, string phone, CancellationToken ct)
     {

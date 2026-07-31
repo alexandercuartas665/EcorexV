@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-31 - Datos (contenedor de tarifas del cotizador en AGROMETALICAS)
+
+**Contenedor "Datos de cotizacion" en AGROMETALICAS (por SQL directo):** cargadas las **5 tablas de
+tarifas** de la hoja **"32"** de `MODELO COTIZACION.xlsx` como un DataModel manual (mismo mecanismo que
+GESTION COMERCIAL de SOLDARCO). Backup `ecorex-2026-07-31-0854.sql.gz`. **56 filas** en 5 tablas:
+Espesores (26: CAL 10-30 + numericos), Laminas (5: HR/INOX/ALFAJOR/GALVANIZADA/CR con Venta y Costeo),
+Servicio corte (10: lamina/espesor/precio), Servicio doblez (10) y Servicio rolado (5: lamina/precio).
+Columnas Text. Idempotente (guarda a nivel de contenedor: solo carga filas si la tabla esta vacia, para
+no chocar con la 1a columna repetida de corte/doblez -lamina se repite-). Estas tarifas son la fuente
+que el cotizador (form COT de AGROMETALICAS) puede consultar por LOOKUP para autollenar precio de lamina
+y servicios por tipo/espesor cuando se enganche esa columna.
+Nota: bajo "Servicio rolado" el Excel tiene ademas un mini-listado SI/NO (opcion de rolado) que NO se
+cargo como tabla; son las 5 tablas de tarifas que pidio el usuario.
+
 ## 2026-07-30 - Motor de Reportes: Ola 2 (embed VISOR Bold) + convertidor RDL
 
 **Agentes:** Claude (worktree `informes`) + sub-agente de investigacion de la integracion Bold Blazor.

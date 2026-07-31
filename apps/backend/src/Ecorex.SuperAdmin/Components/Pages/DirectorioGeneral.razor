@@ -122,9 +122,9 @@
     @* ===== Tabs naturaleza + busqueda ===== *@
     <div class="dg-filter-row">
         <div class="dg-tabs">
-            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Todos ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Todos">Todos <span class="dg-tab-count">@CountTodos</span></button>
-            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Empresas ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Empresas">Empresas <span class="dg-tab-count">@CountEmpresas</span></button>
-            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Contactos ? "active" : "")" @onclick="() => _naturaleza = TerceroTabNaturaleza.Contactos">Contactos <span class="dg-tab-count">@CountContactos</span></button>
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Todos ? "active" : "")" @onclick="() => { _naturaleza = TerceroTabNaturaleza.Todos; _page = 0; }">Todos <span class="dg-tab-count">@CountTodos</span></button>
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Empresas ? "active" : "")" @onclick="() => { _naturaleza = TerceroTabNaturaleza.Empresas; _page = 0; }">Empresas <span class="dg-tab-count">@CountEmpresas</span></button>
+            <button class="dg-tab @(_naturaleza == TerceroTabNaturaleza.Contactos ? "active" : "")" @onclick="() => { _naturaleza = TerceroTabNaturaleza.Contactos; _page = 0; }">Contactos <span class="dg-tab-count">@CountContactos</span></button>
         </div>
         <div class="dg-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
@@ -152,7 +152,7 @@
                 <div class="dg-rowwrap"><div class="dg-empty-note" style="padding:24px 18px">No hay terceros que coincidan con los filtros.</div></div>
             }
 
-            @foreach (var r in Displayed)
+            @foreach (var r in DisplayedPage)
             {
                 var est = EstadoInfo(r.Estado);
                 <div class="dg-rowwrap">
@@ -285,6 +285,23 @@
                     }
                 </div>
             }
+        </div>
+        <div class="dg-pager">
+            <span class="dg-pager-info">@FilteredCount registro(s) &#183; pagina @(_page + 1) de @PageCount</span>
+            <div class="dg-pager-ctrl">
+                <label>Por pagina
+                    <select @onchange="OnPageSizeChanged">
+                        @foreach (var s in PageSizes)
+                        {
+                            <option value="@s" selected="@(s == _pageSize)">@s</option>
+                        }
+                    </select>
+                </label>
+                <button title="Primera" @onclick="() => GoPage(0)" disabled="@(_page == 0)">&laquo;</button>
+                <button title="Anterior" @onclick="() => GoPage(_page - 1)" disabled="@(_page == 0)">&lsaquo;</button>
+                <button title="Siguiente" @onclick="() => GoPage(_page + 1)" disabled="@(_page + 1 >= PageCount)">&rsaquo;</button>
+                <button title="Ultima" @onclick="() => GoPage(PageCount - 1)" disabled="@(_page + 1 >= PageCount)">&raquo;</button>
+            </div>
         </div>
         @if (_pageError is not null)
         {
@@ -794,6 +811,28 @@
         }
     }
 
+    // Paginacion de la parrilla (todo ya esta en memoria y filtrado; solo se corta la pagina visible).
+    private static readonly int[] PageSizes = { 25, 50, 100, 200 };
+    private int _pageSize = 50;
+    private int _page;
+
+    private int FilteredCount => Displayed.Count();
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)_pageSize));
+    private IEnumerable<TerceroListItemDto> DisplayedPage
+        => Displayed.Skip(ClampPage() * _pageSize).Take(_pageSize);
+
+    private int ClampPage()
+    {
+        var max = PageCount - 1;
+        _page = Math.Clamp(_page, 0, max);
+        return _page;
+    }
+    private void GoPage(int p) => _page = Math.Clamp(p, 0, PageCount - 1);
+    private void OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var s) && s > 0) { _pageSize = s; _page = 0; }
+    }
+
     /// <summary>Campos marcados como filtrables, en el orden en que se configuraron.</summary>
     private List<TerceroFieldDto> FilterableFields()
         => _cfgAllFields.Where(f => f.ShowInFilter).OrderBy(f => f.FichaKey).ThenBy(f => f.SortOrder).ToList();
@@ -812,6 +851,7 @@
     {
         if (string.IsNullOrWhiteSpace(value)) { _fieldFilters.Remove(fieldKey); }
         else { _fieldFilters[fieldKey] = value; }
+        _page = 0;
     }
 
     private void ClearFieldFilters() => _fieldFilters.Clear();
@@ -914,6 +954,7 @@
     private async Task OnSearch(ChangeEventArgs e)
     {
         _search = e.Value?.ToString() ?? "";
+        _page = 0;
         await ReloadAsync();
     }
 

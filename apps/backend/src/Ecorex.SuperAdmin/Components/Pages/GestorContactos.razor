@@ -194,45 +194,48 @@
                         {
                             <div class="gc-empty-note" style="padding:22px 18px">No hay contactos para esta fuente.</div>
                         }
-                        @foreach (var r in ContactosFiltrados)
-                        {
-                            var rr = r;
-                            var fi = FuenteInfo(rr.Fuente);
-                            var bi = BadgeInfo(rr.Badge);
-                            <div class="gc-tbl-row gc-prosp-grid">
-                                <div class="gc-cell-name">
-                                    <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
-                                    <div style="min-width:0">
-                                        <div class="gc-cell-title">@rr.Nombre</div>
-                                        <div class="gc-cell-sub">@rr.Sub</div>
+                        <div class="gc-tbl-body">
+                            <Virtualize Items="ContactosFiltrados" Context="r" ItemSize="64" OverscanCount="8">
+                                @{
+                                    var rr = r;
+                                    var fi = FuenteInfo(rr.Fuente);
+                                    var bi = BadgeInfo(rr.Badge);
+                                }
+                                <div class="gc-tbl-row gc-prosp-grid">
+                                    <div class="gc-cell-name">
+                                        <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
+                                        <div style="min-width:0">
+                                            <div class="gc-cell-title">@rr.Nombre</div>
+                                            <div class="gc-cell-sub">@rr.Sub</div>
+                                        </div>
+                                    </div>
+                                    <div class="gc-cell">
+                                        <div>@(string.IsNullOrWhiteSpace(rr.Empresa) ? "-" : rr.Empresa)</div>
+                                        <div class="gc-cell-sub">@rr.Ciudad</div>
+                                    </div>
+                                    <div class="gc-cell"><span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@rr.Fuente</span></div>
+                                    <div class="gc-cell">@(string.IsNullOrWhiteSpace(rr.Metrica) ? "-" : rr.Metrica)</div>
+                                    <div class="gc-cell acts">
+                                        @if (!string.IsNullOrWhiteSpace(rr.Badge))
+                                        {
+                                            <span class="gc-badge" style="background:var(@bi.Bg);color:var(@bi.Color)">@rr.Badge</span>
+                                        }
+                                        @if (rr.TerceroId is Guid tid)
+                                        {
+                                            <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">Abrir ficha</button>
+                                        }
+                                        else if (rr.Promovido)
+                                        {
+                                            <span class="gc-badge" style="background:var(--t-green-bg);color:var(--t-green)">En bolsa</span>
+                                        }
+                                        else if (rr.ProspectoId is Guid pid)
+                                        {
+                                            <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">Calificar</button>
+                                        }
                                     </div>
                                 </div>
-                                <div class="gc-cell">
-                                    <div>@(string.IsNullOrWhiteSpace(rr.Empresa) ? "-" : rr.Empresa)</div>
-                                    <div class="gc-cell-sub">@rr.Ciudad</div>
-                                </div>
-                                <div class="gc-cell"><span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@rr.Fuente</span></div>
-                                <div class="gc-cell">@(string.IsNullOrWhiteSpace(rr.Metrica) ? "-" : rr.Metrica)</div>
-                                <div class="gc-cell acts">
-                                    @if (!string.IsNullOrWhiteSpace(rr.Badge))
-                                    {
-                                        <span class="gc-badge" style="background:var(@bi.Bg);color:var(@bi.Color)">@rr.Badge</span>
-                                    }
-                                    @if (rr.TerceroId is Guid tid)
-                                    {
-                                        <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">Abrir ficha</button>
-                                    }
-                                    else if (rr.Promovido)
-                                    {
-                                        <span class="gc-badge" style="background:var(--t-green-bg);color:var(--t-green)">En bolsa</span>
-                                    }
-                                    else if (rr.ProspectoId is Guid pid)
-                                    {
-                                        <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">Calificar</button>
-                                    }
-                                </div>
-                            </div>
-                        }
+                            </Virtualize>
+                        </div>
                     </div>
                 </div>
             }

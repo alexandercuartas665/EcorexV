@@ -47,9 +47,19 @@
 .dg-search input { border: none; background: none; outline: none; font: inherit; font-size: 13px; color: var(--ink); width: 180px; }
 
 /* ---- Tabla ---- */
-.dg-table { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); box-shadow: var(--sh-sm); overflow: hidden; }
+.dg-table { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); box-shadow: var(--sh-sm); overflow-y: auto; overflow-x: hidden; max-height: calc(100vh - 300px); }
 .dg-grid { display: grid; grid-template-columns: 2.4fr 1.5fr 1fr 110px 96px; }
-.dg-thead { background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.dg-thead { background: var(--surface-2); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 3; }
+
+/* Paginacion de la parrilla */
+.dg-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+.dg-pager-info { font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
+.dg-pager-ctrl { display: flex; align-items: center; gap: 6px; }
+.dg-pager-ctrl label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.dg-pager-ctrl select { height: 32px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface); font: inherit; font-size: 12.5px; padding: 0 6px; cursor: pointer; }
+.dg-pager-ctrl button { width: 32px; height: 32px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 8px; color: var(--ink-2); font-size: 15px; cursor: pointer; }
+.dg-pager-ctrl button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--ink-3); }
+.dg-pager-ctrl button:disabled { opacity: .4; cursor: not-allowed; }
 .dg-th { padding: 11px 18px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
 .dg-th.pad12 { padding: 11px 12px; }
 .dg-rowwrap { border-top: 1px solid var(--line); }

@@ -1247,10 +1247,11 @@
             EmpresaId: _empresaId,
             FichasJson: fichasJson);
 
+        var wasCreate = _editingId is null;
         _busy = true;
-        var res = _editingId is null
+        var res = wasCreate
             ? await TerceroSvc.CreateAsync(request)
-            : await TerceroSvc.UpdateAsync(_editingId.Value, request);
+            : await TerceroSvc.UpdateAsync(_editingId!.Value, request);
         _busy = false;
 
         if (!res.IsOk)
@@ -1266,6 +1267,15 @@
             _returnToParentId = null;
             await OpenEditAsync(parentId);
             _mTab = "rel";
+            StateHasChanged();
+            return;
+        }
+        // Al CREAR se DEJA EL MODAL ABIERTO en modo edicion del registro recien creado: confirma el
+        // guardado (se recarga desde el servidor) y permite seguir editando/agregando sin reabrir. Al
+        // EDITAR se cierra como siempre.
+        if (wasCreate && res.Value is { } created)
+        {
+            await OpenEditAsync(created.Id);
             StateHasChanged();
             return;
         }

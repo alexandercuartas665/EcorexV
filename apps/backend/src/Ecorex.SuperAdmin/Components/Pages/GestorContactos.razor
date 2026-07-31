@@ -185,6 +185,14 @@
                             var sv = s;
                             <button class="gc-pill @(_prospFuente == sv ? "active" : "")" @onclick="() => SetProspFuenteAsync(sv)">@(sv ?? "Todas")</button>
                         }
+                        <div class="gc-src-search">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                            <input placeholder="Filtrar contacto..." value="@_contactSearch" @oninput="@(e => _contactSearch = e.Value?.ToString())" />
+                            @if (!string.IsNullOrEmpty(_contactSearch))
+                            {
+                                <button class="gc-src-clear" title="Limpiar" @onclick="@(() => _contactSearch = null)">&times;</button>
+                            }
+                        </div>
                     </div>
                     <div class="gc-tbl">
                         <div class="gc-tbl-head gc-prosp-grid">
@@ -886,9 +894,22 @@
                     FuenteDirectorio, t.Identificacion,
                     null, false)));
             }
+            // Filtro rapido: en memoria sobre lo ya cargado (nombre / empresa / ciudad / identificacion).
+            var q = _contactSearch?.Trim();
+            if (!string.IsNullOrEmpty(q))
+            {
+                rows = rows.Where(r =>
+                    (r.Nombre?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Empresa?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Ciudad?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Sub?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (r.Metrica?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+            }
             return rows;
         }
     }
+
+    private string? _contactSearch;
 
     private async Task SetProspFuenteAsync(string? fuente)
     {

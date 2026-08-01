@@ -137,6 +137,37 @@ public sealed record RestFanoutSpec(
     // Columnas del hijo (elemento del arreglo anidado del detalle).
     List<RestFieldMap>? ChildFields = null);
 
+/// <summary>Un header HTTP estatico que se envia en TODA request del conector (ej. <c>Partner-Id</c>
+/// del caso Siigo). NO es un secreto: se configura por el usuario del cliente. Viaja en el
+/// <see cref="RestFetchSpec.Headers"/>.</summary>
+public sealed record RestHeader(string Name, string Value);
+
+/// <summary>
+/// Intercambio de token (auth de 2 pasos). Antes del fetch real el agente hace un POST (o el metodo
+/// configurado) a <see cref="TokenUrl"/> con un cuerpo que lleva el usuario y el SECRETO del login
+/// (que viaja aparte, en <see cref="ConnectorSpec.Secret"/>, NUNCA aqui), extrae el token por
+/// <see cref="TokenJsonPath"/> y lo aplica en las llamadas reales como header
+/// <see cref="ApplyHeaderName"/> = <see cref="ApplyPrefix"/> + token. Todo declarativo (caso Siigo:
+/// login -> access_token -> Authorization: Bearer), nada hardcodeado.
+/// </summary>
+public sealed record RestTokenExchangeSpec(
+    string TokenUrl,
+    string Method = "POST",
+    // Nombre del campo del usuario en el cuerpo del login (ej. "username").
+    string UsernameParam = "username",
+    // Valor del usuario (no secreto).
+    string? Username = null,
+    // Nombre del campo del secreto en el cuerpo del login (ej. "access_key", "password"). El VALOR va en ConnectorSpec.Secret.
+    string SecretParam = "password",
+    // Ruta con puntos al token en el JSON de respuesta (ej. "access_token", "data.token").
+    string TokenJsonPath = "access_token",
+    // Header donde se aplica el token en las llamadas reales.
+    string ApplyHeaderName = "Authorization",
+    // Prefijo del valor del header (ej. "Bearer ").
+    string ApplyPrefix = "Bearer ",
+    // Formato del cuerpo del login: "json" (por defecto) o "form".
+    string BodyFormat = "json");
+
 /// <summary>
 /// Orden de extraccion REST (analoga a <see cref="QuerySpec"/> para SQL). Viaja dentro de
 /// <see cref="FetchRequestMsg.Rest"/>. Solo GET (solo-lectura). La credencial va en
@@ -148,7 +179,7 @@ public sealed record RestFetchSpec(
     // Path (o URL absoluta) del endpoint LISTA. Ej: <c>/computers</c>.
     string ListPath,
     string HttpMethod = "GET",
-    // None|Basic|Bearer|ApiKey (mismo criterio que ConnectorAuthKind del servidor).
+    // None|Basic|Bearer|ApiKey|TokenExchange (mismo criterio que ConnectorAuthKind del servidor).
     string AuthKind = "None",
     // Ruta al arreglo/coleccion objetivo en la LISTA. null/""=tolerante (raiz array, objeto-indexado, o envoltorios data/items/results/records/rows).
     string? ArrayPath = null,
@@ -159,7 +190,11 @@ public sealed record RestFetchSpec(
     List<RestFieldMap>? Fields = null,
     int TimeoutSeconds = 30,
     int MaxRows = 100000,
-    int MaxDetailCalls = 5000);
+    int MaxDetailCalls = 5000,
+    // Headers estaticos arbitrarios aplicados en TODA request (lista + detalle + login del token). NO secretos.
+    List<RestHeader>? Headers = null,
+    // Auth de 2 pasos. null = auth simple por <see cref="AuthKind"/>. El secreto del login va en ConnectorSpec.Secret.
+    RestTokenExchangeSpec? TokenExchange = null);
 
 /// <summary>Orden "traeme estos datos" empujada por el servidor (doc 02 s5).</summary>
 public sealed record FetchRequestMsg(

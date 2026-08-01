@@ -5,6 +5,91 @@
 
 ---
 
+## 2026-08-01 - Conector RestApi: headers arbitrarios + intercambio de token (auth 2 pasos) + UI estructurada
+
+**Que:** se completo el conector RestApi del Contenedor de datos (TENANT-scoped, policy
+`Perm:contenedor-datos:View`) con lo que faltaba: (1) headers HTTP estaticos arbitrarios (ej.
+`Partner-Id`), (2) auth de 2 pasos `TokenExchange` (login -> `access_token` -> `Authorization: Bearer`
++ headers), (3) UI estructurada para ArrayPath + paginacion + mapeo columna<-campo que reemplaza a la
+textarea de JSON crudo (con modo "JSON avanzado" colapsable como respaldo), y (4) boton "Probar"
+autonomo del conector. Caso guia Siigo, pero TODO configurable por el usuario del cliente; nada
+hardcodeado. Sigue siendo funcionalidad del tenant, NO del PlatformAdmin.
+
+**Cambios (5 capas):**
+- **Dominio + migracion dual:** `ConnectorAuthKind.TokenExchange`; `DataConnector.HeadersJson` y
+  `DataConnector.TokenExchangeJson` (JSON no secretos); el SECRETO del login reutiliza
+  `CredentialsEncrypted` (cifrado). Config EF en `EcorexDbContext` (jsonColumnType, compartida con SQL
+  Server). Migracion **dual** `AddConnectorHeadersAndTokenExchange` (PG `20260801020015`, `jsonb`; SQL
+  Server `20260801...`, `nvarchar(max)`), 2 AddColumn snake_case sin indices, **encadenada tras
+  `AddFormContainerInlineLabels`** (feature de formularios, NO tocada). Snapshot verificado con AMBAS
+  columnas + `inline_labels`.
+- **Motor in-process (`ApiImportService`):** aplica headers en toda request; implementa el intercambio
+  de token (login una vez, extrae token por ruta JSON, lo cachea por corrida, lo aplica como header);
+  `ApplyAuth` intacto para None/ApiKey/Bearer/Basic; `tokenUrl` con el mismo anti-SSRF que el endpoint.
+  Helper compartido `ConnectorRestConfig` (parse/serialize de headers + token exchange).
+- **Contrato del agente (`RestFetchSpec`) + ejecutor:** `RestHeader` y `RestTokenExchangeSpec` nuevos;
+  `RestFetchSpec.Headers`/`TokenExchange` opcionales al final (compat hacia atras). `RestExecutor`
+  (agente) aplica headers + resuelve el token una vez antes del fetch (lista y detalle). El secreto
+  viaja en `ConnectorSpec.Secret` (ADR-0040), nunca en el spec. `ProcessRunner.BuildRestSpec` puebla
+  Headers/TokenExchange desde las columnas del conector.
+- **CRUD (`DataImportConfigService` + contratos):** `HeadersJson`/`TokenExchangeJson` en DTO/Request;
+  Save los persiste (y limpia para Excel/Database); tenant-scoping intacto.
+- **UI (`ContenedorDatos.razor`):** opcion de auth "Intercambio de token" con su formulario; seccion
+  de Headers con filas repetibles; mapeo estructurado (ArrayPath + paginacion + columna<-campo con
+  probe real y datalist de campos) que lee/escribe el mismo `MappingJson` (RestFetchSpec), preservando
+  `Fanout`; modo "JSON avanzado" colapsable; boton "Probar" autonomo (fetch real via `ApiImportService`
+  que muestra ok/error, nro de registros y muestra). Todo bajo la policy tenant actual.
+
+**Estado:** `dotnet build apps/backend/Ecorex.sln` **verde** (0 errores, 22 warnings preexistentes).
+Agente: `Ecorex.Contracts.Agent` + `Ecorex.Agent.Core` compilan; **29/29** tests del ejecutor REST
+verdes. Sin deploy, sin commit (por indicacion). Migraciones generadas, NO aplicadas.
+
+**MSI del agente:** el instalador MSI del agente Colmena (ADR-0049) **debe regenerarse y
+redistribuirse manualmente** para que los agentes ya instalados entiendan los campos
+`Headers`/`TokenExchange` del `RestFetchSpec`. NO se ejecuto `build-installer.ps1` (paso manual del
+operador). Los agentes viejos siguen atendiendo specs sin esos campos igual que antes.
+
+**Siguiente:** aplicar migracion en el entorno; validar en la consola del tenant con un conector real
+(Siigo); regenerar/redistribuir el MSI cuando se indique.
+
+**Decisiones:** ADR-0054.
+
+---
+
+## 2026-08-01 - Etiquetas en linea por contenedor de formulario (label al frente del valor)
+
+**Que:** nueva opcion config-driven **"Etiquetas en linea"** por contenedor de formulario. Hoy cada
+campo pinta su label ARRIBA del control; con esta opcion el label va al frente del valor (misma
+linea: label fijo ~150px a la derecha + control llenando el resto). Sirve para compactar bloques
+tipo "Totales" de cotizacion. NO hardcodeado: es una **propiedad de contenedor** (toggle en el
+disenador), activable en cualquier contenedor Row/Col de cualquier formulario. Default = actual
+(label arriba).
+
+**Cambios (7 partes):**
+- `FormContainer.InlineLabels` (bool) en el dominio; mapea por convencion (como `IsLocked`/`IsHidden`),
+  sin config EF explicita.
+- `FormContainerDto` + `SaveFormContainerRequest`: nuevo `InlineLabels = false`; propagado en
+  `FormDefinitionService` (Create/Update/`ToDto`).
+- `FormDesigner.razor`: toggle "Etiquetas en linea" en el panel de propiedades (solo grupos Row/Col),
+  junto a "Fijo"/"Oculto"; mapeo en `ToRequest`.
+- `DynamicFormRenderer.razor`: emite la clase `dfr-inline` en el `div.dfr-group` del contenedor cuando
+  `InlineLabels == true` (helper `GroupCssClass`).
+- `DynamicFormRenderer.razor.css`: reglas `.dfr-inline ::deep ...` (flex, label 150px a la derecha,
+  control llena el resto, caption/ayuda/error caen abajo con flex-wrap; en <=640px vuelve a
+  label-arriba).
+- Migracion **dual** `AddFormContainerInlineLabels` (PG `20260801013455`, columna `inline_labels`
+  `boolean`; SQL Server `20260801013623`, `bit`), default false, sin indices, patron de
+  `AddFormCardLayout`.
+- ADR-0053.
+
+**Estado:** `dotnet build Ecorex.sln` **verde** (0 errores). Sin deploy (por indicacion). Las columnas
+nuevas se aplican cuando corra la migracion en el entorno.
+
+**Siguiente:** validar visualmente en la vista previa del disenador; commit/push al tronco cuando se
+indique.
+
+---
+
 ## 2026-07-31 - Port de REACCIONES del agente (desde CUBOT.redmanager)
 
 **Que:** portada la funcion de **reacciones automaticas (emoji)** del agente de IA desde el proyecto

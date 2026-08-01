@@ -43,7 +43,9 @@ public sealed class ApiImportService : IApiImportService
     {
         var (connector, baseUri, loadError) = await LoadConnectorAsync(connectorId, ct);
         if (connector is null || baseUri is null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, loadError); }
-        var (doc, error) = await FetchJsonAsync(connector, baseUri, ct);
+        var (headers, authError) = await PrepareRestHeadersAsync(connector, ct);
+        if (authError is not null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, authError); }
+        var (doc, error) = await FetchJsonAsync(connector, baseUri, headers, ct);
         if (doc is null) { return new ApiProbeResult(false, Array.Empty<string>(), 0, arrayPath, null, error); }
         using (doc)
         {
@@ -118,6 +120,11 @@ public sealed class ApiImportService : IApiImportService
         var (connector, baseUri, loadError) = await LoadConnectorAsync(req.ConnectorId, ct);
         if (connector is null || baseUri is null) { return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { loadError ?? "No se pudo leer el API." }); }
 
+        // Auth: headers estaticos + (si aplica) el intercambio de token, resuelto UNA sola vez por corrida
+        // (el token se cachea implicitamente: la lista de headers ya lo lleva para todas las paginas).
+        var (headers, authError) = await PrepareRestHeadersAsync(connector, ct);
+        if (authError is not null) { return new ApiImportOutcome(false, 0, 0, 0, 0, new[] { authError }); }
+
         var failed = 0;
         var errors = new List<string>();
 
@@ -148,7 +155,7 @@ public sealed class ApiImportService : IApiImportService
                 if (!string.IsNullOrWhiteSpace(paging.LimitParam)) { uri = WithQueryParam(uri, paging.LimitParam!, paging.PageSize); }
             }
 
-            var (doc, error) = await FetchJsonAsync(connector, uri, ct);
+            var (doc, error) = await FetchJsonAsync(connector, uri, headers, ct);
             if (doc is null)
             {
                 if (session.Inserted + session.Updated == 0) { return new ApiImportOutcome(false, 0, 0, session.Deleted, 0, new[] { error ?? "No se pudo leer el API." }); }
@@ -223,14 +230,23 @@ public sealed class ApiImportService : IApiImportService
     }
 
     /// <summary>Hace el GET del conector sobre la URI indicada (que puede diferir de la base por paginacion).</summary>
-    private async Task<(JsonDocument? Doc, string? Error)> FetchJsonAsync(Domain.Entities.DataConnector c, Uri uri, CancellationToken ct)
+    /// <param name="headers">Headers estaticos + (si el conector usa intercambio de token) el header del
+    /// token ya resuelto. Se aplican en TODA request.</param>
+    private async Task<(JsonDocument? Doc, string? Error)> FetchJsonAsync(Domain.Entities.DataConnector c, Uri uri,
+        IReadOnlyList<(string Name, string Value)> headers, CancellationToken ct)
     {
         var method = string.IsNullOrWhiteSpace(c.HttpMethod) ? HttpMethod.Get : new HttpMethod(c.HttpMethod!.Trim().ToUpperInvariant());
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-        var cred = c.CredentialsEncrypted is null ? null : SafeUnprotect(c.CredentialsEncrypted);
-        ApplyAuth(request, c.AuthKind, cred);
+        // TokenExchange: el header de auth real (el token) ya viene en `headers`; NO se aplica ApplyAuth
+        // (la credencial cifrada es el secreto del LOGIN, no un token/clave para el header directo).
+        if (c.AuthKind != ConnectorAuthKind.TokenExchange)
+        {
+            var cred = c.CredentialsEncrypted is null ? null : SafeUnprotect(c.CredentialsEncrypted);
+            ApplyAuth(request, c.AuthKind, cred);
+        }
+        foreach (var (name, value) in headers) { request.Headers.TryAddWithoutValidation(name, value); }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(Timeout);
@@ -248,6 +264,104 @@ public sealed class ApiImportService : IApiImportService
         }
         catch (OperationCanceledException) { return (null, "Tiempo de espera agotado al llamar al API."); }
         catch (HttpRequestException ex) { return (null, $"Error de red al llamar al API: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Prepara los headers a aplicar en TODA request del conector: los estaticos (HeadersJson) y, cuando
+    /// el conector usa <see cref="ConnectorAuthKind.TokenExchange"/>, el header con el token ya obtenido
+    /// via el login de 2 pasos. Se llama UNA vez por corrida (el token no se pide por cada pagina).
+    /// </summary>
+    private async Task<(List<(string Name, string Value)> Headers, string? Error)> PrepareRestHeadersAsync(
+        Domain.Entities.DataConnector c, CancellationToken ct)
+    {
+        var headers = new List<(string, string)>();
+        foreach (var h in ConnectorRestConfig.ParseHeaders(c.HeadersJson))
+        {
+            headers.Add((h.Name, h.Value));
+        }
+
+        if (c.AuthKind != ConnectorAuthKind.TokenExchange) { return (headers, null); }
+
+        var cfg = ConnectorRestConfig.ParseTokenExchange(c.TokenExchangeJson);
+        if (cfg is null || string.IsNullOrWhiteSpace(cfg.TokenUrl))
+        {
+            return (headers, "El conector usa intercambio de token pero no tiene URL de token configurada.");
+        }
+        var secret = c.CredentialsEncrypted is null ? null : SafeUnprotect(c.CredentialsEncrypted);
+        var (headerName, headerValue, err) = await ExchangeTokenAsync(cfg, secret, headers, ct);
+        if (err is not null) { return (headers, err); }
+        if (headerName is not null) { headers.Add((headerName, headerValue!)); }
+        return (headers, null);
+    }
+
+    /// <summary>
+    /// Ejecuta el login del intercambio de token: POST (o el metodo configurado) a TokenUrl con un cuerpo
+    /// que lleva el usuario y el secreto descifrado, aplicando los headers estaticos. Extrae el token por
+    /// la ruta JSON configurada y devuelve el header a aplicar en las llamadas reales. Solo config del
+    /// usuario; nada hardcodeado a una fuente.
+    /// </summary>
+    private async Task<(string? HeaderName, string? HeaderValue, string? Error)> ExchangeTokenAsync(
+        TokenExchangeConfig cfg, string? secret, IReadOnlyList<(string Name, string Value)> staticHeaders, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(cfg.TokenUrl!.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return (null, null, "La URL de token debe ser una URL http(s) absoluta.");
+        }
+        if (IsBlockedHost(uri))
+        {
+            return (null, null, "La URL de token apunta a una direccion interna/no permitida.");
+        }
+
+        var method = string.IsNullOrWhiteSpace(cfg.Method) ? HttpMethod.Post : new HttpMethod(cfg.Method!.Trim().ToUpperInvariant());
+        using var request = new HttpRequestMessage(method, uri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        foreach (var (name, value) in staticHeaders) { request.Headers.TryAddWithoutValidation(name, value); }
+
+        var secretParam = string.IsNullOrWhiteSpace(cfg.SecretParamName) ? "password" : cfg.SecretParamName!.Trim();
+        if (string.Equals(cfg.BodyFormat, "form", StringComparison.OrdinalIgnoreCase))
+        {
+            var pairs = new List<KeyValuePair<string, string>>();
+            if (!string.IsNullOrWhiteSpace(cfg.Username)) { pairs.Add(new(cfg.UsernameParamName, cfg.Username!)); }
+            if (secret is not null) { pairs.Add(new(secretParam, secret)); }
+            request.Content = new FormUrlEncodedContent(pairs);
+        }
+        else
+        {
+            var body = new Dictionary<string, string>();
+            if (!string.IsNullOrWhiteSpace(cfg.Username)) { body[cfg.UsernameParamName] = cfg.Username!; }
+            if (secret is not null) { body[secretParam] = secret; }
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(Timeout);
+        try
+        {
+            using var resp = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cts.Token);
+            var respBody = await resp.Content.ReadAsStringAsync(cts.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var snippet = respBody.Length > 300 ? respBody[..300] : respBody;
+                return (null, null, $"El login del intercambio de token respondio {(int)resp.StatusCode} {resp.StatusCode}. {snippet}");
+            }
+            JsonDocument doc;
+            try { doc = JsonDocument.Parse(respBody); }
+            catch (JsonException) { return (null, null, "La respuesta del login de token no es JSON valido."); }
+            using (doc)
+            {
+                var token = ConnectorRestConfig.ResolveJsonPath(doc.RootElement, cfg.TokenJsonPath);
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    return (null, null, $"No se encontro el token en la respuesta (ruta '{cfg.TokenJsonPath}').");
+                }
+                var headerName = string.IsNullOrWhiteSpace(cfg.ApplyHeaderName) ? "Authorization" : cfg.ApplyHeaderName!.Trim();
+                var prefix = cfg.ApplyPrefix ?? "";
+                return (headerName, prefix + token, null);
+            }
+        }
+        catch (OperationCanceledException) { return (null, null, "Tiempo de espera agotado en el login del intercambio de token."); }
+        catch (HttpRequestException ex) { return (null, null, $"Error de red en el login del intercambio de token: {ex.Message}"); }
     }
 
     /// <summary>Reescribe (o agrega) un parametro del query string y devuelve la URI resultante.</summary>

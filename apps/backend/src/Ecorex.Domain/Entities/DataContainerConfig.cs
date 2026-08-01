@@ -47,6 +47,23 @@ public class DataConnector : TenantEntity
     public string? MappingJson { get; set; }
 
     /// <summary>
+    /// Headers HTTP estaticos arbitrarios que se envian en TODA request del conector (lista de
+    /// {name,value} como JSON). NO son secretos: aqui van cosas como <c>Partner-Id</c> del caso Siigo.
+    /// El secreto de auth NUNCA se guarda aqui (va cifrado en <see cref="CredentialsEncrypted"/>).
+    /// </summary>
+    public string? HeadersJson { get; set; }
+
+    /// <summary>
+    /// Config NO secreta del intercambio de token (auth de 2 pasos, <see cref="ConnectorAuthKind.TokenExchange"/>):
+    /// JSON con { tokenUrl, method, username, secretParamName, tokenJsonPath, applyHeaderName, applyPrefix,
+    /// bodyFormat }. El SECRETO del login (password/access_key) NO va aqui: reutiliza
+    /// <see cref="CredentialsEncrypted"/> (cifrado con ISecretProtector) cuando
+    /// <see cref="AuthKind"/> == <see cref="ConnectorAuthKind.TokenExchange"/>. Se reutiliza esa columna
+    /// para no proliferar campos cifrados: solo hay un secreto por conector, sea Basic/Bearer o el login.
+    /// </summary>
+    public string? TokenExchangeJson { get; set; }
+
+    /// <summary>
     /// Consulta SOLO-LECTURA que trae los datos, para conectores de tipo Database (ej.
     /// <c>SELECT id, nombre FROM ciudades</c>). Es el unico dato que faltaba para poder refrescar sin
     /// preguntarle nada al operador.

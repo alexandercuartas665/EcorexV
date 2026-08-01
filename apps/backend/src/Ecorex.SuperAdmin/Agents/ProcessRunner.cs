@@ -222,7 +222,39 @@ public sealed class ProcessRunner(
             ? (string.IsNullOrWhiteSpace(connector.HttpMethod) ? "GET" : connector.HttpMethod!)
             : parsed.HttpMethod;
 
-        var spec = parsed with { BaseUrl = baseUrl ?? string.Empty, AuthKind = authKind, HttpMethod = method };
+        // Headers estaticos y token exchange: fuente autoritativa son las columnas dedicadas del conector
+        // (HeadersJson/TokenExchangeJson). Si estan vacias, se respeta lo que trajera el propio MappingJson.
+        var headers = ConnectorRestConfig.ParseHeaders(connector.HeadersJson)
+            .Select(h => new RestHeader(h.Name, h.Value)).ToList();
+
+        RestTokenExchangeSpec? tokenExchange = null;
+        if (connector.AuthKind == ConnectorAuthKind.TokenExchange)
+        {
+            var cfg = ConnectorRestConfig.ParseTokenExchange(connector.TokenExchangeJson);
+            if (cfg is null || string.IsNullOrWhiteSpace(cfg.TokenUrl))
+            {
+                return (null, "El conector usa intercambio de token pero no tiene URL de token configurada.");
+            }
+            tokenExchange = new RestTokenExchangeSpec(
+                TokenUrl: cfg.TokenUrl!.Trim(),
+                Method: string.IsNullOrWhiteSpace(cfg.Method) ? "POST" : cfg.Method!.Trim(),
+                UsernameParam: cfg.UsernameParamName,
+                Username: cfg.Username,
+                SecretParam: string.IsNullOrWhiteSpace(cfg.SecretParamName) ? "password" : cfg.SecretParamName!.Trim(),
+                TokenJsonPath: string.IsNullOrWhiteSpace(cfg.TokenJsonPath) ? "access_token" : cfg.TokenJsonPath!.Trim(),
+                ApplyHeaderName: string.IsNullOrWhiteSpace(cfg.ApplyHeaderName) ? "Authorization" : cfg.ApplyHeaderName!.Trim(),
+                ApplyPrefix: cfg.ApplyPrefix ?? "Bearer ",
+                BodyFormat: string.IsNullOrWhiteSpace(cfg.BodyFormat) ? "json" : cfg.BodyFormat!.Trim());
+        }
+
+        var spec = parsed with
+        {
+            BaseUrl = baseUrl ?? string.Empty,
+            AuthKind = authKind,
+            HttpMethod = method,
+            Headers = headers.Count > 0 ? headers : parsed.Headers,
+            TokenExchange = tokenExchange ?? parsed.TokenExchange
+        };
         return (spec, null);
     }
 

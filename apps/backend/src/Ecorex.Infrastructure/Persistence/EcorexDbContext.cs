@@ -2557,6 +2557,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Username).HasMaxLength(150);
             b.Property(x => x.CredentialsEncrypted).HasColumnType(longTextColumnType);
             b.Property(x => x.MappingJson).HasColumnType(jsonColumnType);
+            // Headers estaticos y config del intercambio de token: JSON no secreto (mismo tipo que MappingJson).
+            b.Property(x => x.HeadersJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.TokenExchangeJson).HasColumnType(jsonColumnType);
             // Conector cuelga del contenedor (modelo): borrar el modelo borra sus conectores.
             b.HasOne(x => x.Model).WithMany()
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);

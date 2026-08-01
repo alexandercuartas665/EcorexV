@@ -77,6 +77,31 @@ public sealed class RestExecutor
             Timeout = TimeSpan.FromSeconds(Math.Clamp(spec.TimeoutSeconds, 1, 600)),
         };
 
+        // Headers estaticos arbitrarios (ej. Partner-Id) aplicados en TODA request; NO secretos.
+        var extraHeaders = new List<(string Name, string Value)>();
+        if (spec.Headers is not null)
+        {
+            foreach (var h in spec.Headers)
+            {
+                if (h is not null && !string.IsNullOrWhiteSpace(h.Name)) { extraHeaders.Add((h.Name.Trim(), h.Value ?? "")); }
+            }
+        }
+
+        // Auth de 2 pasos: resuelve el token UNA vez (login con el secreto que viaja en ConnectorSpec.Secret),
+        // lo agrega como header y de ahi en mas las llamadas reales van con authKind None (el token cubre la auth).
+        var effectiveAuthKind = spec.AuthKind;
+        var tokenExchange = spec.TokenExchange;
+        if (tokenExchange is null && string.Equals(spec.AuthKind, "TokenExchange", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GatewayException("REST_TOKEN_SPEC", "AuthKind=TokenExchange pero no llego la config de intercambio de token.");
+        }
+        if (tokenExchange is not null)
+        {
+            var (hn, hv) = await ExchangeTokenAsync(http, tokenExchange, cred, extraHeaders, ct);
+            extraHeaders.Add((hn, hv));
+            effectiveAuthKind = "None";
+        }
+
         var batch = new List<Dictionary<string, string?>>(ChunkRows);
         var chunkIndex = 0;
         var firstChunk = true;
@@ -103,7 +128,7 @@ public sealed class RestExecutor
             ct.ThrowIfCancellationRequested();
 
             var listUri = BuildPagedUri(spec.BaseUrl, spec.ListPath, paging, paginated, page);
-            var listDoc = await FetchAsync(http, listUri, spec.AuthKind, cred, "REST_LIST", ct);
+            var listDoc = await FetchAsync(http, listUri, effectiveAuthKind, cred, extraHeaders, "REST_LIST", ct);
             using var _ = listDoc;
 
             var items = RestJson.Collection(listDoc.RootElement, spec.ArrayPath);
@@ -131,7 +156,7 @@ public sealed class RestExecutor
 
                 var detailPath = spec.Fanout.DetailPathTemplate.Replace("{id}", Uri.EscapeDataString(id));
                 var detailUri = Combine(spec.BaseUrl, detailPath);
-                var detailDoc = await FetchAsync(http, detailUri, spec.AuthKind, cred, "REST_DETAIL", ct);
+                var detailDoc = await FetchAsync(http, detailUri, effectiveAuthKind, cred, extraHeaders, "REST_DETAIL", ct);
                 detailCalls++;
 
                 using (detailDoc)
@@ -227,16 +252,19 @@ public sealed class RestExecutor
 
     // ---- HTTP ----
 
-    private Task<JsonDocument> FetchAsync(HttpClient http, Uri uri, string authKind, string? cred, string code, CancellationToken ct) =>
+    private Task<JsonDocument> FetchAsync(HttpClient http, Uri uri, string authKind, string? cred,
+        IReadOnlyList<(string Name, string Value)> headers, string code, CancellationToken ct) =>
         _fetchForTest is not null
             ? _fetchForTest(uri, authKind, cred, code, ct)
-            : FetchJsonAsync(http, uri, authKind, cred, code, ct);
+            : FetchJsonAsync(http, uri, authKind, cred, headers, code, ct);
 
-    private static async Task<JsonDocument> FetchJsonAsync(HttpClient http, Uri uri, string authKind, string? cred, string code, CancellationToken ct)
+    private static async Task<JsonDocument> FetchJsonAsync(HttpClient http, Uri uri, string authKind, string? cred,
+        IReadOnlyList<(string Name, string Value)> headers, string code, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         ApplyAuth(request, authKind, cred);
+        foreach (var (name, value) in headers) { request.Headers.TryAddWithoutValidation(name, value); }
 
         HttpResponseMessage resp;
         string body;
@@ -281,6 +309,89 @@ public sealed class RestExecutor
                 break;
             default:
                 break;
+        }
+    }
+
+    // ---- Intercambio de token (auth de 2 pasos) ----
+
+    /// <summary>
+    /// Ejecuta el login del intercambio de token y devuelve el header (nombre, valor) a aplicar en las
+    /// llamadas reales. El secreto del login llega en <paramref name="secret"/> (ConnectorSpec.Secret),
+    /// nunca en el spec. Los headers estaticos tambien se envian en el login. Reusa el fetcher de prueba
+    /// si esta presente (para tests sin red).
+    /// </summary>
+    private async Task<(string Name, string Value)> ExchangeTokenAsync(HttpClient http, RestTokenExchangeSpec tx,
+        string? secret, IReadOnlyList<(string Name, string Value)> staticHeaders, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(tx.TokenUrl) ||
+            !Uri.TryCreate(tx.TokenUrl.Trim(), UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new GatewayException("REST_TOKEN_URL", "La URL de token debe ser una URL http(s) absoluta.");
+        }
+
+        JsonDocument doc = _fetchForTest is not null
+            ? await _fetchForTest(uri, "tokenexchange", secret, "REST_TOKEN", ct)
+            : await PostForTokenAsync(http, uri, tx, secret, staticHeaders, ct);
+
+        using (doc)
+        {
+            var token = RestJson.TryResolve(doc.RootElement, tx.TokenJsonPath, out var v) ? RestJson.Scalar(v) : null;
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                throw new GatewayException("REST_TOKEN_NOTFOUND", $"No se encontro el token en la respuesta del login (ruta '{tx.TokenJsonPath}').");
+            }
+            var headerName = string.IsNullOrWhiteSpace(tx.ApplyHeaderName) ? "Authorization" : tx.ApplyHeaderName.Trim();
+            return (headerName, (tx.ApplyPrefix ?? "") + token);
+        }
+    }
+
+    private static async Task<JsonDocument> PostForTokenAsync(HttpClient http, Uri uri, RestTokenExchangeSpec tx,
+        string? secret, IReadOnlyList<(string Name, string Value)> staticHeaders, CancellationToken ct)
+    {
+        var method = string.IsNullOrWhiteSpace(tx.Method) ? HttpMethod.Post : new HttpMethod(tx.Method.Trim().ToUpperInvariant());
+        using var request = new HttpRequestMessage(method, uri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        foreach (var (name, value) in staticHeaders) { request.Headers.TryAddWithoutValidation(name, value); }
+
+        var userParam = string.IsNullOrWhiteSpace(tx.UsernameParam) ? "username" : tx.UsernameParam.Trim();
+        var secretParam = string.IsNullOrWhiteSpace(tx.SecretParam) ? "password" : tx.SecretParam.Trim();
+        if (string.Equals(tx.BodyFormat, "form", StringComparison.OrdinalIgnoreCase))
+        {
+            var pairs = new List<KeyValuePair<string, string>>();
+            if (!string.IsNullOrWhiteSpace(tx.Username)) { pairs.Add(new(userParam, tx.Username!)); }
+            if (secret is not null) { pairs.Add(new(secretParam, secret)); }
+            request.Content = new FormUrlEncodedContent(pairs);
+        }
+        else
+        {
+            var body = new Dictionary<string, string>();
+            if (!string.IsNullOrWhiteSpace(tx.Username)) { body[userParam] = tx.Username!; }
+            if (secret is not null) { body[secretParam] = secret; }
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+
+        HttpResponseMessage resp;
+        string respBody;
+        try
+        {
+            resp = await http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+            respBody = await resp.Content.ReadAsStringAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) { throw new GatewayException("REST_TOKEN_TIMEOUT", $"Tiempo de espera agotado en el login del token ({Safe(uri)}).", retryable: true); }
+        catch (HttpRequestException ex) { throw new GatewayException("REST_TOKEN_NET", $"Error de red en el login del token ({Safe(uri)}): {ex.Message}", retryable: true); }
+
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+            {
+                var snippet = respBody.Length > 300 ? respBody[..300] : respBody;
+                var retry = (int)resp.StatusCode >= 500 || (int)resp.StatusCode == 429;
+                throw new GatewayException("REST_TOKEN_HTTP", $"El login del token respondio {(int)resp.StatusCode} {resp.StatusCode}. {snippet}", retry);
+            }
+            try { return JsonDocument.Parse(respBody); }
+            catch (JsonException) { throw new GatewayException("REST_TOKEN_JSON", "La respuesta del login del token no es JSON valido."); }
         }
     }
 

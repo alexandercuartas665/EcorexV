@@ -3,9 +3,11 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using System.Security.Claims
+@using System.Text.Json
 @using Ecorex.Application.DataContainers
 @using Ecorex.Application.MenuConfig
 @using Ecorex.Application.Roles
+@using Ecorex.Contracts.Agent
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @using Microsoft.AspNetCore.Components.Authorization
@@ -363,10 +365,129 @@ else
                                                 <option value="@ConnectorAuthKind.ApiKey">API Key</option>
                                                 <option value="@ConnectorAuthKind.Bearer">Bearer</option>
                                                 <option value="@ConnectorAuthKind.Basic">Basic</option>
+                                                <option value="@ConnectorAuthKind.TokenExchange">Intercambio de token (2 pasos)</option>
                                             </select>
                                         </div>
-                                        <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales (Basic: usuario:clave)" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
-                                        <textarea class="form-control" rows="6" placeholder="Mapeo JSON. Opcional para importar manual; para traer via AGENTE va el RestFetchSpec: BaseUrl, ListPath, ArrayPath, Paging, Fanout (fan-out lista->detalle) y Fields (mapeo campo->columna)." @bind="_conMapping"></textarea>
+
+                                        @if (_conAuth == ConnectorAuthKind.TokenExchange)
+                                        {
+                                            <div class="dc-sub-block">
+                                                <div class="dc-section-sub">Intercambio de token (2 pasos)</div>
+                                                <div class="text-muted" style="font-size:11px;margin-bottom:4px;">Primero un login (usuario + secreto) que devuelve un token; ese token se aplica luego como header en las llamadas reales.</div>
+                                                <input class="form-control" placeholder="URL de token (login)" @bind="_conTokTokenUrl" />
+                                                <div style="display:flex;gap:6px;">
+                                                    <input class="form-control" placeholder="Metodo (POST)" @bind="_conTokMethod" style="max-width:110px;" />
+                                                    <select class="form-control" @bind="_conTokBodyFormat">
+                                                        <option value="json">Cuerpo JSON</option>
+                                                        <option value="form">Cuerpo form-url</option>
+                                                    </select>
+                                                </div>
+                                                <input class="form-control" placeholder="Usuario (username)" @bind="_conTokUsername" />
+                                                <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Secreto del login (access_key / password)" : "Secreto del login (vacio = conservar)")" @bind="_conCreds" />
+                                                <div style="display:flex;gap:6px;">
+                                                    <input class="form-control" placeholder="Campo del secreto (access_key)" @bind="_conTokSecretParam" />
+                                                    <input class="form-control" placeholder="Ruta JSON del token (access_token)" @bind="_conTokTokenPath" />
+                                                </div>
+                                                <div style="display:flex;gap:6px;">
+                                                    <input class="form-control" placeholder="Header destino (Authorization)" @bind="_conTokApplyHeader" />
+                                                    <input class="form-control" placeholder="Prefijo (Bearer )" @bind="_conTokApplyPrefix" style="max-width:130px;" />
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <input class="form-control" type="password" placeholder="@(_conEditId is null ? "Credenciales (Basic: usuario:clave)" : "Credenciales (vacio = conservar)")" @bind="_conCreds" />
+                                        }
+
+                                        @* ----- Headers estaticos arbitrarios (ej. Partner-Id) ----- *@
+                                        <div class="dc-sub-block">
+                                            <div class="dc-section-sub">Headers (se envian en toda llamada)</div>
+                                            @foreach (var h in _conHeaders)
+                                            {
+                                                <div style="display:flex;gap:6px;margin-bottom:4px;">
+                                                    <input class="form-control" placeholder="Nombre (Partner-Id)" @bind="h.Name" />
+                                                    <input class="form-control" placeholder="Valor" @bind="h.Value" />
+                                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => _conHeaders.Remove(h)" type="button" title="Quitar header">&times;</button>
+                                                </div>
+                                            }
+                                            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => _conHeaders.Add(new HeaderRow())">+ Agregar header</button>
+                                        </div>
+
+                                        @* ----- Mapeo estructurado (lee/escribe el mismo RestFetchSpec del agente) ----- *@
+                                        <div class="dc-sub-block">
+                                            <div class="dc-section-sub">Mapeo y paginacion</div>
+                                            <input class="form-control" placeholder="Ruta del arreglo (ArrayPath, opcional; ej. data)" @bind="_conArrayPath" />
+
+                                            <label class="dc-req" style="margin-top:4px;"><input type="checkbox" @bind="_conPageAll" /> Paginar (recorrer pagina por pagina)</label>
+                                            @if (_conPageAll)
+                                            {
+                                                <div class="dc-map-row"><span class="dc-map-col">Estilo</span>
+                                                    <select class="form-control" @bind="_conPagingMode">
+                                                        <option value="@PagingMode.Offset">Desplazamiento (start/limit)</option>
+                                                        <option value="@PagingMode.Page">Numero de pagina (page)</option>
+                                                    </select>
+                                                </div>
+                                                @if (_conPagingMode == PagingMode.Offset)
+                                                {
+                                                    <div class="dc-map-row"><span class="dc-map-col">Parametro desplazamiento</span><input class="form-control" @bind="_conOffsetParam" /></div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="dc-map-row"><span class="dc-map-col">Parametro pagina</span><input class="form-control" @bind="_conPageParam" /></div>
+                                                    <div class="dc-map-row"><span class="dc-map-col">Pagina inicial</span><input class="form-control" type="number" @bind="_conStartValue" /></div>
+                                                }
+                                                <div class="dc-map-row"><span class="dc-map-col">Parametro limite</span><input class="form-control" @bind="_conLimitParam" /></div>
+                                                <div class="dc-map-row"><span class="dc-map-col">Tamano de pagina</span><input class="form-control" type="number" @bind="_conPageSize" /></div>
+                                                <div class="dc-map-row"><span class="dc-map-col">Max paginas (tope)</span><input class="form-control" type="number" @bind="_conMaxPages" /></div>
+                                            }
+
+                                            <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                                                @if (_conEditId is not null)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="ProbeConnectorAsync" disabled="@_busy">@(_busy ? "..." : "Descubrir campos")</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="TestConnectorAsync" disabled="@_busy">@(_busy ? "..." : "Probar")</button>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted" style="font-size:11px;">Guarda el conector para descubrir campos / probar.</span>
+                                                }
+                                            </div>
+                                            @if (_conProbeMsg is not null) { <div class="dc-flash-ok" style="margin-top:4px;">@_conProbeMsg</div> }
+                                            @if (_conTestMsg is not null) { <div class="dc-flash-ok" style="margin-top:4px;">@_conTestMsg</div> }
+                                            @if (!string.IsNullOrEmpty(_conTestSample)) { <pre class="dc-api-sample" style="margin-top:4px;">@_conTestSample</pre> }
+
+                                            <datalist id="conProbeFields">
+                                                @foreach (var f in _conProbeFields) { <option value="@f"></option> }
+                                            </datalist>
+
+                                            @{ var conCols = ConTargetColumns().ToList(); }
+                                            @if (Guid.TryParse(_conContainerId, out _))
+                                            {
+                                                <div class="dc-section-title" style="margin-top:8px;">Mapeo: columna &#8592; campo del API</div>
+                                                @if (conCols.Count == 0)
+                                                {
+                                                    <div class="text-muted" style="font-size:11px;">La tabla destino no tiene columnas escalares. Agrega campos a la tabla.</div>
+                                                }
+                                                @foreach (var col in conCols)
+                                                {
+                                                    <div class="dc-map-row">
+                                                        <span class="dc-map-col">@col.Name <span class="dc-th-type">@TypeShort(col.Type)</span></span>
+                                                        <input class="form-control" list="conProbeFields" placeholder="campo/ruta del API"
+                                                               value="@GetConFieldMap(col.Name)" @onchange="e => SetConFieldMap(col.Name, e.Value?.ToString())" />
+                                                    </div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <div class="text-muted" style="font-size:11px;margin-top:4px;">Elige la tabla destino arriba para mapear columna &#8592; campo.</div>
+                                            }
+
+                                            <label class="dc-req" style="margin-top:6px;"><input type="checkbox" @bind="_conAdvancedJson" /> JSON avanzado (RestFetchSpec crudo)</label>
+                                            @if (_conAdvancedJson)
+                                            {
+                                                <textarea class="form-control" rows="6" placeholder="RestFetchSpec crudo: BaseUrl, ListPath, ArrayPath, Paging, Fanout (fan-out lista->detalle) y Fields. Reemplaza al mapeo estructurado al guardar." @bind="_conMapping"></textarea>
+                                            }
+                                        </div>
                                     }
                                     else if (_conKind == ConnectorKind.Database)
                                     {
@@ -1145,6 +1266,42 @@ else
     /// <summary>Tabla destino del conector (Guid como texto: el select lo maneja asi). "" = sin elegir.</summary>
     private string _conContainerId = "";
 
+    // ---- Conector REST: headers estaticos + intercambio de token + mapeo estructurado ----
+    private sealed class HeaderRow { public string Name { get; set; } = ""; public string Value { get; set; } = ""; }
+    private List<HeaderRow> _conHeaders = new();
+
+    // Intercambio de token (2 pasos). El secreto del login usa _conCreds (se cifra como cualquier credencial).
+    private string _conTokTokenUrl = "";
+    private string _conTokMethod = "POST";
+    private string _conTokUsername = "";
+    private string _conTokSecretParam = "access_key";
+    private string _conTokTokenPath = "access_token";
+    private string _conTokApplyHeader = "Authorization";
+    private string _conTokApplyPrefix = "Bearer ";
+    private string _conTokBodyFormat = "json";
+
+    // Mapeo estructurado (lee/escribe el MISMO MappingJson = RestFetchSpec que consume el agente).
+    private string _conArrayPath = "";
+    private bool _conPageAll;
+    private PagingMode _conPagingMode = PagingMode.Offset;
+    private string _conOffsetParam = "start";
+    private string _conPageParam = "page";
+    private string _conLimitParam = "limit";
+    private int _conPageSize = 100;
+    private int _conStartValue = 1;
+    private int _conMaxPages = 100;
+    /// <summary>Mapeo columna(nombre) -> ruta del campo del API. Se serializa a RestFetchSpec.Fields.</summary>
+    private readonly Dictionary<string, string> _conFieldMap = new(StringComparer.Ordinal);
+    /// <summary>Campos descubiertos por el probe, para sugerir en el datalist del mapeo.</summary>
+    private List<string> _conProbeFields = new();
+    /// <summary>Modo JSON avanzado (respaldo): edita el RestFetchSpec crudo en _conMapping.</summary>
+    private bool _conAdvancedJson;
+    private string? _conProbeMsg;
+    private string? _conTestMsg;
+    private string? _conTestSample;
+    /// <summary>Fanout preservado del MappingJson original (la UI estructurada no lo edita, pero no lo pierde).</summary>
+    private RestFanoutSpec? _conFanoutPreserved;
+
     // ---- "Actualizar datos": ejecuta una programacion AHORA ----
 
     private readonly Dictionary<Guid, (bool Ok, string Message)> _runResult = new();
@@ -1733,6 +1890,7 @@ else
         _conActive = c.IsActive;
         _conContainerId = c.ContainerId?.ToString() ?? "";
         _conError = null;
+        LoadRestConfigStructured(c);
     }
 
     private void ResetConnectorForm()
@@ -1754,6 +1912,94 @@ else
         _conActive = true;
         _conContainerId = "";
         _conError = null;
+        ResetRestConfigStructured();
+    }
+
+    /// <summary>Deja los campos REST (headers, token exchange, mapeo estructurado) en su estado por defecto.</summary>
+    private void ResetRestConfigStructured()
+    {
+        _conHeaders = new();
+        _conTokTokenUrl = "";
+        _conTokMethod = "POST";
+        _conTokUsername = "";
+        _conTokSecretParam = "access_key";
+        _conTokTokenPath = "access_token";
+        _conTokApplyHeader = "Authorization";
+        _conTokApplyPrefix = "Bearer ";
+        _conTokBodyFormat = "json";
+        _conArrayPath = "";
+        _conPageAll = false;
+        _conPagingMode = PagingMode.Offset;
+        _conOffsetParam = "start";
+        _conPageParam = "page";
+        _conLimitParam = "limit";
+        _conPageSize = 100;
+        _conStartValue = 1;
+        _conMaxPages = 100;
+        _conFieldMap.Clear();
+        _conProbeFields = new();
+        _conAdvancedJson = false;
+        _conFanoutPreserved = null;
+        _conProbeMsg = null;
+        _conTestMsg = null;
+        _conTestSample = null;
+    }
+
+    /// <summary>Carga los campos estructurados REST desde el conector (headers, token exchange y el
+    /// RestFetchSpec del MappingJson). Preserva Fanout y, si el JSON es un caso avanzado, activa el modo JSON.</summary>
+    private void LoadRestConfigStructured(DataConnectorDto c)
+    {
+        ResetRestConfigStructured();
+
+        _conHeaders = ConnectorRestConfig.ParseHeaders(c.HeadersJson)
+            .Select(h => new HeaderRow { Name = h.Name, Value = h.Value }).ToList();
+
+        var tx = ConnectorRestConfig.ParseTokenExchange(c.TokenExchangeJson);
+        if (tx is not null)
+        {
+            _conTokTokenUrl = tx.TokenUrl ?? "";
+            _conTokMethod = string.IsNullOrWhiteSpace(tx.Method) ? "POST" : tx.Method!;
+            _conTokUsername = tx.Username ?? "";
+            _conTokSecretParam = string.IsNullOrWhiteSpace(tx.SecretParamName) ? "access_key" : tx.SecretParamName!;
+            _conTokTokenPath = string.IsNullOrWhiteSpace(tx.TokenJsonPath) ? "access_token" : tx.TokenJsonPath!;
+            _conTokApplyHeader = string.IsNullOrWhiteSpace(tx.ApplyHeaderName) ? "Authorization" : tx.ApplyHeaderName!;
+            _conTokApplyPrefix = tx.ApplyPrefix ?? "Bearer ";
+            _conTokBodyFormat = string.IsNullOrWhiteSpace(tx.BodyFormat) ? "json" : tx.BodyFormat!;
+        }
+
+        if (string.IsNullOrWhiteSpace(c.MappingJson)) { return; }
+        try
+        {
+            var spec = JsonSerializer.Deserialize<RestFetchSpec>(c.MappingJson, ConnectorRestConfig.JsonOptions);
+            if (spec is null) { return; }
+            _conArrayPath = spec.ArrayPath ?? "";
+            _conFanoutPreserved = spec.Fanout;
+            if (spec.Paging is not null && !string.Equals(spec.Paging.Mode, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                _conPageAll = true;
+                _conPagingMode = string.Equals(spec.Paging.Mode, "Page", StringComparison.OrdinalIgnoreCase) ? PagingMode.Page : PagingMode.Offset;
+                _conOffsetParam = spec.Paging.OffsetParam;
+                _conPageParam = spec.Paging.PageParam;
+                _conLimitParam = spec.Paging.LimitParam;
+                _conPageSize = spec.Paging.PageSize;
+                _conStartValue = spec.Paging.StartValue;
+                _conMaxPages = spec.Paging.MaxPages;
+            }
+            if (spec.Fields is not null)
+            {
+                foreach (var f in spec.Fields)
+                {
+                    if (!string.IsNullOrWhiteSpace(f.Column)) { _conFieldMap[f.Column] = f.Path ?? ""; }
+                }
+            }
+            // Fanout es un caso avanzado (fan-out lista->detalle): se edita en modo JSON para no perderlo.
+            if (spec.Fanout is not null) { _conAdvancedJson = true; }
+        }
+        catch (JsonException)
+        {
+            // MappingJson no parsea como RestFetchSpec: se muestra crudo en modo JSON avanzado.
+            _conAdvancedJson = true;
+        }
     }
 
     private Task SaveConnectorAsync() => GuardAsync(async () =>
@@ -1766,6 +2012,36 @@ else
         {
             DbEngine? engine = _conKind == ConnectorKind.Database ? ParseEngine(_conEngine) : null;
             int? port = _conKind == ConnectorKind.Database && int.TryParse(_conPort, out var pp) ? pp : null;
+
+            // REST: headers estaticos, config de token exchange y el MappingJson (RestFetchSpec) desde la UI.
+            string? headersJson = null;
+            string? tokenExchangeJson = null;
+            string? mappingJson = null;
+            if (_conKind == ConnectorKind.RestApi)
+            {
+                var cleanHeaders = _conHeaders
+                    .Where(h => !string.IsNullOrWhiteSpace(h.Name))
+                    .Select(h => new ConnectorHeader(h.Name.Trim(), h.Value ?? ""))
+                    .ToList();
+                if (cleanHeaders.Count > 0) { headersJson = ConnectorRestConfig.Serialize(cleanHeaders); }
+
+                if (_conAuth == ConnectorAuthKind.TokenExchange)
+                {
+                    var cfg = new TokenExchangeConfig(
+                        TokenUrl: NullIfBlank(_conTokTokenUrl),
+                        Method: NullIfBlank(_conTokMethod),
+                        Username: NullIfBlank(_conTokUsername),
+                        SecretParamName: NullIfBlank(_conTokSecretParam),
+                        TokenJsonPath: NullIfBlank(_conTokTokenPath),
+                        ApplyHeaderName: NullIfBlank(_conTokApplyHeader),
+                        ApplyPrefix: _conTokApplyPrefix,
+                        BodyFormat: NullIfBlank(_conTokBodyFormat));
+                    tokenExchangeJson = ConnectorRestConfig.Serialize(cfg);
+                }
+
+                mappingJson = BuildConMappingJson();
+            }
+
             var req = new SaveDataConnectorRequest(
                 _conEditId, modelId, _conName.Trim(), _conKind,
                 _conKind == ConnectorKind.RestApi ? NullIfBlank(_conEndpoint) : null,
@@ -1778,9 +2054,11 @@ else
                 _conKind == ConnectorKind.Database ? NullIfBlank(_conUser) : null,
                 NullIfBlank(_conCreds),
                 _conKind == ConnectorKind.Database ? NullIfBlank(_conQuery) : null,
-                _conKind == ConnectorKind.RestApi ? NullIfBlank(_conMapping) : null,
+                mappingJson,
                 _conActive,
-                Guid.TryParse(_conContainerId, out var tgt) ? tgt : null);
+                Guid.TryParse(_conContainerId, out var tgt) ? tgt : null,
+                headersJson,
+                tokenExchangeJson);
             var saved = await ConfigSvc.SaveConnectorAsync(req, _actor);
             if (saved is null) { _conError = "No se pudo guardar el conector."; return; }
             _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
@@ -1799,6 +2077,122 @@ else
             await ConfigSvc.DeleteConnectorAsync(id, _actor);
             _connectors = await ConfigSvc.ListConnectorsAsync(modelId);
             if (_conEditId == id) { ResetConnectorForm(); }
+        }
+        catch (Exception ex) { _conError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    // ---------- Conector REST: mapeo estructurado + probe/test ----------
+
+    /// <summary>
+    /// Construye el MappingJson (RestFetchSpec) desde la UI estructurada. En modo JSON avanzado devuelve el
+    /// texto crudo tal cual. Preserva Fanout (y BaseUrl/ListPath/HttpMethod/AuthKind si el JSON los traia).
+    /// </summary>
+    private string? BuildConMappingJson()
+    {
+        if (_conAdvancedJson) { return NullIfBlank(_conMapping); }
+
+        RestFetchSpec? baseSpec = null;
+        if (!string.IsNullOrWhiteSpace(_conMapping))
+        {
+            try { baseSpec = JsonSerializer.Deserialize<RestFetchSpec>(_conMapping, ConnectorRestConfig.JsonOptions); }
+            catch (JsonException) { baseSpec = null; }
+        }
+
+        var fields = _conFieldMap
+            .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
+            .Select(kv => new RestFieldMap(kv.Key, kv.Value.Trim()))
+            .ToList();
+
+        RestPagingSpec? paging = _conPageAll
+            ? new RestPagingSpec(
+                Mode: _conPagingMode == PagingMode.Page ? "Page" : "Offset",
+                OffsetParam: string.IsNullOrWhiteSpace(_conOffsetParam) ? "start" : _conOffsetParam.Trim(),
+                LimitParam: string.IsNullOrWhiteSpace(_conLimitParam) ? "limit" : _conLimitParam.Trim(),
+                PageParam: string.IsNullOrWhiteSpace(_conPageParam) ? "page" : _conPageParam.Trim(),
+                StartValue: _conPagingMode == PagingMode.Page ? Math.Max(0, _conStartValue) : 0,
+                PageSize: Math.Max(1, _conPageSize),
+                MaxPages: Math.Max(1, _conMaxPages))
+            : null;
+
+        var fanout = _conFanoutPreserved ?? baseSpec?.Fanout;
+
+        // Nada util que guardar: no crees un mapeo vacio.
+        if (fields.Count == 0 && string.IsNullOrWhiteSpace(_conArrayPath) && paging is null && fanout is null
+            && string.IsNullOrWhiteSpace(baseSpec?.BaseUrl) && string.IsNullOrWhiteSpace(baseSpec?.ListPath))
+        {
+            return null;
+        }
+
+        var spec = new RestFetchSpec(
+            BaseUrl: baseSpec?.BaseUrl ?? "",
+            ListPath: baseSpec?.ListPath ?? "",
+            HttpMethod: baseSpec?.HttpMethod ?? "GET",
+            AuthKind: baseSpec?.AuthKind ?? "None",
+            ArrayPath: NullIfBlank(_conArrayPath),
+            Paging: paging,
+            Fanout: fanout,
+            Fields: fields.Count > 0 ? fields : null);
+
+        return JsonSerializer.Serialize(spec, ConnectorRestConfig.JsonOptions);
+    }
+
+    /// <summary>Columnas escalares de la tabla destino del conector (para el mapeo columna &#8592; campo).</summary>
+    private IEnumerable<DataContainerColumnDto> ConTargetColumns()
+    {
+        if (!Guid.TryParse(_conContainerId, out var tid)) { return Enumerable.Empty<DataContainerColumnDto>(); }
+        var t = _detail?.Tables.FirstOrDefault(x => x.Id == tid);
+        if (t is null) { return Enumerable.Empty<DataContainerColumnDto>(); }
+        return t.Columns
+            .Where(c => c.Type is DataContainerColumnType.Text or DataContainerColumnType.Number
+                or DataContainerColumnType.Decimal or DataContainerColumnType.Date or DataContainerColumnType.Boolean)
+            .OrderBy(c => c.SortOrder);
+    }
+
+    private string GetConFieldMap(string colName) => _conFieldMap.TryGetValue(colName, out var v) ? v : "";
+    private void SetConFieldMap(string colName, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) { _conFieldMap.Remove(colName); }
+        else { _conFieldMap[colName] = path.Trim(); }
+    }
+
+    /// <summary>Descubre los campos del API (probe real sobre el conector GUARDADO) y auto-mapea por nombre.</summary>
+    private Task ProbeConnectorAsync() => GuardAsync(async () =>
+    {
+        if (_conEditId is null) { return; }
+        _conProbeMsg = null; _conTestMsg = null; _conTestSample = null; _conError = null;
+        _busy = true;
+        try
+        {
+            var r = await ApiSvc.ProbeAsync(_conEditId.Value, NullIfBlank(_conArrayPath));
+            if (!r.Success) { _conError = r.Error ?? "No se pudo leer el API."; return; }
+            _conProbeFields = r.Fields.ToList();
+            if (string.IsNullOrWhiteSpace(_conArrayPath) && !string.IsNullOrEmpty(r.DetectedArrayPath)) { _conArrayPath = r.DetectedArrayPath!; }
+            foreach (var col in ConTargetColumns())
+            {
+                if (_conFieldMap.TryGetValue(col.Name, out var cur) && !string.IsNullOrWhiteSpace(cur)) { continue; }
+                var match = r.Fields.FirstOrDefault(f => string.Equals(f, col.Name, StringComparison.OrdinalIgnoreCase));
+                if (match is not null) { _conFieldMap[col.Name] = match; }
+            }
+            _conProbeMsg = $"Se detectaron {r.Fields.Count} campos y {r.Count} registros.";
+        }
+        catch (Exception ex) { _conError = ex.Message; }
+        finally { _busy = false; }
+    });
+
+    /// <summary>Prueba autonoma del conector: hace un fetch real (via ApiImportService) aplicando headers
+    /// + intercambio de token y muestra ok/error, nro de registros y una muestra. Prueba lo GUARDADO.</summary>
+    private Task TestConnectorAsync() => GuardAsync(async () =>
+    {
+        if (_conEditId is null) { return; }
+        _conTestMsg = null; _conTestSample = null; _conProbeMsg = null; _conError = null;
+        _busy = true;
+        try
+        {
+            var r = await ApiSvc.ProbeAsync(_conEditId.Value, NullIfBlank(_conArrayPath));
+            if (!r.Success) { _conError = r.Error ?? "El API no respondio como se esperaba."; return; }
+            _conTestMsg = $"OK: {r.Count} registros, {r.Fields.Count} campos.";
+            _conTestSample = r.SamplePretty;
         }
         catch (Exception ex) { _conError = ex.Message; }
         finally { _busy = false; }

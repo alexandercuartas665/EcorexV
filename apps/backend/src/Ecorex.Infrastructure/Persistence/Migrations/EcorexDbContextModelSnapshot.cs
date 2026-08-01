@@ -2084,6 +2084,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("endpoint_url");
 
+                    b.Property<string>("HeadersJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("headers_json");
+
                     b.Property<string>("Host")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -2129,6 +2133,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenExchangeJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("token_exchange_json");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -4103,6 +4111,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("DefinitionId")
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
+
+                    b.Property<bool>("InlineLabels")
+                        .HasColumnType("boolean")
+                        .HasColumnName("inline_labels");
 
                     b.Property<bool>("IsHidden")
                         .HasColumnType("boolean")

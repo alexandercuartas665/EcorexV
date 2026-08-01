@@ -99,6 +99,11 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.EndpointUrl = string.IsNullOrWhiteSpace(req.EndpointUrl) ? null : req.EndpointUrl!.Trim();
                 entity.HttpMethod = string.IsNullOrWhiteSpace(req.HttpMethod) ? null : req.HttpMethod!.Trim();
                 entity.AuthKind = req.AuthKind;
+                // Headers estaticos y config del intercambio de token (no secretos). El secreto del login
+                // (cuando AuthKind==TokenExchange) viaja en req.Credentials y se cifra abajo como cualquier credencial.
+                entity.HeadersJson = string.IsNullOrWhiteSpace(req.HeadersJson) ? null : req.HeadersJson;
+                entity.TokenExchangeJson = req.AuthKind == ConnectorAuthKind.TokenExchange && !string.IsNullOrWhiteSpace(req.TokenExchangeJson)
+                    ? req.TokenExchangeJson : null;
                 entity.DbEngine = null;
                 entity.Host = null;
                 entity.Port = null;
@@ -116,12 +121,16 @@ public sealed class DataImportConfigService : IDataImportConfigService
                 entity.EndpointUrl = null;
                 entity.HttpMethod = null;
                 entity.AuthKind = ConnectorAuthKind.None;
+                entity.HeadersJson = null;
+                entity.TokenExchangeJson = null;
                 break;
             case ConnectorKind.Excel:
             default:
                 entity.EndpointUrl = null;
                 entity.HttpMethod = null;
                 entity.AuthKind = ConnectorAuthKind.None;
+                entity.HeadersJson = null;
+                entity.TokenExchangeJson = null;
                 entity.DbEngine = null;
                 entity.Host = null;
                 entity.Port = null;
@@ -356,7 +365,8 @@ public sealed class DataImportConfigService : IDataImportConfigService
             c.DbEngine, c.Host, c.Port, c.DatabaseName, c.Username, c.Query,
             c.CredentialsEncrypted != null, c.MappingJson, c.IsActive,
             c.ContainerId,
-            c.ContainerId is Guid t && tableNames is not null && tableNames.TryGetValue(t, out var n) ? n : null);
+            c.ContainerId is Guid t && tableNames is not null && tableNames.TryGetValue(t, out var n) ? n : null,
+            c.HeadersJson, c.TokenExchangeJson);
 
     private static DataDestinationDto MapDestination(DataDestination d) =>
         new(d.ModelId, d.Kind, d.DbEngine, d.Host, d.Port, d.DatabaseName, d.Username,

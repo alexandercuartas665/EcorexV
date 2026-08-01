@@ -62,7 +62,15 @@ public enum ConnectorAuthKind
     /// <summary>Token portador (Authorization: Bearer ...).</summary>
     Bearer,
     /// <summary>Usuario y contrasena (Basic).</summary>
-    Basic
+    Basic,
+    /// <summary>
+    /// Auth de 2 pasos (intercambio de token): primero un POST de login (usuario + secreto) que
+    /// devuelve un token en el JSON; ese token se aplica luego como header en las llamadas reales
+    /// (ej. Siigo: login -> access_token -> Authorization: Bearer). La config NO secreta viaja en
+    /// <c>DataConnector.TokenExchangeJson</c>; el secreto del login reutiliza
+    /// <c>DataConnector.CredentialsEncrypted</c> (cifrado).
+    /// </summary>
+    TokenExchange
 }
 
 /// <summary>Como se programa la corrida de un proceso de importacion.</summary>

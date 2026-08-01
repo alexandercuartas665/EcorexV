@@ -43,7 +43,13 @@ public sealed record DataConnectorDto(
     Guid? ContainerId = null,
 
     /// <summary>Nombre de esa tabla, para pintarlo sin otra consulta.</summary>
-    string? ContainerName = null);
+    string? ContainerName = null,
+
+    /// <summary>Headers HTTP estaticos arbitrarios (JSON, lista de {name,value}). NO secretos.</summary>
+    string? HeadersJson = null,
+
+    /// <summary>Config NO secreta del intercambio de token (JSON). El secreto va cifrado en credenciales.</summary>
+    string? TokenExchangeJson = null);
 
 /// <summary>Alta/edicion de un conector. Credentials en claro (input); se cifra al persistir.
 /// Si Credentials es null en edicion, se conservan las existentes.</summary>
@@ -66,7 +72,13 @@ public sealed record SaveDataConnectorRequest(
     bool IsActive = true,
 
     /// <summary>Tabla destino. La columna `container_id` ya existia en la BD sin usarse: no hay migracion.</summary>
-    Guid? ContainerId = null);
+    Guid? ContainerId = null,
+
+    /// <summary>Headers HTTP estaticos arbitrarios (JSON, lista de {name,value}). NO secretos.</summary>
+    string? HeadersJson = null,
+
+    /// <summary>Config NO secreta del intercambio de token (JSON). El secreto del login viaja en Credentials.</summary>
+    string? TokenExchangeJson = null);
 
 // ---- Destino (a donde el cliente deja los datos): sistema o BD aliada ----
 

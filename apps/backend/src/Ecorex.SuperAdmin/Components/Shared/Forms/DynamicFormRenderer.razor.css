@@ -101,6 +101,21 @@
 
 /* Grupos Row / Col: contenedores transparentes (sin marco de seccion). */
 .dfr-group { display: flex; flex-direction: column; gap: 10px; }
+
+/* Etiquetas en linea (config-driven por contenedor, prop InlineLabels): el label se pinta al
+   frente del valor (label fijo ~150px a la derecha, control llenando el resto). Sirve para
+   compactar bloques tipo "Totales". ::deep porque .row/.col-* y .form-control son de Bootstrap,
+   fuera del scope del componente. El wrapper de cada campo es un .col-* dentro de un .row (col-12
+   o col-md-N segun el ancho), asi que se apunta a los col-* hijos directos de la fila. flex-wrap
+   deja que caption/ayuda/error caigan a la linea siguiente sin romper el label+control. */
+.dfr-inline ::deep .row > [class*="col-"] { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.dfr-inline ::deep .dfr-label { margin: 0; flex: 0 0 150px; text-align: right; }
+.dfr-inline ::deep .form-control, .dfr-inline ::deep .dfr-calc { flex: 1 1 auto; text-align: right; min-width: 0; }
+.dfr-inline ::deep .dfr-caption, .dfr-inline ::deep .dfr-help, .dfr-inline ::deep .tk-field-error { flex: 1 1 100%; text-align: right; }
+@media (max-width: 640px) {
+    .dfr-inline ::deep .row > [class*="col-"] { display: block; }
+    .dfr-inline ::deep .dfr-label { text-align: left; }
+}
 .dfr-group-head {
     font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
     color: var(--t-blue, #2563EB);

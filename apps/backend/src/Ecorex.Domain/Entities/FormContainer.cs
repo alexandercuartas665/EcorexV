@@ -26,6 +26,11 @@ public class FormContainer : TenantEntity
     /// <summary>Estilo visual opcional (clases/inline segun el renderer).</summary>
     public string? Style { get; set; }
 
+    /// <summary>Etiquetas en linea: el label se pinta al frente del valor (misma linea, label a la
+    /// izquierda con ancho fijo y control llenando el resto), en vez de arriba. Config-driven por
+    /// contenedor (Row/Col). Default false = comportamiento actual (label arriba).</summary>
+    public bool InlineLabels { get; set; }
+
     // ---- Constructor del prototipo (ADR-0021) ----
 
     /// <summary>Nombres de las pestanas cuando ContainerType es Tabs (arreglo JSON de strings).</summary>

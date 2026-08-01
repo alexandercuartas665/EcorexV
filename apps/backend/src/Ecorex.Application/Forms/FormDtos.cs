@@ -24,7 +24,9 @@ public sealed record FormDefinitionListItemDto(
 public sealed record FormContainerDto(
     Guid Id, string Name, FormContainerType ContainerType, Guid? ParentId,
     int SortOrder, string? Style,
-    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false);
+    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false,
+    // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
+    bool InlineLabels = false);
 
 public sealed record FormQuestionDto(
     Guid Id, Guid? ContainerId, string FieldCode, string Label, string? Caption,
@@ -89,7 +91,9 @@ public sealed record UpdateFormDefinitionRequest(string Title, string? Descripti
 public sealed record SaveFormContainerRequest(
     string Name, FormContainerType ContainerType = FormContainerType.Segment,
     Guid? ParentId = null, string? Style = null,
-    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false);
+    string? TabsJson = null, int Width = 12, bool IsLocked = false, bool IsHidden = false,
+    // Etiquetas en linea (label al frente del valor). Config-driven por contenedor (Row/Col).
+    bool InlineLabels = false);
 
 /// <summary>
 /// Width (1..12) es la fuente del layout del constructor (ADR-0021). Si viene en 12 (el

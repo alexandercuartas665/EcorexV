@@ -440,6 +440,14 @@ else
         }
     }
 
+    /// <summary>Clases del grupo Row/Col: base + orientacion + "dfr-inline" cuando el contenedor
+    /// pide etiquetas en linea (label al frente del valor). Config-driven por contenedor.</summary>
+    private static string GroupCssClass(FormContainerDto container)
+    {
+        var orientation = container.ContainerType == FormContainerType.Row ? "dfr-row" : "dfr-col";
+        return container.InlineLabels ? $"dfr-group {orientation} dfr-inline" : $"dfr-group {orientation}";
+    }
+
     private RenderFragment RenderContainer(FormContainerDto container) => __builder =>
     {
         @* Contenedores ocultos por el disenador: ni el nodo ni su subarbol se pintan. *@
@@ -492,7 +500,7 @@ else
            Segment/Section/Table y Modal (TODO ADR-0021: dialogo real): seccion con titulo. *@
         if (container.ContainerType is FormContainerType.Row or FormContainerType.Col)
         {
-            <div class="dfr-group @(container.ContainerType == FormContainerType.Row ? "dfr-row" : "dfr-col")"
+            <div class="@GroupCssClass(container)"
                  style="@(WidthStyle(container) + container.Style)">
                 @if (!string.IsNullOrWhiteSpace(container.Name))
                 {

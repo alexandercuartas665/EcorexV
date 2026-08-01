@@ -936,7 +936,8 @@ else
         q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
-        c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden);
+        c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
+        c.InlineLabels);
 
     private async Task PatchQuestionAsync(FormQuestionDto q, Func<SaveFormQuestionRequest, SaveFormQuestionRequest> patch)
     {
@@ -1748,6 +1749,13 @@ else
             <div style="margin-top:2px;">
                 @RenderToggleRow("Fijo en el layout", "No se puede reordenar", node.Locked, () => ToggleLockAsync(node))
                 @RenderToggleRow("Oculto", "No visible en el formulario", node.Hidden, () => ToggleHideAsync(node))
+                @* Etiquetas en linea: solo aplica a grupos Row/Col (label al frente del valor). *@
+                @if (node.IsContainer && node.C!.ContainerType is FormContainerType.Row or FormContainerType.Col)
+                {
+                    @RenderToggleRow("Etiquetas en linea", "El label va al frente del valor (misma linea)",
+                        node.C!.InlineLabels,
+                        () => PatchContainerAsync(node.C!, r => r with { InlineLabels = !node.C!.InlineLabels }))
+                }
             </div>
         }
     };

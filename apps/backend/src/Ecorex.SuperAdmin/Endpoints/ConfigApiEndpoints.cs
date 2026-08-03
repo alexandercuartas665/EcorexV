@@ -262,6 +262,105 @@ public static class ConfigApiEndpoints
                 return Results.Json(new { runId, status = state?.Status ?? "running" }, Json, statusCode: 202);
             })).DisableAntiforgery();
 
+        // ============ Programacion (scheduling) de un conector ============
+        // Fase 2 (ADR-0060): expone el scheduling del conector via HTTP. El proceso programado corre
+        // SERVER-DIRECT (mismo camino que /run): reconcilia por Mode/KeyColumn en vez de duplicar.
+
+        // Crea/edita la programacion del conector (upsert por conector: un conector = una programacion).
+        group.MapPut("/connectors/{id:guid}/schedule", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            BearerBody<ScheduleBody>(req, scopes, ct, async (s, body, tenantId, c) =>
+            {
+                if (body is null) { return Results.BadRequest(new { error = "cuerpo JSON invalido" }); }
+                var connector = await FindConnectorAsync(s, id, c);
+                if (connector is null) { return Results.NotFound(new { error = "conector no encontrado" }); }
+
+                var mode = body.Mode ?? ApiImportMode.Replace;
+                if (mode == ApiImportMode.Upsert && string.IsNullOrWhiteSpace(body.KeyColumn))
+                {
+                    return Results.BadRequest(new { error = "para mode=Upsert indica 'keyColumn' (nombre de la columna clave)" });
+                }
+
+                // Un conector tiene a lo sumo una programacion: se busca la existente para editarla.
+                var existing = (await s.Import.ListProcessesAsync(connector.ModelId, c))
+                    .FirstOrDefault(p => p.ConnectorId == connector.Id);
+
+                var name = $"Programacion {connector.Name}";
+                if (name.Length > 150) { name = name[..150]; }
+
+                var save = new SaveImportProcessRequest(
+                    Id: existing?.Id,
+                    ModelId: connector.ModelId,
+                    ConnectorId: connector.Id,
+                    ClientId: null,            // server-direct: no lo ejecuta un agente.
+                    Name: name,
+                    ScheduleKind: body.ScheduleKind,
+                    IntervalMinutes: body.IntervalMinutes,
+                    CronExpression: body.CronExpression,
+                    IsActive: body.IsActive ?? true,
+                    Mode: mode,
+                    KeyColumn: body.KeyColumn);
+
+                ImportProcessDto? saved;
+                try
+                {
+                    // SaveProcessAsync valida el horario con el MISMO parser Cronos del scheduler y lanza
+                    // si es invalido: se traduce a 400 con el motivo, sin activar una programacion rota.
+                    saved = await s.Import.SaveProcessAsync(save, SystemActor, c);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+                if (saved is null) { return Results.BadRequest(new { error = "no se pudo guardar la programacion (revisa el conector y su contenedor)" }); }
+
+                var action = existing is null ? "config-api.schedule.create" : "config-api.schedule.update";
+                await AuditAsync(s, tenantId, action, nameof(Domain.Entities.ImportProcess), saved.Id,
+                    new { connectorId = connector.Id, saved.ScheduleKind, mode = mode.ToString(), saved.KeyColumn }, c);
+                return Results.Json(ScheduleView(saved), Json, statusCode: existing is null ? 201 : 200);
+            })).DisableAntiforgery();
+
+        // Estado de la programacion del conector (nextRunAt, lastRunAt, isActive, disabledReason...).
+        group.MapGet("/connectors/{id:guid}/schedule", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Bearer(req, scopes, ct, async (s, _, c) =>
+            {
+                var connector = await FindConnectorAsync(s, id, c);
+                if (connector is null) { return Results.NotFound(new { error = "conector no encontrado" }); }
+                var process = (await s.Import.ListProcessesAsync(connector.ModelId, c))
+                    .FirstOrDefault(p => p.ConnectorId == connector.Id);
+                if (process is null) { return Results.NotFound(new { error = "el conector no tiene programacion" }); }
+                return Results.Json(ScheduleView(process), Json);
+            }));
+
+        // Bitacora de corridas de la programacion del conector (mas reciente primero).
+        group.MapGet("/connectors/{id:guid}/runs", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Bearer(req, scopes, ct, async (s, _, c) =>
+            {
+                var connector = await FindConnectorAsync(s, id, c);
+                if (connector is null) { return Results.NotFound(new { error = "conector no encontrado" }); }
+                var process = (await s.Import.ListProcessesAsync(connector.ModelId, c))
+                    .FirstOrDefault(p => p.ConnectorId == connector.Id);
+                if (process is null) { return Results.NotFound(new { error = "el conector no tiene programacion" }); }
+                var take = int.TryParse(req.Query["take"].ToString(), out var t) && t is > 0 and <= 200 ? t : 20;
+                var runs = await s.Import.ListRunsAsync(process.Id, take, c);
+                return Results.Json(runs, Json);
+            }));
+
+        // Quita la programacion del conector (su bitacora se borra con ella).
+        group.MapDelete("/connectors/{id:guid}/schedule", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Bearer(req, scopes, ct, async (s, tenantId, c) =>
+            {
+                var connector = await FindConnectorAsync(s, id, c);
+                if (connector is null) { return Results.NotFound(new { error = "conector no encontrado" }); }
+                var process = (await s.Import.ListProcessesAsync(connector.ModelId, c))
+                    .FirstOrDefault(p => p.ConnectorId == connector.Id);
+                if (process is null) { return Results.NotFound(new { error = "el conector no tiene programacion" }); }
+                var ok = await s.Import.DeleteProcessAsync(process.Id, SystemActor, c);
+                if (!ok) { return Results.NotFound(new { error = "programacion no encontrada" }); }
+                await AuditAsync(s, tenantId, "config-api.schedule.delete", nameof(Domain.Entities.ImportProcess), process.Id,
+                    new { connectorId = connector.Id }, c);
+                return Results.Json(new { connectorId = connector.Id, scheduleId = process.Id, deleted = true }, Json);
+            })).DisableAntiforgery();
+
         // Estado de una corrida (insertadas/actualizadas/borradas/errores).
         group.MapGet("/runs/{id:guid}", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
             Bearer(req, scopes, ct, (s, tenantId, _) =>
@@ -480,6 +579,23 @@ public static class ConfigApiEndpoints
             Credentials: credentials, Query: dto.Query, MappingJson: dto.MappingJson, IsActive: dto.IsActive,
             ContainerId: dto.ContainerId, HeadersJson: dto.HeadersJson, TokenExchangeJson: dto.TokenExchangeJson);
 
+    /// <summary>Forma de salida de una programacion: el estado que interesa a un cliente HTTP, sin
+    /// exponer los ids internos de contenedor/cliente.</summary>
+    private static object ScheduleView(ImportProcessDto p) => new
+    {
+        scheduleId = p.Id,
+        connectorId = p.ConnectorId,
+        scheduleKind = p.ScheduleKind.ToString(),
+        cronExpression = p.CronExpression,
+        intervalMinutes = p.IntervalMinutes,
+        mode = p.Mode.ToString(),
+        keyColumn = p.KeyColumn,
+        isActive = p.IsActive,
+        nextRunAt = p.NextRunAt,
+        lastRunAt = p.LastRunAt,
+        disabledReason = p.DisabledReason
+    };
+
     private static async Task<DataModelDto?> ResolveModelAsync(ConfigServices s, string modelRef, CancellationToken ct)
     {
         var models = await s.Models.ListAsync(ct);
@@ -592,6 +708,13 @@ public static class ConfigApiEndpoints
     private sealed record SecretBody(string? Secret);
     private sealed record AgentBody(string? Name, string? Description);
     private sealed record RunBody(ApiImportMode? Mode, string? KeyColumn, string? ArrayPath);
+    private sealed record ScheduleBody(
+        ImportScheduleKind ScheduleKind,
+        string? CronExpression,
+        int? IntervalMinutes,
+        ApiImportMode? Mode,
+        string? KeyColumn,
+        bool? IsActive);
 
     private sealed record HeaderBody(string? Name, string? Value);
     private sealed record FieldBody(string? Column, string? Path);

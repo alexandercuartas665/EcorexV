@@ -136,6 +136,11 @@ public sealed record ImportProcessDto(
     string? CronExpression,
     bool IsActive,
     DateTimeOffset? LastRunAt,
+    /// <summary>Modo de reconciliacion con el que corre (Append/Replace/Upsert). El disparo programado
+    /// lo usa igual que el <c>/run</c> manual.</summary>
+    ApiImportMode Mode = ApiImportMode.Replace,
+    /// <summary>Columna clave para Upsert (null en otros modos).</summary>
+    string? KeyColumn = null,
     /// <summary>Cuando corre la proxima vez (UTC). null = no programada.</summary>
     DateTimeOffset? NextRunAt = null,
     /// <summary>Por que se apago sola (ej. cron invalido).</summary>
@@ -164,7 +169,11 @@ public sealed record SaveImportProcessRequest(
     ImportScheduleKind ScheduleKind,
     int? IntervalMinutes,
     string? CronExpression,
-    bool IsActive = true);
+    bool IsActive = true,
+    /// <summary>Modo de reconciliacion (Append/Replace/Upsert). Default Replace = comportamiento historico.</summary>
+    ApiImportMode Mode = ApiImportMode.Replace,
+    /// <summary>Columna clave para Upsert (se conserva null en otros modos).</summary>
+    string? KeyColumn = null);
 
 /// <summary>
 /// CRUD de la configuracion de importacion de un CONTENEDOR (DataModel): conectores (Excel/API/BD con

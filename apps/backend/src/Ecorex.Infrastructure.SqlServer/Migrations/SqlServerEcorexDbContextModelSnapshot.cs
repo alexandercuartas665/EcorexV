@@ -1962,6 +1962,204 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("contact_import_batches", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit")
+                        .HasColumnName("activo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TerceroFiltroId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tercero_filtro_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_workflows");
+
+                    b.HasIndex("TerceroFiltroId")
+                        .HasDatabaseName("ix_contact_workflows_tercero_filtro_id");
+
+                    b.HasIndex("TenantId", "TerceroFiltroId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_contact_workflows_tenant_id_tercero_filtro_id");
+
+                    b.ToTable("contact_workflows", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AccountId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("account_id");
+
+                    b.Property<string>("ActiveDays")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("active_days");
+
+                    b.Property<Guid>("ContactWorkflowStepId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("contact_workflow_step_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<TimeOnly>("EndTime")
+                        .HasColumnType("time")
+                        .HasColumnName("end_time");
+
+                    b.Property<int?>("PackageSize")
+                        .HasColumnType("int")
+                        .HasColumnName("package_size");
+
+                    b.Property<int?>("RepeatEvery")
+                        .HasColumnType("int")
+                        .HasColumnName("repeat_every");
+
+                    b.Property<DateOnly?>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<TimeOnly>("StartTime")
+                        .HasColumnType("time")
+                        .HasColumnName("start_time");
+
+                    b.Property<string>("TemplateId")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_workflow_schedules");
+
+                    b.HasIndex("ContactWorkflowStepId")
+                        .HasDatabaseName("ix_contact_workflow_schedules_contact_workflow_step_id");
+
+                    b.ToTable("contact_workflow_schedules", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ContactWorkflowId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("contact_workflow_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("label");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<string>("ParamsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("params_json");
+
+                    b.Property<string>("StepType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("step_type");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_workflow_steps");
+
+                    b.HasIndex("ContactWorkflowId", "Orden")
+                        .HasDatabaseName("ix_contact_workflow_steps_contact_workflow_id_orden");
+
+                    b.ToTable("contact_workflow_steps", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5020,9 +5218,21 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
 
+                    b.Property<string>("KeyColumn")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("key_column");
+
                     b.Property<DateTimeOffset?>("LastRunAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_run_at");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasDefaultValue("Replace")
+                        .HasColumnName("mode");
 
                     b.Property<Guid?>("ModelId")
                         .HasColumnType("uniqueidentifier")
@@ -13506,6 +13716,42 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Subcategoria");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TerceroFiltro", "TerceroFiltro")
+                        .WithMany()
+                        .HasForeignKey("TerceroFiltroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_contact_workflows_tercero_filtros_tercero_filtro_id");
+
+                    b.Navigation("TerceroFiltro");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowSchedule", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ContactWorkflowStep", "ContactWorkflowStep")
+                        .WithMany("Schedules")
+                        .HasForeignKey("ContactWorkflowStepId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_contact_workflow_schedules_contact_workflow_steps_contact_workflow_step_id");
+
+                    b.Navigation("ContactWorkflowStep");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowStep", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ContactWorkflow", "ContactWorkflow")
+                        .WithMany("Steps")
+                        .HasForeignKey("ContactWorkflowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_contact_workflow_steps_contact_workflows_contact_workflow_id");
+
+                    b.Navigation("ContactWorkflow");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.DataConnector", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.DataContainer", "Container")
@@ -15258,6 +15504,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
+                {
+                    b.Navigation("Steps");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowStep", b =>
+                {
+                    b.Navigation("Schedules");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainer", b =>

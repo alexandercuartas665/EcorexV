@@ -243,6 +243,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Cita> Citas => Set<Cita>();
     public DbSet<TerceroFiltro> TerceroFiltros => Set<TerceroFiltro>();
     public DbSet<ProspectoScrapeado> ProspectosScrapeados => Set<ProspectoScrapeado>();
+    // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
+    public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
+    public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
+    public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => Set<ContactWorkflowSchedule>();
 
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
@@ -313,6 +317,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<DofaQuadrant>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<OportunidadEstadoTipo>().HaveConversion<string>().HaveMaxLength(20);
+        configurationBuilder.Properties<ContactWorkflowStepType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
@@ -2020,6 +2025,41 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasIndex(x => new { x.TenantId, x.Fuente });
         });
 
+        // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----
+
+        modelBuilder.Entity<ContactWorkflow>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            // Concurrencia optimista portable (ADR-0013), igual que ScheduledJob/TaskItem.
+            b.Property(x => x.Version).IsConcurrencyToken();
+            // Vinculo FORMAL 1:1 con el filtro: indice unico. Restrict (el borrado del filtro lo
+            // maneja el servicio; no queremos cascada multiple hacia pasos/ventanas en SQL Server).
+            b.HasOne(x => x.TerceroFiltro).WithMany()
+                .HasForeignKey(x => x.TerceroFiltroId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.TerceroFiltroId }).IsUnique();
+        });
+
+        modelBuilder.Entity<ContactWorkflowStep>(b =>
+        {
+            b.Property(x => x.Label).HasMaxLength(120).IsRequired();
+            // Params propios del tipo Llamada: jsonb en PG, nvarchar(max) en SQL Server (DAL dual).
+            b.Property(x => x.ParamsJson).HasColumnType(jsonColumnType);
+            // Los pasos cuelgan del workflow: cascada al borrar la cabecera.
+            b.HasOne(x => x.ContactWorkflow).WithMany(x => x.Steps)
+                .HasForeignKey(x => x.ContactWorkflowId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ContactWorkflowId, x.Orden });
+        });
+
+        modelBuilder.Entity<ContactWorkflowSchedule>(b =>
+        {
+            b.Property(x => x.ActiveDays).HasMaxLength(40).IsRequired();
+            b.Property(x => x.TemplateId).HasMaxLength(120);
+            // Las ventanas cuelgan del paso: cascada al borrar el paso.
+            b.HasOne(x => x.ContactWorkflowStep).WithMany(x => x.Schedules)
+                .HasForeignKey(x => x.ContactWorkflowStepId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.ContactWorkflowStepId);
+        });
+
         // ---- Inventarios (grupo Sistema - Inventarios) ----
         // Catalogos normalizados: nombre unico por tenant; FKs de catalogo NO ACTION (Restrict)
         // para evitar rutas multiples de cascada en SQL Server. Los items no se borran
@@ -2616,6 +2656,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         {
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.CronExpression).HasMaxLength(120);
+            // Modo de reconciliacion (Append/Replace/Upsert). Se persiste como string (legible en la BD
+            // y estable ante reordenamientos del enum). Default DB = Replace: las filas historicas, que
+            // corrian con el disparo fijo en Replace, conservan ese comportamiento. ValueGeneratedNever
+            // fuerza a EF a mandar SIEMPRE el valor en el INSERT, de modo que un Append explicito (que
+            // coincide con el default CLR del enum) NO se sustituya por el default de la columna.
+            b.Property(x => x.Mode)
+                .HasConversion<string>()
+                .HasMaxLength(16)
+                .HasDefaultValue(ImportRunMode.Replace)
+                .ValueGeneratedNever()
+                .IsRequired();
+            // Columna clave del Upsert (nombre de columna del contenedor destino).
+            b.Property(x => x.KeyColumn).HasMaxLength(150);
             // Proceso cuelga del contenedor (modelo): borrar el modelo borra sus procesos.
             b.HasOne(x => x.Model).WithMany()
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);

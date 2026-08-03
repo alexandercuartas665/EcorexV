@@ -73,6 +73,20 @@ public enum ConnectorAuthKind
     TokenExchange
 }
 
+/// <summary>
+/// Modo de reconciliacion de una corrida de importacion, PERSISTIDO en el proceso programado. Es un
+/// espejo EXACTO (mismos valores y orden) de <c>ApiImportMode</c> (Ecorex.Application.DataContainers):
+/// se declara aqui porque Domain no puede referenciar Application (Clean Architecture), y ambos se
+/// castean en el borde. Append = agrega siempre (puede duplicar); Replace = vacia antes; Upsert =
+/// reconcilia por la columna clave. El orden NO se puede alterar sin romper el cast.
+/// </summary>
+public enum ImportRunMode
+{
+    Append,
+    Replace,
+    Upsert
+}
+
 /// <summary>Como se programa la corrida de un proceso de importacion.</summary>
 public enum ImportScheduleKind
 {

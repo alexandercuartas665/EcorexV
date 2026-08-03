@@ -202,6 +202,9 @@ public class RowIngestServiceTests
         public DbSet<Cita> Citas => throw new NotSupportedException();
         public DbSet<TerceroFiltro> TerceroFiltros => throw new NotSupportedException();
         public DbSet<ProspectoScrapeado> ProspectosScrapeados => throw new NotSupportedException();
+        public DbSet<ContactWorkflow> ContactWorkflows => throw new NotSupportedException();
+        public DbSet<ContactWorkflowStep> ContactWorkflowSteps => throw new NotSupportedException();
+        public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => throw new NotSupportedException();
         public DbSet<ActividadCategoria> ActividadCategorias => throw new NotSupportedException();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => throw new NotSupportedException();

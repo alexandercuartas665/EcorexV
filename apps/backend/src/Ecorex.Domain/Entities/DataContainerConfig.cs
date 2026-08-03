@@ -138,6 +138,20 @@ public class ImportProcess : TenantEntity
 
     public ImportScheduleKind ScheduleKind { get; set; } = ImportScheduleKind.Manual;
 
+    /// <summary>
+    /// Modo de reconciliacion con el que corre este proceso (Append/Replace/Upsert). Sin esto, el
+    /// disparo programado no podia hacer Upsert: iba fijo en Replace (vaciar+recargar). Es POLITICA de
+    /// la corrida, igual que el modo del <c>/run</c> manual de la Config API; se persiste aqui para que
+    /// el scheduler lo reuse. Default Replace = comportamiento historico del disparo (que era fijo).
+    /// </summary>
+    public ImportRunMode Mode { get; set; } = ImportRunMode.Replace;
+
+    /// <summary>
+    /// Nombre de la columna clave por la que se reconcilia en <see cref="ImportRunMode.Upsert"/> (ej.
+    /// "Siigo Id"). Debe estar mapeada a un campo del API en el conector. Null salvo Upsert.
+    /// </summary>
+    public string? KeyColumn { get; set; }
+
     /// <summary>Minutos entre corridas (para Interval).</summary>
     public int? IntervalMinutes { get; set; }
 

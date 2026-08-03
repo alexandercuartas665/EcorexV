@@ -124,6 +124,13 @@
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></svg>
                                         Filtrar ahora
                                     </button>
+                                    @* Disenador de acciones (ADR-0056): abre el modal para armar la secuencia
+                                       de acciones (conectar/mensaje/whatsapp/email/llamada) de este filtro.
+                                       La EJECUCION de los pasos es Fase 2. *@
+                                    <button @onclick="() => OpenAccionesAsync(ff)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                                        Acciones
+                                    </button>
                                     <button @onclick="() => DeleteFiltroAsync(ff.Id)">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                                         Eliminar
@@ -794,6 +801,10 @@
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
 <TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" />
 
+@* Disenador de acciones por filtro (ADR-0056, Fase 1): se abre desde la opcion "Acciones" del
+   menu "..." de cada filtro guardado. Guarda la secuencia; la EJECUCION es Fase 2. *@
+<ContactWorkflowDesigner @ref="_workflowDesigner" />
+
 @code {
     private enum Tab { Prospectos, Bolsa, Oportunidades, Agenda }
 
@@ -802,9 +813,21 @@
     // compartido TerceroModal; aqui solo lo abrimos por @ref y refrescamos al recibir OnChanged. ----
     private TerceroModal? _terceroModal;
 
+    // Disenador de acciones por filtro (ADR-0056, Fase 1). Se abre desde "Acciones" del menu del filtro.
+    private ContactWorkflowDesigner? _workflowDesigner;
+
     private async Task OpenNewContact()
     {
         if (_terceroModal is not null) { await _terceroModal.OpenCreate(); }
+    }
+
+    private async Task OpenAccionesAsync(FiltroDto filtro)
+    {
+        _filtroMenu = null;
+        if (_workflowDesigner is not null)
+        {
+            await _workflowDesigner.OpenAsync(filtro.Id, filtro.Nombre);
+        }
     }
 
     private bool _loading = true;

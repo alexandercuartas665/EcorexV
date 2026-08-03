@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Contracts.Agent;
@@ -39,6 +38,7 @@ public sealed class ProcessRunner(
     ISecretProtector protector,
     IAgentRegistry registry,
     IAgentImportService imports,
+    IApiImportService api,
     IImportRunLog runLog) : IProcessRunner
 {
     public async Task<RunProcessResult> RunNowAsync(Guid processId, ImportRunTrigger trigger = ImportRunTrigger.Manual,
@@ -56,45 +56,43 @@ public sealed class ProcessRunner(
         // "ejecucion fallida", es una configuracion incompleta, y llenar la bitacora de eso taparia
         // los fallos de verdad. Cada "no" explica QUE falta y donde arreglarlo: este boton lo pulsa un
         // operador, no un dev, y un "no se pudo" seco lo deja sin saber que hacer.
-        if (process.ClientId is not Guid clientRowId)
-        {
-            return new(false, null, "Esta programacion no tiene cliente remoto asignado: eligelo para que la ejecute un agente.");
-        }
         if (process.ConnectorId is not Guid connectorId)
         {
             return new(false, null, "Esta programacion no tiene conector: elige de que fuente trae los datos.");
         }
 
-        var client = await db.DataClients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == clientRowId, ct);
-        if (client is null) { return new(false, null, "El cliente remoto ya no existe."); }
-
         var connector = await db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(c => c.Id == connectorId, ct);
         if (connector is null) { return new(false, null, "El conector ya no existe."); }
-        // Via agente se traen conectores Database (SQL solo-lectura) Y RestApi (GET HTTP + fan-out).
         if (connector.Kind != ConnectorKind.Database && connector.Kind != ConnectorKind.RestApi)
         {
-            return new(false, null, $"Solo los conectores de tipo Base de datos o API REST se traen via agente (este es {connector.Kind}).");
+            return new(false, null, $"Solo los conectores de tipo Base de datos o API REST se pueden refrescar (este es {connector.Kind}).");
         }
         if (connector.ContainerId is not Guid targetTableId)
         {
             return new(false, null, "El conector no tiene TABLA destino: eligela en el conector para poder refrescar solo.");
         }
 
-        // Segun el tipo se valida lo que hace falta para despachar: SQL para Database, RestFetchSpec
-        // (endpoints/auth/fan-out/mapeo, en MappingJson) para RestApi.
-        RestFetchSpec? restSpec = null;
-        if (connector.Kind == ConnectorKind.Database)
+        // RestApi -> SERVER-DIRECT, el MISMO camino que el `/run` de la Config API (ADR-0058/0059):
+        // ConnectorRunPlanner resuelve las rutas ANIDADAS/INDEXADAS (NestedJsonResolver) y aplica el
+        // Mode/KeyColumn PERSISTIDOS del proceso. Antes el disparo programado iba fijo en Replace y no
+        // podia reconciliar (Upsert); este es el punto que arregla el sync agendado (ADR-0060). El
+        // servidor hace el GET (no un agente): auth de 2 pasos y headers estaticos ya viven en
+        // ApiImportService, asi que Siigo y compania funcionan sin agente.
+        if (connector.Kind == ConnectorKind.RestApi)
         {
-            if (string.IsNullOrWhiteSpace(connector.Query))
-            {
-                return new(false, null, "El conector no tiene consulta: escribe el SELECT que trae los datos.");
-            }
+            return await RunRestServerDirectAsync(process, connector, targetTableId, trigger, firedAt, ct);
         }
-        else // RestApi
+
+        // Database -> via agente: la BD del cliente vive en su red, la trae el agente con SQL solo-lectura.
+        if (process.ClientId is not Guid clientRowId)
         {
-            var (builtSpec, specError) = BuildRestSpec(connector);
-            if (builtSpec is null) { return new(false, null, specError ?? "El conector REST no esta configurado para el agente."); }
-            restSpec = builtSpec;
+            return new(false, null, "Esta programacion no tiene cliente remoto asignado: eligelo para que la ejecute un agente.");
+        }
+        var client = await db.DataClients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == clientRowId, ct);
+        if (client is null) { return new(false, null, "El cliente remoto ya no existe."); }
+        if (string.IsNullOrWhiteSpace(connector.Query))
+        {
+            return new(false, null, "El conector no tiene consulta: escribe el SELECT que trae los datos.");
         }
 
         // Mapeo por NOMBRE: cada columna de la tabla se llena con el campo del mismo nombre que
@@ -109,6 +107,19 @@ public sealed class ProcessRunner(
             return new(false, null, "La tabla destino no tiene columnas.");
         }
         var mapping = columns.ToDictionary(c => c.Id, c => c.Name);
+
+        // El modo/columna clave persistidos aplican tambien al camino via agente: por defecto Replace
+        // (comportamiento historico del refresco), o Upsert por la columna clave si asi se configuro.
+        var mode = (ApiImportMode)process.Mode;
+        Guid? keyColumnId = null;
+        if (mode == ApiImportMode.Upsert)
+        {
+            keyColumnId = columns.FirstOrDefault(c => string.Equals(c.Name, process.KeyColumn, StringComparison.OrdinalIgnoreCase))?.Id;
+            if (keyColumnId is null)
+            {
+                return new(false, null, $"El modo Upsert necesita la columna clave '{process.KeyColumn}', que no existe en la tabla destino.");
+            }
+        }
 
         // El id de la orden se decide AQUI, no en el canal: la corrida tiene que quedar guardada con
         // el antes de despachar. Si lo generara el canal, un agente rapido podria contestar antes de
@@ -136,33 +147,24 @@ public sealed class ProcessRunner(
         }
 
         // ADR-0040: la credencial VIAJA. Se descifra aqui y va en el mensaje. Si el conector no
-        // tiene, se manda null (Database: el agente usa su cadena local; RestApi: sin auth).
+        // tiene, se manda null (Database: el agente usa su cadena local).
         var secret = connector.CredentialsEncrypted is { } enc ? protector.Unprotect(enc) : null;
 
-        var isRest = connector.Kind == ConnectorKind.RestApi;
-        var spec = isRest
-            ? new ConnectorSpec(Kind: "RestApi", Host: connector.Host, Secret: secret)
-            : new ConnectorSpec(
-                Kind: "Database",
-                DbEngine: connector.DbEngine?.ToString(),
-                Host: connector.Host,
-                Port: connector.Port,
-                Database: connector.DatabaseName,
-                Username: connector.Username,
-                Secret: secret);
-
-        // Para REST no hay SQL; se manda una etiqueta corta (no se ejecuta como consulta) solo para la
-        // bitacora/UI. La orden real va en restSpec.
-        var queryText = isRest ? (restSpec!.ListPath ?? "REST") : connector.Query!;
+        var spec = new ConnectorSpec(
+            Kind: "Database",
+            DbEngine: connector.DbEngine?.ToString(),
+            Host: connector.Host,
+            Port: connector.Port,
+            Database: connector.DatabaseName,
+            Username: connector.Username,
+            Secret: secret);
 
         try
         {
-            // "Actualizar datos" es un REFRESCO: la tabla queda igual a la fuente. Append acumularia
-            // duplicados en cada pulsacion, que no es lo que espera quien pulsa "actualizar".
             await imports.DispatchFetchAsync(
                 client.ClientId, tenantId, targetTableId, mapping,
-                ApiImportMode.Replace, keyColumnId: null,
-                queryText, spec, ct, correlationId, rest: restSpec);
+                mode, keyColumnId,
+                connector.Query!, spec, ct, correlationId, rest: null);
         }
         catch (Exception ex)
         {
@@ -186,76 +188,68 @@ public sealed class ProcessRunner(
         return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
     }
 
-    private static readonly JsonSerializerOptions RestJsonOptions = new(JsonSerializerDefaults.Web);
-
     /// <summary>
-    /// Arma el <see cref="RestFetchSpec"/> de un conector RestApi para despacharlo al agente. La parte
-    /// declarativa (arrayPath, paginacion, fan-out lista->detalle y mapeo campos->columnas) vive en
-    /// <c>connector.MappingJson</c> como JSON del propio RestFetchSpec; BaseUrl, metodo y tipo de auth
-    /// se toman de los campos normales del conector (EndpointUrl/HttpMethod/AuthKind) si el JSON no los
-    /// trae. Asi el operador configura endpoint+auth como en cualquier conector y solo describe el
-    /// fan-out/mapeo en el JSON. La credencial NO va aqui (viaja aparte, cifrada).
+    /// Corre un conector RestApi SERVER-DIRECT (sin agente), el mismo camino que el `/run` de la Config
+    /// API: <see cref="ConnectorRunPlanner"/> traduce el mapeo persistido (rutas anidadas incluidas) y
+    /// <see cref="IApiImportService"/> hace el GET+ingesta aplicando el <paramref name="process"/>.Mode y
+    /// KeyColumn persistidos. Deja una corrida en la bitacora (idempotente por la ventana) y la cierra
+    /// sincronicamente, porque aqui no se espera a ningun agente.
     /// </summary>
-    private static (RestFetchSpec? Spec, string? Error) BuildRestSpec(Domain.Entities.DataConnector connector)
+    private async Task<RunProcessResult> RunRestServerDirectAsync(
+        Domain.Entities.ImportProcess process, Domain.Entities.DataConnector connector, Guid targetTableId,
+        ImportRunTrigger trigger, DateTimeOffset? firedAt, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(connector.MappingJson))
+        // Columnas de la tabla destino: nombre -> id (mismo mapa que arma el /run de la Config API).
+        var cols = await db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == targetTableId)
+            .Select(c => new { c.Id, c.Name })
+            .ToListAsync(ct);
+        var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in cols) { byName[c.Name] = c.Id; }
+
+        // El cast es seguro: ImportRunMode espeja EXACTAMENTE a ApiImportMode (mismos valores/orden).
+        var mode = (ApiImportMode)process.Mode;
+        var plan = ConnectorRunPlanner.Build(connector.Id, targetTableId, connector.MappingJson, byName, mode, process.KeyColumn);
+        if (!plan.Ok) { return new(false, null, plan.Error ?? "No se pudo planear la corrida del conector."); }
+
+        var correlationId = AgentImportService.NewCorrelationId();
+        var window = firedAt ?? DateTimeOffset.UtcNow;
+
+        var runId = await runLog.OpenAsync(process.Id, trigger, window, correlationId, ct);
+        if (runId is null)
         {
-            return (null, "El conector REST no tiene mapeo para el agente: define el RestFetchSpec (endpoints, arrayPath, fan-out y mapeo campos->columnas) en el mapeo del conector.");
+            // Otra instancia del worker ya tomo esta ventana (indice unico). No es un fallo.
+            return new(false, null, "Esa ejecucion ya la tomo otro proceso.");
         }
 
-        RestFetchSpec? parsed;
-        try { parsed = JsonSerializer.Deserialize<RestFetchSpec>(connector.MappingJson, RestJsonOptions); }
-        catch (JsonException ex) { return (null, $"El mapeo REST del conector no es un RestFetchSpec valido: {ex.Message}"); }
-        if (parsed is null) { return (null, "El mapeo REST del conector quedo vacio tras interpretarlo."); }
-
-        var baseUrl = string.IsNullOrWhiteSpace(parsed.BaseUrl) ? connector.EndpointUrl : parsed.BaseUrl;
-        if (string.IsNullOrWhiteSpace(baseUrl) && string.IsNullOrWhiteSpace(parsed.ListPath))
+        ApiImportOutcome outcome;
+        try
         {
-            return (null, "El conector REST no tiene endpoint: define EndpointUrl en el conector o BaseUrl/ListPath en el mapeo.");
+            // actorUserId = SystemActor (Guid.Empty): el disparo programado no tiene usuario, igual que el /run.
+            outcome = await api.ImportAsync(plan.Request!, Guid.Empty, ct);
+        }
+        catch (Exception ex)
+        {
+            await runLog.FailAsync(runId.Value, $"No se pudo importar del API: {ex.Message}", ct);
+            return new(false, correlationId, $"No se pudo importar del API: {ex.Message}");
         }
 
-        var authKind = parsed.AuthKind is null or "None" && connector.AuthKind != ConnectorAuthKind.None
-            ? connector.AuthKind.ToString()
-            : (parsed.AuthKind ?? "None");
+        var detail = outcome.Errors.Count > 0 ? string.Join(" | ", outcome.Errors) : null;
+        await runLog.CloseAsync(correlationId, outcome.Success, outcome.Inserted, outcome.Updated, outcome.Deleted, detail, ct);
 
-        var method = string.IsNullOrWhiteSpace(parsed.HttpMethod)
-            ? (string.IsNullOrWhiteSpace(connector.HttpMethod) ? "GET" : connector.HttpMethod!)
-            : parsed.HttpMethod;
-
-        // Headers estaticos y token exchange: fuente autoritativa son las columnas dedicadas del conector
-        // (HeadersJson/TokenExchangeJson). Si estan vacias, se respeta lo que trajera el propio MappingJson.
-        var headers = ConnectorRestConfig.ParseHeaders(connector.HeadersJson)
-            .Select(h => new RestHeader(h.Name, h.Value)).ToList();
-
-        RestTokenExchangeSpec? tokenExchange = null;
-        if (connector.AuthKind == ConnectorAuthKind.TokenExchange)
+        // LastRunAt marca el disparo; server-direct no espera a nadie, asi que PendingSince no aplica.
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == process.Id, ct);
+        if (tracked is not null)
         {
-            var cfg = ConnectorRestConfig.ParseTokenExchange(connector.TokenExchangeJson);
-            if (cfg is null || string.IsNullOrWhiteSpace(cfg.TokenUrl))
-            {
-                return (null, "El conector usa intercambio de token pero no tiene URL de token configurada.");
-            }
-            tokenExchange = new RestTokenExchangeSpec(
-                TokenUrl: cfg.TokenUrl!.Trim(),
-                Method: string.IsNullOrWhiteSpace(cfg.Method) ? "POST" : cfg.Method!.Trim(),
-                UsernameParam: cfg.UsernameParamName,
-                Username: cfg.Username,
-                SecretParam: string.IsNullOrWhiteSpace(cfg.SecretParamName) ? "password" : cfg.SecretParamName!.Trim(),
-                TokenJsonPath: string.IsNullOrWhiteSpace(cfg.TokenJsonPath) ? "access_token" : cfg.TokenJsonPath!.Trim(),
-                ApplyHeaderName: string.IsNullOrWhiteSpace(cfg.ApplyHeaderName) ? "Authorization" : cfg.ApplyHeaderName!.Trim(),
-                ApplyPrefix: cfg.ApplyPrefix ?? "Bearer ",
-                BodyFormat: string.IsNullOrWhiteSpace(cfg.BodyFormat) ? "json" : cfg.BodyFormat!.Trim());
+            tracked.LastRunAt = window;
+            tracked.PendingSince = null;
+            await db.SaveChangesAsync(ct);
         }
 
-        var spec = parsed with
-        {
-            BaseUrl = baseUrl ?? string.Empty,
-            AuthKind = authKind,
-            HttpMethod = method,
-            Headers = headers.Count > 0 ? headers : parsed.Headers,
-            TokenExchange = tokenExchange ?? parsed.TokenExchange
-        };
-        return (spec, null);
+        var msg = outcome.Success
+            ? $"Importadas: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
+            : (detail ?? "La importacion no trajo resultados.");
+        return new(outcome.Success, correlationId, msg);
     }
 
     /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el

@@ -1,0 +1,399 @@
+@* ContactWorkflowDesigner: disenador de acciones por filtro de contactos (ADR-0056, Fase 1).
+   Port del ucWorkflowDesigner legacy como LISTA SECUENCIAL de pasos (no grafo BPMN). Paleta de 5
+   acciones (Conectar / Mensaje Red / WhatsApp / E-mail / Llamada CRM), pasos reordenables, campos
+   CRM del paso Llamada y N ventanas de horario por paso. Guarda via IContactWorkflowService.
+   El host lo abre por @@ref: OpenAsync(filtroId, nombre). La EJECUCION de los pasos es Fase 2
+   (aqui SOLO se guarda la configuracion). Estilos scoped en ContactWorkflowDesigner.razor.css.
+   Solo ASCII. *@
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@inject IContactWorkflowService WorkflowSvc
+
+@if (_open)
+{
+    <div class="cw-overlay" @onclick="Close">
+        <div class="cw-modal" @onclick:stopPropagation="true">
+            <div class="cw-head">
+                <div>
+                    <div class="cw-kicker">DISENADOR DE ACCIONES &#183; FILTRO</div>
+                    <div class="cw-title">@_filtroNombre</div>
+                    <div class="cw-sub">Secuencia de acciones que se ejecutara sobre los contactos de este filtro.</div>
+                </div>
+                <div class="cw-head-right">
+                    <label class="cw-switch" title="Activar / desactivar el workflow">
+                        <input type="checkbox" checked="@_activo" @onchange="e => _activo = (bool)(e.Value ?? false)" />
+                        <span>@(_activo ? "Activo" : "Inactivo")</span>
+                    </label>
+                    <button class="cw-close" @onclick="Close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="cw-fase2-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                Los pasos se guardan pero <b>aun no se disparan</b>: el motor de ejecucion es Fase 2.
+            </div>
+
+            <div class="cw-body">
+                @* ---- Paleta de acciones ---- *@
+                <div class="cw-palette">
+                    <div class="cw-palette-lbl">ACCIONES</div>
+                    @foreach (var p in Palette)
+                    {
+                        var pp = p;
+                        <button class="cw-pal-card" style="--pal:@pp.Color" @onclick="() => AddStep(pp.Type)" title="Agregar paso @pp.Label">
+                            <span class="cw-pal-ic" style="background:@pp.Color">@((MarkupString)pp.Icon)</span>
+                            <span class="cw-pal-txt">
+                                <span class="cw-pal-name">@pp.Label</span>
+                                <span class="cw-pal-sub">@pp.Sub</span>
+                            </span>
+                            <span class="cw-pal-add">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                            </span>
+                        </button>
+                    }
+                </div>
+
+                @* ---- Lista secuencial de pasos ---- *@
+                <div class="cw-steps">
+                    <div class="cw-steps-lbl">SECUENCIA (@_steps.Count paso@(_steps.Count == 1 ? "" : "s"))</div>
+                    @if (_steps.Count == 0)
+                    {
+                        <div class="cw-empty">
+                            Agrega acciones desde la paleta de la izquierda para armar la secuencia.
+                        </div>
+                    }
+                    @for (var i = 0; i < _steps.Count; i++)
+                    {
+                        var idx = i;
+                        var st = _steps[idx];
+                        var meta = MetaFor(st.StepType);
+                        <div class="cw-step" style="--pal:@meta.Color">
+                            <div class="cw-step-head">
+                                <span class="cw-step-order">@(idx + 1)</span>
+                                <span class="cw-step-ic" style="background:@meta.Color">@((MarkupString)meta.Icon)</span>
+                                <div class="cw-step-titles">
+                                    <input class="cw-step-label" value="@st.Label" @oninput="e => st.Label = e.Value?.ToString() ?? string.Empty" />
+                                    <span class="cw-step-type">@meta.Label &#183; @meta.Sub</span>
+                                </div>
+                                <div class="cw-step-tools">
+                                    <button class="cw-icon" title="Subir" disabled="@(idx == 0)" @onclick="() => MoveStep(idx, -1)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                                    </button>
+                                    <button class="cw-icon" title="Bajar" disabled="@(idx == _steps.Count - 1)" @onclick="() => MoveStep(idx, 1)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                    </button>
+                                    <button class="cw-icon del" title="Quitar paso" @onclick="() => _steps.RemoveAt(idx)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            @* Campos CRM: SOLO el paso Llamada *@
+                            @if (st.StepType == ContactWorkflowStepType.Llamada)
+                            {
+                                <div class="cw-call">
+                                    <div class="cw-field">
+                                        <label>Comercial</label>
+                                        <input value="@st.Comercial" @oninput="e => st.Comercial = e.Value?.ToString()" placeholder="Responsable" />
+                                    </div>
+                                    <div class="cw-field">
+                                        <label>Prioridad</label>
+                                        <input value="@st.Prioridad" @oninput="e => st.Prioridad = e.Value?.ToString()" placeholder="Alta / Media / Baja" />
+                                    </div>
+                                    <div class="cw-field">
+                                        <label>Categoria</label>
+                                        <input value="@st.Categoria" @oninput="e => st.Categoria = e.Value?.ToString()" placeholder="Categoria de la gestion" />
+                                    </div>
+                                    <div class="cw-field">
+                                        <label>Subcategoria</label>
+                                        <input value="@st.Subcategoria" @oninput="e => st.Subcategoria = e.Value?.ToString()" placeholder="Subcategoria / concepto" />
+                                    </div>
+                                </div>
+                            }
+
+                            @* Ventanas de horario del paso *@
+                            <div class="cw-sched-wrap">
+                                <div class="cw-sched-lbl">
+                                    <span>VENTANAS DE HORARIO</span>
+                                    <button class="cw-add-win" @onclick="() => st.Schedules.Add(NewSchedule())">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                        Ventana
+                                    </button>
+                                </div>
+                                @if (st.Schedules.Count == 0)
+                                {
+                                    <div class="cw-sched-empty">Sin ventanas: agrega al menos una franja de horario.</div>
+                                }
+                                @for (var j = 0; j < st.Schedules.Count; j++)
+                                {
+                                    var jdx = j;
+                                    var sc = st.Schedules[jdx];
+                                    <div class="cw-sched">
+                                        <div class="cw-days">
+                                            @foreach (var d in DaysOfWeek)
+                                            {
+                                                var dd = d;
+                                                <button class="cw-day @(sc.ActiveDays.Contains(dd.Iso) ? "on" : "")"
+                                                        @onclick="() => ToggleDay(sc, dd.Iso)" title="@dd.Full">@dd.Label</button>
+                                            }
+                                        </div>
+                                        <div class="cw-sched-grid">
+                                            <div class="cw-field">
+                                                <label>Desde hora</label>
+                                                <input type="time" value="@sc.StartTime" @onchange="e => sc.StartTime = e.Value?.ToString() ?? sc.StartTime" />
+                                            </div>
+                                            <div class="cw-field">
+                                                <label>Hasta hora</label>
+                                                <input type="time" value="@sc.EndTime" @onchange="e => sc.EndTime = e.Value?.ToString() ?? sc.EndTime" />
+                                            </div>
+                                            <div class="cw-field">
+                                                <label>Vigencia desde</label>
+                                                <input type="date" value="@sc.StartDate" @onchange="e => sc.StartDate = e.Value?.ToString()" />
+                                            </div>
+                                            <div class="cw-field">
+                                                <label>Vigencia hasta</label>
+                                                <input type="date" value="@sc.EndDate" @onchange="e => sc.EndDate = e.Value?.ToString()" />
+                                            </div>
+                                            <div class="cw-field">
+                                                <label>Repetir cada (min)</label>
+                                                <input type="number" min="0" value="@sc.RepeatEvery" @oninput="e => sc.RepeatEvery = ParseInt(e.Value)" placeholder="-" />
+                                            </div>
+                                            <div class="cw-field">
+                                                <label>Tam. paquete</label>
+                                                <input type="number" min="0" value="@sc.PackageSize" @oninput="e => sc.PackageSize = ParseInt(e.Value)" placeholder="-" />
+                                            </div>
+                                        </div>
+                                        <button class="cw-win-del" title="Quitar ventana" @onclick="() => st.Schedules.RemoveAt(jdx)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="cw-foot">
+                @if (_error is not null)
+                {
+                    <div class="cw-err">@_error</div>
+                }
+                else if (_saved)
+                {
+                    <div class="cw-ok">Workflow guardado.</div>
+                }
+                else
+                {
+                    <span></span>
+                }
+                <div class="cw-foot-actions">
+                    <button class="cw-btn-ghost" @onclick="Close" disabled="@_busy">Cerrar</button>
+                    <button class="cw-btn-brand" @onclick="SaveAsync" disabled="@_busy">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
+                        Guardar Workflow
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _open;
+    private bool _busy;
+    private bool _saved;
+    private string? _error;
+    private Guid _filtroId;
+    private string _filtroNombre = "";
+    private bool _activo = true;
+    private readonly List<StepVM> _steps = new();
+
+    /// <summary>Abre el disenador para un filtro y carga su workflow (si existe).</summary>
+    public async Task OpenAsync(Guid filtroId, string filtroNombre)
+    {
+        _filtroId = filtroId;
+        _filtroNombre = string.IsNullOrWhiteSpace(filtroNombre) ? "Filtro" : filtroNombre;
+        _error = null;
+        _saved = false;
+        _activo = true;
+        _steps.Clear();
+
+        var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
+        if (wf is not null)
+        {
+            _activo = wf.Activo;
+            foreach (var s in wf.Steps)
+            {
+                var vm = new StepVM
+                {
+                    StepType = s.StepType,
+                    Label = s.Label,
+                    Comercial = s.Call?.Comercial,
+                    Prioridad = s.Call?.Prioridad,
+                    Categoria = s.Call?.Categoria,
+                    Subcategoria = s.Call?.Subcategoria
+                };
+                foreach (var h in s.Schedules)
+                {
+                    vm.Schedules.Add(new ScheduleVM
+                    {
+                        StartDate = h.StartDate?.ToString("yyyy-MM-dd"),
+                        EndDate = h.EndDate?.ToString("yyyy-MM-dd"),
+                        StartTime = h.StartTime.ToString("HH:mm"),
+                        EndTime = h.EndTime.ToString("HH:mm"),
+                        ActiveDays = ParseDays(h.ActiveDays),
+                        RepeatEvery = h.RepeatEvery,
+                        PackageSize = h.PackageSize,
+                        TemplateId = h.TemplateId,
+                        AccountId = h.AccountId
+                    });
+                }
+                _steps.Add(vm);
+            }
+        }
+        _open = true;
+        StateHasChanged();
+    }
+
+    private void Close() => _open = false;
+
+    private void AddStep(ContactWorkflowStepType type)
+    {
+        var meta = MetaFor(type);
+        _steps.Add(new StepVM
+        {
+            StepType = type,
+            Label = meta.Label,
+            Schedules = { NewSchedule() }
+        });
+        _saved = false;
+    }
+
+    private void MoveStep(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= _steps.Count) { return; }
+        (_steps[index], _steps[target]) = (_steps[target], _steps[index]);
+    }
+
+    private static ScheduleVM NewSchedule() => new()
+    {
+        StartTime = "09:00",
+        EndTime = "18:00",
+        ActiveDays = new HashSet<int> { 1, 2, 3, 4, 5 }
+    };
+
+    private static void ToggleDay(ScheduleVM sc, int iso)
+    {
+        if (!sc.ActiveDays.Remove(iso)) { sc.ActiveDays.Add(iso); }
+    }
+
+    private static int? ParseInt(object? value)
+        => int.TryParse(value?.ToString(), out var n) && n > 0 ? n : null;
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _saved = false;
+        try
+        {
+            var steps = _steps.Select(s => new SaveContactWorkflowStepRequest(
+                s.StepType,
+                s.Label,
+                s.StepType == ContactWorkflowStepType.Llamada
+                    ? new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria)
+                    : null,
+                s.Schedules.Select(h => new SaveContactWorkflowScheduleRequest(
+                    ParseDate(h.StartDate),
+                    ParseDate(h.EndDate),
+                    ParseTime(h.StartTime, new TimeOnly(9, 0)),
+                    ParseTime(h.EndTime, new TimeOnly(18, 0)),
+                    string.Join(",", h.ActiveDays.OrderBy(d => d)),
+                    h.TemplateId,
+                    h.AccountId,
+                    h.RepeatEvery,
+                    h.PackageSize)).ToList())).ToList();
+
+            var req = new SaveContactWorkflowRequest(null, _activo, steps);
+            var res = await WorkflowSvc.SaveAsync(_filtroId, req);
+            if (res.IsOk) { _saved = true; }
+            else { _error = res.Error ?? "No se pudo guardar el workflow."; }
+        }
+        finally { _busy = false; }
+    }
+
+    private static DateOnly? ParseDate(string? value)
+        => DateOnly.TryParse(value, out var d) ? d : null;
+
+    private static TimeOnly ParseTime(string? value, TimeOnly fallback)
+        => TimeOnly.TryParse(value, out var t) ? t : fallback;
+
+    private static HashSet<int> ParseDays(string? csv)
+    {
+        var set = new HashSet<int>();
+        if (string.IsNullOrWhiteSpace(csv)) { return set; }
+        foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(part, out var d) && d is >= 1 and <= 7) { set.Add(d); }
+        }
+        return set;
+    }
+
+    // ---- Paleta / metadatos (colores e iconos del legacy ucWorkflowDesigner) ----
+
+    private sealed record PaletteItem(ContactWorkflowStepType Type, string Color, string Label, string Sub, string Icon);
+
+    private static readonly string IcoLink = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/></svg>";
+    private static readonly string IcoChat = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/><path d=\"M8 10h.01M12 10h.01M16 10h.01\"/></svg>";
+    private static readonly string IcoWa = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z\"/></svg>";
+    private static readonly string IcoMail = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><path d=\"m22 7-10 5L2 7\"/></svg>";
+    private static readonly string IcoPhone = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.35a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.73-1.32a2 2 0 0 1 2.11-.45c.75.34 1.54.57 2.35.7A2 2 0 0 1 22 16.92z\"/></svg>";
+
+    private static readonly PaletteItem[] Palette =
+    {
+        new(ContactWorkflowStepType.Conectar,   "#334155", "Conectar",    "Enlace",       IcoLink),
+        new(ContactWorkflowStepType.MensajeRed, "#6366f1", "Mensaje Red", "Notificacion", IcoChat),
+        new(ContactWorkflowStepType.WhatsApp,   "#10b981", "WhatsApp",    "Directo",      IcoWa),
+        new(ContactWorkflowStepType.Email,      "#f43f5e", "E-mail",      "SMTP",         IcoMail),
+        new(ContactWorkflowStepType.Llamada,    "#f59e0b", "Llamada CRM", "Gestion",      IcoPhone),
+    };
+
+    private static PaletteItem MetaFor(ContactWorkflowStepType type)
+        => Palette.First(p => p.Type == type);
+
+    private sealed record DayItem(int Iso, string Label, string Full);
+
+    private static readonly DayItem[] DaysOfWeek =
+    {
+        new(1, "L", "Lunes"), new(2, "M", "Martes"), new(3, "X", "Miercoles"),
+        new(4, "J", "Jueves"), new(5, "V", "Viernes"), new(6, "S", "Sabado"), new(7, "D", "Domingo")
+    };
+
+    private sealed class StepVM
+    {
+        public ContactWorkflowStepType StepType { get; set; }
+        public string Label { get; set; } = "";
+        public string? Comercial { get; set; }
+        public string? Prioridad { get; set; }
+        public string? Categoria { get; set; }
+        public string? Subcategoria { get; set; }
+        public List<ScheduleVM> Schedules { get; } = new();
+    }
+
+    private sealed class ScheduleVM
+    {
+        public string? StartDate { get; set; }
+        public string? EndDate { get; set; }
+        public string StartTime { get; set; } = "09:00";
+        public string EndTime { get; set; } = "18:00";
+        public HashSet<int> ActiveDays { get; set; } = new();
+        public int? RepeatEvery { get; set; }
+        public int? PackageSize { get; set; }
+        public string? TemplateId { get; set; }
+        public Guid? AccountId { get; set; }
+    }
+}

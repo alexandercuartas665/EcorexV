@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-08-03 - Scheduling en la Config API + corrida programada server-direct (Upsert) (ADR-0060)
+
+**Que:** Fase 2 del scheduling de conectores. Se expuso el scheduling por HTTP en la Config API y se
+hizo que la corrida PROGRAMADA de un conector RestApi use el MISMO camino que el `/run` manual
+(`ConnectorRunPlanner` -> `ApiImportService`), reconciliando por Upsert en vez de duplicar.
+
+**Persistencia del modo:** `ImportProcess` (Domain) gana `Mode` (enum `ImportRunMode`
+Append/Replace/Upsert, espejo exacto de `ApiImportMode` de Application; se castea en el borde porque
+Domain no referencia Application) y `KeyColumn` (string?). Antes el disparo iba fijo en `Replace`;
+ahora persiste la politica. Default = Replace (comportamiento historico). Se guarda como string
+(`nvarchar/varchar(16)`, `HasConversion<string>()` + `ValueGeneratedNever()` para no caer en la
+sustitucion del default cuando el valor es Append=0). Propagado por `SaveImportProcessRequest` e
+`ImportProcessDto`; `SaveProcessAsync`/`MapProcess` mapean con el cast.
+
+**Migracion DUAL** `AddImportProcessRunMode`, encadenada tras `AddContactWorkflows`:
+PG `20260803173153` (Ecorex.Infrastructure) y SQL Server `20260803173210`
+(Ecorex.Infrastructure.SqlServer). Agrega `mode` (default "Replace", rellena filas existentes) y
+`key_column` (nullable). Sin otros cambios de esquema.
+
+**Disparo del scheduler:** `ProcessRunner.RunNowAsync` (compartido por el boton "Actualizar datos" y
+el scheduler) ahora ramifica por tipo de conector. **RestApi -> server-direct**: nuevo
+`RunRestServerDirectAsync` arma el plan con `ConnectorRunPlanner.Build(..., (ApiImportMode)process.Mode,
+process.KeyColumn)` y ejecuta `IApiImportService.ImportAsync` (sin agente; token-exchange y headers ya
+viven en ApiImportService). Deja/cierra corrida en la bitacora sincronicamente. **Database -> via
+agente** (sin cambio de mecanismo) pero honrando el Mode/KeyColumn persistidos. Se elimino la rama
+RestApi-via-agente y el helper `BuildRestSpec`. `ProcessRunner` ahora inyecta `IApiImportService`.
+
+**Endpoints** (`ConfigApiEndpoints`, tenant-scoped por Bearer, auditados, OpenAPI): `PUT/GET/DELETE
+/api/config/connectors/{id}/schedule` (upsert por conector, estado, borrado) y `GET
+/api/config/connectors/{id}/runs?take=N` (bitacora). El PUT valida el cron con el MISMO parser Cronos
+(via `SaveProcessAsync`) y devuelve 400 si es invalido, sin activar la programacion.
+
+**Resultado:** `dotnet build Ecorex.sln` VERDE (0 errores). Tests: Application.Tests 614/614 (incluye
+`ScheduledUpsertRunTests` nuevo: alineacion del cast, el planner usa Mode/KeyColumn persistidos, y la
+corrida Upsert reconcilia sin duplicar), SuperAdmin.Tests 60/60. Solo ASCII. No se desplego ni
+commiteo. NO se toco la feature en curso de ContactWorkflow (disenador de Acciones).
+
+**Siguiente:** cablear la UI de Contenedores para editar Mode/KeyColumn de la programacion; opcional
+follow-up B de ADR-0059 (despacho al agente cuando el RestApi solo sea alcanzable desde la LAN).
+
+---
+
 ## 2026-08-03 - Disenador de acciones por filtro de contactos - FASE 1 (ADR-0056)
 
 **Que:** Se implemento la Fase 1 del "disenador de acciones por filtro de contactos" (port del

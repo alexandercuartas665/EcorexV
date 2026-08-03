@@ -202,6 +202,9 @@ public static class DependencyInjection
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
         // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
         services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();
+        // Disenador de acciones por filtro de contactos (ADR-0056, Fase 1): persiste la LISTA de
+        // pasos + ventanas de horario atada 1:1 a un filtro guardado. El motor de ejecucion es Fase 2.
+        services.AddScoped<Tenancy.IContactWorkflowService, Tenancy.ContactWorkflowService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

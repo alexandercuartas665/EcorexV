@@ -1,0 +1,100 @@
+/* Disenador de acciones por filtro de contactos (ADR-0056, Fase 1). Estetica del legacy
+   ucWorkflowDesigner.ascx con los tokens del workspace (app.css): --brand, --on-brand,
+   --ink/-2/-3, --line/-2, --surface/-2/-3, --rad, --sh-md/-lg, --danger. Solo ASCII. */
+
+.cw-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 1200; padding: 24px; }
+.cw-modal { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); box-shadow: var(--sh-lg); width: min(1040px, 96vw); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ---- Cabecera ---- */
+.cw-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.cw-kicker { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--ink-3); }
+.cw-title { font-weight: 800; font-size: 20px; letter-spacing: -.02em; margin-top: 4px; }
+.cw-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 5px; }
+.cw-head-right { display: flex; align-items: center; gap: 14px; flex: none; }
+.cw-switch { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+.cw-switch input { width: 16px; height: 16px; accent-color: var(--brand); }
+.cw-close { width: 34px; height: 34px; border: 1px solid var(--line); background: var(--surface); border-radius: 9px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.cw-close svg { width: 17px; height: 17px; }
+.cw-close:hover { background: var(--surface-2); color: var(--ink); }
+
+/* ---- Nota Fase 2 ---- */
+.cw-fase2-note { display: flex; align-items: center; gap: 9px; margin: 14px 22px 0; padding: 10px 13px; background: var(--t-amber-bg); color: var(--t-amber); border: 1px solid var(--t-amber); border-radius: 10px; font-size: 12.5px; }
+.cw-fase2-note svg { width: 17px; height: 17px; flex: none; }
+.cw-fase2-note b { font-weight: 800; }
+
+/* ---- Cuerpo: paleta + pasos ---- */
+.cw-body { display: grid; grid-template-columns: 232px 1fr; gap: 18px; padding: 18px 22px; overflow: auto; }
+
+.cw-palette { position: sticky; top: 0; align-self: start; }
+.cw-palette-lbl, .cw-steps-lbl { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--ink-3); margin-bottom: 10px; }
+.cw-pal-card { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 11px; margin-bottom: 9px; border: 1px solid var(--line-2); border-left: 3px solid var(--pal); border-radius: 11px; background: var(--surface); cursor: pointer; text-align: left; transition: border-color .12s, box-shadow .12s, transform .06s; }
+.cw-pal-card:hover { border-color: var(--pal); box-shadow: var(--sh-sm); transform: translateY(-1px); }
+.cw-pal-ic { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; color: #fff; }
+.cw-pal-ic svg { width: 17px; height: 17px; }
+.cw-pal-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.cw-pal-name { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.cw-pal-sub { font-size: 11px; color: var(--ink-3); }
+.cw-pal-add { width: 22px; height: 22px; flex: none; border-radius: 6px; display: grid; place-items: center; color: var(--ink-3); background: var(--surface-2); }
+.cw-pal-add svg { width: 14px; height: 14px; }
+
+/* ---- Lista de pasos ---- */
+.cw-steps { min-width: 0; }
+.cw-empty, .cw-sched-empty { border: 1px dashed var(--line-2); border-radius: 11px; padding: 22px 16px; text-align: center; font-size: 12.5px; color: var(--ink-3); background: var(--surface-2); }
+
+.cw-step { border: 1px solid var(--line-2); border-left: 3px solid var(--pal); border-radius: 12px; background: var(--surface); margin-bottom: 12px; overflow: hidden; }
+.cw-step-head { display: flex; align-items: center; gap: 11px; padding: 11px 13px; }
+.cw-step-order { width: 24px; height: 24px; flex: none; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--pal); background: var(--surface-2); border: 1px solid var(--line-2); }
+.cw-step-ic { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; color: #fff; }
+.cw-step-ic svg { width: 17px; height: 17px; }
+.cw-step-titles { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.cw-step-label { font-size: 13.5px; font-weight: 700; color: var(--ink); border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 3px 5px; }
+.cw-step-label:hover, .cw-step-label:focus { border-color: var(--line-2); background: var(--surface); outline: none; }
+.cw-step-type { font-size: 11px; color: var(--ink-3); padding-left: 5px; }
+.cw-step-tools { display: flex; align-items: center; gap: 5px; flex: none; }
+.cw-icon { width: 28px; height: 28px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.cw-icon svg { width: 15px; height: 15px; }
+.cw-icon:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.cw-icon:disabled { opacity: .4; cursor: default; }
+.cw-icon.del:hover { color: var(--danger); border-color: var(--danger); }
+
+/* ---- Campos CRM del paso Llamada ---- */
+.cw-call { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0 13px 12px; }
+
+/* ---- Ventanas de horario ---- */
+.cw-sched-wrap { border-top: 1px solid var(--line-2); padding: 12px 13px; background: var(--surface-2); }
+.cw-sched-lbl { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; color: var(--ink-3); margin-bottom: 9px; }
+.cw-add-win { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: var(--brand); background: var(--brand-soft); border: none; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+.cw-add-win svg { width: 13px; height: 13px; }
+
+.cw-sched { position: relative; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); padding: 11px 12px; margin-bottom: 9px; }
+.cw-days { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+.cw-day { width: 28px; height: 28px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; font-size: 12px; font-weight: 700; color: var(--ink-3); cursor: pointer; }
+.cw-day.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.cw-sched-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+.cw-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cw-field label { font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
+.cw-field input { width: 100%; border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 9px; font-size: 12.5px; color: var(--ink); background: var(--surface); }
+.cw-field input:focus { outline: none; border-color: var(--brand); }
+
+.cw-win-del { position: absolute; top: 9px; right: 9px; width: 26px; height: 26px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--ink-3); }
+.cw-win-del svg { width: 14px; height: 14px; }
+.cw-win-del:hover { color: var(--danger); border-color: var(--danger); }
+
+/* ---- Pie ---- */
+.cw-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--surface); }
+.cw-err { font-size: 12.5px; color: var(--danger); font-weight: 600; }
+.cw-ok { font-size: 12.5px; color: var(--t-green); font-weight: 700; }
+.cw-foot-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.cw-btn-ghost { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 9px; padding: 9px 15px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cw-btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+.cw-btn-brand { display: inline-flex; align-items: center; gap: 7px; border: none; background: var(--brand); color: var(--on-brand); border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.cw-btn-brand svg { width: 16px; height: 16px; }
+.cw-btn-brand:hover:not(:disabled) { filter: brightness(.95); }
+.cw-btn-brand:disabled, .cw-btn-ghost:disabled { opacity: .6; cursor: default; }
+
+@media (max-width: 860px) {
+    .cw-body { grid-template-columns: 1fr; }
+    .cw-call { grid-template-columns: repeat(2, 1fr); }
+    .cw-sched-grid { grid-template-columns: repeat(2, 1fr); }
+}

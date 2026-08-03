@@ -222,6 +222,12 @@ public interface IApplicationDbContext
     DbSet<TerceroFiltro> TerceroFiltros { get; }
     DbSet<ProspectoScrapeado> ProspectosScrapeados { get; }
 
+    // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
+    // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.
+    DbSet<ContactWorkflow> ContactWorkflows { get; }
+    DbSet<ContactWorkflowStep> ContactWorkflowSteps { get; }
+    DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules { get; }
+
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto) con flags RQ07, vinculos opcionales (flujo/formulario/tablero)
     // y relaciones M:N (cargos/terceros) en tablas hijas.

@@ -300,6 +300,13 @@ public sealed class DataImportConfigService : IDataImportConfigService
         entity.CronExpression = string.IsNullOrWhiteSpace(req.CronExpression) ? null : req.CronExpression!.Trim();
         entity.IsActive = req.IsActive;
 
+        // Modo/columna clave de la corrida: la politica del disparo (igual que el /run manual). El cast
+        // es seguro porque ImportRunMode espeja EXACTAMENTE a ApiImportMode (mismos valores/orden).
+        entity.Mode = (ImportRunMode)req.Mode;
+        entity.KeyColumn = req.Mode == ApiImportMode.Upsert && !string.IsNullOrWhiteSpace(req.KeyColumn)
+            ? req.KeyColumn!.Trim()
+            : null;
+
         // La proxima ventana se calcula AL GUARDAR y no se deja para el worker: si no, el operador
         // guarda "cada 15 minutos" y la ficha no le dice cuando corre: tendria que esperar un ciclo
         // para verlo. Ademas un cron invalido se rechaza AQUI, mientras esta mirando, en vez de
@@ -384,6 +391,7 @@ public sealed class DataImportConfigService : IDataImportConfigService
         return new ImportProcessDto(
             p.Id, p.ModelId ?? Guid.Empty, p.ConnectorId, connectorName, p.ClientId, clientName,
             p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.LastRunAt,
+            (ApiImportMode)p.Mode, p.KeyColumn,
             p.NextRunAt, p.DisabledReason, p.PendingSince);
     }
 

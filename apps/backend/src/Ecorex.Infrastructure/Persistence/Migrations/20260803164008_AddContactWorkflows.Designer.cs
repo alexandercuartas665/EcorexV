@@ -3,6 +3,7 @@ using System;
 using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ecorex.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EcorexDbContext))]
-    partial class EcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260803164008_AddContactWorkflows")]
+    partial class AddContactWorkflows
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -5217,21 +5220,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 
-                    b.Property<string>("KeyColumn")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("key_column");
-
                     b.Property<DateTimeOffset?>("LastRunAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_run_at");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasDefaultValue("Replace")
-                        .HasColumnName("mode");
 
                     b.Property<Guid?>("ModelId")
                         .HasColumnType("uuid")

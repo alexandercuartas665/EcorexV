@@ -227,6 +227,9 @@ public class TenantUserServiceTests
         public DbSet<Cita> Citas => throw new NotSupportedException();
         public DbSet<TerceroFiltro> TerceroFiltros => throw new NotSupportedException();
         public DbSet<ProspectoScrapeado> ProspectosScrapeados => throw new NotSupportedException();
+        public DbSet<ContactWorkflow> ContactWorkflows => throw new NotSupportedException();
+        public DbSet<ContactWorkflowStep> ContactWorkflowSteps => throw new NotSupportedException();
+        public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

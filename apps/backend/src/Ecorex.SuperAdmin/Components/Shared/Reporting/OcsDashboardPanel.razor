@@ -18,6 +18,12 @@
                 @foreach (var o in _soOptions) { <option value="@o">@o</option> }
             </select>
         </label>
+        <label>Dominio
+            <select @bind="_dominio">
+                <option value="">(todos)</option>
+                @foreach (var o in _dominioOptions) { <option value="@o">@o</option> }
+            </select>
+        </label>
         <label>Arquitectura
             <select @bind="_bits">
                 <option value="">(todas)</option>
@@ -131,12 +137,13 @@
 @code {
     private string _so = "";
     private string _bits = "";
+    private string _dominio = "";
     private string _programa = "";
     private string _publisher = "";
     private string? _error;
 
     private string? _sourceKey;
-    private string? _kEquipo, _kSo, _kPrograma, _kVersion, _kPublisher, _kBits;
+    private string? _kEquipo, _kSo, _kPrograma, _kPublisher, _kBits, _kDominio;
 
     private long _equipos, _programas, _instalaciones, _publishers, _win7;
     private string _pct64 = "0%";
@@ -145,6 +152,7 @@
 
     private readonly List<string> _soOptions = new();
     private readonly List<string> _bitsOptions = new();
+    private readonly List<string> _dominioOptions = new();
     private readonly List<string> _soKeys = new();
     private readonly List<string> _bitsKeys = new();
     private readonly Dictionary<(string, string), long> _matrix = new();
@@ -177,9 +185,9 @@
             _kEquipo = KeyOf(ocs, "Equipo");
             _kSo = KeyOf(ocs, "SO");
             _kPrograma = KeyOf(ocs, "Programa");
-            _kVersion = KeyOf(ocs, "Version");
             _kPublisher = KeyOf(ocs, "Publisher");
             _kBits = KeyOf(ocs, "Bits");
+            _kDominio = KeyOf(ocs, "Dominio");
         }
         catch (Exception ex)
         {
@@ -192,7 +200,7 @@
 
     private async Task ClearFilters()
     {
-        _so = _bits = _programa = _publisher = "";
+        _so = _bits = _dominio = _programa = _publisher = "";
         await LoadAsync();
     }
 
@@ -210,25 +218,31 @@
             var filters = new List<ReportFilter>();
             if (!string.IsNullOrWhiteSpace(_so)) { filters.Add(ReportFilter.Eq(_kSo, _so)); }
             if (!string.IsNullOrWhiteSpace(_bits)) { filters.Add(ReportFilter.Eq(_kBits, _bits)); }
+            if (_kDominio is not null && !string.IsNullOrWhiteSpace(_dominio)) { filters.Add(ReportFilter.Eq(_kDominio, _dominio)); }
             if (!string.IsNullOrWhiteSpace(_programa)) { filters.Add(new ReportFilter(_kPrograma, ReportFilterOperator.Contains, new string?[] { _programa.Trim() })); }
             if (!string.IsNullOrWhiteSpace(_publisher)) { filters.Add(new ReportFilter(_kPublisher, ReportFilterOperator.Contains, new string?[] { _publisher.Trim() })); }
+
+            var fieldKeys = new List<string> { _kEquipo, _kSo, _kPrograma, _kPublisher, _kBits };
+            if (_kDominio is not null) { fieldKeys.Add(_kDominio); }
 
             var ds = await ReportDs.QueryAsync(new ReportQuerySpec
             {
                 SourceKey = _sourceKey,
-                Fields = new string[] { _kEquipo, _kSo, _kPrograma, _kVersion ?? _kPrograma, _kPublisher, _kBits },
+                Fields = fieldKeys.ToArray(),
                 Filters = filters
             }, new ReportContext(Guid.Empty));
 
             var idx = ds.Columns.Select((c, i) => (c.Key, i))
                 .ToDictionary(x => x.Key, x => x.i, StringComparer.OrdinalIgnoreCase);
             int iEq = idx[_kEquipo], iSo = idx[_kSo], iPr = idx[_kPrograma], iPu = idx[_kPublisher], iBi = idx[_kBits];
+            int iDo = _kDominio is not null && idx.ContainsKey(_kDominio) ? idx[_kDominio] : -1;
 
             var equipos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var programas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var publishers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var soEquipos = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var bitsCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var dominioCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var progInstalls = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             var progEquipos = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var progPublisher = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -256,6 +270,7 @@
                 if (!soEquipos.TryGetValue(so, out var se)) { soEquipos[so] = se = new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
                 if (eq.Length > 0) { se.Add(eq); }
                 bitsCount[bi] = bitsCount.GetValueOrDefault(bi) + 1;
+                if (iDo >= 0) { var dom = Norm(row[iDo]); if (dom.Length > 0) { dominioCount[dom] = dominioCount.GetValueOrDefault(dom) + 1; } }
 
                 progInstalls[pr] = progInstalls.GetValueOrDefault(pr) + 1;
                 if (!progEquipos.TryGetValue(pr, out var pe)) { progEquipos[pr] = pe = new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
@@ -292,6 +307,8 @@
                 _bitsOptions.Clear();
                 _bitsOptions.AddRange(new[] { "64", "32" }.Where(seenBits.Contains)
                     .Concat(seenBits.Where(b => b is not ("64" or "32") && b.Length > 0).OrderBy(b => b)));
+                _dominioOptions.Clear();
+                _dominioOptions.AddRange(dominioCount.OrderByDescending(kv => kv.Value).Select(kv => kv.Key));
                 _optionsLoaded = true;
             }
 

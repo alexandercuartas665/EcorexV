@@ -5,6 +5,47 @@
 
 ---
 
+## 2026-08-03 - Plantillas de reportes reutilizables entre tenants (ADR-0062, modelo hibrido)
+
+**Que:** Implementado el doc 06 del Motor de Reportes (ADR-0062) sobre el tronco de prod. Modelo
+HIBRIDO en 3 capas: plantilla GLOBAL de plataforma + instancia tenant-scoped al activar (snapshot +
+vinculo `TemplateId`, con re-sincronizacion) + reporte propio del tenant (`TemplateId=null`, sin
+cambios). Compartir la plantilla NUNCA filtra datos: la instancia corre via `IReportDataSource` con el
+filtro global (aislamiento fail-closed).
+
+- **Entidad `ReportTemplate`** (Ecorex.Domain): GLOBAL, hereda de `BaseEntity` (NO `ITenantScoped`),
+  mismo patron que `PlatformUser`/`SaasPlan` dentro de `EcorexDbContext` (DbSet global, sin query
+  filter). Campos: Name, Description, Kind (Dashboard|Printable|Panel), SourceKey, SpecJson?, Rdl?,
+  RequiredSourceKind (Native|Container), RequiredContainerName?, Category, Icon, IsPublished + auditoria.
+- **Columna `TemplateId`** (uuid?, null = reporte propio) en `report_definitions`, indice
+  `(TenantId, TemplateId)`, sin FK dura (la plantilla es global; el reporte es tenant-scoped).
+- **Migraciones DUALES** `AddReportTemplates`: `Ecorex.Infrastructure` (EcorexDbContext / PG) y
+  `Ecorex.Infrastructure.SqlServer` (SqlServerEcorexDbContext), encadenadas tras AddContactWorkflowRuns.
+  Cada una crea `report_templates` + agrega `template_id`; nada mas.
+- **`IReportActivationService`** (nuevo, Application): `ActivateTemplateAsync` (valida compatibilidad de
+  fuente, snapshot + vinculo, idempotente/reactiva), `DeactivateTemplateAsync` (archiva la instancia sin
+  tocar la plantilla), `ResyncFromTemplateAsync` (re-copia el molde SIN perder `report_definition_roles`),
+  `ActivateCompatibleAsync(includeNative)` (barrido) y `ListActivatableAsync`. Compatibilidad: Native ->
+  siempre OK; Container -> OK solo si el tenant tiene un contenedor raiz cuyo nombre coincide con
+  RequiredContainerName (via el DbContext tenant-scoped), si no rechaza con mensaje claro.
+- **`IReportTemplateService`** (nuevo): listar publicadas, CRUD (solo PlatformAdmin, AUDITADO con
+  `IAuditWriter`/AdminAuditLog en la transaccion) y `GetActivatableForTenantAsync`.
+- **`CreateExampleReportsAsync` refactorizado** a template-based: ya no hardcodea `panel:ocs` ni
+  `panel:system-activities`; activa todas las plantillas publicadas compatibles (Panel OCS aparece solo
+  donde hay contenedor OCS) y solo mantiene 3 dashboards nativos de ejemplo del tenant.
+- **Seed de las 2 plantillas base** (`DatabaseSeeder.EnsureReportTemplatesAsync`, idempotente por
+  SourceKey, corre SIEMPRE como metadato de plataforma igual que el catalogo de ciudades): Panel de
+  Actividades (Native) y Panel OCS (Container, "Software OCS"). Cableado en `Program.cs` (rama prod y dev).
+- **PlatformAdmin**: pagina `/plantillas-reportes` (policy `PlatformOperator`, auditada) para
+  crear/editar/publicar/despublicar + NavLink en "Super Admin SaaS". Auto-activacion en `ReportGallery`
+  (al entrar activa las de contenedor compatibles).
+- **Pruebas**: `ReportActivationTests` dual (PG + SQL Server), 8 casos en verde (aislamiento
+  cross-tenant, idempotencia, compatibilidad de contenedor, barrido, resync conservando roles).
+  `dotnet build` verde; 618 unit + 34 Report* integration en verde. ADR-0062 -> ACEPTADA.
+
+**Siguiente:** (opcional) pagina de activacion en `/reportes/admin` para el tenant (ver activables y
+activar/desactivar). NO desplegado, NO commiteado.
+
 ## 2026-08-03 - Panel OCS integrado al Motor de Reportes (galeria)
 
 **Que:** Se integro el "Panel OCS - Inventario de software" a la galeria de reportes del tronco SIN

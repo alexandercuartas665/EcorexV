@@ -91,6 +91,8 @@ public interface IApplicationDbContext
     DbSet<ReportDefinition> ReportDefinitions { get; }
     // Gobernanza por rol: que reportes ve cada rol dinamico del tenant.
     DbSet<ReportDefinitionRole> ReportDefinitionRoles { get; }
+    // Plantillas de reportes reutilizables entre tenants (ADR-0062): catalogo GLOBAL de plataforma.
+    DbSet<ReportTemplate> ReportTemplates { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }

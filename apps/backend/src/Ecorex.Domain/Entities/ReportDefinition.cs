@@ -31,6 +31,14 @@ public class ReportDefinition : TenantEntity, IVersioned
     /// <summary>RDL del reporte imprimible (Ola 2, editor Bold). Null para dashboards.</summary>
     public string? Rdl { get; set; }
 
+    /// <summary>
+    /// Vinculo a la plantilla de plataforma (ADR-0062) de la que se activo esta instancia. Null =
+    /// reporte propio del tenant (creado con IA/editor). NO es una FK dura: <see cref="ReportTemplate"/>
+    /// es una entidad GLOBAL y esta instancia es tenant-scoped, asi que el vinculo se guarda como Guid
+    /// logico (la app resuelve la plantilla por Id). El dato jamas viaja con la plantilla.
+    /// </summary>
+    public Guid? TemplateId { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor, ADR-0013).</summary>
     public long Version { get; set; }
 }

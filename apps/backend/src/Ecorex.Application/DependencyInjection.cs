@@ -246,6 +246,11 @@ public static class DependencyInjection
         // validado contra el catalogo -> dashboard). El generador real usa el agente/proveedor del
         // tenant (AiUsageLog); en pruebas se falsea IReportSpecGenerator.
         services.AddScoped<Reporting.IReportDefinitionService, Reporting.ReportDefinitionService>();
+        // Plantillas de reportes reutilizables entre tenants (ADR-0062, modelo hibrido): catalogo
+        // maestro de plataforma (CRUD auditado) + servicio de activacion tenant-scoped (snapshot +
+        // vinculo TemplateId, re-sincronizacion y barrido por compatibilidad de fuente).
+        services.AddScoped<Reporting.Templates.IReportActivationService, Reporting.Templates.ReportActivationService>();
+        services.AddScoped<Reporting.Templates.IReportTemplateService, Reporting.Templates.ReportTemplateService>();
         services.AddScoped<Reporting.Authoring.IReportSpecGenerator, Reporting.Authoring.AiReportSpecGenerator>();
         services.AddScoped<Reporting.Authoring.IReportAuthoringService, Reporting.Authoring.ReportAuthoringService>();
         return services;

@@ -310,6 +310,56 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     }
 
     /// <summary>
+    /// Siembra el catalogo GLOBAL de plantillas de reportes base (ADR-0062): "Panel de Actividades"
+    /// (fuente NATIVA, activable en cualquier tenant) y "Panel OCS" (fuente CONTENEDOR "Software OCS",
+    /// activable solo donde exista ese contenedor). Son metadato de PLATAFORMA (no tenant-scoped): se
+    /// siembran SIEMPRE (tambien con SkipDemoSeed), igual que el catalogo de ciudades. Idempotente por
+    /// SourceKey: solo agrega las que falten, no pisa ediciones del PlatformAdmin.
+    /// </summary>
+    public async Task EnsureReportTemplatesAsync(CancellationToken cancellationToken = default)
+    {
+        var existentes = await _db.ReportTemplates
+            .Select(t => t.SourceKey)
+            .ToListAsync(cancellationToken);
+        var yaHay = new HashSet<string>(existentes, StringComparer.OrdinalIgnoreCase);
+
+        var catalogo = new[]
+        {
+            new ReportTemplate
+            {
+                Name = "Panel de Actividades",
+                Description = "Dashboard de actividades (tareas) del tenant: KPIs, graficos y tabla.",
+                Kind = ReportTemplateKind.Panel,
+                SourceKey = "panel:system-activities",
+                RequiredSourceKind = ReportTemplateSourceKind.Native,
+                Category = "Paneles",
+                Icon = "chart",
+                IsPublished = true
+            },
+            new ReportTemplate
+            {
+                Name = "Panel OCS - Inventario de software",
+                Description = "Panel del inventario de software (contenedor OCS). Solo donde exista el contenedor.",
+                Kind = ReportTemplateKind.Panel,
+                SourceKey = "panel:ocs",
+                RequiredSourceKind = ReportTemplateSourceKind.Container,
+                RequiredContainerName = "Software OCS",
+                Category = "Paneles",
+                Icon = "server",
+                IsPublished = true
+            }
+        };
+
+        var nuevas = catalogo.Where(t => !yaHay.Contains(t.SourceKey)).ToList();
+        if (nuevas.Count == 0) { return; }
+
+        _db.ReportTemplates.AddRange(nuevas);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Catalogo de plantillas de reportes sembrado ({Count} nuevas): {Nombres}.",
+            nuevas.Count, string.Join(", ", nuevas.Select(t => t.Name)));
+    }
+
+    /// <summary>
     /// Rellena el perfil de contacto/domicilio de la ficha de empresa (modulo 000072, ADR-0026)
     /// del tenant demo SKY SYSTEM cuando la BD ya existia antes de la migracion AddTenantProfile
     /// (los campos nuevos quedan null en filas previas). Idempotente: solo escribe los campos

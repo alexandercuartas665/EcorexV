@@ -141,6 +141,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<DataModelRelationLink> DataModelRelationLinks => NotUsed<DataModelRelationLink>();
         public DbSet<ReportDefinition> ReportDefinitions => NotUsed<ReportDefinition>();
         public DbSet<ReportDefinitionRole> ReportDefinitionRoles => NotUsed<ReportDefinitionRole>();
+        public DbSet<ReportTemplate> ReportTemplates => NotUsed<ReportTemplate>();
         public DbSet<DocumentoCategoria> DocumentoCategorias => NotUsed<DocumentoCategoria>();
         public DbSet<DocumentoCarpeta> DocumentoCarpetas => NotUsed<DocumentoCarpeta>();
         public DbSet<Documento> Documentos => NotUsed<Documento>();

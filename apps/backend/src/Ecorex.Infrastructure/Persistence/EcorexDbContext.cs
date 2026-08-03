@@ -46,6 +46,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<AccountActivationCode> AccountActivationCodes => Set<AccountActivationCode>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => Set<SuperAdminAuditLog>();
+    // Catalogo GLOBAL de plantillas de reportes reutilizables entre tenants (ADR-0062): metadato de
+    // plataforma (sin TenantId ni filtro de consulta), administrado por PlatformAdmin.
+    public DbSet<ReportTemplate> ReportTemplates => Set<ReportTemplate>();
     public DbSet<SqlConsoleLog> SqlConsoleLogs => Set<SqlConsoleLog>();
 
     // Llaves de Data Protection compartidas entre apps (Api, SuperAdmin, Workers) para
@@ -403,6 +406,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         // Motor de Reportes y BI (ADR-0051).
         configurationBuilder.Properties<ReportDefinitionKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ReportDefinitionStatus>().HaveConversion<string>().HaveMaxLength(40);
+        // Plantillas de reportes reutilizables entre tenants (ADR-0062).
+        configurationBuilder.Properties<ReportTemplateKind>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ReportTemplateSourceKind>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1530,6 +1536,26 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasIndex(x => new { x.TenantId, x.Name });
             b.HasIndex(x => new { x.TenantId, x.Status });
+            // Vinculo a la plantilla de plataforma (ADR-0062). Sin FK dura (la plantilla es GLOBAL y
+            // este reporte es tenant-scoped); el indice acelera la idempotencia/desactivacion por tenant.
+            b.HasIndex(x => new { x.TenantId, x.TemplateId });
+        });
+
+        // Plantillas de reportes reutilizables entre tenants (ADR-0062): catalogo GLOBAL de plataforma,
+        // sin TenantId ni filtro de consulta (igual que ModuleDefinition / SaasPlan). El unico punto
+        // cross-tenant es su administracion, que va por PlatformAdmin y AUDITADA.
+        modelBuilder.Entity<ReportTemplate>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.SourceKey).HasMaxLength(200).IsRequired();
+            b.Property(x => x.SpecJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.Rdl).HasColumnType(longTextColumnType);
+            b.Property(x => x.RequiredContainerName).HasMaxLength(200);
+            b.Property(x => x.Category).HasMaxLength(120);
+            b.Property(x => x.Icon).HasMaxLength(80);
+            b.HasIndex(x => x.SourceKey);
+            b.HasIndex(x => x.IsPublished);
         });
 
         // Gobernanza de reportes por rol (ADR-0051): que reportes ve cada rol. La asignacion vive y

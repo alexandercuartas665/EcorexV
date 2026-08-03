@@ -1,7 +1,12 @@
 # ADR-0062 - Catalogo de reportes reutilizables entre tenants (plantillas + activacion hibrida)
 
-- Estado: PROPUESTA (2026-08-03). Decision de modelo tomada con el usuario (hibrido);
-  pendiente de implementar en la sesion de desarrollo sobre el tronco de prod.
+- Estado: ACEPTADA (2026-08-03). Implementado en el tronco de prod: entidad global
+  `ReportTemplate` (mismo patron que PlatformUser/SaasPlan en EcorexDbContext), columna
+  `TemplateId` en `report_definitions`, migraciones duales (AddReportTemplates, PG + SQL Server),
+  servicio de activacion (Activate/Deactivate/Resync/ActivateCompatible/ListActivatable),
+  `CreateExampleReportsAsync` refactorizado a template-based, seed de las 2 plantillas base,
+  pagina PlatformAdmin `/plantillas-reportes` (auditada) y auto-activacion en la galeria.
+  Test de aislamiento cross-tenant dual (PG + SQL Server) en verde.
 - Fecha: 2026-08-03
 - Rama / worktree: propuesta desde `feat/motor-reportes` (worktree `informes`); se implementa
   sobre `fase-0/clon-backbone` (tronco de prod, que ya tiene galeria + gobernanza por roles).

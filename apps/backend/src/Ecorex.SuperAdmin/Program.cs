@@ -254,6 +254,8 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsureSuperAdminPasswordAsync(Environment.GetEnvironmentVariable("ECOREX_SEED_ADMIN_PASSWORD"));
         // Catalogo global de ciudades (no es dato demo; se necesita en prod para el selector). Idempotente.
         await seeder.EnsureCiudadesAsync();
+        // Catalogo global de plantillas de reportes (ADR-0062): metadato de plataforma, no dato demo. Idempotente.
+        await seeder.EnsureReportTemplatesAsync();
     }
 }
 else
@@ -271,6 +273,9 @@ else
     // Catalogo GLOBAL de ciudades (municipios de Colombia): no es dato demo, se siembra siempre
     // (tambien con SkipDemoSeed). Idempotente: solo agrega los municipios faltantes.
     await seeder.EnsureCiudadesAsync();
+    // Catalogo GLOBAL de plantillas de reportes (ADR-0062): metadato de plataforma, se siembra siempre
+    // (tambien con SkipDemoSeed). Idempotente por SourceKey.
+    await seeder.EnsureReportTemplatesAsync();
     if (skipDemoSeed)
     {
         await seeder.EnsurePlatformAdminTenantAsync();

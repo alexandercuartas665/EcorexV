@@ -2,11 +2,13 @@
 @attribute [Authorize(Policy = "Perm:reportes/galeria:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Templates
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.Reporting
 @inject IReportDefinitionService Defs
+@inject IReportActivationService Activation
 @inject ICurrentPermissions Perms
 
 @* Galeria de reportes (ADR-0051): TODOS los reportes que el usuario puede usar como tarjetas
@@ -184,6 +186,13 @@
         _canCreate = eff.Unrestricted
             || eff.Can("reportes/ia", PermissionAction.Create)
             || eff.Can("reportes/admin", PermissionAction.View);
+
+        // Auto-activacion por condicion (ADR-0062): al entrar a la galeria, activa en este tenant las
+        // plantillas publicadas de fuente CONTENEDOR cuyo contenedor requerido ya existe (p.ej. el Panel
+        // OCS aparece solo, y solo, donde hay contenedor OCS). Idempotente; nunca cruza tenants.
+        try { await Activation.ActivateCompatibleAsync(includeNative: false); }
+        catch { /* la galeria no debe romperse si la auto-activacion falla */ }
+
         await ReloadAsync();
     }
 

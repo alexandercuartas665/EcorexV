@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Reporting.Authoring;
 using Ecorex.Application.Reporting.Sources;
+using Ecorex.Application.Reporting.Templates;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -93,12 +94,16 @@ public sealed class ReportDefinitionService : IReportDefinitionService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly IReportDataSource _dataSource;
+    private readonly IReportActivationService? _activation;
 
-    public ReportDefinitionService(IApplicationDbContext db, ITenantContext tenantContext, IReportDataSource dataSource)
+    public ReportDefinitionService(
+        IApplicationDbContext db, ITenantContext tenantContext, IReportDataSource dataSource,
+        IReportActivationService? activation = null)
     {
         _db = db;
         _tenantContext = tenantContext;
         _dataSource = dataSource;
+        _activation = activation;
     }
 
     public async Task<Guid> SaveAsync(ReportSpec spec, string? description, CancellationToken ct = default)
@@ -315,15 +320,21 @@ public sealed class ReportDefinitionService : IReportDefinitionService
             return;
         }
 
+        // ADR-0062: los PANELES (Panel de Actividades, Panel OCS...) ya no se hardcodean aqui: son
+        // plantillas de plataforma que se ACTIVAN segun compatibilidad de fuente. Activar aqui todas
+        // las plantillas publicadas compatibles con este tenant (nativas siempre; contenedor solo si el
+        // contenedor existe) hace que, p.ej., el Panel OCS aparezca UNICAMENTE donde hay contenedor OCS.
+        // Tenant-safe por el filtro global; idempotente (no re-activa lo ya activado).
+        if (_activation is not null)
+        {
+            await _activation.ActivateCompatibleAsync(includeNative: true, ct);
+        }
+
+        // Ejemplos NATIVOS locales del tenant (dashboards sobre tareas), TemplateId=null: son reportes
+        // propios de arranque, no plantillas. Idempotente por nombre.
         var src = TaskItemReportSource.SourceKey;
         var examples = new[]
         {
-            // Reporte tipo PANEL: al abrirlo muestra el DASHBOARD completo (KPIs + varios graficos +
-            // tabla), no un solo grafico. La galeria lo reconoce por el SourceKey "panel:...".
-            new ReportSpec
-            {
-                Title = "Tablero de actividades", SourceKey = "panel:system-activities", Chart = ReportChartKind.Table
-            },
             new ReportSpec
             {
                 Title = "Actividades por estado", SourceKey = src, Chart = ReportChartKind.Pie,
@@ -354,28 +365,6 @@ public sealed class ReportDefinitionService : IReportDefinitionService
                 continue;
             }
             await SaveAsync(spec, "Reporte de ejemplo del sistema", ct);
-        }
-
-        // Panel OCS (SourceKey "panel:ocs"): solo se siembra si el tenant tiene cargado un contenedor
-        // RAIZ cuyo nombre contiene "OCS" (el inventario de software). Asi la tarjeta aparece unicamente
-        // donde tiene datos que mostrar; un tenant sin contenedor OCS no la obtiene. Tenant-safe por el
-        // filtro global del DbContext (nunca cruza tenants). Idempotente por nombre.
-        var tieneContenedorOcs = await _db.DataContainers.AsNoTracking()
-            .AnyAsync(c => c.ParentContainerId == null && c.Name.ToUpper().Contains("OCS"), ct);
-        if (tieneContenedorOcs)
-        {
-            var ocsSpec = new ReportSpec
-            {
-                Title = "Panel OCS - Inventario de software",
-                SourceKey = "panel:ocs",
-                Chart = ReportChartKind.Table
-            };
-            var existeOcs = await _db.ReportDefinitions
-                .AnyAsync(d => d.Name == ocsSpec.Title && d.Status == ReportDefinitionStatus.Active, ct);
-            if (!existeOcs)
-            {
-                await SaveAsync(ocsSpec, "Panel de inventario de software (contenedor OCS)", ct);
-            }
         }
     }
 

@@ -8060,6 +8060,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("status");
 
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("template_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
@@ -8085,6 +8089,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("TenantId", "Status")
                         .HasDatabaseName("ix_report_definitions_tenant_id_status");
+
+                    b.HasIndex("TenantId", "TemplateId")
+                        .HasDatabaseName("ix_report_definitions_tenant_id_template_id");
 
                     b.ToTable("report_definitions", (string)null);
                 });
@@ -8141,6 +8148,97 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_report_definition_roles_tenant_id_report_definition_id_rol_id");
 
                     b.ToTable("report_definition_roles", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ReportTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Icon")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("icon");
+
+                    b.Property<bool>("IsPublished")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_published");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Rdl")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("rdl");
+
+                    b.Property<string>("RequiredContainerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("required_container_name");
+
+                    b.Property<string>("RequiredSourceKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("required_source_kind");
+
+                    b.Property<string>("SourceKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("source_key");
+
+                    b.Property<string>("SpecJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("spec_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_report_templates");
+
+                    b.HasIndex("IsPublished")
+                        .HasDatabaseName("ix_report_templates_is_published");
+
+                    b.HasIndex("SourceKey")
+                        .HasDatabaseName("ix_report_templates_source_key");
+
+                    b.ToTable("report_templates", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Rol", b =>

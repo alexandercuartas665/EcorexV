@@ -227,6 +227,9 @@ public interface IApplicationDbContext
     DbSet<ContactWorkflow> ContactWorkflows { get; }
     DbSet<ContactWorkflowStep> ContactWorkflowSteps { get; }
     DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules { get; }
+    // Bitacora de ejecucion del motor de acciones (ADR-0056, Fase 2): un registro por
+    // (paso, ventana, contacto) disparado. Clave de idempotencia/dedupe.
+    DbSet<ContactWorkflowRun> ContactWorkflowRuns { get; }
 
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto) con flags RQ07, vinculos opcionales (flujo/formulario/tablero)

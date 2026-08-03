@@ -194,6 +194,9 @@ builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWork
 // Agentes de IA en nodos (ola 2): atiende los pasos de flujo cuyo nodo tiene agente. Es el disparo
 // ASINCRONO que mantiene la llamada al proveedor de IA fuera de la transaccion del motor de flujos.
 builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WorkflowAgentStepWorker>();
+// Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
+// ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
+builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Gate por circuito que serializa el acceso al DbContext desde todos los DynamicFormRenderer del

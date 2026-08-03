@@ -205,6 +205,10 @@ public static class DependencyInjection
         // Disenador de acciones por filtro de contactos (ADR-0056, Fase 1): persiste la LISTA de
         // pasos + ventanas de horario atada 1:1 a un filtro guardado. El motor de ejecucion es Fase 2.
         services.AddScoped<Tenancy.IContactWorkflowService, Tenancy.ContactWorkflowService>();
+        // Motor de ejecucion del disenador de acciones (ADR-0056, Fase 2): resuelve el segmento del
+        // filtro y dispara cada paso sobre los contactos, con dedupe/ventana/rate. Lo arranca el
+        // ContactWorkflowWorker (Ecorex.SuperAdmin/RealTime), igual patron que ScheduledJobWorker.
+        services.AddScoped<Gestor.IContactWorkflowDispatcher, Gestor.ContactWorkflowDispatcher>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

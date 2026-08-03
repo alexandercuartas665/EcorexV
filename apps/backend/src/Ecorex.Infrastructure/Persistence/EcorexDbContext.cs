@@ -247,6 +247,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
     public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => Set<ContactWorkflowSchedule>();
+    public DbSet<ContactWorkflowRun> ContactWorkflowRuns => Set<ContactWorkflowRun>();
 
     // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
     // Subcategoria (concepto). Multi-tenant (filtro global por reflexion).
@@ -318,6 +319,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         configurationBuilder.Properties<OportunidadEtapa>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<OportunidadEstadoTipo>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<ContactWorkflowStepType>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<ContactWorkflowRunStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
@@ -2058,6 +2060,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.HasOne(x => x.ContactWorkflowStep).WithMany(x => x.Schedules)
                 .HasForeignKey(x => x.ContactWorkflowStepId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => x.ContactWorkflowStepId);
+        });
+
+        modelBuilder.Entity<ContactWorkflowRun>(b =>
+        {
+            b.Property(x => x.Channel).HasMaxLength(40).IsRequired();
+            b.Property(x => x.ExternalRef).HasMaxLength(200);
+            b.Property(x => x.Error).HasMaxLength(600);
+            // UNICA FK dura: al paso, con cascada. La ventana y el contacto se guardan como Guid planos
+            // (sin navegacion) para no bloquear el reemplazo fisico de pasos/ventanas al re-guardar el
+            // disenador, ni arrastrar cascadas multiples en SQL Server (misma filosofia que ScheduledJobRun).
+            b.HasOne(x => x.ContactWorkflowStep).WithMany()
+                .HasForeignKey(x => x.ContactWorkflowStepId).OnDelete(DeleteBehavior.Cascade);
+            // IDEMPOTENCIA/dedupe: un (paso, ventana, contacto) en un dia = un solo disparo. Si dos
+            // instancias del worker corren a la vez, la segunda choca contra este indice y su insercion
+            // se descarta (no es error). La "ventana" es (ScheduleId + WindowDate en zona del tenant).
+            b.HasIndex(x => new { x.TenantId, x.ContactWorkflowStepId, x.ContactWorkflowScheduleId, x.TerceroId, x.WindowDate })
+                .IsUnique();
+            // Consulta del rate-gate: ultimo disparo por ventana (RepeatEvery).
+            b.HasIndex(x => new { x.TenantId, x.ContactWorkflowScheduleId, x.WindowDate });
         });
 
         // ---- Inventarios (grupo Sistema - Inventarios) ----

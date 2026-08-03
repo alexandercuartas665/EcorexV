@@ -788,65 +788,10 @@ public sealed class GestorContactosService : IGestorContactosService
     /// soportados (p. ej. campos dinamicos de FichasJson) se IGNORAN (no excluyen filas).
     /// </summary>
     private static int CountMatching(IReadOnlyList<TerceroRow> rows, IReadOnlyList<FiltroCriterio> criterios)
-        => rows.Count(row => criterios.All(c => Matches(row, c)));
-
-    private static bool Matches(TerceroRow row, FiltroCriterio criterio)
-    {
-        var campo = (criterio.Campo ?? string.Empty).Trim().ToLowerInvariant();
-        var op = (criterio.Operador ?? "=").Trim();
-        var valor = criterio.Valor ?? string.Empty;
-
-        // Perfil: se compara contra el flag [Flags] TerceroPerfil.
-        if (campo == "perfil")
-        {
-            if (!Enum.TryParse<TerceroPerfil>(valor, ignoreCase: true, out var perfil) || perfil == TerceroPerfil.Ninguno)
-            {
-                return true; // valor de perfil desconocido: no filtra.
-            }
-            var tiene = (row.Perfiles & perfil) == perfil;
-            return op switch
-            {
-                "!=" => !tiene,
-                _ => tiene // "=", "LIKE" y demas: posee el perfil.
-            };
-        }
-
-        var actual = campo switch
-        {
-            "ciudad" => row.Ciudad,
-            "vendedor" => row.Vendedor,
-            "nombre" => row.Nombre,
-            "sector" => row.Sector,
-            "cargo" => row.Cargo,
-            "estado" => row.Estado.ToString(),
-            _ => null
-        };
-        // Campo no soportado (dinamico/ficha): se ignora el criterio.
-        if (campo is not ("ciudad" or "vendedor" or "nombre" or "sector" or "cargo" or "estado"))
-        {
-            return true;
-        }
-
-        switch (op)
-        {
-            case "=":
-                return string.Equals(actual ?? string.Empty, valor, StringComparison.OrdinalIgnoreCase);
-            case "!=":
-                return !string.Equals(actual ?? string.Empty, valor, StringComparison.OrdinalIgnoreCase);
-            case "LIKE":
-                return actual is not null && actual.Contains(valor, StringComparison.OrdinalIgnoreCase);
-            case ">":
-            case "<":
-                if (decimal.TryParse(actual, NumberStyles.Any, CultureInfo.InvariantCulture, out var a)
-                    && decimal.TryParse(valor, NumberStyles.Any, CultureInfo.InvariantCulture, out var b))
-                {
-                    return op == ">" ? a > b : a < b;
-                }
-                return false;
-            default:
-                return false;
-        }
-    }
+        => rows.Count(row => ContactFilterEvaluator.MatchesAll(
+            new ContactFilterEvaluator.Row(
+                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
+            criterios));
 
     /// <summary>% de crecimiento del conteo frente al snapshot anterior (entero redondeado).</summary>
     private static int Crecimiento(int conteo, int conteoAnterior)

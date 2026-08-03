@@ -1,6 +1,6 @@
 # ADR-0056: Disenador de acciones por filtro de contactos (port del ucWorkflowDesigner legacy)
 
-- Estado: Propuesto
+- Estado: Aceptado (Fase 1 y Fase 2 implementadas; Fase 3 pendiente)
 - Fecha: 2026-08-03
 - Autores: Agente de diseno (Claude)
 - Contexto de fase: Capa 1/2 (Gestor de Contactos 000740) + motor de ejecucion nuevo
@@ -260,3 +260,53 @@ Equivale al `ucScheduleRange.CargarCuentas/CargarPlantillas` del legacy, pero te
    activar el workflow).
 7. **Consentimiento/opt-out**: envios masivos de WhatsApp/email requieren respetar bajas; contemplar
    un flag de exclusion por Tercero antes de produccion.
+
+---
+
+## 6. Apendice: Fase 2 tal como se implemento (motor de ejecucion)
+
+Estado: IMPLEMENTADA. Piezas entregadas:
+
+- **Entidad `ContactWorkflowRun`** (`Ecorex.Domain/Entities`, tenant-scoped): columnas `ContactWorkflowStepId`,
+  `ContactWorkflowScheduleId`, `TerceroId`, `WindowDate` (fecha local del tenant), `DispatchedAtUtc`,
+  `Status` (enum `ContactWorkflowRunStatus` = Pending/Sent/Failed/Skipped, string), `Channel`, `ExternalRef`,
+  `Error`. Migracion DUAL `AddContactWorkflowRuns` (PG `Ecorex.Infrastructure` + SQL Server
+  `Ecorex.Infrastructure.SqlServer`), encadenada tras `AddImportProcessRunMode`. DbSet en
+  `IApplicationDbContext`/`EcorexDbContext`.
+- **Dedupe / ventana**: la "ventana" del indice unico es `(ScheduleId + WindowDate)`, NO solo el Schedule. Es
+  decir, un contacto recibe un paso a lo sumo UNA vez POR DIA por ventana. Indice unico
+  `(TenantId, StepId, ScheduleId, TerceroId, WindowDate)`. Ventaja: una re-corrida el mismo dia no reenvia
+  (idempotente), y al dia siguiente la ventana vuelve a estar disponible (respeta ActiveDays). El dispatcher
+  hace un pre-check (query de `TerceroId` ya ejecutados) ademas del indice, para no depender del choque de BD.
+- **Ventana de horario**: se evalua en la zona del tenant (`ScheduledJobRecurrence.ResolveTimeZone`): rango
+  `StartDate/EndDate`, dia ISO en `ActiveDays`, y franja `StartTime/EndTime` (soporta franja nocturna que
+  cruza medianoche). Nada de `GETDATE()` implicito (CLAUDE.md regla 9).
+- **Rate**: `PackageSize` = tope de contactos por corrida (default `DefaultBatchCap=50` si es null, techo duro
+  `HardBatchCap=500`); `RepeatEvery` = minutos minimos entre corridas de la MISMA ventana (se mira el ultimo
+  `DispatchedAtUtc` de esa ventana en el dia). Un fallo por contacto NO frena a los demas.
+- **Segmento**: se evalua el filtro EN VIVO con `ContactFilterEvaluator` (extraido de `GestorContactosService`
+  para que "Filtrar ahora" y el motor usen la MISMA logica). Universo = terceros no inactivos.
+- **Dispatcher + worker**: `IContactWorkflowDispatcher`/`ContactWorkflowDispatcher` (`Ecorex.Application/Gestor`)
+  + `ContactWorkflowWorker` (`Ecorex.SuperAdmin/RealTime`, hosted service, barrido 1 min). Mismo patron que
+  `ScheduledJobWorker`/`ImportSchedulerWorker`: barrido cross-tenant SOLO ids (IgnoreQueryFilters) ->
+  `AmbientTenantContext.Begin(tenantId)` -> ejecucion acotada por el filtro global.
+- **Mapeo REAL de las 5 acciones** (a servicios existentes):
+  - `WhatsApp` -> `IWhatsAppConnectorService.SendTestAsync(lineId, phone, text, actor, remoteJid)`. La linea
+    sale de `AccountId` o, si es null, de la primera linea CONECTADA del tenant; `text` = `TemplateId` (texto
+    libre hasta Fase 3); `remoteJid` se resuelve de una `Conversation` previa por telefono (soporta LID,
+    ADR-0055). Sin telefono, sin linea o sin texto -> `Skipped` con motivo.
+  - `Email` -> `IEmailSender.SendAsync(tercero.Email, subject, body)`; sin correo/sin texto -> `Skipped`.
+  - `Llamada` -> `ITaskItemService.CreateAsync(CreateTaskItemRequest{ SubcategoriaId, Priority, AssigneeTenantUserId,
+    RequesterName/Email/Phone })`, mapeando `ParamsJson` (Comercial->assignee, Prioridad->TaskPriority,
+    Subcategoria->SubcategoriaId = puente Concepto->Tarea). Sin subcategoria valida -> `Skipped`.
+  - `Conectar` -> paso "no-envio": `Sent` con canal `conectar`, sin mensajeria.
+  - `MensajeRed` -> **`Skipped` documentado**: hoy no hay canal para INICIAR una conversacion saliente de
+    redes (el dispatcher del agente solo RESPONDE mensajes entrantes). Se resolvera en Fase 3.
+- **Tests**: `ContactWorkflowDispatcherTests` (EF InMemory) verifica: corre una vez sobre 2 contactos (2 envios,
+  2 runs Sent), re-correr respeta el dedupe (0 envios nuevos), y fuera de la ventana/dia inactivo no envia nada.
+- **Banner del disenador**: cambiado de "aun no se disparan (Fase 2)" a "Motor programado" (dispara dentro de
+  la ventana, una vez por contacto y dia).
+
+Limites documentados (anti-spam): por corrida se envia a lo sumo `PackageSize` (o 50) contactos por ventana;
+`RepeatEvery` espacia las corridas; el dedupe garantiza una entrega por contacto/ventana/dia. Consentimiento/
+opt-out (decision abierta 7) sigue pendiente antes de uso masivo en produccion.

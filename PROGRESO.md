@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-08-03 - Motor de ejecucion del disenador de acciones por filtro (ADR-0056 Fase 2)
+
+**Que:** Fase 2 del "disenador de acciones por filtro de contactos" (000740): el MOTOR que ejecuta la
+secuencia de pasos de cada `ContactWorkflow` activo sobre el segmento de contactos que define su
+`TerceroFiltro`. Fase 1 (entidades + UI + persistencia) ya existia; esta sesion agrega ejecucion.
+
+**Entidad + migracion:** nueva `ContactWorkflowRun` (Domain, tenant-scoped): bitacora de un disparo por
+(paso, ventana, contacto) con `Status` (`ContactWorkflowRunStatus` Pending/Sent/Failed/Skipped),
+`WindowDate`, `Channel`, `ExternalRef`, `Error`. La FK dura es SOLO al paso (cascada); ventana y contacto
+son Guid planos (para no bloquear el reemplazo fisico de pasos/ventanas al re-guardar el disenador ni
+arrastrar cascadas multiples en SQL Server). Indice UNICO de dedupe
+`(TenantId, StepId, ScheduleId, TerceroId, WindowDate)`. Migracion DUAL `AddContactWorkflowRuns`:
+PG `20260803202937` + SQL Server `20260803203028`, encadenada tras `AddImportProcessRunMode`. DbSet en
+`IApplicationDbContext`/`EcorexDbContext`.
+
+**Dispatcher + worker:** `IContactWorkflowDispatcher`/`ContactWorkflowDispatcher`
+(`Ecorex.Application/Gestor`) + `ContactWorkflowWorker` (`Ecorex.SuperAdmin/RealTime`, hosted service
+registrado en Program.cs, barrido 1 min). Mismo patron que `ScheduledJobWorker`/`ImportSchedulerWorker`:
+barrido cross-tenant SOLO ids (IgnoreQueryFilters) -> `AmbientTenantContext.Begin` -> ejecucion acotada.
+
+**Dedupe/ventana/rate:** la "ventana" del dedupe es `(ScheduleId + WindowDate)` = un contacto recibe un
+paso a lo sumo UNA vez por dia por ventana; re-correr el mismo dia NO reenvia. Ventana de horario evaluada
+en la zona del tenant (rango de fechas + ActiveDays + franja StartTime/EndTime, con soporte de franja
+nocturna). `PackageSize` = tope por corrida (default 50, techo duro 500); `RepeatEvery` = minutos minimos
+entre corridas de la misma ventana. Segmento evaluado EN VIVO con `ContactFilterEvaluator` (extraido de
+`GestorContactosService` para una sola logica de filtrado).
+
+**Mapeo real de las 5 acciones:** WhatsApp -> `IWhatsAppConnectorService.SendTestAsync` (linea de AccountId
+o primera conectada; remoteJid de una Conversation previa, soporta LID); Email -> `IEmailSender.SendAsync`;
+Llamada -> `ITaskItemService.CreateAsync` (ParamsJson: Subcategoria->SubcategoriaId puente Concepto->Tarea,
+Comercial->assignee, Prioridad->TaskPriority); Conectar -> paso no-envio (Sent). **MensajeRed -> Skipped
+documentado** (no hay canal para INICIAR salida de redes; el dispatcher del agente solo RESPONDE entrantes;
+se resuelve en Fase 3). Contactos sin el dato requerido (telefono/correo/subcategoria) -> Skipped con motivo,
+sin frenar la corrida. Banner del disenador cambiado a "Motor programado".
+
+**Resultado:** `dotnet build Ecorex.sln` VERDE (0 errores). Tests: Application.Tests 617/617 (nuevos:
+`ContactWorkflowDispatcherTests` -> corre una vez sobre 2 contactos con dedupe al re-correr, y respeta
+ventana/dia inactivo). Solo ASCII. Sin desplegar ni commitear (lo hace el orquestador).
+
+**Siguiente:** Fase 3 (plantillas y cuentas reales de mensajeria; canal de MensajeRed); flag de opt-out por
+Tercero antes de uso masivo en prod.
+
+---
+
 ## 2026-08-03 - Scheduling en la Config API + corrida programada server-direct (Upsert) (ADR-0060)
 
 **Que:** Fase 2 del scheduling de conectores. Se expuso el scheduling por HTTP en la Config API y se

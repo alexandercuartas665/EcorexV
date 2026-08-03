@@ -205,6 +205,7 @@ public class RowIngestServiceTests
         public DbSet<ContactWorkflow> ContactWorkflows => throw new NotSupportedException();
         public DbSet<ContactWorkflowStep> ContactWorkflowSteps => throw new NotSupportedException();
         public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => throw new NotSupportedException();
+        public DbSet<ContactWorkflowRun> ContactWorkflowRuns => throw new NotSupportedException();
         public DbSet<ActividadCategoria> ActividadCategorias => throw new NotSupportedException();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => throw new NotSupportedException();

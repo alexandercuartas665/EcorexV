@@ -116,7 +116,7 @@ public sealed class ChatService : IChatService
 
         // Borrado PARA TODOS en WhatsApp (Evolution). Si falla, NO quitamos la fila local (para no
         // mentir: el mensaje seguiria visible en el telefono del cliente).
-        var del = await _connector.DeleteMessageForEveryoneAsync(lineId, conv.ContactPhone, msg.ExternalId, cancellationToken);
+        var del = await _connector.DeleteMessageForEveryoneAsync(lineId, conv.ContactPhone, msg.ExternalId, conv.RemoteJid, cancellationToken);
         if (!del.Ok)
         {
             return new ChatSendResult(false, null, del.Error ?? "No se pudo eliminar en WhatsApp.");
@@ -256,7 +256,7 @@ public sealed class ChatService : IChatService
         }
 
         // Envio real por la linea elegida (Evolution).
-        var send = await _connector.SendTestAsync(lineId, conv.ContactPhone, body, actorUserId, cancellationToken);
+        var send = await _connector.SendTestAsync(lineId, conv.ContactPhone, body, actorUserId, conv.RemoteJid, cancellationToken);
         if (!send.Ok)
         {
             return new ChatSendResult(false, null, send.Error);
@@ -298,7 +298,7 @@ public sealed class ChatService : IChatService
             return new ChatSendResult(false, null, "Conversacion no encontrada.");
         }
 
-        var send = await _connector.SendMediaAsync(lineId, conv.ContactPhone, mediaType, base64, mimeType, fileName, caption, actorUserId, cancellationToken);
+        var send = await _connector.SendMediaAsync(lineId, conv.ContactPhone, mediaType, base64, mimeType, fileName, caption, actorUserId, conv.RemoteJid, cancellationToken);
         if (!send.Ok)
         {
             return new ChatSendResult(false, null, send.Error);
@@ -339,7 +339,7 @@ public sealed class ChatService : IChatService
             return new ChatSendResult(false, null, "Conversacion no encontrada.");
         }
 
-        var send = await _connector.SendLocationAsync(lineId, conv.ContactPhone, latitude, longitude, name, actorUserId, cancellationToken);
+        var send = await _connector.SendLocationAsync(lineId, conv.ContactPhone, latitude, longitude, name, actorUserId, conv.RemoteJid, cancellationToken);
         if (!send.Ok)
         {
             return new ChatSendResult(false, null, send.Error);

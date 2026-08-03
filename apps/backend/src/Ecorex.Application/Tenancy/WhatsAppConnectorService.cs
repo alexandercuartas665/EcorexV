@@ -319,7 +319,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return true;
     }
 
-    public async Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(phone) || string.IsNullOrWhiteSpace(text))
         {
@@ -363,7 +363,9 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
             var server = await ResolveServerAsync(cancellationToken);
             if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
             var (baseUrl, apiKey) = server.Value;
-            var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), digits, text.Trim(), cancellationToken);
+            // Evolution v2 acepta un jid completo (incluido @lid) en el campo "number" y enruta correctamente.
+            var number = string.IsNullOrWhiteSpace(remoteJid) ? digits : remoteJid;
+            var r = await _client.SendTextAsync(baseUrl, apiKey, EvoInstance(line), number, text.Trim(), cancellationToken);
             (ok, error, messageId) = (r.Ok, r.Error, r.MessageId);
         }
 
@@ -373,7 +375,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(ok, error, messageId);
     }
 
-    public async Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         var (err, line, digits) = await ReadyAsync(lineId, phone, cancellationToken);
         if (err is not null || line is null) { return new LineSendResult(false, err); }
@@ -413,13 +415,15 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
         var instance = EvoInstance(line);
+        // Evolution v2 acepta un jid completo (incluido @lid) en el campo "number".
+        var number = string.IsNullOrWhiteSpace(remoteJid) ? digits : remoteJid;
         var result = mediaType == MessageMediaType.Audio
-            ? await _client.SendAudioAsync(baseUrl, apiKey, instance, digits, base64, cancellationToken)
-            : await _client.SendMediaAsync(baseUrl, apiKey, instance, digits, mt, base64, mimeType, fileName, caption, cancellationToken);
+            ? await _client.SendAudioAsync(baseUrl, apiKey, instance, number, base64, cancellationToken)
+            : await _client.SendMediaAsync(baseUrl, apiKey, instance, number, mt, base64, mimeType, fileName, caption, cancellationToken);
         return new LineSendResult(result.Ok, result.Error, result.MessageId);
     }
 
-    public async Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         var (err, line, digits) = await ReadyAsync(lineId, phone, cancellationToken);
         if (err is not null || line is null) { return new LineSendResult(false, err); }
@@ -445,7 +449,9 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         var server = await ResolveServerAsync(cancellationToken);
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
-        var result = await _client.SendLocationAsync(baseUrl, apiKey, EvoInstance(line), digits, latitude, longitude, name, null, cancellationToken);
+        // Evolution v2 acepta un jid completo (incluido @lid) en el campo "number".
+        var number = string.IsNullOrWhiteSpace(remoteJid) ? digits : remoteJid;
+        var result = await _client.SendLocationAsync(baseUrl, apiKey, EvoInstance(line), number, latitude, longitude, name, null, cancellationToken);
         return new LineSendResult(result.Ok, result.Error, result.MessageId);
     }
 
@@ -462,7 +468,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return await _client.GetBase64FromMediaMessageAsync(baseUrl, apiKey, EvoInstance(line), messageKeyId, cancellationToken);
     }
 
-    public async Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(messageId)) { return new LineSendResult(false, "El mensaje no tiene id de WhatsApp (no se puede eliminar para todos)."); }
         var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
@@ -473,12 +479,13 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
         var digits = new string(phone.Where(char.IsDigit).ToArray());
-        var remoteJid = $"{digits}@s.whatsapp.net";
-        var result = await _client.DeleteMessageForEveryoneAsync(baseUrl, apiKey, EvoInstance(line), remoteJid, messageId, fromMe: true, cancellationToken);
+        // key.remoteJid: el jid guardado (con @lid para contactos LID) o, si no hay, se reconstruye desde los digitos.
+        var jid = string.IsNullOrWhiteSpace(remoteJid) ? $"{digits}@s.whatsapp.net" : remoteJid;
+        var result = await _client.DeleteMessageForEveryoneAsync(baseUrl, apiKey, EvoInstance(line), jid, messageId, fromMe: true, cancellationToken);
         return new LineSendResult(result.Ok, result.Error);
     }
 
-    public async Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, CancellationToken cancellationToken = default)
+    public async Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(externalMessageId) || string.IsNullOrWhiteSpace(emoji))
         {
@@ -496,8 +503,9 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         if (server is null) { return new LineSendResult(false, "No hay servidor Evolution configurado."); }
         var (baseUrl, apiKey) = server.Value;
         var digits = new string(phone.Where(char.IsDigit).ToArray());
-        var remoteJid = $"{digits}@s.whatsapp.net";
-        var result = await _client.SendReactionAsync(baseUrl, apiKey, EvoInstance(line), remoteJid, externalMessageId, emoji, cancellationToken);
+        // key.remoteJid: el jid guardado (con @lid para contactos LID) o, si no hay, se reconstruye desde los digitos.
+        var jid = string.IsNullOrWhiteSpace(remoteJid) ? $"{digits}@s.whatsapp.net" : remoteJid;
+        var result = await _client.SendReactionAsync(baseUrl, apiKey, EvoInstance(line), jid, externalMessageId, emoji, cancellationToken);
         return new LineSendResult(result.Ok, result.Error);
     }
 

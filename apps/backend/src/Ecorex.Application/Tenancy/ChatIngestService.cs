@@ -70,6 +70,7 @@ public sealed class ChatIngestService : IChatIngestService
             {
                 TenantId = tenantId,
                 ContactPhone = phone,
+                RemoteJid = string.IsNullOrWhiteSpace(payload.RemoteJid) ? null : payload.RemoteJid,
                 ContactName = payload.ContactName?.Trim(),
                 WhatsAppLineId = lineId,
                 LastMessageAt = sentAt
@@ -80,6 +81,9 @@ public sealed class ChatIngestService : IChatIngestService
         {
             conversation.LastMessageAt = sentAt;
             if (conversation.WhatsAppLineId is null && lineId is not null) { conversation.WhatsAppLineId = lineId; }
+            // Guardamos/actualizamos el jid completo (por si cambia o si la conversacion es vieja y no lo tenia):
+            // es el destino real del envio saliente (imprescindible para contactos por LID).
+            if (!string.IsNullOrWhiteSpace(payload.RemoteJid)) { conversation.RemoteJid = payload.RemoteJid; }
             if (conversation.ContactName is null && payload.ContactName is not null)
             {
                 conversation.ContactName = payload.ContactName.Trim();

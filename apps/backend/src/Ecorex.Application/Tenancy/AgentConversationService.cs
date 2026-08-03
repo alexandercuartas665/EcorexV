@@ -89,7 +89,7 @@ public sealed class AgentConversationService : IAgentConversationService
         // M mensajes del cliente con un emoji al azar. Un mensaje que ya tiene reaccion no recibe otra.
         if (agent.ReactionsEnabled)
         {
-            await MaybeReactAsync(conv.TenantId, conversationId, lineId, conv.ContactPhone,
+            await MaybeReactAsync(conv.TenantId, conversationId, lineId, conv.ContactPhone, conv.RemoteJid,
                 agent.ReactionRatioN, agent.ReactionRatioM, agent.ReactionEmojis, agent.Id, cancellationToken);
         }
 
@@ -169,7 +169,7 @@ public sealed class AgentConversationService : IAgentConversationService
 
     // Reaccion automatica (emoji) al ultimo mensaje entrante del cliente, sin pasar por el LLM.
     // Aplica la frecuencia N/M como probabilidad; elige el emoji al azar del stack configurado.
-    private async Task MaybeReactAsync(Guid tenantId, Guid conversationId, Guid lineId, string phone,
+    private async Task MaybeReactAsync(Guid tenantId, Guid conversationId, Guid lineId, string phone, string? remoteJid,
         int ratioN, int ratioM, string? emojiCsv, Guid agentId, CancellationToken ct)
     {
         var emojis = (emojiCsv ?? string.Empty)
@@ -196,7 +196,7 @@ public sealed class AgentConversationService : IAgentConversationService
         if (lastInbound is null || string.IsNullOrWhiteSpace(lastInbound.ExternalId)) { return; }
 
         var emoji = emojis[Random.Shared.Next(emojis.Count)];
-        var result = await _connector.SendReactionAsync(lineId, phone, lastInbound.ExternalId!, emoji, ct);
+        var result = await _connector.SendReactionAsync(lineId, phone, lastInbound.ExternalId!, emoji, remoteJid, ct);
         if (result.Ok)
         {
             lastInbound.Reaction = emoji;

@@ -27,20 +27,24 @@ public interface IWhatsAppConnectorService
     /// <summary>(Re)aplica el webhook configurado a todas las lineas conectadas. Devuelve cuantas se actualizaron.</summary>
     Task<int> ApplyWebhookToConnectedLinesAsync(Guid actorUserId, CancellationToken cancellationToken = default);
 
-    /// <summary>Envia un mensaje de prueba desde la linea a un numero (con codigo de pais).</summary>
-    Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Envia un mensaje de prueba desde la linea a un numero (con codigo de pais). Si se pasa remoteJid
+    /// (jid completo del contacto, con @s.whatsapp.net o @lid), se usa como destino; si no, se reconstruye
+    /// desde los digitos. Imprescindible para contactos por LID, cuyo numero no es un telefono real.
+    /// </summary>
+    Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Envia un adjunto (imagen/video/audio/documento) en base64 desde la linea al numero.</summary>
-    Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, Domain.Enums.MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>Envia un adjunto (imagen/video/audio/documento) en base64 desde la linea al numero. Ver remoteJid en SendTestAsync.</summary>
+    Task<LineSendResult> SendMediaAsync(Guid lineId, string phone, Domain.Enums.MessageMediaType mediaType, string base64, string? mimeType, string? fileName, string? caption, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Envia una ubicacion desde la linea al numero.</summary>
-    Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default);
+    /// <summary>Envia una ubicacion desde la linea al numero. Ver remoteJid en SendTestAsync.</summary>
+    Task<LineSendResult> SendLocationAsync(Guid lineId, string phone, double latitude, double longitude, string? name, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Elimina un mensaje PARA TODOS en WhatsApp (solo lineas Evolution). messageId = id de WhatsApp del mensaje.</summary>
-    Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, CancellationToken cancellationToken = default);
+    /// <summary>Elimina un mensaje PARA TODOS en WhatsApp (solo lineas Evolution). messageId = id de WhatsApp del mensaje. Ver remoteJid en SendTestAsync.</summary>
+    Task<LineSendResult> DeleteMessageForEveryoneAsync(Guid lineId, string phone, string messageId, string? remoteJid = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Envia una reaccion (emoji) al mensaje entrante identificado por externalId (solo lineas Evolution). Lo usa el dispatcher del agente.</summary>
-    Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, CancellationToken cancellationToken = default);
+    /// <summary>Envia una reaccion (emoji) al mensaje entrante identificado por externalId (solo lineas Evolution). Lo usa el dispatcher del agente. Ver remoteJid en SendTestAsync.</summary>
+    Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken cancellationToken = default);
 
     /// <summary>Descarga la media ENTRANTE de un mensaje (imagen) a base64. Solo lineas Evolution. Lo usa el webhook.</summary>
     Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default);

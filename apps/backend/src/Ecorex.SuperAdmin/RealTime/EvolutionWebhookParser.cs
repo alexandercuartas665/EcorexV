@@ -75,7 +75,8 @@ public static class EvolutionWebhookParser
         // Para imagenes marcamos MessageType="image": el webhook descargara la media por el id del mensaje
         // (externalId = key.id) y la ingerira como adjunto, para que el agente pueda analizarla.
         return new ParsedInbound(tenantId.Value,
-            new IngestMessageRequest(phone, name2, externalId, body!, isImage ? "image" : "text", sentAt, lineId));
+            new IngestMessageRequest(phone, name2, externalId, body!, isImage ? "image" : "text", sentAt, lineId,
+                RemoteJid: jid));
     }
 
     private static bool IsImageMessage(JsonElement data) =>

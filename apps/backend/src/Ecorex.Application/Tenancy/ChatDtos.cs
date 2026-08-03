@@ -36,7 +36,8 @@ public sealed record IngestMessageRequest(
     Guid? WhatsAppLineId = null,
     MessageMediaType MediaType = MessageMediaType.None,
     string? MediaUrl = null,
-    string? MediaMimeType = null);
+    string? MediaMimeType = null,
+    string? RemoteJid = null);
 
 public sealed record SendMessageRequest(string Body);
 

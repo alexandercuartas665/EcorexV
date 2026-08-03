@@ -98,7 +98,7 @@ public sealed class WhatsAppChannelSender : IScheduledJobChannelSender
 
         var text = $"*{title}*\n{body}";
         var actor = _tenantContext.UserId ?? Guid.Empty;
-        var result = await _whatsApp.SendTestAsync(line.Id, recipient.WhatsAppPhone, text, actor, cancellationToken);
+        var result = await _whatsApp.SendTestAsync(line.Id, recipient.WhatsAppPhone, text, actor, cancellationToken: cancellationToken);
         return result.Ok
             ? ChannelSendResult.Ok($"WhatsApp: enviado a {recipient.WhatsAppPhone}.")
             : ChannelSendResult.Fail($"WhatsApp: fallo el envio ({result.Error}).");

@@ -815,6 +815,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         modelBuilder.Entity<Conversation>(b =>
         {
             b.Property(x => x.ContactPhone).HasMaxLength(40).IsRequired();
+            b.Property(x => x.RemoteJid).HasMaxLength(120);
             b.Property(x => x.ContactName).HasMaxLength(200);
             // Una conversacion por (tenant, linea, contacto): permite que el mismo numero escriba a
             // dos lineas distintas del tenant como hilos separados (clave de sesion del agente de IA).

@@ -5,6 +5,44 @@
 
 ---
 
+## 2026-08-03 - Disenador de acciones por filtro de contactos - FASE 1 (ADR-0056)
+
+**Que:** Se implemento la Fase 1 del "disenador de acciones por filtro de contactos" (port del
+`ucWorkflowDesigner` legacy) segun ADR-0056: modelo + UI + persistencia atada al filtro. NO se
+implemento el motor de ejecucion (es Fase 2). Entidades tenant-scoped nuevas: `ContactWorkflow`
+(FK 1:1 con `TerceroFiltro`, indice unico `(TenantId, TerceroFiltroId)`, `Version` de concurrencia
+optimista), `ContactWorkflowStep` (StepType enum Conectar/MensajeRed/WhatsApp/Email/Llamada, Label,
+Orden, ParamsJson jsonb/nvarchar(max) solo para el tipo Llamada) y `ContactWorkflowSchedule`
+(ventanas: StartDate/EndDate DateOnly?, StartTime/EndTime TimeOnly, ActiveDays "1,2,3,4,5",
+TemplateId?, AccountId?, RepeatEvery?, PackageSize?). Cascada Workflow->Steps->Schedules; el vinculo
+al filtro es Restrict. Query filter global por reflexion (ITenantScoped) aplica el aislamiento.
+
+**Migracion DUAL** encadenada tras la ultima (`AddTenantApiTokens`): PG
+`20260803164008_AddContactWorkflows` (Ecorex.Infrastructure) y SQL Server
+`20260803164054_AddContactWorkflows` (Ecorex.Infrastructure.SqlServer).
+
+**Servicio:** `IContactWorkflowService` + `ContactWorkflowService` (Tenancy) con `GetByFiltroAsync`
+y `SaveAsync` (upsert que REEMPLAZA pasos+ventanas en un solo SaveChanges; ParamsJson serializa los
+campos CRM del paso Llamada). Guardado auditado con `IAuditWriter` (actor = ITenantContext.UserId).
+DTOs en `ContactWorkflowDtos.cs`. Registrado en DI (`DependencyInjection.cs`).
+
+**UI:** nueva opcion **"Acciones"** en el menu "..." de cada filtro guardado
+(`GestorContactos.razor`, junto a Filtrar ahora/Eliminar) que abre el componente nuevo
+`Components/Shared/ContactWorkflowDesigner.razor` (+ `.razor.css`): modal con paleta de las 5
+acciones (colores/iconos del legacy), lista secuencial de pasos con reordenar/editar/quitar, campos
+CRM visibles solo para Llamada, y N ventanas de horario por paso (chips de dias, horas, vigencia,
+repetir cada, tam. paquete). El drag-and-drop quedo resuelto por **botones** ("+" en la paleta y
+flechas subir/bajar), que el ADR admite para Fase 1. Un banner deja claro que la EJECUCION es Fase 2.
+
+**Resultado:** `dotnet build Ecorex.sln` VERDE (0 errores). Se agregaron los 3 DbSets a los fakes
+`FakeAppDb` de las pruebas (RowIngest/TenantUser). Solo ASCII. No se desplego ni se commiteo.
+
+**Siguiente (Fase 2):** motor de ejecucion + scheduler (`ContactWorkflowRun` con indice unico de
+idempotencia, `IContactWorkflowDispatcher` enganchado al patron `ScheduledJobWorker`, resolucion del
+segmento del filtro, ventanas/dedupe/rate limiting y cableado a los 5 servicios de ejecucion).
+
+---
+
 ## 2026-08-03 - Fix /run: resolver JSON anidado en el importador in-process + preview con valores (ADR-0059)
 
 **Que:** El `/run` de la Config API (`ConnectorRunPlanner` -> `ApiImportService.ImportAsync`) resolvia
@@ -7537,3 +7575,21 @@ test con fixture de campos anidados.
 
 **Siguiente / pendiente**: fix de rutas anidadas en el run; luego re-ejecutar el conector y validar
 que puebla los anidados; opcional: dispatch via agente.
+
+---
+
+## 2026-08-03 (sesion datos - prod) - Fix de rutas anidadas VALIDADO
+
+**Hecho**: la sesion de codigo desplego el fix (`ffdbd6a` en `fase-0/clon-backbone`, v0.2.1; prod
+redesplegado 16:37 UTC). Re-ejecute el conector Siigo por API (`/run` Upsert por Siigo Id): updated
+1792 + inserted 1, failed 0. **Verificado en BD**: los campos anidados AHORA se pueblan
+(Tipo identificacion=NIT, Nombre, Direccion, Ciudad=Popayan, Departamento=Cauca,
+Telefono=phones[0].number, Email=contacts[0].email, Creado=metadata.created). El conector quedo
+OPERATIVO y re-ejecutable por API sin perdida de datos.
+
+Nota: los valores ahora son los CRUDOS de Siigo segun el mapeo (Tipo persona="Company", Activo="true",
+Telefono solo numero sin indicativo, Creado con timestamp completo) - fieles a la fuente; una capa de
+transformacion/formato seria trabajo aparte.
+
+**Pendiente**: scheduling del conector (aun no hay endpoint /schedule en la Config API - Fase 2);
+opcional dispatch del run via agente Colmena; opcional capa de transformacion de valores.

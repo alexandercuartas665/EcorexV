@@ -203,6 +203,8 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     color: var(--ink-2, #5C5C66); background: var(--surface-3, #F2F2F3);
 }
+/* Celdas de grid con formato numerico (moneda/entero/decimal/%): valor alineado a la derecha. */
+.dfr-grid-table .dfr-num { text-align: right; }
 /* Titulos FIJOS: el encabezado se queda arriba al desplazar en vertical. */
 .dfr-grid-table thead th { position: sticky; top: 0; z-index: 4; }
 /* Esquina superior izquierda (columna de herramientas): fija en AMBOS ejes, por encima de todo. */

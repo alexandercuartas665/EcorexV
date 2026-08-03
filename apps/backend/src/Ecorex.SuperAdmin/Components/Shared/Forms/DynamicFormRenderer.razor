@@ -1446,13 +1446,13 @@ else
                                     {
                                         @* Columna auto-resuelta (VLOOKUP multi-clave): solo lectura; se re-resuelve
                                            al cambiar sus dependencias (match/when) de la MISMA fila. *@
-                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
+                                        <input class="form-control form-control-sm dfr-calc@(NumCls(col.Format))" tabindex="-1" readonly disabled
                                                value="@FormatValue(col.Format, cell)" />
                                     }
                                     else if (col.Calc is not null)
                                     {
                                         @* Columna calculada por fila (ola F2): solo lectura, con formato de presentacion. *@
-                                        <input class="form-control form-control-sm dfr-calc" tabindex="-1" readonly disabled
+                                        <input class="form-control form-control-sm dfr-calc@(NumCls(col.Format))" tabindex="-1" readonly disabled
                                                value="@FormatValue(col.Format, cell)" />
                                     }
                                     else if (col.IsSelect)
@@ -1471,7 +1471,7 @@ else
                                     {
                                         @* Texto/numero editable. Con formato: muestra formateado y al salir guarda el numero CRUDO
                                            (asi el calculo lo entiende y no se rompe). Sin formato: comportamiento de siempre. *@
-                                        <input class="form-control form-control-sm" disabled="@IsDisabled"
+                                        <input class="form-control form-control-sm@(NumCls(col.Format))" disabled="@IsDisabled"
                                                value="@(string.IsNullOrEmpty(col.Format) ? cell : MaskInput(col.Format, cell))"
                                                @onchange="@(e => SetGridCell(q, rowIndex, colId, UnformatNumber(col.Format, e.Value?.ToString())))" />
                                     }
@@ -2278,6 +2278,10 @@ else
     };
 
     /// <summary>Aplica el formato de presentacion (moneda/%/entero) para MOSTRAR (no altera el valor guardado).</summary>
+    /// <summary>Clase para alinear a la derecha las celdas de grid con formato numerico (moneda/entero/decimal/%).</summary>
+    private static string NumCls(string? format)
+        => format is "currency" or "integer" or "decimal" or "percent" or "document" ? " dfr-num" : "";
+
     private static string FormatValue(string? format, string? value)
     {
         if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? ""; }

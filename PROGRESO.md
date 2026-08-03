@@ -7635,3 +7635,18 @@ transformacion/formato seria trabajo aparte.
 
 **Pendiente**: scheduling del conector (aun no hay endpoint /schedule en la Config API - Fase 2);
 opcional dispatch del run via agente Colmena; opcional capa de transformacion de valores.
+
+---
+
+## 2026-08-03 (sesion datos - prod) - Sync diario del conector Siigo programado
+
+**Hecho**: la sesion de codigo desplego el Schedule en la Config API (v0.3.0, commit 9f6fa1a):
+`PUT/GET/DELETE /connectors/{id}/schedule`, `GET /connectors/{id}/runs`, `POST /connectors/{id}/preview`.
+El PUT /schedule persiste Mode+KeyColumn y exige keyColumn para Upsert; la corrida programada usa el
+MISMO camino del /run (ConnectorRunPlanner + rutas anidadas). Programe por API el conector Siigo
+(`019fc83c-...`): Cron `0 6 * * *`, mode=Upsert, keyColumn="Siigo Id", activo. scheduleId
+`019fc8f3-3e47-7fb7-841b-42cdef0983cb`. nextRunAt 2026-08-04T11:00:00Z = 6:00 AM hora Colombia (COT
+UTC-5). Reconcilia (no duplica). Todo por HTTP, sin UI.
+
+**Estado Siigo**: COMPLETO end-to-end - contenedor + 1792 clientes + conector (token 2 pasos +
+Partner-Id + mapeo anidado) + agente registrado + sync diario automatico.

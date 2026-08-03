@@ -215,6 +215,7 @@ public class ScheduledUpsertRunTests
         public DbSet<ContactWorkflow> ContactWorkflows => NotUsed<ContactWorkflow>();
         public DbSet<ContactWorkflowStep> ContactWorkflowSteps => NotUsed<ContactWorkflowStep>();
         public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => NotUsed<ContactWorkflowSchedule>();
+        public DbSet<ContactWorkflowRun> ContactWorkflowRuns => NotUsed<ContactWorkflowRun>();
         public DbSet<ActividadCategoria> ActividadCategorias => NotUsed<ActividadCategoria>();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => NotUsed<ActividadSubcategoria>();
         public DbSet<ActividadSubcategoriaCargo> ActividadSubcategoriaCargos => NotUsed<ActividadSubcategoriaCargo>();

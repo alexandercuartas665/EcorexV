@@ -230,6 +230,7 @@ public class TenantUserServiceTests
         public DbSet<ContactWorkflow> ContactWorkflows => throw new NotSupportedException();
         public DbSet<ContactWorkflowStep> ContactWorkflowSteps => throw new NotSupportedException();
         public DbSet<ContactWorkflowSchedule> ContactWorkflowSchedules => throw new NotSupportedException();
+        public DbSet<ContactWorkflowRun> ContactWorkflowRuns => throw new NotSupportedException();
     }
 
     private static (TenantUserService svc, InnerDb inner, TenantUser tu, PlatformUser pu) Build(

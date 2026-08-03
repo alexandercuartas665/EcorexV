@@ -2021,6 +2021,91 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("contact_workflows", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("channel");
+
+                    b.Property<Guid>("ContactWorkflowScheduleId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("contact_workflow_schedule_id");
+
+                    b.Property<Guid>("ContactWorkflowStepId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("contact_workflow_step_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("DispatchedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("dispatched_at_utc");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("error");
+
+                    b.Property<string>("ExternalRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("external_ref");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TerceroId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tercero_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly>("WindowDate")
+                        .HasColumnType("date")
+                        .HasColumnName("window_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_workflow_runs");
+
+                    b.HasIndex("ContactWorkflowStepId")
+                        .HasDatabaseName("ix_contact_workflow_runs_contact_workflow_step_id");
+
+                    b.HasIndex("TenantId", "ContactWorkflowScheduleId", "WindowDate")
+                        .HasDatabaseName("ix_contact_workflow_runs_tenant_id_contact_workflow_schedule_id_window_date");
+
+                    b.HasIndex("TenantId", "ContactWorkflowStepId", "ContactWorkflowScheduleId", "TerceroId", "WindowDate")
+                        .IsUnique()
+                        .HasDatabaseName("ix_contact_workflow_runs_tenant_id_contact_workflow_step_id_contact_workflow_schedule_id_tercero_id_window_date");
+
+                    b.ToTable("contact_workflow_runs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowSchedule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -13726,6 +13811,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_contact_workflows_tercero_filtros_tercero_filtro_id");
 
                     b.Navigation("TerceroFiltro");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowRun", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ContactWorkflowStep", "ContactWorkflowStep")
+                        .WithMany()
+                        .HasForeignKey("ContactWorkflowStepId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_contact_workflow_runs_contact_workflow_steps_contact_workflow_step_id");
+
+                    b.Navigation("ContactWorkflowStep");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowSchedule", b =>

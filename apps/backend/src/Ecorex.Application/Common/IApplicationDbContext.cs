@@ -202,6 +202,9 @@ public interface IApplicationDbContext
     // Catalogo GLOBAL de ciudades / municipios (no tenant-scoped): alimenta el selector de ciudad.
     DbSet<Ciudad> Ciudades { get; }
 
+    // API REST de configuracion (FASE 1): tokens Bearer por-tenant (solo se guarda el hash SHA-256).
+    DbSet<TenantApiToken> TenantApiTokens { get; }
+
     // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
     // negocio, contactos embebidos y fichas dinamicas (jsonb).
     DbSet<Tercero> Terceros { get; }

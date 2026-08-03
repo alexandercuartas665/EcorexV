@@ -47,6 +47,12 @@ if (!string.IsNullOrWhiteSpace(boldLicenseKey))
 builder.Services.AddControllers().AddNewtonsoftJson();
 builder.Services.AddMemoryCache();
 
+// API REST de configuracion tenant-scoped (FASE 1, ADR-0058): almacen en memoria de corridas de
+// importacion lanzadas por la API + documento OpenAPI para /api/config. El store es singleton (una
+// corrida = un runId por proceso). AddOpenApi expone /openapi/v1.json (built-in de ASP.NET Core).
+builder.Services.AddSingleton<Ecorex.SuperAdmin.Endpoints.ConfigRunStore>();
+builder.Services.AddOpenApi();
+
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
 builder.Services
@@ -1422,6 +1428,11 @@ if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ECOREX_MGMT_A
         "Toda mutacion queda auditada; rota la clave, restringe su uso y considera ECOREX_MGMT_API_ALLOW_IPS.");
 }
 Ecorex.SuperAdmin.Endpoints.AgentMgmtEndpoints.MapAgentMgmtEndpoints(app);
+
+// API REST de configuracion tenant-scoped (FASE 1, ADR-0058): Contenedores/Conectores/Agentes por
+// Bearer per-tenant (emitido desde el panel de admin). Documento OpenAPI publicado en /openapi/v1.json.
+Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
+app.MapOpenApi();
 
 app.Run();
 

@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-08-03 - API REST de configuracion tenant-scoped (Contenedores / Conectores / Agentes) - FASE 1
+
+**Que:** API DELGADA bajo `/api/config` para configurar por HTTP, sin la UI Blazor, toda la maquinaria
+del Contenedor de datos: Contenedores (lectura), Conectores REST (CRUD completo: TokenExchange 2 pasos,
+headers arbitrarios tipo `Partner-Id`, paginacion, mapeo campo->columna, Append/Replace/Upsert, secreto
+cifrado, probe, run + estado) y Agentes Colmena (list + register). Caso guia: dejar operable el conector
+Siigo de `siigo/clientes` (AGROMETALICAS) de punta a punta. Va en `Ecorex.SuperAdmin` (app de prod;
+`Ecorex.Api` no se despliega), patron `AgentMgmtEndpoints` (metodo de extension + `Program.cs`).
+
+**Auth (per-tenant, NUNCA cross-tenant):** entidad nueva `TenantApiToken` (tenant-scoped: `TokenHash`
+SHA-256, `RevokedAt?`, `LastUsedAt?`). El `Authorization: Bearer <token>` se hashea, se busca el token
+activo (con `IgnoreQueryFilters`, unica lectura sin tenant, por hash opaco), su `TenantId` se fija con
+`AmbientTenantContext.Begin` en scope de DI aislado. Emision gateada por COOKIE de admin del tenant
+(claim `tenant_id` + `tenant_role` Owner/Admin): `POST /tokens` devuelve el valor en claro UNA vez.
+Auditoria de toda mutacion en `super_admin_audit_logs` (`reason=config-api`, actor System).
+
+**Endpoints:** tokens (`POST/GET /tokens`, `POST /tokens/{id}/revoke`); contenedores (`GET /containers`,
+`GET /containers/{id}`); conectores (`GET /connectors[?model=]`, `GET/PUT/DELETE /connectors/{id}`,
+`POST /connectors` upsert por nombre, `PUT /connectors/{id}/secret`, `POST /connectors/{id}/probe`,
+`POST /connectors/{id}/run`, `GET /runs/{id}`); agentes (`GET /agents`, `POST /agents`).
+
+**Reuso:** `IDataModelService` (contenedores), `IDataImportConfigService` (conectores),
+`IApiImportService` (probe + run server-direct), `IAgentClientService` (agentes),
+`ConnectorRestConfig`/`TokenExchangeConfig`/`ConnectorHeader` (modelo REST). Helpers nuevos y puros:
+`ApiTokenHasher` y `ConnectorRunPlanner` (traduce el `MappingJson` persistido -> `ApiImportRequest`);
+`ConfigRunStore` (estado de corridas en memoria). OpenAPI en `/openapi/v1.json` (built-in).
+
+**Migracion:** dual `AddTenantApiTokens` (PG + SQL Server), encadenada tras `AddCiudadCatalog`.
+
+**Tests:** `ConfigApiTests` (10, VERDE): determinismo/entropia del hasher y el planeador de corrida
+(upsert por `siigo_id`, paginacion page/page_size, mapeo, errores). Integracion dual: TODO FASE 2.
+
+**Build:** `dotnet build apps/backend/Ecorex.sln` VERDE (0 errores). NO desplegado, NO commiteado.
+
+**Archivos:** nuevos `Ecorex.Domain/Entities/TenantApiToken.cs`, `Ecorex.Application/Common/ApiTokenHasher.cs`,
+`Ecorex.Application/DataContainers/ConnectorRunPlanner.cs`, `Ecorex.SuperAdmin/Endpoints/ConfigApiEndpoints.cs`
++ `ConfigRunStore.cs`, migraciones dual `AddTenantApiTokens`, `tests/.../ConfigApiTests.cs`,
+`docs/decisiones/ADR-0058-api-configuracion-tenant-scoped.md`. Modificados: `IApplicationDbContext`,
+`EcorexDbContext` (DbSet + config), `Program.cs` (registro + mapeo + OpenAPI), csproj de SuperAdmin
+(`Microsoft.AspNetCore.OpenApi`), 2 fakes de test.
+
+**Siguiente (FASE 2):** escritura de contenedores por HTTP; rotate/revoke de agentes; ejecucion via
+AGENTE + rutas anidadas/fan-out (el importador server-direct mapea por propiedad plana); corridas
+persistentes/asincronas; gate de habilitacion + allowlist de IP + antiforgery/CORS endurecidos.
+
+---
+
 ## 2026-08-03 - API REST de gestion de agentes de IA (gobierno cross-tenant)
 
 **Que:** API de gobierno bajo `/api/mgmt` para que un operador externo (Claude via WebFetch)

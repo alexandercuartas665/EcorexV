@@ -266,6 +266,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Catalogo GLOBAL de ciudades / municipios (no tenant-scoped): compartido por todos los tenants.
     public DbSet<Ciudad> Ciudades => Set<Ciudad>();
 
+    // API REST de configuracion (FASE 1): tokens Bearer por-tenant (hash SHA-256, nunca el valor).
+    public DbSet<TenantApiToken> TenantApiTokens => Set<TenantApiToken>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -2595,6 +2598,18 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // ClientId publico unico por tenant.
             b.HasIndex(x => new { x.TenantId, x.ClientId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.IsActive });
+        });
+
+        // API REST de configuracion (FASE 1, ADR-0058): tokens Bearer por-tenant. Solo se guarda el
+        // hash SHA-256 (hex, 64 chars); el valor en claro se muestra una vez al emitirlo. El hash es
+        // UNICO GLOBAL (no por tenant) porque el Bearer entrante resuelve el tenant justamente por el.
+        modelBuilder.Entity<TenantApiToken>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Scope).HasMaxLength(60).IsRequired();
+            b.HasIndex(x => x.TokenHash).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.RevokedAt });
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

@@ -22,6 +22,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.9" />
     <!-- Esquema bearer "Agent" (no-default) para autenticar el AgenteHub con el JWT corto del agente. -->
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <!-- API REST de configuracion (FASE 1, ADR-0058): documento OpenAPI de /api/config (built-in ASP.NET Core). -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
   </ItemGroup>
 
   <PropertyGroup>

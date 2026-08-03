@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-08-03 - Panel OCS integrado al Motor de Reportes (galeria)
+
+**Que:** Se integro el "Panel OCS - Inventario de software" a la galeria de reportes del tronco SIN
+mergear la rama `feat/motor-reportes` (esta 3 adelante / 52 ATRAS: un merge REGRESARIA el motor). Se
+trajeron por checkout SELECTIVO (ADD limpios, el tronco no los tenia) solo 3 archivos:
+`Components/Shared/Reporting/OcsDashboardPanel.razor` (+`.css`) y
+`docs/decisiones/ADR-0062-catalogo-de-reportes-reutilizables-entre-tenants.md`. NO se trajo el banco de
+pruebas `Pages/Reporting/PanelOcs.razor`. ADR-0062 queda presente pero NO implementado (es otra tarea).
+
+**Compatibilidad:** `OcsDashboardPanel` compilo contra el motor del tronco SIN ajustes: usa las mismas
+firmas que `ActivitiesDashboardPanel` (`IReportCatalog.GetSourcesAsync`, `ReportSourceDescriptor`
+`.Kind`/`.DisplayName`/`.Key`/`.Fields`, `ReportSourceKind.Container`, `IReportDataSource.QueryAsync`,
+`ReportFilter.Eq` + `ReportFilterOperator.Contains`, `ReportContext`, componente `<EChart>`). Resuelve
+el contenedor por nombre ("OCS"), asi es portable a cualquier tenant que tenga cargado el inventario.
+
+**Despacho por SourceKey:** en `Components/Pages/Reporting/ReportGallery.razor`, el bloque
+`@if (_isPanel)` ya no fija `<ActivitiesDashboardPanel />`; ahora usa un resolver
+`SourceKey -> Type` (diccionario `PanelComponents` + `ResolvePanelType`) renderizado con
+`<DynamicComponent>`: `panel:ocs` -> `OcsDashboardPanel`, `panel:system-activities` -> el de
+actividades, y cualquier panel desconocido cae al de actividades por defecto. Agregar un panel nuevo es
+una entrada en el diccionario, no tocar el markup. El `@using ...Shared.Reporting` ya estaba.
+
+**Siembra de la tarjeta:** se EXTENDIO `ReportDefinitionService.CreateExampleReportsAsync()` (no se toco
+el resto del motor ni la gobernanza). Tras sembrar los ejemplos base, si el tenant tiene un contenedor
+RAIZ cuyo nombre contiene "OCS" (deteccion via `_db.DataContainers`, tenant-safe por el filtro global,
+`ToUpper().Contains` para ser provider-agnostico), crea idempotentemente la tarjeta
+`Name="Panel OCS - Inventario de software"`, `SourceKey="panel:ocs"`, `Kind=Dashboard`, `Status=Active`
+(via `SaveAsync`, igual que el panel de actividades). Un tenant sin contenedor OCS no obtiene la tarjeta.
+Una tarjeta sin roles asignados es visible para todos (gobernanza intacta).
+
+**Resultado:** `dotnet build Ecorex.sln` VERDE (0 errores, 27 warnings preexistentes). SIN migracion.
+NO se toco el motor de consulta/despacho ni la gobernanza por roles. NO se desplego ni commiteo.
+
+---
+
 ## 2026-08-03 - Despacho RestApi via agente Colmena en la Config API (ADR-0061)
 
 **Que:** Follow-up B de ADR-0059/0060. Se RE-HABILITO como OPCION el camino RestApi-via-agente que

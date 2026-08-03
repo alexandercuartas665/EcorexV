@@ -105,8 +105,9 @@
                 {
                     @if (_isPanel)
                     {
-                        @* Reporte tipo PANEL: dashboard completo (KPIs + varios graficos + tabla). *@
-                        <ActivitiesDashboardPanel />
+                        @* Reporte tipo PANEL: dashboard completo (KPIs + varios graficos + tabla). El
+                           componente concreto se resuelve por SourceKey (panel:ocs, panel:system-activities...). *@
+                        <DynamicComponent Type="ResolvePanelType(_open.SourceKey)" />
                     }
                     else if (_run is not null)
                     {
@@ -278,6 +279,17 @@
         _open = null;
         _run = null;
     }
+
+    // Resolver SourceKey -> componente de panel. Agregar un panel nuevo es una entrada aqui, no tocar
+    // el markup. Un SourceKey de panel desconocido cae al dashboard de actividades por defecto.
+    private static readonly Dictionary<string, Type> PanelComponents = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["panel:system-activities"] = typeof(ActivitiesDashboardPanel),
+        ["panel:ocs"] = typeof(OcsDashboardPanel),
+    };
+
+    private static Type ResolvePanelType(string? sourceKey) =>
+        sourceKey is not null && PanelComponents.TryGetValue(sourceKey, out var t) ? t : typeof(ActivitiesDashboardPanel);
 
     private static string ToggleStyle(bool on) =>
         $"border:1px solid {(on ? "#4f46e5" : "#e5e7eb")};background:{(on ? "#4f46e5" : "#fff")};color:{(on ? "#fff" : "#374151")};border-radius:8px;padding:5px 14px;font-size:12.5px;font-weight:600;cursor:pointer;";

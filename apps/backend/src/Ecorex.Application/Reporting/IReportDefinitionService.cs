@@ -355,6 +355,28 @@ public sealed class ReportDefinitionService : IReportDefinitionService
             }
             await SaveAsync(spec, "Reporte de ejemplo del sistema", ct);
         }
+
+        // Panel OCS (SourceKey "panel:ocs"): solo se siembra si el tenant tiene cargado un contenedor
+        // RAIZ cuyo nombre contiene "OCS" (el inventario de software). Asi la tarjeta aparece unicamente
+        // donde tiene datos que mostrar; un tenant sin contenedor OCS no la obtiene. Tenant-safe por el
+        // filtro global del DbContext (nunca cruza tenants). Idempotente por nombre.
+        var tieneContenedorOcs = await _db.DataContainers.AsNoTracking()
+            .AnyAsync(c => c.ParentContainerId == null && c.Name.ToUpper().Contains("OCS"), ct);
+        if (tieneContenedorOcs)
+        {
+            var ocsSpec = new ReportSpec
+            {
+                Title = "Panel OCS - Inventario de software",
+                SourceKey = "panel:ocs",
+                Chart = ReportChartKind.Table
+            };
+            var existeOcs = await _db.ReportDefinitions
+                .AnyAsync(d => d.Name == ocsSpec.Title && d.Status == ReportDefinitionStatus.Active, ct);
+            if (!existeOcs)
+            {
+                await SaveAsync(ocsSpec, "Panel de inventario de software (contenedor OCS)", ct);
+            }
+        }
     }
 
     public async Task ArchiveAsync(Guid id, CancellationToken ct = default)

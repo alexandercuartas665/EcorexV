@@ -249,6 +249,8 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsurePlatformAdminTenantAsync();
         // Clave fuerte del Super Admin definida como secreto en la plataforma (Railway), no versionada.
         await seeder.EnsureSuperAdminPasswordAsync(Environment.GetEnvironmentVariable("ECOREX_SEED_ADMIN_PASSWORD"));
+        // Catalogo global de ciudades (no es dato demo; se necesita en prod para el selector). Idempotente.
+        await seeder.EnsureCiudadesAsync();
     }
 }
 else

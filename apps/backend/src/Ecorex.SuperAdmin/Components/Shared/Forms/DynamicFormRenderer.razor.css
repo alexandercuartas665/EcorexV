@@ -8,8 +8,10 @@
    la pagina de llenado, el modulo y la vista previa. Anchos en vw (sin dependencia del padre, que
    se ajusta a este contenido con fit-content). No aplica a formularios embebidos. */
 .dfr-root.dfr-cw-normal { width: min(720px, 92vw); margin: 0 auto; }
-.dfr-root.dfr-cw-ancho { width: min(1160px, 94vw); margin: 0 auto; }
-.dfr-root.dfr-cw-completo { width: min(1560px, 96vw); margin: 0 auto; }
+.dfr-root.dfr-cw-ancho { width: min(1160px, 92vw); margin: 0 auto; }
+/* 92vw (no 96) deja aire para el padding del contenedor host (visor publico fp-card + fp-shell),
+   asi el contenido no se sale por la derecha con CardLayout=Completo. */
+.dfr-root.dfr-cw-completo { width: min(1560px, 92vw); margin: 0 auto; }
 
 .dfr-head { display: flex; flex-direction: column; gap: 4px; }
 .dfr-title { font-size: 20px; font-weight: 800; color: var(--ink, #1B1B1E); margin: 0; }

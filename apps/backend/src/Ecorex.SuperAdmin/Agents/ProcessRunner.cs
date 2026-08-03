@@ -72,14 +72,21 @@ public sealed class ProcessRunner(
             return new(false, null, "El conector no tiene TABLA destino: eligela en el conector para poder refrescar solo.");
         }
 
-        // RestApi -> SERVER-DIRECT, el MISMO camino que el `/run` de la Config API (ADR-0058/0059):
-        // ConnectorRunPlanner resuelve las rutas ANIDADAS/INDEXADAS (NestedJsonResolver) y aplica el
-        // Mode/KeyColumn PERSISTIDOS del proceso. Antes el disparo programado iba fijo en Replace y no
-        // podia reconciliar (Upsert); este es el punto que arregla el sync agendado (ADR-0060). El
-        // servidor hace el GET (no un agente): auth de 2 pasos y headers estaticos ya viven en
-        // ApiImportService, asi que Siigo y compania funcionan sin agente.
+        // RestApi -> DOS caminos (ADR-0061):
+        //   - Si el proceso tiene ClientId (agente Colmena): se despacha VIA AGENTE con el RestFetchSpec
+        //     COMPLETO (baseUrl + arrayPath + paging + fields anidados + Headers + TokenExchange). Esto
+        //     re-habilita, como OPCION, la rama RestApi-via-agente que el commit de scheduling quito;
+        //     util cuando la API vive tras la red del cliente y solo el agente la alcanza.
+        //   - Si NO tiene ClientId: SERVER-DIRECT, el MISMO camino que el `/run` de la Config API
+        //     (ADR-0058/0059) via ConnectorRunPlanner + ApiImportService (auth de 2 pasos y headers ya
+        //     viven ahi). En ambos caminos se aplica el Mode/KeyColumn PERSISTIDOS (Upsert reconcilia,
+        //     no duplica): la reconciliacion es identica la haga el servidor o la ingesta del agente.
         if (connector.Kind == ConnectorKind.RestApi)
         {
+            if (process.ClientId is Guid restClientRowId)
+            {
+                return await RunRestViaAgentAsync(process, connector, targetTableId, restClientRowId, trigger, firedAt, ct);
+            }
             return await RunRestServerDirectAsync(process, connector, targetTableId, trigger, firedAt, ct);
         }
 
@@ -250,6 +257,103 @@ public sealed class ProcessRunner(
             ? $"Importadas: {outcome.Inserted} nueva(s), {outcome.Updated} actualizada(s), {outcome.Deleted} borrada(s)."
             : (detail ?? "La importacion no trajo resultados.");
         return new(outcome.Success, correlationId, msg);
+    }
+
+    /// <summary>
+    /// Corre un conector RestApi VIA AGENTE (ADR-0061): arma el <see cref="RestFetchSpec"/> completo con
+    /// <see cref="RestSpecBuilder"/> (baseUrl + arrayPath + paging + fields anidados + Headers +
+    /// TokenExchange), descifra la credencial del login (viaja en <see cref="ConnectorSpec.Secret"/>,
+    /// ADR-0040) y despacha por el hub. La ingesta de los chunks que devuelve el agente reconcilia con el
+    /// Mode/KeyColumn PERSISTIDOS del proceso (Upsert por la columna clave, ej. "Siigo Id"): el MISMO
+    /// nucleo <c>IRowIngestService</c> que el server-direct, sin duplicar. Simetrico al camino Database:
+    /// abre la corrida antes de despachar, y si el agente esta offline la marca PendingOffline + parquea.
+    /// </summary>
+    private async Task<RunProcessResult> RunRestViaAgentAsync(
+        Domain.Entities.ImportProcess process, Domain.Entities.DataConnector connector, Guid targetTableId,
+        Guid clientRowId, ImportRunTrigger trigger, DateTimeOffset? firedAt, CancellationToken ct)
+    {
+        var tenantId = (Guid)tenantContext.TenantId!;
+
+        var client = await db.DataClients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == clientRowId, ct);
+        if (client is null) { return new(false, null, "El cliente remoto ya no existe."); }
+
+        // El spec ENTERO se arma aqui (no la version pre-TokenExchange): reusa el MappingJson del conector
+        // (mismo modelo de mapeo que el server-direct) + Headers/TokenExchange de sus columnas dedicadas.
+        var (restSpec, specError) = RestSpecBuilder.Build(connector);
+        if (restSpec is null) { return new(false, null, specError ?? "El conector REST no esta configurado para el agente."); }
+
+        // Mapeo columnaId -> NOMBRE de columna: el agente ya aplica el mapeo campo->columna del spec, asi
+        // que sus filas vienen indexadas por NOMBRE de columna (no por ruta JSON). El ingestor casa por
+        // nombre. Este es el mismo mapa que usa el camino Database via agente.
+        var columns = await db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == targetTableId)
+            .ToListAsync(ct);
+        if (columns.Count == 0) { return new(false, null, "La tabla destino no tiene columnas."); }
+        var mapping = columns.ToDictionary(c => c.Id, c => c.Name);
+
+        // Mode/KeyColumn persistidos aplican igual que server-direct: por defecto Replace, o Upsert por la
+        // columna clave. La clave se resuelve a su columnaId (la ingesta la casa por ese id).
+        var mode = (ApiImportMode)process.Mode;
+        Guid? keyColumnId = null;
+        if (mode == ApiImportMode.Upsert)
+        {
+            keyColumnId = columns.FirstOrDefault(c => string.Equals(c.Name, process.KeyColumn, StringComparison.OrdinalIgnoreCase))?.Id;
+            if (keyColumnId is null)
+            {
+                return new(false, null, $"El modo Upsert necesita la columna clave '{process.KeyColumn}', que no existe en la tabla destino.");
+            }
+        }
+
+        var correlationId = AgentImportService.NewCorrelationId();
+        var window = firedAt ?? DateTimeOffset.UtcNow;
+
+        var runId = await runLog.OpenAsync(process.Id, trigger, window, correlationId, ct);
+        if (runId is null)
+        {
+            // Otro worker ya tomo esta ventana. No es un fallo.
+            return new(false, null, "Esa ejecucion ya la tomo otro proceso.");
+        }
+
+        // Se comprueba DESPUES de abrir la corrida (igual que Database): un agente dormido a la hora que
+        // tocaba queda registrado como PendingOffline y se parquea para reintentar al reconectar.
+        if (!registry.IsOnline(client.ClientId))
+        {
+            var offlineDetail = $"El agente '{client.Name}' no estaba conectado; se reintentara cuando vuelva.";
+            await runLog.MarkOfflineAsync(runId.Value, offlineDetail, ct);
+            await SetPendingSinceAsync(process.Id, window, ct);
+            return new(false, null, offlineDetail);
+        }
+
+        // ADR-0040: la credencial del login (TokenExchange) VIAJA descifrada en ConnectorSpec.Secret.
+        var secret = connector.CredentialsEncrypted is { } enc ? protector.Unprotect(enc) : null;
+        var spec = new ConnectorSpec(Kind: "RestApi", Host: connector.Host, Secret: secret);
+
+        // Para REST no hay SQL; se manda una etiqueta corta (solo para bitacora/UI). La orden real va en
+        // restSpec.
+        var queryText = restSpec.ListPath ?? restSpec.BaseUrl ?? "REST";
+
+        try
+        {
+            await imports.DispatchFetchAsync(
+                client.ClientId, tenantId, targetTableId, mapping,
+                mode, keyColumnId,
+                queryText, spec, ct, correlationId, rest: restSpec);
+        }
+        catch (Exception ex)
+        {
+            await runLog.FailAsync(runId.Value, $"No se pudo enviar la orden: {ex.Message}", ct);
+            return new(false, null, $"No se pudo enviar la orden al agente: {ex.Message}");
+        }
+
+        var tracked = await db.ImportProcesses.FirstOrDefaultAsync(p => p.Id == process.Id, ct);
+        if (tracked is not null)
+        {
+            tracked.LastRunAt = window;
+            tracked.PendingSince = null;
+            await db.SaveChangesAsync(ct);
+        }
+
+        return new(true, correlationId, $"Orden enviada al agente '{client.Name}'. Trayendo datos...");
     }
 
     /// <summary>Parquea la programacion "esperando al agente", sin pisar una espera anterior (el

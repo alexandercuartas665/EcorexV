@@ -5,6 +5,48 @@
 
 ---
 
+## 2026-08-03 - Despacho RestApi via agente Colmena en la Config API (ADR-0061)
+
+**Que:** Follow-up B de ADR-0059/0060. Se RE-HABILITO como OPCION el camino RestApi-via-agente que
+ADR-0060 habia eliminado (dejandolo solo server-direct), pero ahora armando el `RestFetchSpec`
+COMPLETO (version post-TokenExchange): baseUrl + arrayPath + paging + fields ANIDADOS + Headers
+estaticos (Partner-Id) + TokenExchange (login de 2 pasos). Motiva: un RestApi solo alcanzable desde la
+LAN del cliente (caso Siigo AGROMETALICAS via agente `cli_...`). NO hubo migracion (`ImportProcess.ClientId`
+ya existia).
+
+**Runner:** `ProcessRunner.RunNowAsync` ramifica el RestApi por presencia de cliente: con
+`process.ClientId` -> nuevo `RunRestViaAgentAsync` (arma spec completo, descifra el secreto del login
+que viaja en `ConnectorSpec.Secret`, despacha por el hub; simetrico al camino Database: abre corrida
+antes de despachar, PendingOffline + parquea si el agente esta caido); sin `ClientId` -> server-direct
+(ADR-0060). El via-agente honra el Mode/KeyColumn PERSISTIDOS (no vuelve al Replace fijo de la vieja
+rama).
+
+**RestSpecBuilder:** el viejo `BuildRestSpec` (privado, borrado en ADR-0060) se restaura como clase
+publica `Ecorex.SuperAdmin.Agents.RestSpecBuilder`, unit-testeable. Reusa `connector.MappingJson`
+(mismo `RestFetchSpec` que lee `ConnectorRunPlanner`) + `HeadersJson`/`TokenExchangeJson` (via
+`ConnectorRestConfig`). NO duplica el modelo de mapeo.
+
+**Ingesta:** identica por agente. Los chunks (`FetchResult`) pasan por el MISMO `RowIngestService`;
+`DispatchFetchAsync` recibe `mode`+`keyColumnId` del proceso. Convencion del agente: `mapping`
+columnaId -> NOMBRE de columna (el agente ya aplico el mapeo campo->columna, filas indexadas por
+nombre). Upsert por "Siigo Id" reconcilia sin duplicar.
+
+**Endpoints** (`ConfigApiEndpoints`, tenant-scoped, auditados): `PUT .../schedule` y `POST .../run`
+aceptan `clientId`/`agent` OPCIONAL. `ResolveClientAsync` lo resuelve por Guid de fila, ClientId
+publico (`cli_...`) o nombre (404 si no existe). En `/schedule` se guarda como `ImportProcess.ClientId`;
+en `/run` (RestApi) despacha por el hub y devuelve 202 con `correlationId` (`status="dispatched"`), 409
+si el agente esta offline. `ScheduleView` y auditoria reflejan el `clientId`/`clientName`.
+
+**Resultado:** `dotnet build Ecorex.sln` VERDE (0 errores). Tests: SuperAdmin.Tests 63/63 (nuevo
+`AgentRestSpecBuilderTests`: spec completo + casos borde), Application.Tests 615/615 (nuevo caso de
+ingest via agente en `ScheduledUpsertRunTests`). Solo ASCII. NO se desplego ni commiteo. NO se toco
+ContactWorkflow* (feature en curso en otro worktree).
+
+**Siguiente:** cablear la UI de Contenedores para elegir "server-direct vs agente" en la programacion;
+regenerar/redistribuir el MSI del agente si cambia el contrato del `RestExecutor`.
+
+---
+
 ## 2026-08-03 - Scheduling en la Config API + corrida programada server-direct (Upsert) (ADR-0060)
 
 **Que:** Fase 2 del scheduling de conectores. Se expuso el scheduling por HTTP en la Config API y se

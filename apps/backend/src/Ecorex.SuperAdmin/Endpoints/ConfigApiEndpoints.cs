@@ -5,6 +5,7 @@ using Ecorex.Application.Agents;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Domain.Enums;
+using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Microsoft.EntityFrameworkCore;
 
@@ -244,6 +245,62 @@ public static class ConfigApiEndpoints
                 foreach (var col in cols) { byName[col.Name] = col.Id; }
 
                 var mode = body?.Mode ?? ApiImportMode.Append;
+
+                // Agente Colmena OPCIONAL (ADR-0061): si se manda 'clientId' (o 'agent'), este run NO corre
+                // server-direct: se despacha por el hub con el RestFetchSpec COMPLETO (baseUrl + arrayPath
+                // + paging + fields anidados + Headers + TokenExchange) para que el agente lo ejecute; la
+                // ingesta de los chunks reconcilia con el mismo Mode/KeyColumn (Upsert), sin duplicar.
+                var runClientRef = body?.ClientId ?? body?.Agent;
+                if (!string.IsNullOrWhiteSpace(runClientRef))
+                {
+                    if (connector.Kind != ConnectorKind.RestApi)
+                    {
+                        return Results.BadRequest(new { error = "el despacho via agente por /run solo aplica a conectores RestApi" });
+                    }
+                    var agent = await ResolveClientAsync(s, runClientRef!, c);
+                    if (agent is null) { return Results.NotFound(new { error = $"agente '{runClientRef}' no encontrado" }); }
+                    if (!s.Registry.IsOnline(agent.ClientId))
+                    {
+                        return Results.Json(new { error = $"el agente '{agent.Name}' no esta conectado", agent = agent.Name, status = "offline" }, Json, statusCode: 409);
+                    }
+
+                    var (restSpec, specError) = RestSpecBuilder.Build(connector);
+                    if (restSpec is null) { return Results.BadRequest(new { error = specError }); }
+
+                    // Mapeo columnaId -> NOMBRE (el agente ya aplica el mapeo campo->columna: sus filas
+                    // vienen por nombre de columna). keyColumnId para la reconciliacion Upsert.
+                    var mappingById = cols.ToDictionary(x => x.Id, x => x.Name);
+                    Guid? runKeyColumnId = null;
+                    if (mode == ApiImportMode.Upsert)
+                    {
+                        if (string.IsNullOrWhiteSpace(body?.KeyColumn)) { return Results.BadRequest(new { error = "para mode=Upsert indica 'keyColumn'" }); }
+                        if (!byName.TryGetValue(body!.KeyColumn!.Trim(), out var kId)) { return Results.BadRequest(new { error = $"la columna clave '{body.KeyColumn}' no existe en la tabla destino" }); }
+                        runKeyColumnId = kId;
+                    }
+
+                    var secret = connector.CredentialsEncrypted is { } enc ? s.Protector.Unprotect(enc) : null;
+                    var connSpec = new Ecorex.Contracts.Agent.ConnectorSpec(Kind: "RestApi", Host: connector.Host, Secret: secret);
+                    var queryText = restSpec.ListPath ?? restSpec.BaseUrl ?? "REST";
+
+                    string corr;
+                    try
+                    {
+                        corr = await s.Imports.DispatchFetchAsync(
+                            agent.ClientId, tenantId, targetId, mappingById,
+                            mode, runKeyColumnId, queryText, connSpec, c, correlationId: null, rest: restSpec);
+                    }
+                    catch (Exception ex)
+                    {
+                        return Results.Json(new { error = $"no se pudo enviar la orden al agente: {ex.Message}" }, Json, statusCode: 502);
+                    }
+
+                    await AuditAsync(s, tenantId, "config-api.connector.run", nameof(Domain.Entities.DataConnector), id,
+                        new { correlationId = corr, mode = mode.ToString(), via = "agent", agent = agent.Name }, c);
+                    // Async: el resultado llega por el hub y la ingesta aterriza en el contenedor (no hay
+                    // corrida sincrona que devolver). El correlationId identifica el despacho.
+                    return Results.Json(new { correlationId = corr, status = "dispatched", agent = agent.Name }, Json, statusCode: 202);
+                }
+
                 var plan = ConnectorRunPlanner.Build(id, targetId, connector.MappingJson, byName, mode, body?.KeyColumn, body?.ArrayPath);
                 if (!plan.Ok) { return Results.BadRequest(new { error = plan.Error }); }
 
@@ -280,6 +337,18 @@ public static class ConfigApiEndpoints
                     return Results.BadRequest(new { error = "para mode=Upsert indica 'keyColumn' (nombre de la columna clave)" });
                 }
 
+                // Agente Colmena OPCIONAL (ADR-0061): si se manda 'clientId' (o 'agent'), la programacion
+                // la ejecuta ese agente en vez de correr server-direct. Se acepta el Guid de la fila, el
+                // ClientId publico ("cli_..."), o el nombre del agente. Sin el -> server-direct (default).
+                Guid? clientRowId = null;
+                var clientRef = body.ClientId ?? body.Agent;
+                if (!string.IsNullOrWhiteSpace(clientRef))
+                {
+                    var agent = await ResolveClientAsync(s, clientRef!, c);
+                    if (agent is null) { return Results.NotFound(new { error = $"agente '{clientRef}' no encontrado" }); }
+                    clientRowId = agent.Id;
+                }
+
                 // Un conector tiene a lo sumo una programacion: se busca la existente para editarla.
                 var existing = (await s.Import.ListProcessesAsync(connector.ModelId, c))
                     .FirstOrDefault(p => p.ConnectorId == connector.Id);
@@ -291,7 +360,7 @@ public static class ConfigApiEndpoints
                     Id: existing?.Id,
                     ModelId: connector.ModelId,
                     ConnectorId: connector.Id,
-                    ClientId: null,            // server-direct: no lo ejecuta un agente.
+                    ClientId: clientRowId,     // null = server-direct; con valor = lo ejecuta ese agente.
                     Name: name,
                     ScheduleKind: body.ScheduleKind,
                     IntervalMinutes: body.IntervalMinutes,
@@ -315,7 +384,7 @@ public static class ConfigApiEndpoints
 
                 var action = existing is null ? "config-api.schedule.create" : "config-api.schedule.update";
                 await AuditAsync(s, tenantId, action, nameof(Domain.Entities.ImportProcess), saved.Id,
-                    new { connectorId = connector.Id, saved.ScheduleKind, mode = mode.ToString(), saved.KeyColumn }, c);
+                    new { connectorId = connector.Id, saved.ScheduleKind, mode = mode.ToString(), saved.KeyColumn, clientId = clientRowId }, c);
                 return Results.Json(ScheduleView(saved), Json, statusCode: existing is null ? 201 : 200);
             })).DisableAntiforgery();
 
@@ -585,6 +654,9 @@ public static class ConfigApiEndpoints
     {
         scheduleId = p.Id,
         connectorId = p.ConnectorId,
+        // clientId/clientName: null = corre server-direct; con valor = lo ejecuta ese agente (ADR-0061).
+        clientId = p.ClientId,
+        clientName = p.ClientName,
         scheduleKind = p.ScheduleKind.ToString(),
         cronExpression = p.CronExpression,
         intervalMinutes = p.IntervalMinutes,
@@ -684,7 +756,29 @@ public static class ConfigApiEndpoints
         sp.GetRequiredService<IAgentClientService>(),
         sp.GetRequiredService<IAuditWriter>(),
         sp.GetRequiredService<IApplicationDbContext>(),
-        sp.GetRequiredService<ConfigRunStore>());
+        sp.GetRequiredService<ConfigRunStore>(),
+        sp.GetRequiredService<IAgentImportService>(),
+        sp.GetRequiredService<ISecretProtector>(),
+        sp.GetRequiredService<IAgentRegistry>());
+
+    /// <summary>
+    /// Resuelve un agente Colmena (`DataClient`) del tenant a partir de una referencia flexible: el Guid
+    /// de la fila, el ClientId publico ("cli_...") o el nombre del agente. Tenant-scoped (via el filtro
+    /// global de <see cref="IAgentClientService"/>). Devuelve null si no hay match. (ADR-0061.)
+    /// </summary>
+    private static async Task<AgentClientDto?> ResolveClientAsync(ConfigServices s, string clientRef, CancellationToken ct)
+    {
+        var r = clientRef.Trim();
+        if (string.IsNullOrWhiteSpace(r)) { return null; }
+        var clients = await s.Agents.ListAsync(ct);
+        if (Guid.TryParse(r, out var g))
+        {
+            var byId = clients.FirstOrDefault(c => c.Id == g);
+            if (byId is not null) { return byId; }
+        }
+        return clients.FirstOrDefault(c => string.Equals(c.ClientId, r, StringComparison.OrdinalIgnoreCase))
+            ?? clients.FirstOrDefault(c => string.Equals(c.Name, r, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static async Task AuditAsync(ConfigServices s, Guid tenantId, string action, string entityName, Guid? entityId, object? newValue, CancellationToken ct)
     {
@@ -700,21 +794,28 @@ public static class ConfigApiEndpoints
         IAgentClientService Agents,
         IAuditWriter Audit,
         IApplicationDbContext Db,
-        ConfigRunStore Runs);
+        ConfigRunStore Runs,
+        IAgentImportService Imports,
+        ISecretProtector Protector,
+        IAgentRegistry Registry);
 
     // ================= Cuerpos de entrada de la API =================
 
     private sealed record TokenIssueBody(string? Name, string? Scope);
     private sealed record SecretBody(string? Secret);
     private sealed record AgentBody(string? Name, string? Description);
-    private sealed record RunBody(ApiImportMode? Mode, string? KeyColumn, string? ArrayPath);
+    // ClientId/Agent OPCIONALES (ADR-0061): si vienen, el run/schedule lo ejecuta ese agente Colmena
+    // (se acepta el Guid de la fila, el ClientId publico "cli_..." o el nombre). Sin ellos: server-direct.
+    private sealed record RunBody(ApiImportMode? Mode, string? KeyColumn, string? ArrayPath, string? ClientId, string? Agent);
     private sealed record ScheduleBody(
         ImportScheduleKind ScheduleKind,
         string? CronExpression,
         int? IntervalMinutes,
         ApiImportMode? Mode,
         string? KeyColumn,
-        bool? IsActive);
+        bool? IsActive,
+        string? ClientId,
+        string? Agent);
 
     private sealed record HeaderBody(string? Name, string? Value);
     private sealed record FieldBody(string? Column, string? Path);

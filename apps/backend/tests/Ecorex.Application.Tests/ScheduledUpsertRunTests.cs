@@ -341,4 +341,44 @@ public class ScheduledUpsertRunTests
         var actualizado = inner.DataContainerCells.Single(c => c.RowId == existente.Id && c.ColumnId == ColName).Value;
         Assert.Equal("Cliente Uno", actualizado);
     }
+
+    [Fact]
+    public async Task Corrida_via_agente_en_Upsert_reconcilia_por_columna_sin_duplicar()
+    {
+        // El camino VIA AGENTE (ADR-0061) usa la MISMA IRowIngestService que el server-direct, pero con
+        // la convencion del agente (la de DispatchFetchAsync): mapping columnaId -> NOMBRE de columna
+        // (el agente ya aplico el mapeo campo->columna del RestFetchSpec, asi que sus filas vienen
+        // indexadas por NOMBRE de columna, no por ruta JSON), y el keyColumnId es el Guid de la columna
+        // clave. Se prueba que ese ingest reconcilia por "Siigo Id" sin duplicar, igual que el server.
+        var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var existente = new DataContainerRow { TenantId = Tenant, ContainerId = Container };
+        inner.DataContainerRows.Add(existente);
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColSiigoId, Value = "SIIGO-1" });
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColName, Value = "viejo" });
+        await inner.SaveChangesAsync();
+
+        var db = new FakeIngestDb(inner);
+        var ingest = new RowIngestService(db);
+
+        // Convencion del agente: columnaId -> NOMBRE de columna (NO ruta JSON). keyColumnId = Guid de la clave.
+        var mapping = new Dictionary<Guid, string> { [ColSiigoId] = "Siigo Id", [ColName] = "nombre" };
+        var session = ingest.CreateSession(Container, Tenant, mapping, ApiImportMode.Upsert, ColSiigoId);
+        await session.PrepareAsync(default);
+
+        // Filas tal como las devuelve el agente (FetchResult): indexadas por NOMBRE de columna.
+        var filas = new[]
+        {
+            new Dictionary<string, string?> { ["Siigo Id"] = "SIIGO-1", ["nombre"] = "Cliente Uno" },
+            new Dictionary<string, string?> { ["Siigo Id"] = "SIIGO-2", ["nombre"] = "Cliente Dos" },
+        };
+        await session.IngestChunkAsync(filas.Cast<IReadOnlyDictionary<string, string?>>().ToList(), default);
+
+        // SIIGO-1 se ACTUALIZA (no se duplica), SIIGO-2 se inserta -> 2 filas, no 3.
+        Assert.Equal(1, session.Updated);
+        Assert.Equal(1, session.Inserted);
+        Assert.Equal(2, inner.DataContainerRows.Count());
+        var actualizado = inner.DataContainerCells.Single(c => c.RowId == existente.Id && c.ColumnId == ColName).Value;
+        Assert.Equal("Cliente Uno", actualizado);
+    }
 }

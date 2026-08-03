@@ -192,6 +192,41 @@ public static class ConfigApiEndpoints
                 return Results.Json(result, Json);
             })).DisableAntiforgery();
 
+        // Preview: como el probe pero devuelve, para UNA fila de muestra, el mapeo YA aplicado
+        // (columna -> valor) resolviendo las rutas ANIDADAS/INDEXADAS del conector con el mismo
+        // resolver del run. Deja ver si alguna ruta queda vacia ANTES de disparar el run.
+        group.MapPost("/connectors/{id:guid}/preview", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Bearer(req, scopes, ct, async (s, _, c) =>
+            {
+                var connector = await s.Db.DataConnectors.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, c);
+                if (connector is null) { return Results.NotFound(new { error = "conector no encontrado" }); }
+                if (connector.ContainerId is not Guid targetId) { return Results.BadRequest(new { error = "el conector no tiene tabla destino (targetTable)" }); }
+
+                var cols = await s.Db.DataContainerColumns.AsNoTracking()
+                    .Where(x => x.ContainerId == targetId)
+                    .Select(x => new { x.Id, x.Name })
+                    .ToListAsync(c);
+                var byName = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+                foreach (var col in cols) { byName[col.Name] = col.Id; }
+
+                var arrayOverride = req.Query["arrayPath"].ToString();
+                // Modo Append: el preview no necesita clave; solo el mapeo campo->columna del conector.
+                var plan = ConnectorRunPlanner.Build(id, targetId, connector.MappingJson, byName,
+                    ApiImportMode.Append, keyColumnName: null,
+                    arrayPathOverride: string.IsNullOrWhiteSpace(arrayOverride) ? null : arrayOverride);
+                if (!plan.Ok) { return Results.BadRequest(new { error = plan.Error }); }
+
+                var idToName = cols.ToDictionary(x => x.Id, x => x.Name);
+                var columnToPath = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var kv in plan.Request!.ColumnToField)
+                {
+                    if (idToName.TryGetValue(kv.Key, out var name)) { columnToPath[name] = kv.Value; }
+                }
+
+                var result = await s.Api.PreviewAsync(id, columnToPath, plan.Request.ArrayPath, c);
+                return Results.Json(result, Json);
+            })).DisableAntiforgery();
+
         // Run: dispara la carga server-direct y devuelve runId. El modo/keyColumn son politica de la
         // corrida (van en el body); el mapeo/paginacion salen del conector persistido.
         group.MapPost("/connectors/{id:guid}/run", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>

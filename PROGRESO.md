@@ -5,6 +5,47 @@
 
 ---
 
+## 2026-08-03 - Fix /run: resolver JSON anidado en el importador in-process + preview con valores (ADR-0059)
+
+**Que:** El `/run` de la Config API (`ConnectorRunPlanner` -> `ApiImportService.ImportAsync`) resolvia
+el mapeo columna->campo con `TryGetProperty` (solo primer nivel), asi que las rutas ANIDADAS/INDEXADAS
+del conector (`id_type.name`, `name[0]`, `address.city.city_name`, `phones[0].number`,
+`contacts[0].email`, `metadata.created`) quedaban VACIAS y, en Upsert, sobrescribian la data existente.
+Repro: conector Siigo `019fc83c-5876-744c-a717-9a448da0b281` (AGROMETALICAS).
+
+**Fix A:** nuevo helper `NestedJsonResolver` en `Ecorex.Application` (TryResolve + Scalar + ParseSegments
++ ProjectRow), REPLICA byte-a-byte de la logica del agente (`Ecorex.Agent.Core.Services.RestJson`, que
+usa `RestExecutor`). Se replica -no se comparte por referencia- porque el agente esta en otra solucion
+(`apps/agent`), apunta a net10.0-windows (DPAPI) y no esta en `apps/backend/Ecorex.sln`; y Application es
+net10.0 multiplataforma (matriz dual de CI). `ImportAsync` ahora proyecta con `ProjectRow`.
+**No-sobrescribir-con-vacio:** `ProjectRow` OMITE las rutas que no resuelven, y `RowIngestService`
+(sesion Upsert, fila existente) SALTA los campos ausentes (`if (!src.ContainsKey(field)) continue;`),
+conservando el valor. Distincion: ruta que resuelve a JSON null SI limpia la celda (viaja con valor null).
+El runner via agente no cambia (su MergeRow siempre incluye todas las columnas).
+
+**Preview:** nuevo `POST /api/config/connectors/{id}/preview` (mismo Bearer + tenant-scoping): para la
+primera fila de muestra devuelve el mapeo YA aplicado columna->valor con el resolver anidado e indica por
+columna si `resolved`. Respaldo: `IApiImportService.PreviewAsync` + `ApiPreviewResult`/`ApiPreviewField`.
+El endpoint reusa `ConnectorRunPlanner.Build` para el mapeo persistido.
+
+**Archivos:** `NestedJsonResolver.cs` (nuevo), `ApiImportService.cs` (ProjectRow en ImportAsync +
+PreviewAsync; se quito `ScalarString` muerto), `ApiImportContracts.cs` (preview contracts + PreviewAsync),
+`RowIngestService.cs` (guard Upsert), `ConnectorRunPlanner.cs` (nota), `ConfigApiEndpoints.cs` (endpoint
+preview). Tests: `NestedJsonResolverTests.cs` (nuevo, fixture Siigo: a.b, arr[0], arr[0].x, ausente,
+json-null) y 2 casos nuevos en `RowIngestServiceTests` (Upsert no borra con ruta ausente; presente-null
+si limpia).
+
+**(B) Despachar /run al agente Colmena conectado:** DISENADO en ADR-0059 (no implementado por
+alcance/riesgo): si el tenant tiene agente activo, construir `RestFetchSpec` y
+`IAgentImportService.DispatchFetchAsync`; fallback server-direct; y unificar el resolver en un leaf
+`Ecorex.Shared` referenciado por ambas soluciones.
+
+**Build/tests:** `dotnet build apps/backend/Ecorex.sln` VERDE (0 errores, 27 warnings preexistentes).
+`Ecorex.Application.Tests` VERDE (resolver + RowIngest 24/24; ConfigApiTests 10/10). NO desplegado, NO
+commiteado.
+
+---
+
 ## 2026-08-03 - API REST de configuracion tenant-scoped (Contenedores / Conectores / Agentes) - FASE 1
 
 **Que:** API DELGADA bajo `/api/config` para configurar por HTTP, sin la UI Blazor, toda la maquinaria

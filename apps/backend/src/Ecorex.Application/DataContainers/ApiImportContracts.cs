@@ -15,6 +15,24 @@ public sealed record ApiProbeResult(
     string? SamplePretty,
     string? Error);
 
+/// <summary>Una columna del preview con su ruta y el valor YA resuelto para la fila de muestra.
+/// Resolved=false indica que la ruta no aterrizo en el JSON (en Upsert NO sobrescribiria).</summary>
+public sealed record ApiPreviewField(
+    string Column,
+    string Path,
+    string? Value,
+    bool Resolved);
+
+/// <summary>Resultado del preview: para UNA fila de muestra, el mapeo columna->valor ya aplicado
+/// con el resolver anidado. Deja ver ANTES de correr si alguna ruta queda vacia.</summary>
+public sealed record ApiPreviewResult(
+    bool Success,
+    string? DetectedArrayPath,
+    int Count,
+    IReadOnlyList<ApiPreviewField> Fields,
+    string? SamplePretty,
+    string? Error);
+
 /// <summary>Estilo de paginacion del API. None = una sola llamada; Offset = desplazamiento
 /// (ej. start/limit de Alegra); Page = numero de pagina incremental (ej. page/limit).</summary>
 public enum PagingMode { None, Offset, Page }
@@ -64,6 +82,12 @@ public interface IApiImportService
     /// <summary>Hace el GET del conector y descubre los campos del primer elemento del arreglo JSON.
     /// arrayPath opcional (ruta con puntos) cuando el arreglo viene envuelto en un objeto.</summary>
     Task<ApiProbeResult> ProbeAsync(Guid connectorId, string? arrayPath = null, CancellationToken ct = default);
+
+    /// <summary>Hace el GET del conector y, para la PRIMERA fila de muestra, resuelve cada ruta del
+    /// mapeo (columna->ruta anidada) con el resolver anidado, devolviendo el valor ya aterrizado y si
+    /// la ruta resolvio. Sirve para ver el mapeo real ANTES de disparar un run. No escribe nada.</summary>
+    Task<ApiPreviewResult> PreviewAsync(Guid connectorId, IReadOnlyDictionary<string, string> columnToPath,
+        string? arrayPath = null, CancellationToken ct = default);
 
     /// <summary>Trae los datos del API (con paginacion) y aplica el modo (agregar/reemplazar/upsert),
     /// mapeando campos->columnas. Devuelve el detalle insertadas/actualizadas/borradas.</summary>

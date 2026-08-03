@@ -310,6 +310,51 @@ public class RowIngestServiceTests
     }
 
     [Fact]
+    public async Task Upsert_no_sobrescribe_con_vacio_cuando_la_ruta_no_resuelve()
+    {
+        // Simula el bug del /run: en Upsert, si una ruta anidada NO resuelve, el campo NO viene en la
+        // fila (NestedJsonResolver.ProjectRow lo omite). El nucleo debe CONSERVAR el valor existente,
+        // no borrarlo con vacio/null.
+        var (_, inner, svc) = NewDb();
+        var existente = new DataContainerRow { TenantId = Tenant, ContainerId = Container };
+        inner.DataContainerRows.Add(existente);
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColCode, Value = "A" });
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColName, Value = "valor previo" });
+        await inner.SaveChangesAsync();
+
+        var s = svc.CreateSession(Container, Tenant, Mapping, ApiImportMode.Upsert, ColCode);
+        await s.PrepareAsync(default);
+        // La fila trae la clave ("code") pero NO "name" (ruta que no resolvio -> se omitio).
+        var soloClave = new Dictionary<string, string?> { ["code"] = "A" };
+        await s.IngestChunkAsync(new[] { (IReadOnlyDictionary<string, string?>)soloClave }, default);
+
+        Assert.Equal(1, s.Updated);
+        Assert.Equal(0, s.Inserted);
+        Assert.Equal("valor previo", CellOf(inner, existente.Id, ColName)); // se CONSERVA, no se borro
+    }
+
+    [Fact]
+    public async Task Upsert_campo_presente_con_null_si_limpia_la_celda()
+    {
+        // Distincion clave: una ruta que resuelve a JSON null SI viene en la fila (con valor null) y
+        // debe limpiar la celda (borrado explicito), a diferencia de la ruta ausente.
+        var (_, inner, svc) = NewDb();
+        var existente = new DataContainerRow { TenantId = Tenant, ContainerId = Container };
+        inner.DataContainerRows.Add(existente);
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColCode, Value = "A" });
+        inner.DataContainerCells.Add(new DataContainerCell { TenantId = Tenant, RowId = existente.Id, ColumnId = ColName, Value = "valor previo" });
+        await inner.SaveChangesAsync();
+
+        var s = svc.CreateSession(Container, Tenant, Mapping, ApiImportMode.Upsert, ColCode);
+        await s.PrepareAsync(default);
+        var conNull = new Dictionary<string, string?> { ["code"] = "A", ["name"] = null };
+        await s.IngestChunkAsync(new[] { (IReadOnlyDictionary<string, string?>)conNull }, default);
+
+        Assert.Equal(1, s.Updated);
+        Assert.Null(CellOf(inner, existente.Id, ColName)); // presente con null -> se limpia
+    }
+
+    [Fact]
     public async Task Upsert_deduplica_claves_repetidas_dentro_de_la_misma_corrida()
     {
         var (_, inner, svc) = NewDb();

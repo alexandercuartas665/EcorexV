@@ -118,6 +118,10 @@ public sealed class RowIngestService : IRowIngestService
                         rowCells ??= new List<DataContainerCell>();
                         foreach (var (colId, field) in _mapping)
                         {
+                            // Si la ruta no resolvio, el campo no viene en la fila: NO se sobrescribe la
+                            // celda existente con vacio (se conserva el valor). Un campo presente con null
+                            // (ruta que resolvio a JSON null) SI limpia la celda: es un borrado explicito.
+                            if (!src.ContainsKey(field)) { continue; }
                             var value = Get(src, field);
                             var cell = rowCells.FirstOrDefault(c => c.ColumnId == colId);
                             if (cell is not null) { cell.Value = value; }

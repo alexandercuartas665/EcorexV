@@ -74,6 +74,49 @@ public sealed class ApiImportService : IApiImportService
         }
     }
 
+    public async Task<ApiPreviewResult> PreviewAsync(Guid connectorId, IReadOnlyDictionary<string, string> columnToPath,
+        string? arrayPath = null, CancellationToken ct = default)
+    {
+        var empty = Array.Empty<ApiPreviewField>();
+        if (columnToPath.Count == 0) { return new ApiPreviewResult(false, arrayPath, 0, empty, null, "No hay mapeo columna -> ruta para previsualizar."); }
+
+        var (connector, baseUri, loadError) = await LoadConnectorAsync(connectorId, ct);
+        if (connector is null || baseUri is null) { return new ApiPreviewResult(false, arrayPath, 0, empty, null, loadError); }
+        var (headers, authError) = await PrepareRestHeadersAsync(connector, ct);
+        if (authError is not null) { return new ApiPreviewResult(false, arrayPath, 0, empty, null, authError); }
+        var (doc, error) = await FetchJsonAsync(connector, baseUri, headers, ct);
+        if (doc is null) { return new ApiPreviewResult(false, arrayPath, 0, empty, null, error); }
+        using (doc)
+        {
+            if (!TryGetArray(doc.RootElement, arrayPath, out var arr, out var detectedPath))
+            {
+                return new ApiPreviewResult(false, arrayPath, 0, empty,
+                    null, "La respuesta no contiene un arreglo JSON. Indica la ruta del arreglo si viene envuelto (ej. data).");
+            }
+
+            // Primer elemento objeto = fila de muestra.
+            JsonElement? sample = null;
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.Object) { sample = el; break; }
+            }
+            if (sample is not JsonElement row)
+            {
+                return new ApiPreviewResult(false, detectedPath, arr.GetArrayLength(), empty,
+                    null, "El arreglo no trae ningun elemento objeto para previsualizar.");
+            }
+
+            // Aplica el MISMO resolver anidado del run/agente a cada ruta del mapeo.
+            var fields = new List<ApiPreviewField>(columnToPath.Count);
+            foreach (var (column, path) in columnToPath)
+            {
+                var resolved = NestedJsonResolver.TryResolve(row, path, out var v);
+                fields.Add(new ApiPreviewField(column, path, resolved ? NestedJsonResolver.Scalar(v) : null, resolved));
+            }
+            return new ApiPreviewResult(true, detectedPath, arr.GetArrayLength(), fields, Pretty(row), null);
+        }
+    }
+
     public async Task<ApiImportOutcome> ImportAsync(ApiImportRequest req, Guid actorUserId, CancellationToken ct = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)
@@ -184,11 +227,10 @@ public sealed class ApiImportService : IApiImportService
                     pageCount++;
                     if (el.ValueKind != JsonValueKind.Object) { failed++; continue; }
 
-                    var row = new Dictionary<string, string?>(mapping.Count);
-                    foreach (var field in mapping.Values.Distinct(StringComparer.Ordinal))
-                    {
-                        row[field] = el.TryGetProperty(field, out var pv) ? ScalarString(pv) : null;
-                    }
+                    // Resuelve rutas ANIDADAS/INDEXADAS (id_type.name, phones[0].number, ...) con el
+                    // MISMO resolver que usa el agente. Las rutas que no resuelven se OMITEN: en Upsert
+                    // eso hace que el nucleo conserve el valor existente en vez de borrarlo con vacio.
+                    var row = NestedJsonResolver.ProjectRow(el, mapping.Values.Distinct(StringComparer.Ordinal));
                     rows.Add(row);
                 }
 
@@ -461,17 +503,6 @@ public sealed class ApiImportService : IApiImportService
         }
         return false;
     }
-
-    private static string? ScalarString(JsonElement el) => el.ValueKind switch
-    {
-        JsonValueKind.String => el.GetString(),
-        JsonValueKind.Number => el.GetRawText(),
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        JsonValueKind.Null or JsonValueKind.Undefined => null,
-        // Objetos/arreglos anidados: se guarda el JSON crudo para no perder informacion.
-        _ => el.GetRawText()
-    };
 
     private static string Pretty(JsonElement el)
     {

@@ -14,9 +14,9 @@ namespace Ecorex.Application.DataContainers;
 /// clave son POLITICA de la corrida (llegan por la peticion de run), no parte de la definicion del
 /// conector, de modo que el mismo conector se puede correr en distintos modos.
 ///
-/// NOTA (alcance FASE 1): el importador server-direct mapea por NOMBRE de propiedad plano; las rutas
-/// anidadas (ej. <c>id_type.name</c>, <c>phones[0].number</c>) se declaran y persisten aqui, pero solo
-/// el runner via agente las aplana. Ver ADR-0058.
+/// NOTA: las rutas anidadas/indexadas (ej. <c>id_type.name</c>, <c>phones[0].number</c>) se declaran y
+/// persisten aqui; el importador server-direct YA las aplana con <see cref="NestedJsonResolver"/> (el
+/// mismo comportamiento que el runner via agente). Ver ADR-0058 y ADR-0059.
 /// </summary>
 public static class ConnectorRunPlanner
 {

@@ -1766,6 +1766,57 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("citas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Ciudad", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CodigoDane")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("codigo_dane");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Departamento")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("departamento");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("nombre");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ciudades");
+
+                    b.HasIndex("Nombre")
+                        .HasDatabaseName("ix_ciudades_nombre");
+
+                    b.HasIndex("Departamento", "Nombre")
+                        .HasDatabaseName("ix_ciudades_departamento_nombre");
+
+                    b.ToTable("ciudades", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ConceptoActividad", b =>
                 {
                     b.Property<Guid>("Id")

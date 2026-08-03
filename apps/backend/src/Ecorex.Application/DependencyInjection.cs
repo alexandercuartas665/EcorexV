@@ -182,6 +182,9 @@ public static class DependencyInjection
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
         services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
+        // Catalogo GLOBAL de ciudades / municipios (Colombia): alimenta el selector de ciudad del
+        // Directorio y del modal de Tercero (reemplaza el input libre). No tenant-scoped.
+        services.AddScoped<Catalogos.ICiudadCatalogService, Catalogos.CiudadCatalogService>();
         // Conceptos de actividades (modulo 000270): catalogo de dos niveles Categoria ->
         // Subcategoria (concepto) con flags RQ07, vinculos a flujo/formulario/tablero y M:N cargos/terceros.
         services.AddScoped<Actividades.IActividadCatalogoService, Actividades.ActividadCatalogoService>();

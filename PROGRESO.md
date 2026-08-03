@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-08-03 - API REST de gestion de agentes de IA (gobierno cross-tenant)
+
+**Que:** API de gobierno bajo `/api/mgmt` para que un operador externo (Claude via WebFetch)
+LEA y EDITE la estructura de los agentes de IA de cualquier tenant y LEA sus bitacoras, sin la
+cookie del panel. Minimal API en un archivo nuevo con metodo de extension, montado en `Program.cs`.
+
+**Endpoints:** GET `/api/mgmt/agents`, GET `/api/mgmt/agents/{id}`, POST `/api/mgmt/agents`,
+PUT `/api/mgmt/agents/{id}`, PUT `/api/mgmt/agents/{id}/prompt` (solo system prompt),
+POST `/api/mgmt/agents/{id}/prompts`, PUT `/api/mgmt/prompts/{promptId}`,
+DELETE `/api/mgmt/prompts/{promptId}`, GET `/api/mgmt/agents/{id}/bitacora?kind=&limit=`.
+Todos con `?tenant={guid}` obligatorio. Mapean a `IAiAgentService`/`IAiAgentCacheService` y a
+lectura directa de `ai_agent_run_logs`.
+
+**Auth:** header `X-Ecorex-Mgmt-Key` validado en tiempo constante contra la env var
+`ECOREX_MGMT_API_KEY`. Sin la env var -> 404 (API deshabilitada, no se revela). Header ausente o
+malo -> 401. Tenant ausente/invalido -> 400. Actor de auditoria = `Guid.Empty`.
+
+**Tenant scoping:** se reusa `AmbientTenantContext.Begin(tenant)` + scope de DI aislado, igual que
+el webhook entrante (`AgentReplyDispatcher`). SIN migracion (entidades existentes).
+
+**Archivos:** nuevo `apps/backend/src/Ecorex.SuperAdmin/Endpoints/AgentMgmtEndpoints.cs`; modificado
+`Program.cs` (llamada a `MapAgentMgmtEndpoints`); nuevo `docs/decisiones/ADR-0057-api-gestion-agentes.md`.
+
+**Build:** `dotnet build apps/backend/Ecorex.sln` VERDE (0 errores).
+
+**Activacion:** setear `ECOREX_MGMT_API_KEY` (secreto) en el `.env` de prod, NO versionada.
+
+**Siguiente:** exponer opcionalmente datos cache por sesion e historial de versiones de prompts
+si el operador externo lo requiere.
+
+---
+
 ## 2026-08-01 - Conector RestApi: headers arbitrarios + intercambio de token (auth 2 pasos) + UI estructurada
 
 **Que:** se completo el conector RestApi del Contenedor de datos (TENANT-scoped, policy

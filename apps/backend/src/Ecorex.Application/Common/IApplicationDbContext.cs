@@ -199,6 +199,9 @@ public interface IApplicationDbContext
     DbSet<Rol> Roles { get; }
     DbSet<RolPermiso> RolPermisos { get; }
 
+    // Catalogo GLOBAL de ciudades / municipios (no tenant-scoped): alimenta el selector de ciudad.
+    DbSet<Ciudad> Ciudades { get; }
+
     // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
     // negocio, contactos embebidos y fichas dinamicas (jsonb).
     DbSet<Tercero> Terceros { get; }

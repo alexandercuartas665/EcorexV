@@ -279,6 +279,37 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     }
 
     /// <summary>
+    /// Siembra el catalogo GLOBAL de ciudades (municipios de Colombia) desde
+    /// <see cref="CiudadesColombiaSeedData"/>. NO es tenant-scoped ni dato demo: es un catalogo
+    /// compartido, asi que corre siempre (tambien con SkipDemoSeed). Idempotente: solo inserta los
+    /// pares (Departamento, Municipio) que aun no existen, de modo que ampliar la lista y re-sembrar
+    /// agrega unicamente los faltantes sin duplicar.
+    /// </summary>
+    public async Task EnsureCiudadesAsync(CancellationToken cancellationToken = default)
+    {
+        var existentes = await _db.Ciudades
+            .Select(c => new { c.Departamento, c.Nombre })
+            .ToListAsync(cancellationToken);
+        var existentesSet = new HashSet<string>(
+            existentes.Select(e => $"{e.Departamento}|{e.Nombre}"),
+            StringComparer.OrdinalIgnoreCase);
+
+        var nuevas = new List<Ciudad>();
+        foreach (var (departamento, municipio) in CiudadesColombiaSeedData.Municipios)
+        {
+            if (existentesSet.Add($"{departamento}|{municipio}"))
+            {
+                nuevas.Add(new Ciudad { Nombre = municipio, Departamento = departamento });
+            }
+        }
+
+        if (nuevas.Count == 0) { return; }
+        _db.Ciudades.AddRange(nuevas);
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Catalogo de ciudades sembrado ({Count} municipios nuevos).", nuevas.Count);
+    }
+
+    /// <summary>
     /// Rellena el perfil de contacto/domicilio de la ficha de empresa (modulo 000072, ADR-0026)
     /// del tenant demo SKY SYSTEM cuando la BD ya existia antes de la migracion AddTenantProfile
     /// (los campos nuevos quedan null en filas previas). Idempotente: solo escribe los campos

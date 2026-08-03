@@ -228,9 +228,16 @@
                                         {
                                             <span class="gc-badge" style="background:var(@bi.Bg);color:var(@bi.Color)">@rr.Badge</span>
                                         }
+                                        @* Boton de edicion UNIFICADO: toda fila, sin importar la fuente (Directorio o
+                                           scrapeada), muestra el MISMO boton "Editar" que abre el modal de edicion del
+                                           tercero. Directorio -> abre la ficha existente. Scrapeada -> promueve el
+                                           prospecto (crea/vincula el Tercero) y abre su ficha (mismo resultado). *@
                                         @if (rr.TerceroId is Guid tid)
                                         {
-                                            <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">Abrir ficha</button>
+                                            <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                                Editar
+                                            </button>
                                         }
                                         else if (rr.Promovido)
                                         {
@@ -238,7 +245,10 @@
                                         }
                                         else if (rr.ProspectoId is Guid pid)
                                         {
-                                            <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">Calificar</button>
+                                            <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                                Editar
+                                            </button>
                                         }
                                     </div>
                                 </div>

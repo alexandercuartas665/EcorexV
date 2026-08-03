@@ -189,6 +189,7 @@ public class RowIngestServiceTests
         public DbSet<MenuView> MenuViews => throw new NotSupportedException();
         public DbSet<MenuNode> MenuNodes => throw new NotSupportedException();
         public DbSet<Rol> Roles => throw new NotSupportedException();
+        public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
         public DbSet<Tercero> Terceros => throw new NotSupportedException();
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();

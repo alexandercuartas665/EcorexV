@@ -8,6 +8,7 @@
 @using System.Text.Json
 @using System.Globalization
 @using Ecorex.Application.Directorio
+@using Ecorex.Application.Catalogos
 @using Ecorex.Application.Formulas
 @using Ecorex.Application.Gestor
 @using Ecorex.Application.Roles
@@ -22,6 +23,7 @@
 @inject Ecorex.Application.Crm.IConceptoActividadService ConceptosSvc
 @inject ICurrentPermissions Perms
 @inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
+@inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadSvc
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -172,9 +174,33 @@
                                         <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
                                         <input class="dg-input" value="@_mNombre" @oninput="e => _mNombre = e.Value?.ToString() ?? string.Empty" />
                                     </div>
-                                    <div style="min-width:0">
+                                    @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
+                                       Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
+                                       elige de la lista); se sigue guardando el NOMBRE en Tercero.Ciudad (string). *@
+                                    <div style="min-width:0;position:relative" @onfocusout="OnCiudadBlur">
                                         <label class="dg-flabel">Ciudad</label>
-                                        <input class="dg-input" value="@_mCiudad" @oninput="e => _mCiudad = e.Value?.ToString() ?? string.Empty" />
+                                        <input class="dg-input" placeholder="Buscar ciudad..." autocomplete="off"
+                                               value="@_ciudadQuery"
+                                               @oninput="OnCiudadInput"
+                                               @onfocus="OnCiudadFocus" />
+                                        @if (_ciudadOpen && _ciudadMatches.Count > 0)
+                                        {
+                                            <div class="dg-ciudad-menu">
+                                                @foreach (var c in _ciudadMatches)
+                                                {
+                                                    var cc = c;
+                                                    <button type="button" class="dg-ciudad-opt"
+                                                            @onmousedown:preventDefault="true"
+                                                            @onclick="() => SelectCiudad(cc)">
+                                                        <span class="dg-ciudad-opt-name">@cc.Nombre</span>
+                                                        @if (!string.IsNullOrWhiteSpace(cc.Departamento))
+                                                        {
+                                                            <span class="dg-ciudad-opt-dep">@cc.Departamento</span>
+                                                        }
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
                                     </div>
                                     @if (_mTipo == TerceroTipo.Empresa)
                                     {
@@ -763,6 +789,11 @@
     private string _mNombre = "";
     private string _mVendedor = "";
     private string _mCiudad = "";
+    // Autocomplete de ciudad (catalogo global): _ciudadQuery es el texto que se ve/filtra; el valor
+    // confirmado vive en _mCiudad (solo se escribe al elegir una ciudad real de la lista).
+    private string _ciudadQuery = "";
+    private bool _ciudadOpen;
+    private IReadOnlyList<CiudadDto> _ciudadMatches = Array.Empty<CiudadDto>();
     private string _mSector = "";
     private string _mCargo = "";
     private string _mEmail = "";
@@ -844,6 +875,53 @@
         _ => "text"
     };
 
+    // ---- Autocomplete de Ciudad (catalogo global de municipios de Colombia) ----
+    private async Task OnCiudadFocus()
+    {
+        _ciudadOpen = true;
+        _ciudadMatches = await CiudadSvc.SearchAsync(_ciudadQuery, 30);
+    }
+
+    private async Task OnCiudadInput(ChangeEventArgs e)
+    {
+        _ciudadQuery = e.Value?.ToString() ?? "";
+        _ciudadOpen = true;
+        _ciudadMatches = await CiudadSvc.SearchAsync(_ciudadQuery, 30);
+    }
+
+    private void SelectCiudad(CiudadDto c)
+    {
+        _mCiudad = c.Nombre;      // valor confirmado que se guarda
+        _ciudadQuery = c.Nombre;  // texto visible
+        _ciudadOpen = false;
+    }
+
+    private async Task OnCiudadBlur()
+    {
+        _ciudadOpen = false;
+        var q = (_ciudadQuery ?? "").Trim();
+        if (q.Length == 0)
+        {
+            // Ciudad es opcional: dejar vacio es valido.
+            _mCiudad = "";
+            _ciudadQuery = "";
+            return;
+        }
+        // Restringe a ciudades reales: acepta el texto solo si coincide EXACTO (case-insensitive)
+        // con una ciudad del catalogo; si no, revierte al ultimo valor confirmado (_mCiudad).
+        var matches = await CiudadSvc.SearchAsync(q, 10);
+        var exact = matches.FirstOrDefault(m => string.Equals(m.Nombre, q, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            _mCiudad = exact.Nombre;
+            _ciudadQuery = exact.Nombre;
+        }
+        else
+        {
+            _ciudadQuery = _mCiudad ?? "";
+        }
+    }
+
     // ---- Crear / editar ----
     /// <summary>Abre el modal en modo "crear tercero" (nuevo cliente / nuevo contacto).</summary>
     public async Task OpenCreate()
@@ -859,6 +937,9 @@
         _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
         _mIdValor = "";
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _ciudadQuery = "";
+        _ciudadOpen = false;
+        _ciudadMatches = Array.Empty<CiudadDto>();
         _fichaValues.Clear();
         _fichaOpen.Clear();
         await LoadFichaFieldsAsync();
@@ -910,6 +991,9 @@
         _mNombre = d.Nombre;
         _mVendedor = d.Vendedor ?? "";
         _mCiudad = d.Ciudad ?? "";
+        _ciudadQuery = _mCiudad;
+        _ciudadOpen = false;
+        _ciudadMatches = Array.Empty<CiudadDto>();
         _mSector = d.Sector ?? "";
         _mCargo = d.Cargo ?? "";
         _mEmail = d.Email ?? "";

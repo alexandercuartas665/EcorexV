@@ -263,6 +263,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<ReportDefinitionRole> ReportDefinitionRoles => Set<ReportDefinitionRole>();
 
+    // Catalogo GLOBAL de ciudades / municipios (no tenant-scoped): compartido por todos los tenants.
+    public DbSet<Ciudad> Ciudades => Set<Ciudad>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -1530,6 +1533,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.RolId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.ReportDefinitionId, x.RolId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.RolId });
+        });
+
+        // Catalogo GLOBAL de ciudades (no tenant-scoped): sin filtro de tenant, indice por Nombre
+        // para el autocompletar del selector de ciudad (Directorio / modal de Tercero).
+        modelBuilder.Entity<Ciudad>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(160).IsRequired();
+            b.Property(x => x.Departamento).HasMaxLength(160);
+            b.Property(x => x.CodigoDane).HasMaxLength(10);
+            b.HasIndex(x => x.Nombre);
+            b.HasIndex(x => new { x.Departamento, x.Nombre });
         });
 
         modelBuilder.Entity<ScheduledJobRule>(b =>

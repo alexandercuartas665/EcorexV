@@ -49,6 +49,7 @@ public class TenantUserServiceTests
         public DbSet<TenantUser> TenantUsers => inner.TenantUsers;
         public DbSet<SuperAdminAuditLog> SuperAdminAuditLogs => inner.SuperAdminAuditLogs;
         public DbSet<Rol> Roles => throw new NotSupportedException();
+        public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
         public DbSet<ScheduledJob> ScheduledJobs => throw new NotSupportedException();
         public DbSet<ScheduledJobRule> ScheduledJobRules => throw new NotSupportedException();

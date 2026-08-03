@@ -257,6 +257,9 @@ else
     // plataforma corren igual (idempotentes, sin datos demo).
     var skipDemoSeed = app.Configuration.GetValue<bool>("Ecorex:SkipDemoSeed")
         || string.Equals(Environment.GetEnvironmentVariable("ECOREX_SKIP_DEMO_SEED"), "true", StringComparison.OrdinalIgnoreCase);
+    // Catalogo GLOBAL de ciudades (municipios de Colombia): no es dato demo, se siembra siempre
+    // (tambien con SkipDemoSeed). Idempotente: solo agrega los municipios faltantes.
+    await seeder.EnsureCiudadesAsync();
     if (skipDemoSeed)
     {
         await seeder.EnsurePlatformAdminTenantAsync();
@@ -1410,6 +1413,15 @@ app.MapPost("/api/test/agent", async (
 
     return Results.Ok(new { conversationId = conv.Id, lineId = line.Id, agentId = agent.Id, agentName = agent.Name, reply });
 }).RequireAuthorization("TenantMember").DisableAntiforgery();
+
+// API REST de gobierno de agentes de IA (cross-tenant, gated por ECOREX_MGMT_API_KEY). Ver ADR-0057.
+// Aviso explicito al arrancar si la superficie potente esta HABILITADA (para que no pase inadvertida).
+if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ECOREX_MGMT_API_KEY")))
+{
+    app.Logger.LogWarning("API de gestion de agentes HABILITADA (cross-tenant, gate ECOREX_MGMT_API_KEY). " +
+        "Toda mutacion queda auditada; rota la clave, restringe su uso y considera ECOREX_MGMT_API_ALLOW_IPS.");
+}
+Ecorex.SuperAdmin.Endpoints.AgentMgmtEndpoints.MapAgentMgmtEndpoints(app);
 
 app.Run();
 

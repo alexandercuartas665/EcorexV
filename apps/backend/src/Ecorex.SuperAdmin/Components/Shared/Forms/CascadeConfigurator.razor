@@ -61,7 +61,7 @@
                     }
                     else
                     {
-                        <div class="cc-chips">
+                        <div class="cc-chips @(level.Select == "single" ? "cc-cards" : "")">
                             @foreach (var op in options)
                             {
                                 var opId = op.Id;
@@ -170,7 +170,7 @@
             </div>
         </section>
 
-        <div class="cc-bar">
+        <div class="cc-totbar">
             <div class="cc-stat"><small>Lineas</small><strong>@TotalLines(tables)</strong></div>
             <div class="cc-stat"><small>Tablas</small><strong>@tables.Count</strong></div>
             <div class="cc-stat tot"><small>Total estimado</small><strong>@Money(GrandTotal(tables))</strong></div>

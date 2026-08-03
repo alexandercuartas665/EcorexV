@@ -90,7 +90,7 @@
     @{
         var tables = CascadeRuntime.DesiredTables(Config, SelectionsView());
     }
-    @if (tables.Count > 0)
+    @if (Config.RenderTables && tables.Count > 0)
     {
         <section class="cc-card">
             <header class="cc-card-hd">

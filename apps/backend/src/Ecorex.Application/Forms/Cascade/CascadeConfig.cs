@@ -28,7 +28,11 @@ public sealed record CascadeConfig(
     IReadOnlyList<CascadeLevel> Levels,
     IReadOnlyDictionary<string, CascadeColumn> Columns,
     IReadOnlyDictionary<string, IReadOnlyList<string>> ColumnSets,
-    CascadeTable Table)
+    CascadeTable Table,
+    // Si es false, el control pinta SOLO las pildoras/seleccion (sin las tablas embebidas): permite
+    // conservar el selector en cascada y capturar el detalle en un GridDetail real aparte. Default true
+    // (comportamiento historico). No altera la validacion ni la emision del valor (selecciones + tablas).
+    bool RenderTables = true)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {

@@ -7460,3 +7460,39 @@ config UI + migracion dual + tests. Luego configurar DataConnector Upsert(siigo_
 contenedor existente y su horario.
 
 **Siguiente / pendiente**: (sin cambios) resolve multi-clave del COT; validar F2 cascada; clave Bold.
+
+---
+
+## 2026-08-03 (sesion datos - prod) - Conector Siigo via API de Configuracion (hallazgo: rutas anidadas)
+
+**Agente**: Claude Opus 4.8 (sesion de datos/implementacion).
+
+**Hecho**: la sesion de codigo entrego la **API de Configuracion tenant-scoped** (ConfigApiEndpoints,
+ADR-0058): tokens, containers (RO), connectors CRUD + secret + probe + run, agents. Con el token
+del tenant AGROMETALICAS configure por HTTP el conector "Siigo clientes" (id
+`019fc83c-5876-744c-a717-9a448da0b281`) contra el contenedor `siigo/clientes`: TokenExchange (auth
+2 pasos POST /auth), header Partner-Id, arrayPath=results, paginacion Page (page/page_size, inicial
+1, 100), mapeo de 14 columnas con rutas anidadas, secret via PUT /secret. **Probe OK** (autentico
+con Siigo, 25 registros muestra, 16 campos). **Run Upsert por Siigo Id: updated=1792, inserted=0,
+failed=0** (reconcilio sin duplicar).
+
+**HALLAZGO / BUG**: el `run` de la API va **server-directo** (`ApiImportService`), que **solo resuelve
+campos de PRIMER NIVEL** (`el.TryGetProperty`). Las **rutas anidadas/indexadas** del mapeo
+(`id_type.name`, `name[0]`, `address.city.city_name`, `phones[0].number`, `contacts[0].email`,
+`metadata.created`) quedaron **VACIAS**, y el Upsert **sobrescribio con vacio** la data buena
+previa. El probe no lo detecta (solo descubre llaves, no aplica mapeo). El agente (`RestExecutor` +
+`RestJson.TryResolve`) SI resuelve rutas anidadas; el server-directo NO.
+
+**Fix de data**: recarga no destructiva de las celdas desde el JSON (uuid5 + ON CONFLICT DO UPDATE),
+restaurando los 14 campos correctos (ej. Ciudad=Popayan, Telefono, Email). Backup
+`ecorex-2026-08-03-1049.sql.gz`. **NO re-ejecutar el conector hasta el fix de codigo** (volveria a
+vaciar los anidados).
+
+**Pendiente de codigo (prompt entregado)**: el `/run` debe poblar campos anidados: (A) que
+`ApiImportService` resuelva rutas con puntos e indices reusando el mismo resolver del agente
+(`RestJson.TryResolve`), y/o (B) que `/run` despache al **agente conectado** (RestExecutor ya lo
+hace) cuando el tenant tenga agente online -> ademas satisface "carga via agente Colmena". Agregar
+test con fixture de campos anidados.
+
+**Siguiente / pendiente**: fix de rutas anidadas en el run; luego re-ejecutar el conector y validar
+que puebla los anidados; opcional: dispatch via agente.

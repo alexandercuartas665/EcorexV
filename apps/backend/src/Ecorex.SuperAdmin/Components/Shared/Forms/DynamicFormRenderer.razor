@@ -1497,7 +1497,7 @@ else
                                 var total = col.Agg == FormAggregate.None ? null
                                     // C4: sobrecarga por columna, para respetar aggWhen y coincidir con el roll-up.
                                     : FormGridCalculator.Aggregate(col, rows, _values);
-                                <td>@FormatValue(col.Format, total?.ToString(System.Globalization.CultureInfo.InvariantCulture))</td>
+                                <td class="@(NumCls(col.Format).Trim())">@FormatValue(col.Format, total?.ToString(System.Globalization.CultureInfo.InvariantCulture))</td>
                             }
                         </tr>
                     </tfoot>

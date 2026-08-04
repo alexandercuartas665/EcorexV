@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Ecorex.Application.DataContainers;
 using Ecorex.Contracts.Agent;
+using Ecorex.Domain.Entities;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.RealTime;
 using Microsoft.AspNetCore.SignalR;
@@ -73,6 +74,7 @@ public sealed class AgentImportService : IAgentImportService
 
     private readonly IHubContext<AgenteHub> _hub;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IAgentActivityLog _activity;
     private readonly ILogger<AgentImportService> _log;
     private readonly TimeProvider _clock;
 
@@ -80,10 +82,11 @@ public sealed class AgentImportService : IAgentImportService
     private readonly ConcurrentDictionary<string, (AgentIngestOutcome Outcome, DateTimeOffset At)> _outcomes = new();
 
     public AgentImportService(IHubContext<AgenteHub> hub, IServiceScopeFactory scopeFactory,
-        ILogger<AgentImportService> log, TimeProvider? clock = null)
+        IAgentActivityLog activity, ILogger<AgentImportService> log, TimeProvider? clock = null)
     {
         _hub = hub;
         _scopeFactory = scopeFactory;
+        _activity = activity;
         _log = log;
         _clock = clock ?? TimeProvider.System;
     }
@@ -96,9 +99,12 @@ public sealed class AgentImportService : IAgentImportService
     {
         var corr = correlationId ?? NewCorrelationId();
         // Se guarda el clientId: es a QUE agente hay que mandarle el Cancel si esta peticion se vence
-        // o se aborta. Sin esto, el servidor sabria que cancelar pero no a quien decirselo.
+        // o se aborta. Sin esto, el servidor sabria que cancelar pero no a quien decirselo. StartedAt es
+        // el inicio del despacho: la bitacora de actividad del agente (ADR-0045) lo usa como inicio de la
+        // corrida para calcular la duracion cuando llega el desenlace (FetchResult/FetchFailed/timeout).
+        var startedAt = _clock.GetUtcNow();
         _pending[corr] = new Pending(clientId, tenantId, containerId, mapping, mode, keyColumnId,
-            _clock.GetUtcNow() + PendingTtl);
+            startedAt, startedAt + PendingTtl);
 
         var req = new FetchRequestMsg(
             CorrelationId: corr,
@@ -166,6 +172,8 @@ public sealed class AgentImportService : IAgentImportService
                 var runLog = scope.ServiceProvider.GetRequiredService<IImportRunLog>();
                 await runLog.CloseAsync(chunk.CorrelationId, true, outcome.Inserted, outcome.Updated,
                     outcome.Deleted, $"{outcome.Inserted} insertadas, {outcome.Deleted} reemplazadas");
+                await RecordActivityAsync(p, chunk.CorrelationId, true,
+                    $"ins {outcome.Inserted}, upd {outcome.Updated}, del {outcome.Deleted}");
             }
         }
         catch (Exception ex)
@@ -173,6 +181,7 @@ public sealed class AgentImportService : IAgentImportService
             Remember(chunk.CorrelationId, new AgentIngestOutcome(false, 0, 0, 0, ex.Message));
             _log.LogError(ex, "[INGESTA] corr={Corr} fallo la ingesta", chunk.CorrelationId);
             await CloseRunAsync(p.TenantId, chunk.CorrelationId, false, ex.Message);
+            await RecordActivityAsync(p, chunk.CorrelationId, false, ex.Message);
         }
     }
 
@@ -186,6 +195,10 @@ public sealed class AgentImportService : IAgentImportService
         if (tenantId is Guid t)
         {
             await CloseRunAsync(t, error.CorrelationId, false, $"{error.Code}: {error.Message}");
+        }
+        if (p is not null)
+        {
+            await RecordActivityAsync(p, error.CorrelationId, false, $"{error.Code}: {error.Message}");
         }
     }
 
@@ -212,6 +225,7 @@ public sealed class AgentImportService : IAgentImportService
             // consultando la BD y mandando chunks que ya nadie acepta. Best-effort.
             await PushCancelAsync(p.ClientId, corr, "timeout", ct);
             await CloseRunAsync(p.TenantId, corr, false, detail);
+            await RecordActivityAsync(p, corr, false, detail);
             if (ct.IsCancellationRequested) { return; }
         }
 
@@ -232,6 +246,7 @@ public sealed class AgentImportService : IAgentImportService
         var detail = $"Cancelado: {reason}";
         Remember(correlationId, new AgentIngestOutcome(false, 0, 0, 0, detail));
         await CloseRunAsync(p.TenantId, correlationId, false, detail);
+        await RecordActivityAsync(p, correlationId, false, detail);
         _log.LogInformation("[INGESTA] corr={Corr} cancelado ({Reason})", correlationId, reason);
         return true;
     }
@@ -253,6 +268,23 @@ public sealed class AgentImportService : IAgentImportService
 
     private void Remember(string correlationId, AgentIngestOutcome outcome) =>
         _outcomes[correlationId] = (outcome, _clock.GetUtcNow());
+
+    /// <summary>Escribe la bitacora transversal de actividad del agente (ADR-0045) para una orden de
+    /// INGESTA via agente: el camino de datos era INVISIBLE (se despachaba sin dejar rastro de si el
+    /// agente lo ejecuto, ni Ok ni Error), a diferencia del sub-agente Navegador que si registraba.
+    /// Best-effort: el writer traga sus propios errores, asi que esto nunca tumba el canal. Kind=Fetch.</summary>
+    private Task RecordActivityAsync(Pending p, string correlationId, bool ok, string? detail) =>
+        _activity.RecordAsync(new AgentActivityEntry(
+            TenantId: p.TenantId,
+            ClientId: p.ClientId,
+            ClientName: null,
+            Kind: AgentActivityKind.Fetch,
+            CorrelationId: correlationId,
+            Origin: $"ingesta contenedor {p.ContainerId}",
+            Ok: ok,
+            StartedAt: p.StartedAt,
+            FinishedAt: _clock.GetUtcNow(),
+            Detail: detail));
 
     /// <summary>Cierra la corrida en un scope propio: este servicio es singleton y la bitacora es
     /// scoped (necesita DbContext), y ademas hay que fijar el tenant a mano porque aqui no hay
@@ -278,7 +310,7 @@ public sealed class AgentImportService : IAgentImportService
     private sealed class Pending
     {
         public Pending(string clientId, Guid tenantId, Guid containerId, IReadOnlyDictionary<Guid, string> mapping,
-            ApiImportMode mode, Guid? keyColumnId, DateTimeOffset deadlineUtc)
+            ApiImportMode mode, Guid? keyColumnId, DateTimeOffset startedAt, DateTimeOffset deadlineUtc)
         {
             ClientId = clientId;
             TenantId = tenantId;
@@ -286,6 +318,7 @@ public sealed class AgentImportService : IAgentImportService
             Mapping = mapping;
             Mode = mode;
             KeyColumnId = keyColumnId;
+            StartedAt = startedAt;
             DeadlineUtc = deadlineUtc;
         }
 
@@ -296,6 +329,9 @@ public sealed class AgentImportService : IAgentImportService
         public IReadOnlyDictionary<Guid, string> Mapping { get; }
         public ApiImportMode Mode { get; }
         public Guid? KeyColumnId { get; }
+
+        /// <summary>Inicio del despacho, para calcular la duracion en la bitacora de actividad del agente.</summary>
+        public DateTimeOffset StartedAt { get; }
 
         /// <summary>Cuando se da por perdida. Sin esto la entrada -y sus filas- viven para siempre.</summary>
         public DateTimeOffset DeadlineUtc { get; }

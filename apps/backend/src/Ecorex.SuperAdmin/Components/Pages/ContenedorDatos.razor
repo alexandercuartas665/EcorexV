@@ -315,8 +315,19 @@ else
                                                 <div class="text-muted" style="font-size:11px;">
                                                     @ConnectorSummary(c)@(c.HasCredentials ? " · con credenciales" : "")@(c.IsActive ? "" : " · inactivo")
                                                 </div>
+                                                @if (_connSync.TryGetValue(c.Id, out var cs))
+                                                {
+                                                    <div class="dc-probe @(cs.Ok ? "on" : "off")" style="margin-top:4px;">@cs.Message</div>
+                                                }
                                             </div>
                                             <div style="display:flex;gap:4px;">
+                                                @if (_canEdit && c.Kind == ConnectorKind.RestApi && c.IsActive && ProcessForConnector(c.Id) is { } sp)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SyncConnectorNowAsync(c)" disabled="@_busy"
+                                                            title="@SyncTooltip(sp)">
+                                                        Sincronizar ahora
+                                                    </button>
+                                                }
                                                 @if (_canEdit && c.Kind == ConnectorKind.RestApi && c.IsActive)
                                                 {
                                                     <button class="btn btn-sm btn-primary" @onclick="() => OpenApiImport(c)" disabled="@_busy" title="Traer datos del API a una tabla">Importar</button>
@@ -1366,6 +1377,86 @@ else
             _runResult[processId] = (false, "El agente no respondio en 60s. Revisa su estado con 'Probar conexion'.");
         }
         catch (Exception ex) { _runResult[processId] = (false, ex.Message); }
+        finally { _busy = false; }
+    });
+
+    // ---- "Sincronizar ahora" (tarjeta del conector): corre la programacion ligada al conector ----
+
+    /// <summary>Estado de la ultima sincronizacion disparada desde la tarjeta de cada conector.</summary>
+    private readonly Dictionary<Guid, (bool Ok, string Message)> _connSync = new();
+
+    /// <summary>
+    /// La programacion (ImportProcess) ligada a un conector, si existe (prioriza la activa). Es lo que
+    /// aporta la POLITICA de reconciliacion (Mode/KeyColumn) que el conector por si solo no guarda; sin
+    /// ella no hay "sincronizar de un clic" seguro, asi que el boton solo aparece cuando esto no es null.
+    /// </summary>
+    private ImportProcessDto? ProcessForConnector(Guid connectorId)
+        => _processes.FirstOrDefault(p => p.ConnectorId == connectorId && p.IsActive)
+           ?? _processes.FirstOrDefault(p => p.ConnectorId == connectorId);
+
+    /// <summary>Explica en el tooltip QUE hara el boton: como reconcilia y quien lo ejecuta.</summary>
+    private static string SyncTooltip(ImportProcessDto p)
+    {
+        var modo = p.Mode switch
+        {
+            ApiImportMode.Upsert => $"reconcilia por '{p.KeyColumn}' (sin duplicar)",
+            ApiImportMode.Replace => "reemplaza la tabla",
+            _ => "agrega los registros"
+        };
+        var quien = p.ClientName is not null ? $"via agente {p.ClientName}" : "desde el servidor";
+        return $"Trae los datos del API y {modo}, {quien}. No abre el asistente.";
+    }
+
+    /// <summary>
+    /// "Sincronizar ahora" desde la tarjeta del conector: ejecuta AHORA la programacion ligada al
+    /// conector. Reusa el mismo camino que "Actualizar datos" (<see cref="IProcessRunner.RunNowAsync"/>):
+    /// aplica Mode/KeyColumn PERSISTIDOS y elige agente o server-direct segun la programacion. El
+    /// server-direct devuelve el desenlace en el acto; via agente "enviado" no es "cargado", asi que se
+    /// espera el acuse real (con un tope que es solo de la pantalla).
+    /// </summary>
+    private Task SyncConnectorNowAsync(DataConnectorDto c) => GuardAsync(async () =>
+    {
+        var proc = ProcessForConnector(c.Id);
+        if (proc is null)
+        {
+            _connSync[c.Id] = (false, "Este conector no tiene una programacion. Creala en 'Procesos de importacion' para sincronizar de un clic.");
+            return;
+        }
+
+        _busy = true;
+        _connSync[c.Id] = (true, "Sincronizando...");
+        try
+        {
+            var r = await Runner.RunNowAsync(proc.Id);
+
+            // Via agente (la programacion tiene cliente): se espera el acuse real, igual que RunProcessAsync.
+            if (r.Ok && r.CorrelationId is not null && proc.ClientName is not null)
+            {
+                var limite = DateTime.UtcNow.AddSeconds(60);
+                while (DateTime.UtcNow < limite)
+                {
+                    await Task.Delay(700);
+                    if (Imports.TryGetOutcome(r.CorrelationId, out var o) && o is not null)
+                    {
+                        _connSync[c.Id] = o.Ok
+                            ? (true, $"Listo: {o.Inserted} nueva(s), {o.Updated} actualizada(s)" + (o.Deleted > 0 ? $", {o.Deleted} borrada(s)" : "") + ".")
+                            : (false, $"El agente no pudo: {o.Error}");
+                        if (o.Ok && _mId is Guid mid) { await LoadDetailCoreAsync(mid); }
+                        await LoadRunsAsync();
+                        return;
+                    }
+                    StateHasChanged();
+                }
+                _connSync[c.Id] = (false, "El agente no respondio en 60s. Revisa su estado con 'Probar conexion'.");
+                return;
+            }
+
+            // Server-direct (o error de despacho): RunNowAsync ya trae el desenlace final en el mensaje.
+            _connSync[c.Id] = (r.Ok, r.Message);
+            if (r.Ok && _mId is Guid mid2) { await LoadDetailCoreAsync(mid2); }
+            await LoadRunsAsync();
+        }
+        catch (Exception ex) { _connSync[c.Id] = (false, ex.Message); }
         finally { _busy = false; }
     });
 

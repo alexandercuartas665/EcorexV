@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-03 - "Sincronizar ahora" en la tarjeta del conector (Contenedor de Datos)
+
+**Que:** Boton "Sincronizar ahora" en la tarjeta de cada conector REST del Contenedor de Datos
+(`ContenedorDatos.razor`), junto a "Importar"/"Editar". Un clic dispara la sincronizacion sin abrir el
+asistente (elegir tabla/mapeo/modo cada vez).
+
+- **Reusa el camino existente**, no inventa uno: llama `IProcessRunner.RunNowAsync(processId)` de la
+  programacion (`ImportProcess`) ligada al conector. Ahi vive la POLITICA de reconciliacion (Mode +
+  KeyColumn) que el conector por si solo NO guarda; por eso el boton solo aparece cuando el conector
+  tiene una programacion (`ProcessForConnector`). Aplica Mode/KeyColumn PERSISTIDOS (Upsert reconcilia,
+  no duplica) y elige agente o server-direct segun la programacion (igual que "Actualizar datos").
+- **Acuse honesto:** server-direct devuelve el desenlace en el acto; via agente "enviado" no es
+  "cargado", asi que espera el acuse real (`Imports.TryGetOutcome`, tope de 60s solo de pantalla).
+  Al terminar refresca el detalle y la bitacora de corridas. Estado por conector en `_connSync`
+  (clase `dc-probe on/off`), tooltip que explica como reconcilia y quien ejecuta (`SyncTooltip`).
+- **Sin migracion** (solo UI + reuso de servicios). Build SuperAdmin verde. Version v0.5.1.
+
+**Siguiente:** validar en prod con el conector "Siigo clientes" de AGROMETALICAS (tiene programacion
+via agente, Upsert). Deploy pendiente de OK del usuario + `./backup.sh`.
+
+---
+
 ## 2026-08-03 - Plantillas de reportes reutilizables entre tenants (ADR-0062, modelo hibrido)
 
 **Que:** Implementado el doc 06 del Motor de Reportes (ADR-0062) sobre el tronco de prod. Modelo

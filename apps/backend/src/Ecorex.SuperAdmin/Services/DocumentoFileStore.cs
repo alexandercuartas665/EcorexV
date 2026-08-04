@@ -1,4 +1,8 @@
+using Azure.Storage.Blobs;
+using Ecorex.Application.Common;
 using Ecorex.Application.Documentos;
+using Ecorex.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.SuperAdmin.Services;
 
@@ -21,26 +25,82 @@ public sealed class DocumentoFileStore : IDocumentoFileStore
     private const string CarpetaRaiz = "documentos";
 
     private readonly IWebHostEnvironment _env;
+    private readonly EcorexDbContext _db;
+    private readonly ISecretProtector _protector;
 
-    public DocumentoFileStore(IWebHostEnvironment env) => _env = env;
+    public DocumentoFileStore(IWebHostEnvironment env, EcorexDbContext db, ISecretProtector protector)
+    {
+        _env = env;
+        _db = db;
+        _protector = protector;
+    }
+
+    /// <summary>
+    /// Contenedor de Azure Blob si el almacenamiento global esta habilitado y valido; null = usar disco.
+    /// La URL publica sigue el MISMO esquema /uploads/documentos/... para no romper los enlaces ya
+    /// guardados; el blob se guarda en la ruta documentos/{tenant}/{archivo} dentro del contenedor.
+    /// </summary>
+    private async Task<BlobContainerClient?> GetBlobContainerAsync(CancellationToken ct)
+    {
+        var cfg = await _db.StorageConfigs.AsNoTracking().FirstOrDefaultAsync(ct);
+        if (cfg is null || !cfg.IsEnabled
+            || string.IsNullOrWhiteSpace(cfg.ConnectionStringEncrypted)
+            || string.IsNullOrWhiteSpace(cfg.ContainerName))
+        {
+            return null;
+        }
+        string conn;
+        try { conn = _protector.Unprotect(cfg.ConnectionStringEncrypted); }
+        catch { return null; }
+        return new BlobContainerClient(conn, cfg.ContainerName);
+    }
+
+    /// <summary>Ruta del blob a partir de la URL publica (/uploads/documentos/{t}/{f} -> documentos/{t}/{f}).</summary>
+    private static string BlobPath(string urlPublica)
+        => urlPublica.TrimStart('/').StartsWith("uploads/", StringComparison.OrdinalIgnoreCase)
+            ? urlPublica.TrimStart('/')["uploads/".Length..]
+            : urlPublica.TrimStart('/');
 
     public async Task<string> SaveAsync(
         Guid tenantId, byte[] contenido, string extension, CancellationToken ct = default)
     {
         // La extension llega YA validada contra la lista blanca de DocumentUploadGuard. Se vuelve a
-        // sanear aqui por si otro consumidor llamara a este almacen sin pasar por el guard: este
-        // metodo escribe en disco y no puede confiar en que alguien mas ya haya mirado.
+        // sanear aqui por si otro consumidor llamara a este almacen sin pasar por el guard.
         var ext = Sanear(extension);
+        var nombre = DocumentUploadGuard.BuildStoredFileName("doc", ext);
+        var urlPublica = $"/uploads/{CarpetaRaiz}/{tenantId:N}/{nombre}";
+
+        var container = await GetBlobContainerAsync(ct);
+        if (container is not null)
+        {
+            // Aislamiento por prefijo de carpeta {tenant} dentro del contenedor (igual que en disco).
+            await container.CreateIfNotExistsAsync(cancellationToken: ct);
+            var blob = container.GetBlobClient($"{CarpetaRaiz}/{tenantId:N}/{nombre}");
+            await blob.UploadAsync(BinaryData.FromBytes(contenido), overwrite: true, ct);
+            return urlPublica;
+        }
+
         var dir = Path.Combine(_env.WebRootPath, "uploads", CarpetaRaiz, tenantId.ToString("N"));
         Directory.CreateDirectory(dir);
-
-        var nombre = DocumentUploadGuard.BuildStoredFileName("doc", ext);
         await File.WriteAllBytesAsync(Path.Combine(dir, nombre), contenido, ct);
-        return $"/uploads/{CarpetaRaiz}/{tenantId:N}/{nombre}";
+        return urlPublica;
     }
 
     public async Task<byte[]?> ReadAsync(string urlPublica, CancellationToken ct = default)
     {
+        // Blob primero (si esta habilitado y el archivo existe alli); si no, disco. Asi los archivos
+        // viejos (en disco) siguen leyendose aunque el blob ya este activo.
+        var container = await GetBlobContainerAsync(ct);
+        if (container is not null)
+        {
+            var blob = container.GetBlobClient(BlobPath(urlPublica));
+            if (await blob.ExistsAsync(ct))
+            {
+                var resp = await blob.DownloadContentAsync(ct);
+                return resp.Value.Content.ToArray();
+            }
+        }
+
         var ruta = ResolverRuta(urlPublica);
         if (ruta is null || !File.Exists(ruta)) { return null; }
         return await File.ReadAllBytesAsync(ruta, ct);

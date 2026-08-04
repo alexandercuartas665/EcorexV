@@ -206,6 +206,10 @@ builder.Services.AddScoped<Ecorex.SuperAdmin.Services.CircuitFormGate>();
 // la unica capa que conoce WebRootPath; el servicio documental solo ve la interfaz.
 builder.Services.AddScoped<Ecorex.Application.Documentos.IDocumentoFileStore,
     Ecorex.SuperAdmin.Services.DocumentoFileStore>();
+// Config global de almacenamiento (Azure Blob), editable desde el Super Admin. Usa el SDK de Azure,
+// por eso su implementacion vive en presentacion.
+builder.Services.AddScoped<Ecorex.Application.Admin.IStorageConfigService,
+    Ecorex.SuperAdmin.Services.StorageConfigService>();
 // Sembrador one-shot del agente TravelFans (ver /admin/seed-travelfans).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.TravelFansAgentSeeder>();
 // Onboarding one-shot desde db3dev (crea tenants cliente + usuarios). Se dispara con

@@ -1,0 +1,118 @@
+@page "/servidor-almacenamiento"
+@attribute [Authorize(Policy = "PlatformOperator")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Admin
+@inject Ecorex.Application.Admin.IStorageConfigService StorageSvc
+
+<PageTitle>Servidor de almacenamiento - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Servidor de <span>almacenamiento</span> (Azure Blob)</h1>
+        <p class="page-sub" style="margin-bottom:0;">Aqui se configura el almacenamiento global de archivos. Cuando esta habilitado y valido, los documentos se guardan en Azure Blob (contenedor privado, aislado por tenant); si no, en disco local. La cadena de conexion se guarda cifrada y nunca se muestra.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div class="card-soft" style="max-width:640px;padding:22px;">
+        <div class="auth-field">
+            <label>Proveedor</label>
+            <input class="form-control" value="AzureBlob" readonly />
+        </div>
+
+        <div class="auth-field" style="margin-top:14px;">
+            <label>Cadena de conexion @(_hasConnectionString ? "(guardada; deja vacio para conservarla)" : "")</label>
+            <input class="form-control" type="password" @bind="_connectionString" placeholder="@(_hasConnectionString ? "(sin cambios)" : "DefaultEndpointsProtocol=https;AccountName=...")" />
+        </div>
+
+        <div class="auth-field" style="margin-top:14px;">
+            <label>Nombre del contenedor</label>
+            <input class="form-control" @bind="_containerName" placeholder="ecorex-uploads" />
+        </div>
+
+        <div class="form-check form-switch" style="margin-top:16px;">
+            <input class="form-check-input" type="checkbox" id="enabled" @bind="_enabled" />
+            <label class="form-check-label" for="enabled">Habilitado (guardar documentos en Azure Blob)</label>
+        </div>
+
+        @if (_lastValidatedAt is not null)
+        {
+            <p class="text-success" style="font-size:.85rem;margin-top:12px;margin-bottom:0;">Ultima prueba OK: @_lastValidatedAt.Value.ToLocalTime().ToString("g")</p>
+        }
+
+        <div style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Guardando..." : "Guardar")</button>
+            <button class="btn btn-outline-secondary" @onclick="TestAsync" disabled="@_testing">@(_testing ? "Probando..." : "Probar conexion")</button>
+            @if (_savedOk) { <span class="text-success" style="font-size:.9rem;">Guardado.</span> }
+            @if (!string.IsNullOrWhiteSpace(_error)) { <span class="text-danger" style="font-size:.9rem;">@_error</span> }
+            @if (!string.IsNullOrWhiteSpace(_testResult)) { <span style="font-size:.9rem;" class="@(_testOk ? "text-success" : "text-danger")">@_testResult</span> }
+        </div>
+        <p class="page-sub" style="font-size:.82rem;margin-top:12px;margin-bottom:0;">Puedes probar la conexion con la cadena escrita antes de guardar; si dejas el campo vacio se usa la cadena ya guardada.</p>
+    </div>
+}
+
+@code {
+    private bool _loading = true, _saving, _savedOk, _testing, _testOk;
+    private string? _error, _testResult;
+
+    private string? _connectionString, _containerName;
+    private bool _enabled, _hasConnectionString;
+    private DateTimeOffset? _lastValidatedAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var c = await StorageSvc.GetAsync();
+        if (c is not null)
+        {
+            _containerName = c.ContainerName;
+            _enabled = c.IsEnabled;
+            _hasConnectionString = c.HasConnectionString;
+            _lastValidatedAt = c.LastValidatedAt;
+        }
+        _loading = false;
+    }
+
+    private SaveStorageConfigRequest BuildRequest() =>
+        new("AzureBlob", _connectionString, _containerName, _enabled);
+
+    private async Task SaveAsync()
+    {
+        _saving = true; _savedOk = false; _error = null; _testResult = null;
+        try
+        {
+            var dto = await StorageSvc.SaveAsync(BuildRequest());
+            _connectionString = null;
+            _hasConnectionString = dto.HasConnectionString;
+            _containerName = dto.ContainerName;
+            _enabled = dto.IsEnabled;
+            _lastValidatedAt = dto.LastValidatedAt;
+            _savedOk = true;
+        }
+        catch { _error = "No se pudo guardar."; }
+        finally { _saving = false; }
+    }
+
+    private async Task TestAsync()
+    {
+        _testing = true; _testResult = null; _error = null; _savedOk = false;
+        try
+        {
+            var err = await StorageSvc.TestConnectionAsync(BuildRequest());
+            _testOk = err is null;
+            _testResult = err is null ? "Conexion OK, contenedor listo." : err;
+        }
+        catch { _testOk = false; _testResult = "No se pudo probar la conexion."; }
+        finally { _testing = false; }
+    }
+}

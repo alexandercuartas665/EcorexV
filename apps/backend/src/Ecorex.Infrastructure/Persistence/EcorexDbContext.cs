@@ -41,6 +41,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<PlatformBranding> PlatformBrandings => Set<PlatformBranding>();
     public DbSet<EmailConfig> EmailConfigs => Set<EmailConfig>();
     public DbSet<TenantEmailConfig> TenantEmailConfigs => Set<TenantEmailConfig>();
+    public DbSet<StorageConfig> StorageConfigs => Set<StorageConfig>();
     public DbSet<GoogleAuthConfig> GoogleAuthConfigs => Set<GoogleAuthConfig>();
     public DbSet<TenantApiConfig> TenantApiConfigs => Set<TenantApiConfig>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
@@ -526,6 +527,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.SmtpUser).HasMaxLength(200);
             b.Property(x => x.FromEmail).HasMaxLength(200);
             b.Property(x => x.FromName).HasMaxLength(160);
+        });
+
+        // Almacenamiento global (Azure Blob). Singleton de plataforma; la cadena va cifrada.
+        modelBuilder.Entity<StorageConfig>(b =>
+        {
+            b.Property(x => x.Provider).HasMaxLength(40);
+            b.Property(x => x.ContainerName).HasMaxLength(120);
         });
 
         // Servidor SMTP propio del tenant (uno por tenant): el filtro global lo acota; el indice

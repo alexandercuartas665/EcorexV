@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-04 - Bloque B (parte 2): almacenamiento Azure Blob (global, Super Admin)
+
+**Que:** Los archivos (documentos/adjuntos) pueden guardarse en **Azure Blob Storage** en vez del disco
+local, configurable y probable desde el Super Admin. Contenedor PRIVADO; las descargas siguen pasando
+por el servidor (proxy via `IDocumentoFileStore.ReadAsync`), asi que no hace falta exponer el blob.
+
+- **Entidad global `StorageConfig`** (singleton plataforma): Provider (AzureBlob), cadena de conexion
+  CIFRADA (ISecretProtector), ContainerName, IsEnabled, LastValidatedAt. **Migracion DUAL
+  `AddStorageConfig`** (PG + SQL Server), probada en local.
+- **`IStorageConfigService`** (interfaz en Application/Admin; impl en SuperAdmin porque usa el SDK):
+  Get / Save (re-cifra la cadena solo si llega una nueva) / **TestConnection** (crea/verifica el
+  contenedor con el SDK -> valida credenciales+permisos; marca LastValidatedAt).
+- **`DocumentoFileStore` ahora es blob-aware**: si `StorageConfig` esta habilitado, sube al blob
+  (`documentos/{tenant}/{archivo}`) y devuelve el MISMO esquema de URL `/uploads/documentos/...`; al
+  leer intenta blob primero y cae a disco (los archivos viejos en disco siguen funcionando). Sin
+  config, disco como siempre.
+- Paquete `Azure.Storage.Blobs` 12.29.1 en Ecorex.SuperAdmin. UI: pagina `/servidor-almacenamiento`
+  (PlatformOperator) con formulario + "probar conexion".
+- La cadena de conexion NO va al repo: se pega en la UI del Super Admin y se guarda cifrada.
+- **NO desplegado aun:** va en el deploy unificado (reportes + Asesores + SMTP por tenant + storage).
+
+---
+
 ## 2026-08-04 - Bloque B (parte 1): correo SMTP propio por tenant (Mi cuenta)
 
 **Que:** Cada tenant puede configurar su PROPIO servidor SMTP para enviar los correos de atencion a

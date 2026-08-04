@@ -201,6 +201,10 @@
                             }
                         </div>
                     </div>
+                    @if (!string.IsNullOrWhiteSpace(_gcError))
+                    {
+                        <div class="gc-error-note">@_gcError</div>
+                    }
                     <div class="gc-tbl">
                         <div class="gc-tbl-head gc-prosp-grid">
                             <div>CONTACTO</div><div>EMPRESA</div><div>FUENTE</div><div>METRICA</div><div></div>
@@ -241,9 +245,17 @@
                                            prospecto (crea/vincula el Tercero) y abre su ficha (mismo resultado). *@
                                         @if (rr.TerceroId is Guid tid)
                                         {
-                                            <button class="gc-btn-mini" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">
+                                            <button class="gc-act edit" title="Editar tercero" @onclick="() => OpenClienteAsync(tid)" disabled="@_busy">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                                Editar
+                                            </button>
+                                            @if (rr.EsPersona)
+                                            {
+                                                <button class="gc-act assign" title="Asignar a una empresa" @onclick="() => OpenAssignGestor(tid)" disabled="@_busy">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M12 12h.01" /><path d="M9 21v-4h6v4" /></svg>
+                                                </button>
+                                            }
+                                            <button class="gc-act del" title="Eliminar" @onclick="() => EliminarTerceroAsync(tid)" disabled="@_busy">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                                             </button>
                                         }
                                         else if (rr.Promovido)
@@ -801,6 +813,49 @@
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
 <TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" />
 
+@* ===================== MODAL ASIGNAR A EMPRESA ===================== *@
+@* Mismo patron que el Directorio General: una persona pasa a colgar dentro de una empresa. *@
+@if (_assignOpen && _assignTerceroId is Guid apid)
+{
+    <div class="gc-overlay" @onclick="CloseAssignGestor">
+        <div class="gc-modal sm" @onclick:stopPropagation="true">
+            <div class="gc-m-head">
+                <div>
+                    <div class="gc-m-kicker">ASIGNAR A EMPRESA</div>
+                    <div class="gc-m-title">@(_assignNombre ?? "Contacto")</div>
+                </div>
+                <button class="gc-close" @onclick="CloseAssignGestor">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="gc-m-body">
+                <div class="gc-as-sub">Dejara de aparecer como cliente individual y pasara dentro de la empresa.</div>
+                @{
+                    var empresas = _contactos.Where(x => x.EsEmpresa).OrderBy(x => x.Nombre).ToList();
+                }
+                @if (empresas.Count == 0)
+                {
+                    <div class="gc-empty-note" style="padding:18px 4px">No hay empresas registradas. Crea una empresa primero.</div>
+                }
+                <div class="gc-as-list">
+                    @foreach (var e in empresas)
+                    {
+                        var eid = e.Id;
+                        <button class="gc-as-item" @onclick="() => AssignGestorAsync(eid)" disabled="@_busy">
+                            <span class="gc-av" style="background:@AvatarColor(e.Nombre)">@Initials(e.Nombre)</span>
+                            <span style="flex:1;min-width:0;text-align:left">
+                                <span class="gc-as-name">@e.Nombre</span>
+                                <span class="gc-as-isub">@(string.IsNullOrWhiteSpace(e.Sub) ? e.Identificacion : e.Sub)</span>
+                            </span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* Disenador de acciones por filtro (ADR-0056, Fase 1): se abre desde la opcion "Acciones" del
    menu "..." de cada filtro guardado. Guarda la secuencia; la EJECUCION es Fase 2. *@
 <ContactWorkflowDesigner @ref="_workflowDesigner" />
@@ -903,7 +958,7 @@
     private sealed record ContactoRow(
         Guid? TerceroId, Guid? ProspectoId, string Nombre, string Sub,
         string Empresa, string Ciudad, string Fuente, string Metrica,
-        string? Badge, bool Promovido);
+        string? Badge, bool Promovido, bool EsPersona);
 
     private List<ContactoRow> ContactosFiltrados
     {
@@ -916,7 +971,7 @@
                     null, p.Id, p.NombreCompleto,
                     string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
                     p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
-                    p.Badge, p.Promovido)));
+                    p.Badge, p.Promovido, true)));
             }
             if (_prospFuente is null || string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {
@@ -925,7 +980,7 @@
                     t.EsEmpresa ? "Empresa" : "Persona",
                     t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
                     FuenteDirectorio, t.Identificacion,
-                    null, false)));
+                    null, false, !t.EsEmpresa)));
             }
             // Filtro rapido: en memoria sobre lo ya cargado (nombre / empresa / ciudad / identificacion).
             var q = _contactSearch?.Trim();
@@ -1295,6 +1350,59 @@
     private async Task OpenClienteAsync(Guid terceroId)
     {
         if (_terceroModal is not null) { await _terceroModal.OpenEditAsync(terceroId); }
+    }
+
+    // ================= ACCIONES DE FILA (asignar / eliminar) =================
+    // Mismo comportamiento que el Directorio General: un contacto ES un cliente (Tercero) y
+    // ambos modulos operan sobre los MISMOS registros. Soft-delete via el servicio.
+    private bool _assignOpen;
+    private Guid? _assignTerceroId;
+    private string? _assignNombre;
+    private string? _gcError;
+
+    private void OpenAssignGestor(Guid terceroId)
+    {
+        _gcError = null;
+        _assignTerceroId = terceroId;
+        _assignNombre = _contactos.FirstOrDefault(c => c.Id == terceroId)?.Nombre;
+        _assignOpen = true;
+    }
+
+    private void CloseAssignGestor()
+    {
+        _assignOpen = false;
+        _assignTerceroId = null;
+        _assignNombre = null;
+    }
+
+    private async Task AssignGestorAsync(Guid empresaId)
+    {
+        if (_assignTerceroId is not Guid terceroId) { return; }
+        _busy = true;
+        _gcError = null;
+        var res = await TerceroSvc.AssignToEmpresaAsync(terceroId, empresaId);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _gcError = res.Error;
+            return;
+        }
+        CloseAssignGestor();
+        await ReloadAllAsync();
+    }
+
+    private async Task EliminarTerceroAsync(Guid terceroId)
+    {
+        _busy = true;
+        _gcError = null;
+        var res = await TerceroSvc.DeleteAsync(terceroId);
+        _busy = false;
+        if (!res.IsOk)
+        {
+            _gcError = res.Error;
+            return;
+        }
+        await ReloadAllAsync();
     }
 
     // ================= HELPERS =================

@@ -97,12 +97,11 @@ else
                 <div class="field">
                     <label class="form-label">Formulario asociado</label>
                     <div style="display:flex;gap:8px;">
-                        <select class="form-control" value="@(_f.FormDefinitionId?.ToString() ?? "")"
-                                @onchange="@(e => _f.FormDefinitionId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                        <select class="form-control" @bind="FormIdStr">
                             <option value="">-- Sin formulario --</option>
                             @foreach (var form in _forms)
                             {
-                                <option value="@form.Id" selected="@(_f.FormDefinitionId == form.Id)">@form.Code · @form.Title</option>
+                                <option value="@form.Id">@form.Code · @form.Title</option>
                             }
                         </select>
                         <button class="btn btn-outline-secondary" style="white-space:nowrap;" @onclick="OpenPreview" disabled="@(_f.FormDefinitionId is null)">Previsualizar</button>
@@ -112,12 +111,11 @@ else
                     @* Tarea de proceso (000270): al registrar la gestion se da de alta un TaskItem
                        con esta subcategoria, que ya trae su flujo, tablero y formulario. *@
                     <label class="form-label">Tarea de proceso que genera</label>
-                    <select class="form-control" value="@(_f.SubcategoriaId?.ToString() ?? "")"
-                            @onchange="@(e => _f.SubcategoriaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)">
+                    <select class="form-control" @bind="SubcatIdStr">
                         <option value="">-- No genera tarea --</option>
                         @foreach (var t in _tareas)
                         {
-                            <option value="@t.SubcategoriaId" selected="@(_f.SubcategoriaId == t.SubcategoriaId)">
+                            <option value="@t.SubcategoriaId">
                                 @t.Categoria &#183; @t.Nombre@(t.TieneFlujo ? " (con flujo)" : "")
                             </option>
                         }
@@ -176,6 +174,22 @@ else
     private Form _f = new();
 
     private Guid? _previewFormId;
+
+    // Selects robustos: @bind sobre una propiedad string (patron canonico de Blazor), en vez de
+    // value=+@onchange+selected=, que es el anti-patron que hacia que el cambio de formulario/tarea
+    // a veces "no lo tomara" al guardar (el diff de selected= podia pisar el value= en el re-render).
+    // El de "Modo de seguimiento" ya usaba @bind y por eso nunca fallo.
+    private string FormIdStr
+    {
+        get => _f.FormDefinitionId?.ToString() ?? "";
+        set => _f.FormDefinitionId = Guid.TryParse(value, out var g) ? g : (Guid?)null;
+    }
+
+    private string SubcatIdStr
+    {
+        get => _f.SubcategoriaId?.ToString() ?? "";
+        set => _f.SubcategoriaId = Guid.TryParse(value, out var g) ? g : (Guid?)null;
+    }
 
     protected override async Task OnInitializedAsync()
     {

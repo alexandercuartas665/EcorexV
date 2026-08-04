@@ -25,8 +25,15 @@ public class Tercero : TenantEntity
 
     public TerceroEstado Estado { get; set; } = TerceroEstado.Activo;
 
-    /// <summary>Vendedor asignado (texto libre; tambien vive en la ficha comercial).</summary>
+    /// <summary>Vendedor asignado (texto libre LEGADO). Se conserva para no perder los valores
+    /// escritos antes de existir el catalogo de asesores; el valor "oficial" ahora es
+    /// <see cref="VendedorAsesorId"/>. Se muestra como respaldo cuando no hay asesor vinculado.</summary>
     public string? Vendedor { get; set; }
+
+    /// <summary>Asesor (vendedor) del catalogo asignado a este tercero. Null = sin asesor asignado.
+    /// FK Restrict: un asesor con terceros no se puede borrar (ademas se valida en el servicio).</summary>
+    public Guid? VendedorAsesorId { get; set; }
+    public Asesor? VendedorAsesor { get; set; }
 
     public string? Ciudad { get; set; }
 

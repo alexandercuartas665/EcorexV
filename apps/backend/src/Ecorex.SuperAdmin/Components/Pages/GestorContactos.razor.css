@@ -96,6 +96,30 @@
 .gc-icon-btn:hover { background: var(--surface-3); color: var(--ink); }
 .gc-icon-btn.del:hover { background: var(--t-rose-bg); color: var(--danger); border-color: var(--danger); }
 
+/* Acciones de fila de la parrilla de contactos: replica el patron del Directorio General
+   (editar / asignar a empresa / eliminar) como botones-icono compactos. */
+.gc-cell.acts { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.gc-act { width: 28px; height: 28px; flex: none; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
+.gc-act svg { width: 14px; height: 14px; }
+.gc-act:disabled { opacity: .5; cursor: default; }
+.gc-act.edit:hover { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+.gc-act.assign { color: var(--t-blue); }
+.gc-act.assign:hover { background: var(--t-blue-bg); border-color: var(--t-blue); }
+.gc-act.del { border: none; background: none; color: var(--ink-3); }
+.gc-act.del:hover { background: var(--t-rose-bg); color: var(--danger); }
+
+/* Banner de error de la parrilla (asignar / eliminar). */
+.gc-error-note { margin: 0 0 10px; padding: 10px 14px; border: 1px solid var(--danger); background: var(--t-rose-bg); color: var(--danger); border-radius: 10px; font-size: 12.5px; font-weight: 600; }
+
+/* Modal asignar a empresa: lista de empresas. */
+.gc-as-sub { font-size: 12px; color: var(--ink-3); margin-bottom: 12px; }
+.gc-as-list { display: flex; flex-direction: column; gap: 7px; max-height: 52vh; overflow: auto; }
+.gc-as-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 12px; cursor: pointer; text-align: left; font: inherit; }
+.gc-as-item:hover { border-color: var(--brand); background: var(--surface-3); }
+.gc-as-item:disabled { opacity: .5; cursor: default; }
+.gc-as-name { display: block; font-size: 13.5px; font-weight: 700; color: var(--ink); }
+.gc-as-isub { display: block; font-size: 11.5px; color: var(--ink-3); }
+
 .gc-toggle { display: flex; gap: 3px; padding: 3px; background: var(--surface-3); border-radius: 9px; }
 .gc-toggle button { height: 28px; padding: 0 12px; border: none; background: none; border-radius: 7px; font: inherit; font-size: 11.5px; font-weight: 700; color: var(--ink-3); cursor: pointer; }
 .gc-toggle button.active { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }

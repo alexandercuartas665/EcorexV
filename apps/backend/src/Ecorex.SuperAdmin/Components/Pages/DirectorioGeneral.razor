@@ -193,7 +193,7 @@
                             </div>
                         </div>
                         <div class="dg-c mono">@r.Identificacion</div>
-                        <div class="dg-c">@(string.IsNullOrWhiteSpace(r.Vendedor) ? "-" : r.Vendedor)</div>
+                        <div class="dg-c">@(!string.IsNullOrWhiteSpace(r.VendedorAsesorNombre) ? r.VendedorAsesorNombre : (string.IsNullOrWhiteSpace(r.Vendedor) ? "-" : r.Vendedor))</div>
                         <div class="dg-c" style="padding:11px 12px"><span class="dg-estado" style="background:var(@est.Bg);color:var(@est.Color)">@est.Label</span></div>
                         <div class="dg-c acts" style="padding:11px 12px">
                             @if (_canEdit)

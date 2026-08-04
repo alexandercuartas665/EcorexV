@@ -24,6 +24,7 @@
 @inject ICurrentPermissions Perms
 @inject Ecorex.Application.Tenancy.ITaskItemService TasksSvc
 @inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadSvc
+@inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -226,7 +227,17 @@
                                     }
                                     <div style="min-width:0">
                                         <label class="dg-flabel">Vendedor asignado</label>
-                                        <input class="dg-input" value="@_mVendedor" @oninput="e => _mVendedor = e.Value?.ToString() ?? string.Empty" />
+                                        <select class="dg-input" @bind="MVendedorAsesorIdStr">
+                                            <option value="">-- Sin asesor --</option>
+                                            @foreach (var a in _asesorOptions)
+                                            {
+                                                <option value="@a.Id">@a.Nombre</option>
+                                            }
+                                        </select>
+                                        @if (_mVendedorAsesorId is null && !string.IsNullOrWhiteSpace(_mVendedor))
+                                        {
+                                            <div style="font-size:11px;color:var(--ink-3);margin-top:3px;">Texto anterior: @_mVendedor</div>
+                                        }
                                     </div>
                                     <div style="min-width:0">
                                         <label class="dg-flabel">Estado</label>
@@ -788,6 +799,14 @@
     private string _mIdValor = "";
     private string _mNombre = "";
     private string _mVendedor = "";
+    // Vendedor asignado desde el catalogo de asesores (000074). _mVendedor queda como texto legado.
+    private Guid? _mVendedorAsesorId;
+    private List<Ecorex.Application.Asesores.AsesorOptionDto> _asesorOptions = new();
+    private string MVendedorAsesorIdStr
+    {
+        get => _mVendedorAsesorId?.ToString() ?? "";
+        set => _mVendedorAsesorId = Guid.TryParse(value, out var g) ? g : (Guid?)null;
+    }
     private string _mCiudad = "";
     // Autocomplete de ciudad (catalogo global): _ciudadQuery es el texto que se ve/filtra; el valor
     // confirmado vive en _mCiudad (solo se escribe al elegir una ciudad real de la lista).
@@ -846,6 +865,9 @@
             _permsLoaded = true;
         }
         await FieldSvc.EnsureDefaultsAsync();
+        // Asesores activos para el selector "Vendedor asignado". Se recarga en cada apertura para
+        // reflejar altas recientes del catalogo; es una lista corta por tenant.
+        _asesorOptions = (await AsesorSvc.ListOptionsAsync()).ToList();
     }
 
     private async Task LoadFichaFieldsAsync()
@@ -937,6 +959,7 @@
         _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
         _mIdValor = "";
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _mVendedorAsesorId = null;
         _ciudadQuery = "";
         _ciudadOpen = false;
         _ciudadMatches = Array.Empty<CiudadDto>();
@@ -990,6 +1013,7 @@
         _mIdValor = d.IdValor ?? "";
         _mNombre = d.Nombre;
         _mVendedor = d.Vendedor ?? "";
+        _mVendedorAsesorId = d.VendedorAsesorId;
         _mCiudad = d.Ciudad ?? "";
         _ciudadQuery = _mCiudad;
         _ciudadOpen = false;
@@ -1319,6 +1343,7 @@
             Perfiles: _mPerfiles,
             Estado: _mEstado,
             Vendedor: Blank(_mVendedor),
+            VendedorAsesorId: _mVendedorAsesorId,
             Ciudad: Blank(_mCiudad),
             IdTipo: _mIdTipo,
             IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),

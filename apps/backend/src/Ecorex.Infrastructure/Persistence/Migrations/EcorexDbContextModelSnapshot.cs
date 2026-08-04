@@ -1400,6 +1400,74 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("ai_usage_logs", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Asesor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Documento")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("documento");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("email");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("nombre");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("telefono");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asesores");
+
+                    b.HasIndex("TenantUserId")
+                        .HasDatabaseName("ix_asesores_tenant_user_id");
+
+                    b.HasIndex("TenantId", "IsActive")
+                        .HasDatabaseName("ix_asesores_tenant_id_is_active");
+
+                    b.ToTable("asesores", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AutomationRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -12098,6 +12166,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("vendedor");
 
+                    b.Property<Guid?>("VendedorAsesorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("vendedor_asesor_id");
+
                     b.HasKey("Id")
                         .HasName("pk_terceros");
 
@@ -12109,6 +12181,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Nombre")
                         .HasDatabaseName("ix_terceros_nombre");
+
+                    b.HasIndex("VendedorAsesorId")
+                        .HasDatabaseName("ix_terceros_vendedor_asesor_id");
 
                     b.HasIndex("TenantId", "BolsaColumnaId")
                         .HasDatabaseName("ix_terceros_tenant_id_bolsa_columna_id");
@@ -13859,6 +13934,17 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Agent");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Asesor", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TenantUser", "TenantUser")
+                        .WithMany()
+                        .HasForeignKey("TenantUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asesores_tenant_users_tenant_user_id");
+
+                    b.Navigation("TenantUser");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Cita", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Oportunidad", "Oportunidad")
@@ -15439,9 +15525,17 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_terceros_terceros_empresa_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.Asesor", "VendedorAsesor")
+                        .WithMany()
+                        .HasForeignKey("VendedorAsesorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_terceros_asesores_vendedor_asesor_id");
+
                     b.Navigation("BolsaColumna");
 
                     b.Navigation("Empresa");
+
+                    b.Navigation("VendedorAsesor");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TerceroContacto", b =>

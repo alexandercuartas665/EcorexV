@@ -71,6 +71,7 @@ public sealed class TerceroService : ITerceroService
                 t.IdTipo,
                 t.IdValor,
                 t.Vendedor,
+                t.VendedorAsesorId,
                 t.Estado,
                 t.Ciudad,
                 t.Sector,
@@ -89,6 +90,15 @@ public sealed class TerceroService : ITerceroService
             .Select(f => f.FieldKey)
             .ToListAsync(cancellationToken);
 
+        // Nombre del asesor asignado (catalogo 000074), en una consulta, no por fila.
+        var asesorIds = rows.Where(r => r.VendedorAsesorId is not null)
+            .Select(r => r.VendedorAsesorId!.Value).Distinct().ToList();
+        var asesorNombres = asesorIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.Asesores.AsNoTracking()
+                .Where(a => asesorIds.Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, a => a.Nombre, cancellationToken);
+
         return rows.Select(t => new TerceroListItemDto(
             t.Id,
             t.Nombre,
@@ -102,7 +112,9 @@ public sealed class TerceroService : ITerceroService
             t.Contactos,
             t.Tipo == TerceroTipo.Empresa,
             t.Tipo == TerceroTipo.Persona,
-            ExtractFilterables(t.FichasJson, filterKeys))).ToList();
+            ExtractFilterables(t.FichasJson, filterKeys),
+            t.VendedorAsesorId,
+            t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null)).ToList();
     }
 
     /// <summary>
@@ -154,7 +166,14 @@ public sealed class TerceroService : ITerceroService
                 .Where(e => e.Id == empresaId).Select(e => e.Nombre).FirstOrDefaultAsync(cancellationToken);
         }
 
-        return ToDetail(t, empresaNombre, contactos);
+        string? vendedorAsesorNombre = null;
+        if (t.VendedorAsesorId is Guid asesorId)
+        {
+            vendedorAsesorNombre = await _db.Asesores.AsNoTracking()
+                .Where(a => a.Id == asesorId).Select(a => a.Nombre).FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return ToDetail(t, empresaNombre, contactos, vendedorAsesorNombre);
     }
 
     public async Task<TerceroResult<TerceroDetailDto>> CreateAsync(
@@ -510,6 +529,7 @@ public sealed class TerceroService : ITerceroService
         entity.Perfiles = request.Perfiles;
         entity.Estado = request.Estado;
         entity.Vendedor = Normalize(request.Vendedor);
+        entity.VendedorAsesorId = request.VendedorAsesorId;
         entity.Ciudad = Normalize(request.Ciudad);
         entity.IdTipo = request.IdTipo;
         entity.IdValor = request.IdTipo == TerceroIdTipo.Ninguno ? null : Normalize(request.IdValor);
@@ -522,7 +542,8 @@ public sealed class TerceroService : ITerceroService
     }
 
     private static TerceroDetailDto ToDetail(
-        Tercero t, string? empresaNombre, IReadOnlyList<TerceroContactoDto> contactos) => new(
+        Tercero t, string? empresaNombre, IReadOnlyList<TerceroContactoDto> contactos,
+        string? vendedorAsesorNombre = null) => new(
         t.Id,
         t.Nombre,
         t.Tipo,
@@ -543,7 +564,9 @@ public sealed class TerceroService : ITerceroService
         t.Tipo == TerceroTipo.Persona,
         t.FichasJson,
         ParseFichas(t.FichasJson),
-        contactos);
+        contactos,
+        t.VendedorAsesorId,
+        vendedorAsesorNombre);
 
     private static string FormatIdentificacion(TerceroIdTipo tipo, string? valor)
     {

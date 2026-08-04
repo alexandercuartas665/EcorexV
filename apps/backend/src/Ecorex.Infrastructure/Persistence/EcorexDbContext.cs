@@ -235,6 +235,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
     // negocio, contactos embebidos y fichas dinamicas (jsonb). Multi-tenant (filtro global).
     public DbSet<Tercero> Terceros => Set<Tercero>();
+    public DbSet<Asesor> Asesores => Set<Asesor>();
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
     public DbSet<TerceroFormLink> TerceroFormLinks => Set<TerceroFormLink>();
@@ -1792,6 +1793,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         // Terceros (empresas / personas) con perfiles de negocio ([Flags] como int), contactos
         // embebidos y fichas dinamicas por perfil (jsonb en PG / nvarchar(max) en SQL Server).
 
+        // Catalogo de asesores/vendedores del tenant (000074). Un asesor puede estar vinculado a un
+        // usuario del tenant (TenantUser) o ser un vendedor "suelto" del catalogo sin login.
+        modelBuilder.Entity<Asesor>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Documento).HasMaxLength(100);
+            b.Property(x => x.Email).HasMaxLength(200);
+            b.Property(x => x.Telefono).HasMaxLength(80);
+            // Vinculo opcional a un usuario/login. Restrict: no se borra el usuario por borrar al
+            // asesor (y viceversa); la baja del login se gestiona en Administracion de usuarios.
+            b.HasOne(x => x.TenantUser).WithMany()
+                .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.IsActive });
+            b.HasIndex(x => x.TenantUserId);
+        });
+
         modelBuilder.Entity<Tercero>(b =>
         {
             b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
@@ -1808,9 +1825,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // asignadas no se borra en cascada, y se evitan rutas multiples de cascada (SQL Server).
             b.HasOne(x => x.Empresa).WithMany()
                 .HasForeignKey(x => x.EmpresaId).OnDelete(DeleteBehavior.Restrict);
+            // Vendedor asignado -> Asesor del catalogo (000074). Restrict: un asesor con terceros
+            // no se puede borrar (ademas se valida en el servicio con un mensaje claro). Null = sin asesor.
+            b.HasOne(x => x.VendedorAsesor).WithMany()
+                .HasForeignKey(x => x.VendedorAsesorId).OnDelete(DeleteBehavior.Restrict);
             b.HasMany(x => x.Contactos).WithOne(x => x.Tercero!)
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => new { x.TenantId, x.Tipo });
+            b.HasIndex(x => x.VendedorAsesorId);
             b.HasIndex(x => new { x.TenantId, x.Estado });
             b.HasIndex(x => new { x.TenantId, x.EmpresaId });
             b.HasIndex(x => x.Nombre);

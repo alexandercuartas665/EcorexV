@@ -179,6 +179,8 @@ public static class DependencyInjection
         // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
         // negocio, contactos embebidos, fichas dinamicas (jsonb) y sub-permisos nombrados.
         services.AddScoped<Directorio.ITerceroService, Directorio.TerceroService>();
+        // Catalogo de asesores/vendedores del tenant (000074), alimenta "Vendedor asignado".
+        services.AddScoped<Asesores.IAsesorService, Asesores.AsesorService>();
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
         services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();

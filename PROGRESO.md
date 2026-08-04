@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-08-04 - Bloque A: catalogo de Asesores (000074) + Vendedor asignado por FK (v0.6.0)
+
+**Que:** Los asesores/vendedores pasan a ser una TABLA propia del tenant (antes "asesor" era un
+TenantUser). El campo "Vendedor asignado" del Tercero deja de ser texto libre y se vincula al
+catalogo por FK. Ademas, fix del guardado de formulario en Conceptos de actividades y botones de
+accion en la parrilla del Gestor de contactos (tareas previas de la misma sesion).
+
+- **Entidad `Asesor`** (Ecorex.Domain, TenantEntity): Nombre, Documento, Email, Telefono,
+  `TenantUserId?` (link OPCIONAL a un usuario/login: "un asesor puede ser usuario o no"), IsActive.
+  La gestion de logins sigue en Administracion de usuarios (000073, `/admin-usuarios`).
+- **`Tercero.VendedorAsesorId`** (Guid?, FK -> Asesor, Restrict). Se conserva el texto legado
+  `Vendedor` como respaldo de display cuando no hay asesor.
+- **Migraciones DUALES `AddAsesor`** (Ecorex.Infrastructure / PG y Ecorex.Infrastructure.SqlServer),
+  encadenadas tras AddReportTemplates. Solo agregan la tabla `asesores` + `vendedor_asesor_id` +
+  FKs (Restrict) + indices. Probada en local (`ecorex_dev`) antes del deploy.
+- **`IAsesorService`** (Ecorex.Application/Asesores): ListAsync (con conteo de terceros y nombre del
+  usuario vinculado), ListOptionsAsync (selector), ListLinkableUsersAsync, Create/Update, y
+  **DeleteAsync con GUARDA**: bloquea (Conflict) si el asesor tiene terceros vinculados, con el
+  conteo en el mensaje. Registrado en DI.
+- **`/asesores`** reconvertida de gestion de logins a **catalogo de asesores** (CRUD + eliminar
+  guardado + vinculo opcional a usuario). **`TerceroModal`**: "Vendedor asignado" ahora es un
+  selector de asesores (con hint del texto anterior). **Directorio General**: la grilla muestra el
+  nombre del asesor (fallback al texto legado).
+- Selects nuevos con el patron robusto `@bind` sobre propiedad string (no value+onchange+selected).
+- **Siguiente (Bloque B):** correo SMTP propio POR TENANT + Azure Blob global, en Mi cuenta.
+
+---
+
+## 2026-08-03 - Fix guardado de formulario en Conceptos de actividades + acciones en Gestor
+
+**Que:** (1) En Conceptos de actividades el cambio de "Formulario asociado"/"Tarea de proceso" a
+veces no se guardaba: los selects usaban el anti-patron value=+@onchange+selected=; convertidos a
+`@bind` sobre propiedad string (robusto, como ya hacia "Modo"). (2) La parrilla del Gestor de
+contactos (`/cargador-contactos`) ahora muestra en las filas del Directorio los mismos 3 iconos que
+el Directorio General: Editar, Asignar a empresa (solo personas) y Eliminar (soft-delete), via
+TerceroService; las filas scrapeadas conservan su boton Promover.
+
+---
+
 ## 2026-08-03 - "Sincronizar ahora" en la tarjeta del conector (Contenedor de Datos)
 
 **Que:** Boton "Sincronizar ahora" en la tarjeta de cada conector REST del Contenedor de Datos

@@ -24,7 +24,11 @@ public sealed record TerceroListItemDto(
     int ContadorContactos,
     bool EsEmpresa,
     bool EsPersona,
-    IReadOnlyDictionary<string, string>? Filtrables = null);
+    IReadOnlyDictionary<string, string>? Filtrables = null,
+    // Vendedor asignado desde el catalogo de asesores (000074). Null = sin asesor; en ese caso la UI
+    // cae al texto libre legado de <see cref="Vendedor"/>.
+    Guid? VendedorAsesorId = null,
+    string? VendedorAsesorNombre = null);
 
 /// <summary>Detalle completo de un tercero: campos + fichas dinamicas + contactos.</summary>
 public sealed record TerceroDetailDto(
@@ -48,7 +52,9 @@ public sealed record TerceroDetailDto(
     bool EsPersona,
     string? FichasJson,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> Fichas,
-    IReadOnlyList<TerceroContactoDto> Contactos);
+    IReadOnlyList<TerceroContactoDto> Contactos,
+    Guid? VendedorAsesorId = null,
+    string? VendedorAsesorNombre = null);
 
 /// <summary>Contacto embebido de una empresa.</summary>
 public sealed record TerceroContactoDto(
@@ -77,7 +83,8 @@ public sealed record SaveTerceroRequest(
     string? Email = null,
     string? Telefono = null,
     Guid? EmpresaId = null,
-    string? FichasJson = null);
+    string? FichasJson = null,
+    Guid? VendedorAsesorId = null);
 
 /// <summary>Alta/edicion de un contacto embebido de una empresa.</summary>
 public sealed record SaveContactoRequest(

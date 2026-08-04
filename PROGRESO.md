@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-04 - Deploy unificado v0.7.0
+
+**Que:** Un solo deploy a prod con todo lo acumulado en el tronco: Asesores/Vendedor por FK (Bloque A,
+ya estaba en prod v0.6.0), correo SMTP por tenant (Bloque B.1), Azure Blob global (Bloque B.2) y el
+filtro por Dominio del Panel OCS (sesion ECOREX.reportes, PR #1). Migraciones aplicadas en el arranque:
+AddTenantEmailConfig + AddStorageConfig (AddAsesor ya venia de v0.6.0). Build-from-git con
+`network: host` fijo (evita el cuelgue de apt de chromium). Config de Azure y SMTP la pone el usuario
+en la UI (cifradas), no van al repo.
+
+---
+
 ## 2026-08-04 - Bloque B (parte 2): almacenamiento Azure Blob (global, Super Admin)
 
 **Que:** Los archivos (documentos/adjuntos) pueden guardarse en **Azure Blob Storage** en vez del disco

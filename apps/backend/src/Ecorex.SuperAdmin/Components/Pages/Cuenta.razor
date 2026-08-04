@@ -15,6 +15,7 @@
 @inject IJSRuntime JS
 @inject Ecorex.Application.Auth.IAuthService AuthSvc
 @inject Ecorex.Application.Tenancy.ITenantApiService TenantApiSvc
+@inject Ecorex.Application.Tenancy.ITenantEmailConfigService TenantEmailSvc
 
 <PageTitle>Mi cuenta - ECOREX.tareas</PageTitle>
 
@@ -276,6 +277,97 @@ else
             </table>
         </div>
     }
+
+    <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Servidor de correo saliente (SMTP)</h2>
+    <div class="card" style="max-width:1040px;padding:18px 22px;">
+        <p class="text-muted" style="font-size:0.88rem;margin:0 0 16px;max-width:760px;">
+            Configura aqui el servidor SMTP de tu empresa para enviar los correos de atencion a clientes y notificaciones
+            desde tu propia cuenta y dominio. Si no lo habilitas, ECOREX usa el correo global de la plataforma.
+        </p>
+
+        <div class="field-row">
+            <div class="field">
+                <label class="form-label">Host SMTP</label>
+                <input class="form-control" @bind="_smtp.SmtpHost" placeholder="smtp.tudominio.com" />
+            </div>
+            <div class="field">
+                <label class="form-label">Puerto</label>
+                <input class="form-control" type="number" @bind="_smtp.SmtpPort" />
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label class="form-label">Usuario SMTP</label>
+                <input class="form-control" @bind="_smtp.SmtpUser" autocomplete="off" placeholder="correo@tudominio.com" />
+            </div>
+            <div class="field">
+                <label class="form-label">Clave SMTP</label>
+                <input class="form-control" type="password" @bind="_smtp.SmtpPassword" autocomplete="new-password"
+                       placeholder="@(_smtpHasPassword ? "(sin cambios)" : "")" />
+                <div class="text-muted" style="font-size:11px;margin-top:4px;">
+                    @(_smtpHasPassword
+                        ? "Ya hay una clave guardada. Dejala vacia para conservarla."
+                        : "Escribe la clave de tu cuenta SMTP.")
+                </div>
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label class="form-label">Remitente (From)</label>
+                <input class="form-control" type="email" @bind="_smtp.FromEmail" placeholder="atencion@tudominio.com" />
+            </div>
+            <div class="field">
+                <label class="form-label">Nombre del remitente</label>
+                <input class="form-control" @bind="_smtp.FromName" placeholder="Atencion al cliente" />
+            </div>
+        </div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:6px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;cursor:pointer;">
+                <input type="checkbox" @bind="_smtp.UseSsl" /> Usar SSL/TLS
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem;cursor:pointer;">
+                <input type="checkbox" @bind="_smtp.IsEnabled" /> Habilitado
+            </label>
+        </div>
+
+        @if (_smtpLastValidatedAt is { } lv)
+        {
+            <div class="text-success" style="font-size:12px;margin-top:12px;">
+                Ultima prueba OK: @lv.LocalDateTime.ToString("dd MMM yyyy HH:mm")
+            </div>
+        }
+        @if (_smtpMsg is not null)
+        {
+            <div class="@(_smtpOk ? "text-success" : "text-danger")" style="font-size:0.85rem;margin-top:12px;">@_smtpMsg</div>
+        }
+
+        <div style="margin-top:16px;">
+            <button class="btn btn-primary" @onclick="SaveSmtpAsync" disabled="@_smtpBusy">
+                @(_smtpBusy ? "Guardando..." : "Guardar")
+            </button>
+        </div>
+
+        <hr style="margin:20px 0;border:0;border-top:1px solid var(--border);" />
+
+        <div style="font-weight:700;margin-bottom:6px;">Enviar correo de prueba</div>
+        <p class="text-muted" style="font-size:0.85rem;margin:0 0 12px;max-width:680px;">
+            Guarda la configuracion antes de probar. Se enviara un correo de prueba al destino que indiques.
+        </p>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="field" style="margin:0;flex:1 1 320px;">
+                <label class="form-label">Correo destino</label>
+                <input class="form-control" type="email" @bind="_smtpTestTo" placeholder="destino@ejemplo.com" />
+            </div>
+            <button class="btn btn-outline-secondary" @onclick="SendSmtpTestAsync"
+                    disabled="@(_smtpTestBusy || string.IsNullOrWhiteSpace(_smtpTestTo))">
+                @(_smtpTestBusy ? "Enviando..." : "Enviar prueba")
+            </button>
+        </div>
+        @if (_smtpTestMsg is not null)
+        {
+            <div class="@(_smtpTestOk ? "text-success" : "text-danger")" style="font-size:0.85rem;margin-top:10px;">@_smtpTestMsg</div>
+        }
+    </div>
 
     <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Acceso y seguridad</h2>
     <div class="card" style="max-width:1040px;padding:18px 22px;">
@@ -561,7 +653,85 @@ else
         _plan = _sub is null ? null : _plans.FirstOrDefault(p => p.Id == _sub.PlanId);
         _payments = (await PaymentsSvc.ListAsync(_tenantId)).ToList();
         _api = await TenantApiSvc.GetAsync(_tenantId);
+        await LoadSmtpAsync();
         _loading = false;
+    }
+
+    private async Task LoadSmtpAsync()
+    {
+        _smtpMsg = null;
+        _smtpTestMsg = null;
+        var cfg = await TenantEmailSvc.GetAsync(default);
+        _smtpHasPassword = cfg?.HasPassword ?? false;
+        _smtpLastValidatedAt = cfg?.LastValidatedAt;
+        _smtp = new SmtpForm
+        {
+            SmtpHost = cfg?.SmtpHost,
+            SmtpPort = cfg?.SmtpPort ?? 587,
+            SmtpUser = cfg?.SmtpUser,
+            SmtpPassword = null,
+            UseSsl = cfg?.UseSsl ?? true,
+            FromEmail = cfg?.FromEmail,
+            FromName = cfg?.FromName,
+            IsEnabled = cfg?.IsEnabled ?? false
+        };
+    }
+
+    private async Task SaveSmtpAsync()
+    {
+        _smtpMsg = null;
+        _smtpBusy = true;
+        try
+        {
+            var request = new Ecorex.Application.Tenancy.SaveTenantEmailConfigRequest(
+                _smtp.SmtpHost, _smtp.SmtpPort, _smtp.SmtpUser, _smtp.SmtpPassword,
+                _smtp.UseSsl, _smtp.FromEmail, _smtp.FromName, _smtp.IsEnabled);
+            var cfg = await TenantEmailSvc.SaveAsync(request, default);
+            _smtpHasPassword = cfg.HasPassword;
+            _smtpLastValidatedAt = cfg.LastValidatedAt;
+            _smtp.SmtpPassword = null;
+            _smtpOk = true;
+            _smtpMsg = "Configuracion de correo guardada.";
+        }
+        catch (Exception ex)
+        {
+            _smtpOk = false;
+            _smtpMsg = ex.Message;
+        }
+        finally
+        {
+            _smtpBusy = false;
+        }
+    }
+
+    private async Task SendSmtpTestAsync()
+    {
+        _smtpTestMsg = null;
+        _smtpTestBusy = true;
+        try
+        {
+            var error = await TenantEmailSvc.SendTestAsync(_smtpTestTo.Trim(), default);
+            if (error is null)
+            {
+                _smtpTestOk = true;
+                _smtpTestMsg = "Correo de prueba enviado.";
+                _smtpLastValidatedAt = (await TenantEmailSvc.GetAsync(default))?.LastValidatedAt ?? _smtpLastValidatedAt;
+            }
+            else
+            {
+                _smtpTestOk = false;
+                _smtpTestMsg = error;
+            }
+        }
+        catch (Exception ex)
+        {
+            _smtpTestOk = false;
+            _smtpTestMsg = ex.Message;
+        }
+        finally
+        {
+            _smtpTestBusy = false;
+        }
     }
 
     private async Task RegenerateApiKeyAsync()
@@ -978,5 +1148,28 @@ else
         public string? TaxId { get; set; }
         public string? Country { get; set; }
         public string? Currency { get; set; }
+    }
+
+    private SmtpForm _smtp = new();
+    private bool _smtpHasPassword;
+    private DateTimeOffset? _smtpLastValidatedAt;
+    private bool _smtpBusy;
+    private bool _smtpOk;
+    private string? _smtpMsg;
+    private string _smtpTestTo = "";
+    private bool _smtpTestBusy;
+    private bool _smtpTestOk;
+    private string? _smtpTestMsg;
+
+    private sealed class SmtpForm
+    {
+        public string? SmtpHost { get; set; }
+        public int SmtpPort { get; set; } = 587;
+        public string? SmtpUser { get; set; }
+        public string? SmtpPassword { get; set; }
+        public bool UseSsl { get; set; } = true;
+        public string? FromEmail { get; set; }
+        public string? FromName { get; set; }
+        public bool IsEnabled { get; set; }
     }
 }

@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-04 - Bloque B (parte 1): correo SMTP propio por tenant (Mi cuenta)
+
+**Que:** Cada tenant puede configurar su PROPIO servidor SMTP para enviar los correos de atencion a
+clientes desde su cuenta/dominio, en vez de depender solo del correo global de plataforma.
+
+- **Entidad `TenantEmailConfig`** (tenant-scoped, uno por tenant via indice unico): host/puerto/usuario/
+  clave CIFRADA (ISecretProtector)/SSL/from/nombre/habilitado. Espeja el `EmailConfig` global pero por
+  tenant. **Migracion DUAL `AddTenantEmailConfig`** (PG + SQL Server), probada en local.
+- **`SmtpEmailSender` ahora es tenant-aware**: si el tenant activo tiene su config habilitada, envia con
+  ella; si no (o no hay tenant en contexto, p.ej. reseteo de clave), cae al SMTP GLOBAL. El filtro
+  global acota la config del tenant; ningun tenant ve/usa la de otro.
+- **`ITenantEmailConfigService`** (Application/Tenancy): Get / Save (re-cifra la clave solo si llega
+  una nueva) / SendTest (usa IEmailSender, marca LastValidatedAt). Registrado en DI.
+- **Mi cuenta** (`Cuenta.razor`): tarjeta "Servidor de correo saliente (SMTP)" con formulario + "enviar
+  correo de prueba".
+- **Pendiente Bloque B parte 2:** Azure Blob global (falta cadena de conexion del usuario).
+- **NO desplegado aun:** se despliega TODO JUNTO con el cierre del Motor de Reportes (sesion
+  ECOREX.reportes) en un deploy unificado con backup + OK del usuario.
+
+---
+
 ## 2026-08-04 - Bloque A: catalogo de Asesores (000074) + Vendedor asignado por FK (v0.6.0)
 
 **Que:** Los asesores/vendedores pasan a ser una TABLA propia del tenant (antes "asesor" era un

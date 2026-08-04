@@ -31,6 +31,8 @@ public static class DependencyInjection
         services.AddScoped<IGoogleSignInService, GoogleSignInService>();
         services.AddScoped<IPlatformBrandingService, PlatformBrandingService>();
         services.AddScoped<IEmailConfigService, EmailConfigService>();
+        // Servidor SMTP propio por tenant (Mi cuenta); el sender lo prefiere sobre el global.
+        services.AddScoped<Tenancy.ITenantEmailConfigService, Tenancy.TenantEmailConfigService>();
         services.AddScoped<IGoogleAuthConfigService, GoogleAuthConfigService>();
         services.AddScoped<Tenancy.ITenantUserService, Tenancy.TenantUserService>();
         services.AddScoped<Tenancy.IAdvisorService, Tenancy.AdvisorService>();

@@ -40,6 +40,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<AiProviderConfig> AiProviderConfigs => Set<AiProviderConfig>();
     public DbSet<PlatformBranding> PlatformBrandings => Set<PlatformBranding>();
     public DbSet<EmailConfig> EmailConfigs => Set<EmailConfig>();
+    public DbSet<TenantEmailConfig> TenantEmailConfigs => Set<TenantEmailConfig>();
     public DbSet<GoogleAuthConfig> GoogleAuthConfigs => Set<GoogleAuthConfig>();
     public DbSet<TenantApiConfig> TenantApiConfigs => Set<TenantApiConfig>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
@@ -525,6 +526,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.SmtpUser).HasMaxLength(200);
             b.Property(x => x.FromEmail).HasMaxLength(200);
             b.Property(x => x.FromName).HasMaxLength(160);
+        });
+
+        // Servidor SMTP propio del tenant (uno por tenant): el filtro global lo acota; el indice
+        // unico por TenantId garantiza el singleton por empresa.
+        modelBuilder.Entity<TenantEmailConfig>(b =>
+        {
+            b.Property(x => x.SmtpHost).HasMaxLength(200);
+            b.Property(x => x.SmtpUser).HasMaxLength(200);
+            b.Property(x => x.FromEmail).HasMaxLength(200);
+            b.Property(x => x.FromName).HasMaxLength(160);
+            b.HasIndex(x => x.TenantId).IsUnique();
         });
 
         modelBuilder.Entity<PasswordResetToken>(b =>

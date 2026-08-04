@@ -11624,6 +11624,83 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("tenant_configurations", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TenantEmailConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FromEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("from_email");
+
+                    b.Property<string>("FromName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("from_name");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<DateTimeOffset?>("LastValidatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_validated_at");
+
+                    b.Property<string>("SmtpHost")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("smtp_host");
+
+                    b.Property<string>("SmtpPasswordEncrypted")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("smtp_password_encrypted");
+
+                    b.Property<int>("SmtpPort")
+                        .HasColumnType("int")
+                        .HasColumnName("smtp_port");
+
+                    b.Property<string>("SmtpUser")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("smtp_user");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<bool>("UseSsl")
+                        .HasColumnType("bit")
+                        .HasColumnName("use_ssl");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tenant_email_configs");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_email_configs_tenant_id");
+
+                    b.ToTable("tenant_email_configs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantEvolutionConfig", b =>
                 {
                     b.Property<Guid>("Id")

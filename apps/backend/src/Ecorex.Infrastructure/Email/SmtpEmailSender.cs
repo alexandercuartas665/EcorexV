@@ -7,8 +7,11 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Infrastructure.Email;
 
 /// <summary>
-/// Envio de correo via SMTP usando la configuracion global (cifrada) del Super Admin.
-/// Compatible con SendGrid (SMTP), Gmail, Mailgun, etc. No persiste ni loggea la clave.
+/// Envio de correo via SMTP. Prefiere el servidor PROPIO del tenant activo
+/// (<see cref="TenantEmailConfig"/>) cuando esta habilitado, para que cada empresa envie sus correos
+/// de atencion desde su cuenta/dominio; si el tenant no tiene config (o no hay tenant en contexto,
+/// p.ej. reseteo de clave), cae al servidor GLOBAL de plataforma (<see cref="EmailConfig"/>).
+/// Compatible con Office365, Gmail, SendGrid (SMTP), etc. No persiste ni loggea la clave.
 /// </summary>
 public sealed class SmtpEmailSender : IEmailSender
 {
@@ -21,28 +24,47 @@ public sealed class SmtpEmailSender : IEmailSender
         _secretProtector = secretProtector;
     }
 
+    /// <summary>Forma comun a ambas configuraciones (tenant / global) para el envio.</summary>
+    private readonly record struct ResolvedSmtp(
+        string Host, int Port, string? User, string? PasswordEncrypted, bool UseSsl, string FromEmail, string? FromName);
+
     public async Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
     {
-        var cfg = await _db.EmailConfigs.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
-        if (cfg is null || !cfg.IsEnabled)
+        // 1) Config del tenant activo (el filtro global la acota; sin tenant en contexto no hay filas).
+        //    2) Si no hay/esta deshabilitada, el servidor global de plataforma.
+        ResolvedSmtp? resolved = null;
+
+        var tenantCfg = await _db.TenantEmailConfigs.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+        if (tenantCfg is { IsEnabled: true } && !string.IsNullOrWhiteSpace(tenantCfg.SmtpHost) && !string.IsNullOrWhiteSpace(tenantCfg.FromEmail))
         {
-            return new EmailSendResult(false, "El correo saliente no esta configurado/habilitado en la plataforma.");
+            resolved = new ResolvedSmtp(tenantCfg.SmtpHost!, tenantCfg.SmtpPort, tenantCfg.SmtpUser,
+                tenantCfg.SmtpPasswordEncrypted, tenantCfg.UseSsl, tenantCfg.FromEmail!, tenantCfg.FromName);
         }
-        if (string.IsNullOrWhiteSpace(cfg.SmtpHost) || string.IsNullOrWhiteSpace(cfg.FromEmail))
+        else
         {
-            return new EmailSendResult(false, "Falta configurar el host SMTP o la direccion remitente.");
+            var globalCfg = await _db.EmailConfigs.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+            if (globalCfg is { IsEnabled: true } && !string.IsNullOrWhiteSpace(globalCfg.SmtpHost) && !string.IsNullOrWhiteSpace(globalCfg.FromEmail))
+            {
+                resolved = new ResolvedSmtp(globalCfg.SmtpHost!, globalCfg.SmtpPort, globalCfg.SmtpUser,
+                    globalCfg.SmtpPasswordEncrypted, globalCfg.UseSsl, globalCfg.FromEmail!, globalCfg.FromName);
+            }
+        }
+
+        if (resolved is not ResolvedSmtp cfg)
+        {
+            return new EmailSendResult(false, "El correo saliente no esta configurado/habilitado (ni el del tenant ni el global).");
         }
 
         string? password = null;
-        if (!string.IsNullOrEmpty(cfg.SmtpPasswordEncrypted))
+        if (!string.IsNullOrEmpty(cfg.PasswordEncrypted))
         {
-            try { password = _secretProtector.Unprotect(cfg.SmtpPasswordEncrypted); }
+            try { password = _secretProtector.Unprotect(cfg.PasswordEncrypted); }
             catch { return new EmailSendResult(false, "La clave SMTP esta cifrada con una version anterior. Vuelve a guardarla."); }
         }
 
         try
         {
-            using var client = new SmtpClient(cfg.SmtpHost, cfg.SmtpPort)
+            using var client = new SmtpClient(cfg.Host, cfg.Port)
             {
                 EnableSsl = cfg.UseSsl,
                 DeliveryMethod = SmtpDeliveryMethod.Network,
@@ -50,9 +72,9 @@ public sealed class SmtpEmailSender : IEmailSender
                 // operacion que dispara el correo (p.ej. crear una actividad) hasta 100s. Cap a 15s.
                 Timeout = 15000
             };
-            if (!string.IsNullOrWhiteSpace(cfg.SmtpUser))
+            if (!string.IsNullOrWhiteSpace(cfg.User))
             {
-                client.Credentials = new NetworkCredential(cfg.SmtpUser, password ?? string.Empty);
+                client.Credentials = new NetworkCredential(cfg.User, password ?? string.Empty);
             }
 
             using var message = new MailMessage

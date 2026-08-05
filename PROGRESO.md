@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-08-05 - v0.8.1: herramienta del agente para registrar contactos en el Directorio
+
+**Que:** Nuevo `DirectorioToolset` con `crear_contacto`: el agente de IA registra un contacto (tercero,
+perfil Cliente) en el Directorio General cuando conoce a un cliente nuevo. Idempotente por
+identificacion (si ya existe, no duplica). Reusa `ITerceroService.CreateAsync`. Registrado como
+IAgentToolset. Prompt de SARA v1 (AGROMETALICAS) actualizado en prod con el bloque de contacto.
+Probado en prod: SARA registro "Construcciones Ospina SAS" (NIT) y creo la tarea (round-robin).
+
+---
+
 ## 2026-08-05 - v0.8.0: el agente crea tareas en tableros (MCP) + archivos + reparto a comerciales
 
 **Que:** El agente de IA (SARA) puede CERRAR una conversacion creando una tarea en un tablero, con los

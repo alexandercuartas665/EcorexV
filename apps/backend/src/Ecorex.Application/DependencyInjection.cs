@@ -237,6 +237,10 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
+        // Toolset de Directorio: el agente registra un contacto (tercero) en el Directorio General.
+        services.AddScoped<Tenancy.DirectorioToolset>();
+        services.AddScoped<Tenancy.IDirectorioToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
         // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
         services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();

@@ -65,6 +65,9 @@ public class TenantUserServiceTests
         public bool HasActiveTransaction => false;
 
         public DbSet<Tenant> Tenants => throw new NotSupportedException();
+        public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
+        public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
+        public DbSet<Asesor> Asesores => throw new NotSupportedException();
         public DbSet<TenantConfiguration> TenantConfigurations => throw new NotSupportedException();
         public DbSet<ConceptoActividad> ConceptosActividad => throw new NotSupportedException();
         public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => throw new NotSupportedException();

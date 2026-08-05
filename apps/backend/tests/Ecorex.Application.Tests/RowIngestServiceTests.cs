@@ -34,6 +34,9 @@ public class RowIngestServiceTests
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();
         public DbSet<TenantUser> TenantUsers => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => throw new NotSupportedException();
+        public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
+        public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
+        public DbSet<Asesor> Asesores => throw new NotSupportedException();
         // Llegaron con el merge de fase-0/clon-backbone (modelo ER de contenedores): el nucleo de
         // ingesta no los toca, pero la interfaz los exige.
         public DbSet<DataModelRelation> DataModelRelations => throw new NotSupportedException();

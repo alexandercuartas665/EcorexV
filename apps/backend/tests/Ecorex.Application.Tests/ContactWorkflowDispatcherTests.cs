@@ -137,6 +137,9 @@ public class ContactWorkflowDispatcherTests
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
         public DbSet<TenantUser> TenantUsers => NotUsed<TenantUser>();
+        public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();
+        public DbSet<StorageConfig> StorageConfigs => NotUsed<StorageConfig>();
+        public DbSet<Asesor> Asesores => NotUsed<Asesor>();
         public DbSet<DataModelRelation> DataModelRelations => NotUsed<DataModelRelation>();
         public DbSet<DataModelRelationLink> DataModelRelationLinks => NotUsed<DataModelRelationLink>();
         public DbSet<ReportDefinition> ReportDefinitions => NotUsed<ReportDefinition>();

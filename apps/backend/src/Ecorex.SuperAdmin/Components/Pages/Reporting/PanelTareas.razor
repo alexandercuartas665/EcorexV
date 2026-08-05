@@ -1,0 +1,17 @@
+@page "/reportes/tareas"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
+
+@* Banco de pruebas local del Panel de Tareas: hospeda el componente reutilizable TareasDashboardPanel
+   (el mismo que la galeria embebe cuando el reporte es tipo panel, SourceKey = panel:tareas). *@
+
+<PageTitle>Panel de Tareas - ECOREX.tareas</PageTitle>
+
+<div style="padding:24px 28px;">
+    <div style="margin-bottom:16px;">
+        <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Reporte de Sistema de Tareas</h1>
+        <p style="font-size:13px;color:#6b7280;margin:4px 0 0;">Vista previa del componente de panel (datos de db3dev, sucursal 01).</p>
+    </div>
+    <TareasDashboardPanel />
+</div>

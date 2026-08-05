@@ -273,6 +273,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScheduledJobRun> ScheduledJobRuns => Set<ScheduledJobRun>();
     public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
     public DbSet<ReportDefinitionRole> ReportDefinitionRoles => Set<ReportDefinitionRole>();
+    // Conector de datos externos gobernado (ADR-0063): catalogo GLOBAL de plataforma + concesiones.
+    public DbSet<ExternalDataSource> ExternalDataSources => Set<ExternalDataSource>();
+    public DbSet<ExternalDataSet> ExternalDataSets => Set<ExternalDataSet>();
+    public DbSet<ExternalDataSourceGrant> ExternalDataSourceGrants => Set<ExternalDataSourceGrant>();
 
     // Catalogo GLOBAL de ciudades / municipios (no tenant-scoped): compartido por todos los tenants.
     public DbSet<Ciudad> Ciudades => Set<Ciudad>();
@@ -412,6 +416,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
         // Plantillas de reportes reutilizables entre tenants (ADR-0062).
         configurationBuilder.Properties<ReportTemplateKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ReportTemplateSourceKind>().HaveConversion<string>().HaveMaxLength(40);
+        // Conector de datos externos gobernado (ADR-0063): el proveedor se persiste como texto.
+        configurationBuilder.Properties<ExternalDataProvider>().HaveConversion<string>().HaveMaxLength(40);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -1553,6 +1559,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.SourceKey).HasMaxLength(200);
             b.Property(x => x.SpecJson).HasColumnType(jsonColumnType).IsRequired();
             b.Property(x => x.Rdl).HasColumnType(longTextColumnType);
+            // Vinculo a datos externos (ADR-0063): JSON con el mapeo dataset RDL -> ExternalDataSet + inputs.
+            b.Property(x => x.ExternalBindingJson).HasColumnType(jsonColumnType);
             // Concurrencia optimista portable (ADR-0013), igual que ScheduledJob/TaskItem.
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasIndex(x => new { x.TenantId, x.Name });
@@ -1577,6 +1585,41 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Icon).HasMaxLength(80);
             b.HasIndex(x => x.SourceKey);
             b.HasIndex(x => x.IsPublished);
+        });
+
+        // Conector de datos externos gobernado (ADR-0063). Catalogo GLOBAL de plataforma, sin TenantId ni
+        // filtro de consulta (igual que ReportTemplate / ModuleDefinition). La cadena de conexion va
+        // CIFRADA en la fuente; nunca en claro. El unico punto cross-tenant (CRUD) va por PlatformAdmin y
+        // AUDITADO. La concesion es la unica via de acceso de un tenant al dato externo.
+        modelBuilder.Entity<ExternalDataSource>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.ConnectionStringEncrypted).HasColumnType(longTextColumnType);
+            b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.IsEnabled);
+        });
+
+        modelBuilder.Entity<ExternalDataSet>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.CommandText).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.ParametersJson).HasColumnType(jsonColumnType);
+            b.Property(x => x.FieldsJson).HasColumnType(jsonColumnType);
+            b.HasOne(x => x.ExternalDataSource).WithMany()
+                .HasForeignKey(x => x.ExternalDataSourceId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.ExternalDataSourceId);
+        });
+
+        modelBuilder.Entity<ExternalDataSourceGrant>(b =>
+        {
+            b.HasOne(x => x.ExternalDataSource).WithMany()
+                .HasForeignKey(x => x.ExternalDataSourceId).OnDelete(DeleteBehavior.Cascade);
+            // Una concesion por (fuente, tenant, rol). TenantId aqui NO es campo de aislamiento (tabla
+            // global): es el tenant beneficiario. Sin FK a Tenant para no crear caminos de cascada extra.
+            b.HasIndex(x => new { x.ExternalDataSourceId, x.TenantId, x.RolId }).IsUnique();
+            b.HasIndex(x => x.TenantId);
         });
 
         // Gobernanza de reportes por rol (ADR-0051): que reportes ve cada rol. La asignacion vive y

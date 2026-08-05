@@ -59,6 +59,12 @@ public class TenantUserServiceTests
         public DbSet<ReportDefinition> ReportDefinitions => throw new NotSupportedException();
         public DbSet<ReportDefinitionRole> ReportDefinitionRoles => throw new NotSupportedException();
         public DbSet<ReportTemplate> ReportTemplates => throw new NotSupportedException();
+        public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
+        public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
+        public DbSet<Asesor> Asesores => throw new NotSupportedException();
+        public DbSet<ExternalDataSource> ExternalDataSources => throw new NotSupportedException();
+        public DbSet<ExternalDataSet> ExternalDataSets => throw new NotSupportedException();
+        public DbSet<ExternalDataSourceGrant> ExternalDataSourceGrants => throw new NotSupportedException();
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => inner.SaveChangesAsync(cancellationToken);
         public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

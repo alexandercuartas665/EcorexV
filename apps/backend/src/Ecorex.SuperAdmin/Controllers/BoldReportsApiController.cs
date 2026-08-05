@@ -2,6 +2,7 @@ using System.Data;
 using System.Text;
 using BoldReports.Web.ReportViewer;
 using Ecorex.Application.Reporting;
+using Ecorex.Application.Reporting.External;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
@@ -26,11 +27,14 @@ public sealed class BoldReportsApiController : Controller, IReportController
 
     private readonly IMemoryCache _cache;
     private readonly IReportDefinitionService _definitions;
+    private readonly IExternalReportBindingService _externalBinding;
 
-    public BoldReportsApiController(IMemoryCache cache, IReportDefinitionService definitions)
+    public BoldReportsApiController(
+        IMemoryCache cache, IReportDefinitionService definitions, IExternalReportBindingService externalBinding)
     {
         _cache = cache;
         _definitions = definitions;
+        _externalBinding = externalBinding;
     }
 
     [ActionName("GetResource")]
@@ -55,6 +59,27 @@ public sealed class BoldReportsApiController : Controller, IReportController
             return;
         }
 
+        // Camino EXTERNO (ADR-0063): el reporte esta vinculado a datasets externos gobernados. El conector
+        // de solo lectura ejecuta cada dataset (re-verificando la concesion del tenant) y se inyecta UNA
+        // DataTable por dataset del RDL, con el nombre que el RDL espera. El RDL NUNCA usa su conexion.
+        var render = _externalBinding.GetRenderAsync(definitionId).GetAwaiter().GetResult();
+        if (render is not null)
+        {
+            reportOption.ReportModel.ProcessingMode = ProcessingMode.Local;
+            reportOption.ReportModel.Stream = new MemoryStream(Encoding.UTF8.GetBytes(render.Rdl));
+            reportOption.ReportModel.DataSources.Clear();
+            foreach (var kv in render.DataSets)
+            {
+                reportOption.ReportModel.DataSources.Add(new BoldReports.Web.ReportDataSource
+                {
+                    Name = kv.Key,
+                    Value = ToDataTable(kv.Value, kv.Key)
+                });
+            }
+
+            return;
+        }
+
         var printable = _definitions.GetPrintableAsync(definitionId).GetAwaiter().GetResult();
         if (printable is null)
         {
@@ -72,7 +97,7 @@ public sealed class BoldReportsApiController : Controller, IReportController
         reportOption.ReportModel.DataSources.Add(new BoldReports.Web.ReportDataSource
         {
             Name = DataSourceName,
-            Value = ToDataTable(printable.DataSet)
+            Value = ToDataTable(printable.DataSet, DataSourceName)
         });
     }
 
@@ -83,9 +108,9 @@ public sealed class BoldReportsApiController : Controller, IReportController
 
     // ---- Helpers ----
 
-    private static DataTable ToDataTable(ReportDataSet ds)
+    private static DataTable ToDataTable(ReportDataSet ds, string name)
     {
-        var table = new DataTable(DataSourceName);
+        var table = new DataTable(name);
         foreach (var col in ds.Columns)
         {
             table.Columns.Add(new DataColumn(col.Key, ClrType(col.Type)) { AllowDBNull = true });

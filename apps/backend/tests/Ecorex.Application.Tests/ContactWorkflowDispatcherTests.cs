@@ -142,6 +142,12 @@ public class ContactWorkflowDispatcherTests
         public DbSet<ReportDefinition> ReportDefinitions => NotUsed<ReportDefinition>();
         public DbSet<ReportDefinitionRole> ReportDefinitionRoles => NotUsed<ReportDefinitionRole>();
         public DbSet<ReportTemplate> ReportTemplates => NotUsed<ReportTemplate>();
+        public DbSet<TenantEmailConfig> TenantEmailConfigs => NotUsed<TenantEmailConfig>();
+        public DbSet<StorageConfig> StorageConfigs => NotUsed<StorageConfig>();
+        public DbSet<Asesor> Asesores => NotUsed<Asesor>();
+        public DbSet<ExternalDataSource> ExternalDataSources => NotUsed<ExternalDataSource>();
+        public DbSet<ExternalDataSet> ExternalDataSets => NotUsed<ExternalDataSet>();
+        public DbSet<ExternalDataSourceGrant> ExternalDataSourceGrants => NotUsed<ExternalDataSourceGrant>();
         public DbSet<DocumentoCategoria> DocumentoCategorias => NotUsed<DocumentoCategoria>();
         public DbSet<DocumentoCarpeta> DocumentoCarpetas => NotUsed<DocumentoCarpeta>();
         public DbSet<Documento> Documentos => NotUsed<Documento>();

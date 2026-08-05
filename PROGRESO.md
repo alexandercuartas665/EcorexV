@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-08-05 - Conector de datos externos GOBERNADO (ADR-0063)
+
+**Que:** Nueva via CORRECTA para que un reporte lea datos EXTERNOS en vivo (p.ej. la legacy db3dev)
+SIN que el reporte lleve su propia cadena de conexion. Antes todo entraba por `IReportDataSource`
+tenant-safe; un RDL con su ConnectionString violaba 3 de los 9 errores heredados. Rama
+`feat/conector-datos-externos` desde `origin/fase-0/clon-backbone`.
+
+- **Entidades de PLATAFORMA (no tenant-scoped):** `ExternalDataSource` (motor SqlServer/Postgres,
+  cadena CIFRADA con ISecretProtector, IsReadOnly, IsEnabled, LastValidatedAt), `ExternalDataSet`
+  (consulta CURADA = allowlist: un unico SELECT parametrizado + parametros tipados + campos),
+  `ExternalDataSourceGrant` (concesion explicita por tenant: la unica via de acceso, ya que el dato
+  externo no se puede filtrar por TenantId). Enum `ExternalDataProvider/ParameterType/ParameterBinding`.
+- **Conector `ExternalReportReader`** (analogo a ContainerReportReader): `ReportSourceKind.External`,
+  clave `external:{datasetId}`. Verifica concesion del tenant (fail-closed), descifra en memoria,
+  enlaza parametros y ejecuta. El catalogo (`IReportCatalog`) expone solo lo concedido al tenant activo.
+- **Alcance por contexto de confianza** (`ExternalParameterBinder`): userid/sucursal/tenant salen del
+  contexto, NUNCA de entrada libre; los inputs (fechas) se convierten al tipo y viajan como parametro
+  TIPADO (cero concatenacion).
+- **Executor `AdoExternalQueryExecutor`** (en Infrastructure, drivers Microsoft.Data.SqlClient/Npgsql):
+  SOLO LECTURA forzada por `ExternalReadOnlyGuard` (rechaza escrituras/DDL/multi-statement/SELECT INTO)
+  + `SET TRANSACTION READ ONLY` real en Postgres + `DbParameter` tipados.
+- **Render imprimible:** `ReportDefinition.ExternalBindingJson` (mapeo dataset RDL -> ExternalDataSet +
+  inputs). `ExternalReportBindingService` importa el RDL y, al renderizar, ejecuta cada dataset por el
+  conector e inyecta UNA DataTable por dataset. `BoldReportsApiController` extendido para multi-dataset
+  (sigue en ProcessingMode.Local; el RDL nunca usa su conexion).
+- **PlatformAdmin:** pagina `/fuentes-externas` (policy PlatformOperator) CRUD de fuentes/datasets/
+  concesiones + prueba de conexion de solo lectura. Toda mutacion -> SuperAdminAuditLog; el secreto no
+  se re-muestra. Enlace agregado al NavMenu.
+- **Migraciones DUALES `AddExternalDataConnector`** (PG `20260805003945` + SQL Server `20260805004059`,
+  `--context` explicito): 3 tablas + columna `external_binding_json`. Coordinacion: el ModelSnapshot
+  se resuelve al mergear (otras sesiones tambien migran el tronco).
+- **Tests:** unit `ExternalReadOnlyGuardTests` + `ExternalParameterBinderTests` (25 casos, verdes
+  local, sin Docker); integracion dual `ExternalConnectorGovernanceTests` (tenant concedido ve/ejecuta,
+  sin concesion no ve/lanza, revocar quita acceso, cadena cifrada). ADR-0063 ACEPTADA.
+- **Build:** `dotnet build Ecorex.sln` verde (0 errores).
+- **Pendiente:** editor estructurado de parametros/campos en la UI (hoy JSON), y el paso de parametros
+  interactivos del visor (hoy el binding guarda los inputs). NO desplegado (lo hace la sesion principal).
+
+---
+
 ## 2026-08-04 - Deploy unificado v0.7.0
 
 **Que:** Un solo deploy a prod con todo lo acumulado en el tronco: Asesores/Vendedor por FK (Bloque A,

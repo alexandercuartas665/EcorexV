@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Reporting.External;
 using Ecorex.Application.Reporting.Sources;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,12 +25,21 @@ public sealed class ReportCatalog : IReportCatalog
 {
     private readonly IEnumerable<IReportableSource> _nativeSources;
     private readonly ContainerReportReader _containers;
+    private readonly ExternalReportReader _external;
+    private readonly ITenantContext _tenantContext;
     private readonly IApplicationDbContext _db;
 
-    public ReportCatalog(IEnumerable<IReportableSource> nativeSources, ContainerReportReader containers, IApplicationDbContext db)
+    public ReportCatalog(
+        IEnumerable<IReportableSource> nativeSources,
+        ContainerReportReader containers,
+        ExternalReportReader external,
+        ITenantContext tenantContext,
+        IApplicationDbContext db)
     {
         _nativeSources = nativeSources;
         _containers = containers;
+        _external = external;
+        _tenantContext = tenantContext;
         _db = db;
     }
 
@@ -58,6 +68,12 @@ public sealed class ReportCatalog : IReportCatalog
             }
         }
 
+        // Fuentes EXTERNAS concedidas al tenant activo (ADR-0063). Un tenant sin concesion no ve ninguna.
+        if (_tenantContext.TenantId is Guid tenantId)
+        {
+            result.AddRange(await _external.ListGrantedAsync(tenantId, ct));
+        }
+
         return result;
     }
 
@@ -79,6 +95,14 @@ public sealed class ReportCatalog : IReportCatalog
         if (ContainerReportReader.Handles(sourceKey) && ContainerReportReader.ParseId(sourceKey) is Guid id)
         {
             return await _containers.DescribeAsync(id, ct);
+        }
+
+        // Fuente EXTERNA: solo se describe si el tenant activo tiene concesion (el reader lo verifica).
+        if (ExternalReportReader.Handles(sourceKey)
+            && ExternalReportReader.ParseId(sourceKey) is Guid externalId
+            && _tenantContext.TenantId is Guid activeTenant)
+        {
+            return await _external.DescribeAsync(externalId, activeTenant, ct);
         }
 
         return null;

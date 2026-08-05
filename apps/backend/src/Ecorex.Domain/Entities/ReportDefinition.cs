@@ -32,6 +32,15 @@ public class ReportDefinition : TenantEntity, IVersioned
     public string? Rdl { get; set; }
 
     /// <summary>
+    /// Vinculo de datos EXTERNOS (ADR-0063). JSON con el mapeo de cada dataset del RDL a un
+    /// <see cref="ExternalDataSet"/> concedido + los valores de entrada guardados. Null = reporte que
+    /// se alimenta por el datasource tenant-safe (camino normal). Cuando no es null, el visor NO ejecuta
+    /// la conexion del RDL: el conector externo produce las tablas ya filtradas y se inyectan en memoria.
+    /// El SECRETO nunca vive aqui: solo referencia por Id al catalogo de plataforma.
+    /// </summary>
+    public string? ExternalBindingJson { get; set; }
+
+    /// <summary>
     /// Vinculo a la plantilla de plataforma (ADR-0062) de la que se activo esta instancia. Null =
     /// reporte propio del tenant (creado con IA/editor). NO es una FK dura: <see cref="ReportTemplate"/>
     /// es una entidad GLOBAL y esta instancia es tenant-scoped, asi que el vinculo se guarda como Guid

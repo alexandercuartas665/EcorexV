@@ -4420,6 +4420,191 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("expediente_tipologias", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalDataSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CommandText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("command_text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("ExternalDataSourceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("external_data_source_id");
+
+                    b.Property<string>("FieldsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("fields_json");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ParametersJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("parameters_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_data_sets");
+
+                    b.HasIndex("ExternalDataSourceId")
+                        .HasDatabaseName("ix_external_data_sets_external_data_source_id");
+
+                    b.ToTable("external_data_sets", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalDataSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConnectionStringEncrypted")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("connection_string_encrypted");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<bool>("IsReadOnly")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_read_only");
+
+                    b.Property<DateTimeOffset?>("LastValidatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_validated_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("provider");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_data_sources");
+
+                    b.HasIndex("IsEnabled")
+                        .HasDatabaseName("ix_external_data_sources_is_enabled");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("ix_external_data_sources_name");
+
+                    b.ToTable("external_data_sources", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalDataSourceGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("ExternalDataSourceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("external_data_source_id");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<Guid?>("RolId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rol_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_data_source_grants");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("ix_external_data_source_grants_tenant_id");
+
+                    b.HasIndex("ExternalDataSourceId", "TenantId", "RolId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_external_data_source_grants_external_data_source_id_tenant_id_rol_id")
+                        .HasFilter("[rol_id] IS NOT NULL");
+
+                    b.ToTable("external_data_source_grants", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FollowUpTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -8095,6 +8280,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)")
                         .HasColumnName("description");
+
+                    b.Property<string>("ExternalBindingJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("external_binding_json");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -14519,6 +14708,30 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_expediente_tipologias_expedientes_expediente_id");
 
                     b.Navigation("Expediente");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalDataSet", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ExternalDataSource", "ExternalDataSource")
+                        .WithMany()
+                        .HasForeignKey("ExternalDataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_data_sets_external_data_sources_external_data_source_id");
+
+                    b.Navigation("ExternalDataSource");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalDataSourceGrant", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ExternalDataSource", "ExternalDataSource")
+                        .WithMany()
+                        .HasForeignKey("ExternalDataSourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_data_source_grants_external_data_sources_external_data_source_id");
+
+                    b.Navigation("ExternalDataSource");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FollowUpTask", b =>

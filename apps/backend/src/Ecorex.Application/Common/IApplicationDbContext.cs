@@ -93,6 +93,11 @@ public interface IApplicationDbContext
     DbSet<ReportDefinitionRole> ReportDefinitionRoles { get; }
     // Plantillas de reportes reutilizables entre tenants (ADR-0062): catalogo GLOBAL de plataforma.
     DbSet<ReportTemplate> ReportTemplates { get; }
+    // Conector de datos externos gobernado (ADR-0063): catalogo GLOBAL de plataforma (fuentes +
+    // consultas curadas) y concesiones por tenant. El secreto (cadena) va cifrado en la fuente.
+    DbSet<ExternalDataSource> ExternalDataSources { get; }
+    DbSet<ExternalDataSet> ExternalDataSets { get; }
+    DbSet<ExternalDataSourceGrant> ExternalDataSourceGrants { get; }
     DbSet<RuleDocument> RuleDocuments { get; }
     DbSet<Rule> Rules { get; }
     DbSet<RuleExecutionLog> RuleExecutionLogs { get; }

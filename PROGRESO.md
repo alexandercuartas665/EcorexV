@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-08-05 - Galeria: engancha "Reporte de Sistema de Tareas" (panel:tareas), patron Panel OCS
+
+**Que:** integracion SELECTIVA (sin mergear feat/motor-reportes, que va ~atras) del panel de tareas a
+la Galeria de reportes, replicando 1:1 el patron de Panel OCS. Tres piezas:
+1. Componente portado desde feat/motor-reportes (cb1fe04): `Components/Shared/Reporting/
+   TareasDashboardPanel.razor` (+ `.css`). Es autonomo: mismas deps que OcsDashboardPanel
+   (`IReportCatalog`, `IReportDataSource`), resuelve su contenedor por nombre ("Tareas Personal",
+   tenant-safe via el catalogo). NO se porto `Pages/Reporting/PanelTareas.razor` (banco de pruebas).
+2. Despacho en `ReportGallery.razor`: `PanelComponents["panel:tareas"] = typeof(TareasDashboardPanel)`
+   (junto a panel:ocs y panel:system-activities).
+3. Plantilla (dato, ADR-0062) en `DatabaseSeeder.EnsureReportTemplatesAsync`: ReportTemplate
+   Name="Reporte de Sistema de Tareas", Kind=Panel, SourceKey=panel:tareas, RequiredSourceKind=Container,
+   RequiredContainerName="Reporte Tareas Personal", IsPublished=true. Idempotente por SourceKey; se
+   siembra siempre (metadato de plataforma). El gating por contenedor es generico
+   (IReportActivationService/ReportTemplateCompatibility): la tarjeta se ve solo donde exista el
+   contenedor; un tenant sin el no la ve. OCS y Actividades sin cambios.
+
+**Sin migracion.** Build Release verde. El contenedor "Reporte Tareas Personal" (21.671 tareas de
+db3dev sucursal 01, foto) lo ingesta la sesion de reportes en BITCODE prod (con backup), NO desde
+codigo; refresco = sync programado / conector en vivo (ADR-0063). **Deploy: en el PROXIMO UNIFICADO**
+(backup + OK del usuario), NO por separado. PR a fase-0/clon-backbone.
+
+---
+
 ## 2026-08-05 - Agente Colmena: fix del fetch REST via agente (Siigo fallaba con "Host desconocido api")
 
 **Sintoma:** el `/run` via agente del conector Siigo (AGROMETALICAS) fallaba SIEMPRE con

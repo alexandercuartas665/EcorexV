@@ -138,6 +138,13 @@ else
                         <span>Activo</span>
                     </label>
                 </div>
+                <div class="field">
+                    <label class="ase-check">
+                        <input type="checkbox" @bind="_f.AssignableByAgent" />
+                        <span>Recibe asignaciones del agente (reparto automatico)</span>
+                    </label>
+                    <div class="text-muted small" style="margin-top:4px;">Si esta marcado, el agente de IA le asigna tareas por rotacion (round-robin). Requiere un usuario vinculado. No todos los asesores tienen esta opcion.</div>
+                </div>
                 @if (_modalError is not null)
                 {
                     <div class="text-danger small">@_modalError</div>
@@ -197,7 +204,8 @@ else
                 Email = a.Email,
                 Telefono = a.Telefono,
                 TenantUserId = a.TenantUserId,
-                IsActive = a.IsActive
+                IsActive = a.IsActive,
+                AssignableByAgent = a.AssignableByAgent
             };
         }
         _modalOpen = true;
@@ -226,7 +234,8 @@ else
                 string.IsNullOrWhiteSpace(_f.Email) ? null : _f.Email.Trim(),
                 string.IsNullOrWhiteSpace(_f.Telefono) ? null : _f.Telefono.Trim(),
                 _f.TenantUserId,
-                _f.IsActive);
+                _f.IsActive,
+                _f.AssignableByAgent);
 
             var res = _editingId is null
                 ? await AsesoresSvc.CreateAsync(req)
@@ -268,5 +277,6 @@ else
         public string? Telefono { get; set; }
         public Guid? TenantUserId { get; set; }
         public bool IsActive { get; set; } = true;
+        public bool AssignableByAgent { get; set; }
     }
 }

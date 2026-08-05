@@ -134,6 +134,12 @@
 
 /* Acciones por fila (anular). */
 .fm-actions-col { text-align: right; white-space: nowrap; width: 1%; }
+/* Ver registro (abre el formulario en solo lectura). Primera accion, contorno neutro. */
+.fm-row-view {
+    font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; cursor: pointer; margin-right: 6px;
+    border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--ink-1, #14141A);
+}
+.fm-row-view:hover { border-color: var(--brand, #6D28D9); color: var(--brand, #6D28D9); }
 .fm-row-void {
     font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; cursor: pointer;
     border: 1px solid var(--line-2, rgba(20,20,25,.12)); background: var(--surface, #FFFFFF); color: var(--danger, #E11D48);

@@ -33,4 +33,13 @@ public class Asesor : TenantEntity
 
     /// <summary>Un asesor inactivo no se ofrece para asignar, pero se conserva por historial.</summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>MARCA: el agente de IA puede ASIGNARLE tareas por reparto (round-robin). Solo los
+    /// asesores con esta marca Y vinculados a un usuario (<see cref="TenantUserId"/>) entran en el
+    /// reparto automatico; los demas no reciben tareas del agente. No todos tienen esta opcion.</summary>
+    public bool AssignableByAgent { get; set; }
+
+    /// <summary>Ultima vez que el agente le asigno una tarea. Es la clave del reparto round-robin:
+    /// entre los elegibles, recibe primero el que hace MAS tiempo no recibe (null = nunca -> primero).</summary>
+    public DateTimeOffset? LastAgentAssignmentAt { get; set; }
 }

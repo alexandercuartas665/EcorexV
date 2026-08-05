@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-08-05 - v0.8.0: el agente crea tareas en tableros (MCP) + archivos + reparto a comerciales
+
+**Que:** El agente de IA (SARA) puede CERRAR una conversacion creando una tarea en un tablero, con los
+archivos que el cliente envio adjuntos, y la tarea se reparte round-robin entre los comerciales marcados.
+
+- **`TasksToolset`** (function calling / "MCP"): `crear_tarea` (tablero por nombre + titulo + descripcion
+  + prioridad/vence) y `listar_tableros`. Reusa `ITaskItemService.CreateAsync`. Auto-provisiona un tipo
+  de actividad "General" si el tenant no tiene ninguno. Registrado como IAgentToolset (lo agrega
+  AiInferenceService y lo filtra por agente).
+- **Archivos**: `crear_tarea` auto-adjunta a la tarea la media entrante de la conversacion + los adjuntos
+  pendientes del contexto (`AiToolRunContext.PendingAttachments`). La herramienta de pruebas "Probar
+  agente" gana subida de archivo (se almacena via IDocumentoFileStore -> URL -> se anexa).
+- **Reparto round-robin**: nueva MARCA `Asesor.AssignableByAgent` (checkbox en /asesores) +
+  `LastAgentAssignmentAt`. crear_tarea asigna la tarea al SIGUIENTE asesor elegible (activo + marcado +
+  con usuario vinculado); recibe primero el que hace mas tiempo no recibe. Migracion DUAL
+  `AddAsesorAgentAssignment`. Probado en prod: 3 tareas -> Julian, Lilian, Julian (cicla).
+- **Fix keyring local->prod**: el dev en modo prod-tunnel comparte el keyring de DataProtection de prod
+  (BD) -> descifra secretos de prod (API de IA, SMTP, credenciales). Sin esto no se podia ni probar el
+  agente en local. Solo afecta al branch de dev; prod igual.
+- **FormModule (`/m/{Code}`)**: boton "Ver" por fila -> abre un registro guardado en el formulario en
+  solo lectura (DynamicFormRenderer Mode=ReadOnly por ResponseId).
+- Prompt de SARA v1 (AGROMETALICAS) actualizado en prod con el bloque de cierre por tarea.
+
+---
+
 ## 2026-08-04 - Deploy unificado v0.7.0
 
 **Que:** Un solo deploy a prod con todo lo acumulado en el tronco: Asesores/Vendedor por FK (Bloque A,

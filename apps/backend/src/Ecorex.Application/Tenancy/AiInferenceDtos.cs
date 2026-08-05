@@ -104,7 +104,7 @@ public interface IAiInferenceService
     /// </summary>
     /// <param name="actorUserId">Usuario que opera la prueba; se usa como actor de las herramientas (reservas/auditoria).</param>
     /// <param name="imageBase64">Imagen opcional adjunta a la prueba (caja de arena), disponible para herramientas de vision.</param>
-    Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, CancellationToken cancellationToken = default);
+    Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atencion real por una linea de WhatsApp. La sesion de cache es la conversacion (linea+contacto),

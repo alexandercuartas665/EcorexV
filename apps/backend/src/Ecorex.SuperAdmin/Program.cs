@@ -144,14 +144,27 @@ builder.Services.AddApplication();
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddSingleton(new Ecorex.Application.Scraping.ScrapeGuardOptions { AllowLoopback = true });
-    // DataProtection en DEV: persiste las llaves a un archivo LOCAL en vez del DbContext. Dos razones:
-    // (1) los reinicios del dev ya no cierran la sesion (llaves estables entre arranques); (2) el dev
-    // deja de escribir su keyring en la BD, que en este proyecto es la de PROD via tunel. Solo Development;
-    // en produccion queda la persistencia al DbContext que registra Infrastructure. La carpeta esta gitignored.
-    builder.Services.AddDataProtection()
-        .SetApplicationName("Ecorex")
-        .PersistKeysToFileSystem(new System.IO.DirectoryInfo(
-            System.IO.Path.Combine(builder.Environment.ContentRootPath, ".dpkeys-dev")));
+    // DataProtection en DEV segun a que BD apunta:
+    //  - BD local propia (SkipDemoSeed=false): keyring en ARCHIVO local (reinicios estables, no toca la BD).
+    //  - BD REAL / prod via tunel (SkipDemoSeed=true): keyring en la BD, el MISMO que usa prod, para poder
+    //    DESCIFRAR los secretos cifrados por prod (API keys de IA, SMTP, credenciales de conector). Sin esto,
+    //    el dev no puede validar nada que dependa de un secreto cifrado por prod. Prod ya tiene una llave
+    //    activa, asi que el dev la LEE (no crea una nueva). En prod queda igual (persistencia al DbContext).
+    var devSharesProdKeyring = builder.Configuration.GetValue<bool>("Ecorex:SkipDemoSeed")
+        || string.Equals(Environment.GetEnvironmentVariable("ECOREX_SKIP_DEMO_SEED"), "true", StringComparison.OrdinalIgnoreCase);
+    if (devSharesProdKeyring)
+    {
+        builder.Services.AddDataProtection()
+            .SetApplicationName("Ecorex")
+            .PersistKeysToDbContext<Ecorex.Infrastructure.Persistence.EcorexDbContext>();
+    }
+    else
+    {
+        builder.Services.AddDataProtection()
+            .SetApplicationName("Ecorex")
+            .PersistKeysToFileSystem(new System.IO.DirectoryInfo(
+                System.IO.Path.Combine(builder.Environment.ContentRootPath, ".dpkeys-dev")));
+    }
 }
 else
 {

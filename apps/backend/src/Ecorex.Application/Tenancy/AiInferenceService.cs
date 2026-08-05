@@ -58,15 +58,15 @@ public sealed class AiInferenceService : IAiInferenceService
     }
 
     // Chat de prueba: la sesion de cache es el AgentId y el operador prueba con reservas reales (autonomo).
-    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, cancellationToken);
+    public Task<AiChatResult> TestChatAsync(Guid agentId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride = null, Guid? actorUserId = null, string? imageBase64 = null, string? imageMime = null, IReadOnlyList<AiToolRunContext.PendingAttachment>? attachments = null, CancellationToken cancellationToken = default)
+        => RunCoreAsync(agentId, agentId, turns, systemPromptOverride, autonomous: true, actorUserId ?? Guid.Empty, conversationId: null, imageBase64, imageMime, attachments, cancellationToken);
 
     // Atencion real por una linea: la sesion de cache es la conversacion (linea+contacto) y la autonomia
     // (ejecutar acciones de verdad vs solo sugerir) la fija el binding de la linea.
     public Task<AiChatResult> RespondAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, bool autonomous, Guid actorUserId, CancellationToken cancellationToken = default)
-        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, cancellationToken);
+        => RunCoreAsync(agentId, sessionId, turns, null, autonomous, actorUserId, conversationId: sessionId, imageBase64: null, imageMime: null, pendingAttachments: null, cancellationToken);
 
-    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, CancellationToken cancellationToken)
+    private async Task<AiChatResult> RunCoreAsync(Guid agentId, Guid sessionId, IReadOnlyList<AiChatTurn> turns, string? systemPromptOverride, bool autonomous, Guid actorUserId, Guid? conversationId, string? imageBase64, string? imageMime, IReadOnlyList<AiToolRunContext.PendingAttachment>? pendingAttachments, CancellationToken cancellationToken)
     {
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, cancellationToken);
         if (agent is null) { return new AiChatResult(false, null, "El agente no existe."); }
@@ -129,7 +129,7 @@ public sealed class AiInferenceService : IAiInferenceService
         var disabledTools = ParseDisabledTools(agent.DisabledToolsJson);
         // Contexto ambiental para herramientas de vision: conversacion en curso y/o imagen pendiente
         // (sandbox/emulador). Fluye por el await hasta ExecuteAsync de los toolsets.
-        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime);
+        using var _toolCtx = AiToolRunContext.Begin(conversationId, imageBase64, imageMime, pendingAttachments);
         var (result, sessionCompleted) = await RunToolLoopAsync(
             agent.Provider, apiKey, providerCfg.BaseUrl, model, systemPrompt, turns, autonomous, actor, disabledTools, debugPrompts, cancellationToken);
 

@@ -194,6 +194,7 @@ else
                         }
                         @if (_columns.Count == 0) { <td>@(r.Reference ?? "-")</td> }
                         <td class="fm-actions-col">
+                            <button class="fm-row-view" title="Ver este registro en el formulario (solo lectura)" @onclick="() => OpenView(r)">Ver</button>
                             @if (r.RecordStatus != FormRecordStatus.Voided)
                             {
                                 <button class="fm-row-void" title="Anular este registro" @onclick="() => OpenVoid(r)">Anular</button>
@@ -246,6 +247,25 @@ else
                                          ApplyCardWidth="true"
                                          SubmittedByTenantUserId="@_actorTenantUserId"
                                          OnSubmitted="OnNewRecordSubmittedAsync" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ===== Modal: ver registro (renderer en modo View, solo lectura) ===== *@
+    @if (_viewResponseId is not null && _def is not null)
+    {
+        <div class="modal-overlay" style="z-index:60;" @onclick="CloseView">
+            <div class="modal-dialog fm-new-dialog" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Ver registro - @_def.Title</h3>
+                    <button class="modal-close" @onclick="CloseView">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <DynamicFormRenderer DefinitionId="@_def.Id"
+                                         ResponseId="@_viewResponseId"
+                                         Mode="FormRenderMode.ReadOnly"
+                                         ApplyCardWidth="true" />
                 </div>
             </div>
         </div>
@@ -330,6 +350,7 @@ else
     private bool _filtersOpen;
     // Alta y anulacion.
     private bool _newOpen;
+    private Guid? _viewResponseId;
     private FormRecordListItemDto? _voidTarget;
     private string? _voidReason;
     private string? _voidError;
@@ -488,6 +509,10 @@ else
     // ---- Alta de registro nuevo ----
     private void OpenNew() => _newOpen = true;
     private void CloseNew() => _newOpen = false;
+
+    // Abrir un registro EXISTENTE en el formulario, solo lectura (FormRenderMode.View carga por ResponseId).
+    private void OpenView(FormRecordListItemDto r) => _viewResponseId = r.Id;
+    private void CloseView() => _viewResponseId = null;
 
     private async Task OnNewRecordSubmittedAsync(FormResponseDto _)
     {

@@ -1827,6 +1827,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.IsActive });
             b.HasIndex(x => x.TenantUserId);
+            // Reparto round-robin del agente: elegibles por tenant, ordenados por ultima asignacion.
+            b.HasIndex(x => new { x.TenantId, x.AssignableByAgent });
         });
 
         modelBuilder.Entity<Tercero>(b =>

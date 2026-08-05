@@ -1407,6 +1407,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AssignableByAgent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("assignable_by_agent");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1428,6 +1432,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<DateTimeOffset?>("LastAgentAssignmentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_agent_assignment_at");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -1461,6 +1469,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantUserId")
                         .HasDatabaseName("ix_asesores_tenant_user_id");
+
+                    b.HasIndex("TenantId", "AssignableByAgent")
+                        .HasDatabaseName("ix_asesores_tenant_id_assignable_by_agent");
 
                     b.HasIndex("TenantId", "IsActive")
                         .HasDatabaseName("ix_asesores_tenant_id_is_active");

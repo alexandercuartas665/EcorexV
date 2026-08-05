@@ -52,7 +52,8 @@ public sealed class AsesorService : IAsesorService
             a.TenantUserId,
             a.TenantUserId is Guid uid && userNames.TryGetValue(uid, out var nombre) ? nombre : null,
             a.IsActive,
-            counts.TryGetValue(a.Id, out var c) ? c : 0)).ToList();
+            counts.TryGetValue(a.Id, out var c) ? c : 0,
+            a.AssignableByAgent)).ToList();
     }
 
     public async Task<IReadOnlyList<AsesorOptionDto>> ListOptionsAsync(CancellationToken cancellationToken = default)
@@ -93,6 +94,7 @@ public sealed class AsesorService : IAsesorService
             Telefono = Blank(request.Telefono),
             TenantUserId = request.TenantUserId,
             IsActive = request.IsActive,
+            AssignableByAgent = request.AssignableByAgent,
         };
         _db.Asesores.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
@@ -112,6 +114,7 @@ public sealed class AsesorService : IAsesorService
         entity.Telefono = Blank(request.Telefono);
         entity.TenantUserId = request.TenantUserId;
         entity.IsActive = request.IsActive;
+        entity.AssignableByAgent = request.AssignableByAgent;
         await _db.SaveChangesAsync(cancellationToken);
         return AsesorResult<AsesorDto>.Ok((await GetAsync(entity.Id, cancellationToken))!);
     }

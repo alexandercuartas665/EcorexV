@@ -31,7 +31,8 @@ public sealed record AsesorDto(
     Guid? TenantUserId,
     string? TenantUserNombre,
     bool IsActive,
-    int TercerosCount);
+    int TercerosCount,
+    bool AssignableByAgent = false);
 
 /// <summary>Opcion minima para el selector "Vendedor asignado" del tercero.</summary>
 public sealed record AsesorOptionDto(Guid Id, string Nombre);
@@ -46,7 +47,8 @@ public sealed record SaveAsesorRequest(
     string? Email,
     string? Telefono,
     Guid? TenantUserId,
-    bool IsActive);
+    bool IsActive,
+    bool AssignableByAgent = false);
 
 public interface IAsesorService
 {

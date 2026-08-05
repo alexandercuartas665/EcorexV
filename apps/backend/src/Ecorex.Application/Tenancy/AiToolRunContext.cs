@@ -8,17 +8,23 @@ namespace Ecorex.Application.Tenancy;
 /// </summary>
 public static class AiToolRunContext
 {
-    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime);
+    /// <summary>Archivo ya almacenado (con URL) pendiente de adjuntar por una herramienta (ej. crear_tarea).
+    /// Lo usa la herramienta de pruebas del agente para simular "el cliente envio un archivo".</summary>
+    public sealed record PendingAttachment(string Url, string FileName, string? MimeType);
+
+    private sealed record Scope(Guid? ConversationId, string? ImageBase64, string? ImageMime, IReadOnlyList<PendingAttachment>? Attachments);
     private static readonly AsyncLocal<Scope?> _current = new();
 
     public static Guid? ConversationId => _current.Value?.ConversationId;
     public static string? ImageBase64 => _current.Value?.ImageBase64;
     public static string? ImageMime => _current.Value?.ImageMime;
+    public static IReadOnlyList<PendingAttachment>? PendingAttachments => _current.Value?.Attachments;
 
-    public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime)
+    public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime,
+        IReadOnlyList<PendingAttachment>? attachments = null)
     {
         var previous = _current.Value;
-        _current.Value = new Scope(conversationId, imageBase64, imageMime);
+        _current.Value = new Scope(conversationId, imageBase64, imageMime, attachments);
         return new Resetter(previous);
     }
 

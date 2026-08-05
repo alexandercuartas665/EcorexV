@@ -44,19 +44,19 @@
             <div class="dg-co-body">
                 <div style="min-width:0">
                     <label class="dg-flabel">Nombre <span class="dg-req">*</span></label>
-                    <input class="dg-input" value="@_coNombre" @oninput="e => _coNombre = e.Value?.ToString() ?? string.Empty" />
+                    <input class="dg-input" @bind="_coNombre" />
                 </div>
                 <div style="min-width:0">
                     <label class="dg-flabel">Cargo</label>
-                    <input class="dg-input" value="@_coCargo" @oninput="e => _coCargo = e.Value?.ToString() ?? string.Empty" />
+                    <input class="dg-input" @bind="_coCargo" />
                 </div>
                 <div style="min-width:0">
                     <label class="dg-flabel">Correo</label>
-                    <input class="dg-input" value="@_coEmail" @oninput="e => _coEmail = e.Value?.ToString() ?? string.Empty" />
+                    <input class="dg-input" @bind="_coEmail" />
                 </div>
                 <div style="min-width:0">
                     <label class="dg-flabel">Telefono</label>
-                    <input class="dg-input" value="@_coTelefono" @oninput="e => _coTelefono = e.Value?.ToString() ?? string.Empty" />
+                    <input class="dg-input" @bind="_coTelefono" />
                 </div>
                 @if (_coError is not null)
                 {
@@ -165,7 +165,7 @@
                                     else
                                     {
                                         <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
-                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" value="@_mIdValor" @oninput="e => _mIdValor = e.Value?.ToString() ?? string.Empty" />
+                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" @bind="_mIdValor" />
                                     }
                                 </div>
 
@@ -173,7 +173,7 @@
                                 <div class="dg-fields">
                                     <div style="min-width:0">
                                         <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
-                                        <input class="dg-input" value="@_mNombre" @oninput="e => _mNombre = e.Value?.ToString() ?? string.Empty" />
+                                        <input class="dg-input" @bind="_mNombre" />
                                     </div>
                                     @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
                                        Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
@@ -207,22 +207,22 @@
                                     {
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Sector / Industria</label>
-                                            <input class="dg-input" value="@_mSector" @oninput="e => _mSector = e.Value?.ToString() ?? string.Empty" />
+                                            <input class="dg-input" @bind="_mSector" />
                                         </div>
                                     }
                                     else
                                     {
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Cargo</label>
-                                            <input class="dg-input" value="@_mCargo" @oninput="e => _mCargo = e.Value?.ToString() ?? string.Empty" />
+                                            <input class="dg-input" @bind="_mCargo" />
                                         </div>
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Correo</label>
-                                            <input class="dg-input" value="@_mEmail" @oninput="e => _mEmail = e.Value?.ToString() ?? string.Empty" />
+                                            <input class="dg-input" @bind="_mEmail" />
                                         </div>
                                         <div style="min-width:0">
                                             <label class="dg-flabel">Telefono</label>
-                                            <input class="dg-input" value="@_mTelefono" @oninput="e => _mTelefono = e.Value?.ToString() ?? string.Empty" />
+                                            <input class="dg-input" @bind="_mTelefono" />
                                         </div>
                                     }
                                     <div style="min-width:0">
@@ -329,7 +329,7 @@
                                                                                     </select>
                                                                                     break;
                                                                                 case TerceroFieldType.TextArea:
-                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
                                                                                     break;
                                                                                 case TerceroFieldType.Lookup:
                                                                                     @* Lista alimentada por el Contenedor de datos. Se guarda el Id de la
@@ -364,7 +364,7 @@
                                                                                     }
                                                                                     break;
                                                                                 default:
-                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @oninput="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
+                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
                                                                                     break;
                                                                             }
                                                                         }
@@ -518,13 +518,13 @@
                                                 <div class="dg-proc">
                                                     <div class="dg-proc-row dg-proc-titulo">
                                                         <label class="dg-flabel">TITULO *</label>
-                                                        <input class="dg-input" placeholder="Titulo de la gestion" value="@_procTitulo" @oninput="e => _procTitulo = e.Value?.ToString() ?? string.Empty" />
+                                                        <input class="dg-input" placeholder="Titulo de la gestion" @bind="_procTitulo" />
                                                     </div>
                                                     @if (conc.HandlesValues)
                                                     {
                                                         <div class="dg-proc-row dg-proc-valor">
                                                             <label class="dg-flabel">VALOR *</label>
-                                                            <input class="dg-input" type="number" min="0" step="any" placeholder="0" value="@_procValor" @oninput="e => _procValor = e.Value?.ToString() ?? string.Empty" />
+                                                            <input class="dg-input" type="number" min="0" step="any" placeholder="0" @bind="_procValor" />
                                                         </div>
                                                     }
                                                     @if (conc.Mode == Ecorex.Domain.Enums.ConceptoActividadMode.CalendarEvent)
@@ -555,7 +555,7 @@
                                             }
                                             else
                                             {
-                                                <textarea class="dg-input dg-textarea" placeholder="Detalle de @conc.Name..." value="@_noteText" @oninput="e => _noteText = e.Value?.ToString() ?? string.Empty"></textarea>
+                                                <textarea class="dg-input dg-textarea" placeholder="Detalle de @conc.Name..." @bind="_noteText"></textarea>
                                                 @if (_noteError is not null) { <div class="dg-note-err">@_noteError</div> }
                                                 <div class="dg-note-actions">
                                                     <button class="dg-btn-new" @onclick="AddConceptoNotaAsync" disabled="@(_busy || !procOk)">

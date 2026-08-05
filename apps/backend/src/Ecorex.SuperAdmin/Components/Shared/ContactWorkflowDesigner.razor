@@ -75,7 +75,7 @@
                                 <span class="cw-step-order">@(idx + 1)</span>
                                 <span class="cw-step-ic" style="background:@meta.Color">@((MarkupString)meta.Icon)</span>
                                 <div class="cw-step-titles">
-                                    <input class="cw-step-label" value="@st.Label" @oninput="e => st.Label = e.Value?.ToString() ?? string.Empty" />
+                                    <input class="cw-step-label" @bind="st.Label" />
                                     <span class="cw-step-type">@meta.Label &#183; @meta.Sub</span>
                                 </div>
                                 <div class="cw-step-tools">
@@ -97,19 +97,19 @@
                                 <div class="cw-call">
                                     <div class="cw-field">
                                         <label>Comercial</label>
-                                        <input value="@st.Comercial" @oninput="e => st.Comercial = e.Value?.ToString()" placeholder="Responsable" />
+                                        <input @bind="st.Comercial" placeholder="Responsable" />
                                     </div>
                                     <div class="cw-field">
                                         <label>Prioridad</label>
-                                        <input value="@st.Prioridad" @oninput="e => st.Prioridad = e.Value?.ToString()" placeholder="Alta / Media / Baja" />
+                                        <input @bind="st.Prioridad" placeholder="Alta / Media / Baja" />
                                     </div>
                                     <div class="cw-field">
                                         <label>Categoria</label>
-                                        <input value="@st.Categoria" @oninput="e => st.Categoria = e.Value?.ToString()" placeholder="Categoria de la gestion" />
+                                        <input @bind="st.Categoria" placeholder="Categoria de la gestion" />
                                     </div>
                                     <div class="cw-field">
                                         <label>Subcategoria</label>
-                                        <input value="@st.Subcategoria" @oninput="e => st.Subcategoria = e.Value?.ToString()" placeholder="Subcategoria / concepto" />
+                                        <input @bind="st.Subcategoria" placeholder="Subcategoria / concepto" />
                                     </div>
                                 </div>
                             }
@@ -159,11 +159,11 @@
                                             </div>
                                             <div class="cw-field">
                                                 <label>Repetir cada (min)</label>
-                                                <input type="number" min="0" value="@sc.RepeatEvery" @oninput="e => sc.RepeatEvery = ParseInt(e.Value)" placeholder="-" />
+                                                <input type="number" min="0" value="@sc.RepeatEvery" @onchange="e => sc.RepeatEvery = ParseInt(e.Value)" placeholder="-" />
                                             </div>
                                             <div class="cw-field">
                                                 <label>Tam. paquete</label>
-                                                <input type="number" min="0" value="@sc.PackageSize" @oninput="e => sc.PackageSize = ParseInt(e.Value)" placeholder="-" />
+                                                <input type="number" min="0" value="@sc.PackageSize" @onchange="e => sc.PackageSize = ParseInt(e.Value)" placeholder="-" />
                                             </div>
                                         </div>
                                         <button class="cw-win-del" title="Quitar ventana" @onclick="() => st.Schedules.RemoveAt(jdx)">

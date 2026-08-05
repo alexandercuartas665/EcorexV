@@ -641,9 +641,9 @@
             </div>
             <div class="gc-m-body">
                 <label class="gc-flabel">NOMBRE DEL FILTRO</label>
-                <input class="gc-input" placeholder="Ej. Gerentes retail Medellin" value="@_fbNombre" @oninput="e => _fbNombre = e.Value?.ToString() ?? string.Empty" />
+                <input class="gc-input" placeholder="Ej. Gerentes retail Medellin" @bind="_fbNombre" />
                 <label class="gc-flabel mt">DESCRIPCION <span class="gc-opt">(opcional)</span></label>
-                <textarea class="gc-input gc-textarea" placeholder="Que segmento describe este filtro" value="@_fbDesc" @oninput="e => _fbDesc = e.Value?.ToString() ?? string.Empty"></textarea>
+                <textarea class="gc-input gc-textarea" placeholder="Que segmento describe este filtro" @bind="_fbDesc"></textarea>
                 <label class="gc-flabel mt">FUENTE DE DATOS</label>
                 <div class="gc-pill-row">
                     @foreach (var s in FuenteOpciones)
@@ -671,7 +671,7 @@
                                 <option value="@op">@op</option>
                             }
                         </select>
-                        <input class="gc-input sm" placeholder="valor" value="@cr.Valor" @oninput="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
+                        <input class="gc-input sm" placeholder="valor" value="@cr.Valor" @onchange="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
                         <button class="gc-crit-del" @onclick="() => _fbCriterios.RemoveAt(idx)" title="Quitar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>
@@ -717,8 +717,8 @@
                     var cc = c;
                     <div class="gc-col-row">
                         <span class="gc-col-dot" style="background:@ColorOf(cc.Color)"></span>
-                        <input class="gc-input" value="@ColNombre(cc.Id, cc.Nombre)" @oninput="e => SetColNombre(cc.Id, e.Value?.ToString())" />
-                        <input class="gc-input xs" value="@ColColor(cc.Id, cc.Color)" @oninput="e => SetColColor(cc.Id, e.Value?.ToString())" title="Color (hex o token)" />
+                        <input class="gc-input" value="@ColNombre(cc.Id, cc.Nombre)" @onchange="e => SetColNombre(cc.Id, e.Value?.ToString())" />
+                        <input class="gc-input xs" value="@ColColor(cc.Id, cc.Color)" @onchange="e => SetColColor(cc.Id, e.Value?.ToString())" title="Color (hex o token)" />
                         <button class="gc-icon-btn" @onclick="() => SaveColumnaAsync(cc.Id)" disabled="@_busy" title="Guardar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
                         </button>
@@ -729,8 +729,8 @@
                 }
                 <div class="gc-col-new">
                     <span class="gc-col-dot" style="background:@ColorOf(_newColColor)"></span>
-                    <input class="gc-input" placeholder="Nuevo estado" value="@_newColNombre" @oninput="e => _newColNombre = e.Value?.ToString() ?? string.Empty" />
-                    <input class="gc-input xs" value="@_newColColor" @oninput="e => _newColColor = e.Value?.ToString() ?? string.Empty" />
+                    <input class="gc-input" placeholder="Nuevo estado" @bind="_newColNombre" />
+                    <input class="gc-input xs" @bind="_newColColor" />
                     <button class="gc-btn-brand" @onclick="() => SaveColumnaAsync(null)" disabled="@_busy">Agregar</button>
                 </div>
                 @if (_colError is not null)
@@ -758,7 +758,7 @@
             </div>
             <div class="gc-m-body">
                 <label class="gc-flabel">TITULO</label>
-                <input class="gc-input" placeholder="Ej. Llamada de seguimiento" value="@_citaTitulo" @oninput="e => _citaTitulo = e.Value?.ToString() ?? string.Empty" />
+                <input class="gc-input" placeholder="Ej. Llamada de seguimiento" @bind="_citaTitulo" />
                 <div class="gc-two">
                     <div>
                         <label class="gc-flabel mt">TIPO</label>
@@ -791,7 +791,7 @@
                     </div>
                 </div>
                 <label class="gc-flabel mt">DURACION (min)</label>
-                <input class="gc-input" type="number" value="@_citaDuracion" @oninput="e => _citaDuracion = int.TryParse(e.Value?.ToString(), out var v) ? v : 60" />
+                <input class="gc-input" type="number" value="@_citaDuracion" @onchange="e => _citaDuracion = int.TryParse(e.Value?.ToString(), out var v) ? v : 60" />
                 @if (_citaError is not null)
                 {
                     <div class="gc-note-err">@_citaError</div>

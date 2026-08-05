@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-05 - v0.8.2: fix "el sistema se traga el texto" en cajas de texto (Blazor Server)
+
+**Que:** Auditoria + fix del bug donde algunos inputs perdian caracteres al escribir. Causa: inputs con
+round-trip POR TECLA (`@bind:event="oninput"` o el patron controlado `value=@x @oninput=`) que, bajo
+latencia SignalR (amplificado por el tunel local->prod), se re-renderizan y el server reescribe el
+`value=`, descartando lo tecleado. Variante extra en el chat (Patron C): un mensaje entrante del hub
+re-renderiza y pisa el borrador.
+
+- **~59 inputs de CAMPOS DE FORMULARIO** convertidos a `@bind` (commit onchange, sin round-trip por
+  tecla) en 10 archivos: TerceroModal (14), TaskDetailModal (4), TaskWizard (2), GestorContactos (9),
+  ContactWorkflowDesigner (7), DirectorioGeneral (4), ActivityBoardDetail (4), Agentes (4),
+  TableroDetalle (10). Handlers que hacian mas que asignar -> `@bind:after="Metodo"` para conservar el
+  efecto sin round-trip.
+- **Buscadores/filtros: intactos** (ahi `oninput`/debounce es correcto; convertirlos romperia el
+  filtrado en vivo). **Inputs con Enter-para-enviar/agregar** (tags, cc, chat): se dejan en `oninput`
+  porque con onchange el valor no se confirma al presionar Enter (se enviaria vacio).
+- **Chat** (`Conversaciones.razor`): se mantiene `oninput` (Enter-para-enviar funciona); el "wipe" por
+  mensaje entrante queda como mejora pendiente (aislar el compositor en un subcomponente).
+- **DynamicFormRenderer (cotizador) y ContenedorDatos ya estaban bien** (usan onchange); no se tocaron.
+- Sin migracion (solo UI). Build verde.
+
+---
+
 ## 2026-08-05 - v0.8.1: herramienta del agente para registrar contactos en el Directorio
 
 **Que:** Nuevo `DirectorioToolset` con `crear_contacto`: el agente de IA registra un contacto (tercero,

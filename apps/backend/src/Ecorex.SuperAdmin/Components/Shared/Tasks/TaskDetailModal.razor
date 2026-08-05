@@ -35,7 +35,7 @@
                     @if (_editingTitle && !readOnly)
                     {
                         <div>
-                            <input class="form-control tk-detail-title-input" @bind="_editTitle" @bind:event="oninput" maxlength="200" />
+                            <input class="form-control tk-detail-title-input" @bind="_editTitle" maxlength="200" />
                             <div style="margin-top:8px;display:flex;gap:8px;">
                                 <button class="btn btn-sm btn-primary" @onclick="SaveTitleAsync" disabled="@_busy">Guardar</button>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _editingTitle = false)">Cancelar</button>
@@ -429,7 +429,7 @@
                         </div>
                         @if (_editingDesc)
                         {
-                            <textarea class="form-control" rows="4" @bind="_editDesc" @bind:event="oninput" placeholder="Que detalles importantes debe saber el equipo?"></textarea>
+                            <textarea class="form-control" rows="4" @bind="_editDesc" placeholder="Que detalles importantes debe saber el equipo?"></textarea>
                             <div style="display:flex;gap:8px;margin-top:8px;">
                                 <button class="btn btn-sm btn-primary" @onclick="SaveDescriptionAsync" disabled="@_busy">Guardar</button>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _editingDesc = false)">Cancelar</button>
@@ -629,7 +629,7 @@
                             @if (!readOnly)
                             {
                                 <div class="tk-check-add">
-                                    <input class="form-control form-control-sm" @bind="_newCheckText" @bind:event="oninput" maxlength="300" placeholder="Nuevo item..." />
+                                    <input class="form-control form-control-sm" @bind="_newCheckText" maxlength="300" placeholder="Nuevo item..." />
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
                                 </div>
                             }
@@ -899,7 +899,7 @@
                     @if (!readOnly)
                     {
                         <div class="tk-comment-box">
-                            <textarea class="form-control" rows="2" @bind="_newComment" @bind:event="oninput" placeholder="Escribe un comentario..."></textarea>
+                            <textarea class="form-control" rows="2" @bind="_newComment" placeholder="Escribe un comentario..."></textarea>
                             <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Comentar</button>
                         </div>
                     }

@@ -297,6 +297,9 @@ else
                                 </div>
                             }
                         </div>
+                        @* Draft en vivo (oninput) para que Enter-para-enviar lea el texto actual; el "wipe" por
+                           mensaje entrante del hub se resuelve aislando el compositor (pendiente), no con onchange
+                           (que romperia el envio con Enter porque el borrador no se confirma al presionar Enter). *@
                         <textarea rows="1" placeholder="Escribe un mensaje..." @bind="_draft" @bind:event="oninput" @onkeydown="ChatKeyDown" disabled="@_sending"></textarea>
                         <button class="cv-send" @onclick="SendAsync" disabled="@(_sending || string.IsNullOrWhiteSpace(_draft))" title="Enviar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>

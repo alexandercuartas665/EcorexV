@@ -203,7 +203,7 @@ else
                     <div class="field">
                         <label class="form-label">Prompt base (comportamiento principal)</label>
                         @RichToolbar("basePrompt", () => _baseEmojiOpen, v => _baseEmojiOpen = v)
-                        <textarea id="basePrompt" class="form-control" rows="4" @bind="_fPrompt" @bind:event="oninput" placeholder="Instrucciones generales que definen el comportamiento del agente..."></textarea>
+                        <textarea id="basePrompt" class="form-control" rows="4" @bind="_fPrompt" placeholder="Instrucciones generales que definen el comportamiento del agente..."></textarea>
                     </div>
                 }
                 @if (_editorError is not null)
@@ -288,7 +288,7 @@ else
                                 </div>
                                 <div class="field">
                                     <label class="form-label">Stack de emojis (separados por coma)</label>
-                                    <input class="form-control" @bind="_fReactionEmojis" @bind:event="oninput" placeholder="Pega los emojis separados por coma (en Windows: tecla Windows + punto)" disabled="@_busy" />
+                                    <input class="form-control" @bind="_fReactionEmojis" placeholder="Pega los emojis separados por coma (en Windows: tecla Windows + punto)" disabled="@_busy" />
                                     @if (ReactionEmojiList().Count > 0)
                                     {
                                         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
@@ -735,7 +735,7 @@ else
                         <div class="field">
                             <label class="form-label">Prompt *</label>
                             @RichToolbar("promptBody", () => _promptEmojiOpen, v => _promptEmojiOpen = v)
-                            <textarea id="promptBody" class="form-control" rows="9" @bind="_pBody" @bind:event="oninput" placeholder="Instrucciones que el agente debe seguir cuando aplica esta regla..."></textarea>
+                            <textarea id="promptBody" class="form-control" rows="9" @bind="_pBody" placeholder="Instrucciones que el agente debe seguir cuando aplica esta regla..."></textarea>
                         </div>
                         @if (_promptError is not null)
                         {
@@ -885,7 +885,7 @@ else
                 <div class="field">
                     <label class="form-label">Detalle</label>
                     @RichToolbar("resourceDetail", () => _resEmojiOpen, v => _resEmojiOpen = v)
-                    <textarea id="resourceDetail" class="form-control" rows="6" @bind="_rDetail" @bind:event="oninput" placeholder="@DetailHint(_rType)"></textarea>
+                    <textarea id="resourceDetail" class="form-control" rows="6" @bind="_rDetail" placeholder="@DetailHint(_rType)"></textarea>
                 </div>
                 @if (_rType is not (AgentResourceType.Text or AgentResourceType.Location))
                 {

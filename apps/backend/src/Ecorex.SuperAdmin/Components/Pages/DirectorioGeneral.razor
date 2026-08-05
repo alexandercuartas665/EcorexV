@@ -441,7 +441,7 @@
                     <div class="dg-fields">
                         <div style="min-width:0">
                             <label class="dg-flabel">Etiqueta <span class="dg-req">*</span></label>
-                            <input class="dg-input" value="@_cfgLabel" @oninput="e => _cfgLabel = e.Value?.ToString() ?? string.Empty" />
+                            <input class="dg-input" @bind="_cfgLabel" />
                         </div>
                         <div style="min-width:0">
                             <label class="dg-flabel">Tipo</label>
@@ -470,13 +470,13 @@
                         </div>
                         <div style="min-width:0">
                             <label class="dg-flabel">Descripcion <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
-                            <input class="dg-input" value="@_cfgDescription" @oninput="e => _cfgDescription = e.Value?.ToString() ?? string.Empty" />
+                            <input class="dg-input" @bind="_cfgDescription" />
                         </div>
                         @if (_cfgType == TerceroFieldType.Select)
                         {
                             <div style="min-width:0" class="dg-fld-full">
                                 <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
-                                <textarea class="dg-input dg-textarea" value="@_cfgOptions" @oninput="e => _cfgOptions = e.Value?.ToString() ?? string.Empty"></textarea>
+                                <textarea class="dg-input dg-textarea" @bind="_cfgOptions"></textarea>
                             </div>
                         }
                         @if (_cfgType == TerceroFieldType.Lookup)
@@ -593,8 +593,7 @@
                                                 </select>
                                                 @if (string.IsNullOrEmpty(ff.FromKey))
                                                 {
-                                                    <input class="dg-input" placeholder="Valor" value="@ff.Value"
-                                                           @oninput="e => ff.Value = e.Value?.ToString() ?? string.Empty" />
+                                                    <input class="dg-input" placeholder="Valor" @bind="ff.Value" />
                                                 }
                                                 else
                                                 {

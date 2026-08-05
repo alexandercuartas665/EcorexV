@@ -292,7 +292,7 @@ else
                 <div class="tb-modal-head-content">
                     @if (_editingTitle)
                     {
-                        <input class="form-control" @bind="_editTitle" @bind:event="oninput" style="font-size:1.4rem;font-weight:700;" />
+                        <input class="form-control" @bind="_editTitle" style="font-size:1.4rem;font-weight:700;" />
                         <div style="margin-top:8px;display:flex;gap:8px;">
                             <button class="btn btn-sm btn-primary" @onclick="SaveTitleAsync" disabled="@_busy">Guardar</button>
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => { _editingTitle = false; _editTitle = detail.Card.Title; })">Cancelar</button>
@@ -362,7 +362,7 @@ else
                             @if (_editingDesc)
                             {
                                 <div class="tb-desc-edit">
-                                    <textarea @bind="_editDescription" @bind:event="oninput" placeholder="Que detalles importantes debe saber el equipo?"></textarea>
+                                    <textarea @bind="_editDescription" placeholder="Que detalles importantes debe saber el equipo?"></textarea>
                                     <div class="tb-desc-edit-actions">
                                         <button class="btn btn-sm btn-primary" @onclick="SaveDescriptionAsync" disabled="@_busy">Guardar</button>
                                         <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => { _editingDesc = false; _editDescription = detail.Card.Description ?? ""; })">Cancelar</button>
@@ -416,7 +416,7 @@ else
                                     }
                                 </div>
                                 <div class="tb-check-add">
-                                    <input @bind="_newChecklistText" @bind:event="oninput" placeholder="Agregar elemento al checklist..." />
+                                    <input @bind="_newChecklistText" placeholder="Agregar elemento al checklist..." />
                                     <button class="btn btn-sm btn-primary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newChecklistText))">Agregar</button>
                                 </div>
                             </div>
@@ -433,7 +433,7 @@ else
                             <div class="tb-act-input">
                                 <div class="tb-avatar lg">@_actorInitials</div>
                                 <div class="tb-act-input-box">
-                                    <textarea @bind="_newComment" @bind:event="oninput" placeholder="Escribe un comentario..."></textarea>
+                                    <textarea @bind="_newComment" placeholder="Escribe un comentario..."></textarea>
                                     <div class="tb-act-input-foot">
                                         <span></span>
                                         <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Guardar</button>
@@ -580,8 +580,8 @@ else
                 }
             </div>
             <div class="tb-pop-add">
-                <input @bind="_newTagName" @bind:event="oninput" placeholder="Nueva etiqueta" />
-                <input @bind="_newTagColor" @bind:event="oninput" placeholder="#7c4dff" style="width:80px;" />
+                <input @bind="_newTagName" placeholder="Nueva etiqueta" />
+                <input @bind="_newTagColor" placeholder="#7c4dff" style="width:80px;" />
                 <button class="btn btn-sm btn-primary" @onclick="CreateTagAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newTagName))">+</button>
             </div>
         </div>
@@ -685,7 +685,7 @@ else
                     }
                 </div>
                 <div style="display:flex;gap:6px;margin-bottom:24px;">
-                    <input class="form-control form-control-sm" @bind="_newColumnName" @bind:event="oninput" placeholder="Nueva columna" />
+                    <input class="form-control form-control-sm" @bind="_newColumnName" placeholder="Nueva columna" />
                     <button class="btn btn-sm btn-primary" @onclick="AddColumnAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newColumnName))">+ Agregar</button>
                 </div>
 
@@ -702,8 +702,8 @@ else
                     }
                 </div>
                 <div style="display:flex;gap:6px;">
-                    <input class="form-control form-control-sm" @bind="_newTagName" @bind:event="oninput" placeholder="Nueva etiqueta" />
-                    <input class="form-control form-control-sm" @bind="_newTagColor" @bind:event="oninput" placeholder="#7c4dff" style="max-width:110px;" />
+                    <input class="form-control form-control-sm" @bind="_newTagName" placeholder="Nueva etiqueta" />
+                    <input class="form-control form-control-sm" @bind="_newTagColor" placeholder="#7c4dff" style="max-width:110px;" />
                     <button class="btn btn-sm btn-primary" @onclick="CreateTagAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newTagName))">+ Agregar</button>
                 </div>
             </div>
@@ -726,7 +726,7 @@ else
             <div class="modal-body">
                 <div class="field">
                     <label class="form-label">Titulo *</label>
-                    <input class="form-control" @bind="_newCardTitle" @bind:event="oninput" placeholder="Que hay que hacer?" autocomplete="off" />
+                    <input class="form-control" @bind="_newCardTitle" placeholder="Que hay que hacer?" autocomplete="off" />
                 </div>
                 <div class="field">
                     <label class="form-label">Descripcion (opcional)</label>

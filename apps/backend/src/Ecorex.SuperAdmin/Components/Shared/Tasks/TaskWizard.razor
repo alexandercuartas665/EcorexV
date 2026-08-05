@@ -176,7 +176,7 @@
                                         <div style="font-weight:700;font-size:15px">Descripcion de la actividad</div>
                                     </div>
                                     <p style="font-size:12.5px;color:var(--ink-3);margin:0 0 16px 41px">Detalla que se va a hacer y el contexto necesario para ejecutarla.</p>
-                                    <input placeholder="@TitlePlaceholder" style="@InStyle;margin-bottom:12px" @bind="_title" @bind:event="oninput" maxlength="200" autocomplete="off" />
+                                    <input placeholder="@TitlePlaceholder" style="@InStyle;margin-bottom:12px" @bind="_title" maxlength="200" autocomplete="off" />
                                     @if (_errors.TryGetValue("title", out var titleErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@titleErr</div> }
                                     <textarea placeholder="Descripcion / detalle" style="width:100%;min-height:96px;padding:12px 13px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);font:inherit;font-size:13.5px;color:var(--ink);resize:vertical;outline:none" @bind="_description"></textarea>
                                 </div>
@@ -246,7 +246,7 @@
                                     </div>
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
                                         <input placeholder="Identificacion" style="@InStyle" @bind="_requesterDoc" />
-                                        <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" @bind:event="oninput" />
+                                        <input placeholder="Email" style="@InStyle" @bind="_requesterEmail" />
                                     </div>
                                     @if (_errors.TryGetValue("email", out var emailErr)) { <div style="@ErrStyle;margin:-6px 0 10px">@emailErr</div> }
                                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">

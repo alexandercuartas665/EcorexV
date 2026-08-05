@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-05 - v0.9.0: DEPLOY UNIFICADO (formulario del concepto + panel:tareas)
+
+**Que:** deploy unificado a prod (v0.8.3 -> v0.9.0) que junta lo acumulado en el tronco desde el ultimo
+deploy: (1) formulario del concepto en el detalle de la tarea -selector concepto+flujo, editable
+mientras la tarea este abierta, idempotente- (eff372d, e0f23c2); (2) panel "Reporte de Sistema de
+Tareas" (panel:tareas) enganchado a la Galeria via PR #3 (merge 2b5d00c), gated por el contenedor
+"Reporte Tareas Personal". El fix del agente Siigo (5eab532) es del binario del agente, NO del servidor
+(ya vivo por reinstalacion local 1.2.3). Sin migracion nueva. Gates locales pre-deploy: build Release +
+unitarios verdes. Backup previo con ./backup.sh.
+
+---
+
 ## 2026-08-05 - Galeria: engancha "Reporte de Sistema de Tareas" (panel:tareas), patron Panel OCS
 
 **Que:** integracion SELECTIVA (sin mergear feat/motor-reportes, que va ~atras) del panel de tareas a

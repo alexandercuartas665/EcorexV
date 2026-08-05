@@ -347,6 +347,18 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 Category = "Paneles",
                 Icon = "server",
                 IsPublished = true
+            },
+            new ReportTemplate
+            {
+                Name = "Reporte de Sistema de Tareas",
+                Description = "Panel del reporte de tareas del sistema (contenedor). Solo donde exista el contenedor.",
+                Kind = ReportTemplateKind.Panel,
+                SourceKey = "panel:tareas",
+                RequiredSourceKind = ReportTemplateSourceKind.Container,
+                RequiredContainerName = "Reporte Tareas Personal",
+                Category = "Paneles",
+                Icon = "chart",
+                IsPublished = true
             }
         };
 

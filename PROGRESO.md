@@ -8073,3 +8073,24 @@ UTC-5). Reconcilia (no duplica). Todo por HTTP, sin UI.
 
 **Estado Siigo**: COMPLETO end-to-end - contenedor + 1792 clientes + conector (token 2 pasos +
 Partner-Id + mapeo anidado) + agente registrado + sync diario automatico.
+
+---
+
+## 2026-08-05 (sesion datos/impl - prod) - Conector Siigo vía AGENTE Colmena: CERRADO
+
+**Ciclo cerrado end-to-end.** Secuencia:
+1. **Punto 2 (observabilidad)** commit `2870232` (v0.8.3): `AgentImportService` escribe `agent_activity_logs`
+   (Kind=Fetch) en cada desenlace del camino de fetch/import. Antes el camino de datos via agente era
+   INVISIBLE; esto lo hizo diagnosticable. + test `AgentFetchActivityLogTests` (rama del autor,
+   cherry-pick al tronco). Descarte del "Punto 1" (frescura/pinger): NO era bug de presencia.
+2. **Diagnostico**: la bitacora mostro `REST_LIST_NET: Host desconocido (api:443)` — el agente resolvia
+   el host `api` en vez de `api.siigo.com`. Descartado: config, RestSpecBuilder, traza de RestExecutor,
+   DNS, hosts, proxy. Causa raiz real: **slash final** en la URL de la lista.
+3. **Fix** (sesion de codigo) commit `5eab532`: REST via agente sin slash final en la URL de la lista.
+   Rebuild MSI + reinstalar agente `cli_a942beecf941`.
+4. **Validacion**: `agent_activity_logs` = `Fetch|Ok`. Empty->fill POR AGENTE (`782c1521`: del 1797 +
+   ins 1797 = Replace ejecutado por el agente). Verificado: contenedor 1798 filas, campos anidados
+   poblados (Ciudad=Popayan, Telefono=phones[0].number). El agente Colmena SI llena el contenedor.
+
+**Estado Siigo/AGROMETALICAS: COMPLETO** — contenedor + conector (token 2 pasos + Partner-Id + mapeo
+anidado) + sync diario 06:00 COT (Upsert) + carga vía agente Colmena funcionando + observabilidad.

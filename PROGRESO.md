@@ -15,6 +15,14 @@ ENTREGAR el numero de ticket al cliente como comprobante (usando el valor exacto
 herramienta, sin inventarlo). Probado en prod: SARA registro contacto + creo tarea T00009 + la asigno
 (round-robin) + le dio el ticket T00009 al cliente confirmando limpio. Sin migracion. Build verde.
 
+**Deploy:** desplegado a prod (v0.8.2 -> v0.8.3) junto con el fix de observabilidad `2870232`
+(Punto 2: `agent_activity_logs` en el camino de fetch/import via agente) y `685a3b2` (fakes de
+`IApplicationDbContext` que dejaban el proyecto de tests roto en Release tras Bloque A/B). Backup
+previo `ecorex-2026-08-05-1155.sql.gz`. Validado post-deploy: el `/run` del conector Siigo via
+agente (correlationId 73b9cd80) ya deja fila `kind=Fetch` en `agent_activity_logs` (result=Error de
+red hacia Siigo, pendiente conocido de esa integracion, no del fix). Rama redundante
+`fix/agente-dispatch-presencia-activitylog` (ya cherry-pickeada) eliminada del remoto.
+
 ---
 
 ## 2026-08-05 - v0.8.2: fix "el sistema se traga el texto" en cajas de texto (Blazor Server)

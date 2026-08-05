@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-05 - Formularios de la actividad en el detalle: concepto + flujo con selector
+
+**Que:** la pestana "Formularios" del detalle de la tarea (TaskDetailModal) ahora muestra AMBAS
+fuentes de formulario, elegibles con un selector: (A) el formulario por defecto que el concepto
+definio para la actividad (`ActividadSubcategoria.FormDefinitionId`, 000131) y (B) los formularios que
+exige el paso actual del flujo (ya existian). Al elegir uno se renderiza inline (antes el del paso
+abria un modal aparte). El del concepto es editable (Fill) mientras la tarea este abierta (no
+Done/Closed) y solo lectura al cerrarla; los del flujo conservan su envio (completa el paso).
+
+**Como (sin migracion, deriva de lo existente):** nuevo `IFormResponseService.GetTaskConceptFormAsync`
+(impl en FormResponseService) que, desde la subcategoria de la tarea, resuelve su `FormDefinitionId`,
+exige `FormStatus.Active`, y asegura el borrador de respuesta anclado a `TaskItem.Number` (idempotente,
+mismo `GetOrCreateDraftAsync` que los formularios del paso). NO crea FormFlowLink (no es paso de flujo).
+DTO nuevo `TaskConceptFormDto`. En la UI: `_conceptForm` + `_selectedFormKey`, selector unificado,
+render inline via DynamicFormRenderer, contador de la pestana y texto vacio actualizados; se elimino el
+modal "Diligenciar" y el metodo OpenStepForm. Build SuperAdmin verde. Pendiente: validacion visual en
+dev (T00001 de AGROMETALICAS debe mostrar el formulario "SIMULADOR COTIZACIONES") y decidir deploy.
+
+---
+
 ## 2026-08-05 - v0.8.3: numero de ticket al cliente + confirmacion limpia del agente
 
 **Que:** `crear_tarea` ahora devuelve el `ticket` (el numero legible de la tarea, `TaskItem.Number`) y

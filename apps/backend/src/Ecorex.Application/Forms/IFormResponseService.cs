@@ -48,6 +48,14 @@ public interface IFormResponseService
     /// </summary>
     Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Formulario por defecto que el concepto (ActividadSubcategoria.FormDefinitionId) definio para la
+    /// actividad de la tarea. Asegura (idempotente) el borrador de respuesta con Reference = numero de
+    /// la tarea y lo devuelve. Null si la tarea no tiene subcategoria, la subcategoria no define
+    /// formulario, o el formulario no esta Active. No crea FormFlowLink (no es un paso de flujo).
+    /// </summary>
+    Task<TaskConceptFormDto?> GetTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
     /// <summary>Anula un registro transaccional confirmado (ola F3): Voided + motivo + auditoria; no libera el numero.</summary>
     Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default);
 

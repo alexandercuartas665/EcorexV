@@ -409,7 +409,7 @@
               <div class="tk-detail-left">
                 <div class="tk-detail-tabs">
                     <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
-                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(_stepForms.Count > 0 ? $" ({_stepForms.Count})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForm is not null ? 1 : 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
                     <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
                 </div>
 
@@ -723,37 +723,71 @@
             </div>
                 }
 
-                @* ===== Tab: Formularios del proceso ===== *@
+                @* ===== Tab: Formularios (concepto + flujo, con selector) ===== *@
                 @if (_modalTab == "formularios")
                 {
+                    var totalForms = (_conceptForm is not null ? 1 : 0) + _stepForms.Count;
                     <div class="tk-tabpane">
                         <div class="tk-card">
-                            <div class="tk-card-head"><h3>Formularios del proceso</h3></div>
-                            @if (_stepForms.Count == 0)
+                            <div class="tk-card-head"><h3>Formularios de la actividad</h3></div>
+                            @if (totalForms == 0)
                             {
-                                <p class="tk-empty-note">Este proceso no tiene formularios pendientes en el paso actual.</p>
+                                <p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el paso del flujo).</p>
                             }
-                            @foreach (var sf in _stepForms)
+                            else
                             {
-                                <div class="tk-summary-row" style="align-items:center;gap:8px;">
-                                    <span style="flex:1;min-width:0;">
-                                        <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
-                                        <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
-                                    </span>
-                                    @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
-                                    {
-                                        <span class="tk-status st-pending">Pendiente</span>
-                                        <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepForm(sf))" disabled="@_busy">Diligenciar</button>
-                                    }
-                                    else
-                                    {
-                                        <span class="tk-status st-done">Enviado</span>
-                                    }
+                                @* El usuario elige que formulario ver/diligenciar: el del concepto (subcategoria)
+                                   y/o los que exige el paso actual del flujo. *@
+                                <div class="tk-form-picker">
+                                    <label>Formulario</label>
+                                    <select class="tk-filter-select" style="max-width:100%;flex:1;" @bind="_selectedFormKey">
+                                        @if (_conceptForm is not null)
+                                        {
+                                            <option value="concepto">Actividad &middot; @_conceptForm.FormTitle</option>
+                                        }
+                                        @foreach (var sf in _stepForms)
+                                        {
+                                            <option value="@($"step:{sf.ResponseId}")">Flujo &middot; @(sf.NodeName ?? "paso") &middot; @sf.FormTitle @(sf.LinkStatus == FormFlowLinkStatus.Pending ? "(pendiente)" : "(enviado)")</option>
+                                        }
+                                    </select>
                                 </div>
-                            }
-                            @if (_stepForms.Count > 0)
-                            {
-                                <p class="tk-empty-note" style="margin-top:8px;">El paso del flujo se completa al enviar el formulario.</p>
+
+                                @if (_selectedFormKey == "concepto" && _conceptForm is not null)
+                                {
+                                    var taskOpen = _detail!.Item.Status is not (TaskItemStatus.Done or TaskItemStatus.Closed);
+                                    <div class="tk-form-host">
+                                        <DynamicFormRenderer DefinitionId="@_conceptForm.DefinitionId"
+                                                             ResponseId="@_conceptForm.ResponseId"
+                                                             Reference="@_conceptForm.Reference"
+                                                             Mode="@(taskOpen ? FormRenderMode.Fill : FormRenderMode.ReadOnly)"
+                                                             SubmittedByTenantUserId="@_actorTenantUserId"
+                                                             OnSubmitted="OnConceptFormSubmittedAsync" />
+                                        @if (!taskOpen)
+                                        {
+                                            <p class="tk-empty-note" style="margin-top:8px;">La actividad esta terminada: el formulario del concepto queda en solo lectura.</p>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    var sf = _stepForms.FirstOrDefault(s => $"step:{s.ResponseId}" == _selectedFormKey);
+                                    if (sf is not null)
+                                    {
+                                        <div class="tk-form-host">
+                                            <DynamicFormRenderer DefinitionId="@sf.DefinitionId"
+                                                                 ResponseId="@sf.ResponseId"
+                                                                 Reference="@sf.Reference"
+                                                                 Mode="@(sf.LinkStatus == FormFlowLinkStatus.Pending ? FormRenderMode.Fill : FormRenderMode.ReadOnly)"
+                                                                 SubmittedByTenantUserId="@_actorTenantUserId"
+                                                                 ApprovalOptions="@(sf.IsGatewayAhead ? sf.ApprovalOptions : null)"
+                                                                 OnSubmitted="OnStepFormSubmittedAsync" />
+                                            @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
+                                            {
+                                                <p class="tk-empty-note" style="margin-top:8px;">Al enviar este formulario se completa el paso del flujo.</p>
+                                            }
+                                        </div>
+                                    }
+                                }
                             }
                         </div>
                     </div>
@@ -934,28 +968,6 @@
     </div>
 }
 
-@* ===== Modal del formulario del paso (renderer en modo Fill) ===== *@
-@if (_openStepForm is not null)
-{
-    <div class="modal-overlay" style="z-index:60;" @onclick="@(() => _openStepForm = null)">
-        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
-            <div class="modal-head">
-                <h3>@_openStepForm.FormTitle</h3>
-                <button class="modal-close" @onclick="@(() => _openStepForm = null)">&times;</button>
-            </div>
-            <div class="modal-body">
-                <DynamicFormRenderer DefinitionId="@_openStepForm.DefinitionId"
-                                     ResponseId="@_openStepForm.ResponseId"
-                                     Reference="@_openStepForm.Reference"
-                                     Mode="FormRenderMode.Fill"
-                                     SubmittedByTenantUserId="@_actorTenantUserId"
-                                     ApprovalOptions="@(_openStepForm.IsGatewayAhead ? _openStepForm.ApprovalOptions : null)"
-                                     OnSubmitted="OnStepFormSubmittedAsync" />
-            </div>
-        </div>
-    </div>
-}
-
 @code {
     // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
     // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
@@ -1008,7 +1020,11 @@
 
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
-    private TaskStepFormDto? _openStepForm;
+    // Formulario por defecto del concepto (ActividadSubcategoria.FormDefinitionId): se muestra junto a
+    // los del flujo en un selector. Editable mientras la tarea este abierta (no Done/Closed).
+    private TaskConceptFormDto? _conceptForm;
+    // Clave del formulario elegido en el selector de la pestana Formularios: "concepto" o "step:<responseId>".
+    private string? _selectedFormKey;
     private Guid? _actorTenantUserId;
 
     // Pasos del flujo atendibles por el usuario (bandeja, ola F2, ADR-0036).
@@ -1062,6 +1078,12 @@
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
             // de forma idempotente si el nodo tiene formulario asignado).
             _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
+            // Formulario por defecto del concepto (subcategoria) de la actividad, si lo definio.
+            _conceptForm = await FormResponsesSvc.GetTaskConceptFormAsync(taskId);
+            // Seleccion inicial del selector: primero el del concepto; si no hay, el primer paso.
+            _selectedFormKey = _conceptForm is not null ? "concepto"
+                : _stepForms.Count > 0 ? $"step:{_stepForms[0].ResponseId}"
+                : null;
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await TasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             var actor = await ActorAsync();
@@ -1521,8 +1543,6 @@
         finally { _busy = false; }
     }
 
-    private void OpenStepForm(TaskStepFormDto stepForm) => _openStepForm = stepForm;
-
     // ---- Visor de documentos (tab Documentos): galeria / lista / visor con mini-galeria ----
     // Abrir un documento en el visor: fija su indice y cambia al modo visor.
     private void OpenDocViewer(TaskItemAttachmentDto att)
@@ -1578,12 +1598,22 @@
     private async Task OnStepFormSubmittedAsync(FormResponseDto _)
     {
         // El submit completo el paso del flujo en el servidor: refresca detalle y avisa.
-        _openStepForm = null;
         if (_detail is not null)
         {
             var taskId = _detail.Item.Id;
             await ReloadAsync(taskId);
             await NotifyChangedAsync(taskId, _detail?.Item.Status ?? TaskItemStatus.Pending);
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnConceptFormSubmittedAsync(FormResponseDto _)
+    {
+        // El formulario del concepto no completa ningun paso: solo se guardo la respuesta. Refresca
+        // el detalle para reflejar el nuevo estado del formulario (queda Enviado / solo lectura).
+        if (_detail is not null)
+        {
+            await ReloadAsync(_detail.Item.Id);
         }
         StateHasChanged();
     }

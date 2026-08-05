@@ -167,3 +167,14 @@ public sealed record TaskStepFormDto(
     Guid WorkflowInstanceId, Guid WorkflowNodeId, string? NodeName,
     FormFlowLinkStatus LinkStatus, FormResponseStatus ResponseStatus, string? Reference,
     bool IsGatewayAhead = false, IReadOnlyList<string>? ApprovalOptions = null);
+
+/// <summary>
+/// Formulario por defecto que el concepto definio para la actividad
+/// (ActividadSubcategoria.FormDefinitionId, 000131). Se deriva de la subcategoria de la tarea y se
+/// ancla como borrador idempotente al numero de la tarea, igual que los formularios del paso, pero
+/// NO pertenece a un paso del flujo: al enviarlo solo se guarda la respuesta (no completa nada).
+/// Null si la tarea no tiene subcategoria, la subcategoria no define formulario, o este no esta activo.
+/// </summary>
+public sealed record TaskConceptFormDto(
+    Guid ResponseId, Guid DefinitionId, string FormCode, string FormTitle,
+    string? Reference, FormResponseStatus ResponseStatus);

@@ -728,6 +728,45 @@ public sealed class FormResponseService : IFormResponseService
         return result;
     }
 
+    public async Task<TaskConceptFormDto?> GetTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task?.SubcategoriaId is not Guid subId)
+        {
+            return null;
+        }
+
+        // El concepto (subcategoria) define el formulario por defecto de la actividad.
+        var formDefId = await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => s.Id == subId)
+            .Select(s => s.FormDefinitionId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (formDefId is not Guid defId)
+        {
+            return null;
+        }
+
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == defId, cancellationToken);
+        if (definition is null || definition.Status != FormStatus.Active || definition.IsArchived)
+        {
+            return null;
+        }
+
+        // Mismo anclaje que los formularios del paso: borrador idempotente con Reference = numero de la
+        // tarea. No se crea FormFlowLink porque este formulario no pertenece a un paso del flujo.
+        var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
+        if (!draft.IsOk || draft.Value is null)
+        {
+            return null;
+        }
+
+        return new TaskConceptFormDto(
+            draft.Value.Id, definition.Id, definition.Code, definition.Title,
+            draft.Value.Reference, draft.Value.Status);
+    }
+
     // ---- Helpers ----
 
     private static FormResponseDto ToDto(FormResponse response)

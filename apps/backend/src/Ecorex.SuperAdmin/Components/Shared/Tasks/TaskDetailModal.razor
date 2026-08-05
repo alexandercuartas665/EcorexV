@@ -760,6 +760,7 @@
                                                              ResponseId="@_conceptForm.ResponseId"
                                                              Reference="@_conceptForm.Reference"
                                                              Mode="@(taskOpen ? FormRenderMode.Fill : FormRenderMode.ReadOnly)"
+                                                             KeepEditable="true"
                                                              SubmittedByTenantUserId="@_actorTenantUserId"
                                                              OnSubmitted="OnConceptFormSubmittedAsync" />
                                         @if (!taskOpen)

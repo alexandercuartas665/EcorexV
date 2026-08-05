@@ -754,17 +754,34 @@ public sealed class FormResponseService : IFormResponseService
             return null;
         }
 
-        // Mismo anclaje que los formularios del paso: borrador idempotente con Reference = numero de la
-        // tarea. No se crea FormFlowLink porque este formulario no pertenece a un paso del flujo.
-        var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
-        if (!draft.IsOk || draft.Value is null)
+        // Idempotente por (definicion, numero de tarea): UNA sola respuesta del concepto por tarea. Si ya
+        // existe (borrador O enviada) se reutiliza, para no duplicar ni perder lo enviado al reabrir la
+        // tarea. Solo si no hay ninguna se crea el borrador. OJO: no se usa GetOrCreateDraftAsync porque
+        // ese solo mira Draft y crearia una respuesta nueva cada vez que se recarga tras un envio.
+        var existing = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == definition.Id && r.Reference == task.Number)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        FormResponseDto resp;
+        if (existing is not null)
         {
-            return null;
+            resp = ToDto(existing);
+        }
+        else
+        {
+            // No se crea FormFlowLink porque este formulario no pertenece a un paso del flujo.
+            var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
+            if (!draft.IsOk || draft.Value is null)
+            {
+                return null;
+            }
+            resp = draft.Value;
         }
 
         return new TaskConceptFormDto(
-            draft.Value.Id, definition.Id, definition.Code, definition.Title,
-            draft.Value.Reference, draft.Value.Status);
+            resp.Id, definition.Id, definition.Code, definition.Title,
+            resp.Reference, resp.Status);
     }
 
     // ---- Helpers ----

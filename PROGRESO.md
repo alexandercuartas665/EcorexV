@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-05 - Formularios de la actividad: idempotencia + editable-mientras-abierta (KeepEditable)
+
+**Que:** ajuste al formulario del concepto en el detalle de la tarea, tras probarlo con MCP (cree T00010
+de subcategoria "Cotizacion de Servicios", edite el formulario sin cerrar la tarea):
+1. **Idempotencia**: `GetTaskConceptFormAsync` ya no usa `GetOrCreateDraftAsync` (que solo mira Draft y
+   creaba un borrador nuevo tras cada envio). Ahora reutiliza la respuesta EXISTENTE (borrador o enviada)
+   por (definicion, numero de tarea) -> UNA sola respuesta del concepto por tarea, sin duplicar ni perder
+   lo guardado al reabrir.
+2. **Editable mientras la tarea este abierta** (decision del usuario): nuevo `[Parameter] KeepEditable`
+   en `DynamicFormRenderer` (opt-in, default false -> comportamiento identico para el resto). Con el
+   activo el formulario NO se bloquea al enviar: `IsLocked = IsSubmitted && !KeepEditable` reemplaza los
+   usos de bloqueo (IsDisabled, boton, autosave, reglas), el boton dice "Guardar" y hace `SaveAsync(false)`
+   (guarda BORRADOR, no pasa a Submitted) porque el servidor `SaveAsync` rechaza modificar una respuesta
+   ya enviada. El detalle pasa `KeepEditable="true"` al formulario del concepto; al cerrar la tarea el host
+   lo pone en `ReadOnly`. Probado en prod (via tunel dev): editar telefono + Guardar -> "Borrador guardado",
+   sin error, 1 sola respuesta Draft con el valor nuevo. Sin migracion. Build verde.
+
+---
+
 ## 2026-08-05 - Formularios de la actividad en el detalle: concepto + flujo con selector
 
 **Que:** la pestana "Formularios" del detalle de la tarea (TaskDetailModal) ahora muestra AMBAS

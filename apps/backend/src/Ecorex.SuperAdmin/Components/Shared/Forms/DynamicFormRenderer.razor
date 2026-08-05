@@ -139,8 +139,8 @@ else
                 {
                     <a class="btn btn-outline-secondary" href="@($"/formularios/imprimir/{_response!.Id}")" target="_blank" rel="noopener">Imprimir</a>
                 }
-                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@(_busy || IsSubmitted || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
-                    @(IsSubmitted ? "Enviado" : "Enviar")
+                <button class="btn btn-primary" @onclick="OnPrimarySaveAsync" disabled="@(_busy || IsLocked || (ApprovalOptions is { Count: > 0 } && string.IsNullOrEmpty(_approvalChoice)))">
+                    @(IsLocked ? "Enviado" : (KeepEditable ? "Guardar" : "Enviar"))
                 </button>
             </div>
         }
@@ -221,6 +221,13 @@ else
     /// </summary>
     [Parameter] public Guid? AmbientTenantId { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
+    /// <summary>
+    /// Opt-in: mantiene el formulario EDITABLE aunque la respuesta ya este Submitted (no lo bloquea al
+    /// enviar). Lo usa el formulario del CONCEPTO en el detalle de la tarea, que debe poder editarse
+    /// mientras la tarea este abierta (el host pasa ReadOnly cuando la tarea se cierra). Default false:
+    /// comportamiento estandar (enviar = "Enviado", solo lectura).
+    /// </summary>
+    [Parameter] public bool KeepEditable { get; set; }
     [Parameter] public bool ShowHeader { get; set; } = true;
     /// <summary>
     /// Cuando el host lo activa (pagina de llenado /f, modulo /m, vista previa del disenador), el
@@ -275,7 +282,10 @@ else
     private SemaphoreSlim _dbGate => FormGate.Gate;
 
     private bool IsSubmitted => _response?.Status == FormResponseStatus.Submitted;
-    private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsSubmitted;
+    // "Bloqueado" = enviado Y sin KeepEditable. Con KeepEditable el formulario sigue editable tras enviar
+    // (lo usa el formulario del concepto mientras la tarea este abierta). Default: IsLocked == IsSubmitted.
+    private bool IsLocked => IsSubmitted && !KeepEditable;
+    private bool IsDisabled => _busy || Mode != FormRenderMode.Fill || IsLocked;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -343,7 +353,7 @@ else
                 }
                 // Valor por defecto del disenador (ADR-0021): solo en Fill, solo campos de
                 // captura reales y sin valor previo en el borrador.
-                if (Mode == FormRenderMode.Fill && !IsSubmitted)
+                if (Mode == FormRenderMode.Fill && !IsLocked)
                 {
                     foreach (var q in _definition.Questions)
                     {
@@ -387,7 +397,7 @@ else
         // Autosave del borrador cada 30 segundos (solo Fill y solo si hay cambios).
         _autosaveTimer?.Dispose();
         _autosaveTimer = null;
-        if (Mode == FormRenderMode.Fill && _response is not null && !IsSubmitted)
+        if (Mode == FormRenderMode.Fill && _response is not null && !IsLocked)
         {
             _autosaveTimer = new System.Threading.Timer(
                 _ => _ = InvokeAsync(AutosaveTickAsync),
@@ -2350,7 +2360,7 @@ else
     /// </summary>
     private async Task DispatchFieldRulesAsync(FormQuestionDto q)
     {
-        if (Mode != FormRenderMode.Fill || IsSubmitted || !_ruleTriggerFields.Contains(q.FieldCode))
+        if (Mode != FormRenderMode.Fill || IsLocked || !_ruleTriggerFields.Contains(q.FieldCode))
         {
             return;
         }
@@ -2445,7 +2455,7 @@ else
 
     private async Task AutosaveTickAsync()
     {
-        if (!_dirty || _busy || _response is null || IsSubmitted || Mode != FormRenderMode.Fill)
+        if (!_dirty || _busy || _response is null || IsLocked || Mode != FormRenderMode.Fill)
         {
             return;
         }
@@ -2480,6 +2490,11 @@ else
             _busy = false;
         }
     }
+
+    // Boton primario del pie. Con KeepEditable guarda BORRADOR (submit:false): el formulario del concepto
+    // NO pasa a Submitted, asi el servidor (SaveAsync bloquea modificar una respuesta ya enviada) lo deja
+    // editable mientras la tarea este abierta. Sin KeepEditable es el envio normal (valida y bloquea).
+    private Task OnPrimarySaveAsync() => KeepEditable ? SaveAsync(submit: false) : SubmitAsync();
 
     private async Task SubmitAsync()
     {
@@ -2535,8 +2550,12 @@ else
             _lastSavedAt = DateTimeOffset.Now;
             if (submit)
             {
-                _autosaveTimer?.Dispose();
-                _autosaveTimer = null;
+                // Con KeepEditable el formulario sigue vivo tras "enviar": NO se apaga el autosave.
+                if (!KeepEditable)
+                {
+                    _autosaveTimer?.Dispose();
+                    _autosaveTimer = null;
+                }
                 submitted = result.Value;
             }
         }
@@ -2580,7 +2599,7 @@ else
     /// </summary>
     private async Task OnButtonClickAsync(FormQuestionDto q)
     {
-        if (Mode != FormRenderMode.Fill || IsSubmitted || _response is null) { return; }
+        if (Mode != FormRenderMode.Fill || IsLocked || _response is null) { return; }
         if (!_ruleTriggerFields.Contains(q.FieldCode)) { return; }
 
         await _dbGate.WaitAsync();

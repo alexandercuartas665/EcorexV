@@ -296,4 +296,32 @@ public class RestExecutorTests
         Assert.Equal("https://inv.example/ocsapi/v1/computers", RestExecutor.Combine(Base, "computers").ToString());
         Assert.Equal("https://other/x", RestExecutor.Combine(Base, "https://other/x").ToString());
     }
+
+    /// <summary>
+    /// ListPath vacio -> BaseUrl TAL CUAL, SIN slash final. El slash extra (.../customers/) hacia que
+    /// Siigo, autenticado, redirigiera a un host roto ("api") y toda la lista fallara con "Host
+    /// desconocido". El server-directo usa el endpoint sin slash; aqui igualamos.
+    /// </summary>
+    [Fact]
+    public void Combine_EmptyPath_KeepsBaseUrlWithoutTrailingSlash()
+    {
+        Assert.Equal("https://api.siigo.com/v1/customers", RestExecutor.Combine("https://api.siigo.com/v1/customers", "").ToString());
+        Assert.Equal("https://api.siigo.com/v1/customers", RestExecutor.Combine("https://api.siigo.com/v1/customers", "   ").ToString());
+    }
+
+    /// <summary>
+    /// Guarda de regresion: el handler compartido NO debe usar el proxy del ambiente. En LocalSystem
+    /// el DefaultProxy (WPAD/PAC) podia resolver a un proxy mal formado (host "api") y romper toda
+    /// llamada REST con "Host desconocido (api:443)". El agente hace REST directo: UseProxy=false.
+    /// </summary>
+    [Fact]
+    public void SharedHandler_DoesNotUseAmbientProxy()
+    {
+        var field = typeof(RestExecutor).GetField(
+            "SharedHandler",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(field);
+        var handler = Assert.IsType<System.Net.Http.SocketsHttpHandler>(field!.GetValue(null));
+        Assert.False(handler.UseProxy, "RestExecutor.SharedHandler.UseProxy debe ser false (REST directo, sin proxy del ambiente).");
+    }
 }

@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-05 - Agente Colmena: fix del fetch REST via agente (Siigo fallaba con "Host desconocido api")
+
+**Sintoma:** el `/run` via agente del conector Siigo (AGROMETALICAS) fallaba SIEMPRE con
+`REST_LIST_NET: ... Host desconocido. (api:443)`: la URL logueada era correcta (`api.siigo.com`) pero
+el socket intentaba resolver el host truncado `api`. El camino server-directo (ApiImportService) con
+el mismo conector funcionaba.
+
+**Diagnostico (instrumentacion temporal en RestExecutor, ya retirada):** descarto la hipotesis del
+proxy -> `DefaultProxy.GetProxy = (direct)`, no habia proxy. El token POST a `api.siigo.com/auth` SI
+conectaba; solo fallaba el GET de la lista. Diferencia real con el server-directo: el AGENTE pegaba a
+`https://api.siigo.com/v1/customers/` (con SLASH final) mientras el server usa `.../v1/customers` (sin
+slash). El slash disparaba, ya autenticado, un redirect de Siigo a un host mal formado (`api`) que no
+resuelve.
+
+**Causa raiz + fix:** `RestExecutor.Combine`, con `ListPath` vacio, agregaba un slash final al BaseUrl
+(`baseUrl.TrimEnd('/') + "/"`). Ahora, sin path relativo, devuelve el BaseUrl TAL CUAL (sin slash),
+igualando al server-directo. Ademas `SharedHandler.UseProxy=false` como endurecimiento (REST directo).
+Tests nuevos: `Combine_EmptyPath_KeepsBaseUrlWithoutTrailingSlash` y `SharedHandler_DoesNotUseAmbientProxy`
+(31/31 verde).
+
+**Validacion end-to-end (agente reinstalado 1.2.3, identidad DPAPI en %ProgramData% preservada, sin
+tocar el secreto):** Upsert via agente -> `agent_activity_logs Fetch=Ok (ins 0, upd 1797)`; Replace
+(empty->fill) -> `Fetch=Ok (del 1797, ins 1797)`, contenedor `siigo/clientes` en 1797 con anidados
+poblados (siigo_id 5f4bd052... -> Ciudad=Popayan). El SERVIDOR no requiere redeploy: el fix es del
+binario del agente.
+
+---
+
 ## 2026-08-05 - Formularios de la actividad: idempotencia + editable-mientras-abierta (KeepEditable)
 
 **Que:** ajuste al formulario del concepto en el detalle de la tarea, tras probarlo con MCP (cree T00010

@@ -32,6 +32,11 @@ public sealed class RestExecutor
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         AutomaticDecompression = System.Net.DecompressionMethods.All,
+        // Endurecimiento: el agente hace REST DIRECTO a internet, sin proxy del ambiente. La causa raiz
+        // del fallo Siigo NO era el proxy (el diagnostico mostro salida directa) sino el slash final que
+        // Combine agregaba a la URL de la lista (ver Combine). UseProxy=false queda como defensa: en el
+        // contexto LocalSystem un WPAD/PAC mal configurado podria inyectar un proxy roto.
+        UseProxy = false,
     };
 
     /// <summary>
@@ -409,8 +414,16 @@ public sealed class RestExecutor
             return abs;
         }
         if (string.IsNullOrWhiteSpace(baseUrl)) { throw new GatewayException("REST_NO_URL", "Path relativo sin BaseUrl."); }
+        // Sin path relativo (ListPath vacio): usar el BaseUrl TAL CUAL, sin agregar un slash final. Ese
+        // slash cambiaba la URL de la lista (p.ej. .../v1/customers -> .../v1/customers/) y en algunas
+        // APIs como Siigo dispara, ya autenticado, un redirect a un host mal formado ("api") que no
+        // resuelve. El camino server-directo (que funciona) usa el endpoint sin slash: aqui igualamos.
+        if (string.IsNullOrWhiteSpace(pathOrUrl))
+        {
+            return new Uri(baseUrl, UriKind.Absolute);
+        }
         var b = new Uri(baseUrl.TrimEnd('/') + "/", UriKind.Absolute);
-        return new Uri(b, (pathOrUrl ?? string.Empty).TrimStart('/'));
+        return new Uri(b, pathOrUrl.TrimStart('/'));
     }
 
     private static Uri BuildPagedUri(string? baseUrl, string listPath, RestPagingSpec paging, bool paginated, int page)

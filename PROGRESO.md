@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-05 - v0.8.3: numero de ticket al cliente + confirmacion limpia del agente
+
+**Que:** `crear_tarea` ahora devuelve el `ticket` (el numero legible de la tarea, `TaskItem.Number`) y
+lo incluye en el mensaje. El prompt de SARA v1 (AGROMETALICAS) se ajusto para: (1) confirmar con
+seguridad cuando la herramienta responde ok (NUNCA decir "inconveniente" si fue exito), (2) si
+crear_tarea devuelve la lista de tableros, reintentar en silencio con el nombre exacto, y (3)
+ENTREGAR el numero de ticket al cliente como comprobante (usando el valor exacto que devolvio la
+herramienta, sin inventarlo). Probado en prod: SARA registro contacto + creo tarea T00009 + la asigno
+(round-robin) + le dio el ticket T00009 al cliente confirmando limpio. Sin migracion. Build verde.
+
+---
+
 ## 2026-08-05 - v0.8.2: fix "el sistema se traga el texto" en cajas de texto (Blazor Server)
 
 **Que:** Auditoria + fix del bug donde algunos inputs perdian caracteres al escribir. Causa: inputs con

@@ -51,7 +51,8 @@ public sealed class TasksToolset : ITasksToolset
             "Crea (CIERRA) una tarea en un tablero del modulo de Tareas para que un humano la atienda. Usala al " +
             "final, cuando ya tengas claro que necesita el cliente. Indica 'tablero' con el nombre EXACTO de un " +
             "tablero (ver listar_tableros), un 'titulo' corto y una 'descripcion' con el detalle. Los archivos/" +
-            "imagenes que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE a la tarea.",
+            "imagenes que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE a la tarea. " +
+            "Devuelve un 'ticket' (numero de la solicitud) que DEBES entregarle al cliente como comprobante.",
             """{"type":"object","properties":{"tablero":{"type":"string","description":"Nombre exacto del tablero destino (ver listar_tableros)"},"titulo":{"type":"string","description":"Titulo corto de la tarea"},"descripcion":{"type":"string","description":"Detalle de lo que necesita el cliente"},"prioridad":{"type":"string","enum":["baja","media","alta","urgente"],"description":"Prioridad (opcional, por defecto media)"},"vence":{"type":"string","description":"Fecha limite ISO 8601 opcional (ej. 2026-08-10)"}},"required":["tablero","titulo"],"additionalProperties":false}"""),
     };
 
@@ -144,6 +145,7 @@ public sealed class TasksToolset : ITasksToolset
             return Err(res.Error ?? "No se pudo crear la tarea.");
         }
         var taskId = res.Value.Item.Id;
+        var ticket = res.Value.Item.Number;   // numero legible de la tarea = ticket para el cliente
 
         // Auto-adjuntar los archivos que el cliente ENVIO: media entrante de la conversacion + adjuntos
         // pendientes del contexto (los que sube la herramienta de pruebas del agente).
@@ -153,11 +155,12 @@ public sealed class TasksToolset : ITasksToolset
         return new AgentToolResult(JsonSerializer.Serialize(new
         {
             ok = true,
+            ticket,
             tarea_id = taskId,
             tablero = board.Name,
             asignado_a = asignado?.Nombre,
             adjuntos = adjuntados,
-            mensaje = $"Tarea creada en el tablero '{board.Name}'"
+            mensaje = $"Tarea creada con ticket {ticket} en el tablero '{board.Name}'"
                 + (asignado is not null ? $", asignada a {asignado.Nombre}" : "")
                 + (adjuntados > 0 ? $" con {adjuntados} archivo(s) adjunto(s)." : ".")
         }, JsonOut), SessionCompleted: true);

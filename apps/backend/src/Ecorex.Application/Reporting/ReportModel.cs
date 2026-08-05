@@ -15,11 +15,13 @@ public enum ReportFieldType
     Boolean
 }
 
-/// <summary>Origen de una fuente reportable: entidad nativa (curada por el dev) o contenedor EAV.</summary>
+/// <summary>Origen de una fuente reportable: entidad nativa (curada por el dev), contenedor EAV o una
+/// fuente EXTERNA gobernada (ADR-0064, base de datos ajena leida en vivo por el conector).</summary>
 public enum ReportSourceKind
 {
     Native,
-    Container
+    Container,
+    External
 }
 
 /// <summary>Operadores de filtro admitidos. El datasource los traduce a EF parametrizado.</summary>

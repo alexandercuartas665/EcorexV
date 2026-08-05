@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805004059_AddExternalDataConnector")]
+    partial class AddExternalDataConnector
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1407,10 +1410,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
-                    b.Property<bool>("AssignableByAgent")
-                        .HasColumnType("bit")
-                        .HasColumnName("assignable_by_agent");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -1432,10 +1431,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
-
-                    b.Property<DateTimeOffset?>("LastAgentAssignmentAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("last_agent_assignment_at");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -1469,9 +1464,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("TenantUserId")
                         .HasDatabaseName("ix_asesores_tenant_user_id");
-
-                    b.HasIndex("TenantId", "AssignableByAgent")
-                        .HasDatabaseName("ix_asesores_tenant_id_assignable_by_agent");
 
                     b.HasIndex("TenantId", "IsActive")
                         .HasDatabaseName("ix_asesores_tenant_id_is_active");

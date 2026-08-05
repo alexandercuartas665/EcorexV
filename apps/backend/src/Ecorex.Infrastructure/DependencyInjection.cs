@@ -127,6 +127,10 @@ public static class DependencyInjection
         // PDF de cotizaciones desde HTML libre (Chromium headless via PuppeteerSharp).
         services.AddScoped<Application.Common.IQuotePdfRenderer, Rendering.PuppeteerQuotePdfRenderer>();
 
+        // Conector de datos externos (ADR-0064): executor ADO.NET de SOLO LECTURA parametrizado
+        // (Microsoft.Data.SqlClient / Npgsql). Aqui porque Infrastructure tiene los drivers.
+        services.AddScoped<Application.Reporting.External.IExternalQueryExecutor, External.AdoExternalQueryExecutor>();
+
         return services;
     }
 }

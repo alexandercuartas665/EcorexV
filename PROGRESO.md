@@ -5,6 +5,49 @@
 
 ---
 
+## 2026-08-06 - Conector de datos externos GOBERNADO (ADR-0064)
+
+**Que:** Nueva via CORRECTA para que un reporte lea datos EXTERNOS en vivo (p.ej. la legacy db3dev)
+SIN que el reporte lleve su propia cadena de conexion. Antes todo entraba por `IReportDataSource`
+tenant-safe; un RDL con su ConnectionString violaba 3 de los 9 errores heredados. Rama
+`feat/conector-datos-externos` rebaseada sobre `origin/fase-0/clon-backbone`.
+
+- **Entidades de PLATAFORMA (no tenant-scoped):** `ExternalDataSource` (motor SqlServer/Postgres,
+  cadena CIFRADA con ISecretProtector, IsReadOnly, IsEnabled, LastValidatedAt), `ExternalDataSet`
+  (consulta CURADA = allowlist: un unico SELECT parametrizado + parametros tipados + campos),
+  `ExternalDataSourceGrant` (concesion explicita por tenant: la unica via de acceso, ya que el dato
+  externo no se puede filtrar por TenantId). Enum `ExternalDataProvider/ParameterType/ParameterBinding`.
+- **Conector `ExternalReportReader`** (analogo a ContainerReportReader): `ReportSourceKind.External`,
+  clave `external:{datasetId}`. Verifica concesion del tenant (fail-closed), descifra en memoria,
+  enlaza parametros y ejecuta. El catalogo (`IReportCatalog`) expone solo lo concedido al tenant activo.
+- **Alcance por contexto de confianza** (`ExternalParameterBinder`): userid/sucursal/tenant salen del
+  contexto, NUNCA de entrada libre; los inputs (fechas) se convierten al tipo y viajan como parametro
+  TIPADO (cero concatenacion).
+- **Executor `AdoExternalQueryExecutor`** (en Infrastructure, drivers Microsoft.Data.SqlClient/Npgsql):
+  SOLO LECTURA forzada por `ExternalReadOnlyGuard` (rechaza escrituras/DDL/multi-statement/SELECT INTO)
+  + `SET TRANSACTION READ ONLY` real en Postgres + `DbParameter` tipados.
+- **Render imprimible:** `ReportDefinition.ExternalBindingJson` (mapeo dataset RDL -> ExternalDataSet +
+  inputs). `ExternalReportBindingService` importa el RDL y, al renderizar, ejecuta cada dataset por el
+  conector e inyecta UNA DataTable por dataset. `BoldReportsApiController` extendido para multi-dataset
+  (sigue en ProcessingMode.Local; el RDL nunca usa su conexion).
+- **PlatformAdmin:** pagina `/fuentes-externas` (policy PlatformOperator) CRUD de fuentes/datasets/
+  concesiones + prueba de conexion de solo lectura. Toda mutacion -> SuperAdminAuditLog; el secreto no
+  se re-muestra. Enlace agregado al NavMenu.
+- **Migraciones DUALES `AddExternalDataConnector`** (PG + SQL Server, `--context` explicito):
+  3 tablas + columna `external_binding_json`. Tras el rebase, el ModelSnapshot de ambos proveedores
+  se consolido con el tronco y se verifico con `dotnet ef migrations has-pending-model-changes` =
+  "No changes" en PG y SQL Server.
+- **Limpieza (camino A obsoleto):** se retira la plantilla dormida `panel:tareas` (Reporte de Sistema
+  de Tareas) del seeder + `TareasDashboardPanel` + su entrada en `ReportGallery`, porque ese reporte
+  ahora va por el conector EN VIVO, no por contenedor.
+- **Tests:** unit `ExternalReadOnlyGuardTests` + `ExternalParameterBinderTests`; integracion dual
+  `ExternalConnectorGovernanceTests` (tenant concedido ve/ejecuta, sin concesion no ve/lanza, revocar
+  quita acceso, cadena cifrada). ADR-0064 ACEPTADA.
+- **Pendiente (validacion humana):** el piloto en vivo con db3dev (data source "Maravilla", .rdl y
+  credencial read-only los tiene el usuario). NO desplegado (lo hace la sesion principal, deploy unificado).
+
+---
+
 ## 2026-08-06 - Agente Colmena: identidad reconfigurable por MSI + blindaje del secreto vacio (MSI 1.3.0)
 
 **Agentes:** Claude Opus 4.8 (sub-agente de ingenieria), worktree `fix/agente-identidad-msi`.
@@ -258,6 +301,7 @@ archivos que el cliente envio adjuntos, y la tarea se reparte round-robin entre 
 - **FormModule (`/m/{Code}`)**: boton "Ver" por fila -> abre un registro guardado en el formulario en
   solo lectura (DynamicFormRenderer Mode=ReadOnly por ResponseId).
 - Prompt de SARA v1 (AGROMETALICAS) actualizado en prod con el bloque de cierre por tarea.
+
 
 ---
 

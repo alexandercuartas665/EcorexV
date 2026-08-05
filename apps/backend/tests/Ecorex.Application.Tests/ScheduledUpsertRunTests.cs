@@ -59,6 +59,9 @@ public class ScheduledUpsertRunTests
         public DbSet<ReportDefinition> ReportDefinitions => NotUsed<ReportDefinition>();
         public DbSet<ReportDefinitionRole> ReportDefinitionRoles => NotUsed<ReportDefinitionRole>();
         public DbSet<ReportTemplate> ReportTemplates => NotUsed<ReportTemplate>();
+        public DbSet<ExternalDataSource> ExternalDataSources => NotUsed<ExternalDataSource>();
+        public DbSet<ExternalDataSet> ExternalDataSets => NotUsed<ExternalDataSet>();
+        public DbSet<ExternalDataSourceGrant> ExternalDataSourceGrants => NotUsed<ExternalDataSourceGrant>();
         public DbSet<DocumentoCategoria> DocumentoCategorias => NotUsed<DocumentoCategoria>();
         public DbSet<DocumentoCarpeta> DocumentoCarpetas => NotUsed<DocumentoCarpeta>();
         public DbSet<Documento> Documentos => NotUsed<Documento>();

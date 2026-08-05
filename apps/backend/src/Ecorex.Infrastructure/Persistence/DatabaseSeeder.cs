@@ -347,19 +347,10 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 Category = "Paneles",
                 Icon = "server",
                 IsPublished = true
-            },
-            new ReportTemplate
-            {
-                Name = "Reporte de Sistema de Tareas",
-                Description = "Panel del reporte de tareas del sistema (contenedor). Solo donde exista el contenedor.",
-                Kind = ReportTemplateKind.Panel,
-                SourceKey = "panel:tareas",
-                RequiredSourceKind = ReportTemplateSourceKind.Container,
-                RequiredContainerName = "Reporte Tareas Personal",
-                Category = "Paneles",
-                Icon = "chart",
-                IsPublished = true
             }
+            // NOTA (ADR-0064): la plantilla "Reporte de Sistema de Tareas" (panel:tareas, via contenedor)
+            // se retiro. Ese reporte ahora se alimenta EN VIVO por el conector de datos externos gobernado
+            // (fuentes/datasets externos + concesion por tenant), no por contenedor.
         };
 
         var nuevas = catalogo.Where(t => !yaHay.Contains(t.SourceKey)).ToList();

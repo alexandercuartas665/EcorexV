@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-06 - v0.9.1: libs de Chromium en el runtime del Dockerfile
+
+**Que:** se agregan las librerias del sistema que el Chromium headless (PuppeteerSharp) necesita al stage
+de RUNTIME del `apps/backend/Dockerfile.superadmin` (libglib2.0-0 -de donde viene libgobject-2.0.so.0-,
+libnss3, libgbm1, libpango, libcairo2, libasound2, etc.). Sin ellas, el navegador descargado no arrancaba
+en prod y los endpoints /formularios/plantilla/{id}/pdf e /img y /cotizacion/.../pdf daban 500
+("Failed to launch browser! ... error while loading shared libraries: libgobject-2.0.so.0"). Entra tambien
+el fix del `print` ya pusheado por otra sesion al tronco. Sin migracion.
+
+---
+
 ## 2026-08-05 - v0.9.0: DEPLOY UNIFICADO (formulario del concepto + panel:tareas)
 
 **Que:** deploy unificado a prod (v0.8.3 -> v0.9.0) que junta lo acumulado en el tronco desde el ultimo

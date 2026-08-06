@@ -1112,15 +1112,17 @@ app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
 app.MapGet("/formularios/plantilla/{responseId:guid}", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
-    [FromQuery] bool? print,
+    [FromQuery] string? print,
     Ecorex.Application.Forms.IFormTemplateRenderService render,
     CancellationToken ct) =>
 {
     var html = await render.RenderHtmlAsync(responseId, templateId, ct);
     if (html is null) { return Results.NotFound(); }
-    // print opcional: sin el query (navegacion interna de /pdf e /img) NO debe fallar. print=1 dispara
-    // el dialogo de impresion del navegador al cargar.
-    if (print == true) { html += "\n<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},150);});</script>"; }
+    // print como string (no bool): el boton "Imprimir" navega con print=1, que NO bindea a bool. Sin el
+    // query (navegacion interna de /pdf e /img) tampoco debe fallar. "1"/"true" dispara el dialogo de
+    // impresion del navegador al cargar.
+    var wantPrint = print == "1" || string.Equals(print, "true", StringComparison.OrdinalIgnoreCase);
+    if (wantPrint) { html += "\n<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},150);});</script>"; }
     return Results.Content(html, "text/html; charset=utf-8");
 }).AllowAnonymous();
 

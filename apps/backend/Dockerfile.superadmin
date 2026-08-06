@@ -19,12 +19,14 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 # Librerias del sistema que el Chromium headless (PuppeteerSharp) necesita para arrancar.
 # Sin ellas falla con "error while loading shared libraries: libgobject-2.0.so.0".
-# libgobject-2.0.so.0 viene de libglib2.0-0. Se instalan explicitas por si el paquete
+# libgobject-2.0.so.0 viene de libglib2.0-0t64. Se instalan explicitas por si el paquete
 # chromium de abajo no arrastra todas las dependencias en el runtime slim.
+# NOTA: la base aspnet:10.0 es Debian trixie, donde varios paquetes llevan sufijo t64
+# (transicion time_t de 64 bits): libglib2.0-0t64, libatk1.0-0t64, libcups2t64, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+    libglib2.0-0t64 libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 libxshmfence1 \
+    libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libatspi2.0-0t64 libxshmfence1 \
     fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 

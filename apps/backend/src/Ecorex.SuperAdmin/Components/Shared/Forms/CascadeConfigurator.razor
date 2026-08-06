@@ -265,6 +265,12 @@
         {
             sel.Clear();
             sel.Add(optionId);
+            // Un nivel de seleccion unica (clasificacion, ej. Oportunidad) reinicia el flujo del wizard:
+            // al cambiarlo se limpian TODOS los niveles posteriores del rail (aunque no sean sus hijos
+            // taxonomicos), para no arrastrar selecciones inconsistentes. Las filas huerfanas caen en Prune().
+            var pos = 0;
+            for (var k = 0; k < Config.Levels.Count; k++) { if (Config.Levels[k].Key == level.Key) { pos = k; break; } }
+            for (var j = pos + 1; j < Config.Levels.Count; j++) { Selected(Config.Levels[j].Key).Clear(); }
         }
         else if (on)
         {

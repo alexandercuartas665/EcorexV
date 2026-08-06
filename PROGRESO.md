@@ -8145,3 +8145,13 @@ Gonzales (ventas1@); relink de Lilian a su nuevo usuario; Julian ya existia. Dep
 (org_units Funcionario) creados y ubicados: Jorge->Asesor Comercial, Richard->Coordinador Comercial,
 Lilian->Asesora Comercial Externa, Julian->Supervisor de Planta. Backup `ecorex-2026-08-06-0623.sql.gz`.
 Carga por SQL directo (bypass AdminAuditLog, excepcion ETL). Sesion forkeada (solo implementacion/datos).
+
+---
+
+## 2026-08-06 (sesion datos - prod) - Usuario Oscar Cuartas en AGROMETALICAS
+
+**Hecho**: creado usuario Oscar Steven Cuartas Bejarano en AGROMETALICAS: correo `info@cuarsa.com`
+(login), clave = cedula 1113633887, tenant_role Admin (decision del usuario; el tenant no tiene rol
+"basico" - enum Owner/Admin/Supervisor/Advisor y todos son Admin), status Active, menu estandar
+1cc14de5. SIN asesor ni Funcionario en dependencias (por indicacion). Clonando plantilla ventas1@.
+Login validado (302 -> /inicio). Backup `ecorex-2026-08-06-0923.sql.gz`. SQL directo (excepcion ETL).

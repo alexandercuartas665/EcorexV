@@ -178,3 +178,21 @@ public sealed record TaskStepFormDto(
 public sealed record TaskConceptFormDto(
     Guid ResponseId, Guid DefinitionId, string FormCode, string FormTitle,
     string? Reference, FormResponseStatus ResponseStatus);
+
+/// <summary>
+/// Una respuesta del formulario del concepto anclada a la tarea (una "cotizacion"). Varias por tarea:
+/// la UI las muestra como tarjetas. Titulo/Cliente son un resumen extraido del Data para la tarjeta.
+/// Status: Draft = borrador editable; Submitted = finalizada (solo lectura hasta reabrir).
+/// </summary>
+public sealed record TaskConceptFormItemDto(
+    Guid ResponseId, string? Reference, FormResponseStatus Status,
+    string? Titulo, string? Cliente, DateTimeOffset CreatedAt);
+
+/// <summary>
+/// Formulario del concepto (subcategoria) de la tarea + sus cotizaciones (respuestas). Null si la
+/// subcategoria no define formulario o este no esta activo. Items puede venir vacio (aun sin cotizaciones):
+/// la UI ofrece "Agregar cotizacion" igual, porque el concepto SI tiene formulario.
+/// </summary>
+public sealed record TaskConceptFormsDto(
+    Guid DefinitionId, string FormCode, string FormTitle,
+    IReadOnlyList<TaskConceptFormItemDto> Items);

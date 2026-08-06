@@ -380,6 +380,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             ? await ApplyScope(query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
             : 0;
         var unassignedCount = await ApplyScope(query, ActivityBoardScope.Unassigned, null, noRoute).CountAsync(cancellationToken);
+        var doneCount = await ApplyScope(query, ActivityBoardScope.Done, null, noRoute).CountAsync(cancellationToken);
 
         var tasks = await ApplyScope(query, filter.Scope, filter.CurrentTenantUserId, routedTaskIds)
             .OrderBy(t => t.BoardSortOrder).ThenBy(t => t.CreatedAt)
@@ -462,7 +463,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         return TaskCoreResult<ActivityBoardDetailDto>.Ok(new ActivityBoardDetailDto(
             board.Id, board.Code, board.Name, board.Description, board.Status, board.DueDate,
             board.IsArchived, columnDtos,
-            new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount)));
+            new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount)));
     }
 
     // ---- Movimiento de tarjetas ----
@@ -729,6 +730,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             ActivityBoardScope.Unassigned
                 => query.Where(t => t.AssigneeTenantUserId == null
                     && !_db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id)),
+            ActivityBoardScope.Done
+                => query.Where(t => t.Status == TaskItemStatus.Done),
             _ => query
         };
 

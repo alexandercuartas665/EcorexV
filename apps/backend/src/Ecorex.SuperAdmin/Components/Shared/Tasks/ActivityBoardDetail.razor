@@ -128,6 +128,9 @@
             <button class="ab-scope @(_scope == ActivityBoardScope.Unassigned ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Unassigned))">
                 No asignados<span class="ab-scope-n">@_detail.ScopeCounters.Unassigned</span>
             </button>
+            <button class="ab-scope @(_scope == ActivityBoardScope.Done ? "on" : "")" @onclick="@(() => SetScopeAsync(ActivityBoardScope.Done))">
+                Terminados<span class="ab-scope-n">@_detail.ScopeCounters.Done</span>
+            </button>
         </div>
 
         @* ---- Switcher de vistas ---- *@
@@ -213,6 +216,10 @@
                                  @ondragend="@(() => { _dragTaskId = null; _dragOverColumnId = null; })">
                                 <div class="ab-card-top">
                                     <div class="ab-card-title">@c.Title</div>
+                                    @if (c.Status is TaskItemStatus.Done or TaskItemStatus.Suspended or TaskItemStatus.Closed)
+                                    {
+                                        <span class="tk-status @TaskUi.StatusClass(c.Status)" style="flex:none;font-size:10px;padding:1px 7px;align-self:flex-start;">@TaskUi.StatusLabel(c.Status)</span>
+                                    }
                                     <div class="ab-menu-anchor">
                                         <button class="ab-card-menu" title="@c.Number" @onclick="@(() => ToggleCardMenu(c.Id))" @onclick:stopPropagation="true">
                                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>

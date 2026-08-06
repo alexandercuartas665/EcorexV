@@ -49,12 +49,32 @@ public interface IFormResponseService
     Task<IReadOnlyList<TaskStepFormDto>> GetTaskStepFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Formulario por defecto que el concepto (ActividadSubcategoria.FormDefinitionId) definio para la
-    /// actividad de la tarea. Asegura (idempotente) el borrador de respuesta con Reference = numero de
-    /// la tarea y lo devuelve. Null si la tarea no tiene subcategoria, la subcategoria no define
-    /// formulario, o el formulario no esta Active. No crea FormFlowLink (no es un paso de flujo).
+    /// Formulario del concepto (ActividadSubcategoria.FormDefinitionId) de la tarea + sus cotizaciones
+    /// (todas las respuestas ancladas al numero de la tarea, como tarjetas). NO crea ninguna: la primera
+    /// la crea el wizard y las demas se agregan con CreateTaskConceptFormAsync. Null si la tarea no tiene
+    /// subcategoria, la subcategoria no define formulario, o el formulario no esta Active.
     /// </summary>
-    Task<TaskConceptFormDto?> GetTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+    Task<TaskConceptFormsDto?> GetTaskConceptFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Crea una NUEVA cotizacion (respuesta en borrador) del formulario del concepto para la tarea,
+    /// anclada a su numero. Para el boton "Agregar cotizacion". Error si la tarea no tiene formulario de
+    /// concepto o esta Cerrada (Closed).
+    /// </summary>
+    Task<FormResult<TaskConceptFormItemDto>> CreateTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Duplica una respuesta (formulario) de la tarea: copia su Data en una nueva en borrador, con el
+    /// siguiente numero heredado ("{numero tarea}-{n}"). Para el boton "Copiar" de la tarjeta. Error si la
+    /// tarea esta Cerrada o el formulario no esta anclado a una tarea.
+    /// </summary>
+    Task<FormResult<TaskConceptFormItemDto>> DuplicateResponseAsync(Guid responseId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reabre una respuesta Finalizada (Submitted -> Draft) para volver a editarla ("Reabrir"). Guard:
+    /// la tarea asociada no puede estar Cerrada (Closed). Sin efecto si ya es borrador.
+    /// </summary>
+    Task<FormResult<FormResponseDto>> ReopenResponseAsync(Guid responseId, CancellationToken cancellationToken = default);
 
     /// <summary>Anula un registro transaccional confirmado (ola F3): Voided + motivo + auditoria; no libera el numero.</summary>
     Task<FormResult<FormResponseDto>> VoidAsync(Guid responseId, string reason, Guid? byTenantUserId = null, CancellationToken cancellationToken = default);

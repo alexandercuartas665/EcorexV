@@ -69,6 +69,14 @@
                     <button class="tk-conflict-x" @onclick="@(() => _actionError = null)">&times;</button>
                 </div>
             }
+            @if (_reloadError is not null && _detail is not null)
+            {
+                <div class="tk-conflict tk-action-error">
+                    <span>@_reloadError</span>
+                    <button class="btn btn-xs" @onclick="@(() => ReloadAsync(_detail!.Item.Id))" disabled="@_busy">Reintentar</button>
+                    <button class="tk-conflict-x" @onclick="@(() => _reloadError = null)">&times;</button>
+                </div>
+            }
             @if (_moveNote is not null)
             {
                 <div class="tk-conflict tk-move-note">
@@ -409,7 +417,7 @@
               <div class="tk-detail-left">
                 <div class="tk-detail-tabs">
                     <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
-                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForm is not null ? 1 : 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForms?.Items.Count ?? 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
                     <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
                 </div>
 
@@ -723,74 +731,94 @@
             </div>
                 }
 
-                @* ===== Tab: Formularios (concepto + flujo, con selector) ===== *@
+                @* ===== Tab: Formularios (cotizaciones del concepto como tarjetas + formularios del flujo) ===== *@
                 @if (_modalTab == "formularios")
                 {
-                    var totalForms = (_conceptForm is not null ? 1 : 0) + _stepForms.Count;
+                    var taskClosed = _detail!.Item.Status == TaskItemStatus.Closed;
                     <div class="tk-tabpane">
-                        <div class="tk-card">
-                            <div class="tk-card-head"><h3>Formularios de la actividad</h3></div>
-                            @if (totalForms == 0)
-                            {
-                                <p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el paso del flujo).</p>
-                            }
-                            else
-                            {
-                                @* El usuario elige que formulario ver/diligenciar: el del concepto (subcategoria)
-                                   y/o los que exige el paso actual del flujo. *@
-                                <div class="tk-form-picker">
-                                    <label>Formulario</label>
-                                    <select class="tk-filter-select" style="max-width:100%;flex:1;" @bind="_selectedFormKey">
-                                        @if (_conceptForm is not null)
-                                        {
-                                            <option value="concepto">Actividad &middot; @_conceptForm.FormTitle</option>
-                                        }
-                                        @foreach (var sf in _stepForms)
-                                        {
-                                            <option value="@($"step:{sf.ResponseId}")">Flujo &middot; @(sf.NodeName ?? "paso") &middot; @sf.FormTitle @(sf.LinkStatus == FormFlowLinkStatus.Pending ? "(pendiente)" : "(enviado)")</option>
-                                        }
-                                    </select>
+                        @* --- Cotizaciones (respuestas del formulario del concepto), como tarjetas --- *@
+                        @if (_conceptForms is not null)
+                        {
+                            <div class="tk-card">
+                                <div class="tk-card-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                                    <h3>Formularios &middot; @_conceptForms.FormTitle</h3>
+                                    @if (!taskClosed)
+                                    {
+                                        <button class="btn btn-sm btn-primary" @onclick="AddConceptFormAsync" disabled="@_busy">+ Agregar formulario</button>
+                                    }
                                 </div>
-
-                                @if (_selectedFormKey == "concepto" && _conceptForm is not null)
+                                @if (_conceptForms.Items.Count == 0)
                                 {
-                                    var taskOpen = _detail!.Item.Status is not (TaskItemStatus.Done or TaskItemStatus.Closed);
-                                    <div class="tk-form-host">
-                                        <DynamicFormRenderer DefinitionId="@_conceptForm.DefinitionId"
-                                                             ResponseId="@_conceptForm.ResponseId"
-                                                             Reference="@_conceptForm.Reference"
-                                                             Mode="@(taskOpen ? FormRenderMode.Fill : FormRenderMode.ReadOnly)"
-                                                             KeepEditable="true"
-                                                             SubmittedByTenantUserId="@_actorTenantUserId"
-                                                             OnSubmitted="OnConceptFormSubmittedAsync" />
-                                        @if (!taskOpen)
-                                        {
-                                            <p class="tk-empty-note" style="margin-top:8px;">La actividad esta terminada: el formulario del concepto queda en solo lectura.</p>
-                                        }
-                                    </div>
+                                    <p class="tk-empty-note">Aun no hay formularios.@(taskClosed ? "" : " Usa \"Agregar formulario\" para crear el primero.")</p>
                                 }
                                 else
                                 {
-                                    var sf = _stepForms.FirstOrDefault(s => $"step:{s.ResponseId}" == _selectedFormKey);
-                                    if (sf is not null)
-                                    {
-                                        <div class="tk-form-host">
-                                            <DynamicFormRenderer DefinitionId="@sf.DefinitionId"
-                                                                 ResponseId="@sf.ResponseId"
-                                                                 Reference="@sf.Reference"
-                                                                 Mode="@(sf.LinkStatus == FormFlowLinkStatus.Pending ? FormRenderMode.Fill : FormRenderMode.ReadOnly)"
-                                                                 SubmittedByTenantUserId="@_actorTenantUserId"
-                                                                 ApprovalOptions="@(sf.IsGatewayAhead ? sf.ApprovalOptions : null)"
-                                                                 OnSubmitted="OnStepFormSubmittedAsync" />
-                                            @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
-                                            {
-                                                <p class="tk-empty-note" style="margin-top:8px;">Al enviar este formulario se completa el paso del flujo.</p>
-                                            }
-                                        </div>
-                                    }
+                                    <div class="tk-quote-grid">
+                                        @foreach (var it in _conceptForms.Items)
+                                        {
+                                            var finalized = it.Status == FormResponseStatus.Submitted;
+                                            <div class="tk-quote-card @(finalized ? "is-final" : "")">
+                                                <div class="tk-quote-main" @onclick="@(() => OpenConceptForm(it))">
+                                                    <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Formulario sin numero" : it.Titulo)</strong>
+                                                    <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(it.Cliente) ? "Sin cliente" : it.Cliente)</span>
+                                                    <span class="tk-quote-meta">
+                                                        <span class="tk-status @(finalized ? "st-done" : "st-pending")">@(finalized ? "Finalizada" : "Borrador")</span>
+                                                        <span>@it.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
+                                                    </span>
+                                                </div>
+                                                <div class="tk-quote-actions">
+                                                    <button class="btn btn-xs" @onclick="@(() => OpenConceptForm(it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
+                                                    @if (!taskClosed)
+                                                    {
+                                                        <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
+                                                    }
+                                                    @if (finalized && !taskClosed)
+                                                    {
+                                                        <button class="btn btn-xs" @onclick="@(() => ReopenConceptFormAsync(it))" disabled="@_busy" title="Reabrir para editar">Reabrir</button>
+                                                    }
+                                                    @if (!finalized && !taskClosed)
+                                                    {
+                                                        <button class="btn btn-xs tk-btn-danger" @onclick="@(() => DeleteConceptFormAsync(it))" disabled="@_busy" title="Eliminar formulario">Eliminar</button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
                                 }
-                            }
-                        </div>
+                            </div>
+                        }
+
+                        @* --- Formularios del paso del flujo --- *@
+                        @if (_stepForms.Count > 0)
+                        {
+                            <div class="tk-card" style="margin-top:14px;">
+                                <div class="tk-card-head"><h3>Formularios del proceso</h3></div>
+                                @foreach (var sf in _stepForms)
+                                {
+                                    <div class="tk-summary-row" style="align-items:center;gap:8px;">
+                                        <span style="flex:1;min-width:0;">
+                                            <strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@sf.FormTitle</strong>
+                                            <span style="font-size:11px;color:var(--muted-foreground);">Paso: @(sf.NodeName ?? "(sin nombre)")</span>
+                                        </span>
+                                        @if (sf.LinkStatus == FormFlowLinkStatus.Pending)
+                                        {
+                                            <span class="tk-status st-pending">Pendiente</span>
+                                            <button class="btn btn-sm btn-primary" @onclick="@(() => OpenStepFormModal(sf))" disabled="@_busy">Diligenciar</button>
+                                        }
+                                        else
+                                        {
+                                            <span class="tk-status st-done">Enviado</span>
+                                            <button class="btn btn-sm" @onclick="@(() => OpenStepFormModal(sf))">Ver</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (_conceptForms is null && _stepForms.Count == 0)
+                        {
+                            <div class="tk-card"><p class="tk-empty-note">Esta actividad no tiene formularios asociados (ni por el concepto ni por el paso del flujo).</p></div>
+                        }
                     </div>
                 }
 
@@ -969,6 +997,28 @@
     </div>
 }
 
+@* ===== Modal editor de un formulario (cotizacion del concepto o formulario del paso) ===== *@
+@if (_openForm is not null)
+{
+    <div class="modal-overlay" style="z-index:60;" @onclick="@(() => _openForm = null)">
+        <div class="modal-dialog" style="max-width:840px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@_openForm.Title</h3>
+                <button class="modal-close" @onclick="@(() => _openForm = null)">&times;</button>
+            </div>
+            <div class="modal-body">
+                <DynamicFormRenderer DefinitionId="@_openForm.DefinitionId"
+                                     ResponseId="@_openForm.ResponseId"
+                                     Reference="@_openForm.Reference"
+                                     Mode="@_openForm.Mode"
+                                     SubmittedByTenantUserId="@_actorTenantUserId"
+                                     ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
+                                     OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // Detalle de tarea del nucleo (FASE 3), estilo prototipo Linear/Height:
     // hero con pills editables, worklog con cronometro (JS interop), actividad y adjuntos.
@@ -994,6 +1044,7 @@
     private bool _confirmArchive;
     private string? _conflict;
     private string? _actionError;
+    private string? _reloadError;
 
     // Worklog
     private bool _timerRunning;
@@ -1021,12 +1072,17 @@
 
     // Formularios del paso del flujo (FASE 4 ola 2, ADR-0015).
     private List<TaskStepFormDto> _stepForms = new();
-    // Formulario por defecto del concepto (ActividadSubcategoria.FormDefinitionId): se muestra junto a
-    // los del flujo en un selector. Editable mientras la tarea este abierta (no Done/Closed).
-    private TaskConceptFormDto? _conceptForm;
-    // Clave del formulario elegido en el selector de la pestana Formularios: "concepto" o "step:<responseId>".
-    private string? _selectedFormKey;
+    // Cotizaciones del concepto (subcategoria): varias respuestas por tarea, mostradas como tarjetas.
+    // Editables mientras la tarea NO este Cerrada; cada una se finaliza (envia) o se reabre por separado.
+    private TaskConceptFormsDto? _conceptForms;
+    // Formulario abierto en el modal editor (una cotizacion del concepto o un formulario del paso).
+    private OpenFormState? _openForm;
     private Guid? _actorTenantUserId;
+
+    /// <summary>Estado del modal editor: que respuesta se esta viendo/editando y en que modo.</summary>
+    private sealed record OpenFormState(
+        Guid DefinitionId, Guid ResponseId, string? Reference, string Title,
+        FormRenderMode Mode, bool IsStep, TaskStepFormDto? Step);
 
     // Pasos del flujo atendibles por el usuario (bandeja, ola F2, ADR-0036).
     private List<PendingStepDto> _flowSteps = new();
@@ -1070,6 +1126,11 @@
 
     private async Task ReloadAsync(Guid taskId)
     {
+        // Recarga RESILIENTE: encadena varias consultas; un error transitorio de BD (p.ej. el tunel de
+        // dev hipando o cayendose) NO debe tumbar el circuito Blazor. Se captura, se avisa para reintentar
+        // y el modal sigue usable. En prod (BD local, sin tunel) esto practicamente no ocurre.
+        try
+        {
         _detail = await TasksSvc.GetDetailAsync(taskId);
         if (_detail is not null)
         {
@@ -1079,12 +1140,8 @@
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
             // de forma idempotente si el nodo tiene formulario asignado).
             _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
-            // Formulario por defecto del concepto (subcategoria) de la actividad, si lo definio.
-            _conceptForm = await FormResponsesSvc.GetTaskConceptFormAsync(taskId);
-            // Seleccion inicial del selector: primero el del concepto; si no hay, el primer paso.
-            _selectedFormKey = _conceptForm is not null ? "concepto"
-                : _stepForms.Count > 0 ? $"step:{_stepForms[0].ResponseId}"
-                : null;
+            // Cotizaciones del concepto (subcategoria) de la actividad: todas las respuestas, como tarjetas.
+            _conceptForms = await FormResponsesSvc.GetTaskConceptFormsAsync(taskId);
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
             _assignableTags = (await TasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             var actor = await ActorAsync();
@@ -1124,6 +1181,13 @@
                     Console.Error.WriteLine($"[TaskDetailModal] diagrama de flujo no disponible: {ex.Message}");
                 }
             }
+        }
+            _reloadError = null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _reloadError = "No se pudo recargar la tarea (revisa la conexion). Reintenta.";
+            Console.Error.WriteLine($"[TaskDetailModal] recarga fallida: {ex.Message}");
         }
     }
 
@@ -1598,7 +1662,8 @@
 
     private async Task OnStepFormSubmittedAsync(FormResponseDto _)
     {
-        // El submit completo el paso del flujo en el servidor: refresca detalle y avisa.
+        // El submit completo el paso del flujo en el servidor: cierra el editor, refresca detalle y avisa.
+        _openForm = null;
         if (_detail is not null)
         {
             var taskId = _detail.Item.Id;
@@ -1610,13 +1675,99 @@
 
     private async Task OnConceptFormSubmittedAsync(FormResponseDto _)
     {
-        // El formulario del concepto no completa ningun paso: solo se guardo la respuesta. Refresca
-        // el detalle para reflejar el nuevo estado del formulario (queda Enviado / solo lectura).
-        if (_detail is not null)
-        {
-            await ReloadAsync(_detail.Item.Id);
-        }
+        // Finalizar (enviar) una cotizacion: cierra el editor y refresca las tarjetas (queda Finalizada).
+        _openForm = null;
+        if (_detail is not null) { await ReloadAsync(_detail.Item.Id); }
         StateHasChanged();
+    }
+
+    // --- Cotizaciones del concepto (tarjetas del tab Formularios) ---
+
+    /// <summary>Abre una cotizacion en el modal editor. Editable solo si es borrador y la tarea NO esta cerrada.</summary>
+    private void OpenConceptForm(TaskConceptFormItemDto it)
+    {
+        if (_conceptForms is null || _detail is null) { return; }
+        var taskClosed = _detail.Item.Status == TaskItemStatus.Closed;
+        var finalized = it.Status == FormResponseStatus.Submitted;
+        var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
+        var title = _conceptForms.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
+        _openForm = new OpenFormState(_conceptForms.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null);
+    }
+
+    /// <summary>"Agregar cotizacion": crea un borrador nuevo y lo abre para diligenciar.</summary>
+    private async Task AddConceptFormAsync()
+    {
+        if (_detail is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.CreateTaskConceptFormAsync(_detail.Item.Id);
+            if (res.IsOk && res.Value is not null)
+            {
+                await ReloadAsync(_detail.Item.Id);
+                var created = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == res.Value.ResponseId);
+                if (created is not null) { OpenConceptForm(created); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>"Copiar": duplica una respuesta (con el siguiente numero heredado) y abre la copia (borrador).</summary>
+    private async Task DuplicateConceptFormAsync(TaskConceptFormItemDto it)
+    {
+        if (_detail is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.DuplicateResponseAsync(it.ResponseId);
+            if (res.IsOk && res.Value is not null)
+            {
+                await ReloadAsync(_detail.Item.Id);
+                var copy = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == res.Value.ResponseId);
+                if (copy is not null) { OpenConceptForm(copy); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>"Reabrir": Finalizada -> Borrador, y abre el editor ya en modo Fill.</summary>
+    private async Task ReopenConceptFormAsync(TaskConceptFormItemDto it)
+    {
+        if (_detail is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.ReopenResponseAsync(it.ResponseId);
+            if (res.IsOk)
+            {
+                await ReloadAsync(_detail.Item.Id);
+                var reopened = _conceptForms?.Items.FirstOrDefault(x => x.ResponseId == it.ResponseId);
+                if (reopened is not null) { OpenConceptForm(reopened); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>"Eliminar" (solo borradores): borra la cotizacion tras confirmar.</summary>
+    private async Task DeleteConceptFormAsync(TaskConceptFormItemDto it)
+    {
+        if (_detail is null || _busy) { return; }
+        var ok = await JS.InvokeAsync<bool>("confirm", "Eliminar esta cotizacion? Esta accion no se puede deshacer.");
+        if (!ok) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.DeleteRecordAsync(it.ResponseId);
+            if (res.IsOk) { await ReloadAsync(_detail.Item.Id); }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Abre un formulario del paso del flujo en el modal editor.</summary>
+    private void OpenStepFormModal(TaskStepFormDto sf)
+    {
+        var mode = sf.LinkStatus == FormFlowLinkStatus.Pending ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
+        _openForm = new OpenFormState(sf.DefinitionId, sf.ResponseId, sf.Reference, sf.FormTitle, mode, IsStep: true, Step: sf);
     }
 
     private async Task CloseAsync()

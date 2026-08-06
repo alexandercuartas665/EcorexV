@@ -891,10 +891,11 @@
             }
 
             // Si se diligencio el formulario del concepto en el paso 3, se ancla ahora a la actividad
-            // recien creada (misma mecanica que FormFirstStarter: Reference = numero de la actividad).
+            // recien creada. El numero heredado es "{numero actividad}-1" (la primera cotizacion/formulario);
+            // las siguientes se agregan/copian desde el detalle con -2, -3, ...
             if (_formResponseId is Guid formResponseId)
             {
-                await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number);
+                await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number + "-1");
             }
 
             await OnCreated.InvokeAsync(result.Value!);

@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-08-06 - v0.9.2: formularios de la actividad como tarjetas + tablero Terminados + impresion
+
+**Formularios del concepto como TARJETAS (multiples por tarea):** la pestana Formularios del detalle
+lista todas las respuestas del formulario del concepto como tarjetas, con "+ Agregar formulario" y
+"Copiar" por tarjeta. Numeracion heredada de la tarea: Reference = "{numero tarea}-{n}" (T00001-1,
+-2, ...), estable (max sufijo + 1), pre-llenada en el campo "numero" del formulario. El wizard ancla
+la primera como "-1". Editable segun estado (KeepEditable), Finalizar/Reabrir por tarjeta. Backend:
+GetTaskConceptFormsAsync (linkage por prefijo), CreateTaskConceptFormAsync, DuplicateResponseAsync,
+helpers de numeracion. Renombrado generico "cotizacion"->"formulario".
+
+**Tablero:** nuevo scope **"Terminados"** (4o chip junto a Todas del equipo / Pendientes mios / No
+asignados) que filtra a tareas con estado Done, con su contador (ActivityBoardScope.Done +
+ScopeCounters.Done + ApplyScope). Y **badge de estado** en la tarjeta del kanban (Terminada /
+Suspendida / Cerrada) para que al marcar el estado se vea. Resuelve el "no la marca como terminada".
+
+**Recarga resiliente:** ReloadAsync del detalle envuelto en try/catch: un error transitorio de BD
+(el tunel de dev cayendose) ya NO tumba el circuito Blazor (se avisa para reintentar). El "explota"
+al marcar Terminada era el tunel dev, no un bug; la transicion en si funciona (validado en navegador).
+
+**Impresion:** el endpoint HTML de plantilla acepta print como string ("1"/"true"), el boton
+"Imprimir cotizacion" navega con print=1 que no bindeaba a bool -> 500 (commit 1541355, ya en tronco).
+
+Sin migracion. Validado en navegador (Chrome MCP): chip Terminados + badge Terminada + impresion.
+Gates locales verdes. Deploy con ./backup.sh.
+
+---
+
 ## 2026-08-06 - v0.9.1: libs de Chromium en el runtime del Dockerfile
 
 **Que:** se agregan las librerias del sistema que el Chromium headless (PuppeteerSharp) necesita al stage

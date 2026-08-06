@@ -146,7 +146,7 @@ public abstract class ActivityBoardTestsBase
             new ActivityBoardDetailFilter(CurrentTenantUserId: seed.OwnerUserId));
         Assert.True(all.IsOk, all.Error);
         Assert.Equal(4, all.Value!.Columns.Sum(c => c.Cards.Count));
-        Assert.Equal(new ActivityScopeCountersDto(4, 2, 1), all.Value.ScopeCounters);
+        Assert.Equal(new ActivityScopeCountersDto(4, 2, 1, 0), all.Value.ScopeCounters);
 
         // Filtro por columna.
         var byColumn = await service.GetBoardDetailAsync(board.Id,
@@ -173,7 +173,7 @@ public abstract class ActivityBoardTestsBase
         var todayCard = Assert.Single(byToday.Value!.Columns.SelectMany(c => c.Cards));
         Assert.Equal(t1.Item.Id, todayCard.Id);
         // ... y los contadores de alcance respetan los filtros aplicados.
-        Assert.Equal(new ActivityScopeCountersDto(1, 1, 0), byToday.Value.ScopeCounters);
+        Assert.Equal(new ActivityScopeCountersDto(1, 1, 0, 0), byToday.Value.ScopeCounters);
 
         // Alcances: mine trae t1 (encargado) y t2 (asignado); unassigned trae t3.
         var mine = await service.GetBoardDetailAsync(board.Id,

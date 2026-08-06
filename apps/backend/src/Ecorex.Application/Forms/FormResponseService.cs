@@ -728,60 +728,199 @@ public sealed class FormResponseService : IFormResponseService
         return result;
     }
 
-    public async Task<TaskConceptFormDto?> GetTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    // Resuelve el formulario del concepto (subcategoria) de una tarea: (tarea, definicion Active) o null.
+    private async Task<(TaskItem Task, FormDefinition Def)?> ResolveConceptFormAsync(Guid taskItemId, CancellationToken ct)
     {
-        var task = await _db.TaskItems.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
-        if (task?.SubcategoriaId is not Guid subId)
-        {
-            return null;
-        }
-
-        // El concepto (subcategoria) define el formulario por defecto de la actividad.
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskItemId, ct);
+        if (task?.SubcategoriaId is not Guid subId) { return null; }
         var formDefId = await _db.ActividadSubcategorias.AsNoTracking()
-            .Where(s => s.Id == subId)
-            .Select(s => s.FormDefinitionId)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (formDefId is not Guid defId)
+            .Where(s => s.Id == subId).Select(s => s.FormDefinitionId).FirstOrDefaultAsync(ct);
+        if (formDefId is not Guid defId) { return null; }
+        var def = await _db.FormDefinitions.AsNoTracking().FirstOrDefaultAsync(d => d.Id == defId, ct);
+        if (def is null || def.Status != FormStatus.Active || def.IsArchived) { return null; }
+        return (task, def);
+    }
+
+    public async Task<TaskConceptFormsDto?> GetTaskConceptFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var resolved = await ResolveConceptFormAsync(taskItemId, cancellationToken);
+        if (resolved is null) { return null; }
+        var (task, def) = resolved.Value;
+
+        // Formularios de la actividad = todas las respuestas ancladas a la tarea. El numero heredado va en
+        // Reference: "{numero tarea}-{n}" (o "{numero tarea}" para las de antes de la numeracion). Mas
+        // antiguas primero.
+        var prefix = task.Number + "-";
+        var responses = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == def.Id
+                && (r.Reference == task.Number || (r.Reference != null && r.Reference.StartsWith(prefix))))
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        // Cliente para el subtitulo de la tarjeta (generico, por Label). El titulo = numero (Reference).
+        var cliCode = await ResolveFieldCodeAsync(def.Id, cancellationToken, "cliente", "tercero", "razon", "razón", "empresa");
+
+        var items = responses.Select(r => new TaskConceptFormItemDto(
+            r.Id, r.Reference, r.Status,
+            r.Reference, ExtractDataField(r.Data, cliCode), r.CreatedAt)).ToList();
+
+        return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items);
+    }
+
+    public async Task<FormResult<TaskConceptFormItemDto>> CreateTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var resolved = await ResolveConceptFormAsync(taskItemId, cancellationToken);
+        if (resolved is null) { return FormResult<TaskConceptFormItemDto>.NotFound("La tarea no tiene formulario de concepto."); }
+        var (task, def) = resolved.Value;
+        if (task.Status == TaskItemStatus.Closed)
         {
-            return null;
+            return FormResult<TaskConceptFormItemDto>.Invalid("La tarea esta cerrada: no se pueden agregar formularios.");
         }
 
-        var definition = await _db.FormDefinitions.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == defId, cancellationToken);
-        if (definition is null || definition.Status != FormStatus.Active || definition.IsArchived)
+        var next = await NextFormOrdinalAsync(def.Id, task.Number, cancellationToken);
+        var reference = $"{task.Number}-{next}";
+        var data = await BuildInheritedNumberDataAsync(def.Id, reference, sourceData: null, cancellationToken);
+
+        var response = new FormResponse
         {
-            return null;
+            TenantId = task.TenantId,
+            DefinitionId = def.Id,
+            Reference = reference,
+            Status = FormResponseStatus.Draft,
+            Data = data
+        };
+        _db.FormResponses.Add(response);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<TaskConceptFormItemDto>.Ok(new TaskConceptFormItemDto(
+            response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
+    }
+
+    public async Task<FormResult<TaskConceptFormItemDto>> DuplicateResponseAsync(Guid responseId, CancellationToken cancellationToken = default)
+    {
+        var src = await _db.FormResponses.AsNoTracking().FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (src is null) { return FormResult<TaskConceptFormItemDto>.NotFound("Formulario no encontrado."); }
+        var taskNumber = StripOrdinal(src.Reference);
+        if (string.IsNullOrEmpty(taskNumber)) { return FormResult<TaskConceptFormItemDto>.Invalid("El formulario no esta anclado a una tarea."); }
+        var closed = await _db.TaskItems.AsNoTracking()
+            .AnyAsync(t => t.Number == taskNumber && t.Status == TaskItemStatus.Closed, cancellationToken);
+        if (closed) { return FormResult<TaskConceptFormItemDto>.Invalid("La tarea esta cerrada: no se pueden agregar formularios."); }
+
+        // Copia todo el Data del origen y hereda el numero nuevo en el campo "numero".
+        var next = await NextFormOrdinalAsync(src.DefinitionId, taskNumber, cancellationToken);
+        var reference = $"{taskNumber}-{next}";
+        var data = await BuildInheritedNumberDataAsync(src.DefinitionId, reference, src.Data, cancellationToken);
+
+        var response = new FormResponse
+        {
+            TenantId = src.TenantId,
+            DefinitionId = src.DefinitionId,
+            Reference = reference,
+            Status = FormResponseStatus.Draft,
+            Data = data
+        };
+        _db.FormResponses.Add(response);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<TaskConceptFormItemDto>.Ok(new TaskConceptFormItemDto(
+            response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
+    }
+
+    // ---- Numeracion heredada de formularios de la tarea: Reference = "{numero tarea}-{n}" ----
+
+    /// <summary>Primer FieldCode de la definicion cuyo Label contiene alguna de las pistas. Null si ninguno.</summary>
+    private async Task<string?> ResolveFieldCodeAsync(Guid defId, CancellationToken ct, params string[] needles)
+    {
+        var q = await _db.FormQuestions.AsNoTracking()
+            .Where(x => x.DefinitionId == defId).Select(x => new { x.FieldCode, x.Label }).ToListAsync(ct);
+        return q.FirstOrDefault(x => needles.Any(n => (x.Label ?? "").Contains(n, StringComparison.OrdinalIgnoreCase)))?.FieldCode;
+    }
+
+    /// <summary>Campo "numero" del formulario (code + tipo) para heredar el numero de la tarea; null si no hay.</summary>
+    private async Task<(string Code, string Type)?> ResolveNumberFieldAsync(Guid defId, CancellationToken ct)
+    {
+        var q = await _db.FormQuestions.AsNoTracking()
+            .Where(x => x.DefinitionId == defId).Select(x => new { x.FieldCode, x.Label, x.ControlType }).ToListAsync(ct);
+        var f = q.FirstOrDefault(x => new[] { "cotiz", "numero", "número", "folio", "consecutivo" }
+            .Any(n => (x.Label ?? "").Contains(n, StringComparison.OrdinalIgnoreCase)));
+        return f is null ? null : (f.FieldCode, f.ControlType.ToString());
+    }
+
+    /// <summary>Siguiente ordinal para la tarea: max sufijo existente + 1 (estable ante borrados).</summary>
+    private async Task<int> NextFormOrdinalAsync(Guid defId, string taskNumber, CancellationToken ct)
+    {
+        var prefix = taskNumber + "-";
+        var refs = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == defId
+                && (r.Reference == taskNumber || (r.Reference != null && r.Reference.StartsWith(prefix))))
+            .Select(r => r.Reference).ToListAsync(ct);
+        var maxN = 0;
+        foreach (var rf in refs)
+        {
+            if (string.IsNullOrEmpty(rf)) { continue; }
+            var dash = rf.LastIndexOf('-');
+            if (dash > 0 && int.TryParse(rf[(dash + 1)..], out var n)) { maxN = Math.Max(maxN, n); }
+            else if (rf == taskNumber) { maxN = Math.Max(maxN, 1); } // legacy sin sufijo cuenta como 1
+        }
+        return maxN + 1;
+    }
+
+    /// <summary>Numero de la tarea a partir de un Reference "{tarea}-{n}" (o el mismo si no trae sufijo).</summary>
+    private static string StripOrdinal(string? reference)
+    {
+        if (string.IsNullOrEmpty(reference)) { return ""; }
+        var dash = reference.LastIndexOf('-');
+        return dash > 0 && int.TryParse(reference[(dash + 1)..], out _) ? reference[..dash] : reference;
+    }
+
+    /// <summary>Data para una respuesta nueva: copia sourceData (si viene, para "copiar") y escribe el numero
+    /// heredado en el campo "numero" del formulario, si existe.</summary>
+    private async Task<string> BuildInheritedNumberDataAsync(Guid defId, string reference, string? sourceData, CancellationToken ct)
+    {
+        var doc = string.IsNullOrWhiteSpace(sourceData)
+            ? new Dictionary<string, FormFieldValue>(StringComparer.Ordinal)
+            : (JsonSerializer.Deserialize<Dictionary<string, FormFieldValue>>(sourceData!, JsonOptions) ?? new(StringComparer.Ordinal));
+        var numField = await ResolveNumberFieldAsync(defId, ct);
+        if (numField is not null) { doc[numField.Value.Code] = new FormFieldValue(reference, numField.Value.Type); }
+        return JsonSerializer.Serialize(doc, JsonOptions);
+    }
+
+    public async Task<FormResult<FormResponseDto>> ReopenResponseAsync(Guid responseId, CancellationToken cancellationToken = default)
+    {
+        var response = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (response is null) { return FormResult<FormResponseDto>.NotFound("Respuesta no encontrada."); }
+        if (response.Status == FormResponseStatus.Draft) { return FormResult<FormResponseDto>.Ok(ToDto(response)); }
+
+        // Guard: no reabrir si la tarea (por su numero, tenant-scoped) esta Cerrada.
+        if (!string.IsNullOrEmpty(response.Reference))
+        {
+            var closed = await _db.TaskItems.AsNoTracking()
+                .AnyAsync(t => t.Number == response.Reference && t.Status == TaskItemStatus.Closed, cancellationToken);
+            if (closed) { return FormResult<FormResponseDto>.Invalid("La tarea esta cerrada: no se puede reabrir la cotizacion."); }
         }
 
-        // Idempotente por (definicion, numero de tarea): UNA sola respuesta del concepto por tarea. Si ya
-        // existe (borrador O enviada) se reutiliza, para no duplicar ni perder lo enviado al reabrir la
-        // tarea. Solo si no hay ninguna se crea el borrador. OJO: no se usa GetOrCreateDraftAsync porque
-        // ese solo mira Draft y crearia una respuesta nueva cada vez que se recarga tras un envio.
-        var existing = await _db.FormResponses.AsNoTracking()
-            .Where(r => r.DefinitionId == definition.Id && r.Reference == task.Number)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
+        response.Status = FormResponseStatus.Draft;
+        response.SubmittedAt = null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<FormResponseDto>.Ok(ToDto(response));
+    }
 
-        FormResponseDto resp;
-        if (existing is not null)
+    /// <summary>Extrae el valor string de un campo del Data (<c>{ code: { value, type } }</c>). Null si falta.</summary>
+    private static string? ExtractDataField(string? dataJson, string? fieldCode)
+    {
+        if (string.IsNullOrEmpty(dataJson) || string.IsNullOrEmpty(fieldCode)) { return null; }
+        try
         {
-            resp = ToDto(existing);
-        }
-        else
-        {
-            // No se crea FormFlowLink porque este formulario no pertenece a un paso del flujo.
-            var draft = await GetOrCreateDraftAsync(definition.Id, task.Number, cancellationToken);
-            if (!draft.IsOk || draft.Value is null)
+            using var doc = JsonDocument.Parse(dataJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty(fieldCode, out var f)
+                && f.ValueKind == JsonValueKind.Object
+                && f.TryGetProperty("value", out var v))
             {
-                return null;
+                var s = v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString();
+                return string.IsNullOrWhiteSpace(s) ? null : s;
             }
-            resp = draft.Value;
         }
-
-        return new TaskConceptFormDto(
-            resp.Id, definition.Id, definition.Code, definition.Title,
-            resp.Reference, resp.Status);
+        catch (JsonException) { /* Data corrupto: sin resumen */ }
+        return null;
     }
 
     // ---- Helpers ----

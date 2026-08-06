@@ -60,7 +60,9 @@ public enum ActivityBoardScope
     /// <summary>Pendientes mias: el usuario actual es encargado O asignado.</summary>
     Mine,
     /// <summary>No asignadas: sin encargado y sin asignados.</summary>
-    Unassigned
+    Unassigned,
+    /// <summary>Terminadas: tareas con estado Done (Terminada).</summary>
+    Done
 }
 
 /// <summary>Filtro de fecha limite de las tarjetas (chips hoy / manana / con fecha).</summary>
@@ -92,7 +94,7 @@ public sealed record ActivityBoardDetailFilter(
 /// Se calculan con los DEMAS filtros aplicados (columnas/asignados/fecha/tags), ignorando
 /// el alcance seleccionado.
 /// </summary>
-public sealed record ActivityScopeCountersDto(int Team, int Mine, int Unassigned);
+public sealed record ActivityScopeCountersDto(int Team, int Mine, int Unassigned, int Done);
 
 /// <summary>Tarjeta del tablero de actividades: un TaskItem con todo lo que pinta la UI.</summary>
 public sealed record ActivityCardDto(

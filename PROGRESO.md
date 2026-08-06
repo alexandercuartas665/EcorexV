@@ -8130,3 +8130,18 @@ Partner-Id + mapeo anidado) + agente registrado + sync diario automatico.
 
 **Estado Siigo/AGROMETALICAS: COMPLETO** — contenedor + conector (token 2 pasos + Partner-Id + mapeo
 anidado) + sync diario 06:00 COT (Upsert) + carga vía agente Colmena funcionando + observabilidad.
+
+---
+
+## 2026-08-06 (sesion datos - prod) - Comerciales AGROMETALICAS: usuarios + asesores + dependencias
+
+**Hecho**: carga de comerciales de `comerciales.xlsx` en AGROMETALICAS (excluyendo la fila "nuevo asesor"
+= n/a). Usuarios: los 3 buzones ya existian (ventas@/ventas1@/ventas2@); ventas2@ lo compartian Jorge
+Arteaga y Lilian Loaiza (un login = una persona) -> decision del usuario: correo propio para Lilian por
+CEDULA. Creado usuario nuevo Lilian `31656416@agrometalicas.com` (login = cedula 31656416, clonando la
+plantilla comercial ventas1@: tenant_role=Admin, menu_view_id 1cc14de5..., lead_visibility OwnOnly);
+login validado (302 -> /inicio). Asesores comerciales creados: Jorge Arteaga (ventas2@), Richard
+Gonzales (ventas1@); relink de Lilian a su nuevo usuario; Julian ya existia. Dependencias
+(org_units Funcionario) creados y ubicados: Jorge->Asesor Comercial, Richard->Coordinador Comercial,
+Lilian->Asesora Comercial Externa, Julian->Supervisor de Planta. Backup `ecorex-2026-08-06-0623.sql.gz`.
+Carga por SQL directo (bypass AdminAuditLog, excepcion ETL). Sesion forkeada (solo implementacion/datos).

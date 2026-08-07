@@ -8274,3 +8274,20 @@ Carga por SQL directo (bypass AdminAuditLog, excepcion ETL). Sesion forkeada (so
 "basico" - enum Owner/Admin/Supervisor/Advisor y todos son Admin), status Active, menu estandar
 1cc14de5. SIN asesor ni Funcionario en dependencias (por indicacion). Clonando plantilla ventas1@.
 Login validado (302 -> /inicio). Backup `ecorex-2026-08-06-0923.sql.gz`. SQL directo (excepcion ETL).
+
+---
+
+## 2026-08-07 (sesion datos - prod) - Facturas Siigo en el modelo siigo (AGROMETALICAS)
+
+**Hecho**: agregadas 2 tablas al modelo de datos `siigo` de AGROMETALICAS (que ya tenia `clientes`):
+`facturas` (cabecera, 15 cols, 8440 filas) y `facturas_items` (11 cols, 14069 filas), desde la API de
+Siigo `GET /v1/invoices` (8440 facturas, token 2 pasos + Partner-Id). Cabecera aplanada: siigo_id, name,
+prefix/number, date, customer.identification/id, seller, total/balance, stamp.status (DIAN), cufe,
+observations, public_url, num_items. Items: una fila por linea (fan-out del arreglo items[] inline),
+enlazada por `Factura Siigo Id`; campos code/description/quantity/price/IVA/total. Carga CONTROLADA por
+SQL (no por conector: los items son arreglo anidado inline que el motor de conectores no aplana). uuid5
+idempotente. Verificado (FV-3-6906 con sus 7 items). Backup `ecorex-2026-08-07-1608.sql.gz`. IDs:
+facturas `8de607a4-028e-5def-8e21-b371f2a01321`, items `ab2680f3-5f49-538f-9004-2186c6537188`.
+
+Nota: repetibilidad -> las cabeceras podrian tener conector + sync como clientes; los items requeririan
+un modo "aplanar arreglo anidado inline" (feature de codigo) o recarga manual.

@@ -56,7 +56,10 @@
          Publicas (mayusculas) + Secure para que sobrevivan al cruce cliente->servidor elevado.
          SECRET va en MsiHiddenProperties: su valor NO aparece en el log del MSI. Aun asi, un secreto
          en linea de comandos es visible en el arbol de procesos mientras corre msiexec: preferir un
-         canal seguro para distribuirlo. Vacio en todas = install normal (se configura por la colmena). -->
+         canal seguro para distribuirlo. Vacio en todas = install normal (se configura por la colmena).
+         Estas propiedades tambien RE-fijan la identidad en un reinstall/modify sobre un agente ya
+         instalado (ADR-0063): pasar CLIENTID/HUBURL en un /i posterior reescribe el vault. SECRET vacio
+         conserva el secreto que ya tiene el vault, asi se puede re-fijar ClientId/hub sin exponerlo. -->
     <Property Id="CLIENTID" Secure="yes" />
     <Property Id="HUBURL" Secure="yes" />
     <Property Id="SECRET" Secure="yes" Hidden="yes" />
@@ -80,18 +83,34 @@
                   Impersonate="yes"
                   Return="asyncNoWait" />
 
-    <!-- ===== Escribir la identidad al instalar (ADR-0050 B) =====
-         Solo si vinieron CLIENTID y HUBURL. Escribe la boveda con el verbo save-config (doble guion)
-         corriendo el exe ya instalado. Debe ser DEFERIDA + no-impersonada (SYSTEM) porque la boveda
-         tiene ACL SYSTEM+Admins; una CA inmediata correria como el usuario (sin permiso). El comando
-         (con el secreto) se pasa por CustomActionData (un SetProperty cuyo Id coincide con el de la CA
-         deferida), no por la tabla de propiedades (una CA deferida no la puede leer). Se agenda tras
-         InstallFiles, con el exe ya en disco. -->
+    <!-- ===== Escribir la identidad al instalar Y al reconfigurar (ADR-0050 B, ADR-0063) =====
+         Corre SIEMPRE que lleguen CLIENTID y HUBURL, sin importar si es instalacion nueva, reinstall o
+         modify. La condicion se cambio de "CLIENTID AND HUBURL AND NOT Installed" a solo "CLIENTID AND
+         HUBURL" (ADR-0063): la variante con NOT Installed solo aplicaba la identidad en install NUEVO,
+         asi que re-fijar la identidad sobre un agente YA instalado (reinstall/modify con propiedades)
+         no hacia nada -el vault viejo se quedaba y el handshake seguia fallando con el secreto rotado-.
+         El guard sigue vivo: si NO vienen las props, la condicion es falsa y el vault existente no se
+         toca. La escritura es idempotente y save-config (doble guion) con SECRET vacio CONSERVA el
+         secreto actual.
+         DEFERIDA + no-impersonada (SYSTEM) porque la boveda tiene ACL SYSTEM+Admins; una CA inmediata
+         correria como el usuario (sin permiso). El comando (con el secreto) se pasa por CustomActionData
+         (un SetProperty cuyo Id coincide con el de la CA deferida), no por la tabla de propiedades (una
+         CA deferida no la puede leer). Se agenda tras InstallServices, con el exe ya en disco. -->
+    <!-- Blindaje del secreto vacio: un argumento final vacio ("") en el comando formateado se CORROMPE
+         (MSI lo reemplaza por basura tipo CURRENTDIRECTORY=..., que se escribiria como secreto y
+         rompe el handshake con "Firma invalida"). Por eso, si NO vino SECRET, se fuerza el centinela
+         __KEEP__ ANTES de armar el comando; el exe lo interpreta como "conserva el secreto actual"
+         (AgentIdentity.KeepSecretSentinel). Asi el 4o argumento SIEMPRE es no vacio. -->
+    <SetProperty Id="SECRET"
+                 Sequence="execute"
+                 Before="SetEcorexConfigureIdentity"
+                 Value="__KEEP__"
+                 Condition="CLIENTID AND HUBURL AND NOT SECRET" />
     <SetProperty Id="EcorexConfigureIdentity"
                  Sequence="execute"
                  Before="EcorexConfigureIdentity"
                  Value="&quot;[#Ecorex.Agent.Gui.exe]&quot; --save-config &quot;[CLIENTID]&quot; &quot;[HUBURL]&quot; &quot;[SECRET]&quot;"
-                 Condition="CLIENTID AND HUBURL AND NOT Installed" />
+                 Condition="CLIENTID AND HUBURL" />
     <CustomAction Id="EcorexConfigureIdentity"
                   BinaryRef="Wix4UtilCA_X64"
                   DllEntry="WixQuietExec64"
@@ -101,7 +120,7 @@
 
     <InstallExecuteSequence>
       <Custom Action="LaunchTrayGui" After="InstallFinalize" Condition="NOT Installed" />
-      <Custom Action="EcorexConfigureIdentity" After="InstallServices" Condition="CLIENTID AND HUBURL AND NOT Installed" />
+      <Custom Action="EcorexConfigureIdentity" After="InstallServices" Condition="CLIENTID AND HUBURL" />
     </InstallExecuteSequence>
 
     <!-- ================= Arbol de directorios ================= -->

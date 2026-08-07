@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using Ecorex.Agent.Core.Services;
@@ -23,14 +24,32 @@ public partial class App : System.Windows.Application
 
         if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--save-config", StringComparison.OrdinalIgnoreCase))
         {
-            // Blanco de la auto-elevacion de la colmena (Verb=runas) y del MSI (install desatendido):
-            // escribe la boveda DIRECTO (machine-scope) y sale, sin pasar por el pipe.
+            // Blanco de la auto-elevacion de la colmena (Verb=runas) y del MSI reconfigurable (ADR-0063,
+            // install desatendido y reinstall/modify): escribe la boveda DIRECTO (machine-scope) y sale,
+            // sin pasar por el pipe. La regla del secreto (vacio = conservar el actual) vive en
+            // AgentIdentity.Merge, probada aparte: asi re-fijar solo ClientId/URL no borra la credencial.
             var store = new DpapiConfigStore();
-            var secretArg = e.Args.Length >= 4 ? e.Args[3].Trim() : string.Empty;
-            // Secreto vacio = "no lo cambies": se conserva el que ya hay (mismo criterio que la ruta por
-            // pipe). Asi cambiar solo el ClientId/URL no borra la credencial. Con un secreto nuevo, se usa.
-            var secret = string.IsNullOrEmpty(secretArg) ? store.Load().Secret : secretArg;
-            store.Save(new AgentConfig(e.Args[1].Trim(), e.Args[2].Trim(), secret));
+            var secretArg = e.Args.Length >= 4 ? e.Args[3] : null;
+            store.Save(AgentIdentity.Merge(e.Args[1], e.Args[2], secretArg, store.Load()));
+            Shutdown(0);
+            return;
+        }
+
+        // DIAGNOSTICO: imprime la identidad ACTIVA del vault (ClientId + hub + si hay secreto), sin
+        // revelar el secreto. Sirve para verificar de un vistazo que la reconfiguracion por MSI/UAC
+        // quedo aplicada. La GUI es WinExe (sin consola): se engancha a la consola del proceso padre
+        // para que la salida sea visible al lanzarlo desde una terminal; si no hay, muestra un dialogo.
+        if (e.Args.Length >= 1 && (string.Equals(e.Args[0], "--show-identity", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(e.Args[0], "--whoami", StringComparison.OrdinalIgnoreCase)))
+        {
+            var cfg = new DpapiConfigStore().Load();
+            var report = string.Join(Environment.NewLine,
+                "ECOREX Agente Colmena - identidad activa (boveda machine-scope):",
+                "  ClientId : " + (string.IsNullOrEmpty(cfg.ClientId) ? "(sin configurar)" : cfg.ClientId),
+                "  Hub      : " + (string.IsNullOrEmpty(cfg.HubUrl) ? "(sin configurar)" : cfg.HubUrl),
+                "  Secreto  : " + (cfg.HasSecret ? "si" : "no"),
+                "  Completa : " + (cfg.IsComplete ? "si" : "no"));
+            ReportToConsoleOrDialog(report);
             Shutdown(0);
             return;
         }
@@ -119,6 +138,46 @@ public partial class App : System.Windows.Application
             window.Show();
         }
     }
+
+    // ---- Diagnostico: salida por consola del proceso padre (o dialogo si no la hay) ----
+
+    /// <summary>
+    /// Escribe <paramref name="text"/> en la consola del proceso padre (cmd/PowerShell) enganchandose a
+    /// ella, ya que una app WinExe no tiene consola propia. Si no hay consola padre (doble clic), cae a
+    /// un MessageBox para que igual sea visible. Nunca lanza: el diagnostico no debe fallar el proceso.
+    /// </summary>
+    private static void ReportToConsoleOrDialog(string text)
+    {
+        try
+        {
+            if (AttachConsole(AttachParentProcess))
+            {
+                try
+                {
+                    Console.Out.WriteLine();
+                    Console.Out.WriteLine(text);
+                    Console.Out.Flush();
+                }
+                finally { FreeConsole(); }
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(text, "ECOREX Agente - identidad");
+            }
+        }
+        catch
+        {
+            // best-effort: un diagnostico no puede tumbar el proceso.
+        }
+    }
+
+    private const int AttachParentProcess = -1;
+
+    [DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int dwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool FreeConsole();
 
     // ---- Instancia unica (per-sesion). Los campos se conservan para que el GC no los recoja: si el
     // Mutex se colecta, se libera y la instancia unica deja de valer. ----

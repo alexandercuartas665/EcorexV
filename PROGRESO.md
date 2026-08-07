@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-08-06 - Agente Colmena: identidad reconfigurable por MSI + blindaje del secreto vacio (MSI 1.3.0)
+
+**Agentes:** Claude Opus 4.8 (sub-agente de ingenieria), worktree `fix/agente-identidad-msi`.
+
+**Problema (visto en SOLDARCO):** el vault de identidad del agente
+(`%ProgramData%\Ecorex\Agent\config.dat`, machine-scope) no se podia re-fijar. (1) La custom action
+del MSI solo corria en install NUEVO (`NOT Installed`), asi que reinstalar con propiedades sobre un
+agente ya instalado no re-aplicaba la identidad. (2) Un `SECRET` vacio corrompia el vault: MSI
+reemplazaba el argumento final vacio `""` por basura (`CURRENTDIRECTORY=...`) que se escribia como
+secreto -> `401 Firma invalida` permanente.
+
+**Hecho:**
+- **MSI reconfigurable:** condicion de `EcorexConfigureIdentity` cambiada de
+  `CLIENTID AND HUBURL AND NOT Installed` a solo `CLIENTID AND HUBURL` (cubre install/reinstall/modify).
+  Guard intacto: sin props no toca el vault. CA sigue deferida + SYSTEM. (Product.wxs)
+- **Blindaje `__KEEP__`:** `SetProperty` fuerza `SECRET=__KEEP__` cuando no vino SECRET, antes de
+  armar el comando, para que el 4o argumento nunca sea vacio (evita la corrupcion CURRENTDIRECTORY).
+  `AgentIdentity.Merge` (nuevo, en Core, con tests) interpreta `__KEEP__`/vacio como "conserva el
+  secreto actual". Para re-fijar ClientId/hub sin exponer el secreto: OMITIR SECRET.
+- **Diagnostico `--show-identity` / `--whoami`:** imprime la identidad activa del vault (ClientId +
+  hub + si hay secreto, sin el valor); se engancha a la consola del proceso padre. (App.xaml.cs)
+- ADR-0063. Build verde, 38 tests verdes.
+
+**Validado en esta maquina (MSI 1.3.0, elevado):** config.dat se reescribe en CADA reinstall
+(incluida misma version) -> reconfigurable OK; CustomActionData ya pasa `"__KEEP__"` limpio (sin
+basura); `--show-identity` reporta la identidad; el secreto se conserva (size estable) al omitir SECRET.
+
+**Bloqueo/consecuencia:** el PRIMER test (con `SECRET=` explicito, como pedia el guion) DISPARO la
+corrupcion antes del fix y SOBREESCRIBIO el secreto real del vault de esta maquina; quedo un secreto
+DUMMY -> el servicio esta Offline (`Firma invalida`). **Accion humana pendiente:** re-ingresar el
+secreto REAL de `cli_a942beecf941` por la GUI (o `--save-config` elevado) para volver Online.
+
+**Siguiente:** merge del agente (sin redeploy del servidor); test interactivo de la GUI (Guardar -> UAC)
+lo valida un humano.
+
+---
+
 ## 2026-08-06 - v0.9.2: formularios de la actividad como tarjetas + tablero Terminados + impresion
 
 **Formularios del concepto como TARJETAS (multiples por tarea):** la pestana Formularios del detalle

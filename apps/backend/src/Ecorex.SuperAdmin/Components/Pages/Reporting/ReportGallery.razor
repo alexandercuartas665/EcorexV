@@ -295,7 +295,8 @@
     {
         ["panel:system-activities"] = typeof(ActivitiesDashboardPanel),
         ["panel:ocs"] = typeof(OcsDashboardPanel),
-        ["panel:tareas"] = typeof(TareasDashboardPanel),
+        // panel:tareas retirado (ADR-0064): el reporte de tareas ahora va por el conector de datos
+        // externos gobernado (datos EN VIVO), no por contenedor/panel.
     };
 
     private static Type ResolvePanelType(string? sourceKey) =>

@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Application.Reporting.External;
 using Ecorex.Application.Reporting.Sources;
 
 namespace Ecorex.Application.Reporting;
@@ -28,17 +29,20 @@ public sealed class ReportDataSource : IReportDataSource
     private readonly IReportCatalog _catalog;
     private readonly IEnumerable<IReportableSource> _nativeSources;
     private readonly ContainerReportReader _containers;
+    private readonly ExternalReportReader _external;
     private readonly ITenantContext _tenantContext;
 
     public ReportDataSource(
         IReportCatalog catalog,
         IEnumerable<IReportableSource> nativeSources,
         ContainerReportReader containers,
+        ExternalReportReader external,
         ITenantContext tenantContext)
     {
         _catalog = catalog;
         _nativeSources = nativeSources;
         _containers = containers;
+        _external = external;
         _tenantContext = tenantContext;
     }
 
@@ -61,6 +65,17 @@ public sealed class ReportDataSource : IReportDataSource
         if (descriptor.Kind == ReportSourceKind.Container)
         {
             return await _containers.QueryAsync(descriptor, spec, effectiveCtx, ct);
+        }
+
+        if (descriptor.Kind == ReportSourceKind.External)
+        {
+            // Fuente externa gobernada (ADR-0064): el reader re-verifica la concesion del tenant, descifra
+            // en memoria y ejecuta el dataset curado de solo lectura. El alcance viaja por contexto de
+            // confianza; aqui no se admiten filtros libres (los campos externos son CanFilter=false).
+            var externalId = ExternalReportReader.ParseId(descriptor.Key)
+                ?? throw new ReportValidationException($"Clave externa invalida: '{descriptor.Key}'.");
+            var runCtx = new ExternalRunContext(tenantId, effectiveCtx.UserId);
+            return await _external.QueryAsync(externalId, runCtx, inputs: null, ct);
         }
 
         var source = _nativeSources.FirstOrDefault(s =>

@@ -125,8 +125,9 @@ public abstract class ReportAuthoringTestsBase
         var tenantCtx = new TestTenantContext(tenantId);
         var native = new IReportableSource[] { new TaskItemReportSource(ctx) };
         var containers = new ContainerReportReader(ctx);
-        var catalog = new ReportCatalog(native, containers, ctx);
-        var dataSource = new ReportDataSource(catalog, native, containers, tenantCtx);
+        var external = ExternalTestDoubles.Reader(ctx);
+        var catalog = new ReportCatalog(native, containers, external, tenantCtx, ctx);
+        var dataSource = new ReportDataSource(catalog, native, containers, external, tenantCtx);
         var authoring = new ReportAuthoringService(catalog, dataSource, new FakeGenerator(cannedJson), tenantCtx);
         return await authoring.AuthorAsync("instruccion de prueba");
     }
@@ -136,8 +137,9 @@ public abstract class ReportAuthoringTestsBase
         var tenantCtx = new TestTenantContext(tenantId);
         var native = new IReportableSource[] { new TaskItemReportSource(ctx) };
         var containers = new ContainerReportReader(ctx);
-        var catalog = new ReportCatalog(native, containers, ctx);
-        var dataSource = new ReportDataSource(catalog, native, containers, tenantCtx);
+        var external = ExternalTestDoubles.Reader(ctx);
+        var catalog = new ReportCatalog(native, containers, external, tenantCtx, ctx);
+        var dataSource = new ReportDataSource(catalog, native, containers, external, tenantCtx);
         return new ReportDefinitionService(ctx, tenantCtx, dataSource);
     }
 

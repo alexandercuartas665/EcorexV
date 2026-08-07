@@ -265,6 +265,12 @@ public static class DependencyInjection
         services.AddScoped<Reporting.Templates.IReportTemplateService, Reporting.Templates.ReportTemplateService>();
         services.AddScoped<Reporting.Authoring.IReportSpecGenerator, Reporting.Authoring.AiReportSpecGenerator>();
         services.AddScoped<Reporting.Authoring.IReportAuthoringService, Reporting.Authoring.ReportAuthoringService>();
+        // Conector de datos externos gobernado (ADR-0064): lector externo (analogo al de contenedor),
+        // administracion del catalogo (CRUD auditado, solo PlatformAdmin) y binding de imprimibles a
+        // datos externos. El executor ADO.NET de solo lectura lo aporta Infrastructure (tiene drivers).
+        services.AddScoped<Reporting.External.ExternalReportReader>();
+        services.AddScoped<Reporting.External.IExternalDataSourceService, Reporting.External.ExternalDataSourceService>();
+        services.AddScoped<Reporting.External.IExternalReportBindingService, Reporting.External.ExternalReportBindingService>();
         return services;
     }
 }

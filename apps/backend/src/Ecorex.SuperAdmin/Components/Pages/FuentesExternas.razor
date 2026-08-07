@@ -1,0 +1,396 @@
+@page "/fuentes-externas"
+@attribute [Authorize(Policy = "PlatformOperator")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Admin
+@using Ecorex.Application.Reporting.External
+@using Ecorex.Domain.Enums
+@inject IExternalDataSourceService Sources
+@inject ITenantAdminService TenantSvc
+@inject AuthenticationStateProvider AuthProvider
+
+@* Conector de datos externos gobernado (ADR-0064): PLATAFORMA registra fuentes externas (cadena
+   CIFRADA, solo lectura), consultas curadas (datasets) y concede el acceso por tenant. Toda mutacion
+   queda AUDITADA. El secreto no se vuelve a mostrar. *@
+
+<PageTitle>Fuentes de datos externas - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+            </div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Fuentes de datos <span>externas</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Registra bases de datos externas de SOLO LECTURA para el Motor de Reportes. La cadena de conexion se cifra y nunca se vuelve a mostrar. Las consultas se curan como datasets parametrizados; el acceso de cada tenant se concede explicitamente.</p>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p><em>Cargando...</em></p>
+}
+else
+{
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <div class="card-soft" style="flex:1;min-width:360px;padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h2 style="font-size:1rem;margin:0;">Fuentes registradas</h2>
+                <button class="btn btn-sm btn-primary" @onclick="NewSource">Nueva fuente</button>
+            </div>
+            @if (_sources.Count == 0)
+            {
+                <p class="page-sub" style="margin:0;">No hay fuentes registradas.</p>
+            }
+            else
+            {
+                <table class="table table-sm" style="margin:0;">
+                    <thead><tr><th>Nombre</th><th>Motor</th><th>Estado</th><th>Datasets</th><th>Tenants</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var s in _sources)
+                        {
+                            <tr class="@(s.Id == _selectedSourceId ? "table-active" : "")">
+                                <td>@s.Name @(s.HasConnectionString ? "" : "(sin cadena)")</td>
+                                <td>@s.Provider</td>
+                                <td>@(s.IsEnabled ? "Habilitada" : "Deshabilitada")</td>
+                                <td>@s.DataSetCount</td>
+                                <td>@s.GrantCount</td>
+                                <td><button class="btn btn-sm btn-outline-secondary" @onclick="() => SelectSource(s.Id)">Abrir</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        @if (_editingSource is not null)
+        {
+            <div class="card-soft" style="flex:1;min-width:360px;padding:18px;">
+                <h2 style="font-size:1rem;margin-top:0;">@(_sourceForm.Id is null ? "Nueva fuente" : "Editar fuente")</h2>
+                <div class="auth-field"><label>Nombre</label><input class="form-control" @bind="_sourceForm.Name" /></div>
+                <div class="auth-field" style="margin-top:10px;"><label>Descripcion</label><input class="form-control" @bind="_sourceForm.Description" /></div>
+                <div class="auth-field" style="margin-top:10px;">
+                    <label>Motor</label>
+                    <select class="form-control" @bind="_sourceForm.Provider">
+                        <option value="@ExternalDataProvider.SqlServer">SQL Server</option>
+                        <option value="@ExternalDataProvider.Postgres">PostgreSQL</option>
+                    </select>
+                </div>
+                <div class="auth-field" style="margin-top:10px;">
+                    <label>Cadena de conexion @(_sourceForm.HasConnectionString ? "(guardada; deja vacio para conservarla)" : "(usuario de SOLO LECTURA)")</label>
+                    <input class="form-control" type="password" @bind="_sourceForm.ConnectionString" placeholder="@(_sourceForm.HasConnectionString ? "(sin cambios)" : "Server=...;User Id=lector;Password=...")" />
+                </div>
+                <div class="form-check form-switch" style="margin-top:12px;">
+                    <input class="form-check-input" type="checkbox" id="srcEnabled" @bind="_sourceForm.IsEnabled" />
+                    <label class="form-check-label" for="srcEnabled">Habilitada</label>
+                </div>
+                <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveSource" disabled="@_busy">Guardar</button>
+                    @if (_sourceForm.Id is not null)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="TestSource" disabled="@_busy">Probar (solo lectura)</button>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_sourceMsg)) { <span class="@(_sourceOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_sourceMsg</span> }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (_selectedSourceId is not null)
+    {
+        <div class="card-soft" style="margin-top:20px;padding:18px;">
+            <h2 style="font-size:1rem;margin-top:0;">Consultas curadas (datasets)</h2>
+            <button class="btn btn-sm btn-primary" @onclick="NewDataSet">Nuevo dataset</button>
+            @if (_dataSets.Count > 0)
+            {
+                <table class="table table-sm" style="margin-top:12px;">
+                    <thead><tr><th>Nombre</th><th>Parametros</th><th>Campos</th><th>Estado</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _dataSets)
+                        {
+                            <tr>
+                                <td>@d.Name</td><td>@d.ParameterCount</td><td>@d.FieldCount</td>
+                                <td>@(d.IsEnabled ? "Habilitado" : "Deshabilitado")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditDataSet(d.Id)">Editar</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDataSet(d.Id)">Borrar</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            @if (_editingDataSet is not null)
+            {
+                <div class="card-soft" style="margin-top:12px;padding:14px;background:rgba(0,0,0,.02);">
+                    <div class="auth-field"><label>Nombre (coincide con el dataset del RDL)</label><input class="form-control" @bind="_dsForm.Name" /></div>
+                    <div class="auth-field" style="margin-top:10px;">
+                        <label>Consulta SELECT parametrizada (@@nombre)</label>
+                        <textarea class="form-control" rows="4" @bind="_dsForm.CommandText"></textarea>
+                    </div>
+                    <div class="auth-field" style="margin-top:10px;">
+                        <label>Parametros (JSON: Name, Type, Binding [Input|Context], ContextKey, DefaultValue)</label>
+                        <textarea class="form-control" rows="4" @bind="_dsForm.ParametersJson"></textarea>
+                    </div>
+                    <div class="auth-field" style="margin-top:10px;">
+                        <label>Campos de salida (JSON: Name, Type)</label>
+                        <textarea class="form-control" rows="3" @bind="_dsForm.FieldsJson"></textarea>
+                    </div>
+                    <div class="form-check form-switch" style="margin-top:10px;">
+                        <input class="form-check-input" type="checkbox" id="dsEnabled" @bind="_dsForm.IsEnabled" />
+                        <label class="form-check-label" for="dsEnabled">Habilitado</label>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-primary btn-sm" @onclick="SaveDataSet" disabled="@_busy">Guardar dataset</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => _editingDataSet = null">Cancelar</button>
+                        @if (!string.IsNullOrWhiteSpace(_dsMsg)) { <span class="@(_dsOk ? "text-success" : "text-danger")" style="font-size:.85rem;">@_dsMsg</span> }
+                    </div>
+                </div>
+            }
+
+            <h2 style="font-size:1rem;margin-top:20px;">Concesiones por tenant</h2>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select class="form-control" style="max-width:280px;" @bind="_grantTenantId">
+                    <option value="">Selecciona un tenant...</option>
+                    @foreach (var t in _tenants)
+                    {
+                        <option value="@t.Id">@t.Name</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-primary" @onclick="AddGrant" disabled="@(_busy || string.IsNullOrWhiteSpace(_grantTenantId))">Conceder</button>
+            </div>
+            @if (_grants.Count > 0)
+            {
+                <table class="table table-sm" style="margin-top:12px;">
+                    <thead><tr><th>Tenant</th><th>Estado</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var g in _grants)
+                        {
+                            <tr>
+                                <td>@(g.TenantName ?? g.TenantId.ToString())</td>
+                                <td>@(g.IsEnabled ? "Activa" : "Inactiva")</td>
+                                <td><button class="btn btn-sm btn-outline-danger" @onclick="() => Revoke(g.Id)">Revocar</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+}
+
+@code {
+    private bool _loading = true, _busy;
+    private IReadOnlyList<ExternalDataSourceSummary> _sources = Array.Empty<ExternalDataSourceSummary>();
+    private IReadOnlyList<ExternalDataSetSummary> _dataSets = Array.Empty<ExternalDataSetSummary>();
+    private IReadOnlyList<ExternalGrantDto> _grants = Array.Empty<ExternalGrantDto>();
+    private IReadOnlyList<TenantListItem> _tenants = Array.Empty<TenantListItem>();
+
+    private Guid? _selectedSourceId;
+    private object? _editingSource, _editingDataSet;
+    private SourceForm _sourceForm = new();
+    private DataSetForm _dsForm = new();
+    private string? _grantTenantId;
+
+    private string? _sourceMsg, _dsMsg;
+    private bool _sourceOk, _dsOk;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tenants = await TenantSvc.ListAsync();
+        await ReloadSources();
+        _loading = false;
+    }
+
+    private async Task ReloadSources() => _sources = await Sources.ListSourcesAsync();
+
+    private void NewSource()
+    {
+        _sourceForm = new SourceForm();
+        _editingSource = _sourceForm;
+        _sourceMsg = null;
+    }
+
+    private async Task SelectSource(Guid id)
+    {
+        _selectedSourceId = id;
+        var detail = await Sources.GetSourceAsync(id);
+        if (detail is not null)
+        {
+            _sourceForm = new SourceForm
+            {
+                Id = detail.Id,
+                Name = detail.Name,
+                Description = detail.Description,
+                Provider = detail.Provider,
+                IsEnabled = detail.IsEnabled,
+                HasConnectionString = detail.HasConnectionString
+            };
+            _editingSource = _sourceForm;
+        }
+        _dataSets = await Sources.ListDataSetsAsync(id);
+        _grants = await Sources.ListGrantsAsync(id);
+        _editingDataSet = null;
+        _sourceMsg = null;
+    }
+
+    private async Task SaveSource()
+    {
+        _busy = true; _sourceMsg = null;
+        try
+        {
+            var req = new SaveExternalDataSourceRequest(
+                _sourceForm.Name?.Trim() ?? "", _sourceForm.Description, _sourceForm.Provider,
+                _sourceForm.ConnectionString, _sourceForm.IsEnabled);
+            var actor = await ActorAsync();
+            if (_sourceForm.Id is Guid existing)
+            {
+                await Sources.UpdateSourceAsync(existing, req, actor);
+            }
+            else
+            {
+                var newId = await Sources.CreateSourceAsync(req, actor);
+                _selectedSourceId = newId;
+            }
+            _sourceOk = true; _sourceMsg = "Guardada.";
+            await ReloadSources();
+            if (_selectedSourceId is Guid sid) { await SelectSource(sid); }
+        }
+        catch { _sourceOk = false; _sourceMsg = "No se pudo guardar."; }
+        finally { _busy = false; }
+    }
+
+    private async Task TestSource()
+    {
+        _busy = true; _sourceMsg = null;
+        try
+        {
+            if (_sourceForm.Id is Guid id)
+            {
+                var req = new SaveExternalDataSourceRequest(
+                    _sourceForm.Name?.Trim() ?? "", _sourceForm.Description, _sourceForm.Provider,
+                    _sourceForm.ConnectionString, _sourceForm.IsEnabled);
+                var err = await Sources.TestConnectionAsync(id, req, await ActorAsync());
+                _sourceOk = err is null;
+                _sourceMsg = err is null ? "Conexion de solo lectura OK." : err;
+            }
+        }
+        catch { _sourceOk = false; _sourceMsg = "No se pudo probar."; }
+        finally { _busy = false; }
+    }
+
+    private void NewDataSet()
+    {
+        _dsForm = new DataSetForm { ParametersJson = "[]", FieldsJson = "[]" };
+        _editingDataSet = _dsForm;
+        _dsMsg = null;
+    }
+
+    private async Task EditDataSet(Guid id)
+    {
+        var d = await Sources.GetDataSetAsync(id);
+        if (d is null) { return; }
+        _dsForm = new DataSetForm
+        {
+            Id = d.Id,
+            Name = d.Name,
+            CommandText = d.CommandText,
+            ParametersJson = ExternalDataJson.SerializeParameters(d.Parameters),
+            FieldsJson = ExternalDataJson.SerializeFields(d.Fields),
+            IsEnabled = d.IsEnabled
+        };
+        _editingDataSet = _dsForm;
+        _dsMsg = null;
+    }
+
+    private async Task SaveDataSet()
+    {
+        if (_selectedSourceId is not Guid sourceId) { return; }
+        _busy = true; _dsMsg = null;
+        try
+        {
+            var req = new SaveExternalDataSetRequest(
+                _dsForm.Id, sourceId, _dsForm.Name?.Trim() ?? "", null, _dsForm.CommandText?.Trim() ?? "",
+                ExternalDataJson.DeserializeParameters(_dsForm.ParametersJson),
+                ExternalDataJson.DeserializeFields(_dsForm.FieldsJson),
+                _dsForm.IsEnabled);
+            await Sources.SaveDataSetAsync(req, await ActorAsync());
+            _dsOk = true; _dsMsg = "Dataset guardado.";
+            _dataSets = await Sources.ListDataSetsAsync(sourceId);
+            _editingDataSet = null;
+            await ReloadSources();
+        }
+        catch { _dsOk = false; _dsMsg = "No se pudo guardar (revisa el JSON de parametros/campos)."; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteDataSet(Guid id)
+    {
+        if (_selectedSourceId is not Guid sourceId) { return; }
+        _busy = true;
+        try
+        {
+            await Sources.DeleteDataSetAsync(id, await ActorAsync());
+            _dataSets = await Sources.ListDataSetsAsync(sourceId);
+            await ReloadSources();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AddGrant()
+    {
+        if (_selectedSourceId is not Guid sourceId || !Guid.TryParse(_grantTenantId, out var tenantId)) { return; }
+        _busy = true;
+        try
+        {
+            await Sources.GrantAsync(sourceId, tenantId, null, await ActorAsync());
+            _grants = await Sources.ListGrantsAsync(sourceId);
+            _grantTenantId = null;
+            await ReloadSources();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Revoke(Guid grantId)
+    {
+        if (_selectedSourceId is not Guid sourceId) { return; }
+        _busy = true;
+        try
+        {
+            await Sources.RevokeAsync(grantId, await ActorAsync());
+            _grants = await Sources.ListGrantsAsync(sourceId);
+            await ReloadSources();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task<Guid> ActorAsync()
+    {
+        var state = await AuthProvider.GetAuthenticationStateAsync();
+        return Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private sealed class SourceForm
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public ExternalDataProvider Provider { get; set; } = ExternalDataProvider.SqlServer;
+        public string? ConnectionString { get; set; }
+        public bool IsEnabled { get; set; } = true;
+        public bool HasConnectionString { get; set; }
+    }
+
+    private sealed class DataSetForm
+    {
+        public Guid? Id { get; set; }
+        public string? Name { get; set; }
+        public string? CommandText { get; set; }
+        public string? ParametersJson { get; set; } = "[]";
+        public string? FieldsJson { get; set; } = "[]";
+        public bool IsEnabled { get; set; } = true;
+    }
+}

@@ -1088,19 +1088,37 @@ app.MapGet("/cotizacion/{leadId:guid}", async (
     return html is null ? Results.NotFound() : Results.Content(html, "text/html; charset=utf-8");
 }).AllowAnonymous();
 
+// Puerto loopback REAL donde escucha Kestrel (8080 en el contenedor de prod, 5234 en dev local): el
+// Chromium headless navega a ESE puerto interno, no al dominio publico (el contenedor no alcanza su URL
+// publica por hairpin). Antes se leia solo de ASPNETCORE_HTTP_PORTS (8080), asi el PDF fallaba en dev
+// local (escucha en 5234) con ERR_CONNECTION_REFUSED. Ahora se lee de las direcciones que ligo el
+// servidor; fallback al env var / 8080.
+static string LoopbackPort(Microsoft.AspNetCore.Hosting.Server.IServer srv)
+{
+    var addrs = srv.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses;
+    if (addrs is not null)
+    {
+        foreach (var a in addrs)
+        {
+            var norm = a.Replace("*", "localhost").Replace("+", "localhost").Replace("[::]", "localhost").Replace("0.0.0.0", "localhost");
+            if (Uri.TryCreate(norm, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttp) { return u.Port.ToString(); }
+        }
+    }
+    return (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
+}
+
 // PDF de la cotizacion (render headless de la pagina anterior). Para descargar/ver como PDF.
 app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     Guid leadId,
     [FromQuery] Guid? templateId,
-    HttpRequest httpReq,
+    Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
     CancellationToken ct) =>
 {
-    // Chromium corre en el MISMO contenedor que la app: navega al loopback interno (Kestrel escucha
-    // en ASPNETCORE_HTTP_PORTS), no al dominio publico. El contenedor no puede alcanzar su propia URL
-    // publica desde adentro (hairpin) y GoToAsync expira. La pagina /cotizacion es AllowAnonymous.
-    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
-    var url = $"http://localhost:{port}/cotizacion/{leadId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    // Chromium corre en el MISMO contenedor que la app: navega al loopback interno (el puerto REAL de
+    // Kestrel, 8080 en prod / 5234 en dev), no al dominio publico. El contenedor no puede alcanzar su
+    // propia URL publica desde adentro (hairpin) y GoToAsync expira. La pagina /cotizacion es AllowAnonymous.
+    var url = $"http://localhost:{LoopbackPort(server)}/cotizacion/{leadId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
 }).AllowAnonymous();
@@ -1129,11 +1147,11 @@ app.MapGet("/formularios/plantilla/{responseId:guid}", async (
 app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
+    Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
     CancellationToken ct) =>
 {
-    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
-    var url = $"http://localhost:{port}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"documento-{responseId}.pdf");
 }).AllowAnonymous();
@@ -1141,11 +1159,11 @@ app.MapGet("/formularios/plantilla/{responseId:guid}/pdf", async (
 app.MapGet("/formularios/plantilla/{responseId:guid}/img", async (
     Guid responseId,
     [FromQuery] Guid? templateId,
+    Microsoft.AspNetCore.Hosting.Server.IServer server,
     Ecorex.Application.Common.IQuotePdfRenderer pdf,
     CancellationToken ct) =>
 {
-    var port = (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
-    var url = $"http://localhost:{port}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
+    var url = $"http://localhost:{LoopbackPort(server)}/formularios/plantilla/{responseId}" + (templateId is Guid t ? $"?templateId={t}" : "");
     var bytes = await pdf.RenderUrlToImageAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "image/png", $"documento-{responseId}.png");
 }).AllowAnonymous();

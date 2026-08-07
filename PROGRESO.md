@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-06 - v0.9.3: DEPLOY UNIFICADO (conector de datos externos + consolidacion)
+
+**Que:** deploy unificado a prod (v0.9.2 -> v0.9.3). Lleva el conector de origen de datos externo
+gobernado (ADR-0064, PR #4) con su **migracion DUAL** `AddExternalDataConnector` (PG + SQL Server),
+que el app auto-aplica en el arranque (`db.Database.MigrateAsync`). Incluye la limpieza del `panel:tareas`
+(camino A obsoleto). La identidad del agente reconfigurable por MSI (ADR-0063) es solo del binario del
+agente, no del servidor. Gates locales verdes; backup previo con ./backup.sh. El piloto en vivo de db3dev
+(registrar la fuente externa + mapear el RDL) queda para validacion del usuario.
+
+---
+
 ## 2026-08-06 - Conector de datos externos GOBERNADO (ADR-0064)
 
 **Que:** Nueva via CORRECTA para que un reporte lea datos EXTERNOS en vivo (p.ej. la legacy db3dev)

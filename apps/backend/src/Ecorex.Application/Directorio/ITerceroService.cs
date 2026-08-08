@@ -23,6 +23,23 @@ public interface ITerceroService
     Task<TerceroResult<TerceroDetailDto>> UpdateAsync(
         Guid id, SaveTerceroRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Alta CONJUNTA de una empresa y su contacto (persona), vinculados. Los dos se insertan en un
+    /// solo SaveChanges, asi que o quedan ambos con su relacion o no queda ninguno. Devuelve el
+    /// detalle de la EMPRESA (registro cabecera).
+    /// </summary>
+    Task<TerceroResult<TerceroDetailDto>> CreateEmpresaConContactoAsync(
+        SaveTerceroRequest empresa, SaveTerceroRequest contacto,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Busca un tercero por el "criterio de busqueda" del formulario Publico: identificador (IDE),
+    /// telefono o correo, en ese orden de prioridad. Devuelve el Id del primer registro que coincide
+    /// (null si ninguno) para que el editor lo cargue. Prefiere la PERSONA sobre la empresa cuando
+    /// el mismo dato aparece en ambas, porque el telefono/correo son del contacto.
+    /// </summary>
+    Task<Guid?> FindIdByCriterioAsync(string criterio, CancellationToken cancellationToken = default);
+
     /// <summary>Baja logica (soft-delete): pone el tercero en estado Inactivo.</summary>
     Task<TerceroResult<bool>> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 

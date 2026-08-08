@@ -11,5 +11,8 @@ public enum TerceroIdTipo
     Identificacion,
     Correo,
     Telefono,
-    Ninguno
+    Ninguno,
+    /// <summary>Identificador libre (IDE) del formulario Publico: hasta 20 caracteres, sin semantica
+    /// de documento. Se muestra tal cual, sin prefijo NIT/CC.</summary>
+    Ide
 }

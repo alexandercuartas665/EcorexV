@@ -80,10 +80,11 @@
     <div class="dg-overlay" @onclick="BackOrCloseAsync">
         <div class="dg-modal" @onclick:stopPropagation="true">
             <div class="dg-m-head">
-                <span class="dg-m-av" style="background:@AvatarColor(string.IsNullOrWhiteSpace(_mNombre) ? "Nuevo" : _mNombre)">@Initials(string.IsNullOrWhiteSpace(_mNombre) ? "?" : _mNombre)</span>
+                <span class="dg-m-av" style="background:@AvatarColor(TituloModal())">@Initials(TituloModal())</span>
                 <div style="flex:1;min-width:0">
-                    <div class="dg-m-kicker">@(_editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")</div>
-                    <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
+                    @* El kicker dice en que directorio se esta trabajando: es lo que decide la ficha. *@
+                    <div class="dg-m-kicker">@(_editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO TERCERO") &middot; @DirectorioNombre().ToUpperInvariant()</div>
+                    <div class="dg-m-title">@TituloModal()</div>
                 </div>
                 <button class="dg-close" @onclick="BackOrCloseAsync">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -113,67 +114,116 @@
                 <div class="dg-m-main">
                     @if (_mTab == "datos")
                     {
-                        <div class="dg-m-cols">
-                            @* ---- Aside: perfiles ---- *@
-                            <aside class="dg-aside">
-                                <label class="dg-aside-lbl">PERFILES DEL TERCERO</label>
-                                <div class="dg-chips-col">
-                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Cliente) ? "on-violet" : "")" disabled="@(!_canCrearCliente && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Cliente)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Cliente
-                                    </button>
-                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Sospechoso) ? "on-rose" : "")" disabled="@(!_canCrearSospechoso && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Sospechoso)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01" /></svg>Cliente sospechoso
-                                    </button>
-                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Proveedor) ? "on-amber" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Proveedor)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" /></svg>Proveedor
-                                    </button>
-                                    <button class="dg-pchip @(HasPerfil(TerceroPerfil.Empleado) ? "on-blue" : "")" @onclick="() => TogglePerfil(TerceroPerfil.Empleado)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>Empleado
-                                    </button>
-                                </div>
-                                <p class="dg-aside-note">Un tercero puede tener varios perfiles. Cada perfil activa su ficha de datos.</p>
-                            </aside>
-
-                            @* ---- Campos principales ---- *@
-                            <div class="dg-field-col">
-                                <label class="dg-sec-lbl">TIPO DE CONTACTO</label>
-                                <div class="dg-kind-row">
-                                    <button class="dg-kind @(_mTipo == TerceroTipo.Empresa ? "active" : "")" disabled="@(!_canCrearEmpresa && _editingId is null)" @onclick="() => SetTipoModal(TerceroTipo.Empresa)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>Empresa
-                                    </button>
-                                    <button class="dg-kind @(_mTipo == TerceroTipo.Persona ? "active" : "")" @onclick="() => SetTipoModal(TerceroTipo.Persona)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Contacto
-                                    </button>
-                                </div>
-
-                                <div class="dg-idbox">
-                                    <label class="dg-idbox-lbl">IDENTIFICAR POR</label>
-                                    <div class="dg-idchips">
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Nit ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Nit">NIT</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Identificacion ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Identificacion">Identificacion</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Correo ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Correo">Correo</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Telefono ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Telefono">Telefono</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Ninguno ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Ninguno">No se identifica</button>
+                        @* ---- Fichas apiladas. La primera es PUBLICO (los datos basicos, que viven en
+                             columnas de la tabla) y siempre esta. Debajo, la ficha del DIRECTORIO desde
+                             el que se abrio el modal: el tercero ya no se clasifica con chips. ---- *@
+                        <div class="dg-fichas">
+                            <div class="dg-ficha">
+                                <div class="dg-ficha-head">
+                                    <span class="dg-ficha-ic" style="background:var(--brand-soft);color:var(--brand)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" /></svg>
+                                    </span>
+                                    <div style="flex:1;min-width:0">
+                                        <div class="dg-ficha-title">Publico</div>
+                                        <div class="dg-ficha-desc">Datos basicos del tercero, visibles en todos los directorios</div>
                                     </div>
-                                    @if (_mIdTipo == TerceroIdTipo.Ninguno)
+                                </div>
+                                <div class="dg-ficha-body">
+                                @* CRITERIO DE BUSQUEDA: identificador (IDE), telefono o correo. Trae el
+                                   registro existente y lo carga en el modal, para no duplicar terceros. *@
+                                <div class="dg-idbox dg-topbox">
+                                    <div class="dg-busca-row">
+                                        <div style="flex:1;min-width:0">
+                                            <label class="dg-idbox-lbl">CRITERIO BUSQUEDA</label>
+                                            <input class="dg-input tall" placeholder="Identificador, telefono o correo..."
+                                                   value="@_criterio"
+                                                   @oninput="e => _criterio = e.Value?.ToString() ?? string.Empty"
+                                                   @onkeydown="OnCriterioKeyDown" />
+                                        </div>
+                                        <button class="dg-btn-cfg dg-busca-btn" @onclick="BuscarCriterioAsync" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                                            Buscar
+                                        </button>
+                                    </div>
+                                    @if (_criterioMsg is not null)
                                     {
                                         <div class="dg-idnote">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
-                                            Este tercero se registra sin documento de identificacion.
+                                            @_criterioMsg
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="dg-fields">
+                                    @* --- Fila de identificacion: codigo / IDE / clase --- *@
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Codigo</label>
+                                        <input class="dg-input" disabled title="Campo pendiente de definir: no se guarda todavia." />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">IDE</label>
+                                        <input class="dg-input" maxlength="20" placeholder="Maximo 20 caracteres" @bind="_mIdValor" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Clase</label>
+                                        <input class="dg-input" disabled title="Campo pendiente de definir: no se guarda todavia." />
+                                    </div>
+
+                                    @* --- Empresa --- *@
+                                    <div style="min-width:0" class="dg-fld-sep-row">
+                                        <div class="dg-fld-sep">EMPRESA</div>
+                                    </div>
+                                    <div style="min-width:0" class="dg-fld-med">
+                                        <label class="dg-flabel">Nombre empresa</label>
+                                        <input class="dg-input" @bind="_empNombre" disabled="@EmpresaBloqueada" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Telefono empresa</label>
+                                        <input class="dg-input" @bind="_empTelefono" disabled="@EmpresaBloqueada" />
+                                    </div>
+                                    @if (EmpresaBloqueada)
+                                    {
+                                        <div style="min-width:0" class="dg-fld-full">
+                                            <p class="dg-hint">La empresa de este contacto se edita abriendola desde el listado.</p>
+                                        </div>
+                                    }
+
+                                    @* --- Contacto --- *@
+                                    <div style="min-width:0" class="dg-fld-sep-row">
+                                        <div class="dg-fld-sep">CONTACTO</div>
+                                    </div>
+                                    <div style="min-width:0" class="dg-fld-med">
+                                        <label class="dg-flabel">Contacto</label>
+                                        <input class="dg-input" @bind="_conNombre" disabled="@ContactoBloqueado" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Cargo</label>
+                                        <input class="dg-input" @bind="_conCargo" disabled="@ContactoBloqueado" />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Telefono contacto</label>
+                                        <input class="dg-input" @bind="_conTelefono" disabled="@ContactoBloqueado" />
+                                    </div>
+                                    <div style="min-width:0" class="dg-fld-med">
+                                        <label class="dg-flabel">Correo electronico</label>
+                                        <input class="dg-input" type="email" @bind="_conEmail" disabled="@ContactoBloqueado" />
+                                    </div>
+                                    @if (ContactoBloqueado)
+                                    {
+                                        <div style="min-width:0" class="dg-fld-full">
+                                            <p class="dg-hint">Los contactos de esta empresa se agregan y editan en la pestana <strong>Relaciones</strong>.</p>
                                         </div>
                                     }
                                     else
                                     {
-                                        <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
-                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" @bind="_mIdValor" />
+                                        <div style="min-width:0" class="dg-fld-full">
+                                            <p class="dg-hint">Debe quedar al menos un telefono: el de la empresa o el del contacto.</p>
+                                        </div>
                                     }
-                                </div>
 
-                                <label class="dg-sec-lbl">CAMPOS</label>
-                                <div class="dg-fields">
-                                    <div style="min-width:0">
-                                        <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
-                                        <input class="dg-input" @bind="_mNombre" />
+                                    @* --- Ubicacion y auditoria --- *@
+                                    <div style="min-width:0" class="dg-fld-sep-row">
+                                        <div class="dg-fld-sep">UBICACION</div>
                                     </div>
                                     @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
                                        Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
@@ -203,29 +253,30 @@
                                             </div>
                                         }
                                     </div>
-                                    @if (_mTipo == TerceroTipo.Empresa)
-                                    {
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Sector / Industria</label>
-                                            <input class="dg-input" @bind="_mSector" />
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Cargo</label>
-                                            <input class="dg-input" @bind="_mCargo" />
-                                        </div>
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Correo</label>
-                                            <input class="dg-input" @bind="_mEmail" />
-                                        </div>
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Telefono</label>
-                                            <input class="dg-input" @bind="_mTelefono" />
-                                        </div>
-                                    }
                                     <div style="min-width:0">
+                                        <label class="dg-flabel">Pais</label>
+                                        <input class="dg-input" disabled title="Campo pendiente de definir: no se guarda todavia." />
+                                    </div>
+                                    <div style="min-width:0">
+                                        <label class="dg-flabel">Sector / Industria</label>
+                                        <input class="dg-input" @bind="_mSector" />
+                                    </div>
+
+                                    @* Auditoria del alta: se muestra, no se captura. *@
+                                    @if (_editingId is not null)
+                                    {
+                                        <div style="min-width:0">
+                                            <label class="dg-flabel">Fecha de creacion</label>
+                                            <input class="dg-input dg-input-ro" readonly
+                                                   value="@(_mCreatedAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "-")" />
+                                        </div>
+                                        <div style="min-width:0" class="dg-fld-med">
+                                            <label class="dg-flabel">Usuario</label>
+                                            <input class="dg-input dg-input-ro" readonly value="@(_mCreadoPor ?? "-")" />
+                                        </div>
+                                    }
+
+                                    <div style="min-width:0" class="dg-fld-med">
                                         <label class="dg-flabel">Vendedor asignado</label>
                                         <select class="dg-input" @bind="MVendedorAsesorIdStr">
                                             <option value="">-- Sin asesor --</option>
@@ -247,19 +298,15 @@
                                         </select>
                                     </div>
                                 </div>
-
+                                </div>
                             </div>
-                        </div>
-                        var fichas = VisibleFichas();
-                        if (fichas.Count > 0)
-                                {
-                                    <div class="dg-fichas">
-                                        @foreach (var fc in fichas)
+                            @* La ficha del directorio queda SIEMPRE abierta: no se colapsa. Por eso no
+                               hay chevron ni click en su cabecera. *@
+                                        @foreach (var fc in VisibleFichas())
                                         {
-                                            var open = _fichaOpen.Contains(fc.Key);
                                             var fcFields = FieldsFor(fc.Key);
                                             <div class="dg-ficha">
-                                                <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.Key)">
+                                                <div class="dg-ficha-head">
                                                     <span class="dg-ficha-ic" style="background:var(@fc.Bg);color:var(@fc.Color)">
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="@fc.IconPath" /></svg>
                                                     </span>
@@ -268,13 +315,8 @@
                                                         <div class="dg-ficha-desc">@fc.Desc</div>
                                                     </div>
                                                     <span class="dg-ficha-count">@fcFields.Count campos</span>
-                                                    <span class="dg-ficha-chev" style="transform:rotate(@(open ? "90deg" : "0deg"))">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-                                                    </span>
                                                 </div>
-                                                @if (open)
-                                                {
-                                                    <div class="dg-ficha-body">
+                                                <div class="dg-ficha-body">
                                                         @if (fcFields.Count == 0)
                                                         {
                                                             <div class="dg-empty-note">Esta ficha no tiene campos. Configuralos con el boton "Configurar campos".</div>
@@ -373,15 +415,17 @@
                                                             </div>
                                                         }
                                                     </div>
-                                                }
                                             </div>
                                         }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="dg-empty-fichas">Selecciona un perfil (cliente, proveedor o empleado) en la columna izquierda para configurar sus datos.</div>
-                                }
+                            @if (DirectorioFicha() is null)
+                            {
+                                <p class="dg-dir-note">
+                                    Estas en el directorio <strong>Publico</strong>: aqui solo se capturan los datos
+                                    basicos. Para llenar una ficha (fiscal, comercial, cartera, proveedor o laboral),
+                                    abre el tercero desde ese directorio.
+                                </p>
+                            }
+                        </div>
                     }
                     else if (_mTab == "rel")
                     {
@@ -765,6 +809,13 @@
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
     [Parameter] public bool CrmWiring { get; set; }
 
+    /// <summary>
+    /// Directorio desde el que se abrio el modal. Decide DOS cosas: que ficha adicional se edita
+    /// (una sola, ademas de Publico) y que perfil se marca al guardar, para que el tercero quede
+    /// listado en ese directorio. En Publico no hay ficha adicional ni perfil que marcar.
+    /// </summary>
+    [Parameter] public TerceroTabTipo Directorio { get; set; } = TerceroTabTipo.Publico;
+
     // Actor para el alta de tareas-proceso (quien registra la gestion).
     [CascadingParameter] private Task<Microsoft.AspNetCore.Components.Authorization.AuthenticationState>? AuthState { get; set; }
 
@@ -777,8 +828,6 @@
 
     // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
     private bool _canCrearEmpresa = true;
-    private bool _canCrearCliente = true;
-    private bool _canCrearSospechoso = true;
 
     // ---- Modal crear / editar ----
     private bool _modalOpen;
@@ -814,12 +863,33 @@
     private bool _ciudadOpen;
     private IReadOnlyList<CiudadDto> _ciudadMatches = Array.Empty<CiudadDto>();
     private string _mSector = "";
-    private string _mCargo = "";
-    private string _mEmail = "";
-    private string _mTelefono = "";
     private readonly Dictionary<string, Dictionary<string, string>> _fichaValues = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _fichaOpen = new(StringComparer.Ordinal);
     private string? _modalError;
+
+    // ---- Formulario Publico: bloque EMPRESA y bloque CONTACTO ----
+    // El formulario captura los dos lados a la vez. Al crear, se da de alta lo que este lleno: solo
+    // empresa, solo contacto, o los dos vinculados (una empresa y su persona). Al editar solo se
+    // toca el registro abierto; el otro bloque queda de consulta.
+    private string _empNombre = "";
+    private string _empTelefono = "";
+    private string _conNombre = "";
+    private string _conCargo = "";
+    private string _conTelefono = "";
+    private string _conEmail = "";
+
+    // Auditoria de alta (solo lectura).
+    private DateTimeOffset? _mCreatedAt;
+    private string? _mCreadoPor;
+
+    // Criterio de busqueda (IDE / telefono / correo) que carga un registro existente.
+    private string _criterio = "";
+    private string? _criterioMsg;
+
+    /// <summary>Editando una PERSONA ya vinculada: su empresa no se edita desde aqui.</summary>
+    private bool EmpresaBloqueada => _editingId is not null && _mTipo == TerceroTipo.Persona;
+
+    /// <summary>Editando una EMPRESA: sus contactos se gestionan en la pestana Relaciones.</summary>
+    private bool ContactoBloqueado => _editingId is not null && _mTipo == TerceroTipo.Empresa;
 
     // ---- Tab Relaciones (contactos del tercero en edicion) ----
     private IReadOnlyList<TerceroContactoDto> _relContactos = Array.Empty<TerceroContactoDto>();
@@ -859,8 +929,6 @@
         {
             var eff = await Perms.GetAsync();
             _canCrearEmpresa = eff.Can(DirectorioSubPermisos.CrearEmpresa, PermissionAction.Create);
-            _canCrearCliente = eff.Can(DirectorioSubPermisos.CrearCliente, PermissionAction.Create);
-            _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
             _actorId = await ActorIdAsync();
             _permsLoaded = true;
         }
@@ -956,15 +1024,20 @@
         _mTipo = _canCrearEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
         _mPerfiles = TerceroPerfil.Ninguno;
         _mEstado = TerceroEstado.Activo;
-        _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
+        // El formulario Publico ya no pregunta el tipo de documento: el IDE es un identificador libre.
+        _mIdTipo = TerceroIdTipo.Ide;
         _mIdValor = "";
-        _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _mNombre = _mVendedor = _mCiudad = _mSector = "";
+        _empNombre = _empTelefono = _conNombre = _conCargo = _conTelefono = _conEmail = "";
+        _criterio = "";
+        _criterioMsg = null;
+        _mCreatedAt = null;
+        _mCreadoPor = null;
         _mVendedorAsesorId = null;
         _ciudadQuery = "";
         _ciudadOpen = false;
         _ciudadMatches = Array.Empty<CiudadDto>();
         _fichaValues.Clear();
-        _fichaOpen.Clear();
         await LoadFichaFieldsAsync();
         _relContactos = Array.Empty<TerceroContactoDto>();
         _notas = Array.Empty<TerceroNotaDto>();
@@ -989,8 +1062,14 @@
         _mTipo = TerceroTipo.Persona;
         _empresaId = empresaId;
         _returnToParentId = returnToParent;
-        // Documento por defecto de una persona.
-        _mIdTipo = TerceroIdTipo.Identificacion;
+        // Viene de la pestana Relaciones de una empresa: el bloque empresa se rellena de consulta con
+        // la empresa padre y lo que se captura es el contacto.
+        var padre = await TerceroSvc.GetAsync(empresaId);
+        if (padre is not null)
+        {
+            _empNombre = padre.Nombre;
+            _empTelefono = padre.Telefono ?? "";
+        }
         StateHasChanged();
     }
 
@@ -1019,11 +1098,28 @@
         _ciudadOpen = false;
         _ciudadMatches = Array.Empty<CiudadDto>();
         _mSector = d.Sector ?? "";
-        _mCargo = d.Cargo ?? "";
-        _mEmail = d.Email ?? "";
-        _mTelefono = d.Telefono ?? "";
+        _mCreatedAt = d.CreatedAt;
+        _mCreadoPor = d.CreadoPor;
+        _criterio = "";
+        _criterioMsg = null;
+        // El registro abierto llena SU bloque; el otro queda de consulta (la empresa vinculada si es
+        // una persona, o vacio si es una empresa: sus contactos viven en la pestana Relaciones).
+        if (d.Tipo == TerceroTipo.Empresa)
+        {
+            _empNombre = d.Nombre;
+            _empTelefono = d.Telefono ?? "";
+            _conNombre = _conCargo = _conTelefono = _conEmail = "";
+        }
+        else
+        {
+            _empNombre = d.EmpresaNombre ?? "";
+            _empTelefono = d.EmpresaTelefono ?? "";
+            _conNombre = d.Nombre;
+            _conCargo = d.Cargo ?? "";
+            _conTelefono = d.Telefono ?? "";
+            _conEmail = d.Email ?? "";
+        }
         _fichaValues.Clear();
-        _fichaOpen.Clear();
         foreach (var ficha in d.Fichas)
         {
             var campos = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1077,29 +1173,6 @@
             return;
         }
         CloseModal();
-    }
-
-    private void SetTipoModal(TerceroTipo tipo)
-    {
-        _mTipo = tipo;
-        // Ajusta el documento por defecto solo si aun no hay valor capturado.
-        if (string.IsNullOrEmpty(_mIdValor))
-        {
-            _mIdTipo = tipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
-        }
-    }
-
-    private bool HasPerfil(TerceroPerfil p) => (_mPerfiles & p) == p;
-
-    private void TogglePerfil(TerceroPerfil p)
-    {
-        if (HasPerfil(p)) { _mPerfiles &= ~p; }
-        else { _mPerfiles |= p; }
-    }
-
-    private void ToggleFicha(string key)
-    {
-        if (!_fichaOpen.Add(key)) { _fichaOpen.Remove(key); }
     }
 
     private string GetFicha(string ficha, string field)
@@ -1283,38 +1356,37 @@
         _calculated = FormulaCalculator.EvaluateAll(calculated, flat).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
     }
 
-    private string IdLabel() => _mIdTipo switch
-    {
-        TerceroIdTipo.Nit => "NIT",
-        TerceroIdTipo.Identificacion => "Numero de identificacion",
-        TerceroIdTipo.Correo => "Correo electronico",
-        TerceroIdTipo.Telefono => "Telefono",
-        _ => "Documento"
-    };
-
-    private string IdPlaceholder() => _mIdTipo switch
-    {
-        TerceroIdTipo.Nit => "900.123.456-7",
-        TerceroIdTipo.Identificacion => "1.234.567.890",
-        TerceroIdTipo.Correo => "correo@empresa.com",
-        TerceroIdTipo.Telefono => "300 000 0000",
-        _ => ""
-    };
-
     private async Task SaveAsync()
     {
         _modalError = null;
-        var nombre = _mNombre.Trim();
-        if (nombre.Length == 0)
+        var empNombre = _empNombre.Trim();
+        var conNombre = _conNombre.Trim();
+
+        // No es obligatorio llenar los dos lados, pero alguno tiene que venir.
+        if (empNombre.Length == 0 && conNombre.Length == 0)
         {
-            _modalError = "El nombre es obligatorio.";
+            _modalError = "Escribe el nombre de la empresa o el del contacto.";
             return;
         }
-        if (_mIdTipo != TerceroIdTipo.Ninguno && string.IsNullOrWhiteSpace(_mIdValor))
+        // Al menos un telefono, de la empresa o del contacto. Al editar solo se valida el bloque que
+        // se esta tocando, para no exigir un dato que vive en el otro registro.
+        if (_editingId is null
+            && string.IsNullOrWhiteSpace(_empTelefono) && string.IsNullOrWhiteSpace(_conTelefono))
         {
-            _modalError = $"{IdLabel()} es obligatorio (o elige 'No se identifica').";
+            _modalError = "Escribe al menos un telefono: el de la empresa o el del contacto.";
             return;
         }
+        if (_mIdValor.Trim().Length > 20)
+        {
+            _modalError = "El IDE no puede superar 20 caracteres.";
+            return;
+        }
+
+        // El tipo se deduce de lo que se lleno: ya no hay selector Empresa/Contacto.
+        _mTipo = _editingId is not null
+            ? _mTipo
+            : (empNombre.Length > 0 ? TerceroTipo.Empresa : TerceroTipo.Persona);
+        var nombre = _mTipo == TerceroTipo.Empresa && empNombre.Length > 0 ? empNombre : conNombre;
 
         // Los calculados se MATERIALIZAN al guardar (ADR-0029): asi reportes, exportaciones y API
         // leen el numero sin reimplementar el motor. Se rehacen antes por si quedo algo sin recalcular.
@@ -1325,42 +1397,62 @@
             SetFichaRaw(def.FichaKey, def.FieldKey, value ?? "");
         }
 
-        // Serializa solo las fichas visibles con al menos un campo con valor.
+        // Serializa TODAS las fichas cargadas, no solo la que se esta editando: el modal abre una sola
+        // ficha (la del directorio) pero el guardado reescribe el jsonb completo, asi que limitarlo a
+        // la visible borraria las fichas de los otros directorios.
         var fichas = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
-        foreach (var def in VisibleFichas())
+        foreach (var (key, vals) in _fichaValues)
         {
-            if (!_fichaValues.TryGetValue(def.Key, out var vals)) { continue; }
             var nonEmpty = vals
                 .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
-            if (nonEmpty.Count > 0) { fichas[def.Key] = nonEmpty; }
+            if (nonEmpty.Count > 0) { fichas[key] = nonEmpty; }
         }
         var fichasJson = fichas.Count > 0 ? JsonSerializer.Serialize(fichas) : null;
 
-        var request = new SaveTerceroRequest(
-            Nombre: nombre,
-            Tipo: _mTipo,
+        // El tercero queda listado en el directorio desde el que se guardo, sin perder los otros.
+        _mPerfiles |= DirectorioPerfil();
+
+        // Datos comunes a los dos lados (ciudad, vendedor, estado, perfil y fichas del directorio).
+        SaveTerceroRequest Base(string nom, TerceroTipo tipo) => new(
+            Nombre: nom,
+            Tipo: tipo,
             Perfiles: _mPerfiles,
             Estado: _mEstado,
             Vendedor: Blank(_mVendedor),
             VendedorAsesorId: _mVendedorAsesorId,
             Ciudad: Blank(_mCiudad),
             IdTipo: _mIdTipo,
-            IdValor: _mIdTipo == TerceroIdTipo.Ninguno ? null : Blank(_mIdValor),
-            Sector: _mTipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
-            Cargo: _mTipo == TerceroTipo.Persona ? Blank(_mCargo) : null,
-            Email: _mTipo == TerceroTipo.Persona ? Blank(_mEmail) : null,
-            Telefono: _mTipo == TerceroTipo.Persona ? Blank(_mTelefono) : null,
+            IdValor: Blank(_mIdValor),
+            Sector: tipo == TerceroTipo.Empresa ? Blank(_mSector) : null,
+            Cargo: tipo == TerceroTipo.Persona ? Blank(_conCargo) : null,
+            Email: tipo == TerceroTipo.Persona ? Blank(_conEmail) : null,
+            Telefono: tipo == TerceroTipo.Empresa ? Blank(_empTelefono) : Blank(_conTelefono),
             // Persona: conserva/asigna su empresa (el servicio lo ignora para tipo Empresa). Antes iba
             // null y editar una persona la desvinculaba de su empresa.
             EmpresaId: _empresaId,
             FichasJson: fichasJson);
 
         var wasCreate = _editingId is null;
+        // Alta de empresa Y contacto a la vez: los dos registros y su relacion en una sola operacion.
+        var creaAmbos = wasCreate && empNombre.Length > 0 && conNombre.Length > 0 && _empresaId is null;
+
         _busy = true;
-        var res = wasCreate
-            ? await TerceroSvc.CreateAsync(request)
-            : await TerceroSvc.UpdateAsync(_editingId!.Value, request);
+        TerceroResult<TerceroDetailDto> res;
+        if (creaAmbos)
+        {
+            // El IDE identifica al registro cabecera (la empresa); el contacto se crea sin IDE propio.
+            res = await TerceroSvc.CreateEmpresaConContactoAsync(
+                Base(empNombre, TerceroTipo.Empresa),
+                Base(conNombre, TerceroTipo.Persona) with { IdTipo = TerceroIdTipo.Ide, IdValor = null });
+        }
+        else
+        {
+            var request = Base(nombre, _mTipo);
+            res = wasCreate
+                ? await TerceroSvc.CreateAsync(request)
+                : await TerceroSvc.UpdateAsync(_editingId!.Value, request);
+        }
         _busy = false;
 
         if (!res.IsOk)
@@ -1392,6 +1484,37 @@
     }
 
     private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    // ---- Criterio de busqueda del formulario Publico ----
+    private async Task OnCriterioKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { await BuscarCriterioAsync(); }
+    }
+
+    /// <summary>Busca por IDE, telefono o correo y CARGA el registro encontrado en el modal (queda en
+    /// modo edicion). Si no hay coincidencia se avisa y se deja lo que el usuario venia escribiendo.</summary>
+    private async Task BuscarCriterioAsync()
+    {
+        _criterioMsg = null;
+        var term = _criterio.Trim();
+        if (term.Length == 0)
+        {
+            _criterioMsg = "Escribe un identificador, telefono o correo para buscar.";
+            return;
+        }
+        _busy = true;
+        var found = await TerceroSvc.FindIdByCriterioAsync(term);
+        _busy = false;
+        if (found is not Guid id)
+        {
+            _criterioMsg = $"No hay ningun tercero con \"{term}\". Puedes crearlo con los datos de abajo.";
+            return;
+        }
+        await OpenEditAsync(id);
+        _criterio = term;
+        _criterioMsg = "Se cargo el tercero que coincide con la busqueda.";
+        StateHasChanged();
+    }
 
     // ---- Contactos de relacion (sub-modal reusado por la tabla del host y por la pestana Relaciones) ----
     /// <summary>Abre el sub-modal para agregar (c=null) o editar un contacto de relacion del tercero.</summary>
@@ -1750,21 +1873,55 @@
     }
 
     // ---- Fichas dinamicas por perfil: metadatos visuales; los CAMPOS se leen del servicio. ----
-    private List<FichaMeta> VisibleFichas()
+    /// <summary>Titulo del modal: la empresa manda; si no hay, el contacto.</summary>
+    private string TituloModal()
     {
-        var list = new List<FichaMeta>();
-        var cliente = HasPerfil(TerceroPerfil.Cliente);
-        var sospechoso = HasPerfil(TerceroPerfil.Sospechoso);
-        var proveedor = HasPerfil(TerceroPerfil.Proveedor);
-        var empleado = HasPerfil(TerceroPerfil.Empleado);
-
-        if (cliente || proveedor) { list.Add(FichaCatalog[0]); }
-        if (cliente || sospechoso) { list.Add(FichaCatalog[1]); }
-        if (cliente) { list.Add(FichaCatalog[2]); }
-        if (proveedor) { list.Add(FichaCatalog[3]); }
-        if (empleado) { list.Add(FichaCatalog[4]); }
-        return list;
+        if (!string.IsNullOrWhiteSpace(_empNombre)) { return _empNombre; }
+        if (!string.IsNullOrWhiteSpace(_conNombre)) { return _conNombre; }
+        return "Sin nombre";
     }
+
+    /// <summary>Nombre visible del directorio activo (cabecera del modal).</summary>
+    private string DirectorioNombre() => Directorio switch
+    {
+        TerceroTabTipo.Fiscal => "Fiscal",
+        TerceroTabTipo.Comercial => "Comercial",
+        TerceroTabTipo.Cartera => "Cartera",
+        TerceroTabTipo.Proveedores => "Proveedores",
+        TerceroTabTipo.Laboral => "Laboral",
+        _ => "Publico"
+    };
+
+    /// <summary>Clave de ficha del directorio activo. Publico no tiene ficha (sus datos son columnas).</summary>
+    private string? DirectorioFichaKey() => Directorio switch
+    {
+        TerceroTabTipo.Fiscal => "fiscal",
+        TerceroTabTipo.Comercial => "comercial",
+        TerceroTabTipo.Cartera => "cartera",
+        TerceroTabTipo.Proveedores => "proveedor",
+        TerceroTabTipo.Laboral => "empleado",
+        _ => null
+    };
+
+    /// <summary>Perfil que se marca al guardar para que el tercero quede listado en el directorio.</summary>
+    private TerceroPerfil DirectorioPerfil() => Directorio switch
+    {
+        TerceroTabTipo.Fiscal => TerceroPerfil.Fiscal,
+        TerceroTabTipo.Comercial => TerceroPerfil.Comercial,
+        TerceroTabTipo.Cartera => TerceroPerfil.Cartera,
+        TerceroTabTipo.Proveedores => TerceroPerfil.Proveedor,
+        TerceroTabTipo.Laboral => TerceroPerfil.Empleado,
+        _ => TerceroPerfil.Ninguno
+    };
+
+    private FichaMeta? DirectorioFicha()
+        => DirectorioFichaKey() is { } key
+            ? FichaCatalog.FirstOrDefault(f => f.Key == key)
+            : null;
+
+    /// <summary>Ficha adicional que se edita: SOLO la del directorio activo (ninguna en Publico).</summary>
+    private List<FichaMeta> VisibleFichas()
+        => DirectorioFicha() is { } f ? new List<FichaMeta> { f } : new List<FichaMeta>();
 
     private sealed record FichaMeta(string Key, string Title, string Desc, string ConfigLabel, string Color, string Bg, string IconPath);
 
@@ -1777,11 +1934,13 @@
             "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
         new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
             "m3 11 19-9-9 19-2-8-8-2z"),
-        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
+        new("cartera", "Ficha de cartera", "Condiciones de credito y cobro", "Ficha de cartera", "--t-green", "--t-green-bg",
+            "M2 7h20v12H2zM2 11h20M6 15h4"),
+        new("cliente", "Ficha de cliente (legado)", "Condiciones comerciales de venta", "Ficha de cliente", "--t-slate", "--t-slate-bg",
             "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
         new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
             "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
-        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
+        new("empleado", "Ficha laboral", "Vinculacion laboral", "Ficha laboral", "--t-rose", "--t-rose-bg",
             "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
     };
 

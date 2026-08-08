@@ -115,7 +115,9 @@ public sealed class GestorContactosService : IGestorContactosService
             TenantId = tenantId,
             Nombre = prospecto.NombreCompleto,
             Tipo = TerceroTipo.Persona,
-            Perfiles = TerceroPerfil.Sospechoso,
+            // Sin perfil: el prospecto entra al directorio Publico. La etapa del embudo la lleva la
+            // columna de la bolsa (primera = "Sospechoso"), no un perfil del tercero.
+            Perfiles = TerceroPerfil.Ninguno,
             Estado = TerceroEstado.Prospecto,
             Cargo = Normalize(prospecto.Cargo),
             Ciudad = Normalize(prospecto.Ciudad),

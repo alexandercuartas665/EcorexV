@@ -51,9 +51,11 @@
             }
             @if (CanCreateAny)
             {
-                <button class="dg-btn-new" @onclick="OpenCreateAsync" disabled="@(_loading || _reloading)">
+                @* El boton nombra el directorio activo: se crea DENTRO de el (y con su ficha). *@
+                <button class="dg-btn-new" @onclick="OpenCreateAsync" disabled="@(_loading || _reloading)"
+                        title="@($"Crea un tercero en el directorio {DirectorioNombre(_tipo)}")">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                    Nuevo cliente
+                    Nuevo en @DirectorioNombre(_tipo)
                 </button>
             }
         </div>
@@ -90,10 +92,14 @@
     @* ===== Tabs TIPO ===== *@
     <div class="dg-tipo-row">
         <span class="dg-tipo-lbl">TIPO:</span>
-        <button class="dg-pill @(_tipo == TerceroTabTipo.Todos ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Todos)">Todos los tipos</button>
-        <button class="dg-pill @(_tipo == TerceroTabTipo.Clientes ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Clientes)">Clientes</button>
+        @* Cada pildora es un DIRECTORIO: filtra por su perfil y, al crear/editar, el modal abre solo
+           la ficha de ese directorio. "Publico" es la vista completa con los datos basicos. *@
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Publico ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Publico)">Publico</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Fiscal ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Fiscal)">Fiscal</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Comercial ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Comercial)">Comercial</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Cartera ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Cartera)">Cartera</button>
         <button class="dg-pill @(_tipo == TerceroTabTipo.Proveedores ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Proveedores)">Proveedores</button>
-        <button class="dg-pill @(_tipo == TerceroTabTipo.Empleados ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Empleados)">Empleados</button>
+        <button class="dg-pill @(_tipo == TerceroTabTipo.Laboral ? "active" : "")" @onclick="() => SetTipo(TerceroTabTipo.Laboral)">Laboral</button>
 
         @* Filtros de los campos marcados "ofrecer como filtro" (ADR-0029). Antes la marca se
            guardaba y nadie la usaba. Las opciones salen de los valores que existen de verdad, para
@@ -353,7 +359,8 @@
 @* Editor de tercero (crear / editar) compartido con el Cargador de contactos (000740): un
    contacto ES un cliente y ambos modulos se alimentan de los MISMOS registros (Tercero). El
    modal grande y el sub-modal de contacto viven en este componente; aqui se invoca por @@ref. *@
-<TerceroModal @ref="_terceroModal" OnChanged="OnModalChangedAsync" />
+@* El modal recibe el DIRECTORIO activo: de ahi saca que ficha abrir y que perfil marcar al guardar. *@
+<TerceroModal @ref="_terceroModal" Directorio="_tipo" OnChanged="OnModalChangedAsync" />
 
 @* ===================== MODAL CONFIGURAR CAMPOS ===================== *@
 @if (_cfgOpen)
@@ -763,7 +770,7 @@
     private string? _pageError;
     private TerceroKpisDto _kpis = new(0, 0, 0, 0);
     private IReadOnlyList<TerceroListItemDto> _allRows = Array.Empty<TerceroListItemDto>();
-    private TerceroTabTipo _tipo = TerceroTabTipo.Todos;
+    private TerceroTabTipo _tipo = TerceroTabTipo.Publico;
     private TerceroTabNaturaleza _naturaleza = TerceroTabNaturaleza.Todos;
     private string _search = "";
     private readonly HashSet<Guid> _expanded = new();
@@ -772,10 +779,9 @@
     // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
     private bool _canCrearEmpresa = true;
     private bool _canCrearCliente = true;
-    private bool _canCrearSospechoso = true;
     private bool _canEdit = true;
     private bool _canDelete = true;
-    private bool CanCreateAny => _canCrearEmpresa || _canCrearCliente || _canCrearSospechoso;
+    private bool CanCreateAny => _canCrearEmpresa || _canCrearCliente;
 
     // ---- Modal asignar ----
     private bool _assignOpen;
@@ -879,7 +885,6 @@
         var eff = await Perms.GetAsync();
         _canCrearEmpresa = eff.Can(DirectorioSubPermisos.CrearEmpresa, PermissionAction.Create);
         _canCrearCliente = eff.Can(DirectorioSubPermisos.CrearCliente, PermissionAction.Create);
-        _canCrearSospechoso = eff.Can(DirectorioSubPermisos.CrearSospechoso, PermissionAction.Create);
         _canEdit = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Edit);
         _canDelete = eff.Can(DirectorioSubPermisos.ModuleRoute, PermissionAction.Delete);
         await FieldSvc.EnsureDefaultsAsync();
@@ -894,9 +899,16 @@
     // (abrirlo dispara EnsureDefaultsAsync sobre el DbContext scoped que la consulta en vuelo esta
     // usando -> "second operation on this context"). Los botones ya salen deshabilitados; esto cubre
     // cualquier disparo residual.
+    // El sub-permiso "crear cliente" ahora acota el directorio Cartera (donde vive la ficha de
+    // condiciones de credito); los demas directorios se rigen por el permiso del modulo.
     private async Task OpenCreateAsync()
     {
         if (_loading || _reloading || _terceroModal is null) { return; }
+        if (_tipo == TerceroTabTipo.Cartera && !_canCrearCliente)
+        {
+            _pageError = "No tienes permiso para crear en el directorio Cartera.";
+            return;
+        }
         await _terceroModal.OpenCreate();
     }
 
@@ -949,6 +961,17 @@
         _tipo = tipo;
         await ReloadAsync();
     }
+
+    /// <summary>Nombre visible del directorio (rotulo de las pildoras y del boton de crear).</summary>
+    private static string DirectorioNombre(TerceroTabTipo tipo) => tipo switch
+    {
+        TerceroTabTipo.Fiscal => "Fiscal",
+        TerceroTabTipo.Comercial => "Comercial",
+        TerceroTabTipo.Cartera => "Cartera",
+        TerceroTabTipo.Proveedores => "Proveedores",
+        TerceroTabTipo.Laboral => "Laboral",
+        _ => "Publico"
+    };
 
     private async Task OnSearch(ChangeEventArgs e)
     {
@@ -1057,11 +1080,13 @@
             "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
         new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
             "m3 11 19-9-9 19-2-8-8-2z"),
-        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
+        new("cartera", "Ficha de cartera", "Condiciones de credito y cobro", "Ficha de cartera", "--t-green", "--t-green-bg",
+            "M2 7h20v12H2zM2 11h20M6 15h4"),
+        new("cliente", "Ficha de cliente (legado)", "Condiciones comerciales de venta", "Ficha de cliente", "--t-slate", "--t-slate-bg",
             "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
         new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
             "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
-        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
+        new("empleado", "Ficha laboral", "Vinculacion laboral", "Ficha laboral", "--t-rose", "--t-rose-bg",
             "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
     };
 
@@ -1515,13 +1540,17 @@
     // ---- Helpers de presentacion ----
     private sealed record TagInfo(string Label, string Color, string Bg);
 
+    /// <summary>Un tag por DIRECTORIO al que pertenece el tercero. "Cliente" ya no es directorio: se
+    /// muestra apagado para no borrar de la vista la clasificacion que traen los registros viejos.</summary>
     private static List<TagInfo> TipoTags(TerceroPerfil perfiles)
     {
         var tags = new List<TagInfo>();
-        if ((perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente) { tags.Add(new("Cliente", "--t-violet", "--t-violet-bg")); }
-        if ((perfiles & TerceroPerfil.Sospechoso) == TerceroPerfil.Sospechoso) { tags.Add(new("Sospechoso", "--t-rose", "--t-rose-bg")); }
-        if ((perfiles & TerceroPerfil.Proveedor) == TerceroPerfil.Proveedor) { tags.Add(new("Proveedor", "--t-amber", "--t-amber-bg")); }
-        if ((perfiles & TerceroPerfil.Empleado) == TerceroPerfil.Empleado) { tags.Add(new("Empleado", "--t-blue", "--t-blue-bg")); }
+        if ((perfiles & TerceroPerfil.Fiscal) == TerceroPerfil.Fiscal) { tags.Add(new("Fiscal", "--t-amber", "--t-amber-bg")); }
+        if ((perfiles & TerceroPerfil.Comercial) == TerceroPerfil.Comercial) { tags.Add(new("Comercial", "--t-violet", "--t-violet-bg")); }
+        if ((perfiles & TerceroPerfil.Cartera) == TerceroPerfil.Cartera) { tags.Add(new("Cartera", "--t-green", "--t-green-bg")); }
+        if ((perfiles & TerceroPerfil.Proveedor) == TerceroPerfil.Proveedor) { tags.Add(new("Proveedor", "--t-blue", "--t-blue-bg")); }
+        if ((perfiles & TerceroPerfil.Empleado) == TerceroPerfil.Empleado) { tags.Add(new("Laboral", "--t-rose", "--t-rose-bg")); }
+        if ((perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente) { tags.Add(new("Cliente", "--t-slate", "--t-slate-bg")); }
         return tags;
     }
 

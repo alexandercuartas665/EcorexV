@@ -5,6 +5,90 @@
 
 ---
 
+## 2026-08-07 - Formulario Publico: empresa + contacto en un alta (ADR-0066, anexo)
+
+**Que:** el formulario de la ficha Publico se rehizo segun el mockup del usuario.
+
+- **Fuera** el selector Empresa/Contacto y el de tipo de documento. El tipo se deduce de lo que se
+  llene y el documento pasa a ser **IDE**, identificador libre de 20 caracteres
+  (`TerceroIdTipo.Ide`, valor nuevo del enum, se muestra sin prefijo NIT/CC).
+- **Dos bloques**: EMPRESA (nombre, telefono) y CONTACTO (nombre, cargo, telefono, correo). Al crear
+  se da de alta lo que este lleno; si vienen los dos, se crean **ambos terceros y su relacion en un
+  solo SaveChanges** (`CreateEmpresaConContactoAsync`).
+- **Al menos un telefono** (empresa o contacto) para poder crear.
+- **Criterio de busqueda** dentro del modal: busca por IDE, telefono o correo
+  (`FindIdByCriterioAsync`) y carga el tercero encontrado en el modal, en modo edicion.
+- **Fecha de creacion / usuario** de solo lectura (`CreatedAt` / `CreatedBy` resuelto al correo del
+  TenantUser). Se agregaron al `TerceroDetailDto` junto con el telefono de la empresa vinculada.
+- **codigo, clase y pais** se dibujan deshabilitados: no existen en el modelo y no se guardan.
+- Al editar solo se toca el registro abierto: el otro bloque queda de consulta.
+
+**Verificado:** `dotnet build Ecorex.sln -c Release` exit 0; formulario renderizado en navegador a
+1500px con harness estatico sobre el CSS real.
+
+**Pendiente:** definir que son "codigo" y "clase" para conectarlos; el listado sigue buscando por
+nombre/documento/vendedor/ciudad (el buscador por telefono y correo vive en el modal, como se pidio).
+
+---
+
+## 2026-08-07 - Directorios por perfil en el Directorio General (ADR-0066)
+
+**Que:** segunda vuelta del modal de tercero, pedida por el usuario: los perfiles dejan de ser chips
+del modal y se convierten en los DIRECTORIOS de la fila TIPO. Ver `docs/decisiones/ADR-0066`.
+
+- **Fila TIPO** = `Publico | Fiscal | Comercial | Cartera | Proveedores | Laboral`. Cada pildora
+  filtra por su perfil; Publico es la vista completa.
+- **Modal**: fuera la columna de chips. Ahora son dos tarjetas apiladas: **Publico** (los datos
+  basicos de siempre: tipo, identificacion, nombre, ciudad, sector, vendedor, estado) y la ficha del
+  directorio activo. Ninguna se colapsa. En Publico solo se piden los datos basicos.
+- **Al guardar** se marca el perfil del directorio (`|=`), conservando los otros, y se serializan
+  TODAS las fichas cargadas (antes solo las visibles: editar desde un directorio habria borrado las
+  fichas de los demas).
+- **Perfiles**: `Cartera = 64` nuevo (ficha propia, sin campos por defecto); `Sospechoso` retirado
+  (el embudo del Cargador ya lo modela con la columna de la bolsa, `PromoverProspectoAsync` crea sin
+  perfil); `Cliente` se conserva como legado (lo usan el Cargador y el KPI) pero ya no es directorio
+  y su ficha queda marcada "(legado)".
+- **Permisos**: se elimina el sub-permiso `crear-sospechoso`; `crear-cliente` pasa a acotar la
+  creacion en el directorio Cartera.
+
+**Verificado:** `dotnet build Ecorex.sln -c Release` sin errores; layout de las dos tarjetas medido
+en navegador (directorio Fiscal y directorio Publico) con harness estatico sobre el CSS real.
+
+**Pendiente:** el KPI "Clientes" sigue contando el perfil legado `Cliente`, que ya no se marca desde
+el Directorio (solo desde el Cargador al convertir un prospecto); definir si pasa a contar Cartera.
+
+---
+
+## 2026-08-07 - UX del modal de tercero (Directorio General 000232 / Cargador 000740)
+
+**Que:** rediseno del editor compartido `TerceroModal` (crear/editar tercero) pedido por el usuario:
+solo capa visual + regla de fichas; ningun campo nuevo en base de datos.
+
+- **Perfiles fiscal y comercial**: `TerceroPerfil` suma `Fiscal = 16` y `Comercial = 32`. Viajan en la
+  MISMA columna int `perfiles` (sin migracion, sin columna nueva). En el aside van bajo el subtitulo
+  "FICHAS ADICIONALES" porque no cambian la naturaleza del tercero, solo abren su bloque de datos.
+- **Un perfil = una ficha (1 a 1)**: antes "cliente" arrastraba las fichas fiscal Y comercial y
+  "proveedor" la fiscal. Ahora Cliente abre solo la ficha de cliente, Proveedor la de proveedor,
+  Empleado la suya, y fiscal/comercial se encienden a mano.
+- **Compatibilidad de datos**: `InferPerfilesDeFicha()` enciende Fiscal/Comercial al abrir un tercero
+  que ya trae valores en esas fichas. Es necesario, no cosmetico: `Save` solo serializa las fichas
+  VISIBLES, asi que sin esto un tercero viejo perderia sus datos fiscales al volverlo a guardar.
+- **Acordeon fijo**: la ficha del perfil seleccionado queda siempre abierta y no se puede cerrar
+  (fuera el chevron, el click y el estado `_fichaOpen`).
+- **Densidad / simetria**: pildoras de perfil compactas (40px -> 32px de alto, aside 240px -> 204px),
+  "tipo de contacto" + "identificar por" fusionados en UNA tarjeta de identidad con el documento
+  acotado a 340px, campos principales en rejilla de 3 columnas (2 por debajo de 1280px) y panel de
+  formularios 380px -> 336px.
+
+**Verificado:** compilacion limpia (Razor + C#), `dotnet publish -c Release` rc=0 y layout medido en
+navegador a 1500px y 1180px (sin desbordes; rejillas y anchos correctos) con un harness estatico
+temporal que reusa el CSS real del componente.
+
+**Siguiente / pendiente:** los perfiles Fiscal y Comercial no pintan tag en la tabla del Directorio
+(solo Cliente/Sospechoso/Proveedor/Empleado); definir con el usuario si deben mostrarse.
+
+---
+
 ## 2026-08-06 - v0.9.3: DEPLOY UNIFICADO (conector de datos externos + consolidacion)
 
 **Que:** deploy unificado a prod (v0.9.2 -> v0.9.3). Lleva el conector de origen de datos externo

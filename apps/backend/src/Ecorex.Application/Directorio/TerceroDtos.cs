@@ -54,7 +54,15 @@ public sealed record TerceroDetailDto(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> Fichas,
     IReadOnlyList<TerceroContactoDto> Contactos,
     Guid? VendedorAsesorId = null,
-    string? VendedorAsesorNombre = null);
+    string? VendedorAsesorNombre = null,
+    // Auditoria de alta, de solo lectura, para los campos "fecha de creacion" y "usuario" del
+    // formulario Publico. CreadoPor viene resuelto a nombre; null si el registro es anterior a la
+    // auditoria o el usuario ya no existe.
+    DateTimeOffset? CreatedAt = null,
+    string? CreadoPor = null,
+    // Telefono de la empresa vinculada: el formulario Publico pide un telefono por lado (empresa y
+    // contacto) y exige al menos uno de los dos.
+    string? EmpresaTelefono = null);
 
 /// <summary>Contacto embebido de una empresa.</summary>
 public sealed record TerceroContactoDto(
@@ -126,13 +134,19 @@ public sealed record TerceroKpisDto(
     int Personas,
     int ContactosAsociados);
 
-/// <summary>Tab por perfil de negocio del listado.</summary>
+/// <summary>
+/// Directorio activo del listado (fila TIPO). Cada directorio filtra por el perfil que le
+/// corresponde y, en el editor, abre la ficha de datos de ese directorio.
+/// <see cref="Publico"/> es la vista completa: no filtra y solo edita los datos basicos.
+/// </summary>
 public enum TerceroTabTipo
 {
-    Todos = 0,
-    Clientes,
+    Publico = 0,
+    Fiscal,
+    Comercial,
+    Cartera,
     Proveedores,
-    Empleados
+    Laboral
 }
 
 /// <summary>Tab por naturaleza del listado (empresa vs persona individual).</summary>
@@ -145,7 +159,7 @@ public enum TerceroTabNaturaleza
 
 /// <summary>Filtros del listado del Directorio General.</summary>
 public sealed record TerceroListFilter(
-    TerceroTabTipo Tipo = TerceroTabTipo.Todos,
+    TerceroTabTipo Tipo = TerceroTabTipo.Publico,
     TerceroTabNaturaleza Naturaleza = TerceroTabNaturaleza.Todos,
     string? Busqueda = null,
     bool IncludeInactive = false);

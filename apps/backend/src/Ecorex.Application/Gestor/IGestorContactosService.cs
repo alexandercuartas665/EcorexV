@@ -18,8 +18,8 @@ public interface IGestorContactosService
     Task<IReadOnlyList<ProspectoDto>> ListProspectosAsync(
         string? fuente, CancellationToken cancellationToken = default);
 
-    /// <summary>Promueve un prospecto a Tercero (Persona/Sospechoso/Prospecto) y lo mete en la
-    /// primera columna de la Bolsa. Devuelve el Id del tercero creado.</summary>
+    /// <summary>Promueve un prospecto a Tercero (Persona, estado Prospecto, sin perfil) y lo mete en
+    /// la primera columna de la Bolsa. Devuelve el Id del tercero creado.</summary>
     Task<TerceroResult<Guid>> PromoverProspectoAsync(
         Guid prospectoId, CancellationToken cancellationToken = default);
 

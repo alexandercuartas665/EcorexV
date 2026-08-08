@@ -4,8 +4,8 @@ namespace Ecorex.Application.Directorio;
 
 /// <summary>
 /// Sub-permisos NOMBRADOS del Directorio General (modulo 000232). El modulo declara acciones
-/// mas finas que las cuatro estandar (View/Create/Edit/Delete): permitir crear una Empresa,
-/// crear un Cliente o crear un Sospechoso de forma independiente.
+/// mas finas que las cuatro estandar (View/Create/Edit/Delete): permitir crear una Empresa o
+/// crear un Cliente (directorio Cartera) de forma independiente.
 ///
 /// Mecanismo (de menor riesgo, sin tocar el enforcement existente): cada sub-permiso se expone
 /// como una ENTRADA ADICIONAL del catalogo de la matriz de roles, con una <see cref="ModuloInfo.Key"/>
@@ -23,8 +23,8 @@ public static class DirectorioSubPermisos
     public const string ModuleRoute = "directorio-general";
 
     public const string CrearEmpresa = "directorio-general:crear-empresa";
+    /// <summary>Crear en el directorio Cartera (antes: marcar el perfil "Cliente").</summary>
     public const string CrearCliente = "directorio-general:crear-cliente";
-    public const string CrearSospechoso = "directorio-general:crear-sospechoso";
 
     /// <summary>Grupo en el que la matriz de roles agrupa estas filas.</summary>
     public const string Grupo = "Directorio General";
@@ -38,10 +38,9 @@ public static class DirectorioSubPermisos
     {
         new(CrearEmpresa, "Crear empresa", Grupo),
         new(CrearCliente, "Crear cliente", Grupo),
-        new(CrearSospechoso, "Crear sospechoso", Grupo),
     };
 
     /// <summary>Solo las claves (para validaciones / resolucion).</summary>
     public static readonly IReadOnlySet<string> Keys =
-        new HashSet<string>(StringComparer.Ordinal) { CrearEmpresa, CrearCliente, CrearSospechoso };
+        new HashSet<string>(StringComparer.Ordinal) { CrearEmpresa, CrearCliente };
 }

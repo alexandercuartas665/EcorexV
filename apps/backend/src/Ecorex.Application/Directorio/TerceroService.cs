@@ -42,11 +42,14 @@ public sealed class TerceroService : ITerceroService
             _ => query
         };
 
+        // Cada directorio filtra por su perfil. "Publico" es la vista completa (sin filtro).
         query = filter.Tipo switch
         {
-            TerceroTabTipo.Clientes => query.Where(t => (t.Perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente),
+            TerceroTabTipo.Fiscal => query.Where(t => (t.Perfiles & TerceroPerfil.Fiscal) == TerceroPerfil.Fiscal),
+            TerceroTabTipo.Comercial => query.Where(t => (t.Perfiles & TerceroPerfil.Comercial) == TerceroPerfil.Comercial),
+            TerceroTabTipo.Cartera => query.Where(t => (t.Perfiles & TerceroPerfil.Cartera) == TerceroPerfil.Cartera),
             TerceroTabTipo.Proveedores => query.Where(t => (t.Perfiles & TerceroPerfil.Proveedor) == TerceroPerfil.Proveedor),
-            TerceroTabTipo.Empleados => query.Where(t => (t.Perfiles & TerceroPerfil.Empleado) == TerceroPerfil.Empleado),
+            TerceroTabTipo.Laboral => query.Where(t => (t.Perfiles & TerceroPerfil.Empleado) == TerceroPerfil.Empleado),
             _ => query
         };
 
@@ -160,10 +163,15 @@ public sealed class TerceroService : ITerceroService
             .ToListAsync(cancellationToken);
 
         string? empresaNombre = null;
+        string? empresaTelefono = null;
         if (t.EmpresaId is Guid empresaId)
         {
-            empresaNombre = await _db.Terceros.AsNoTracking()
-                .Where(e => e.Id == empresaId).Select(e => e.Nombre).FirstOrDefaultAsync(cancellationToken);
+            var emp = await _db.Terceros.AsNoTracking()
+                .Where(e => e.Id == empresaId)
+                .Select(e => new { e.Nombre, e.Telefono })
+                .FirstOrDefaultAsync(cancellationToken);
+            empresaNombre = emp?.Nombre;
+            empresaTelefono = emp?.Telefono;
         }
 
         string? vendedorAsesorNombre = null;
@@ -173,7 +181,15 @@ public sealed class TerceroService : ITerceroService
                 .Where(a => a.Id == asesorId).Select(a => a.Nombre).FirstOrDefaultAsync(cancellationToken);
         }
 
-        return ToDetail(t, empresaNombre, contactos, vendedorAsesorNombre);
+        // "usuario" del formulario Publico: quien dio de alta el registro.
+        string? creadoPor = null;
+        if (t.CreatedBy is Guid autorId)
+        {
+            creadoPor = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == autorId).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return ToDetail(t, empresaNombre, contactos, vendedorAsesorNombre, creadoPor, empresaTelefono);
     }
 
     public async Task<TerceroResult<TerceroDetailDto>> CreateAsync(
@@ -220,6 +236,73 @@ public sealed class TerceroService : ITerceroService
         await _db.SaveChangesAsync(cancellationToken);
 
         return TerceroResult<TerceroDetailDto>.Ok(ToDetail(entity, null, Array.Empty<TerceroContactoDto>()));
+    }
+
+    public async Task<TerceroResult<TerceroDetailDto>> CreateEmpresaConContactoAsync(
+        SaveTerceroRequest empresa, SaveTerceroRequest contacto,
+        CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId)
+        {
+            return TerceroResult<TerceroDetailDto>.Invalid("No hay tenant activo.");
+        }
+        var nombreEmpresa = (empresa.Nombre ?? string.Empty).Trim();
+        var nombreContacto = (contacto.Nombre ?? string.Empty).Trim();
+        if (nombreEmpresa.Length == 0 || nombreContacto.Length == 0)
+        {
+            return TerceroResult<TerceroDetailDto>.Invalid("Se necesitan el nombre de la empresa y el del contacto.");
+        }
+        if (nombreEmpresa.Length > 200 || nombreContacto.Length > 200)
+        {
+            return TerceroResult<TerceroDetailDto>.Invalid("El nombre no puede superar 200 caracteres.");
+        }
+        var fichasError = ValidateFichas(empresa.FichasJson) ?? ValidateFichas(contacto.FichasJson);
+        if (fichasError is not null)
+        {
+            return TerceroResult<TerceroDetailDto>.Invalid(fichasError);
+        }
+
+        var entidadEmpresa = new Tercero { TenantId = tenantId };
+        ApplyRequest(entidadEmpresa, empresa with { Tipo = TerceroTipo.Empresa }, nombreEmpresa, null);
+
+        // El Id es Guid v7 generado en la aplicacion, asi que la relacion se arma ANTES de insertar y
+        // los dos registros entran en el mismo SaveChanges (una sola transaccion, regla 4).
+        var entidadContacto = new Tercero { TenantId = tenantId };
+        ApplyRequest(
+            entidadContacto, contacto with { Tipo = TerceroTipo.Persona }, nombreContacto, entidadEmpresa.Id);
+
+        _db.Terceros.Add(entidadEmpresa);
+        _db.Terceros.Add(entidadContacto);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return TerceroResult<TerceroDetailDto>.Ok(
+            ToDetail(entidadEmpresa, null, Array.Empty<TerceroContactoDto>()));
+    }
+
+    public async Task<Guid?> FindIdByCriterioAsync(
+        string criterio, CancellationToken cancellationToken = default)
+    {
+        var term = criterio?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(term)) { return null; }
+
+        // Solo activos y no borrados: el filtro global de tenant ya viene aplicado.
+        var query = _db.Terceros.AsNoTracking().Where(t => t.Estado != TerceroEstado.Inactivo);
+
+        // El identificador (IDE) manda: es el dato que se captura para identificar sin ambiguedad.
+        var porIde = await query
+            .Where(t => t.IdValor != null && t.IdValor.ToLower() == term)
+            .OrderBy(t => t.Tipo)     // Empresa(0) antes que Persona(1) cuando el IDE es de la empresa
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (porIde is not null) { return porIde; }
+
+        // Telefono y correo son datos de contacto: gana la persona si el mismo valor esta en ambos.
+        return await query
+            .Where(t => (t.Telefono != null && t.Telefono.ToLower() == term)
+                        || (t.Email != null && t.Email.ToLower() == term))
+            .OrderByDescending(t => t.Tipo)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<TerceroResult<TerceroDetailDto>> UpdateAsync(
@@ -543,7 +626,8 @@ public sealed class TerceroService : ITerceroService
 
     private static TerceroDetailDto ToDetail(
         Tercero t, string? empresaNombre, IReadOnlyList<TerceroContactoDto> contactos,
-        string? vendedorAsesorNombre = null) => new(
+        string? vendedorAsesorNombre = null, string? creadoPor = null,
+        string? empresaTelefono = null) => new(
         t.Id,
         t.Nombre,
         t.Tipo,
@@ -566,7 +650,10 @@ public sealed class TerceroService : ITerceroService
         ParseFichas(t.FichasJson),
         contactos,
         t.VendedorAsesorId,
-        vendedorAsesorNombre);
+        vendedorAsesorNombre,
+        t.CreatedAt,
+        creadoPor,
+        empresaTelefono);
 
     private static string FormatIdentificacion(TerceroIdTipo tipo, string? valor)
     {

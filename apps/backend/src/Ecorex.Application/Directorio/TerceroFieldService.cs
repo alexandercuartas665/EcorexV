@@ -26,8 +26,12 @@ public sealed class TerceroFieldService : ITerceroFieldService
     }
 
     /// <summary>Fichas validas del Directorio General (clave -> campos por defecto del prototipo).</summary>
+    /// <remarks>
+    /// "cartera" nace sin campos por defecto: el tenant la configura desde "Configurar campos".
+    /// "cliente" queda por compatibilidad con los datos ya capturados; ya no tiene directorio propio.
+    /// </remarks>
     public static readonly IReadOnlyList<string> FichaKeys =
-        ["fiscal", "comercial", "cliente", "proveedor", "empleado"];
+        ["fiscal", "comercial", "cartera", "cliente", "proveedor", "empleado"];
 
     // Campos por defecto de cada ficha, tomados del spec del prototipo (000232). El orden de la
     // lista fija el SortOrder; la columna alterna 1/2 al construir.

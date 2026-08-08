@@ -110,6 +110,14 @@ public class TaskItem : TenantEntity, IVersioned
     public Guid? WorkflowInstanceId { get; set; }
     public WorkflowInstance? WorkflowInstance { get; set; }
 
+    /// <summary>
+    /// Valores de los campos personalizados del TABLERO de la tarea (dict FieldKey -&gt; valor),
+    /// definidos en <see cref="TaskFieldDefinition"/>. Documento JSON: jsonb en PG /
+    /// nvarchar(max) en SQL Server. Null = la tarea no tiene ningun campo personalizado capturado.
+    /// Es un solo nivel (a diferencia de Tercero.FichasJson) porque la tarea ya sabe su tablero.
+    /// </summary>
+    public string? CustomFieldsJson { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
 }

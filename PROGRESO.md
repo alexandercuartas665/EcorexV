@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-08-06 - Campos personalizados de la tarea POR TABLERO (ADR-0065)
+
+**Agentes:** Claude Opus 4.8 (sub-agente de ingenieria), worktree `feat/campos-personalizados-tarea`
+sobre `origin/fase-0/clon-backbone`. NO desplegado (va en el proximo deploy unificado).
+
+**Que:** al trabajar una tarea se pueden AGREGAR campos que se presentan y capturan en el modal de
+detalle (`TaskDetailModal`), y que **solo existen en el TABLERO donde se crearon** (alcance por board).
+La configuracion usa la misma logica de "Directorio General" (modal "Configurar campos") y soporta
+TODO el set de tipos de DG.
+
+**Hecho:**
+- **Dominio:** `TaskFieldDefinition` (TenantEntity, filtro global) agrupada por `BoardId` (FK NO ACTION),
+  reusa el enum `TerceroFieldType` (Text/Number/Currency/TextArea/Select/Date/Phone/Separator/
+  Calculated/Lookup). FieldKey unico por (tenant, board). `TaskItem.CustomFieldsJson` (jsonb PG /
+  nvarchar(max) SQL Server), dict FieldKey->valor de un solo nivel.
+- **Application:** `ITaskFieldService`/`TaskFieldService` calcado de `ItemFieldService` (CRUD por board,
+  reordenar, mover-a-otro-board, validar/calcular Calculated reusando `FormulaEngine`/`FormulaCalculator`,
+  Lookup via `IDataLookupService`). `ITaskItemService.UpdateCustomFieldsAsync` persiste el JSON (editable
+  si la tarea no esta Cerrada; actividad solo si cambia). `TaskItemDetailDto.CustomFieldsJson`.
+- **UI:** boton "Campos" en `ActivityBoardDetail` -> modal de configuracion del board (replica la UI de
+  `InventarioItems`, sin selector de tipo porque el board es fijo). Tarjeta "Campos del tablero" en
+  `TaskDetailModal` que renderiza cada campo editable por tipo (reusa el componente compartido
+  `DataLookupField` para Lookup), recalcula Calculated (solo lectura) y guarda en `CustomFieldsJson`.
+- **Decision reuse-vs-replicar (ADR-0065):** se REUSA la logica (tipos, formulas, DataLookups +
+  `DataLookupField`); se REPLICA la UI de config + editor de valor dentro de los componentes de Tareas,
+  siguiendo la convencion del repo (Item ya replico de Tercero). Documentado en el ADR.
+- **Migraciones DUALES aditivas** `AddTaskCustomFields` (PG `EcorexDbContext` + SQL Server
+  `SqlServerEcorexDbContext`, `--context` explicito): 1 tabla + 1 columna. `has-pending-model-changes` =
+  "No changes" en ambos. La app las auto-aplica en el arranque.
+- **Tests:** `TaskFieldTests` en matriz dual (PG + SQL Server, Testcontainers): (a) definiciones scoped
+  por board, (b) round-trip de valores en `CustomFieldsJson`, (c) Calculated se recalcula, (d) aislamiento
+  cross-tenant. 8/8 verdes localmente (Docker). Application.Tests 643/643 verdes.
+
+**Pendiente:** captura multi-valor/repetible (AllowMultiple/RepeatWithFieldKey) queda en el esquema pero
+sin cablear en la UI (single-value + Calculated + Lookup + Select + Separator completos end-to-end).
+
+**Siguiente:** merge del PR a `fase-0/clon-backbone`; el deploy lo hace la sesion principal (unificado).
+
+---
+
 ## 2026-08-06 - v0.9.3: DEPLOY UNIFICADO (conector de datos externos + consolidacion)
 
 **Que:** deploy unificado a prod (v0.9.2 -> v0.9.3). Lleva el conector de origen de datos externo

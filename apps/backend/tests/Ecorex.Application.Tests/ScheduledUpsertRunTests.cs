@@ -132,6 +132,7 @@ public class ScheduledUpsertRunTests
         public DbSet<TaskItemAttachment> TaskItemAttachments => NotUsed<TaskItemAttachment>();
         public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => NotUsed<TaskItemChecklistItem>();
         public DbSet<TaskItemAssignment> TaskItemAssignments => NotUsed<TaskItemAssignment>();
+        public DbSet<TaskFieldDefinition> TaskFieldDefinitions => NotUsed<TaskFieldDefinition>();
         public DbSet<TenantSequence> TenantSequences => NotUsed<TenantSequence>();
         public DbSet<WorkflowDefinition> WorkflowDefinitions => NotUsed<WorkflowDefinition>();
         public DbSet<WorkflowNode> WorkflowNodes => NotUsed<WorkflowNode>();

@@ -1,11 +1,14 @@
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Actividades
+@using Ecorex.Application.DataLookups
 @using Ecorex.Domain.Enums
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
 @inject IActivityBoardService BoardsSvc
 @inject ITaskBoardService ColumnsSvc
 @inject ITaskItemService TasksSvc
+@inject ITaskFieldService FieldSvc
+@inject IDataLookupService LookupSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
 @inject IActividadCatalogoService CatalogoSvc
@@ -162,6 +165,10 @@
                     {
                         <span class="ab-filter-badge">@FilterCount</span>
                     }
+                </button>
+                <button class="ab-btn-filter" title="Configurar los campos personalizados de este tablero" @onclick="OpenFieldsConfig">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                    Campos
                 </button>
                 <button class="ab-btn-task" @onclick="@(() => OpenWizardOnBoardAsync())">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -649,6 +656,193 @@
             <div class="ab-modal-foot">
                 <button class="ab-btn-secondary" @onclick="@(() => _acOpen = false)">Cancelar</button>
                 <button class="ab-btn-commit" disabled="@(_busy || string.IsNullOrWhiteSpace(_acName))" @onclick="AddColumnAsync">Agregar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal configurar campos personalizados del tablero (ADR-0065) ===== *@
+@if (_fcOpen && _detail is not null)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _fcOpen = false)">
+        <div class="ab-modal ab-fields-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Configurar campos &#183; @_detail.Name</h3>
+                <button class="ab-modal-x" @onclick="@(() => _fcOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <p class="ab-fld-help">Estos campos se capturan en el detalle de las tareas de ESTE tablero. No aparecen en otros tableros.</p>
+
+                @if (_fcFields.Count == 0)
+                {
+                    <p class="ab-fld-help">Aun no hay campos. Agrega el primero abajo.</p>
+                }
+                else
+                {
+                    <ul class="ab-cfg-list">
+                        @foreach (var f in _fcFields)
+                        {
+                            <li>
+                                <div>
+                                    <strong>@f.Label</strong> <span class="ab-fld-help">(@f.FieldKey)</span>
+                                    <div class="ab-fld-help">@TaskFieldUi.TypeLabel(f.FieldType) &#183; @TaskFieldUi.ColumnLabel(f.Column)</div>
+                                </div>
+                                <div style="display:flex;gap:6px;">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditFcField(f))" disabled="@_busy">Editar</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteFcFieldAsync(f.Id))" disabled="@_busy">&times;</button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <div class="ab-cfg-form">
+                    <div class="ab-section-title">@(_fcEditId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <div class="ab-field-row">
+                        <div class="ab-field">
+                            <label>Etiqueta *</label>
+                            <input class="ab-input" @bind="_fcLabel" maxlength="150" placeholder="Ej. Monto aprobado, Referencia" />
+                        </div>
+                        <div class="ab-field">
+                            <label>Tipo de campo</label>
+                            <select class="ab-select" @bind="_fcFieldType" @bind:after="OnFcFieldTypeChangedAsync">
+                                <option value="@TerceroFieldType.Text">Texto</option>
+                                <option value="@TerceroFieldType.TextArea">Texto largo</option>
+                                <option value="@TerceroFieldType.Number">Numero</option>
+                                <option value="@TerceroFieldType.Currency">Monto ($)</option>
+                                <option value="@TerceroFieldType.Select">Lista</option>
+                                <option value="@TerceroFieldType.Date">Fecha</option>
+                                <option value="@TerceroFieldType.Phone">Telefono</option>
+                                <option value="@TerceroFieldType.Separator">Separador</option>
+                                <option value="@TerceroFieldType.Calculated">Calculado</option>
+                                <option value="@TerceroFieldType.Lookup">Lista del Contenedor de datos</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_fcFieldType == TerceroFieldType.Select)
+                    {
+                        <div class="ab-field">
+                            <label>Opciones (una por linea)</label>
+                            <textarea class="ab-textarea" rows="3" @bind="_fcOptions"></textarea>
+                        </div>
+                    }
+
+                    @if (_fcFieldType == TerceroFieldType.Lookup)
+                    {
+                        <div class="ab-field-row">
+                            <div class="ab-field">
+                                <label>Modelo de datos *</label>
+                                <select class="ab-select" value="@(_lkModelId?.ToString() ?? "")" @onchange="OnLookupModelChangedAsync">
+                                    <option value="">-- Elige un modelo --</option>
+                                    @foreach (var m in _lkModels)
+                                    {
+                                        <option value="@m.Id" selected="@(_lkModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Tabla *</label>
+                                <select class="ab-select" value="@(_lkTableId?.ToString() ?? "")" @onchange="OnLookupTableChangedAsync" disabled="@(_lkModelId is null)">
+                                    <option value="">-- Elige una tabla --</option>
+                                    @foreach (var t in _lkTables)
+                                    {
+                                        <option value="@t.Id" selected="@(_lkTableId == t.Id)">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Columna que se muestra</label>
+                                <select class="ab-select" value="@(_lkDisplayCol?.ToString() ?? "")"
+                                        @onchange="e => _lkDisplayCol = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                        disabled="@(_lkColumns.Count == 0)">
+                                    <option value="">-- Automatica (primera de texto) --</option>
+                                    @foreach (var c in _lkColumns)
+                                    {
+                                        <option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Presentacion</label>
+                                <select class="ab-select" value="@_lkDisplayMode"
+                                        @onchange="e => _lkDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                    <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                    <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                </select>
+                            </div>
+                            @if (_lkModels.Count == 0)
+                            {
+                                <div class="ab-field ab-fld-help">
+                                    No hay modelos de datos todavia. Crealos en <a href="/contenedor-datos">Contenedor de datos</a>.
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (_fcFieldType == TerceroFieldType.Calculated)
+                    {
+                        <div class="ab-field">
+                            <label>Formula *</label>
+                            <input class="ab-input ab-mono @(_fcFormulaError is not null ? "is-invalid" : "")"
+                                   value="@_fcFormula" placeholder="{horas} * {tarifa}" @oninput="OnFormulaInputAsync" />
+                            @if (_fcFormulaError is not null)
+                            {
+                                <div class="ab-field-error">@_fcFormulaError</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(_fcFormula))
+                            {
+                                <div class="ab-fld-ok">Formula valida.</div>
+                            }
+                            <div class="ab-fld-help">
+                                Operadores + - * / y parentesis. Funciones: ROUND, MIN, MAX, ABS, SUM. Solo campos de este tablero.
+                            </div>
+                            @if (NumericFieldsForFormula().Count > 0)
+                            {
+                                <div class="ab-keys">
+                                    @foreach (var nf in NumericFieldsForFormula())
+                                    {
+                                        var nfv = nf;
+                                        <button type="button" class="ab-key" title="@nfv.Label"
+                                                @onclick="() => InsertFormulaKeyAsync(nfv.FieldKey)">@($"{{{nfv.FieldKey}}}")</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="ab-field-row">
+                        <div class="ab-field">
+                            <label>Ayuda / descripcion</label>
+                            <input class="ab-input" @bind="_fcDescription" maxlength="600" />
+                        </div>
+                        <div class="ab-field" style="max-width:180px;">
+                            <label>Ancho</label>
+                            <select class="ab-select" @bind="_fcColumn">
+                                <option value="1">Pequena (1/3)</option>
+                                <option value="2">Media (2/3)</option>
+                                <option value="3">Grande (completo)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_fcError is not null)
+                    {
+                        <div class="ab-field-error">@_fcError</div>
+                    }
+                    <div style="display:flex;gap:6px;">
+                        <button class="ab-btn-commit" @onclick="SaveFcFieldAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_fcLabel))">@(_fcEditId is null ? "+ Agregar campo" : "Guardar campo")</button>
+                        @if (_fcEditId is not null)
+                        {
+                            <button class="ab-btn-secondary" @onclick="ResetFcForm">Cancelar</button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _fcOpen = false)">Cerrar</button>
             </div>
         </div>
     </div>
@@ -1360,6 +1554,203 @@
         {
             _busy = false;
         }
+    }
+
+    // ==== Configurador de campos personalizados del tablero (ADR-0065) ====
+
+    private bool _fcOpen;
+    private IReadOnlyList<TaskFieldDto> _fcFields = [];
+    private Guid? _fcEditId;
+    private string _fcLabel = "";
+    private TerceroFieldType _fcFieldType = TerceroFieldType.Text;
+    private string? _fcOptions;
+    private string? _fcDescription;
+    private int _fcColumn = 1;
+    private string? _fcError;
+    private string _fcFormula = "";
+    private string? _fcFormulaError;
+
+    // Config del tipo Lookup (lista del Contenedor de datos), reusando IDataLookupService.
+    private List<LookupModelDto> _lkModels = new();
+    private List<LookupTableDto> _lkTables = new();
+    private List<LookupColumnDto> _lkColumns = new();
+    private Guid? _lkModelId;
+    private Guid? _lkTableId;
+    private Guid? _lkDisplayCol;
+    private DataLookupDisplayMode _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+
+    private async Task OpenFieldsConfig()
+    {
+        ResetFcForm();
+        _fcOpen = true;
+        await LoadFcFieldsAsync();
+    }
+
+    private async Task LoadFcFieldsAsync()
+        => _fcFields = await FieldSvc.ListByBoardAsync(BoardId);
+
+    private async Task OnFcFieldTypeChangedAsync()
+    {
+        if (_fcFieldType == TerceroFieldType.Lookup && _lkModels.Count == 0)
+        {
+            _lkModels = (await LookupSvc.ListModelsAsync()).ToList();
+        }
+    }
+
+    private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
+    {
+        _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkColumns.Clear();
+        _lkTables = _lkModelId is Guid mid ? (await LookupSvc.ListTablesAsync(mid)).ToList() : new();
+    }
+
+    private async Task OnLookupTableChangedAsync(ChangeEventArgs e)
+    {
+        _lkTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkDisplayCol = null;
+        _lkColumns = _lkTableId is Guid tid ? (await LookupSvc.ListColumnsAsync(tid)).ToList() : new();
+    }
+
+    private void ResetLookupCfg()
+    {
+        _lkModelId = null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+        _lkTables = new();
+        _lkColumns = new();
+    }
+
+    private async Task LoadLookupCfgAsync(string? options)
+    {
+        ResetLookupCfg();
+        var cfg = DataLookupConfig.TryParse(options);
+        if (cfg is null) { return; }
+        if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
+        _lkModelId = cfg.ModelId;
+        _lkTableId = cfg.TableId;
+        _lkDisplayCol = cfg.DisplayColumnId;
+        _lkDisplayMode = cfg.DisplayMode;
+        if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
+        _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
+    }
+
+    /// <summary>Serializa la config del lookup al mismo campo Options (JSON), sin columnas nuevas.</summary>
+    private string? BuildLookupOptions()
+    {
+        if (_lkTableId is not Guid tid) { return null; }
+        var tabla = _lkTables.FirstOrDefault(t => t.Id == tid);
+        return new DataLookupConfig(
+            tid,
+            ModelId: _lkModelId,
+            DisplayColumnId: _lkDisplayCol,
+            TableName: tabla?.Name,
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name,
+            DisplayMode: _lkDisplayMode).ToJson();
+    }
+
+    /// <summary>Campos que una formula puede usar: numericos y calculados del MISMO tablero.</summary>
+    private List<TaskFieldDto> NumericFieldsForFormula()
+        => _fcFields
+            .Where(f => f.Id != _fcEditId)
+            .Where(f => f.FieldType is TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)
+            .OrderBy(f => f.SortOrder)
+            .ToList();
+
+    private async Task OnFormulaInputAsync(ChangeEventArgs e)
+    {
+        _fcFormula = e.Value?.ToString() ?? string.Empty;
+        _fcFormulaError = string.IsNullOrWhiteSpace(_fcFormula)
+            ? null
+            : await FieldSvc.ValidateFormulaAsync(_fcFormula, BoardId, _fcEditId, FcEditingKey());
+    }
+
+    private string? FcEditingKey() => _fcFields.FirstOrDefault(f => f.Id == _fcEditId)?.FieldKey;
+
+    private async Task InsertFormulaKeyAsync(string key)
+    {
+        _fcFormula = string.IsNullOrWhiteSpace(_fcFormula) ? $"{{{key}}}" : $"{_fcFormula} {{{key}}}";
+        _fcFormulaError = await FieldSvc.ValidateFormulaAsync(_fcFormula, BoardId, _fcEditId, FcEditingKey());
+    }
+
+    private async Task EditFcField(TaskFieldDto f)
+    {
+        _fcEditId = f.Id;
+        _fcLabel = f.Label;
+        _fcFieldType = f.FieldType;
+        _fcOptions = f.Options;
+        if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
+        else { ResetLookupCfg(); }
+        _fcDescription = f.Description;
+        _fcColumn = Math.Clamp(f.Column, 1, 3);
+        _fcError = null;
+        _fcFormula = f.Formula ?? "";
+        _fcFormulaError = null;
+    }
+
+    private void ResetFcForm()
+    {
+        _fcEditId = null;
+        _fcLabel = "";
+        _fcFieldType = TerceroFieldType.Text;
+        _fcOptions = null;
+        ResetLookupCfg();
+        _fcDescription = null;
+        _fcColumn = 1;
+        _fcError = null;
+        _fcFormula = "";
+        _fcFormulaError = null;
+    }
+
+    private async Task SaveFcFieldAsync()
+    {
+        _fcError = null;
+        if (string.IsNullOrWhiteSpace(_fcLabel)) { _fcError = "La etiqueta es obligatoria."; return; }
+        _busy = true;
+        try
+        {
+            var formula = _fcFieldType == TerceroFieldType.Calculated ? _fcFormula.Trim() : null;
+            if (_fcFieldType == TerceroFieldType.Calculated)
+            {
+                _fcFormulaError = await FieldSvc.ValidateFormulaAsync(formula, BoardId, _fcEditId, FcEditingKey());
+                if (_fcFormulaError is not null) { return; }
+            }
+            if (_fcFieldType == TerceroFieldType.Lookup)
+            {
+                _fcOptions = BuildLookupOptions();
+                if (_fcOptions is null) { _fcError = "Elige el modelo y la tabla de origen."; return; }
+            }
+
+            if (_fcEditId is Guid editId)
+            {
+                var upd = new UpdateTaskFieldRequest(_fcLabel, _fcFieldType, _fcColumn, _fcOptions, _fcDescription, false, formula);
+                var r = await FieldSvc.UpdateFieldAsync(editId, upd);
+                if (r is null) { _fcError = "No se pudo guardar el campo."; return; }
+            }
+            else
+            {
+                var req = new CreateTaskFieldRequest(BoardId, _fcLabel, _fcFieldType, _fcColumn, _fcOptions, null, _fcDescription, false, formula);
+                var r = await FieldSvc.CreateFieldAsync(req);
+                if (r is null) { _fcError = "No se pudo crear el campo. Verifica los datos."; return; }
+            }
+            ResetFcForm();
+            await LoadFcFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteFcFieldAsync(Guid fieldId)
+    {
+        _busy = true;
+        try
+        {
+            await FieldSvc.DeleteFieldAsync(fieldId);
+            if (_fcEditId == fieldId) { ResetFcForm(); }
+            await LoadFcFieldsAsync();
+        }
+        finally { _busy = false; }
     }
 
     // ---- SignalR ----

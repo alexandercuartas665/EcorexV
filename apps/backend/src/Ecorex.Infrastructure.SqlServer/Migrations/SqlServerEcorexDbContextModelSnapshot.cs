@@ -10877,6 +10877,107 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("task_card_tag_assignments", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowMultiple")
+                        .HasColumnType("bit")
+                        .HasColumnName("allow_multiple");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("board_id");
+
+                    b.Property<int>("Column")
+                        .HasColumnType("int")
+                        .HasColumnName("column");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("field_key");
+
+                    b.Property<string>("FieldType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("field_type");
+
+                    b.Property<string>("Formula")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("formula");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_system");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Options")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("options");
+
+                    b.Property<string>("RepeatWithFieldKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("repeat_with_field_key");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_field_definitions");
+
+                    b.HasIndex("BoardId")
+                        .HasDatabaseName("ix_task_field_definitions_board_id");
+
+                    b.HasIndex("TenantId", "BoardId", "FieldKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_field_definitions_tenant_id_board_id_field_key");
+
+                    b.HasIndex("TenantId", "BoardId", "SortOrder")
+                        .HasDatabaseName("ix_task_field_definitions_tenant_id_board_id_sort_order");
+
+                    b.ToTable("task_field_definitions", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -10928,6 +11029,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("CustomFieldsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("custom_fields_json");
 
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)")
@@ -15617,6 +15722,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Tag");
 
                     b.Navigation("TaskCard");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskFieldDefinition", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskBoard", "Board")
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_field_definitions_task_boards_board_id");
+
+                    b.Navigation("Board");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItem", b =>

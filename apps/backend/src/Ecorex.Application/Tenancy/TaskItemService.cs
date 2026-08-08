@@ -1328,7 +1328,42 @@ public sealed class TaskItemService : ITaskItemService
         return new TaskItemDetailDto(summary, task.Description,
             task.RequesterName, task.RequesterEmail, task.RequesterPhone,
             DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
-            checklist, assignees);
+            checklist, assignees, task.CustomFieldsJson);
+    }
+
+    public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(
+        Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        if (task is null)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.NotFound("Tarea no encontrada.");
+        }
+        // Editable mientras la tarea no este Cerrada (mismo criterio que el resto del detalle).
+        if (task.Status == TaskItemStatus.Closed)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid(ClosedMessage);
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(customFieldsJson) ? null : customFieldsJson;
+        if (string.Equals(task.CustomFieldsJson, normalized, StringComparison.Ordinal))
+        {
+            // Sin cambios reales: no se registra actividad ni se toca la fila.
+            return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
+        }
+
+        task.CustomFieldsJson = normalized;
+        _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+            TaskActivityType.Action, "actualizo los campos personalizados"));
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Conflict(ConflictMessage);
+        }
+        return TaskCoreResult<TaskItemDetailDto>.Ok((await GetDetailAsync(taskId, cancellationToken))!);
     }
 
     // ---- Helpers ----

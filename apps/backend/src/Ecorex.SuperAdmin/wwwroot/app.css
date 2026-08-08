@@ -1703,6 +1703,13 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-desc-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
 .tk-empty-note { font-size: 12.5px; color: var(--muted-foreground); font-style: italic; margin: 0; }
 
+/* ---- Campos personalizados del tablero (ADR-0065) ---- */
+.tk-customfields .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2, var(--muted-foreground)); margin-bottom: 5px; }
+.tk-customfields .field { margin-bottom: 4px; }
+.tk-fld-help { display: block; font-size: 11.5px; color: var(--ink-3, var(--muted-foreground)); margin-top: 4px; }
+.tk-fld-sep { font-size: 12px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--ink-3, var(--muted-foreground)); border-top: 1px solid var(--line, var(--border)); padding-top: 10px; margin-top: 4px; }
+.tk-fld-calc { background: var(--surface-2, var(--accent)); font-weight: 600; }
+
 /* Paginador de la vista Lista (server-side sobre TotalCount/Page/PageSize de ListAsync) */
 .tk-pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
 .tk-pager-info { font-size: 12.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
@@ -2430,6 +2437,23 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .ab-field-error { font-size: 12px; color: var(--danger); }
 .ab-check-lbl { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .ab-check-lbl input { width: 15px; height: 15px; }
+
+/* ---- Configurador de campos personalizados del tablero (ADR-0065) ---- */
+.ab-fields-modal { width: min(680px, 96vw); }
+.ab-fld-help { font-size: 12px; color: var(--ink-3); margin: 0; }
+.ab-fld-help a { color: var(--brand); }
+.ab-fld-ok { font-size: 12px; color: var(--success, #2e7d32); }
+.ab-cfg-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ab-cfg-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 11px; background: var(--surface-2); }
+.ab-cfg-form { margin-top: 6px; padding: 14px; border: 1px dashed var(--line-2); border-radius: 12px; display: flex; flex-direction: column; gap: 12px; }
+.ab-section-title { font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.ab-field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.ab-field-row > .ab-field { flex: 1 1 220px; min-width: 0; }
+.ab-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.ab-mono.is-invalid { border-color: var(--danger); }
+.ab-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ab-key { padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface-3); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--ink-2); cursor: pointer; }
+.ab-key:hover { border-color: var(--ink-3); color: var(--ink); }
 
 /* ---- Menus "..." de columna/tarjeta (ola 3, estilo ab-dd del fuente) ---- */
 .ab-menu-anchor { position: relative; z-index: 16; }

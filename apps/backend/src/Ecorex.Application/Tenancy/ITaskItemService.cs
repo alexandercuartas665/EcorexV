@@ -21,6 +21,14 @@ public interface ITaskItemService
     Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Guarda los valores de los campos personalizados del tablero (ADR-0065), serializados como
+    /// dict FieldKey -&gt; valor. Editable mientras la tarea no este Cerrada. Registra actividad solo
+    /// si el JSON cambia. Devuelve NotFound/Invalid(cerrada) segun corresponda.
+    /// </summary>
+    Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(
+        Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cambia el estado validando TaskItemStateMachine; transicion invalida -> InvalidTransition.
     /// Registra actividad y setea ClosedAt al pasar a Closed.
     /// </summary>

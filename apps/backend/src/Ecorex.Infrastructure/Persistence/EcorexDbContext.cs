@@ -127,6 +127,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Tableros de actividades unificados (ADR-0020): checklist y asignados M:N del TaskItem.
     public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => Set<TaskItemChecklistItem>();
     public DbSet<TaskItemAssignment> TaskItemAssignments => Set<TaskItemAssignment>();
+    // Campos personalizados de la tarea por tablero (ADR-0065).
+    public DbSet<TaskFieldDefinition> TaskFieldDefinitions => Set<TaskFieldDefinition>();
     public DbSet<TenantSequence> TenantSequences => Set<TenantSequence>();
 
     // Motor de flujos BPMN (FASE 4, ADR-0014): definiciones versionadas, grafo materializado
@@ -1173,6 +1175,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.RequesterEmail).HasMaxLength(256);
             b.Property(x => x.RequesterPhone).HasMaxLength(40);
             b.Property(x => x.CcEmails).HasColumnType(jsonColumnType);
+            // Campos personalizados del tablero (ADR-0065): documento JSON { fieldKey: valor }.
+            // jsonb en PG / nvarchar(max) en SQL Server (DAL dual), como CcEmails.
+            b.Property(x => x.CustomFieldsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.Color).HasMaxLength(20);
             // Concurrencia optimista portable (ADR-0013), igual que Project.
             b.Property(x => x.Version).IsConcurrencyToken();
@@ -1232,6 +1237,23 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Un usuario no se asigna dos veces a la misma tarea.
             b.HasIndex(x => new { x.TaskItemId, x.TenantUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        // Campos personalizados de la tarea POR tablero (ADR-0065). Calcado de ItemFieldDefinition,
+        // agrupando por TaskBoard en vez de por ItemType. FK al tablero NO ACTION (Restrict): borrar
+        // el tablero exige quitar sus campos antes. FieldKey unico por (tenant, tablero).
+        modelBuilder.Entity<TaskFieldDefinition>(b =>
+        {
+            b.Property(x => x.FieldKey).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Options).HasMaxLength(2000);
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.Formula).HasMaxLength(1000);
+            b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
+            b.HasOne(x => x.Board).WithMany()
+                .HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.BoardId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.BoardId, x.FieldKey }).IsUnique();
         });
 
         modelBuilder.Entity<TaskItemTag>(b =>

@@ -1,11 +1,15 @@
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Workflows
+@using Ecorex.Application.DataLookups
 @using Ecorex.Domain.Enums
 @using Ecorex.Domain.Rules
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Ecorex.SuperAdmin.Components.Shared.Lookups
 @implements IAsyncDisposable
 @inject ITaskItemService TasksSvc
+@inject ITaskFieldService FieldSvc
+@inject IDataLookupService LookupSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
 @inject IProjectService ProjectsSvc
@@ -454,6 +458,94 @@
                             <div class="tk-desc-text">@_detail.Description</div>
                         }
                     </div>
+
+                    @* Campos personalizados del tablero (ADR-0065) *@
+                    @if (_customFields.Count > 0)
+                    {
+                        <div class="tk-card">
+                            <div class="tk-card-head">
+                                <h3>Campos del tablero</h3>
+                                @if (!readOnly && _customDirty)
+                                {
+                                    <button class="btn btn-sm btn-primary" @onclick="SaveCustomFieldsAsync" disabled="@_busy">Guardar campos</button>
+                                }
+                            </div>
+                            <div class="row g-2 tk-customfields">
+                                @foreach (var f in _customFields)
+                                {
+                                    if (f.FieldType == TerceroFieldType.Separator)
+                                    {
+                                        <div class="col-12"><div class="tk-fld-sep">@f.Label</div></div>
+                                    }
+                                    else
+                                    {
+                                        <div class="@TaskFieldUi.ColClass(f.Column) field">
+                                            <label class="form-label">@f.Label</label>
+                                            @if (f.FieldType == TerceroFieldType.Select)
+                                            {
+                                                <select class="form-control" disabled="@readOnly"
+                                                        value="@GetCustomValue(f.FieldKey)"
+                                                        @onchange="@(e => SetCustomValue(f.FieldKey, e.Value?.ToString()))">
+                                                    <option value="">(Sin valor)</option>
+                                                    @foreach (var opt in TaskFieldUi.SplitOptions(f.Options))
+                                                    {
+                                                        <option value="@opt">@opt</option>
+                                                    }
+                                                </select>
+                                            }
+                                            else if (f.FieldType == TerceroFieldType.TextArea)
+                                            {
+                                                <textarea class="form-control" rows="2" disabled="@readOnly"
+                                                          value="@GetCustomValue(f.FieldKey)"
+                                                          @onchange="@(e => SetCustomValue(f.FieldKey, e.Value?.ToString()))"></textarea>
+                                            }
+                                            else if (f.FieldType == TerceroFieldType.Lookup)
+                                            {
+                                                @if (CustomLookupCfgOf(f) is { } lkCfg)
+                                                {
+                                                    <DataLookupField Config="lkCfg"
+                                                                     Value="@GetCustomValue(f.FieldKey)"
+                                                                     ValueChanged="v => SetCustomValue(f.FieldKey, v)"
+                                                                     FormValues="_customValues"
+                                                                     ActorUserId="@(_actorTenantUserId ?? Guid.Empty)"
+                                                                     Disabled="@readOnly"
+                                                                     Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="tk-fld-help">Este campo aun no tiene configurada su tabla de origen.</div>
+                                                }
+                                            }
+                                            else if (f.FieldType == TerceroFieldType.Calculated)
+                                            {
+                                                <input class="form-control tk-fld-calc" type="text" readonly
+                                                       value="@(_customCalculated.GetValueOrDefault(f.FieldKey) ?? "")"
+                                                       title="@($"Calculado: {f.Formula}")" />
+                                                @if (_customCalculated.TryGetValue(f.FieldKey, out var cv) && cv is null)
+                                                {
+                                                    <small class="tk-fld-help">No se puede calcular con los datos actuales.</small>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <input class="form-control" type="@TaskFieldUi.InputType(f.FieldType)" disabled="@readOnly"
+                                                       value="@GetCustomValue(f.FieldKey)"
+                                                       @onchange="@(e => SetCustomValue(f.FieldKey, e.Value?.ToString()))" />
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(f.Description))
+                                            {
+                                                <small class="tk-fld-help">@f.Description</small>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            @if (_customError is not null)
+                            {
+                                <div class="tk-field-error" style="margin-top:8px;">@_customError</div>
+                            }
+                        </div>
+                    }
 
                     @* Worklog: timer + entrada manual + historial *@
                     <div class="tk-card">
@@ -1033,6 +1125,13 @@
     private List<ActivityTypeDto> _types = new();
     private List<ProjectDto> _projects = new();
 
+    // Campos personalizados del tablero (ADR-0065): definiciones + valores capturados + calculados.
+    private IReadOnlyList<TaskFieldDto> _customFields = [];
+    private readonly Dictionary<string, string?> _customValues = new(StringComparer.Ordinal);
+    private Dictionary<string, string?> _customCalculated = new(StringComparer.Ordinal);
+    private bool _customDirty;
+    private string? _customError;
+
     private bool _busy;
     private string? _openMenu;
     private bool _editingTitle;
@@ -1164,6 +1263,14 @@
                     _boardColumns = board.Value!.Columns.ToList();
                 }
             }
+
+            // Campos personalizados del tablero (ADR-0065): definiciones del board + valores capturados.
+            _customFields = _detail.Item.BoardId is Guid cfBoardId
+                ? await FieldSvc.ListByBoardAsync(cfBoardId)
+                : [];
+            LoadCustomFieldValues(_detail.CustomFieldsJson);
+            _customDirty = false;
+            RecalcCustomCalculated();
 
             // Diagrama del flujo (ADR-0051): OPCIONAL y al FINAL, para que su carga no afecte lo esencial.
             // Si falla (p.ej. un corte transitorio de la BD por el tunel de dev), se degrada a "sin
@@ -1874,6 +1981,96 @@
 
     private async Task SavePriorityAsync(TaskPriority priority)
         => await ApplyUpdateAsync(BuildUpdate(priority: priority));
+
+    // ==== Campos personalizados del tablero (ADR-0065) ====
+
+    private void LoadCustomFieldValues(string? json)
+    {
+        _customValues.Clear();
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(json);
+            if (dict is not null)
+            {
+                foreach (var (k, v) in dict) { _customValues[k] = v; }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido: se ignora */ }
+    }
+
+    private string GetCustomValue(string key) => _customValues.TryGetValue(key, out var v) ? v ?? "" : "";
+
+    private void SetCustomValue(string key, string? value)
+    {
+        _customValues[key] = string.IsNullOrWhiteSpace(value) ? null : value;
+        _customDirty = true;
+        RecalcCustomCalculated();   // cualquier campo puede alimentar una formula
+    }
+
+    private static DataLookupConfig? CustomLookupCfgOf(TaskFieldDto f) => DataLookupConfig.TryParse(f.Options);
+
+    /// <summary>
+    /// Rehace los calculados en memoria (aritmetica sobre unas pocas claves; no toca la BD). Reusa
+    /// el motor compartido via el servicio, que resuelve las formulas del tablero de la tarea.
+    /// </summary>
+    private void RecalcCustomCalculated()
+    {
+        var hasCalc = _customFields.Any(f => f.FieldType == TerceroFieldType.Calculated && !string.IsNullOrWhiteSpace(f.Formula));
+        if (!hasCalc || _detail?.Item.BoardId is not Guid boardId)
+        {
+            _customCalculated = new(StringComparer.Ordinal);
+            return;
+        }
+        // Fire-and-forget seguro: la evaluacion es rapida y no bloquea el render; al volver, refresca.
+        _ = RecalcCustomCalculatedAsync(boardId);
+    }
+
+    private async Task RecalcCustomCalculatedAsync(Guid boardId)
+    {
+        var snapshot = new Dictionary<string, string?>(_customValues, StringComparer.Ordinal);
+        var result = await FieldSvc.ComputeCalculatedAsync(boardId, snapshot);
+        _customCalculated = result.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveCustomFieldsAsync()
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        _customError = null;
+        try
+        {
+            var taskId = _detail.Item.Id;
+            // Materializa los calculados antes de guardar (ADR-0029): reportes/API leen el numero sin
+            // reimplementar el motor.
+            if (_detail.Item.BoardId is Guid boardId)
+            {
+                var calc = await FieldSvc.ComputeCalculatedAsync(boardId, new Dictionary<string, string?>(_customValues, StringComparer.Ordinal));
+                foreach (var (k, v) in calc) { _customValues[k] = v; }
+            }
+            // Solo persiste las claves que siguen siendo campos del tablero y tienen valor.
+            var keys = _customFields.Select(f => f.FieldKey).ToHashSet(StringComparer.Ordinal);
+            var dict = _customValues
+                .Where(kv => keys.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+            var payload = dict.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(dict);
+
+            var result = await TasksSvc.UpdateCustomFieldsAsync(taskId, payload, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _customError = result.Error;
+                await ReloadAsync(taskId);
+                return;
+            }
+            _detail = result.Value;
+            LoadCustomFieldValues(_detail!.CustomFieldsJson);
+            _customDirty = false;
+            RecalcCustomCalculated();
+            await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
+        }
+        finally { _busy = false; }
+    }
 
     private async Task SaveDueAsync()
     {

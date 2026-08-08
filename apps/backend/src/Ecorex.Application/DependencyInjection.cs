@@ -71,6 +71,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IActivityTypeService, Tenancy.ActivityTypeService>();
         services.AddScoped<Tenancy.IProjectService, Tenancy.ProjectService>();
         services.AddScoped<Tenancy.ITaskItemService, Tenancy.TaskItemService>();
+        // Campos personalizados de la tarea por tablero (ADR-0065): calcado de IItemFieldService.
+        services.AddScoped<Tenancy.ITaskFieldService, Tenancy.TaskFieldService>();
         // Notificaciones in-app (Ola 7 - entrega real). La entrega la escriben los servicios de
         // dominio (TaskItemService al asignar); este servicio cubre lectura/campana y marcado.
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();

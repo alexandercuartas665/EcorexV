@@ -1,4 +1,5 @@
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Workflows
 @using Ecorex.Application.DataLookups
@@ -516,6 +517,14 @@
                                                     <div class="tk-fld-help">Este campo aun no tiene configurada su tabla de origen.</div>
                                                 }
                                             }
+                                            else if (f.FieldType == TerceroFieldType.DirectoryLookup)
+                                            {
+                                                <DirectoryLookupField Config="CustomDirectoryCfgOf(f)"
+                                                                      Value="@GetCustomValue(f.FieldKey)"
+                                                                      ValueChanged="v => SetCustomValue(f.FieldKey, v)"
+                                                                      Disabled="@readOnly"
+                                                                      Placeholder="@($"Buscar {f.Label.ToLowerInvariant()}...")" />
+                                            }
                                             else if (f.FieldType == TerceroFieldType.Calculated)
                                             {
                                                 <input class="form-control tk-fld-calc" type="text" readonly
@@ -849,17 +858,25 @@
                                         @foreach (var it in _conceptForms.Items)
                                         {
                                             var finalized = it.Status == FormResponseStatus.Submitted;
-                                            <div class="tk-quote-card @(finalized ? "is-final" : "")">
+                                            <div class="tk-quote-card @(finalized ? "is-final" : "") @(it.IsActive ? "is-active" : "")">
                                                 <div class="tk-quote-main" @onclick="@(() => OpenConceptForm(it))">
                                                     <strong>@(string.IsNullOrWhiteSpace(it.Titulo) ? "Formulario sin numero" : it.Titulo)</strong>
                                                     <span class="tk-quote-sub">@(string.IsNullOrWhiteSpace(it.Cliente) ? "Sin cliente" : it.Cliente)</span>
                                                     <span class="tk-quote-meta">
+                                                        @if (it.IsActive)
+                                                        {
+                                                            <span class="tk-quote-active" title="Formulario activo por defecto de la tarea">&#9733; Activo</span>
+                                                        }
                                                         <span class="tk-status @(finalized ? "st-done" : "st-pending")">@(finalized ? "Finalizada" : "Borrador")</span>
                                                         <span>@it.CreatedAt.ToLocalTime().ToString("dd MMM")</span>
                                                     </span>
                                                 </div>
                                                 <div class="tk-quote-actions">
                                                     <button class="btn btn-xs" @onclick="@(() => OpenConceptForm(it))">@(finalized || taskClosed ? "Ver" : "Editar")</button>
+                                                    @if (!it.IsActive && _conceptForms.Items.Count > 1 && !taskClosed)
+                                                    {
+                                                        <button class="btn btn-xs" @onclick="@(() => SetActiveConceptFormAsync(it))" disabled="@_busy" title="Marcar como formulario activo por defecto de la tarea">Marcar activo</button>
+                                                    }
                                                     @if (!taskClosed)
                                                     {
                                                         <button class="btn btn-xs" @onclick="@(() => DuplicateConceptFormAsync(it))" disabled="@_busy" title="Crear una copia">Copiar</button>
@@ -1837,6 +1854,19 @@
         finally { _busy = false; }
     }
 
+    /// <summary>"Marcar activo": fija esta respuesta como el formulario activo por defecto de la tarea.</summary>
+    private async Task SetActiveConceptFormAsync(TaskConceptFormItemDto it)
+    {
+        if (_detail is null || _busy || it.IsActive) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.SetActiveTaskFormAsync(it.ResponseId);
+            if (res.IsOk) { await ReloadAsync(_detail.Item.Id); }
+        }
+        finally { _busy = false; }
+    }
+
     /// <summary>"Reabrir": Finalizada -> Borrador, y abre el editor ya en modo Fill.</summary>
     private async Task ReopenConceptFormAsync(TaskConceptFormItemDto it)
     {
@@ -2009,6 +2039,10 @@
     }
 
     private static DataLookupConfig? CustomLookupCfgOf(TaskFieldDto f) => DataLookupConfig.TryParse(f.Options);
+
+    // Lista del Directorio: sin config valida (o sin perfil) igual funciona = todos los terceros.
+    private static DirectoryLookupConfig CustomDirectoryCfgOf(TaskFieldDto f)
+        => DirectoryLookupConfig.TryParse(f.Options) ?? new DirectoryLookupConfig();
 
     /// <summary>
     /// Rehace los calculados en memoria (aritmetica sobre unas pocas claves; no toca la BD). Reusa

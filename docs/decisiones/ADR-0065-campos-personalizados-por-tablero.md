@@ -74,3 +74,35 @@ y reusar la logica, que es donde vive el riesgo real.
   las auto-aplica en el arranque.
 - Tests de integracion en matriz dual (`TaskFieldTests`): alcance por board, round-trip de valores,
   recomputo de Calculated y aislamiento cross-tenant.
+
+## Actualizacion 2026-08-08 (v0.10.0): 4 olas sobre el detalle de tarea y la vista Lista
+
+Extensiones construidas sobre este ADR, todas en el modulo Tareas:
+
+1. **Tipo de campo "Lista del Directorio"** (`TerceroFieldType.DirectoryLookup`): campo de tablero que
+   lista terceros del Directorio General (000232) filtrados por perfil (Cliente/Proveedor/Empleado/
+   Todos), reusando el motor de lookups de formularios (`TerceroLookupSource` / `IFormLookupService`,
+   `FormSourceKind.Tercero`). La config (`DirectoryLookupConfig`) se serializa en `Options`, SIN
+   columna nueva. Captura con `DirectoryLookupField.razor`; se guarda el Id del tercero (referencia
+   viva). Decision: reusar el Directorio existente en vez de duplicar catalogo.
+
+2. **Vista Lista configurable POR TABLERO** (config compartida): nueva columna
+   `TaskBoard.ListViewConfigJson` (jsonb/nvarchar(max), migracion dual `AddTaskBoardListViewConfig`) con
+   `TaskListViewConfig`/`TaskListColumnConfig`. Un configurador ("Columnas") permite elegir/reordenar
+   columnas, color, titulo y subtitulo; el encabezado y la 1a columna quedan fijos por CSS. Fuentes de
+   columna: incorporadas (`@`-prefijo), campos del tablero (FieldKey), y campos de formulario
+   (`form:{defId}:{code}`). Render de tabla dinamica; resolucion de etiquetas de lookup en lote.
+
+3. **Formulario ACTIVO por defecto de la tarea**: `FormResponse.IsActive` (migracion dual
+   `AddFormResponseIsActive`), exclusivo por conjunto de la tarea (`SetActiveTaskFormAsync`). El activo
+   efectivo = el marcado, si no el original (`Reference` sin sufijo), si no el mas antiguo; con una sola
+   respuesta esa lo es. UI: badge "Activo" + boton "Marcar activo" en las tarjetas de Formularios.
+
+4. **Columnas de campo de FORMULARIO en la Lista**: se elige un formulario relevante al tablero
+   (concepto via subcategoria, o paso via `WorkflowNodeForm`) y sus campos; se pintan como columnas
+   informativas (solo lectura) tomando el valor del formulario ACTIVO (concepto) o de la respuesta del
+   paso (Submitted/mas reciente). SIN migracion (lee de `FormResponse.Data`). Servicios read-only
+   `GetBoardFormsAsync` / `GetBoardTaskFormValuesAsync`.
+
+Las 3 migraciones son aditivas y se auto-aplican en el arranque; durante el desarrollo ya se aplicaron
+a prod via el tunel (dev con `SkipDemoSeed`). Desplegado en v0.10.0.

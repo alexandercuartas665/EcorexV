@@ -23,6 +23,7 @@ public static class TaskFieldUi
         TerceroFieldType.Separator => "Separador",
         TerceroFieldType.Calculated => "Calculado",
         TerceroFieldType.Lookup => "Lista del Contenedor",
+        TerceroFieldType.DirectoryLookup => "Lista del Directorio",
         _ => type.ToString()
     };
 

@@ -455,7 +455,8 @@ public sealed class ActivityBoardService : IActivityBoardService
                     attachmentCounts.TryGetValue(t.Id, out var att) ? att : 0,
                     commentCounts.TryGetValue(t.Id, out var com) ? com : 0,
                     tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
-                    column.Id, t.BoardSortOrder, t.Version, t.CreatedAt, t.ColumnEnteredAt);
+                    column.Id, t.BoardSortOrder, t.Version, t.CreatedAt, t.ColumnEnteredAt,
+                    t.CustomFieldsJson);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();
@@ -463,7 +464,21 @@ public sealed class ActivityBoardService : IActivityBoardService
         return TaskCoreResult<ActivityBoardDetailDto>.Ok(new ActivityBoardDetailDto(
             board.Id, board.Code, board.Name, board.Description, board.Status, board.DueDate,
             board.IsArchived, columnDtos,
-            new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount)));
+            new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
+            board.ListViewConfigJson));
+    }
+
+    public async Task<TaskCoreResult<bool>> SetListViewConfigAsync(Guid boardId, string? json, CancellationToken cancellationToken = default)
+    {
+        var board = await _db.TaskBoards
+            .FirstOrDefaultAsync(b => b.Id == boardId && b.Kind == TaskBoardKind.Activities, cancellationToken);
+        if (board is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Tablero de actividades no encontrado.");
+        }
+        board.ListViewConfigJson = string.IsNullOrWhiteSpace(json) ? null : json;
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
     }
 
     // ---- Movimiento de tarjetas ----

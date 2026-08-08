@@ -39,6 +39,12 @@ public interface IActivityBoardService
     Task<TaskCoreResult<ActivityBoardDetailDto>> GetBoardDetailAsync(Guid boardId, ActivityBoardDetailFilter filter, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Guarda (o limpia con null) la config de columnas de la vista Lista del tablero (Ola 2
+    /// ADR-0065). Config COMPARTIDA por tablero: la ven todos. Ver <c>TaskListViewConfig</c>.
+    /// </summary>
+    Task<TaskCoreResult<bool>> SetListViewConfigAsync(Guid boardId, string? json, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Mueve la tarjeta a otra columna del MISMO tablero. Si la columna destino es IsDone
     /// y la maquina de estados permite Status -> Done, aplica la transicion oportunista y
     /// registra actividad; si no la permite, mueve la tarjeta SIN tocar el estado y lo

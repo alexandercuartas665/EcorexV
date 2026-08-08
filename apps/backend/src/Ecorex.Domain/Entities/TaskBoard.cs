@@ -46,4 +46,11 @@ public class TaskBoard : TenantEntity
     /// o Activities (tarjetas = TaskItem, gestor unificado 000636).
     /// </summary>
     public TaskBoardKind Kind { get; set; } = TaskBoardKind.CrmLegacy;
+
+    /// <summary>
+    /// Config de la VISTA LISTA de este tablero (Ola 2 de ADR-0065): que columnas se ven, su
+    /// orden, color y titulos/subtitulos. Compartida por tablero. JSON (jsonb PG / nvarchar(max)
+    /// SQL); null = columnas por defecto. Ver <c>Ecorex.Application.Tenancy.TaskListViewConfig</c>.
+    /// </summary>
+    public string? ListViewConfigJson { get; set; }
 }

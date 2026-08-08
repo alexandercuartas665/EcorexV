@@ -17,6 +17,13 @@ public class FormResponse : TenantEntity, IVersioned
     /// <summary>Referencia externa (ej. numero de tarea "T00042"). Null = respuesta suelta.</summary>
     public string? Reference { get; set; }
 
+    /// <summary>
+    /// Formulario ACTIVO por defecto de la tarea (ADR-0065): cuando una tarea tiene varias
+    /// respuestas ancladas, marca cual es la principal. Exclusivo por tarea (solo una en true). Si
+    /// ninguna esta marcada, la UI toma la mas antigua/original como activa; con una sola, esa lo es.
+    /// </summary>
+    public bool IsActive { get; set; }
+
     public FormResponseStatus Status { get; set; } = FormResponseStatus.Draft;
 
     /// <summary>Documento JSON { fieldCode: { value, type } } (jsonb / nvarchar(max) segun motor).</summary>

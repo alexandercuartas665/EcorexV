@@ -5313,6 +5313,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_active");
+
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -10291,6 +10297,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("kind");
+
+                    b.Property<string>("ListViewConfigJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("list_view_config_json");
 
                     b.Property<string>("Name")
                         .IsRequired()

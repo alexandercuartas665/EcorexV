@@ -1016,6 +1016,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(2000);
             b.Property(x => x.Color).HasMaxLength(20);
+            // Ola 2 ADR-0065: config de la vista Lista (columnas/orden/color/titulos) por tablero.
+            b.Property(x => x.ListViewConfigJson).HasColumnType(jsonColumnType);
             // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
             // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
             b.Property(x => x.Code).HasMaxLength(20);
@@ -1519,6 +1521,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             // Documento JSON { fieldCode: { value, type } }: jsonb en PG, nvarchar(max) en
             // SQL Server (mismo patron dual de TaskItem.CcEmails).
             b.Property(x => x.Data).HasColumnType(jsonColumnType).IsRequired();
+            // ADR-0065: formulario activo por defecto de la tarea (exclusivo por tarea).
+            b.Property(x => x.IsActive).HasDefaultValue(false);
             // Concurrencia optimista portable (ADR-0013): autosave + submit concurrentes.
             b.Property(x => x.Version).IsConcurrencyToken();
             // Sin cascada: las respuestas sobreviven (la definicion se archiva, no se borra).

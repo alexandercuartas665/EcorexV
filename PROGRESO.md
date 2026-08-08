@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-08 - v0.10.0: 4 olas sobre el detalle de tarea + vista Lista (ADR-0065)
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea` sobre `fase-0/clon-backbone`.
+Construido contra la BD de PROD por el tunel (SkipDemoSeed); las 3 migraciones aditivas ya se
+aplicaron a prod durante el desarrollo. Desplegado en v0.10.0.
+
+**Que (4 olas, todas sobre el modulo Tareas):**
+1. **Campo "Lista del Directorio"** (nuevo `TerceroFieldType.DirectoryLookup`): un campo de tablero que
+   lista terceros del Directorio General filtrados por perfil (Cliente/Proveedor/Empleado/Todos),
+   reusando `TerceroLookupSource`/`IFormLookupService`. Config en `Options` (JSON `DirectoryLookupConfig`),
+   sin migracion. Captura con `DirectoryLookupField.razor` (guarda el Id del tercero, referencia viva).
+2. **Vista Lista configurable POR TABLERO:** `TaskBoard.ListViewConfigJson` (jsonb/nvarchar(max),
+   migracion `AddTaskBoardListViewConfig`). Configurador "Columnas": elegir/reordenar columnas
+   (incorporadas + campos del tablero + campos de formulario), color, titulo/subtitulo; encabezado y
+   1a columna fijos por CSS. Render de tabla dinamica (`TaskListViewConfig`/`TaskListColumnConfig`).
+3. **Formulario activo por defecto de la tarea:** `FormResponse.IsActive` (migracion
+   `AddFormResponseIsActive`), exclusivo por tarea; efectivo = marcado / original / mas antiguo. UI:
+   badge "Activo" + boton "Marcar activo" en las tarjetas de la pestana Formularios.
+4. **Columnas de campo de FORMULARIO en la Lista:** en el configurador se elige un formulario (concepto
+   o paso, relevantes al tablero) y sus campos; se pintan como columnas informativas tomando el valor
+   del formulario ACTIVO (concepto) o de la respuesta del paso. Sin migracion (lee de `FormResponse.Data`).
+   Servicios `GetBoardFormsAsync`/`GetBoardTaskFormValuesAsync`.
+
+**Migraciones (duales PG+SQL):** `AddTaskBoardListViewConfig`, `AddFormResponseIsActive`
+(`AddTaskCustomFields` de PR #5 tambien va en este deploy). Todas aditivas; ya aplicadas en prod.
+
+**Bloqueos:** validacion visual pendiente (el login lo hace el usuario; se desplego a peticion
+explicita sin recorrido UI). `dotnet build` verde en cada ola.
+
 ## 2026-08-06 - Campos personalizados de la tarea POR TABLERO (ADR-0065)
 
 **Agentes:** Claude Opus 4.8 (sub-agente de ingenieria), worktree `feat/campos-personalizados-tarea`

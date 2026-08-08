@@ -186,7 +186,9 @@ public sealed record TaskConceptFormDto(
 /// </summary>
 public sealed record TaskConceptFormItemDto(
     Guid ResponseId, string? Reference, FormResponseStatus Status,
-    string? Titulo, string? Cliente, DateTimeOffset CreatedAt);
+    string? Titulo, string? Cliente, DateTimeOffset CreatedAt,
+    // ADR-0065: es el formulario activo por defecto de la tarea (el efectivo si ninguno fue marcado).
+    bool IsActive = false);
 
 /// <summary>
 /// Formulario del concepto (subcategoria) de la tarea + sus cotizaciones (respuestas). Null si la
@@ -196,3 +198,16 @@ public sealed record TaskConceptFormItemDto(
 public sealed record TaskConceptFormsDto(
     Guid DefinitionId, string FormCode, string FormTitle,
     IReadOnlyList<TaskConceptFormItemDto> Items);
+
+/// <summary>
+/// Un formulario relevante para un tablero (ADR-0065, columnas de campo de formulario): el del
+/// concepto de sus tareas o uno de los pasos de su flujo. Para el selector "Elijo un formulario".
+/// </summary>
+public sealed record BoardFormDto(Guid DefinitionId, string Code, string Title, bool IsConcept);
+
+/// <summary>
+/// El documento Data del formulario EFECTIVO de una tarea para una definicion dada (ADR-0065):
+/// el activo si es del concepto, o la respuesta del paso (Submitted/mas reciente). La UI extrae
+/// de aqui los campos elegidos para pintarlos como columnas informativas de la lista.
+/// </summary>
+public sealed record TaskFormDataDto(Guid TaskItemId, Guid DefinitionId, string Data);

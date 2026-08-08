@@ -760,9 +760,17 @@ public sealed class FormResponseService : IFormResponseService
         // Cliente para el subtitulo de la tarjeta (generico, por Label). El titulo = numero (Reference).
         var cliCode = await ResolveFieldCodeAsync(def.Id, cancellationToken, "cliente", "tercero", "razon", "razón", "empresa");
 
+        // Formulario ACTIVO efectivo: el marcado (IsActive); si ninguno, el original ("{numero}" sin
+        // sufijo); si tampoco, el mas antiguo. Asi siempre hay exactamente uno activo aunque nadie
+        // lo haya elegido, y con una sola respuesta esa queda activa.
+        var activeId = responses.FirstOrDefault(r => r.IsActive)?.Id
+            ?? responses.FirstOrDefault(r => r.Reference == task.Number)?.Id
+            ?? responses.FirstOrDefault()?.Id;
+
         var items = responses.Select(r => new TaskConceptFormItemDto(
             r.Id, r.Reference, r.Status,
-            r.Reference, ExtractDataField(r.Data, cliCode), r.CreatedAt)).ToList();
+            r.Reference, ExtractDataField(r.Data, cliCode), r.CreatedAt,
+            r.Id == activeId)).ToList();
 
         return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items);
     }
@@ -822,6 +830,100 @@ public sealed class FormResponseService : IFormResponseService
         await _db.SaveChangesAsync(cancellationToken);
         return FormResult<TaskConceptFormItemDto>.Ok(new TaskConceptFormItemDto(
             response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
+    }
+
+    public async Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default)
+    {
+        var target = await _db.FormResponses.FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (target is null) { return FormResult<bool>.NotFound("Formulario no encontrado."); }
+        var taskNumber = StripOrdinal(target.Reference);
+        if (string.IsNullOrEmpty(taskNumber)) { return FormResult<bool>.Invalid("El formulario no esta anclado a una tarea."); }
+
+        // Mismo conjunto de la tarea que GetTaskConceptFormsAsync: exclusividad acotada a esta tarea.
+        var prefix = taskNumber + "-";
+        var set = await _db.FormResponses
+            .Where(r => r.DefinitionId == target.DefinitionId
+                && (r.Reference == taskNumber || (r.Reference != null && r.Reference.StartsWith(prefix))))
+            .ToListAsync(cancellationToken);
+        foreach (var r in set) { r.IsActive = r.Id == responseId; }
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<bool>.Ok(true);
+    }
+
+    public async Task<IReadOnlyList<BoardFormDto>> GetBoardFormsAsync(Guid boardId, CancellationToken cancellationToken = default)
+    {
+        var tasks = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.BoardId == boardId)
+            .Select(t => new { t.SubcategoriaId, t.WorkflowInstanceId })
+            .ToListAsync(cancellationToken);
+        if (tasks.Count == 0) { return Array.Empty<BoardFormDto>(); }
+
+        // Formularios del CONCEPTO: subcategoria de la tarea -> FormDefinitionId.
+        var subIds = tasks.Where(t => t.SubcategoriaId is not null).Select(t => t.SubcategoriaId!.Value).Distinct().ToList();
+        var conceptDefIds = subIds.Count == 0 ? new List<Guid>() : await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => subIds.Contains(s.Id) && s.FormDefinitionId != null)
+            .Select(s => s.FormDefinitionId!.Value).Distinct().ToListAsync(cancellationToken);
+
+        // Formularios de PASO: instancia -> definicion de flujo -> nodos -> formulario del nodo.
+        var instIds = tasks.Where(t => t.WorkflowInstanceId is not null).Select(t => t.WorkflowInstanceId!.Value).Distinct().ToList();
+        var stepDefIds = new List<Guid>();
+        if (instIds.Count > 0)
+        {
+            var wfDefIds = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => instIds.Contains(i.Id)).Select(i => i.DefinitionId).Distinct().ToListAsync(cancellationToken);
+            var nodeIds = await _db.WorkflowNodes.AsNoTracking()
+                .Where(n => wfDefIds.Contains(n.DefinitionId)).Select(n => n.Id).ToListAsync(cancellationToken);
+            stepDefIds = await _db.WorkflowNodeForms.AsNoTracking()
+                .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).Distinct().ToListAsync(cancellationToken);
+        }
+
+        var conceptSet = conceptDefIds.ToHashSet();
+        var allDefIds = conceptDefIds.Concat(stepDefIds).Distinct().ToList();
+        if (allDefIds.Count == 0) { return Array.Empty<BoardFormDto>(); }
+
+        var defs = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => allDefIds.Contains(d.Id) && d.Status == FormStatus.Active && !d.IsArchived)
+            .Select(d => new { d.Id, d.Code, d.Title })
+            .ToListAsync(cancellationToken);
+
+        return defs
+            .Select(d => new BoardFormDto(d.Id, d.Code, d.Title, conceptSet.Contains(d.Id)))
+            .OrderByDescending(x => x.IsConcept).ThenBy(x => x.Title)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<TaskFormDataDto>> GetBoardTaskFormValuesAsync(Guid boardId, IReadOnlyList<Guid> definitionIds, CancellationToken cancellationToken = default)
+    {
+        if (definitionIds.Count == 0) { return Array.Empty<TaskFormDataDto>(); }
+        var defIds = definitionIds.Distinct().ToList();
+
+        var tasks = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.BoardId == boardId)
+            .Select(t => new { t.Id, t.Number })
+            .ToListAsync(cancellationToken);
+        if (tasks.Count == 0) { return Array.Empty<TaskFormDataDto>(); }
+        var byNumber = tasks.GroupBy(t => t.Number).ToDictionary(g => g.Key, g => g.First().Id);
+
+        // Respuestas de esas definiciones ancladas a alguna tarea; el sufijo "-n" se resuelve en memoria.
+        var responses = await _db.FormResponses.AsNoTracking()
+            .Where(r => defIds.Contains(r.DefinitionId) && r.Reference != null)
+            .Select(r => new { r.DefinitionId, r.Reference, r.Data, r.IsActive, r.Status, r.CreatedAt })
+            .ToListAsync(cancellationToken);
+
+        var result = new List<TaskFormDataDto>();
+        var grouped = responses
+            .Select(r => new { r.DefinitionId, r.Data, r.IsActive, r.Status, r.CreatedAt, TaskNumber = StripOrdinal(r.Reference) })
+            .Where(r => r.TaskNumber != null && byNumber.ContainsKey(r.TaskNumber))
+            .GroupBy(r => (TaskNumber: r.TaskNumber!, r.DefinitionId));
+        foreach (var g in grouped)
+        {
+            // Efectivo: el activo (concepto); si no, la respuesta Submitted mas reciente (paso); si no, la mas reciente.
+            var chosen = g.FirstOrDefault(x => x.IsActive)
+                ?? g.Where(x => x.Status == FormResponseStatus.Submitted).OrderByDescending(x => x.CreatedAt).FirstOrDefault()
+                ?? g.OrderByDescending(x => x.CreatedAt).First();
+            result.Add(new TaskFormDataDto(byNumber[g.Key.TaskNumber], g.Key.DefinitionId, chosen.Data));
+        }
+        return result;
     }
 
     // ---- Numeracion heredada de formularios de la tarea: Reference = "{numero tarea}-{n}" ----

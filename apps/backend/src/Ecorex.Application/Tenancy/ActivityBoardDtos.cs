@@ -113,7 +113,10 @@ public sealed record ActivityCardDto(
     DateTimeOffset CreatedAt = default,
     // Momento en que la tarjeta entro a su columna actual. Null en tareas anteriores a la
     // funcion; la UI cae a CreatedAt para mostrar "cuanto lleva aqui".
-    DateTimeOffset? ColumnEnteredAt = null);
+    DateTimeOffset? ColumnEnteredAt = null,
+    // Ola 2 ADR-0065: valores de los campos personalizados (jsonb FieldKey->valor), para
+    // pintarlos como columnas en la vista Lista configurable. Null si no tiene.
+    string? CustomFieldsJson = null);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,
@@ -123,7 +126,9 @@ public sealed record ActivityBoardDetailDto(
     Guid Id, string? Code, string Name, string? Description,
     TaskBoardStatus Status, DateTimeOffset? DueDate, bool IsArchived,
     IReadOnlyList<ActivityBoardColumnDto> Columns,
-    ActivityScopeCountersDto ScopeCounters);
+    ActivityScopeCountersDto ScopeCounters,
+    // Ola 2 ADR-0065: config de columnas de la vista Lista (JSON). Null = columnas por defecto.
+    string? ListViewConfigJson = null);
 
 /// <summary>
 /// Creacion rapida desde la columna del tablero. ActivityTypeId null usa el primer tipo

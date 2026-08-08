@@ -31,5 +31,14 @@ public enum TerceroFieldType
     /// Contenedor se refleja en todos los registros que la referencian.
     /// Ver <c>Ecorex.Application.DataLookups</c>.
     /// </summary>
-    Lookup
+    Lookup,
+
+    /// <summary>
+    /// Lista alimentada por el Directorio General (terceros, modulo 000232). Reusa el motor de
+    /// lookups de formularios (<c>FormSourceKind.Tercero</c>): se guarda el Id del tercero (referencia
+    /// viva) y la etiqueta se resuelve al mostrar. La configuracion (perfil a filtrar: Cliente/
+    /// Proveedor/Empleado/Todos, y la presentacion) va serializada en <c>Options</c>, como el Lookup,
+    /// asi que no hizo falta ninguna columna nueva. Ver <c>Ecorex.Application.Forms.Lookups</c>.
+    /// </summary>
+    DirectoryLookup
 }

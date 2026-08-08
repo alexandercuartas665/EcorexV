@@ -5313,6 +5313,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("definition_id");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_active");
+
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -10292,6 +10298,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("kind");
 
+                    b.Property<string>("ListViewConfigJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("list_view_config_json");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -10874,6 +10884,107 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("task_card_tag_assignments", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowMultiple")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_multiple");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("board_id");
+
+                    b.Property<int>("Column")
+                        .HasColumnType("integer")
+                        .HasColumnName("column");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("field_key");
+
+                    b.Property<string>("FieldType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("field_type");
+
+                    b.Property<string>("Formula")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("formula");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_system");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Options")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("options");
+
+                    b.Property<string>("RepeatWithFieldKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("repeat_with_field_key");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_task_field_definitions");
+
+                    b.HasIndex("BoardId")
+                        .HasDatabaseName("ix_task_field_definitions_board_id");
+
+                    b.HasIndex("TenantId", "BoardId", "FieldKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_task_field_definitions_tenant_id_board_id_field_key");
+
+                    b.HasIndex("TenantId", "BoardId", "SortOrder")
+                        .HasDatabaseName("ix_task_field_definitions_tenant_id_board_id_sort_order");
+
+                    b.ToTable("task_field_definitions", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -10925,6 +11036,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("CustomFieldsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("custom_fields_json");
 
                     b.Property<string>("Description")
                         .HasColumnType("text")
@@ -15614,6 +15729,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Tag");
 
                     b.Navigation("TaskCard");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TaskFieldDefinition", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskBoard", "Board")
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_task_field_definitions_task_boards_board_id");
+
+                    b.Navigation("Board");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.TaskItem", b =>

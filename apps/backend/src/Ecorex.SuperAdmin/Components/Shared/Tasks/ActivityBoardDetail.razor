@@ -1,11 +1,19 @@
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Actividades
+@using Ecorex.Application.DataLookups
+@using Ecorex.Application.Forms
+@using Ecorex.Application.Forms.Lookups
 @using Ecorex.Domain.Enums
 @using Microsoft.AspNetCore.SignalR.Client
 @implements IAsyncDisposable
 @inject IActivityBoardService BoardsSvc
 @inject ITaskBoardService ColumnsSvc
 @inject ITaskItemService TasksSvc
+@inject ITaskFieldService FieldSvc
+@inject IDataLookupService LookupSvc
+@inject IFormLookupService FormLookupSvc
+@inject IFormResponseService FormResponsesSvc
+@inject IFormDefinitionService FormDefSvc
 @inject ITenantUserService TenantUsersSvc
 @inject IActivityTypeService TypesSvc
 @inject IActividadCatalogoService CatalogoSvc
@@ -163,6 +171,14 @@
                         <span class="ab-filter-badge">@FilterCount</span>
                     }
                 </button>
+                <button class="ab-btn-filter" title="Configurar los campos personalizados de este tablero" @onclick="OpenFieldsConfig">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+                    Campos
+                </button>
+                <button class="ab-btn-filter" title="Configurar las columnas de la vista Lista" @onclick="OpenListConfig">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M3 12h18M3 19h18"/><path d="M9 5v14"/></svg>
+                    Columnas
+                </button>
                 <button class="ab-btn-task" @onclick="@(() => OpenWizardOnBoardAsync())">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     Actividad
@@ -316,41 +332,210 @@
         </div>
     }
 
-    @* ---- VISTA LISTA ---- *@
+    @* ---- VISTA LISTA (configurable por tablero, Ola 2 ADR-0065) ---- *@
     @if (_view == "lista")
     {
+        var lcols = VisibleListColumns();
         <div class="ab-listwrap">
-            <div class="ab-list">
-                <div class="ab-list-head">
-                    <span>ACTIVIDAD</span><span>ESTADO</span><span>ASIGNADO</span><span>PRIORIDAD</span><span>PROGRESO</span><span style="text-align:right">FECHA</span>
-                </div>
-                @foreach (var (column, colIdx, card) in ListRows())
-                {
-                    var c = card;
-                    <div class="ab-list-row" @onclick="@(() => OpenTaskAsync(c.Id))">
-                        <div class="ab-lr-title">
-                            <div>@c.Title</div>
-                            <div>@(c.Description ?? "")</div>
-                        </div>
-                        <span class="ab-lr-status"><span class="ab-dot" style="background:@AbUi.ColumnDot(colIdx)"></span>@column.Name</span>
-                        <div class="ab-avatars">
-                            @foreach (var person in CardPeople(c).Take(3))
+            @if (lcols.Count == 0)
+            {
+                <div class="ab-list"><div class="ab-empty" style="padding:24px 22px;">No hay columnas visibles. Usa el boton <strong>Columnas</strong> para elegir cuales mostrar.</div></div>
+            }
+            else
+            {
+                <div class="tkl-scroll">
+                    <table class="tkl">
+                        <thead>
+                            <tr>
+                                @for (var ci = 0; ci < lcols.Count; ci++)
+                                {
+                                    var col = lcols[ci];
+                                    <th class="@(ci == 0 ? "tkl-pin" : "")" style="@ColHeadStyle(col)">
+                                        <div class="tkl-th-t">@col.Title</div>
+                                        @if (!string.IsNullOrWhiteSpace(col.Subtitle))
+                                        {
+                                            <div class="tkl-th-s">@col.Subtitle</div>
+                                        }
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var (column, colIdx, card) in ListRows())
                             {
-                                <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
+                                var c = card;
+                                var stage = column;
+                                var sIdx = colIdx;
+                                <tr class="tkl-row" @onclick="@(() => OpenTaskAsync(c.Id))">
+                                    @for (var ci = 0; ci < lcols.Count; ci++)
+                                    {
+                                        var key = lcols[ci].Key;
+                                        <td class="@(ci == 0 ? "tkl-pin" : "")">
+                                            @if (key == TaskListViewConfig.KeyTitle)
+                                            {
+                                                <div class="ab-lr-title"><div>@c.Title</div><div>@(c.Description ?? "")</div></div>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyNumber)
+                                            {
+                                                <span class="tkl-mono">@c.Number</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyStage)
+                                            {
+                                                <span class="ab-lr-status"><span class="ab-dot" style="background:@AbUi.ColumnDot(sIdx)"></span>@stage.Name</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyStatus)
+                                            {
+                                                <span class="tk-status @TaskUi.StatusClass(c.Status)" style="font-size:11px;padding:2px 9px;">@TaskUi.StatusLabel(c.Status)</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyAssignee)
+                                            {
+                                                <div class="ab-avatars">
+                                                    @foreach (var person in CardPeople(c).Take(3))
+                                                    {
+                                                        <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
+                                                    }
+                                                    @if (CardPeople(c).Count == 0)
+                                                    {
+                                                        <span style="font-size:11.5px;color:var(--ink-3)">Sin asignar</span>
+                                                    }
+                                                </div>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyPriority)
+                                            {
+                                                <span class="ab-prio" style="background:@AbUi.PrioritySoft(c.Priority);color:@AbUi.PriorityColor(c.Priority)">@TaskUi.PriorityLabel(c.Priority)</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyProgress)
+                                            {
+                                                <div class="ab-lr-prog"><div class="bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(sIdx)"></i></div><span class="pct">@(c.ChecklistPct)%</span></div>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyDue)
+                                            {
+                                                <span class="ab-lr-due" style="color:@AbUi.CardDueColor(c.DueDate, stage.IsDone)">@(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "-")</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyStart)
+                                            {
+                                                <span>@(c.StartDate is DateTimeOffset sd ? AbUi.CardDue(sd) : "-")</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyCreated)
+                                            {
+                                                <span>@AbUi.CardDue(c.CreatedAt)</span>
+                                            }
+                                            else if (key == TaskListViewConfig.KeyTags)
+                                            {
+                                                <div class="tkl-tags">
+                                                    @foreach (var tg in c.Tags.Take(3))
+                                                    {
+                                                        <span class="tkl-tag" style="background:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--surface-3)" : tg.Color + "22");color:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--ink-2)" : tg.Color)">@tg.Name</span>
+                                                    }
+                                                </div>
+                                            }
+                                            else if (key.StartsWith("form:"))
+                                            {
+                                                <span class="tkl-cf">@FormCellText(key, c)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="tkl-cf">@CustomCellText(key, c)</span>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
                             }
+                            @if (!ListRows().Any())
+                            {
+                                <tr><td colspan="@lcols.Count" class="tkl-empty">No hay tareas que coincidan con los filtros.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    @* ---- Configurador de columnas de la Lista (Ola 2 ADR-0065) ---- *@
+    @if (_lcOpen)
+    {
+        <div class="modal-overlay" @onclick="@(() => _lcOpen = false)">
+            <div class="modal-dialog" style="max-width:920px;width:94vw;max-height:88vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Columnas de la lista &#183; @_detail.Name</h3>
+                    <button class="modal-close" @onclick="@(() => _lcOpen = false)">&times;</button>
+                </div>
+                <div class="modal-body" style="flex:1;overflow:auto;">
+                    <p class="tkl-cfg-hint">Elige que columnas se ven en la vista Lista, su orden, color y titulo/subtitulo. Es compartida por tablero: todos ven lo mismo. El encabezado y la primera columna quedan fijos al desplazar.</p>
+
+                    <div class="lc-addform">
+                        <div class="lc-addform-top">
+                            <label>Agregar campos de un formulario</label>
+                            <select class="ab-select" @onchange="OnPickFormAsync">
+                                <option value="">-- Elige un formulario --</option>
+                                @foreach (var bf in _bfForms)
+                                {
+                                    <option value="@bf.DefinitionId" selected="@(_bfDefId == bf.DefinitionId)">@bf.Title @(bf.IsConcept ? "(concepto)" : "(paso)")</option>
+                                }
+                            </select>
                         </div>
-                        <span><span class="ab-prio" style="background:@AbUi.PrioritySoft(c.Priority);color:@AbUi.PriorityColor(c.Priority)">@TaskUi.PriorityLabel(c.Priority)</span></span>
-                        <div class="ab-lr-prog">
-                            <div class="bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(colIdx)"></i></div>
-                            <span class="pct">@(c.ChecklistPct)%</span>
-                        </div>
-                        <span class="ab-lr-due" style="color:@AbUi.CardDueColor(c.DueDate, column.IsDone)">@(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "-")</span>
+                        @if (_bfForms.Count == 0)
+                        {
+                            <div class="tkl-cfg-hint" style="margin:0;">Este tablero aun no tiene formularios asociados (concepto o pasos del flujo).</div>
+                        }
+                        else if (_bfDefId is not null)
+                        {
+                            @if (_bfFields.Count == 0)
+                            {
+                                <div class="tkl-cfg-hint" style="margin:0;">Ese formulario no tiene campos.</div>
+                            }
+                            else
+                            {
+                                <div class="lc-fieldpick">
+                                    @foreach (var q in _bfFields)
+                                    {
+                                        var code = q.FieldCode;
+                                        <label class="lc-fieldchk">
+                                            <input type="checkbox" checked="@_bfSel.Contains(code)" @onchange="@(e => ToggleBfField(code, (bool)(e.Value ?? false)))" />
+                                            <span>@q.Label</span>
+                                        </label>
+                                    }
+                                </div>
+                                <button type="button" class="btn btn-xs btn-primary" @onclick="AddFormFields" disabled="@(_bfSel.Count == 0)">Agregar como columnas (@_bfSel.Count)</button>
+                            }
+                        }
                     </div>
-                }
-                @if (!ListRows().Any())
-                {
-                    <div class="ab-empty" style="padding:24px 22px;">No hay tareas que coincidan con los filtros.</div>
-                }
+
+                    <table class="lc-tbl">
+                        <thead><tr><th></th><th>Ver</th><th>Columna</th><th>Titulo</th><th>Subtitulo</th><th>Color</th></tr></thead>
+                        <tbody>
+                            @for (var i = 0; i < _lc.Count; i++)
+                            {
+                                var r = _lc[i];
+                                var idx = i;
+                                <tr class="@(r.Visible ? "" : "lc-off")">
+                                    <td class="lc-move">
+                                        <button type="button" title="Subir" disabled="@(idx == 0)" @onclick="@(() => LcMove(idx, -1))">&#9650;</button>
+                                        <button type="button" title="Bajar" disabled="@(idx == _lc.Count - 1)" @onclick="@(() => LcMove(idx, 1))">&#9660;</button>
+                                    </td>
+                                    <td><input type="checkbox" checked="@r.Visible" @onchange="@(e => r.Visible = (bool)(e.Value ?? false))" /></td>
+                                    <td><span class="lc-name">@r.DefaultLabel</span>@if (!r.Builtin) { <span class="lc-badge">campo</span> }</td>
+                                    <td><input class="ab-input" placeholder="@r.DefaultLabel" @bind="r.Title" maxlength="60" /></td>
+                                    <td><input class="ab-input" placeholder="-" @bind="r.Subtitle" maxlength="60" /></td>
+                                    <td class="lc-color">
+                                        <input type="color" value="@(string.IsNullOrWhiteSpace(r.Color) ? "#7c5cff" : r.Color)" @onchange="@(e => r.Color = e.Value?.ToString() ?? string.Empty)" />
+                                        @if (!string.IsNullOrWhiteSpace(r.Color))
+                                        {
+                                            <button type="button" class="lc-clear" title="Sin color" @onclick="@(() => r.Color = string.Empty)">&times;</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-foot">
+                    <button class="btn btn-outline-secondary" @onclick="ResetListConfigAsync">Restablecer a columnas por defecto</button>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-outline-secondary" @onclick="@(() => _lcOpen = false)">Cancelar</button>
+                    <button class="btn btn-primary" @onclick="SaveListConfigAsync">Guardar</button>
+                </div>
             </div>
         </div>
     }
@@ -654,6 +839,220 @@
     </div>
 }
 
+@* ===== Modal configurar campos personalizados del tablero (ADR-0065) ===== *@
+@if (_fcOpen && _detail is not null)
+{
+    <div class="ab-modal-overlay" @onclick="@(() => _fcOpen = false)">
+        <div class="ab-modal ab-fields-modal" @onclick:stopPropagation="true">
+            <div class="ab-modal-head">
+                <h3>Configurar campos &#183; @_detail.Name</h3>
+                <button class="ab-modal-x" @onclick="@(() => _fcOpen = false)" aria-label="Cerrar">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="ab-modal-body">
+                <p class="ab-fld-help">Estos campos se capturan en el detalle de las tareas de ESTE tablero. No aparecen en otros tableros.</p>
+
+                @if (_fcFields.Count == 0)
+                {
+                    <p class="ab-fld-help">Aun no hay campos. Agrega el primero abajo.</p>
+                }
+                else
+                {
+                    <ul class="ab-cfg-list">
+                        @foreach (var f in _fcFields)
+                        {
+                            <li>
+                                <div>
+                                    <strong>@f.Label</strong> <span class="ab-fld-help">(@f.FieldKey)</span>
+                                    <div class="ab-fld-help">@TaskFieldUi.TypeLabel(f.FieldType) &#183; @TaskFieldUi.ColumnLabel(f.Column)</div>
+                                </div>
+                                <div style="display:flex;gap:6px;">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => EditFcField(f))" disabled="@_busy">Editar</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="@(() => DeleteFcFieldAsync(f.Id))" disabled="@_busy">&times;</button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <div class="ab-cfg-form">
+                    <div class="ab-section-title">@(_fcEditId is null ? "Nuevo campo" : "Editar campo")</div>
+                    <div class="ab-field-row">
+                        <div class="ab-field">
+                            <label>Etiqueta *</label>
+                            <input class="ab-input" @bind="_fcLabel" maxlength="150" placeholder="Ej. Monto aprobado, Referencia" />
+                        </div>
+                        <div class="ab-field">
+                            <label>Tipo de campo</label>
+                            <select class="ab-select" @bind="_fcFieldType" @bind:after="OnFcFieldTypeChangedAsync">
+                                <option value="@TerceroFieldType.Text">Texto</option>
+                                <option value="@TerceroFieldType.TextArea">Texto largo</option>
+                                <option value="@TerceroFieldType.Number">Numero</option>
+                                <option value="@TerceroFieldType.Currency">Monto ($)</option>
+                                <option value="@TerceroFieldType.Select">Lista</option>
+                                <option value="@TerceroFieldType.Date">Fecha</option>
+                                <option value="@TerceroFieldType.Phone">Telefono</option>
+                                <option value="@TerceroFieldType.Separator">Separador</option>
+                                <option value="@TerceroFieldType.Calculated">Calculado</option>
+                                <option value="@TerceroFieldType.Lookup">Lista del Contenedor de datos</option>
+                                <option value="@TerceroFieldType.DirectoryLookup">Lista del Directorio</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_fcFieldType == TerceroFieldType.Select)
+                    {
+                        <div class="ab-field">
+                            <label>Opciones (una por linea)</label>
+                            <textarea class="ab-textarea" rows="3" @bind="_fcOptions"></textarea>
+                        </div>
+                    }
+
+                    @if (_fcFieldType == TerceroFieldType.Lookup)
+                    {
+                        <div class="ab-field-row">
+                            <div class="ab-field">
+                                <label>Modelo de datos *</label>
+                                <select class="ab-select" value="@(_lkModelId?.ToString() ?? "")" @onchange="OnLookupModelChangedAsync">
+                                    <option value="">-- Elige un modelo --</option>
+                                    @foreach (var m in _lkModels)
+                                    {
+                                        <option value="@m.Id" selected="@(_lkModelId == m.Id)">@m.Name (@m.TableCount)</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Tabla *</label>
+                                <select class="ab-select" value="@(_lkTableId?.ToString() ?? "")" @onchange="OnLookupTableChangedAsync" disabled="@(_lkModelId is null)">
+                                    <option value="">-- Elige una tabla --</option>
+                                    @foreach (var t in _lkTables)
+                                    {
+                                        <option value="@t.Id" selected="@(_lkTableId == t.Id)">@t.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Columna que se muestra</label>
+                                <select class="ab-select" value="@(_lkDisplayCol?.ToString() ?? "")"
+                                        @onchange="e => _lkDisplayCol = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                        disabled="@(_lkColumns.Count == 0)">
+                                    <option value="">-- Automatica (primera de texto) --</option>
+                                    @foreach (var c in _lkColumns)
+                                    {
+                                        <option value="@c.Id" selected="@(_lkDisplayCol == c.Id)">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Presentacion</label>
+                                <select class="ab-select" value="@_lkDisplayMode"
+                                        @onchange="e => _lkDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                    <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                    <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                </select>
+                            </div>
+                            @if (_lkModels.Count == 0)
+                            {
+                                <div class="ab-field ab-fld-help">
+                                    No hay modelos de datos todavia. Crealos en <a href="/contenedor-datos">Contenedor de datos</a>.
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (_fcFieldType == TerceroFieldType.DirectoryLookup)
+                    {
+                        <div class="ab-field-row">
+                            <div class="ab-field">
+                                <label>Perfil del directorio</label>
+                                <select class="ab-select" @bind="_dirPerfil">
+                                    <option value="">Todos los terceros</option>
+                                    <option value="Cliente">Solo clientes</option>
+                                    <option value="Proveedor">Solo proveedores</option>
+                                    <option value="Empleado">Solo empleados</option>
+                                </select>
+                            </div>
+                            <div class="ab-field">
+                                <label>Presentacion</label>
+                                <select class="ab-select" value="@_dirDisplayMode"
+                                        @onchange="e => _dirDisplayMode = Enum.TryParse<DataLookupDisplayMode>(e.Value?.ToString(), out var m) ? m : DataLookupDisplayMode.Typeahead">
+                                    <option value="@DataLookupDisplayMode.Typeahead">Autocompletado (buscador)</option>
+                                    <option value="@DataLookupDisplayMode.List">Lista desplegable</option>
+                                </select>
+                            </div>
+                            <div class="ab-field ab-fld-help">
+                                Lista los terceros del Directorio General del perfil elegido. Se guarda la referencia al tercero (la etiqueta se actualiza sola si cambia en el Directorio).
+                            </div>
+                        </div>
+                    }
+
+                    @if (_fcFieldType == TerceroFieldType.Calculated)
+                    {
+                        <div class="ab-field">
+                            <label>Formula *</label>
+                            <input class="ab-input ab-mono @(_fcFormulaError is not null ? "is-invalid" : "")"
+                                   value="@_fcFormula" placeholder="{horas} * {tarifa}" @oninput="OnFormulaInputAsync" />
+                            @if (_fcFormulaError is not null)
+                            {
+                                <div class="ab-field-error">@_fcFormulaError</div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(_fcFormula))
+                            {
+                                <div class="ab-fld-ok">Formula valida.</div>
+                            }
+                            <div class="ab-fld-help">
+                                Operadores + - * / y parentesis. Funciones: ROUND, MIN, MAX, ABS, SUM. Solo campos de este tablero.
+                            </div>
+                            @if (NumericFieldsForFormula().Count > 0)
+                            {
+                                <div class="ab-keys">
+                                    @foreach (var nf in NumericFieldsForFormula())
+                                    {
+                                        var nfv = nf;
+                                        <button type="button" class="ab-key" title="@nfv.Label"
+                                                @onclick="() => InsertFormulaKeyAsync(nfv.FieldKey)">@($"{{{nfv.FieldKey}}}")</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="ab-field-row">
+                        <div class="ab-field">
+                            <label>Ayuda / descripcion</label>
+                            <input class="ab-input" @bind="_fcDescription" maxlength="600" />
+                        </div>
+                        <div class="ab-field" style="max-width:180px;">
+                            <label>Ancho</label>
+                            <select class="ab-select" @bind="_fcColumn">
+                                <option value="1">Pequena (1/3)</option>
+                                <option value="2">Media (2/3)</option>
+                                <option value="3">Grande (completo)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (_fcError is not null)
+                    {
+                        <div class="ab-field-error">@_fcError</div>
+                    }
+                    <div style="display:flex;gap:6px;">
+                        <button class="ab-btn-commit" @onclick="SaveFcFieldAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_fcLabel))">@(_fcEditId is null ? "+ Agregar campo" : "Guardar campo")</button>
+                        @if (_fcEditId is not null)
+                        {
+                            <button class="ab-btn-secondary" @onclick="ResetFcForm">Cancelar</button>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="ab-modal-foot">
+                <button class="ab-btn-secondary" @onclick="@(() => _fcOpen = false)">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <TaskToasts @ref="_toasts" />
 <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 
@@ -908,8 +1307,13 @@
                     _boardTags = _detail!.Columns.SelectMany(c => c.Cards).SelectMany(c => c.Tags)
                         .GroupBy(t => t.Id).Select(g => g.First()).OrderBy(t => t.Name).ToList();
                 }
+                _listCfg = TaskListViewConfig.TryParse(_detail!.ListViewConfigJson);
+                _boardFields = await FieldSvc.ListByBoardAsync(BoardId);
+                BuildCardCustomCache();
+                await EnsureListLabelsAsync();
+                await EnsureFormValuesAsync();
             }
-        }
+}
         finally
         {
             _reloadLock.Release();
@@ -1360,6 +1764,622 @@
         {
             _busy = false;
         }
+    }
+
+    // ==== Configurador de campos personalizados del tablero (ADR-0065) ====
+
+    private bool _fcOpen;
+    private IReadOnlyList<TaskFieldDto> _fcFields = [];
+    private Guid? _fcEditId;
+    private string _fcLabel = "";
+    private TerceroFieldType _fcFieldType = TerceroFieldType.Text;
+    private string? _fcOptions;
+    private string? _fcDescription;
+    private int _fcColumn = 1;
+    private string? _fcError;
+    private string _fcFormula = "";
+    private string? _fcFormulaError;
+
+    // Config del tipo Lookup (lista del Contenedor de datos), reusando IDataLookupService.
+    private List<LookupModelDto> _lkModels = new();
+    private List<LookupTableDto> _lkTables = new();
+    private List<LookupColumnDto> _lkColumns = new();
+    private Guid? _lkModelId;
+    private Guid? _lkTableId;
+    private Guid? _lkDisplayCol;
+    private DataLookupDisplayMode _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+
+    // Config del tipo DirectoryLookup (lista del Directorio General de terceros), reusando el
+    // motor de lookups de formularios. Solo guarda el perfil a filtrar y como se presenta.
+    private string _dirPerfil = "";
+    private DataLookupDisplayMode _dirDisplayMode = DataLookupDisplayMode.Typeahead;
+
+    private async Task OpenFieldsConfig()
+    {
+        ResetFcForm();
+        _fcOpen = true;
+        await LoadFcFieldsAsync();
+    }
+
+    private async Task LoadFcFieldsAsync()
+        => _fcFields = await FieldSvc.ListByBoardAsync(BoardId);
+
+    // ============================================================
+    // Ola 2 ADR-0065: vista Lista configurable por tablero
+    // ============================================================
+    private sealed record ListCol(string Key, string Title, string? Subtitle, string? Color, bool Visible);
+
+    private static readonly (string Key, string Label)[] BuiltinListCols =
+    {
+        (TaskListViewConfig.KeyTitle, "Actividad"),
+        (TaskListViewConfig.KeyNumber, "Numero"),
+        (TaskListViewConfig.KeyStage, "Etapa"),
+        (TaskListViewConfig.KeyStatus, "Estado"),
+        (TaskListViewConfig.KeyAssignee, "Asignado"),
+        (TaskListViewConfig.KeyPriority, "Prioridad"),
+        (TaskListViewConfig.KeyProgress, "Progreso"),
+        (TaskListViewConfig.KeyDue, "Fecha limite"),
+        (TaskListViewConfig.KeyStart, "Fecha inicio"),
+        (TaskListViewConfig.KeyCreated, "Creado"),
+        (TaskListViewConfig.KeyTags, "Etiquetas"),
+    };
+    private static readonly string[] DefaultListVisible =
+    {
+        TaskListViewConfig.KeyTitle, TaskListViewConfig.KeyStage, TaskListViewConfig.KeyAssignee,
+        TaskListViewConfig.KeyPriority, TaskListViewConfig.KeyProgress, TaskListViewConfig.KeyDue
+    };
+
+    private TaskListViewConfig? _listCfg;
+    private IReadOnlyList<TaskFieldDto> _boardFields = Array.Empty<TaskFieldDto>();
+    private readonly Dictionary<Guid, Dictionary<string, string?>> _cardCustom = new();
+    private readonly Dictionary<string, Dictionary<string, string>> _listLabels = new();
+
+    // Catalogo (clave -> etiqueta por defecto) de todo lo que PUEDE ser columna.
+    private List<(string Key, string Label)> ListCatalog()
+    {
+        var list = BuiltinListCols.ToList();
+        foreach (var f in _boardFields.Where(f => f.FieldType != TerceroFieldType.Separator))
+        {
+            list.Add((f.FieldKey, f.Label));
+        }
+        return list;
+    }
+
+    private string ListColLabel(string key)
+    {
+        foreach (var b in BuiltinListCols)
+        {
+            if (b.Key == key) { return b.Label; }
+        }
+        return _boardFields.FirstOrDefault(f => f.FieldKey == key)?.Label ?? key;
+    }
+
+    // Todas las columnas resueltas: en el orden guardado con overrides; las que no esten en la
+    // config guardada se agregan al final ocultas (para poder activarlas en el configurador).
+    private List<ListCol> AllListColumns()
+    {
+        var catalog = ListCatalog();
+        var result = new List<ListCol>();
+        if (_listCfg is { Columns.Count: > 0 })
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var c in _listCfg.Columns)
+            {
+                var inCatalog = catalog.Any(x => x.Key == c.Key);
+                if (!inCatalog && !IsFormKey(c.Key)) { continue; }
+                seen.Add(c.Key);
+                var def = inCatalog ? ListColLabel(c.Key) : (c.Label ?? FormKeyFallback(c.Key));
+                result.Add(new ListCol(
+                    c.Key,
+                    string.IsNullOrWhiteSpace(c.Title) ? def : c.Title!,
+                    string.IsNullOrWhiteSpace(c.Subtitle) ? null : c.Subtitle,
+                    c.Color, c.Visible));
+            }
+            foreach (var (key, label) in catalog)
+            {
+                if (!seen.Contains(key)) { result.Add(new ListCol(key, label, null, null, false)); }
+            }
+        }
+        else
+        {
+            foreach (var (key, label) in catalog)
+            {
+                result.Add(new ListCol(key, label, null, null, DefaultListVisible.Contains(key)));
+            }
+        }
+        return result;
+    }
+
+    private List<ListCol> VisibleListColumns() => AllListColumns().Where(c => c.Visible).ToList();
+
+    private string ColHeadStyle(ListCol c)
+        => string.IsNullOrWhiteSpace(c.Color) ? string.Empty : $"border-top:2px solid {c.Color};";
+
+    private void BuildCardCustomCache()
+    {
+        _cardCustom.Clear();
+        if (_detail is null) { return; }
+        foreach (var card in _detail.Columns.SelectMany(col => col.Cards))
+        {
+            _cardCustom[card.Id] = ParseCustom(card.CustomFieldsJson);
+        }
+    }
+
+    private static Dictionary<string, string?> ParseCustom(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return new(StringComparer.Ordinal); }
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(json)
+                ?? new(StringComparer.Ordinal);
+        }
+        catch (System.Text.Json.JsonException) { return new(StringComparer.Ordinal); }
+    }
+
+    private string CardCustomRaw(Guid cardId, string key)
+        => _cardCustom.TryGetValue(cardId, out var d) && d.TryGetValue(key, out var v) ? v ?? string.Empty : string.Empty;
+
+    private string CustomCellText(string key, ActivityCardDto c)
+    {
+        var raw = CardCustomRaw(c.Id, key);
+        if (string.IsNullOrWhiteSpace(raw)) { return string.Empty; }
+        var f = _boardFields.FirstOrDefault(x => x.FieldKey == key);
+        if (f is null) { return raw; }
+        return f.FieldType switch
+        {
+            TerceroFieldType.Lookup or TerceroFieldType.DirectoryLookup =>
+                _listLabels.TryGetValue(key, out var m) && m.TryGetValue(raw, out var lbl) ? lbl : raw,
+            TerceroFieldType.Currency => FormatCurrencyCell(raw),
+            TerceroFieldType.Date => FormatDateCell(raw),
+            _ => raw
+        };
+    }
+
+    private static string FormatCurrencyCell(string raw)
+        => decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? "$" + n.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : raw;
+
+    private static string FormatDateCell(string raw)
+        => DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d)
+            ? d.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture)
+            : raw;
+
+    // Resuelve las etiquetas de las columnas de lista tipo lookup/directorio (id -> texto), en lote.
+    private async Task EnsureListLabelsAsync()
+    {
+        _listLabels.Clear();
+        foreach (var col in VisibleListColumns())
+        {
+            if (TaskListViewConfig.IsBuiltin(col.Key)) { continue; }
+            var f = _boardFields.FirstOrDefault(x => x.FieldKey == col.Key);
+            if (f is null || f.FieldType is not (TerceroFieldType.Lookup or TerceroFieldType.DirectoryLookup)) { continue; }
+
+            var ids = _cardCustom.Values
+                .Select(d => d.TryGetValue(col.Key, out var v) ? v : null)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.Ordinal)
+                .Select(v => Guid.TryParse(v, out var g) ? (Guid?)g : null)
+                .Where(g => g is not null).Select(g => g!.Value).ToList();
+            if (ids.Count == 0) { continue; }
+
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (f.FieldType == TerceroFieldType.Lookup && DataLookupConfig.TryParse(f.Options) is { } cfg)
+            {
+                var rows = await LookupSvc.ResolveAsync(cfg.TableId, ids, cfg.DisplayColumnId);
+                foreach (var r in rows) { map[r.RowId.ToString()] = r.Label; }
+            }
+            else if (f.FieldType == TerceroFieldType.DirectoryLookup)
+            {
+                foreach (var id in ids)
+                {
+                    var item = await FormLookupSvc.ResolveAsync(FormSourceKind.Tercero, string.Empty, id.ToString(), Array.Empty<string>());
+                    if (item is not null) { map[id.ToString()] = item.Display; }
+                }
+            }
+            if (map.Count > 0) { _listLabels[col.Key] = map; }
+        }
+    }
+
+    // ---- Configurador de columnas ----
+    private bool _lcOpen;
+    private List<LcRow> _lc = new();
+
+    private sealed class LcRow
+    {
+        public string Key = string.Empty;
+        public string DefaultLabel = string.Empty;
+        public bool Builtin;
+        public bool IsForm;
+        public string? Label;
+        public bool Visible;
+        public string Title = string.Empty;
+        public string Subtitle = string.Empty;
+        public string Color = string.Empty;
+    }
+
+    private async Task OpenListConfig()
+    {
+        if (_boardFields.Count == 0) { _boardFields = await FieldSvc.ListByBoardAsync(BoardId); }
+        _bfForms = (await FormResponsesSvc.GetBoardFormsAsync(BoardId)).ToList();
+        _bfDefId = null;
+        _bfFields = new();
+        _bfSel.Clear();
+        _lc = BuildLcRows();
+        _lcOpen = true;
+    }
+
+    // Arma las filas editables del configurador: las guardadas (en orden, incl. campos de formulario)
+    // + las del catalogo aun no usadas (incorporadas y campos del tablero). Los campos de formulario
+    // solo entran si ya estaban en la config (se agregan con el selector).
+    private List<LcRow> BuildLcRows()
+    {
+        var rows = new List<LcRow>();
+        var catalog = ListCatalog();
+        var inCfg = new HashSet<string>(StringComparer.Ordinal);
+        if (_listCfg is { Columns.Count: > 0 })
+        {
+            foreach (var c in _listCfg.Columns)
+            {
+                var inCatalog = catalog.Any(x => x.Key == c.Key);
+                var isForm = IsFormKey(c.Key);
+                if (!inCatalog && !isForm) { continue; }
+                inCfg.Add(c.Key);
+                var def = inCatalog ? ListColLabel(c.Key) : (c.Label ?? FormKeyFallback(c.Key));
+                rows.Add(new LcRow
+                {
+                    Key = c.Key,
+                    DefaultLabel = def,
+                    Builtin = TaskListViewConfig.IsBuiltin(c.Key),
+                    IsForm = isForm,
+                    Label = isForm ? (c.Label ?? def) : null,
+                    Visible = c.Visible,
+                    Title = string.IsNullOrWhiteSpace(c.Title) || string.Equals(c.Title, def, StringComparison.Ordinal) ? string.Empty : c.Title!,
+                    Subtitle = c.Subtitle ?? string.Empty,
+                    Color = c.Color ?? string.Empty
+                });
+            }
+        }
+        foreach (var (key, label) in catalog)
+        {
+            if (inCfg.Contains(key)) { continue; }
+            rows.Add(new LcRow
+            {
+                Key = key,
+                DefaultLabel = label,
+                Builtin = TaskListViewConfig.IsBuiltin(key),
+                IsForm = false,
+                Label = null,
+                Visible = _listCfg is null && DefaultListVisible.Contains(key),
+                Title = string.Empty,
+                Subtitle = string.Empty,
+                Color = string.Empty
+            });
+        }
+        return rows;
+    }
+
+    private void LcMove(int i, int dir)
+    {
+        var j = i + dir;
+        if (j < 0 || j >= _lc.Count) { return; }
+        (_lc[i], _lc[j]) = (_lc[j], _lc[i]);
+    }
+
+    private async Task SaveListConfigAsync()
+    {
+        var cfg = new TaskListViewConfig(_lc.Select(r => new TaskListColumnConfig(
+            r.Key, r.Visible,
+            string.IsNullOrWhiteSpace(r.Title) ? null : r.Title.Trim(),
+            string.IsNullOrWhiteSpace(r.Subtitle) ? null : r.Subtitle.Trim(),
+            string.IsNullOrWhiteSpace(r.Color) ? null : r.Color.Trim(),
+            r.IsForm ? (string.IsNullOrWhiteSpace(r.Label) ? r.DefaultLabel : r.Label) : null)).ToList());
+        await BoardsSvc.SetListViewConfigAsync(BoardId, cfg.ToJson());
+        _lcOpen = false;
+        await ReloadAsync();
+    }
+
+    private async Task ResetListConfigAsync()
+    {
+        await BoardsSvc.SetListViewConfigAsync(BoardId, null);
+        _lcOpen = false;
+        await ReloadAsync();
+    }
+
+    // ---- Columnas de campo de FORMULARIO (key "form:{defId}:{fieldCode}") ----
+    private static bool IsFormKey(string key) => key.StartsWith("form:", StringComparison.Ordinal);
+
+    private static (Guid DefId, string Code)? ParseFormKey(string key)
+    {
+        if (!IsFormKey(key)) { return null; }
+        var rest = key.Substring(5);
+        var i = rest.IndexOf(':');
+        if (i <= 0 || i >= rest.Length - 1) { return null; }
+        return Guid.TryParse(rest[..i], out var g) ? (g, rest[(i + 1)..]) : null;
+    }
+
+    private static string FormKeyFallback(string key) => ParseFormKey(key)?.Code ?? key;
+
+    // Cache de los valores de formulario por (tarjeta, definicion): FieldCode -> valor.
+    private readonly Dictionary<(Guid, Guid), Dictionary<string, string?>> _formValues = new();
+
+    private async Task EnsureFormValuesAsync()
+    {
+        _formValues.Clear();
+        var defIds = VisibleListColumns()
+            .Select(c => ParseFormKey(c.Key)?.DefId)
+            .Where(g => g is not null).Select(g => g!.Value).Distinct().ToList();
+        if (defIds.Count == 0) { return; }
+        var rows = await FormResponsesSvc.GetBoardTaskFormValuesAsync(BoardId, defIds);
+        foreach (var r in rows)
+        {
+            _formValues[(r.TaskItemId, r.DefinitionId)] = ParseFormData(r.Data);
+        }
+    }
+
+    // Data de formulario = { fieldCode: { value, type } }. Devuelve fieldCode -> value.
+    private static Dictionary<string, string?> ParseFormData(string? json)
+    {
+        var dict = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(json)) { return dict; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) { return dict; }
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var el = p.Value;
+                if (el.ValueKind == System.Text.Json.JsonValueKind.Object && el.TryGetProperty("value", out var v))
+                {
+                    dict[p.Name] = v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString()
+                        : v.ValueKind == System.Text.Json.JsonValueKind.Null ? null : v.ToString();
+                }
+                else
+                {
+                    dict[p.Name] = el.ValueKind == System.Text.Json.JsonValueKind.String ? el.GetString() : el.ToString();
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { /* json invalido: sin valores */ }
+        return dict;
+    }
+
+    private string FormCellText(string key, ActivityCardDto c)
+    {
+        var pk = ParseFormKey(key);
+        if (pk is null) { return string.Empty; }
+        return _formValues.TryGetValue((c.Id, pk.Value.DefId), out var d) && d.TryGetValue(pk.Value.Code, out var v)
+            ? v ?? string.Empty : string.Empty;
+    }
+
+    // ---- Selector "Agregar campos de formulario" dentro del configurador ----
+    private List<BoardFormDto> _bfForms = new();
+    private Guid? _bfDefId;
+    private List<FormQuestionDto> _bfFields = new();
+    private readonly HashSet<string> _bfSel = new(StringComparer.Ordinal);
+
+    private async Task OnPickFormAsync(ChangeEventArgs e)
+    {
+        _bfSel.Clear();
+        _bfDefId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        if (_bfDefId is Guid defId)
+        {
+            var det = await FormDefSvc.GetAsync(defId);
+            _bfFields = det?.Questions?.Where(q => !string.IsNullOrWhiteSpace(q.FieldCode)).ToList() ?? new();
+        }
+        else
+        {
+            _bfFields = new();
+        }
+    }
+
+    private void ToggleBfField(string code, bool on)
+    {
+        if (on) { _bfSel.Add(code); } else { _bfSel.Remove(code); }
+    }
+
+    private void AddFormFields()
+    {
+        if (_bfDefId is not Guid defId || _bfSel.Count == 0) { return; }
+        foreach (var q in _bfFields.Where(q => _bfSel.Contains(q.FieldCode)))
+        {
+            var key = $"form:{defId}:{q.FieldCode}";
+            if (_lc.Any(r => r.Key == key)) { continue; }
+            _lc.Add(new LcRow
+            {
+                Key = key,
+                DefaultLabel = q.Label,
+                Builtin = false,
+                IsForm = true,
+                Label = q.Label,
+                Visible = true,
+                Title = string.Empty,
+                Subtitle = string.Empty,
+                Color = string.Empty
+            });
+        }
+        _bfSel.Clear();
+        _bfDefId = null;
+        _bfFields = new();
+    }
+
+    private async Task OnFcFieldTypeChangedAsync()
+    {
+        if (_fcFieldType == TerceroFieldType.Lookup && _lkModels.Count == 0)
+        {
+            _lkModels = (await LookupSvc.ListModelsAsync()).ToList();
+        }
+    }
+
+    private async Task OnLookupModelChangedAsync(ChangeEventArgs e)
+    {
+        _lkModelId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkColumns.Clear();
+        _lkTables = _lkModelId is Guid mid ? (await LookupSvc.ListTablesAsync(mid)).ToList() : new();
+    }
+
+    private async Task OnLookupTableChangedAsync(ChangeEventArgs e)
+    {
+        _lkTableId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        _lkDisplayCol = null;
+        _lkColumns = _lkTableId is Guid tid ? (await LookupSvc.ListColumnsAsync(tid)).ToList() : new();
+    }
+
+    private void ResetLookupCfg()
+    {
+        _lkModelId = null;
+        _lkTableId = null;
+        _lkDisplayCol = null;
+        _lkDisplayMode = DataLookupDisplayMode.Typeahead;
+        _lkTables = new();
+        _lkColumns = new();
+    }
+
+    private void LoadDirectoryCfg(string? options)
+    {
+        var cfg = DirectoryLookupConfig.TryParse(options);
+        _dirPerfil = cfg?.Perfil ?? "";
+        _dirDisplayMode = cfg?.DisplayMode ?? DataLookupDisplayMode.Typeahead;
+    }
+
+    private async Task LoadLookupCfgAsync(string? options)
+    {
+        ResetLookupCfg();
+        var cfg = DataLookupConfig.TryParse(options);
+        if (cfg is null) { return; }
+        if (_lkModels.Count == 0) { _lkModels = (await LookupSvc.ListModelsAsync()).ToList(); }
+        _lkModelId = cfg.ModelId;
+        _lkTableId = cfg.TableId;
+        _lkDisplayCol = cfg.DisplayColumnId;
+        _lkDisplayMode = cfg.DisplayMode;
+        if (_lkModelId is Guid mid) { _lkTables = (await LookupSvc.ListTablesAsync(mid)).ToList(); }
+        _lkColumns = (await LookupSvc.ListColumnsAsync(cfg.TableId)).ToList();
+    }
+
+    /// <summary>Serializa la config del lookup al mismo campo Options (JSON), sin columnas nuevas.</summary>
+    private string? BuildLookupOptions()
+    {
+        if (_lkTableId is not Guid tid) { return null; }
+        var tabla = _lkTables.FirstOrDefault(t => t.Id == tid);
+        return new DataLookupConfig(
+            tid,
+            ModelId: _lkModelId,
+            DisplayColumnId: _lkDisplayCol,
+            TableName: tabla?.Name,
+            DisplayColumnName: _lkColumns.FirstOrDefault(c => c.Id == _lkDisplayCol)?.Name,
+            DisplayMode: _lkDisplayMode).ToJson();
+    }
+
+    /// <summary>Campos que una formula puede usar: numericos y calculados del MISMO tablero.</summary>
+    private List<TaskFieldDto> NumericFieldsForFormula()
+        => _fcFields
+            .Where(f => f.Id != _fcEditId)
+            .Where(f => f.FieldType is TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)
+            .OrderBy(f => f.SortOrder)
+            .ToList();
+
+    private async Task OnFormulaInputAsync(ChangeEventArgs e)
+    {
+        _fcFormula = e.Value?.ToString() ?? string.Empty;
+        _fcFormulaError = string.IsNullOrWhiteSpace(_fcFormula)
+            ? null
+            : await FieldSvc.ValidateFormulaAsync(_fcFormula, BoardId, _fcEditId, FcEditingKey());
+    }
+
+    private string? FcEditingKey() => _fcFields.FirstOrDefault(f => f.Id == _fcEditId)?.FieldKey;
+
+    private async Task InsertFormulaKeyAsync(string key)
+    {
+        _fcFormula = string.IsNullOrWhiteSpace(_fcFormula) ? $"{{{key}}}" : $"{_fcFormula} {{{key}}}";
+        _fcFormulaError = await FieldSvc.ValidateFormulaAsync(_fcFormula, BoardId, _fcEditId, FcEditingKey());
+    }
+
+    private async Task EditFcField(TaskFieldDto f)
+    {
+        _fcEditId = f.Id;
+        _fcLabel = f.Label;
+        _fcFieldType = f.FieldType;
+        _fcOptions = f.Options;
+        if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
+        else { ResetLookupCfg(); }
+        LoadDirectoryCfg(f.FieldType == TerceroFieldType.DirectoryLookup ? f.Options : null);
+        _fcDescription = f.Description;
+        _fcColumn = Math.Clamp(f.Column, 1, 3);
+        _fcError = null;
+        _fcFormula = f.Formula ?? "";
+        _fcFormulaError = null;
+    }
+
+    private void ResetFcForm()
+    {
+        _fcEditId = null;
+        _fcLabel = "";
+        _fcFieldType = TerceroFieldType.Text;
+        _fcOptions = null;
+        ResetLookupCfg();
+        _dirPerfil = "";
+        _dirDisplayMode = DataLookupDisplayMode.Typeahead;
+        _fcDescription = null;
+        _fcColumn = 1;
+        _fcError = null;
+        _fcFormula = "";
+        _fcFormulaError = null;
+    }
+
+    private async Task SaveFcFieldAsync()
+    {
+        _fcError = null;
+        if (string.IsNullOrWhiteSpace(_fcLabel)) { _fcError = "La etiqueta es obligatoria."; return; }
+        _busy = true;
+        try
+        {
+            var formula = _fcFieldType == TerceroFieldType.Calculated ? _fcFormula.Trim() : null;
+            if (_fcFieldType == TerceroFieldType.Calculated)
+            {
+                _fcFormulaError = await FieldSvc.ValidateFormulaAsync(formula, BoardId, _fcEditId, FcEditingKey());
+                if (_fcFormulaError is not null) { return; }
+            }
+            if (_fcFieldType == TerceroFieldType.Lookup)
+            {
+                _fcOptions = BuildLookupOptions();
+                if (_fcOptions is null) { _fcError = "Elige el modelo y la tabla de origen."; return; }
+            }
+            if (_fcFieldType == TerceroFieldType.DirectoryLookup)
+            {
+                _fcOptions = new DirectoryLookupConfig(
+                    string.IsNullOrWhiteSpace(_dirPerfil) ? null : _dirPerfil, _dirDisplayMode).ToJson();
+            }
+
+            if (_fcEditId is Guid editId)
+            {
+                var upd = new UpdateTaskFieldRequest(_fcLabel, _fcFieldType, _fcColumn, _fcOptions, _fcDescription, false, formula);
+                var r = await FieldSvc.UpdateFieldAsync(editId, upd);
+                if (r is null) { _fcError = "No se pudo guardar el campo."; return; }
+            }
+            else
+            {
+                var req = new CreateTaskFieldRequest(BoardId, _fcLabel, _fcFieldType, _fcColumn, _fcOptions, null, _fcDescription, false, formula);
+                var r = await FieldSvc.CreateFieldAsync(req);
+                if (r is null) { _fcError = "No se pudo crear el campo. Verifica los datos."; return; }
+            }
+            ResetFcForm();
+            await LoadFcFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteFcFieldAsync(Guid fieldId)
+    {
+        _busy = true;
+        try
+        {
+            await FieldSvc.DeleteFieldAsync(fieldId);
+            if (_fcEditId == fieldId) { ResetFcForm(); }
+            await LoadFcFieldsAsync();
+        }
+        finally { _busy = false; }
     }
 
     // ---- SignalR ----

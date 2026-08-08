@@ -86,6 +86,7 @@ public class ContactWorkflowDispatcherTests
     {
         public Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
@@ -216,6 +217,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<TaskItemAttachment> TaskItemAttachments => NotUsed<TaskItemAttachment>();
         public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => NotUsed<TaskItemChecklistItem>();
         public DbSet<TaskItemAssignment> TaskItemAssignments => NotUsed<TaskItemAssignment>();
+        public DbSet<TaskFieldDefinition> TaskFieldDefinitions => NotUsed<TaskFieldDefinition>();
         public DbSet<TenantSequence> TenantSequences => NotUsed<TenantSequence>();
         public DbSet<WorkflowDefinition> WorkflowDefinitions => NotUsed<WorkflowDefinition>();
         public DbSet<WorkflowNode> WorkflowNodes => NotUsed<WorkflowNode>();

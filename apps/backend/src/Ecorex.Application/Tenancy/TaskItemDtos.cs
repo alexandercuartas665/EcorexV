@@ -47,7 +47,10 @@ public sealed record TaskItemDetailDto(
     IReadOnlyList<TaskItemAttachmentDto> Attachments,
     // ADR-0020: checklist y equipo asignado (encargado + asignados M:N).
     IReadOnlyList<TaskItemChecklistItemDto> Checklist,
-    IReadOnlyList<TaskItemAssigneeDto> Assignees);
+    IReadOnlyList<TaskItemAssigneeDto> Assignees,
+    // ADR-0065: valores de los campos personalizados del tablero (dict FieldKey -> valor,
+    // serializado). Null = la tarea no tiene ningun valor capturado todavia.
+    string? CustomFieldsJson = null);
 
 public sealed record CreateTaskItemRequest(
     string Title, Guid? ActivityTypeId, string? Description = null,

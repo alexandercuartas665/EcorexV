@@ -124,6 +124,7 @@ public class TenantUserServiceTests
         public DbSet<TaskItemAttachment> TaskItemAttachments => throw new NotSupportedException();
         public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => throw new NotSupportedException();
         public DbSet<TaskItemAssignment> TaskItemAssignments => throw new NotSupportedException();
+        public DbSet<TaskFieldDefinition> TaskFieldDefinitions => throw new NotSupportedException();
         public DbSet<TenantSequence> TenantSequences => throw new NotSupportedException();
         public DbSet<WorkflowDefinition> WorkflowDefinitions => throw new NotSupportedException();
         public DbSet<WorkflowNode> WorkflowNodes => throw new NotSupportedException();

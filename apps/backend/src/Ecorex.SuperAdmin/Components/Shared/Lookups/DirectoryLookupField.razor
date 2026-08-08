@@ -1,0 +1,204 @@
+@using Ecorex.Application.Forms.Lookups
+@using Ecorex.Application.DataLookups
+@using Ecorex.Domain.Enums
+@inject IFormLookupService LookupSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+
+@* Captura de un campo tipo "Lista del Directorio": lista terceros del Directorio General
+   (modulo 000232) filtrados por perfil. Guarda el Id del tercero (referencia viva); la etiqueta
+   se resuelve al mostrar. Reusa el motor de lookups de formularios (FormSourceKind.Tercero) y
+   comparte estilos con DataLookupField (clases .dlf-*).
+
+   Las consultas se serializan con el semaforo del circuito: varios campos de lista en la misma
+   ficha comparten el DbContext del circuito y, sin esto, dos busquedas simultaneas producen
+   "A second operation was started on this context instance". *@
+
+<div class="dlf">
+    <div class="dlf-row">
+        @if (_seleccion is not null)
+        {
+            <div class="dlf-sel">
+                <span class="dlf-sel-txt" title="@_seleccion.Display">@_seleccion.Display</span>
+                @if (!Disabled)
+                {
+                    <button type="button" class="dlf-x" title="Quitar" @onclick="ClearAsync">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                }
+            </div>
+        }
+        else if (Config.DisplayMode == DataLookupDisplayMode.List)
+        {
+            <select class="form-control" disabled="@Disabled" value="@(Value ?? "")" @onchange="OnListChangedAsync">
+                <option value="">@(Placeholder ?? "-- Elige --")</option>
+                @foreach (var r in _resultados)
+                {
+                    <option value="@r.Value">@r.Display</option>
+                }
+            </select>
+        }
+        else
+        {
+            <input class="form-control" placeholder="@(Placeholder ?? "Buscar...")" disabled="@Disabled"
+                   value="@_texto" @oninput="OnTypeAsync" @onfocus="OnFocusAsync" />
+        }
+    </div>
+
+    @if (Config.DisplayMode != DataLookupDisplayMode.List && _abierto && _resultados.Count > 0)
+    {
+        <div class="dlf-pop">
+            @foreach (var r in _resultados)
+            {
+                var rr = r;
+                <button type="button" class="dlf-opt" @onclick="() => ChooseAsync(rr)">@rr.Display</button>
+            }
+            @if (_total > _resultados.Count)
+            {
+                <div class="dlf-more">@_resultados.Count de @_total &#183; escribe para afinar</div>
+            }
+        </div>
+    }
+    else if (Config.DisplayMode != DataLookupDisplayMode.List && _abierto && !_buscando)
+    {
+        <div class="dlf-pop"><div class="dlf-more">Sin coincidencias</div></div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DirectoryLookupConfig Config { get; set; } = null!;
+
+    /// <summary>Id del tercero elegido (lo que se guarda).</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+
+    private static readonly IReadOnlyList<string> NoFields = Array.Empty<string>();
+
+    private readonly List<FormLookupItem> _resultados = new();
+    private FormLookupItem? _seleccion;
+    private string _texto = "";
+    private bool _abierto;
+    private bool _buscando;
+    private int _total;
+    private string? _valorResuelto;
+    private string _firmaCfg = "";
+    private bool _listaCargada;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var firma = $"{Config.Perfil}|{Config.DisplayMode}";
+        var cambioValor = !string.Equals(_valorResuelto, Value, StringComparison.Ordinal);
+        var cambioCfg = !string.Equals(_firmaCfg, firma, StringComparison.Ordinal);
+        // En modo lista hay que cargar las opciones aunque no haya valor.
+        var faltaLista = Config.DisplayMode == DataLookupDisplayMode.List && !_listaCargada;
+        if (!cambioValor && !cambioCfg && !faltaLista) { return; }
+
+        _valorResuelto = Value;
+        if (cambioCfg) { _firmaCfg = firma; _listaCargada = false; }
+
+        await ResolverSeleccionAsync();
+
+        if (Config.DisplayMode == DataLookupDisplayMode.List && !_listaCargada)
+        {
+            await CargarListaAsync();
+        }
+    }
+
+    /// <summary>Carga hasta 100 terceros del perfil para la lista desplegable.</summary>
+    private async Task CargarListaAsync()
+    {
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                FormSourceKind.Tercero, "", null, Config.ToFilterJson(), null, NoFields, 0, 100));
+            _resultados.Clear();
+            _resultados.AddRange(page.Items);
+            _total = page.Total;
+            _listaCargada = true;
+        }
+        finally { FormGate.Gate.Release(); }
+    }
+
+    private async Task OnListChangedAsync(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val)) { await ClearAsync(); return; }
+        var row = _resultados.FirstOrDefault(r => r.Value == val);
+        if (row is not null) { await ChooseAsync(row); }
+    }
+
+    /// <summary>Trae la etiqueta de lo ya guardado. Si el tercero se borro, se limpia el valor.</summary>
+    private async Task ResolverSeleccionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            _seleccion = null;
+            return;
+        }
+
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            _seleccion = await LookupSvc.ResolveAsync(FormSourceKind.Tercero, "", Value!, NoFields);
+        }
+        finally { FormGate.Gate.Release(); }
+
+        if (_seleccion is null)
+        {
+            // El tercero ya no existe: se limpia en vez de mostrar un id crudo.
+            await SetAsync(null, null);
+        }
+    }
+
+    private async Task OnFocusAsync(FocusEventArgs _)
+    {
+        if (Disabled) { return; }
+        await BuscarAsync(_texto);
+    }
+
+    private async Task OnTypeAsync(ChangeEventArgs e)
+    {
+        _texto = e.Value?.ToString() ?? "";
+        await BuscarAsync(_texto);
+    }
+
+    private async Task BuscarAsync(string? texto)
+    {
+        _buscando = true;
+        _abierto = true;
+        await FormGate.Gate.WaitAsync();
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                FormSourceKind.Tercero, "", texto, Config.ToFilterJson(), null, NoFields, 0, 20));
+            _resultados.Clear();
+            _resultados.AddRange(page.Items);
+            _total = page.Total;
+        }
+        finally { FormGate.Gate.Release(); _buscando = false; }
+    }
+
+    private async Task ChooseAsync(FormLookupItem row)
+    {
+        _abierto = false;
+        _texto = "";
+        await SetAsync(row.Value, row);
+    }
+
+    private async Task ClearAsync()
+    {
+        _texto = "";
+        await SetAsync(null, null);
+    }
+
+    private async Task SetAsync(string? valor, FormLookupItem? row)
+    {
+        _seleccion = row;
+        _valorResuelto = valor;
+        Value = valor;
+        await ValueChanged.InvokeAsync(valor);
+    }
+}

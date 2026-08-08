@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260807234302_AddTaskCustomFields")]
+    partial class AddTaskCustomFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -5315,12 +5318,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("definition_id");
 
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_active");
-
                     b.Property<string>("RecordNumber")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
@@ -10300,10 +10297,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("kind");
-
-                    b.Property<string>("ListViewConfigJson")
-                        .HasColumnType("nvarchar(max)")
-                        .HasColumnName("list_view_config_json");
 
                     b.Property<string>("Name")
                         .IsRequired()

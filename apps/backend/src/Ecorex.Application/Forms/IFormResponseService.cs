@@ -71,6 +71,25 @@ public interface IFormResponseService
     Task<FormResult<TaskConceptFormItemDto>> DuplicateResponseAsync(Guid responseId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Marca cual respuesta de la tarea es la ACTIVA por defecto (exclusivo por tarea: desmarca las
+    /// demas del mismo conjunto de la tarea). Con una sola respuesta no hace falta: ya es la activa.
+    /// </summary>
+    Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Formularios relevantes para un tablero (ADR-0065): el del concepto de sus tareas + los de los
+    /// pasos de su flujo. Para el selector "Elijo un formulario" del configurador de columnas.
+    /// </summary>
+    Task<IReadOnlyList<BoardFormDto>> GetBoardFormsAsync(Guid boardId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Para cada tarea del tablero y cada definicion pedida, el Data del formulario EFECTIVO
+    /// (activo si es del concepto; si es de paso, la respuesta Submitted/mas reciente anclada a la
+    /// tarea). Solo lectura, para pintar campos de formulario como columnas de la vista Lista.
+    /// </summary>
+    Task<IReadOnlyList<TaskFormDataDto>> GetBoardTaskFormValuesAsync(Guid boardId, IReadOnlyList<Guid> definitionIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reabre una respuesta Finalizada (Submitted -> Draft) para volver a editarla ("Reabrir"). Guard:
     /// la tarea asociada no puede estar Cerrada (Closed). Sin efecto si ya es borrador.
     /// </summary>

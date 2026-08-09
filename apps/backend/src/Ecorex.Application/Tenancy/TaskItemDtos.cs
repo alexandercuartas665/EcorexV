@@ -35,7 +35,9 @@ public sealed record TaskItemSummaryDto(
     // Ola 1 (puente Concepto->Tarea): clasificacion por concepto + Empresa/Area.
     Guid? SubcategoriaId = null, string? SubcategoriaName = null, Guid? EntidadId = null,
     // Proyectos P3: hito del proyecto al que se enlaza la actividad.
-    Guid? MilestoneId = null, string? MilestoneName = null);
+    Guid? MilestoneId = null, string? MilestoneName = null,
+    // Subtareas (ADR-0065): tarea padre si esta es una subtarea.
+    Guid? ParentId = null, string? ParentNumber = null);
 
 public sealed record TaskItemDetailDto(
     TaskItemSummaryDto Item,
@@ -50,7 +52,9 @@ public sealed record TaskItemDetailDto(
     IReadOnlyList<TaskItemAssigneeDto> Assignees,
     // ADR-0065: valores de los campos personalizados del tablero (dict FieldKey -> valor,
     // serializado). Null = la tarea no tiene ningun valor capturado todavia.
-    string? CustomFieldsJson = null);
+    string? CustomFieldsJson = null,
+    // Subtareas (tareas hijas) de esta tarea, para la seccion "Subtareas" del detalle.
+    IReadOnlyList<TaskItemSummaryDto>? Subtasks = null);
 
 public sealed record CreateTaskItemRequest(
     string Title, Guid? ActivityTypeId, string? Description = null,
@@ -67,7 +71,9 @@ public sealed record CreateTaskItemRequest(
     // columna se derivan del concepto.
     Guid? SubcategoriaId = null, Guid? EntidadId = null,
     // Proyectos P3: hito (debe pertenecer al ProjectId indicado).
-    Guid? MilestoneId = null);
+    Guid? MilestoneId = null,
+    // Subtareas: tarea padre (la subtarea hereda tablero/columna/tenant del padre).
+    Guid? ParentId = null);
 
 /// <summary>Version es el token de concurrencia optimista leido por el cliente (ADR-0013).</summary>
 public sealed record UpdateTaskItemRequest(

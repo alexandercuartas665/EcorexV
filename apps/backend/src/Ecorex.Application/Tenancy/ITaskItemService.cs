@@ -17,6 +17,13 @@ public interface ITaskItemService
     /// </summary>
     Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Crea una SUBTAREA (tarea hija) completa colgada de <paramref name="parentId"/>, en el mismo
+    /// tablero/columna del padre. Alta rapida por titulo (+ asignado opcional). Sin concepto para no
+    /// arrastrar el flujo del padre; un solo nivel (el padre no puede ser a su vez subtarea).
+    /// </summary>
+    Task<TaskCoreResult<TaskItemDetailDto>> CreateSubtaskAsync(Guid parentId, string title, Guid? assigneeTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza con token de concurrencia: version vieja -> resultado Conflict.</summary>
     Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 

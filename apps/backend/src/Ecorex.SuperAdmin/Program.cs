@@ -787,6 +787,52 @@ app.MapPost("/auth/login", async (
     return Results.Redirect(redirect);
 }).DisableAntiforgery();
 
+// Atajo de DEPURACION solo para Development: si el entorno es Development Y la variable
+// ECOREX_DEV_LOGIN trae un correo, GET /dev/login inicia sesion como ese usuario SIN clave. NUNCA
+// se mapea en Produccion (prod corre en Production) ni sin la variable, asi que no es un acceso de
+// prod: es un atajo local para revisar la UI sin teclear la clave. Reusa la misma resolucion de
+// membresia que /auth/login.
+if (app.Environment.IsDevelopment())
+{
+    var devLoginEmail = Environment.GetEnvironmentVariable("ECOREX_DEV_LOGIN");
+    if (!string.IsNullOrWhiteSpace(devLoginEmail))
+    {
+        app.MapGet("/dev/login", async (HttpContext http, IApplicationDbContext db) =>
+        {
+            var normalized = devLoginEmail.Trim().ToLowerInvariant();
+            var user = await db.PlatformUsers.FirstOrDefaultAsync(u => u.Email == normalized);
+            if (user is null || user.Status != PlatformUserStatus.Active)
+            {
+                return Results.Redirect("/login?error=1");
+            }
+            var claims = new List<Claim>
+            {
+                new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new(ClaimTypes.Name, user.DisplayName ?? user.Email),
+                new(ClaimTypes.Email, user.Email)
+            };
+            var isOperator = user.PlatformRole is PlatformRole;
+            if (isOperator) { claims.Add(new Claim("platform_role", user.PlatformRole!.Value.ToString())); }
+            var membership = await db.TenantUsers
+                .IgnoreQueryFilters()
+                .Where(tu => tu.PlatformUserId == user.Id && tu.Status == PlatformUserStatus.Active)
+                .OrderBy(tu => tu.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (membership is not null)
+            {
+                claims.Add(new Claim("tenant_id", membership.TenantId.ToString()));
+                claims.Add(new Claim("tenant_role", membership.TenantRole.ToString()));
+            }
+            var devIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(devIdentity),
+                new Microsoft.AspNetCore.Authentication.AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30) });
+            return Results.Redirect(isOperator ? "/" : "/inicio");
+        }).AllowAnonymous();
+
+        app.Logger.LogWarning("DEV AUTO-LOGIN habilitado para {Email} en /dev/login (SOLO Development).", devLoginEmail);
+    }
+}
+
 // Auto-registro (autogestion): un visitante crea su propia agencia + usuario Owner. La cuenta
 // queda en PendingActivation; se envia un codigo de 6 digitos por correo y el visitante debe
 // ingresarlo en /activar antes de poder iniciar sesion. La agencia nace activa sin plan.

@@ -118,6 +118,15 @@ public class TaskItem : TenantEntity, IVersioned
     /// </summary>
     public string? CustomFieldsJson { get; set; }
 
+    /// <summary>
+    /// Tarea PADRE (subtareas / tareas hijas). Null = tarea de primer nivel. Una subtarea es una
+    /// TaskItem completa colgada de otra; hereda tablero/columna/tenant del padre al crearse. FK
+    /// sin cascada (Restrict) para evitar rutas de cascada multiples en SQL Server. Un solo nivel:
+    /// una subtarea no deberia tener a su vez subtareas (se valida en el servicio).
+    /// </summary>
+    public Guid? ParentId { get; set; }
+    public TaskItem? Parent { get; set; }
+
     /// <summary>Token de concurrencia optimista portable (lo incrementa el interceptor).</summary>
     public long Version { get; set; }
 }

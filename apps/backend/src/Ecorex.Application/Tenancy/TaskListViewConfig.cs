@@ -14,11 +14,17 @@ public sealed record TaskListColumnConfig(
     bool Visible = true,
     string? Title = null,
     string? Subtitle = null,
+    // Color del ENCABEZADO de la columna (hex). Null = sin color.
     string? Color = null,
     // Etiqueta de identidad de la columna. Solo se usa para columnas de campo de FORMULARIO
     // (key "form:{defId}:{code}"), donde no hay catalogo que provea el nombre; para las
     // incorporadas y los campos del tablero queda null (el nombre sale del catalogo).
-    string? Label = null);
+    string? Label = null,
+    // Color del CUERPO de la columna (celdas), independiente del encabezado. Null = sin tinte.
+    string? CellColor = null,
+    // Supra-titulo: columnas CONSECUTIVAS con el mismo Group se agrupan bajo un encabezado que
+    // las abarca (colspan) en una fila superior de la cabecera. Null/"" = sin grupo.
+    string? Group = null);
 
 /// <summary>
 /// Config de la vista Lista de un tablero (que columnas se ven, su orden, color y titulos). Se

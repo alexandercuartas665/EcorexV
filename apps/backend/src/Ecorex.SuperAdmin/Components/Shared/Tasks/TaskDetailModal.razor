@@ -649,8 +649,8 @@
                                 <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
                             }
                             @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
-                            <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></div>
-                            <div class="tk-progress-bar"><i style="width:@(ChecklistPct())%;background:@ProgressColor()"></i></div>
+                            <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ProgressDone()/@ProgressTotal()</strong></div>
+                            <div class="tk-progress-bar"><i style="width:@(ProgressPctCombined())%;background:@ProgressColor()"></i></div>
                             <div class="tk-summary-row tk-tags-row">
                                 <span>Etiquetas</span>
                                 <span class="tk-tags-edit">
@@ -740,6 +740,37 @@
                                 <div class="tk-check-add">
                                     <input class="form-control form-control-sm" @bind="_newCheckText" maxlength="300" placeholder="Nuevo item..." />
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Subtareas (tareas hijas, ADR-0065): tareas completas colgadas de esta; el
+                       "Avance" de arriba agrega su progreso. Clic en una la abre en este mismo modal. *@
+                    <div class="tk-card tk-subtasks">
+                        <div class="tk-card-head">
+                            <h3>Subtareas</h3>
+                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@SubtaskDone()/@SubtaskTotal()</strong></span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            @if (SubtaskTotal() == 0)
+                            {
+                                <p class="tk-empty-note">Sin subtareas.</p>
+                            }
+                            @foreach (var st in _detail.Subtasks ?? (IReadOnlyList<TaskItemSummaryDto>)Array.Empty<TaskItemSummaryDto>())
+                            {
+                                var sub = st;
+                                <div class="tk-subtask-row" @onclick="@(() => OpenSubtaskAsync(sub.Id))" title="Abrir subtarea @sub.Number">
+                                    <span class="tk-status @TaskUi.StatusClass(sub.Status)">@TaskUi.StatusLabel(sub.Status)</span>
+                                    <span class="tk-subtask-num">@sub.Number</span>
+                                    <span class="tk-subtask-title">@sub.Title</span>
+                                </div>
+                            }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-check-add">
+                                    <input class="form-control form-control-sm" @bind="_newSubtaskText" maxlength="200" placeholder="Nueva subtarea..." />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddSubtaskAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newSubtaskText))">Agregar subtarea</button>
                                 </div>
                             }
                         </div>
@@ -1338,6 +1369,43 @@
         => _detail is null || _detail.Checklist.Count == 0
             ? 0
             : (int)Math.Round(ChecklistDone() * 100.0 / _detail.Checklist.Count, MidpointRounding.AwayFromZero);
+
+    // Subtareas + progreso COMBINADO (checklist + subtareas): lo que muestra la barra "Avance".
+    // El % del padre agrega las subtareas terminadas (decision ADR-0065).
+    private int SubtaskDone() => _detail?.Subtasks?.Count(s => s.Status is TaskItemStatus.Done or TaskItemStatus.Closed) ?? 0;
+    private int SubtaskTotal() => _detail?.Subtasks?.Count ?? 0;
+    private int ProgressDone() => ChecklistDone() + SubtaskDone();
+    private int ProgressTotal() => (_detail?.Checklist.Count ?? 0) + SubtaskTotal();
+    private int ProgressPctCombined()
+    {
+        var total = ProgressTotal();
+        return total == 0 ? 0 : (int)Math.Round(ProgressDone() * 100.0 / total, MidpointRounding.AwayFromZero);
+    }
+
+    private string _newSubtaskText = "";
+
+    private async Task AddSubtaskAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_newSubtaskText)) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.CreateSubtaskAsync(
+                _detail.Item.Id, _newSubtaskText.Trim(), null, await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _actionError = result.Error;
+                return;
+            }
+            _newSubtaskText = "";
+            await ReloadAsync(_detail!.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally { _busy = false; }
+    }
+
+    // Abre una subtarea (o vuelve al padre) recargando el MISMO modal con esa tarea.
+    private async Task OpenSubtaskAsync(Guid taskId) => await ReloadAsync(taskId);
 
     private async Task MoveToColumnAsync(ActivityBoardColumnDto target)
     {

@@ -396,6 +396,23 @@ public sealed class ActivityBoardService : IActivityBoardService
                 .Select(g => new { g.Key, Done = g.Count(i => i.IsCompleted), Total = g.Count() })
                 .ToListAsync(cancellationToken))
                 .ToDictionary(x => x.Key, x => (x.Done, x.Total));
+        // Subtareas por padre (tareas hijas): total + terminadas (Done/Closed). El progreso del
+        // padre agrega estas al checklist (el % de la barra las cuenta).
+        var subtaskStats = taskIds.Count == 0
+            ? new Dictionary<Guid, (int Done, int Total)>()
+            : (await _db.TaskItems.AsNoTracking()
+                .Where(t => t.ParentId != null && taskIds.Contains(t.ParentId!.Value) && !t.IsArchived)
+                .GroupBy(t => t.ParentId!.Value)
+                .Select(g => new { g.Key, Done = g.Count(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Closed), Total = g.Count() })
+                .ToListAsync(cancellationToken))
+                .ToDictionary(x => x.Key, x => (x.Done, x.Total));
+        // Numero de la tarea padre de cada subtarea que cuelga del tablero (para el tooltip).
+        var parentIds = tasks.Where(t => t.ParentId.HasValue).Select(t => t.ParentId!.Value).Distinct().ToList();
+        var parentNumbers = parentIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking()
+                .Where(p => parentIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Number, cancellationToken);
         var attachmentCounts = taskIds.Count == 0
             ? new Dictionary<Guid, int>()
             : await _db.TaskItemAttachments.AsNoTracking()
@@ -439,6 +456,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             var cards = tasks.Where(t => t.ColumnId == column.Id).Select(t =>
             {
                 checklistStats.TryGetValue(t.Id, out var check);
+                subtaskStats.TryGetValue(t.Id, out var sub);
                 var teamAssignees = assignmentsByTask.TryGetValue(t.Id, out var ids)
                     ? ids.Select(id => memberInfos.TryGetValue(id, out var m) ? m : null)
                         .Where(m => m is not null).Select(m => m!)
@@ -447,7 +465,7 @@ public sealed class ActivityBoardService : IActivityBoardService
                 return new ActivityCardDto(
                     t.Id, t.Number, t.Title, t.Description, t.Priority, t.Status,
                     t.StartDate, t.DueDate,
-                    check.Done, check.Total, ActivityBoardCalculations.Pct(check.Done, check.Total),
+                    check.Done, check.Total, ActivityBoardCalculations.Pct(check.Done + sub.Done, check.Total + sub.Total),
                     // Color de progreso derivado de la COLUMNA (regla visual del prototipo).
                     column.Color,
                     t.AssigneeTenantUserId is Guid owner && memberInfos.TryGetValue(owner, out var ownerDto) ? ownerDto : null,
@@ -456,7 +474,10 @@ public sealed class ActivityBoardService : IActivityBoardService
                     commentCounts.TryGetValue(t.Id, out var com) ? com : 0,
                     tagsByTask.TryGetValue(t.Id, out var tags) ? tags : Array.Empty<TaskItemTagDto>(),
                     column.Id, t.BoardSortOrder, t.Version, t.CreatedAt, t.ColumnEnteredAt,
-                    t.CustomFieldsJson);
+                    t.CustomFieldsJson,
+                    t.ParentId != null,
+                    t.ParentId is Guid pnid && parentNumbers.TryGetValue(pnid, out var pnum) ? pnum : null,
+                    sub.Done, sub.Total);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();

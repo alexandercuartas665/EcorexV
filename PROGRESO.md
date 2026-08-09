@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-08-09 - v0.11.0: subtareas + encabezado multinivel con color + UX de tablero/lista
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea` sobre `fase-0/clon-backbone`.
+Construido y validado contra el sandbox local `ecorex_dev` (localhost:5234, dev-login). Desplegado v0.11.0.
+
+**Que:**
+1. **Tareas hijas (subtareas):** `TaskItem.ParentId` (self-FK Restrict, un solo nivel; migracion dual
+   `AddTaskSubtasks`). Alta rapida por titulo desde la seccion "Subtareas" del detalle
+   (`ITaskItemService.CreateSubtaskAsync`: tarea completa en el MISMO tablero/columna del padre, sin
+   concepto para no arrastrar el flujo). La subtarea se pinta como TARJETA propia con indicador
+   `↳ Txxxxx` (numero del padre). El **progreso del padre agrega las subtareas terminadas** al checklist:
+   la barra y el texto de la tarjeta usan `(checklist + subtareas)` Done/Total (campos `SubtaskDone`/
+   `SubtaskTotal` en `ActivityCardDto`); el "Avance" del modal tambien.
+2. **Encabezado multinivel con color en la vista Lista:** super-titulos/titulos/subtitulos que se
+   repiten agrupan por colspan (`MergeRuns`); color de encabezado (fondo) + 2o color para el cuerpo de
+   la columna (`ColHeadStyle`/`ColCellStyle`).
+3. **UX de tablero/lista:** scroll acotado por columna en Tablero, paginacion en Lista (50/pagina) y
+   una barra de scroll horizontal SUPERIOR sincronizada con la inferior (`board-list.js`).
+4. **Dev-login de depuracion:** `GET /dev/login` solo en Development + env `ECOREX_DEV_LOGIN` (inicia
+   sesion sin clave; nunca se mapea en prod que corre en Production).
+
+**Migracion (dual PG+SQL):** `AddTaskSubtasks` (parent_id + indices + FK self Restrict). Aditiva,
+idempotente; se aplica sola en el arranque (MigrateAsync).
+
+**Verificacion:** auditoria completa por MCP Chrome en `ecorex_dev`: alta de 2 subtareas (T00220/T00221),
+seccion Subtareas 1/2, Avance combinado 1/5, tarjeta de subtarea con `↳ T00010`, tarjeta del padre 1/5
+(texto+barra coinciden). `dotnet build` verde. Diff sin secretos; clave del super admin intacta.
+
+**Bloqueos:** un race puntual del DbContext del circuito (modal+tablero recargan a la vez tras una
+mutacion) que aparecio en el 1er alta; latente/pre-existente al patron, no corrompe (la 2a entro limpia).
+
 ## 2026-08-08 - v0.10.0: 4 olas sobre el detalle de tarea + vista Lista (ADR-0065)
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea` sobre `fase-0/clon-backbone`.

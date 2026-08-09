@@ -250,7 +250,8 @@ public sealed class TaskItemService : ITaskItemService
             CcEmails = SerializeCcEmails(request.CcEmails),
             ProjectId = request.ProjectId,
             MilestoneId = request.MilestoneId,
-            Color = Normalize(request.Color)
+            Color = Normalize(request.Color),
+            ParentId = request.ParentId
         };
         _db.TaskItems.Add(task);
 
@@ -1299,6 +1300,37 @@ public sealed class TaskItemService : ITaskItemService
         return new PagedResult<TaskItemSummaryDto>(summaries, total, page, pageSize);
     }
 
+    public async Task<TaskCoreResult<TaskItemDetailDto>> CreateSubtaskAsync(Guid parentId, string title, Guid? assigneeTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return TaskCoreResult<TaskItemDetailDto>.Invalid("El titulo de la subtarea es obligatorio.");
+        }
+        var parent = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == parentId, cancellationToken);
+        if (parent is null) { return TaskCoreResult<TaskItemDetailDto>.NotFound("Tarea padre no encontrada."); }
+        if (parent.ParentId is not null) { return TaskCoreResult<TaskItemDetailDto>.Invalid("Una subtarea no puede tener subtareas (un solo nivel)."); }
+        if (parent.Status == TaskItemStatus.Closed) { return TaskCoreResult<TaskItemDetailDto>.Invalid("La tarea padre esta cerrada."); }
+
+        // Subtarea = tarea completa colgada del padre, en el MISMO tablero/columna. Se clasifica con
+        // el tipo de actividad del padre (o el primero activo); SIN concepto para no arrastrar flujo.
+        var activityTypeId = parent.ActivityTypeId
+            ?? await _db.ActivityTypes.AsNoTracking()
+                .Where(t => !t.IsArchived)
+                .OrderBy(t => t.SortOrder).ThenBy(t => t.Category).ThenBy(t => t.Name)
+                .Select(t => (Guid?)t.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        if (activityTypeId is null) { return TaskCoreResult<TaskItemDetailDto>.Invalid("El tenant no tiene tipos de actividad activos."); }
+
+        return await CreateAsync(new CreateTaskItemRequest(
+            Title: title.Trim(),
+            ActivityTypeId: activityTypeId,
+            AssigneeTenantUserId: assigneeTenantUserId,
+            BoardId: parent.BoardId,
+            ColumnId: parent.ColumnId,
+            ProjectId: parent.ProjectId,
+            ParentId: parentId), actorUserId, actorName, cancellationToken);
+    }
+
     public async Task<TaskItemDetailDto?> GetDetailAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
         var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
@@ -1324,11 +1356,17 @@ public sealed class TaskItemService : ITaskItemService
                 i.CompletedAt, i.CompletedByTenantUserId, i.SortOrder))
             .ToListAsync(cancellationToken);
         var assignees = await LoadAssigneesAsync(taskId, cancellationToken);
+        // Subtareas (tareas hijas) de esta tarea, mas antiguas primero.
+        var subs = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.ParentId == taskId && !t.IsArchived)
+            .OrderBy(t => t.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var subtasks = await ToSummariesAsync(subs, cancellationToken);
 
         return new TaskItemDetailDto(summary, task.Description,
             task.RequesterName, task.RequesterEmail, task.RequesterPhone,
             DeserializeCcEmails(task.CcEmails), totalSeconds, recentActivity, attachments,
-            checklist, assignees, task.CustomFieldsJson);
+            checklist, assignees, task.CustomFieldsJson, subtasks);
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(
@@ -1407,6 +1445,14 @@ public sealed class TaskItemService : ITaskItemService
                 .Where(m => milestoneIds.Contains(m.Id))
                 .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
 
+        // Subtareas: numero de la tarea padre (para el indicador de subtarea).
+        var parentIds = tasks.Where(t => t.ParentId.HasValue).Select(t => t.ParentId!.Value).Distinct().ToList();
+        var parentNumbers = parentIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking()
+                .Where(p => parentIds.Contains(p.Id))
+                .ToDictionaryAsync(p => p.Id, p => p.Number, cancellationToken);
+
         return tasks.Select(t => new TaskItemSummaryDto(
             t.Id, t.Number, t.Title, t.ActivityTypeId,
             t.ActivityTypeId is Guid atid && activityTypeNames.TryGetValue(atid, out var name) ? name : null,
@@ -1418,7 +1464,9 @@ public sealed class TaskItemService : ITaskItemService
             t.SubcategoriaId is Guid scid && subcategoriaNames.TryGetValue(scid, out var scname) ? scname : null,
             t.EntidadId,
             t.MilestoneId,
-            t.MilestoneId is Guid msid && milestoneNames.TryGetValue(msid, out var msname) ? msname : null)).ToList();
+            t.MilestoneId is Guid msid && milestoneNames.TryGetValue(msid, out var msname) ? msname : null,
+            t.ParentId,
+            t.ParentId is Guid pid && parentNumbers.TryGetValue(pid, out var pnum) ? pnum : null)).ToList();
     }
 
     /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>

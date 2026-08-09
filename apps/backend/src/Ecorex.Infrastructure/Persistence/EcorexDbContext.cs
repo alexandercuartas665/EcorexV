@@ -1209,6 +1209,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.Column).WithMany()
                 .HasForeignKey(x => x.ColumnId).OnDelete(DeleteBehavior.Restrict);
+            // Subtareas (tareas hijas): auto-relacion SIN cascada (Restrict) para no crear rutas
+            // de cascada multiples en SQL Server.
+            b.HasOne(x => x.Parent).WithMany()
+                .HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ParentId });
             // Consecutivo legible unico por tenant (emitido por TenantSequence).
             b.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.Status, x.DueDate });

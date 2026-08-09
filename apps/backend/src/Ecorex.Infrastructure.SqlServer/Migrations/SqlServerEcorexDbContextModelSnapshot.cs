@@ -11070,6 +11070,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasColumnName("number");
 
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("parent_id");
+
                     b.Property<string>("Priority")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -11157,6 +11161,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("MilestoneId")
                         .HasDatabaseName("ix_task_items_milestone_id");
 
+                    b.HasIndex("ParentId")
+                        .HasDatabaseName("ix_task_items_parent_id");
+
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_task_items_project_id");
 
@@ -11175,6 +11182,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("TenantId", "Number")
                         .IsUnique()
                         .HasDatabaseName("ix_task_items_tenant_id_number");
+
+                    b.HasIndex("TenantId", "ParentId")
+                        .HasDatabaseName("ix_task_items_tenant_id_parent_id");
 
                     b.HasIndex("TenantId", "ProjectId")
                         .HasDatabaseName("ix_task_items_tenant_id_project_id");
@@ -15784,6 +15794,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_task_items_project_milestones_milestone_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "Parent")
+                        .WithMany()
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_task_items_task_items_parent_id");
+
                     b.HasOne("Ecorex.Domain.Entities.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
@@ -15813,6 +15829,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Entidad");
 
                     b.Navigation("Milestone");
+
+                    b.Navigation("Parent");
 
                     b.Navigation("Project");
 

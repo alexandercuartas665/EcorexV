@@ -116,7 +116,13 @@ public sealed record ActivityCardDto(
     DateTimeOffset? ColumnEnteredAt = null,
     // Ola 2 ADR-0065: valores de los campos personalizados (jsonb FieldKey->valor), para
     // pintarlos como columnas en la vista Lista configurable. Null si no tiene.
-    string? CustomFieldsJson = null);
+    string? CustomFieldsJson = null,
+    // Subtareas (tareas hijas): IsSubtask marca la tarjeta con el indicador; ParentNumber es el
+    // numero del padre (para el tooltip). El progreso del padre agrega las subtareas terminadas.
+    bool IsSubtask = false, string? ParentNumber = null,
+    // Subtareas terminadas / totales del padre. La fila "Progreso" de la tarjeta suma checklist +
+    // subtareas (mismo criterio que ChecklistPct) para que texto y barra coincidan.
+    int SubtaskDone = 0, int SubtaskTotal = 0);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,

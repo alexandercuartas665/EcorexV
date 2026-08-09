@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-09 - v0.11.1: reload del modal en scope EF propio + color de columna claro
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.
+Sin migraciones (solo codigo/UI). Desplegado v0.11.1.
+
+**Que:**
+1. **Endurecer el race del DbContext:** `TaskDetailModal.ReloadAsync` corre ahora en un scope EF PROPIO
+   (`IServiceScopeFactory.CreateAsyncScope` + `AmbientTenantContext.Begin` para el filtro por tenant) y
+   serializado con un `_reloadLock`; el cuerpo se extrajo a `ReloadCoreAsync(...)` que recibe los servicios
+   del scope fresco. Elimina el "second operation on this context instance" que aparecia cuando la recarga
+   del modal solapaba con la del tablero (por broadcast) sobre el DbContext compartido del circuito.
+   Verificado: 1a mutacion tras reinicio refresca en sitio, 0 errores en log.
+2. **Color de la COLUMNA (cuerpo), no solo el titulo:** ya existia (`CellColor`/`ColCellStyle`) pero era
+   dificil de ver. Rotulos del configurador claros ("Encab." vs "Columna", 1a col. renombrada a "Campo")
+   + tip; el cuerpo se tine visiblemente (20% + franja lateral inset del color en cada celda).
+
+**Verificacion:** MCP Chrome en dev: color rojo aplicado a la columna "Etapa" -> celdas tenidas + franja;
+subtarea agregada refresca en sitio sin error. `dotnet build` verde. Sin secretos; clave super admin intacta.
+
 ## 2026-08-09 - v0.11.0: subtareas + encabezado multinivel con color + UX de tablero/lista
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea` sobre `fase-0/clon-backbone`.

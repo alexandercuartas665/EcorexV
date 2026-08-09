@@ -7,6 +7,7 @@
 @using Ecorex.Domain.Rules
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @using Ecorex.SuperAdmin.Components.Shared.Lookups
+@using Microsoft.Extensions.DependencyInjection
 @implements IAsyncDisposable
 @inject ITaskItemService TasksSvc
 @inject ITaskFieldService FieldSvc
@@ -19,6 +20,7 @@
 @inject IWorkflowInboxService InboxSvc
 @inject ITaskBroadcaster Broadcaster
 @inject IJSRuntime JS
+@inject IServiceScopeFactory ScopeFactory
 
 @if (_detail is not null)
 {
@@ -1271,32 +1273,72 @@
         StateHasChanged();
     }
 
+    // Serializa recargas solapadas del modal (una mutacion + su ReloadAsync vs. otra recarga por
+    // broadcast) para que no corran a la vez sobre el mismo DbContext.
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
     private async Task ReloadAsync(Guid taskId)
     {
-        // Recarga RESILIENTE: encadena varias consultas; un error transitorio de BD (p.ej. el tunel de
-        // dev hipando o cayendose) NO debe tumbar el circuito Blazor. Se captura, se avisa para reintentar
-        // y el modal sigue usable. En prod (BD local, sin tunel) esto practicamente no ocurre.
+        // Recarga AISLADA + RESILIENTE. La recarga encadena ~10 consultas; si comparte el DbContext del
+        // circuito con la recarga del tablero (que se dispara por broadcast tras una mutacion) EF lanza
+        // "second operation on this context instance". Por eso corre en un scope EF PROPIO
+        // (ScopeFactory.CreateAsyncScope) con AmbientTenantContext.Begin para que el filtro global por
+        // tenant resuelva fuera del circuito, y serializada por _reloadLock. Un error transitorio de BD
+        // NO debe tumbar el circuito Blazor: se captura, se avisa para reintentar y el modal sigue usable.
+        await _reloadLock.WaitAsync();
         try
         {
-        _detail = await TasksSvc.GetDetailAsync(taskId);
+            var tenantId = await TenantIdAsync();
+            var actor = await ActorAsync();
+            if (tenantId is Guid tg)
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tg, actor);
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var sp = scope.ServiceProvider;
+                await ReloadCoreAsync(taskId, actor,
+                    sp.GetRequiredService<ITaskItemService>(),
+                    sp.GetRequiredService<IFormResponseService>(),
+                    sp.GetRequiredService<IWorkflowInboxService>(),
+                    sp.GetRequiredService<IActivityBoardService>(),
+                    sp.GetRequiredService<ITaskFieldService>());
+            }
+            else
+            {
+                // Sin tenant en el claim (caso raro): cae a los servicios del circuito.
+                await ReloadCoreAsync(taskId, actor, TasksSvc, FormResponsesSvc, InboxSvc, BoardsSvc, FieldSvc);
+            }
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+    }
+
+    // Cuerpo de la recarga contra los servicios que se le pasen (los del scope FRESCO en el caso normal).
+    private async Task ReloadCoreAsync(Guid taskId, Guid actor,
+        ITaskItemService tasksSvc, IFormResponseService formsSvc, IWorkflowInboxService inboxSvc,
+        IActivityBoardService boardsSvc, ITaskFieldService fieldSvc)
+    {
+        try
+        {
+        _detail = await tasksSvc.GetDetailAsync(taskId);
         if (_detail is not null)
         {
-            _workLogs = (await TasksSvc.ListWorkLogsAsync(taskId)).ToList();
+            _workLogs = (await tasksSvc.ListWorkLogsAsync(taskId)).ToList();
             _totalSeconds = _detail.TotalWorkSeconds;
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
             // de forma idempotente si el nodo tiene formulario asignado).
-            _stepForms = (await FormResponsesSvc.GetTaskStepFormsAsync(taskId)).ToList();
+            _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
             // Cotizaciones del concepto (subcategoria) de la actividad: todas las respuestas, como tarjetas.
-            _conceptForms = await FormResponsesSvc.GetTaskConceptFormsAsync(taskId);
+            _conceptForms = await formsSvc.GetTaskConceptFormsAsync(taskId);
             // Etiquetas que se pueden poner AQUI: las de la columna (restriccion) o el catalogo.
-            _assignableTags = (await TasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
-            var actor = await ActorAsync();
+            _assignableTags = (await tasksSvc.ListAssignableTagsForTaskAsync(taskId)).ToList();
             _actorTenantUserId = _users.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
             // Pasos del flujo de ESTA tarea que el usuario puede atender (bandeja, ola F2).
             // La query ya se limita a instancias Running; filtramos a esta tarea.
             _flowSteps = _actorTenantUserId is Guid me
-                ? (await InboxSvc.GetMyPendingStepsAsync(me)).Where(s => s.TaskItemId == taskId).ToList()
+                ? (await inboxSvc.GetMyPendingStepsAsync(me)).Where(s => s.TaskItemId == taskId).ToList()
                 : new List<PendingStepDto>();
             _flowDiagram = null;
             _flowMenuNodeId = null;
@@ -1305,7 +1347,7 @@
             _boardColumns = new List<ActivityBoardColumnDto>();
             if (_detail.Item.BoardId is Guid boardId)
             {
-                var board = await BoardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter());
+                var board = await boardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter());
                 if (board.IsOk)
                 {
                     _boardColumns = board.Value!.Columns.ToList();
@@ -1314,7 +1356,7 @@
 
             // Campos personalizados del tablero (ADR-0065): definiciones del board + valores capturados.
             _customFields = _detail.Item.BoardId is Guid cfBoardId
-                ? await FieldSvc.ListByBoardAsync(cfBoardId)
+                ? await fieldSvc.ListByBoardAsync(cfBoardId)
                 : [];
             LoadCustomFieldValues(_detail.CustomFieldsJson);
             _customDirty = false;
@@ -1328,7 +1370,7 @@
             {
                 try
                 {
-                    _flowDiagram = await InboxSvc.GetTaskFlowDiagramAsync(taskId, meForFlow);
+                    _flowDiagram = await inboxSvc.GetTaskFlowDiagramAsync(taskId, meForFlow);
                 }
                 catch (Exception ex)
                 {

@@ -546,9 +546,9 @@
                         }
                     </div>
 
-                    <p class="tkl-cfg-hint" style="margin:0 0 8px;">Tip: pon el mismo <strong>Grupo</strong> en columnas seguidas para que compartan un supra-titulo que las abarque. <strong>Enc.</strong> = color del encabezado, <strong>Col.</strong> = color del cuerpo de la columna.</p>
+                    <p class="tkl-cfg-hint" style="margin:0 0 8px;">Tip: pon el mismo <strong>Grupo</strong> en columnas seguidas para que compartan un supra-titulo que las abarque. Hay <strong>dos</strong> colores por columna: <strong>Encab.</strong> tine el encabezado y <strong>Columna</strong> tine TODA la columna (las celdas de esa columna en cada fila).</p>
                     <table class="lc-tbl">
-                        <thead><tr><th></th><th>Ver</th><th>Columna</th><th>Grupo</th><th>Titulo</th><th>Subtitulo</th><th>Enc.</th><th>Col.</th></tr></thead>
+                        <thead><tr><th></th><th>Ver</th><th>Campo</th><th>Grupo</th><th>Titulo</th><th>Subtitulo</th><th>Encab.</th><th>Columna</th></tr></thead>
                         <tbody>
                             @for (var i = 0; i < _lc.Count; i++)
                             {
@@ -1982,10 +1982,11 @@
             : $"background:color-mix(in srgb,{c.Color} 22%,var(--surface-2));border-bottom:3px solid {c.Color};color:color-mix(in srgb,{c.Color} 68%,var(--ink));";
 
     // Color del CUERPO de la columna: tinte opaco (sobre --surface para que la 1a columna fija tape
-    // el contenido que se desplaza debajo).
+    // el contenido que se desplaza debajo) + un hilo lateral del color para que la columna se lea
+    // COLOREADA de verdad (no un tinte casi invisible).
     private string ColCellStyle(ListCol c)
         => string.IsNullOrWhiteSpace(c.CellColor) ? string.Empty
-            : $"background:color-mix(in srgb,{c.CellColor} 14%,var(--surface));";
+            : $"background:color-mix(in srgb,{c.CellColor} 20%,var(--surface));box-shadow:inset 2px 0 0 color-mix(in srgb,{c.CellColor} 55%,transparent);";
 
     private void BuildCardCustomCache()
     {

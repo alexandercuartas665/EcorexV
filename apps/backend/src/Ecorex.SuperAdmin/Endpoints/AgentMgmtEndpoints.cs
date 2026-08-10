@@ -48,15 +48,10 @@ public static class AgentMgmtEndpoints
             Run(req, scopes, ct, (svc, _, c) => svc.Agents.ListAsync(c),
                 result => Results.Json(result, Json)));
 
-        // 2. Detalle: agente + prompts enrutados + recursos + definicion de datos cache.
+        // 2. Detalle: agente + prompts enrutados + recursos + datos cache + catalogo de tools MCP
+        //    (cada tool con enabled por-agente segun DisabledTools).
         group.MapGet("/agents/{id:guid}", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
-            Run(req, scopes, ct, async (svc, _, c) =>
-            {
-                var detail = await svc.Agents.GetAsync(id, c);
-                if (detail is null) { return (object?)null; }
-                var cacheFields = await svc.Cache.ListFieldsAsync(id, c);
-                return new { detail.Agent, detail.Resources, detail.Prompts, CacheFields = cacheFields };
-            },
+            Run(req, scopes, ct, (svc, _, c) => BuildAgentDetailAsync(svc, id, c),
             result => result is null ? Results.NotFound() : Results.Json(result, Json)));
 
         // 3. Crear agente.
@@ -166,6 +161,134 @@ public static class AgentMgmtEndpoints
             result => Results.Json(result, Json));
         });
 
+        // ===== Extension del spec (huecos): tools MCP, lineas, bindings linea<->agente, logs por conversacion, recursos =====
+
+        // 8. Catalogo de tools MCP disponibles (definido en codigo via IAgentToolset). No audita (lectura).
+        group.MapGet("/mcp-tools", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, (svc, _, c) => Task.FromResult((object)BuildCatalog(svc.Toolsets)),
+                result => Results.Json(result, Json)));
+
+        // 9. Fijar las tools MCP del agente. Body {toolKeys:[...]} = keys HABILITADAS (opt-in). Se validan
+        //    contra el catalogo (400 si hay invalidas) y se persiste el complemento como DisabledTools.
+        group.MapPut("/agents/{id:guid}/tools", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<ToolsBody>(req, scopes, ct, async (svc, body, tenant, c) =>
+            {
+                if (body?.ToolKeys is null) { return new ApiOutcome(400, new { error = "toolKeys es obligatorio" }); }
+                var all = AllToolNames(svc.Toolsets);
+                var invalid = body.ToolKeys.Where(k => !all.Contains(k)).Distinct().ToList();
+                if (invalid.Count > 0) { return new ApiOutcome(400, new { error = "tool keys invalidas", invalid, catalogo = all.OrderBy(x => x).ToList() }); }
+                var current = await svc.Agents.GetAsync(id, c);
+                if (current is null) { return new ApiOutcome(404, null); }
+                var enabled = body.ToolKeys.ToHashSet(StringComparer.Ordinal);
+                var disabled = all.Where(k => !enabled.Contains(k)).ToList();
+                var a = current.Agent;
+                var upd = new UpdateAiAgentRequest(a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt,
+                    disabled, a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis);
+                var updated = await svc.Agents.UpdateAsync(id, upd, SystemActor, c);
+                if (updated is null) { return new ApiOutcome(404, null); }
+                await AuditAsync(svc, tenant, "mgmt-api.agent.tools", nameof(Ecorex.Domain.Entities.AiAgent), id, new { enabled = body.ToolKeys, disabled }, c);
+                return new ApiOutcome(200, await BuildAgentDetailAsync(svc, id, c));
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
+        // 10. Lineas WhatsApp del tenant + a que agente estan vinculadas (si alguna).
+        group.MapGet("/lines", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, _, c) =>
+            {
+                var lines = await svc.Db.WhatsAppLines.AsNoTracking().OrderBy(l => l.InstanceName).ToListAsync(c);
+                var bindings = await svc.Db.AiAgentLineBindings.AsNoTracking().ToListAsync(c);
+                return (object)lines.Select(l =>
+                {
+                    var b = bindings.FirstOrDefault(x => x.WhatsAppLineId == l.Id && x.IsConnected);
+                    return new AdminLineDto(l.Id, l.InstanceName, l.Provider, l.PhoneNumber, l.Status, b?.AgentId);
+                }).ToList();
+            },
+            result => Results.Json(result, Json)));
+
+        // 11. Vincular una linea a este agente. Body {whatsAppLineId, reassign?}. 409 si la linea ya la
+        //     atiende OTRO agente y no se pasa reassign:true.
+        group.MapPost("/agents/{id:guid}/line-binding", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<BindBody>(req, scopes, ct, async (svc, body, tenant, c) =>
+            {
+                if (body is null || body.WhatsAppLineId == Guid.Empty) { return new ApiOutcome(400, new { ok = false, error = "whatsAppLineId es obligatorio" }); }
+                if (await svc.Agents.GetAsync(id, c) is null) { return new ApiOutcome(404, new { ok = false, error = "agente no existe" }); }
+                if (!await svc.Db.WhatsAppLines.AsNoTracking().AnyAsync(l => l.Id == body.WhatsAppLineId, c)) { return new ApiOutcome(404, new { ok = false, error = "linea no existe" }); }
+                var existing = await svc.Db.AiAgentLineBindings.AsNoTracking().FirstOrDefaultAsync(x => x.WhatsAppLineId == body.WhatsAppLineId, c);
+                if (existing is not null && existing.AgentId != id && existing.IsConnected && body.Reassign != true)
+                {
+                    return new ApiOutcome(409, new { ok = false, error = "la linea ya la atiende otro agente; envia reassign:true para reasignar" });
+                }
+                await svc.Lines.SetConnectedAsync(id, body.WhatsAppLineId, true, SystemActor, c);
+                await AuditAsync(svc, tenant, "mgmt-api.line.bind", nameof(Ecorex.Domain.Entities.AiAgentLineBinding), body.WhatsAppLineId, new { agentId = id, reassign = body.Reassign == true }, c);
+                return new ApiOutcome(200, new { ok = true });
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
+        // 12. Desvincular (desconectar) una linea de este agente.
+        group.MapDelete("/agents/{id:guid}/line-binding/{lineId:guid}", (Guid id, Guid lineId, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, tenant, c) =>
+            {
+                var binding = await svc.Db.AiAgentLineBindings.AsNoTracking().FirstOrDefaultAsync(x => x.WhatsAppLineId == lineId && x.AgentId == id, c);
+                if (binding is null) { return new ApiOutcome(404, null); }
+                await svc.Lines.SetConnectedAsync(id, lineId, false, SystemActor, c);
+                await AuditAsync(svc, tenant, "mgmt-api.line.unbind", nameof(Ecorex.Domain.Entities.AiAgentLineBinding), lineId, new { agentId = id }, c);
+                return new ApiOutcome(204, null);
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
+        // 13. Bitacora por CONVERSACION: listado de conversaciones atendidas (todas las del tenant).
+        group.MapGet("/agent-logs", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+        {
+            var take = 50;
+            var takeRaw = req.Query["take"].ToString();
+            if (!string.IsNullOrWhiteSpace(takeRaw) && int.TryParse(takeRaw, out var t)) { take = Math.Clamp(t, 1, 500); }
+            return Run(req, scopes, ct, async (svc, _, c) => (object)await svc.Lines.ListAttendedConversationsAsync(take, c),
+                result => Results.Json(result, Json));
+        });
+
+        // 14. Entradas de UNA conversacion (orden cronologico). Lista vacia si no hay.
+        group.MapGet("/agent-logs/{conversationId:guid}", (Guid conversationId, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, _, c) => (object)await svc.Lines.GetConversationLogAsync(conversationId, c),
+                result => Results.Json(result, Json)));
+
+        // 15. Recursos del agente (contenido que entrega): crear / actualizar / eliminar.
+        group.MapPost("/agents/{id:guid}/resources", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<ResourceBody>(req, scopes, ct, async (svc, body, tenant, c) =>
+            {
+                if (body is null || string.IsNullOrWhiteSpace(body.Name)) { return new ApiOutcome(400, new { error = "name es obligatorio" }); }
+                var created = await svc.Agents.AddResourceAsync(new CreateAgentResourceRequest(id, body.Name, body.ResourceType, body.Detail, body.FileUrl, body.FileName), SystemActor, c);
+                if (created is null) { return new ApiOutcome(404, null); }
+                await AuditAsync(svc, tenant, "mgmt-api.resource.add", nameof(Ecorex.Domain.Entities.AiAgentResource), created.Id, new { agentId = id, created.Name }, c);
+                return new ApiOutcome(201, created);
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
+        group.MapPut("/resources/{resourceId:guid}", (Guid resourceId, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<ResourceBody>(req, scopes, ct, async (svc, body, tenant, c) =>
+            {
+                if (body is null || string.IsNullOrWhiteSpace(body.Name)) { return new ApiOutcome(400, new { error = "name es obligatorio" }); }
+                var updated = await svc.Agents.UpdateResourceAsync(resourceId, new UpdateAgentResourceRequest(body.Name, body.ResourceType, body.Detail, body.FileUrl, body.FileName), SystemActor, c);
+                if (updated is null) { return new ApiOutcome(404, null); }
+                await AuditAsync(svc, tenant, "mgmt-api.resource.update", nameof(Ecorex.Domain.Entities.AiAgentResource), resourceId, new { updated.Name }, c);
+                return new ApiOutcome(200, updated);
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
+        group.MapDelete("/resources/{resourceId:guid}", (Guid resourceId, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, tenant, c) =>
+            {
+                var ok = await svc.Agents.DeleteResourceAsync(resourceId, SystemActor, c);
+                if (ok) { await AuditAsync(svc, tenant, "mgmt-api.resource.delete", nameof(Ecorex.Domain.Entities.AiAgentResource), resourceId, null, c); }
+                return new ApiOutcome(ok ? 204 : 404, null);
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
         return app;
     }
 
@@ -178,7 +301,57 @@ public static class AgentMgmtEndpoints
     private sealed record BitacoraEntryDto(DateTimeOffset OccurredAt, AiAgentRunLogKind Kind, Guid ConversationId, string Title, string? Content, string? Response);
 
     /// <summary>Servicios tenant-scoped resueltos dentro del scope con el tenant ya fijado.</summary>
-    private readonly record struct MgmtServices(IAiAgentService Agents, IAiAgentCacheService Cache, IAuditWriter Audit, IApplicationDbContext Db);
+    private readonly record struct MgmtServices(IAiAgentService Agents, IAiAgentCacheService Cache, IAuditWriter Audit,
+        IApplicationDbContext Db, IAiAgentLineService Lines, IEnumerable<IAgentToolset> Toolsets);
+
+    // --- Cuerpos y DTOs de la extension (tools/lineas/bindings/recursos) ---
+    private sealed record ToolsBody(IReadOnlyList<string>? ToolKeys);
+    private sealed record BindBody(Guid WhatsAppLineId, bool? Reassign);
+    private sealed record ResourceBody(string Name, AgentResourceType ResourceType, string? Detail, string? FileUrl, string? FileName);
+    private sealed record AdminLineDto(Guid Id, string Label, WhatsAppProvider Provider, string? Phone, WhatsAppLineStatus Estado, Guid? BoundAgentId);
+    private sealed record ApiOutcome(int Status, object? Payload);
+
+    /// <summary>Catalogo de tools MCP (grupos + specs) definido en codigo via IAgentToolset.</summary>
+    private static object BuildCatalog(IEnumerable<IAgentToolset> toolsets)
+        => toolsets.Select(ts => new
+        {
+            groupKey = ts.GroupKey,
+            groupLabel = ts.GroupLabel,
+            tools = ts.GetSpecs().Select(s => new { name = s.Name, description = s.Description }).ToList()
+        }).ToList();
+
+    private static HashSet<string> AllToolNames(IEnumerable<IAgentToolset> toolsets)
+        => toolsets.SelectMany(ts => ts.GetSpecs()).Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Detalle del agente + recursos + prompts + cache + catalogo de tools con enabled por-agente.</summary>
+    private static async Task<object?> BuildAgentDetailAsync(MgmtServices svc, Guid id, CancellationToken c)
+    {
+        var detail = await svc.Agents.GetAsync(id, c);
+        if (detail is null) { return null; }
+        var cacheFields = await svc.Cache.ListFieldsAsync(id, c);
+        var disabled = (detail.Agent.DisabledTools ?? Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        var mcpTools = svc.Toolsets.Select(ts => new
+        {
+            groupKey = ts.GroupKey,
+            groupLabel = ts.GroupLabel,
+            tools = ts.GetSpecs().Select(s => new { name = s.Name, description = s.Description, enabled = !disabled.Contains(s.Name) }).ToList()
+        }).ToList();
+        return new { detail.Agent, detail.Resources, detail.Prompts, CacheFields = cacheFields, McpTools = mcpTools };
+    }
+
+    /// <summary>Mapea un ApiOutcome (status + payload) al IResult correspondiente.</summary>
+    private static IResult ShapeOutcome(object? r) => r is ApiOutcome o
+        ? o.Status switch
+        {
+            200 => Results.Json(o.Payload, Json),
+            201 => Results.Json(o.Payload, Json, statusCode: 201),
+            204 => Results.NoContent(),
+            400 => Results.Json(o.Payload, Json, statusCode: 400),
+            409 => Results.Json(o.Payload, Json, statusCode: 409),
+            404 => Results.NotFound(),
+            _ => Results.StatusCode(o.Status)
+        }
+        : Results.NotFound();
 
     /// <summary>Registra una entrada inmutable de auditoria (actorType=System, reason "mgmt-api") y la persiste.</summary>
     private static async Task AuditAsync(MgmtServices svc, Guid tenantId, string action, string entityName, Guid? entityId, object? newValue, CancellationToken ct)
@@ -228,7 +401,9 @@ public static class AgentMgmtEndpoints
         sp.GetRequiredService<IAiAgentService>(),
         sp.GetRequiredService<IAiAgentCacheService>(),
         sp.GetRequiredService<IAuditWriter>(),
-        sp.GetRequiredService<IApplicationDbContext>());
+        sp.GetRequiredService<IApplicationDbContext>(),
+        sp.GetRequiredService<IAiAgentLineService>(),
+        sp.GetRequiredService<IEnumerable<IAgentToolset>>());
 
     /// <summary>
     /// Aplica los gates de seguridad y resuelve el tenant. Devuelve un IResult si hay que cortar

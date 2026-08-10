@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-10 - v0.13.0: API de gobierno /api/mgmt extendida (tools MCP + lineas + bindings + logs por conversacion)
+
+**Agentes:** Claude Opus 4.8 (2 sub-agentes Explore para mapear infra + dominio), worktree
+`feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`. UN archivo (`AgentMgmtEndpoints.cs`),
+sin migracion ni config nueva. Desplegado v0.13.0.
+
+**Contexto:** peticion de construir una API REST cross-tenant para que un operador (Claude) administre
+los agentes de IA de cualquier tenant sin UI. ECOREX YA tiene esa API (`/api/mgmt`, ADR-0057: gate por
+env `ECOREX_MGMT_API_KEY`->404, allowlist IP, key en tiempo constante, auditada) pero le faltaban huecos.
+Decision del usuario: EXTENDER la existente (API key + tenant por ?tenant=), no crear una fachada JWT.
+
+**Que se agrego (huecos del spec):**
+- `GET /mcp-tools` catalogo de tools MCP (via `IAgentToolset`).
+- `PUT /agents/{id}/tools {toolKeys:[...]}` opt-IN: valida contra el catalogo (400 si invalida) y persiste
+  el COMPLEMENTO como `DisabledTools` (el modelo interno es opt-out). El detalle `GET /agents/{id}` ahora
+  expone `mcpTools` con `enabled` por-agente.
+- `GET /lines` (id/label/provider/phone/estado/boundAgentId).
+- `POST /agents/{id}/line-binding {whatsAppLineId,reassign?}` (200 / 409 si otra agente la atiende) y
+  `DELETE /agents/{id}/line-binding/{lineId}` (204/404). Reusa `AiAgentLineService.SetConnectedAsync`.
+- `GET /agent-logs` (conversaciones) + `GET /agent-logs/{conversationId}` (entradas).
+- `POST/PUT/DELETE .../resources` (recursos del agente, bonus).
+
+**Adaptacion a ECOREX (vs PROPIA):** aislamiento Modelo B (solo EF query filters, sin RLS) via
+`AmbientTenantContext.Begin`; claim super admin real = `platform_role=SuperAdmin` (no aplica aqui porque
+se eligio API key); host desplegado = `Ecorex.SuperAdmin` (ya sirve el grupo `/api/mgmt`). TODA mutacion
+audita en `super_admin_audit_logs` (IAuditWriter, actorType=System, reason "mgmt-api"). Verificacion
+fail-closed OK (sin key->404, sin header->401, ruta inexistente->404, sin tenant->400) y flujo E2E completo
+en el sandbox (crear agente, tools opt-in/out, bind/409/reassign/unbind, logs) con 7 filas de auditoria.
+
 ## 2026-08-10 - v0.12.0: descripcion sobre tabs + subtareas anidadas en Lista + agrupador con totales
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.

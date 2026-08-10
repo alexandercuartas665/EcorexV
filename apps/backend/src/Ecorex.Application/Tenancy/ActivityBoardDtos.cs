@@ -122,7 +122,9 @@ public sealed record ActivityCardDto(
     bool IsSubtask = false, string? ParentNumber = null,
     // Subtareas terminadas / totales del padre. La fila "Progreso" de la tarjeta suma checklist +
     // subtareas (mismo criterio que ChecklistPct) para que texto y barra coincidan.
-    int SubtaskDone = 0, int SubtaskTotal = 0);
+    int SubtaskDone = 0, int SubtaskTotal = 0,
+    // Solicitante de la tarea: para agrupar la vista Lista por este campo (ADR-0065).
+    string? RequesterName = null);
 
 public sealed record ActivityBoardColumnDto(
     Guid Id, string Name, string? Color, int SortOrder, bool IsDone,

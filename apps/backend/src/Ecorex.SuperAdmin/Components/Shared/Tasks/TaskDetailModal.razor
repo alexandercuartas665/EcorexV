@@ -422,17 +422,7 @@
             @* ===== Split: contenido con tabs (izq) + Bitacora en columna lateral (der) ===== *@
             <div class="tk-detail-split">
               <div class="tk-detail-left">
-                <div class="tk-detail-tabs">
-                    <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
-                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForms?.Items.Count ?? 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
-                    <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
-                </div>
-
-                @* ===== Tab: Detalle (cuerpo 2 columnas) ===== *@
-                @if (_modalTab == "detalle")
-                {
-            <div class="tk-detail-body">
-                <div class="tk-detail-main">
+                @* Descripcion: SIEMPRE visible, encima de los tabs (cualquier tab) *@
                     @* Descripcion *@
                     <div class="tk-card">
                         <div class="tk-card-head">
@@ -462,6 +452,17 @@
                         }
                     </div>
 
+                <div class="tk-detail-tabs">
+                    <button type="button" class="tk-tab @(_modalTab == "detalle" ? "active" : "")" @onclick='@(() => _modalTab = "detalle")'>Detalle</button>
+                    <button type="button" class="tk-tab @(_modalTab == "formularios" ? "active" : "")" @onclick='@(() => _modalTab = "formularios")'>Formularios@(((_conceptForms?.Items.Count ?? 0) + _stepForms.Count) is var _nForms && _nForms > 0 ? $" ({_nForms})" : "")</button>
+                    <button type="button" class="tk-tab @(_modalTab == "documentos" ? "active" : "")" @onclick='@(() => _modalTab = "documentos")'>Documentos@(_detail.Attachments.Count > 0 ? $" ({_detail.Attachments.Count})" : "")</button>
+                </div>
+
+                @* ===== Tab: Detalle (cuerpo 2 columnas) ===== *@
+                @if (_modalTab == "detalle")
+                {
+            <div class="tk-detail-body">
+                <div class="tk-detail-main">
                     @* Campos personalizados del tablero (ADR-0065) *@
                     @if (_customFields.Count > 0)
                     {

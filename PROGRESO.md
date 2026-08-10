@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-10 - v0.12.0: descripcion sobre tabs + subtareas anidadas en Lista + agrupador con totales
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.
+UI (razor + css) + un campo aditivo `RequesterName` en `ActivityCardDto` (sin migracion). COMMITEADO, NO
+desplegado (prod sigue en v0.11.1).
+
+**Que (3 mejoras del modulo de actividades):**
+1. **Descripcion SIEMPRE visible:** la tarjeta de Descripcion salio del tab "Detalle" y quedo ENCIMA de
+   los tabs (Detalle/Formularios/Documentos), asi se ve en cualquier tab.
+2. **Subtareas anidadas en la vista Lista/Tabla:** cuando NO se agrupa, las tareas padre muestran un
+   boton `+`/`-` que despliega sus subtareas como filas indentadas debajo (con `↳`), en vez de dispersas.
+   Estado por tarjeta en `_expandedParents`.
+3. **Agrupador de la Lista + totales numericos:** selector "Agrupar por" (Etapa/Estado/Encargado/Prioridad/
+   Solicitante + cualquier campo de formulario/custom visible). Cada grupo muestra un encabezado con el
+   valor + conteo + la SUMA de las columnas numericas, y un `<tfoot>` con el TOTAL GENERAL. Numerico =
+   campo Number/Currency/Calculated o campo de formulario con valores parseables. El agrupador es en vivo
+   (no se persiste); el arbol de subtareas aplica solo cuando no se agrupa.
+
+Todo el render de la Lista se reescribio sobre `BuildDisplayRows` (record `LcDisplayRow`) que arma las
+filas (encabezados de grupo + datos con profundidad) y pagina por filas de nivel superior. `dotnet build`
+verde; los errores de consola vistos eran SignalR reconectando por los reinicios del dev.
+
 ## 2026-08-10 - v0.11.2: reacomodo del modal de detalle (Resumen al rail + Subtareas en la izquierda)
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.

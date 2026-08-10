@@ -341,13 +341,31 @@
     @if (_view == "lista")
     {
         var lcols = VisibleListColumns();
-        var allRows = ListRows().ToList();
-        var totalRows = allRows.Count;
-        var totalPages = Math.Max(1, (int)Math.Ceiling(totalRows / (double)ListPageSize));
-        if (_listPage > totalPages) { _listPage = totalPages; }
-        if (_listPage < 1) { _listPage = 1; }
-        var pageRows = allRows.Skip((_listPage - 1) * ListPageSize).Take(ListPageSize);
+        var display = BuildDisplayRows(lcols);
+        var totalRows = display.TotalUnits;
+        var totalPages = display.TotalPages;
         <div class="ab-listwrap">
+            @* Agrupador (ADR-0065): agrupa las filas por el campo elegido; suma las columnas
+               numericas por grupo (en el encabezado del grupo) y un total general al final. *@
+            <div class="tkl-groupbar">
+                <span class="tkl-groupbar-lbl">Agrupar por</span>
+                <select class="tkl-groupsel" @bind="_groupBy" @bind:after="OnGroupByChanged">
+                    <option value="">(sin agrupar)</option>
+                    <option value="@TaskListViewConfig.KeyStage">Etapa</option>
+                    <option value="@TaskListViewConfig.KeyStatus">Estado</option>
+                    <option value="@TaskListViewConfig.KeyAssignee">Encargado</option>
+                    <option value="@TaskListViewConfig.KeyPriority">Prioridad</option>
+                    <option value="@GroupRequester">Solicitante</option>
+                    @foreach (var gc in GroupableFieldColumns())
+                    {
+                        <option value="@gc.Key">@gc.Title</option>
+                    }
+                </select>
+                @if (!string.IsNullOrEmpty(_groupBy))
+                {
+                    <span class="tkl-groupbar-hint">Agrupado por <strong>@GroupByLabel()</strong> &#183; totales numericos por grupo y total general al final.</span>
+                }
+            </div>
             @if (lcols.Count == 0)
             {
                 <div class="ab-list"><div class="ab-empty" style="padding:24px 22px;">No hay columnas visibles. Usa el boton <strong>Columnas</strong> para elegir cuales mostrar.</div></div>
@@ -392,92 +410,138 @@
                             }
                         </thead>
                         <tbody>
-                            @foreach (var (column, colIdx, card) in pageRows)
+                            @foreach (var row in display.Rows)
                             {
-                                var c = card;
-                                var stage = column;
-                                var sIdx = colIdx;
-                                <tr class="tkl-row" @onclick="@(() => OpenTaskAsync(c.Id))">
-                                    @for (var ci = 0; ci < lcols.Count; ci++)
-                                    {
-                                        var lcol = lcols[ci];
-                                        var key = lcol.Key;
-                                        <td class="@(ci == 0 ? "tkl-pin" : "")" style="@ColCellStyle(lcol)">
-                                            @if (key == TaskListViewConfig.KeyTitle)
-                                            {
-                                                <div class="ab-lr-title"><div>@if (c.IsSubtask) { <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627;</span> } @c.Title</div><div>@(c.Description ?? "")</div></div>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyNumber)
-                                            {
-                                                <span class="tkl-mono">@c.Number</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyStage)
-                                            {
-                                                <span class="ab-lr-status"><span class="ab-dot" style="background:@AbUi.ColumnDot(sIdx)"></span>@stage.Name</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyStatus)
-                                            {
-                                                <span class="tk-status @TaskUi.StatusClass(c.Status)" style="font-size:11px;padding:2px 9px;">@TaskUi.StatusLabel(c.Status)</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyAssignee)
-                                            {
-                                                <div class="ab-avatars">
-                                                    @foreach (var person in CardPeople(c).Take(3))
-                                                    {
-                                                        <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
-                                                    }
-                                                    @if (CardPeople(c).Count == 0)
-                                                    {
-                                                        <span style="font-size:11.5px;color:var(--ink-3)">Sin asignar</span>
-                                                    }
-                                                </div>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyPriority)
-                                            {
-                                                <span class="ab-prio" style="background:@AbUi.PrioritySoft(c.Priority);color:@AbUi.PriorityColor(c.Priority)">@TaskUi.PriorityLabel(c.Priority)</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyProgress)
-                                            {
-                                                <div class="ab-lr-prog"><div class="bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(sIdx)"></i></div><span class="pct">@(c.ChecklistPct)%</span></div>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyDue)
-                                            {
-                                                <span class="ab-lr-due" style="color:@AbUi.CardDueColor(c.DueDate, stage.IsDone)">@(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "-")</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyStart)
-                                            {
-                                                <span>@(c.StartDate is DateTimeOffset sd ? AbUi.CardDue(sd) : "-")</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyCreated)
-                                            {
-                                                <span>@AbUi.CardDue(c.CreatedAt)</span>
-                                            }
-                                            else if (key == TaskListViewConfig.KeyTags)
-                                            {
-                                                <div class="tkl-tags">
-                                                    @foreach (var tg in c.Tags.Take(3))
-                                                    {
-                                                        <span class="tkl-tag" style="background:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--surface-3)" : tg.Color + "22");color:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--ink-2)" : tg.Color)">@tg.Name</span>
-                                                    }
-                                                </div>
-                                            }
-                                            else if (key.StartsWith("form:"))
-                                            {
-                                                <span class="tkl-cf">@FormCellText(key, c)</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="tkl-cf">@CustomCellText(key, c)</span>
-                                            }
-                                        </td>
-                                    }
-                                </tr>
+                                @if (row.IsGroupHeader)
+                                {
+                                    <tr class="tkl-grouprow">
+                                        @for (var ci = 0; ci < lcols.Count; ci++)
+                                        {
+                                            var gcol = lcols[ci];
+                                            <td class="@(ci == 0 ? "tkl-pin" : "")">
+                                                @if (ci == 0)
+                                                {
+                                                    <span class="tkl-group-label">@row.GroupValue<span class="tkl-group-count">@row.GroupCount</span></span>
+                                                }
+                                                else if (row.Sums is not null && row.Sums.TryGetValue(gcol.Key, out var gs))
+                                                {
+                                                    <strong class="tkl-sum">@FmtColTotal(gcol, gs)</strong>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                                else
+                                {
+                                    var c = row.Card!;
+                                    var stage = row.Column!;
+                                    var sIdx = row.ColIdx;
+                                    <tr class="tkl-row @(row.Depth > 0 ? "tkl-childrow" : "")" @onclick="@(() => OpenTaskAsync(c.Id))">
+                                        @for (var ci = 0; ci < lcols.Count; ci++)
+                                        {
+                                            var lcol = lcols[ci];
+                                            var key = lcol.Key;
+                                            <td class="@(ci == 0 ? "tkl-pin" : "")" style="@ColCellStyle(lcol)">
+                                                @if (key == TaskListViewConfig.KeyTitle)
+                                                {
+                                                    <div class="ab-lr-title" style="@(row.Depth > 0 ? "padding-left:20px;" : "")">
+                                                        <div>@if (row.HasKids) { <button class="tkl-expander" title="Ver subtareas" @onclick:stopPropagation="true" @onclick="@(() => ToggleExpand(c.Id))">@(row.Expanded ? "\u2212" : "+")</button> } @if (c.IsSubtask) { <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627;</span> } @c.Title</div>
+                                                        <div>@(c.Description ?? "")</div>
+                                                    </div>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyNumber)
+                                                {
+                                                    <span class="tkl-mono">@c.Number</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyStage)
+                                                {
+                                                    <span class="ab-lr-status"><span class="ab-dot" style="background:@AbUi.ColumnDot(sIdx)"></span>@stage.Name</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyStatus)
+                                                {
+                                                    <span class="tk-status @TaskUi.StatusClass(c.Status)" style="font-size:11px;padding:2px 9px;">@TaskUi.StatusLabel(c.Status)</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyAssignee)
+                                                {
+                                                    <div class="ab-avatars">
+                                                        @foreach (var person in CardPeople(c).Take(3))
+                                                        {
+                                                            <span class="ab-av sm" style="background:@AbUi.AvatarBg(person.Initials)" title="@person.DisplayName">@person.Initials</span>
+                                                        }
+                                                        @if (CardPeople(c).Count == 0)
+                                                        {
+                                                            <span style="font-size:11.5px;color:var(--ink-3)">Sin asignar</span>
+                                                        }
+                                                    </div>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyPriority)
+                                                {
+                                                    <span class="ab-prio" style="background:@AbUi.PrioritySoft(c.Priority);color:@AbUi.PriorityColor(c.Priority)">@TaskUi.PriorityLabel(c.Priority)</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyProgress)
+                                                {
+                                                    <div class="ab-lr-prog"><div class="bar"><i style="width:@(c.ChecklistPct)%;background:@AbUi.ColumnProgressColor(sIdx)"></i></div><span class="pct">@(c.ChecklistPct)%</span></div>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyDue)
+                                                {
+                                                    <span class="ab-lr-due" style="color:@AbUi.CardDueColor(c.DueDate, stage.IsDone)">@(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "-")</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyStart)
+                                                {
+                                                    <span>@(c.StartDate is DateTimeOffset sd ? AbUi.CardDue(sd) : "-")</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyCreated)
+                                                {
+                                                    <span>@AbUi.CardDue(c.CreatedAt)</span>
+                                                }
+                                                else if (key == TaskListViewConfig.KeyTags)
+                                                {
+                                                    <div class="tkl-tags">
+                                                        @foreach (var tg in c.Tags.Take(3))
+                                                        {
+                                                            <span class="tkl-tag" style="background:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--surface-3)" : tg.Color + "22");color:@(string.IsNullOrWhiteSpace(tg.Color) ? "var(--ink-2)" : tg.Color)">@tg.Name</span>
+                                                        }
+                                                    </div>
+                                                }
+                                                else if (key.StartsWith("form:"))
+                                                {
+                                                    <span class="tkl-cf">@FormCellText(key, c)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="tkl-cf">@CustomCellText(key, c)</span>
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
                             }
                             @if (totalRows == 0)
                             {
                                 <tr><td colspan="@lcols.Count" class="tkl-empty">No hay tareas que coincidan con los filtros.</td></tr>
                             }
                         </tbody>
+                        @if (display.NumCols.Count > 0)
+                        {
+                            <tfoot>
+                                <tr class="tkl-totalrow">
+                                    @for (var ci = 0; ci < lcols.Count; ci++)
+                                    {
+                                        var tcol = lcols[ci];
+                                        <td class="@(ci == 0 ? "tkl-pin" : "")">
+                                            @if (ci == 0)
+                                            {
+                                                <strong>TOTAL GENERAL</strong>
+                                            }
+                                            else if (display.Grand.TryGetValue(tcol.Key, out var ts))
+                                            {
+                                                <strong class="tkl-sum">@FmtColTotal(tcol, ts)</strong>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
+                            </tfoot>
+                        }
                     </table>
                 </div>
                 @if (totalPages > 1)
@@ -1987,6 +2051,134 @@
     private string ColCellStyle(ListCol c)
         => string.IsNullOrWhiteSpace(c.CellColor) ? string.Empty
             : $"background:color-mix(in srgb,{c.CellColor} 20%,var(--surface));box-shadow:inset 2px 0 0 color-mix(in srgb,{c.CellColor} 55%,transparent);";
+
+    // ============================================================
+    // Agrupador + arbol de subtareas de la vista Lista (ADR-0065)
+    // ============================================================
+    private string _groupBy = "";
+    private readonly HashSet<Guid> _expandedParents = new();
+    private const string GroupRequester = "@requester";
+
+    private void OnGroupByChanged() => _listPage = 1;
+    private void ToggleExpand(Guid id) { if (!_expandedParents.Remove(id)) { _expandedParents.Add(id); } }
+
+    // Fila de render: encabezado de grupo, o fila de datos (con profundidad para el arbol de subtareas).
+    private sealed record LcDisplayRow(
+        bool IsGroupHeader, string? GroupValue, int GroupCount, Dictionary<string, double>? Sums,
+        ActivityBoardColumnDto? Column, int ColIdx, ActivityCardDto? Card, int Depth, bool HasKids, bool Expanded);
+
+    private sealed record LcDisplay(
+        List<LcDisplayRow> Rows, int TotalUnits, int TotalPages,
+        Dictionary<string, double> Grand, HashSet<string> NumCols);
+
+    // Columnas de campo (form/custom) visibles: opciones extra de agrupacion.
+    private List<ListCol> GroupableFieldColumns()
+        => VisibleListColumns().Where(c => !TaskListViewConfig.IsBuiltin(c.Key)).ToList();
+
+    private string GroupByLabel() => _groupBy switch
+    {
+        "" => "",
+        TaskListViewConfig.KeyStage => "Etapa",
+        TaskListViewConfig.KeyStatus => "Estado",
+        TaskListViewConfig.KeyAssignee => "Encargado",
+        TaskListViewConfig.KeyPriority => "Prioridad",
+        GroupRequester => "Solicitante",
+        _ => VisibleListColumns().FirstOrDefault(c => c.Key == _groupBy)?.Title ?? _groupBy
+    };
+
+    private string GroupValueOf(ActivityCardDto c)
+    {
+        if (_groupBy == TaskListViewConfig.KeyStage)
+            return _detail?.Columns.FirstOrDefault(col => col.Id == c.ColumnId)?.Name ?? "(sin etapa)";
+        if (_groupBy == TaskListViewConfig.KeyStatus) return TaskUi.StatusLabel(c.Status);
+        if (_groupBy == TaskListViewConfig.KeyAssignee) return c.Assignee?.DisplayName ?? "Sin asignar";
+        if (_groupBy == TaskListViewConfig.KeyPriority) return TaskUi.PriorityLabel(c.Priority);
+        if (_groupBy == GroupRequester) return string.IsNullOrWhiteSpace(c.RequesterName) ? "(sin solicitante)" : c.RequesterName!;
+        var txt = _groupBy.StartsWith("form:") ? FormCellText(_groupBy, c) : CustomCellText(_groupBy, c);
+        return string.IsNullOrWhiteSpace(txt) ? "(vacio)" : txt;
+    }
+
+    // Valor numerico de una tarjeta en una columna (solo campos numericos). null si no aplica.
+    private double? NumericValueOf(ActivityCardDto c, ListCol col)
+    {
+        if (TaskListViewConfig.IsBuiltin(col.Key)) { return null; }
+        string raw;
+        if (col.Key.StartsWith("form:"))
+        {
+            raw = FormCellText(col.Key, c);
+        }
+        else
+        {
+            var f = _boardFields.FirstOrDefault(x => x.FieldKey == col.Key);
+            if (f is not null && f.FieldType is not (TerceroFieldType.Number or TerceroFieldType.Currency or TerceroFieldType.Calculated)) { return null; }
+            raw = CardCustomRaw(c.Id, col.Key);
+        }
+        if (string.IsNullOrWhiteSpace(raw)) { return null; }
+        return decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n) ? (double)n : null;
+    }
+
+    private bool IsNumericCol(ListCol col, List<ActivityCardDto> cards)
+        => !TaskListViewConfig.IsBuiltin(col.Key) && cards.Any(c => NumericValueOf(c, col) is not null);
+
+    private double ColSum(ListCol col, IEnumerable<ActivityCardDto> cards)
+        => cards.Sum(c => NumericValueOf(c, col) ?? 0);
+
+    private string FmtColTotal(ListCol col, double v)
+    {
+        var f = _boardFields.FirstOrDefault(x => x.FieldKey == col.Key);
+        var s = v.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+        return f?.FieldType == TerceroFieldType.Currency ? "$" + s : s;
+    }
+
+    private LcDisplay BuildDisplayRows(List<ListCol> lcols)
+    {
+        var rows = new List<LcDisplayRow>();
+        var all = ListRows().ToList();
+        var allCards = all.Select(r => r.Card).ToList();
+        var numCols = lcols.Where(col => IsNumericCol(col, allCards)).Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+        var colByKey = lcols.ToDictionary(c => c.Key, c => c, StringComparer.Ordinal);
+        var grand = numCols.ToDictionary(k => k, k => ColSum(colByKey[k], allCards), StringComparer.Ordinal);
+
+        if (!string.IsNullOrEmpty(_groupBy))
+        {
+            var groups = all.GroupBy(r => GroupValueOf(r.Card))
+                            .OrderBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase);
+            foreach (var g in groups)
+            {
+                var cards = g.Select(r => r.Card).ToList();
+                var sums = numCols.ToDictionary(k => k, k => ColSum(colByKey[k], cards), StringComparer.Ordinal);
+                rows.Add(new LcDisplayRow(true, g.Key, cards.Count, sums, null, 0, null, 0, false, false));
+                foreach (var r in g)
+                {
+                    rows.Add(new LcDisplayRow(false, null, 0, null, r.Column, r.ColIdx, r.Card, 0, false, false));
+                }
+            }
+            return new LcDisplay(rows, all.Count, 1, grand, numCols);
+        }
+
+        var present = all.Select(r => r.Card.Number).ToHashSet(StringComparer.Ordinal);
+        bool IsNested(ActivityCardDto c) => c.IsSubtask && c.ParentNumber is not null && present.Contains(c.ParentNumber);
+        var kidsByParent = all.Where(r => IsNested(r.Card)).ToLookup(r => r.Card.ParentNumber!, StringComparer.Ordinal);
+        var topRows = all.Where(r => !IsNested(r.Card)).ToList();
+
+        var totalPages = Math.Max(1, (int)Math.Ceiling(topRows.Count / (double)ListPageSize));
+        var page = Math.Clamp(_listPage, 1, totalPages);
+        _listPage = page;
+        foreach (var r in topRows.Skip((page - 1) * ListPageSize).Take(ListPageSize))
+        {
+            var kids = kidsByParent[r.Card.Number].ToList();
+            var expanded = _expandedParents.Contains(r.Card.Id);
+            rows.Add(new LcDisplayRow(false, null, 0, null, r.Column, r.ColIdx, r.Card, 0, kids.Count > 0, expanded));
+            if (kids.Count > 0 && expanded)
+            {
+                foreach (var k in kids)
+                {
+                    rows.Add(new LcDisplayRow(false, null, 0, null, k.Column, k.ColIdx, k.Card, 1, false, false));
+                }
+            }
+        }
+        return new LcDisplay(rows, topRows.Count, totalPages, grand, numCols);
+    }
 
     private void BuildCardCustomCache()
     {

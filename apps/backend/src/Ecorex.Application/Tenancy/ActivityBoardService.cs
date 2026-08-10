@@ -477,7 +477,8 @@ public sealed class ActivityBoardService : IActivityBoardService
                     t.CustomFieldsJson,
                     t.ParentId != null,
                     t.ParentId is Guid pnid && parentNumbers.TryGetValue(pnid, out var pnum) ? pnum : null,
-                    sub.Done, sub.Total);
+                    sub.Done, sub.Total,
+                    t.RequesterName);
             }).ToList();
             return new ActivityBoardColumnDto(column.Id, column.Name, column.Color, column.SortOrder, column.IsDone, cards);
         }).ToList();

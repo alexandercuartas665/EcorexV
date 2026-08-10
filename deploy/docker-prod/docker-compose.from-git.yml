@@ -62,6 +62,10 @@ services:
       # Clave del primer Super Admin (admin@ecorex.local) que se crea en Production.
       # Sin datos demo: el sistema arranca limpio y con este admin.
       ECOREX_SEED_ADMIN_PASSWORD: "${ECOREX_SEED_ADMIN_PASSWORD}"
+      # API de gobierno de agentes (/api/mgmt, ADR-0057). Si esta VACIA la API responde 404
+      # (deshabilitada). Se activa poniendo ECOREX_MGMT_API_KEY en .env y recreando el contenedor.
+      # Opcional: ECOREX_MGMT_API_ALLOW_IPS (lista de IPs separadas por coma) para restringir origen.
+      ECOREX_MGMT_API_KEY: "${ECOREX_MGMT_API_KEY}"
       # Confianza al proxy/Caddy que termina TLS por delante.
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     ports:

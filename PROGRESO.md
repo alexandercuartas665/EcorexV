@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-10 - v0.11.2: reacomodo del modal de detalle (Resumen al rail + Subtareas en la izquierda)
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.
+Solo UI (TaskDetailModal.razor + app.css), sin migraciones ni cambios de backend. COMMITEADO, NO desplegado
+(a peticion del usuario; prod sigue en v0.11.1 hasta confirmar deploy).
+
+**Que:** reorganizacion de las columnas del detalle de la tarea a peticion del usuario:
+- **Resumen** sale de la columna central y sube al **rail derecho** (arriba de la Bitacora), como tarjeta
+  propia. La `aside` de bitacora pasa a ser un rail (`.tk-detail-rail`, flex column sticky con scroll) que
+  contiene dos tarjetas: Resumen + Bitacora.
+- **Subtareas** pasa a la **columna izquierda**, debajo de Registro de tiempo.
+- Columna central queda: Lista de chequeo, Asignados, Flujo.
+
+El movimiento de bloques se hizo por marcadores (scripts idempotentes) para no romper el markup; el Resumen
+conserva toda su funcion (etiquetas, avance) por moverse verbatim. `dotnet build` verde, sin errores de
+consola, sin secretos.
+
 ## 2026-08-09 - v0.11.1: reload del modal en scope EF propio + color de columna claro
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox `ecorex_dev`.

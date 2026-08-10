@@ -1562,7 +1562,8 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-detail-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 @media (max-width: 1080px) { .tk-detail-split { grid-template-columns: 1fr; } }
 .tk-detail-left { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.tk-detail-bitacora { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--sh-sm); position: sticky; top: 0; align-self: start; max-height: calc(92vh - 220px); overflow-y: auto; }
+.tk-detail-rail { min-width: 0; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; align-self: start; max-height: calc(92vh - 40px); overflow-y: auto; }
+.tk-detail-bitacora { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--sh-sm); }
 .tk-detail-bitacora > .tk-card-head { margin-bottom: 10px; }
 
 /* Tabs */

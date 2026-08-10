@@ -612,101 +612,39 @@
                             }
                         </div>
                     </div>
+                    @* Subtareas (tareas hijas, ADR-0065): tareas completas colgadas de esta; el
+                       "Avance" de arriba agrega su progreso. Clic en una la abre en este mismo modal. *@
+                    <div class="tk-card tk-subtasks">
+                        <div class="tk-card-head">
+                            <h3>Subtareas</h3>
+                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@SubtaskDone()/@SubtaskTotal()</strong></span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            @if (SubtaskTotal() == 0)
+                            {
+                                <p class="tk-empty-note">Sin subtareas.</p>
+                            }
+                            @foreach (var st in _detail.Subtasks ?? (IReadOnlyList<TaskItemSummaryDto>)Array.Empty<TaskItemSummaryDto>())
+                            {
+                                var sub = st;
+                                <div class="tk-subtask-row" @onclick="@(() => OpenSubtaskAsync(sub.Id))" title="Abrir subtarea @sub.Number">
+                                    <span class="tk-status @TaskUi.StatusClass(sub.Status)">@TaskUi.StatusLabel(sub.Status)</span>
+                                    <span class="tk-subtask-num">@sub.Number</span>
+                                    <span class="tk-subtask-title">@sub.Title</span>
+                                </div>
+                            }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-check-add">
+                                    <input class="form-control form-control-sm" @bind="_newSubtaskText" maxlength="200" placeholder="Nueva subtarea..." />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddSubtaskAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newSubtaskText))">Agregar subtarea</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
                 </div>
 
                 <div class="tk-detail-side">
-                    @* Resumen *@
-                    <div class="tk-card">
-                        <div class="tk-card-head"><h3>Resumen</h3></div>
-                        <div class="tk-summary">
-                            <div class="tk-summary-row"><span>Tipo</span><strong>@TypeLabel(item.ActivityTypeId, item.ActivityTypeName ?? item.SubcategoriaName)</strong></div>
-                            <div class="tk-summary-row">
-                                <span>Proyecto</span>
-                                @if (item.ProjectId is Guid pid && _projects.FirstOrDefault(p => p.Id == pid) is ProjectDto proj)
-                                {
-                                    <a href="/proyectos/@proj.Id" class="tk-link">@proj.Code - @proj.Name</a>
-                                }
-                                else
-                                {
-                                    <strong>Sin proyecto</strong>
-                                }
-                            </div>
-                            <div class="tk-summary-row"><span>Solicitante</span><strong>@(_detail.RequesterName ?? "-")</strong></div>
-                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterEmail))
-                            {
-                                <div class="tk-summary-row"><span>Email</span><strong>@_detail.RequesterEmail</strong></div>
-                            }
-                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterPhone))
-                            {
-                                <div class="tk-summary-row"><span>Telefono</span><strong>@_detail.RequesterPhone</strong></div>
-                            }
-                            @if (_detail.CcEmails.Count > 0)
-                            {
-                                <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _detail.CcEmails)</strong></div>
-                            }
-                            <div class="tk-summary-row"><span>Creada</span><strong>@item.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
-                            <div class="tk-summary-row"><span>Entrega</span><strong>@(item.DueDate?.ToLocalTime().ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
-                            @if (item.ClosedAt is not null)
-                            {
-                                <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
-                            }
-                            @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
-                            <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ProgressDone()/@ProgressTotal()</strong></div>
-                            <div class="tk-progress-bar"><i style="width:@(ProgressPctCombined())%;background:@ProgressColor()"></i></div>
-                            <div class="tk-summary-row tk-tags-row">
-                                <span>Etiquetas</span>
-                                <span class="tk-tags-edit">
-                                    @foreach (var tag in item.Tags)
-                                    {
-                                        var t = tag;
-                                        <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(t.Color) ? "" : $"background:{t.Color};color:#fff;")">
-                                            @t.Name
-                                            @if (!readOnly)
-                                            {
-                                                <span class="tk-tag-remove" title="Quitar etiqueta" @onclick="@(() => DetachTagAsync(t.Id))">&times;</span>
-                                            }
-                                        </span>
-                                    }
-                                    @if (item.Tags.Count == 0)
-                                    {
-                                        <span class="tk-tags-none">Sin etiquetas</span>
-                                    }
-                                    @if (!readOnly)
-                                    {
-                                        <span class="tk-tag-add-wrap">
-                                            <button class="tk-tag-add" title="Agregar etiqueta" @onclick="@(() => _tagMenuOpen = !_tagMenuOpen)">+ Etiqueta</button>
-                                            @if (_tagMenuOpen)
-                                            {
-                                                var yaPuestas = item.Tags.Select(x => x.Id).ToHashSet();
-                                                var disponibles = _assignableTags.Where(x => !yaPuestas.Contains(x.Id)).ToList();
-                                                <div class="tk-tag-menu">
-                                                    @if (disponibles.Count == 0)
-                                                    {
-                                                        <div class="tk-tag-menu-empty">
-                                                            @(_assignableTags.Count == 0
-                                                                ? "La columna no tiene etiquetas permitidas."
-                                                                : "Ya tiene todas las etiquetas disponibles.")
-                                                        </div>
-                                                    }
-                                                    else
-                                                    {
-                                                        @foreach (var opt in disponibles)
-                                                        {
-                                                            var o = opt;
-                                                            <button class="tk-tag-menu-opt" @onclick="@(() => AttachTagAsync(o.Id))">
-                                                                <span class="tk-tag-dot" style="background:@(string.IsNullOrWhiteSpace(o.Color) ? "#94a3b8" : o.Color)"></span>@o.Name
-                                                            </button>
-                                                        }
-                                                    }
-                                                </div>
-                                            }
-                                        </span>
-                                    }
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
                     @* Lista de chequeo (ADR-0020, patron del prototipo: checkbox 20px r6,
                        verde al completar, texto tachado; el Progreso de la tarjeta del
                        tablero sale de aqui). *@
@@ -742,37 +680,6 @@
                                 <div class="tk-check-add">
                                     <input class="form-control form-control-sm" @bind="_newCheckText" maxlength="300" placeholder="Nuevo item..." />
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    @* Subtareas (tareas hijas, ADR-0065): tareas completas colgadas de esta; el
-                       "Avance" de arriba agrega su progreso. Clic en una la abre en este mismo modal. *@
-                    <div class="tk-card tk-subtasks">
-                        <div class="tk-card-head">
-                            <h3>Subtareas</h3>
-                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@SubtaskDone()/@SubtaskTotal()</strong></span>
-                        </div>
-                        <div style="display:flex;flex-direction:column;gap:8px;">
-                            @if (SubtaskTotal() == 0)
-                            {
-                                <p class="tk-empty-note">Sin subtareas.</p>
-                            }
-                            @foreach (var st in _detail.Subtasks ?? (IReadOnlyList<TaskItemSummaryDto>)Array.Empty<TaskItemSummaryDto>())
-                            {
-                                var sub = st;
-                                <div class="tk-subtask-row" @onclick="@(() => OpenSubtaskAsync(sub.Id))" title="Abrir subtarea @sub.Number">
-                                    <span class="tk-status @TaskUi.StatusClass(sub.Status)">@TaskUi.StatusLabel(sub.Status)</span>
-                                    <span class="tk-subtask-num">@sub.Number</span>
-                                    <span class="tk-subtask-title">@sub.Title</span>
-                                </div>
-                            }
-                            @if (!readOnly)
-                            {
-                                <div class="tk-check-add">
-                                    <input class="form-control form-control-sm" @bind="_newSubtaskText" maxlength="200" placeholder="Nueva subtarea..." />
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddSubtaskAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newSubtaskText))">Agregar subtarea</button>
                                 </div>
                             }
                         </div>
@@ -1098,8 +1005,100 @@
                 }
               </div>
 
-              @* ===== Columna lateral: Bitacora (timeline de la tarea) ===== *@
-              <aside class="tk-detail-bitacora">
+              @* ===== Columna lateral (rail): Resumen arriba + Bitacora ===== *@
+              <aside class="tk-detail-rail">
+                    @* Resumen *@
+                    <div class="tk-card">
+                        <div class="tk-card-head"><h3>Resumen</h3></div>
+                        <div class="tk-summary">
+                            <div class="tk-summary-row"><span>Tipo</span><strong>@TypeLabel(item.ActivityTypeId, item.ActivityTypeName ?? item.SubcategoriaName)</strong></div>
+                            <div class="tk-summary-row">
+                                <span>Proyecto</span>
+                                @if (item.ProjectId is Guid pid && _projects.FirstOrDefault(p => p.Id == pid) is ProjectDto proj)
+                                {
+                                    <a href="/proyectos/@proj.Id" class="tk-link">@proj.Code - @proj.Name</a>
+                                }
+                                else
+                                {
+                                    <strong>Sin proyecto</strong>
+                                }
+                            </div>
+                            <div class="tk-summary-row"><span>Solicitante</span><strong>@(_detail.RequesterName ?? "-")</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterEmail))
+                            {
+                                <div class="tk-summary-row"><span>Email</span><strong>@_detail.RequesterEmail</strong></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_detail.RequesterPhone))
+                            {
+                                <div class="tk-summary-row"><span>Telefono</span><strong>@_detail.RequesterPhone</strong></div>
+                            }
+                            @if (_detail.CcEmails.Count > 0)
+                            {
+                                <div class="tk-summary-row"><span>CC</span><strong>@string.Join(", ", _detail.CcEmails)</strong></div>
+                            }
+                            <div class="tk-summary-row"><span>Creada</span><strong>@item.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
+                            <div class="tk-summary-row"><span>Entrega</span><strong>@(item.DueDate?.ToLocalTime().ToString("dd MMM yyyy") ?? "Sin fecha")</strong></div>
+                            @if (item.ClosedAt is not null)
+                            {
+                                <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
+                            }
+                            @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
+                            <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ProgressDone()/@ProgressTotal()</strong></div>
+                            <div class="tk-progress-bar"><i style="width:@(ProgressPctCombined())%;background:@ProgressColor()"></i></div>
+                            <div class="tk-summary-row tk-tags-row">
+                                <span>Etiquetas</span>
+                                <span class="tk-tags-edit">
+                                    @foreach (var tag in item.Tags)
+                                    {
+                                        var t = tag;
+                                        <span class="tk-tag" style="@(string.IsNullOrWhiteSpace(t.Color) ? "" : $"background:{t.Color};color:#fff;")">
+                                            @t.Name
+                                            @if (!readOnly)
+                                            {
+                                                <span class="tk-tag-remove" title="Quitar etiqueta" @onclick="@(() => DetachTagAsync(t.Id))">&times;</span>
+                                            }
+                                        </span>
+                                    }
+                                    @if (item.Tags.Count == 0)
+                                    {
+                                        <span class="tk-tags-none">Sin etiquetas</span>
+                                    }
+                                    @if (!readOnly)
+                                    {
+                                        <span class="tk-tag-add-wrap">
+                                            <button class="tk-tag-add" title="Agregar etiqueta" @onclick="@(() => _tagMenuOpen = !_tagMenuOpen)">+ Etiqueta</button>
+                                            @if (_tagMenuOpen)
+                                            {
+                                                var yaPuestas = item.Tags.Select(x => x.Id).ToHashSet();
+                                                var disponibles = _assignableTags.Where(x => !yaPuestas.Contains(x.Id)).ToList();
+                                                <div class="tk-tag-menu">
+                                                    @if (disponibles.Count == 0)
+                                                    {
+                                                        <div class="tk-tag-menu-empty">
+                                                            @(_assignableTags.Count == 0
+                                                                ? "La columna no tiene etiquetas permitidas."
+                                                                : "Ya tiene todas las etiquetas disponibles.")
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var opt in disponibles)
+                                                        {
+                                                            var o = opt;
+                                                            <button class="tk-tag-menu-opt" @onclick="@(() => AttachTagAsync(o.Id))">
+                                                                <span class="tk-tag-dot" style="background:@(string.IsNullOrWhiteSpace(o.Color) ? "#94a3b8" : o.Color)"></span>@o.Name
+                                                            </button>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
+                                        </span>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tk-card tk-detail-bitacora">
                     <div class="tk-card-head"><h3>Bitacora</h3></div>
                     @if (!readOnly)
                     {
@@ -1132,6 +1131,7 @@
                                 </div>
                             </div>
                         }
+                    </div>
                     </div>
               </aside>
             </div>

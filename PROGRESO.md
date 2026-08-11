@@ -8633,3 +8633,14 @@ sus tablas. uuid5 deterministas + ON CONFLICT. Backup ecorex-2026-08-11-1019.sql
 
 **Pendiente**: el campo fiscal 53 (Responsabilidad) NO existe aun; es MULTIPLE (el usuario lo explicara);
 la tabla 53 ya esta lista para engancharla. Enlace 53 pendiente.
+
+---
+
+## 2026-08-11 (sesion datos - prod) - SOLDARCO: campo fiscal 53 (multiple) enlazado
+
+**Hecho**: creado el campo fiscal '53_responsabilidad' ('53. Responsabilidad -Calidades y Atributos')
+en la ficha 'fiscal' del Directorio de SOLDARCO como Lookup MULTIPLE (allow_multiple=true) enlazado a
+la tabla "53 Responsabilidad -Calidades Y Atributos" del contenedor Maestro Fiscal DIAN
+(tableId fc6ee607-c24c-5822-8e23-a8e49bd61051, displayMode List). Cada tercero puede tener varias
+responsabilidades DIAN. Backup ecorex-2026-08-11-1034.sql.gz. Cierra el pendiente del conjunto:
+Maestro Fiscal DIAN (3 tablas) + fiscal 24/25 (Lookup) + 53 (Lookup multiple), todo en SOLDARCO prod.

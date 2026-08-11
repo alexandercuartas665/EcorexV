@@ -27,12 +27,29 @@ public sealed record TaskListColumnConfig(
     string? Group = null);
 
 /// <summary>
+/// Detalle EXPANDIBLE de la vista Lista (ADR-0065): cada fila (tarea/cotizacion) se puede abrir para
+/// mostrar las filas de un GridDetail de uno de sus formularios (p.ej. los items de una cotizacion).
+/// Es UN solo grid por tablero (se elige el formulario + su campo grilla) y se configura CUALES de sus
+/// columnas se ven. Null = sin detalle (la expansion cae a subtareas, comportamiento anterior).
+/// </summary>
+public sealed record TaskListDetailConfig(
+    Guid FormDefId,        // definicion de formulario cuyo GridDetail alimenta el detalle
+    string GridFieldCode,  // field_code del GridDetail (ej. "items")
+    IReadOnlyList<TaskListDetailColumn> Columns);
+
+/// <summary>Una columna del GridDetail elegida para el detalle. <c>Key</c> = id de columna del grid.</summary>
+public sealed record TaskListDetailColumn(string Key, bool Visible = true, string? Title = null);
+
+/// <summary>
 /// Config de la vista Lista de un tablero (que columnas se ven, su orden, color y titulos). Se
 /// guarda serializada como JSON en <c>TaskBoard.ListViewConfigJson</c> (jsonb PG / nvarchar(max)
 /// SQL). Es COMPARTIDA por tablero: todos los que abren el tablero ven las mismas columnas. El
 /// encabezado y la primera columna quedan fijos por CSS (no requieren configuracion).
 /// </summary>
-public sealed record TaskListViewConfig(IReadOnlyList<TaskListColumnConfig> Columns)
+public sealed record TaskListViewConfig(
+    IReadOnlyList<TaskListColumnConfig> Columns,
+    // Detalle expandible opcional (GridDetail de un formulario). Aditivo: configs viejas parsean igual.
+    TaskListDetailConfig? Detail = null)
 {
     // Claves de las columnas INCORPORADAS (las que no son campos personalizados del tablero).
     public const string KeyTitle = "@title";

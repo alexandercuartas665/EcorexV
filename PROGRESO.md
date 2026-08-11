@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-08-10 - v0.14.0: detalle configurable en la Lista (expandir filas de un GridDetail)
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox (sembrando
+una grilla + una respuesta). UI (razor + css) + backend (2 metodos de lectura), sin migracion. COMMITEADO,
+NO desplegado (prod en v0.13.1).
+
+**Contexto:** el tablero "Comercial - Requerimiento Infraestructura" (SKY SYSTEM) debe verse como el Excel
+`SEGUIMIENTO_COTIZACIONES` (Cotizador.xlsx). Una cotizacion tiene VARIOS items -> se resuelve con el
+GridDetail nativo del formulario (form SIMULADOR, grilla "Items", que NO se toca). El usuario pidio que las
+columnas del detalle sean CONFIGURABLES (form dinamico) y un solo GridDetail por tablero.
+
+**Que (capacidad generica):**
+- `TaskListViewConfig.Detail` (aditivo): `{FormDefId, GridFieldCode, Columns[]}`. Configs viejas parsean igual.
+- Backend `IFormResponseService`: `GetBoardGridSourcesAsync(boardId)` (campos GridDetail de los forms del
+  tablero + sus columnas via `FormGridCalculator.ParseColumns`) y `GetBoardTaskGridRowsAsync(boardId,
+  formDefId, gridFieldCode)` (filas del grid del form EFECTIVO por tarea, leidas del jsonb de la respuesta).
+- Configurador (modal Columnas): seccion "Detalle (items)" -> elegir UN formulario+GridDetail y cuales
+  columnas ver/ordenar (nada fijo).
+- Render (Lista): si hay detalle configurado, la fila padre muestra "+" y expande a las filas del grid
+  (items) con las columnas elegidas (cabecera + valores, numeros formateados). Reusa el arbol; cuando hay
+  detalle, la expansion usa el grid en vez de subtareas.
+
+**Verificacion:** sembrado en sandbox una grilla `items` (Detalle/Cantidad/Valor unitario) en el form del
+tablero + una cotizacion (T00010) con 3 items -> el configurador lista la fuente, se eligen columnas, y al
+expandir aparecen los 3 items formateados. `dotnet build` verde.
+
+**Pendiente (config del tablero real, no ingenieria):** crear los 9 campos de "Seguimiento tarea" (Estado/
+Resultado Lista, fechas, prob.cierre, notas...) + mapear las 26 columnas del Excel + apuntar el detalle al
+SIMULADOR/Items (esto ultimo requiere desplegar el feature).
+
 ## 2026-08-10 - v0.13.1: /api/mgmt GET /tenants (descubrimiento de tenants) + API habilitada en prod
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox. UN archivo

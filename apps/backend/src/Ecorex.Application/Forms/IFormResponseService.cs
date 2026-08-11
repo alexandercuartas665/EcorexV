@@ -90,6 +90,18 @@ public interface IFormResponseService
     Task<IReadOnlyList<TaskFormDataDto>> GetBoardTaskFormValuesAsync(Guid boardId, IReadOnlyList<Guid> definitionIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Campos GridDetail de los formularios del tablero (ADR-0065), con sus columnas, para elegir UNO
+    /// como fuente del DETALLE expandible de la vista Lista (p.ej. los items de una cotizacion).
+    /// </summary>
+    Task<IReadOnlyList<BoardGridSourceDto>> GetBoardGridSourcesAsync(Guid boardId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Filas del GridDetail <paramref name="gridFieldCode"/> (del formulario EFECTIVO de cada tarea) para
+    /// cada tarea del tablero. Solo lectura, para pintar el detalle expandible (los items) en la Lista.
+    /// </summary>
+    Task<IReadOnlyList<TaskGridRowsDto>> GetBoardTaskGridRowsAsync(Guid boardId, Guid formDefId, string gridFieldCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reabre una respuesta Finalizada (Submitted -> Draft) para volver a editarla ("Reabrir"). Guard:
     /// la tarea asociada no puede estar Cerrada (Closed). Sin efecto si ya es borrador.
     /// </summary>

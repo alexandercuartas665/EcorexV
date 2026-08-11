@@ -445,6 +445,30 @@
                                         }
                                     </tr>
                                 }
+                                else if (row.DetailKind == 1)
+                                {
+                                    var dcolsH = VisibleDetailColumns();
+                                    <tr class="tkl-detailhead">
+                                        <td class="tkl-pin"></td>
+                                        <td colspan="@Math.Max(1, lcols.Count - 1)">
+                                            <div class="tkl-dgrid tkl-dgrid-head" style="grid-template-columns:repeat(@dcolsH.Count,minmax(90px,1fr));">
+                                                @foreach (var dc in dcolsH) { <span>@DetailColLabel(dc)</span> }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                                else if (row.DetailKind == 2)
+                                {
+                                    var dcolsR = VisibleDetailColumns();
+                                    <tr class="tkl-detailrow">
+                                        <td class="tkl-pin"></td>
+                                        <td colspan="@Math.Max(1, lcols.Count - 1)">
+                                            <div class="tkl-dgrid" style="grid-template-columns:repeat(@dcolsR.Count,minmax(90px,1fr));">
+                                                @foreach (var dc in dcolsR) { <span>@DetailCellText(row.DetailCells, dc.Key)</span> }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
                                 else
                                 {
                                     var c = row.Card!;
@@ -459,7 +483,7 @@
                                                 @if (key == TaskListViewConfig.KeyTitle)
                                                 {
                                                     <div class="ab-lr-title" style="@(row.Depth > 0 ? "padding-left:20px;" : "")">
-                                                        <div>@if (row.HasKids) { <button class="tkl-expander" title="Ver subtareas" @onclick:stopPropagation="true" @onclick="@(() => ToggleExpand(c.Id))">@(row.Expanded ? "\u2212" : "+")</button> } @if (c.IsSubtask) { <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627;</span> } @c.Title</div>
+                                                        <div>@if (row.HasKids) { <button class="tkl-expander" title="@(HasDetail ? "Ver items" : "Ver subtareas")" @onclick:stopPropagation="true" @onclick="@(() => ToggleExpand(c.Id))">@(row.Expanded ? "\u2212" : "+")</button> } @if (c.IsSubtask) { <span class="ab-subtask-badge" title="Subtarea de @c.ParentNumber">&#8627;</span> } @c.Title</div>
                                                         <div>@(c.Description ?? "")</div>
                                                     </div>
                                                 }
@@ -621,6 +645,47 @@
                                 </div>
                                 <button type="button" class="btn btn-xs btn-primary" @onclick="AddFormFields" disabled="@(_bfSel.Count == 0)">Agregar como columnas (@_bfSel.Count)</button>
                             }
+                        }
+                    </div>
+
+                    @* Detalle expandible (GridDetail): elegir UNA grilla de UN formulario + sus columnas. *@
+                    <div class="lc-addform">
+                        <div class="lc-addform-top">
+                            <label>Detalle (items) &#183; grilla expandible</label>
+                            <select class="ab-select" @bind="_dcSel" @bind:after="OnDetailSourceChanged">
+                                <option value="">-- Sin detalle --</option>
+                                @foreach (var src in _detailSources)
+                                {
+                                    <option value="@($"{src.FormDefId}:{src.GridFieldCode}")">@src.FormTitle &#183; @src.GridLabel</option>
+                                }
+                            </select>
+                        </div>
+                        @if (_detailSources.Count == 0)
+                        {
+                            <div class="tkl-cfg-hint" style="margin:0;">Ningun formulario del tablero tiene una grilla (GridDetail) para usar como detalle.</div>
+                        }
+                        else if (_dcCols.Count > 0)
+                        {
+                            <div class="tkl-cfg-hint" style="margin:0 0 6px;">Al expandir una fila (con "+") se ven estas columnas del detalle. Elige cuales y su orden.</div>
+                            <table class="lc-tbl" style="max-width:560px;">
+                                <thead><tr><th></th><th>Ver</th><th>Columna</th><th>Titulo</th></tr></thead>
+                                <tbody>
+                                    @for (var i = 0; i < _dcCols.Count; i++)
+                                    {
+                                        var d = _dcCols[i];
+                                        var di = i;
+                                        <tr class="@(d.Visible ? "" : "lc-off")">
+                                            <td class="lc-move">
+                                                <button type="button" title="Subir" disabled="@(di == 0)" @onclick="@(() => DcMove(di, -1))">&#9650;</button>
+                                                <button type="button" title="Bajar" disabled="@(di == _dcCols.Count - 1)" @onclick="@(() => DcMove(di, 1))">&#9660;</button>
+                                            </td>
+                                            <td><input type="checkbox" checked="@d.Visible" @onchange="@(e => d.Visible = (bool)(e.Value ?? false))" /></td>
+                                            <td><span class="lc-name">@d.Label</span></td>
+                                            <td><input class="ab-input" placeholder="@d.Label" @bind="d.Title" maxlength="40" /></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
                         }
                     </div>
 
@@ -1452,6 +1517,7 @@
                 BuildCardCustomCache();
                 await EnsureListLabelsAsync();
                 await EnsureFormValuesAsync();
+                await EnsureDetailAsync();
             }
 }
         finally
@@ -2076,10 +2142,12 @@
     private void OnGroupByChanged() => _listPage = 1;
     private void ToggleExpand(Guid id) { if (!_expandedParents.Remove(id)) { _expandedParents.Add(id); } }
 
-    // Fila de render: encabezado de grupo, o fila de datos (con profundidad para el arbol de subtareas).
+    // Fila de render: encabezado de grupo, fila de datos (tarea, con profundidad para el arbol) o fila de
+    // DETALLE (item de un GridDetail). DetailKind: 0=normal, 1=cabecera del detalle, 2=fila de item.
     private sealed record LcDisplayRow(
         bool IsGroupHeader, string? GroupValue, int GroupCount, Dictionary<string, double>? Sums,
-        ActivityBoardColumnDto? Column, int ColIdx, ActivityCardDto? Card, int Depth, bool HasKids, bool Expanded);
+        ActivityBoardColumnDto? Column, int ColIdx, ActivityCardDto? Card, int Depth, bool HasKids, bool Expanded,
+        int DetailKind = 0, Dictionary<string, string?>? DetailCells = null);
 
     private sealed record LcDisplay(
         List<LcDisplayRow> Rows, int TotalUnits, int TotalPages,
@@ -2144,6 +2212,22 @@
         return f?.FieldType == TerceroFieldType.Currency ? "$" + s : s;
     }
 
+    // ---- Detalle expandible (GridDetail) ----
+    private List<TaskListDetailColumn> VisibleDetailColumns()
+        => _listCfg?.Detail?.Columns.Where(c => c.Visible).ToList() ?? new List<TaskListDetailColumn>();
+
+    private static string DetailColLabel(TaskListDetailColumn c)
+        => string.IsNullOrWhiteSpace(c.Title) ? c.Key : c.Title!;
+
+    // Valor de una celda del detalle; numeros se formatean con miles, el resto tal cual.
+    private static string DetailCellText(Dictionary<string, string?>? cells, string key)
+    {
+        if (cells is null || !cells.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) { return string.Empty; }
+        return decimal.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? n.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture)
+            : v;
+    }
+
     private LcDisplay BuildDisplayRows(List<ListCol> lcols)
     {
         var rows = new List<LcDisplayRow>();
@@ -2178,10 +2262,27 @@
         var totalPages = Math.Max(1, (int)Math.Ceiling(topRows.Count / (double)ListPageSize));
         var page = Math.Clamp(_listPage, 1, totalPages);
         _listPage = page;
+        var detailMode = HasDetail;
         foreach (var r in topRows.Skip((page - 1) * ListPageSize).Take(ListPageSize))
         {
-            var kids = kidsByParent[r.Card.Number].ToList();
             var expanded = _expandedParents.Contains(r.Card.Id);
+            if (detailMode)
+            {
+                // Detalle = filas del GridDetail del formulario (p.ej. items de la cotizacion).
+                var drows = _detailRows.TryGetValue(r.Card.Id, out var dr) ? dr : null;
+                var hasItems = drows is { Count: > 0 };
+                rows.Add(new LcDisplayRow(false, null, 0, null, r.Column, r.ColIdx, r.Card, 0, hasItems, expanded));
+                if (hasItems && expanded)
+                {
+                    rows.Add(new LcDisplayRow(false, null, 0, null, null, 0, null, 1, false, false, DetailKind: 1));
+                    foreach (var drow in drows!)
+                    {
+                        rows.Add(new LcDisplayRow(false, null, 0, null, null, 0, null, 1, false, false, DetailKind: 2, DetailCells: drow));
+                    }
+                }
+                continue;
+            }
+            var kids = kidsByParent[r.Card.Number].ToList();
             rows.Add(new LcDisplayRow(false, null, 0, null, r.Column, r.ColIdx, r.Card, 0, kids.Count > 0, expanded));
             if (kids.Count > 0 && expanded)
             {
@@ -2306,8 +2407,67 @@
         _bfDefId = null;
         _bfFields = new();
         _bfSel.Clear();
+        _detailSources = (await FormResponsesSvc.GetBoardGridSourcesAsync(BoardId)).ToList();
+        InitDetailConfig();
         _lc = BuildLcRows();
         _lcOpen = true;
+    }
+
+    // ---- Configurador del DETALLE (GridDetail expandible) ----
+    private string _dcSel = "";
+    private readonly List<DcCol> _dcCols = new();
+    private sealed class DcCol { public string Key = ""; public bool Visible = true; public string Title = ""; public string Label = ""; }
+
+    private void InitDetailConfig()
+    {
+        _dcCols.Clear();
+        _dcSel = "";
+        var det = _listCfg?.Detail;
+        if (det is null) { return; }
+        _dcSel = $"{det.FormDefId}:{det.GridFieldCode}";
+        var src = _detailSources.FirstOrDefault(s => s.FormDefId == det.FormDefId && s.GridFieldCode == det.GridFieldCode);
+        if (src is null) { return; }
+        var savedKeys = det.Columns.Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var sc in det.Columns)
+        {
+            var label = src.Columns.FirstOrDefault(x => x.Id == sc.Key)?.Label ?? sc.Key;
+            _dcCols.Add(new DcCol { Key = sc.Key, Visible = sc.Visible, Title = sc.Title ?? label, Label = label });
+        }
+        foreach (var sc in src.Columns.Where(x => !savedKeys.Contains(x.Id)))
+        {
+            _dcCols.Add(new DcCol { Key = sc.Id, Visible = false, Title = sc.Label, Label = sc.Label });
+        }
+    }
+
+    private void OnDetailSourceChanged()
+    {
+        _dcCols.Clear();
+        if (string.IsNullOrEmpty(_dcSel)) { return; }
+        var parts = _dcSel.Split(':', 2);
+        if (parts.Length != 2 || !Guid.TryParse(parts[0], out var defId)) { return; }
+        var src = _detailSources.FirstOrDefault(s => s.FormDefId == defId && s.GridFieldCode == parts[1]);
+        if (src is null) { return; }
+        foreach (var sc in src.Columns)
+        {
+            _dcCols.Add(new DcCol { Key = sc.Id, Visible = true, Title = sc.Label, Label = sc.Label });
+        }
+    }
+
+    private void DcMove(int i, int dir)
+    {
+        var j = i + dir;
+        if (j < 0 || j >= _dcCols.Count) { return; }
+        (_dcCols[i], _dcCols[j]) = (_dcCols[j], _dcCols[i]);
+    }
+
+    private TaskListDetailConfig? BuildDetailConfig()
+    {
+        if (string.IsNullOrEmpty(_dcSel)) { return null; }
+        var parts = _dcSel.Split(':', 2);
+        if (parts.Length != 2 || !Guid.TryParse(parts[0], out var defId)) { return null; }
+        var cols = _dcCols.Select(c => new TaskListDetailColumn(c.Key, c.Visible,
+            string.IsNullOrWhiteSpace(c.Title) ? c.Label : c.Title.Trim())).ToList();
+        return new TaskListDetailConfig(defId, parts[1], cols);
     }
 
     // Arma las filas editables del configurador: las guardadas (en orden, incl. campos de formulario)
@@ -2378,7 +2538,8 @@
             string.IsNullOrWhiteSpace(r.Color) ? null : r.Color.Trim(),
             r.IsForm ? (string.IsNullOrWhiteSpace(r.Label) ? r.DefaultLabel : r.Label) : null,
             string.IsNullOrWhiteSpace(r.CellColor) ? null : r.CellColor.Trim(),
-            string.IsNullOrWhiteSpace(r.Group) ? null : r.Group.Trim())).ToList());
+            string.IsNullOrWhiteSpace(r.Group) ? null : r.Group.Trim())).ToList(),
+            BuildDetailConfig());
         await BoardsSvc.SetListViewConfigAsync(BoardId, cfg.ToJson());
         _lcOpen = false;
         await ReloadAsync();
@@ -2407,6 +2568,23 @@
 
     // Cache de los valores de formulario por (tarjeta, definicion): FieldCode -> valor.
     private readonly Dictionary<(Guid, Guid), Dictionary<string, string?>> _formValues = new();
+
+    // Detalle expandible (GridDetail, ADR-0065): filas del grid por tarea + fuentes para el configurador.
+    private readonly Dictionary<Guid, List<Dictionary<string, string?>>> _detailRows = new();
+    private List<BoardGridSourceDto> _detailSources = new();
+
+    private bool HasDetail => _listCfg?.Detail is { } d && d.FormDefId != Guid.Empty && !string.IsNullOrWhiteSpace(d.GridFieldCode);
+
+    private async Task EnsureDetailAsync()
+    {
+        _detailRows.Clear();
+        if (_listCfg?.Detail is not { } det || det.FormDefId == Guid.Empty || string.IsNullOrWhiteSpace(det.GridFieldCode)) { return; }
+        var rows = await FormResponsesSvc.GetBoardTaskGridRowsAsync(BoardId, det.FormDefId, det.GridFieldCode);
+        foreach (var r in rows)
+        {
+            _detailRows[r.TaskItemId] = r.Rows.Select(x => new Dictionary<string, string?>(x, StringComparer.Ordinal)).ToList();
+        }
+    }
 
     private async Task EnsureFormValuesAsync()
     {

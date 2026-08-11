@@ -211,3 +211,16 @@ public sealed record BoardFormDto(Guid DefinitionId, string Code, string Title, 
 /// de aqui los campos elegidos para pintarlos como columnas informativas de la lista.
 /// </summary>
 public sealed record TaskFormDataDto(Guid TaskItemId, Guid DefinitionId, string Data);
+
+/// <summary>
+/// Una fuente de DETALLE para la vista Lista (ADR-0065): un campo GridDetail de un formulario del
+/// tablero, con sus columnas. La UI ofrece estas fuentes para elegir UNA y cuales columnas mostrar.
+/// </summary>
+public sealed record BoardGridSourceDto(Guid FormDefId, string FormTitle, string GridFieldCode,
+    string GridLabel, IReadOnlyList<BoardGridColumnDto> Columns);
+
+/// <summary>Columna de un GridDetail (id de columna + etiqueta + formato de presentacion).</summary>
+public sealed record BoardGridColumnDto(string Id, string Label, string? Format);
+
+/// <summary>Filas del GridDetail (detalle) de una tarea: cada fila es un dict columnaId -> valor.</summary>
+public sealed record TaskGridRowsDto(Guid TaskItemId, IReadOnlyList<IReadOnlyDictionary<string, string?>> Rows);

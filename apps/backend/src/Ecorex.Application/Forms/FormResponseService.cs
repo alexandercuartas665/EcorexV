@@ -926,6 +926,66 @@ public sealed class FormResponseService : IFormResponseService
         return result;
     }
 
+    public async Task<IReadOnlyList<BoardGridSourceDto>> GetBoardGridSourcesAsync(Guid boardId, CancellationToken cancellationToken = default)
+    {
+        var forms = await GetBoardFormsAsync(boardId, cancellationToken);
+        if (forms.Count == 0) { return Array.Empty<BoardGridSourceDto>(); }
+        var defIds = forms.Select(f => f.DefinitionId).ToList();
+        var grids = await _db.FormQuestions.AsNoTracking()
+            .Where(q => defIds.Contains(q.DefinitionId) && q.ControlType == FormControlType.GridDetail)
+            .Select(q => new { q.DefinitionId, q.FieldCode, q.Label, q.OptionsJson })
+            .ToListAsync(cancellationToken);
+        var titleByDef = forms.GroupBy(f => f.DefinitionId).ToDictionary(g => g.Key, g => g.First().Title);
+        var result = new List<BoardGridSourceDto>();
+        foreach (var g in grids)
+        {
+            var cols = Calc.FormGridCalculator.ParseColumns(g.OptionsJson);
+            if (cols.Count == 0) { continue; }
+            result.Add(new BoardGridSourceDto(
+                g.DefinitionId,
+                titleByDef.TryGetValue(g.DefinitionId, out var t) ? t : "(formulario)",
+                g.FieldCode,
+                string.IsNullOrWhiteSpace(g.Label) ? g.FieldCode : g.Label,
+                cols.Select(c => new BoardGridColumnDto(c.Id, c.Label, c.Format)).ToList()));
+        }
+        return result;
+    }
+
+    public async Task<IReadOnlyList<TaskGridRowsDto>> GetBoardTaskGridRowsAsync(Guid boardId, Guid formDefId, string gridFieldCode, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(gridFieldCode)) { return Array.Empty<TaskGridRowsDto>(); }
+        // Reusa el Data del formulario EFECTIVO por tarea; de ahi se extrae el valor del GridDetail.
+        var values = await GetBoardTaskFormValuesAsync(boardId, new[] { formDefId }, cancellationToken);
+        var result = new List<TaskGridRowsDto>();
+        foreach (var v in values)
+        {
+            var gridValue = ExtractFieldValue(v.Data, gridFieldCode);
+            var rows = FormFieldValidator.ParseGridRows(gridValue)
+                .Select(r => (IReadOnlyDictionary<string, string?>)new Dictionary<string, string?>(r, StringComparer.Ordinal))
+                .ToList();
+            if (rows.Count > 0) { result.Add(new TaskGridRowsDto(v.TaskItemId, rows)); }
+        }
+        return result;
+    }
+
+    /// <summary>Extrae el string de valor de un campo del documento Data ({ code: {value,type} }).</summary>
+    private static string? ExtractFieldValue(string? dataJson, string fieldCode)
+    {
+        if (string.IsNullOrWhiteSpace(dataJson)) { return null; }
+        try
+        {
+            using var doc = JsonDocument.Parse(dataJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return null; }
+            if (!doc.RootElement.TryGetProperty(fieldCode, out var fld)) { return null; }
+            if (fld.ValueKind == JsonValueKind.Object && fld.TryGetProperty("value", out var val))
+            {
+                return val.ValueKind == JsonValueKind.String ? val.GetString() : val.GetRawText();
+            }
+            return fld.ValueKind == JsonValueKind.String ? fld.GetString() : fld.GetRawText();
+        }
+        catch (JsonException) { return null; }
+    }
+
     // ---- Numeracion heredada de formularios de la tarea: Reference = "{numero tarea}-{n}" ----
 
     /// <summary>Primer FieldCode de la definicion cuyo Label contiene alguna de las pistas. Null si ninguno.</summary>

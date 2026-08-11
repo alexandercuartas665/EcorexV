@@ -8560,3 +8560,19 @@ mercado' <-> 'Codigo Mercado'). (3) Replica de TODA la estructura (10 tablas + d
 relacion) en SOLDARCO tenant e3519cc4..., contenedor GESTION COMERCIAL (model 6f80eaef..., estaba
 vacio). Verificado en ambos: codigos 01..32, relacion 47 links. Backup ecorex-2026-08-10-2103.sql.gz.
 uuid5 idempotente (celdas DO UPDATE para el fix de ceros). SQL directo (excepcion ETL).
+
+---
+
+## 2026-08-11 (sesion datos - prod) - SOLDARCO: campos DIAN en ficha fiscal (Directorio)
+
+**Hecho**: agregados a la ficha 'fiscal' (Datos fiscales) del Directorio General de SOLDARCO
+(tenant e3519cc4-150f-4f63-a0cd-21eb9d59f1fa) los campos configurables DIAN del cliente (tercero_field_definitions):
+6 DV, 26 num identificacion, 31/32 apellidos, 33 primer nombre, 34 otros nombres, 35 razon social,
+36 nombre comercial, 37 sigla, 38 pais, 39 depto, 40 ciudad, 41 direccion principal, 42 correo,
+43 codigo postal, 44/45 telefonos, 46/48 codigos actividad, 47/49 fechas inicio (mas 24/25 que ya
+existian). Hallazgo: la ficha ya tenia 5 campos de SISTEMA renombrados por etiqueta a DIAN
+(razon_social->26, sector_industria->31, tamano->32, sitio_web->33, representante_legal->34) con key
+sin coincidir; el primer INSERT (dedup por field_key) genero 5 duplicados por etiqueta. Corregido:
+verificado 0 datos capturados -> DELETE de los 5 campos de sistema renombrados + INSERT 35_razon_social.
+Estado final: 23 campos DIAN limpios (key=etiqueta), sin dup, sin perdida. Backup ecorex-2026-08-11-0909.sql.gz.
+Nota: queda un campo generico 'direccion' (sistema) redundante con '41 direccion principal'.

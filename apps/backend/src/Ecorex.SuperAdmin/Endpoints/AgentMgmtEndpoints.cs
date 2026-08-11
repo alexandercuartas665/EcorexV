@@ -43,6 +43,30 @@ public static class AgentMgmtEndpoints
     {
         var group = app.MapGroup("/api/mgmt");
 
+        // 0. Descubrimiento de tenants (NO requiere ?tenant=): lista TODOS con conteo de agentes/lineas.
+        //    Es lo primero que llama el operador para saber sobre que tenant operar.
+        group.MapGet("/tenants", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunNoTenant(req, scopes, ct, async (db, c) =>
+            {
+                var tenants = await db.Tenants.IgnoreQueryFilters()
+                    .OrderBy(t => t.Name)
+                    .Select(t => new { t.Id, t.Name, t.Status, t.Kind })
+                    .ToListAsync(c);
+                var agentCounts = await db.AiAgents.IgnoreQueryFilters()
+                    .GroupBy(a => a.TenantId).Select(g => new { g.Key, C = g.Count() }).ToListAsync(c);
+                var lineCounts = await db.WhatsAppLines.IgnoreQueryFilters()
+                    .GroupBy(l => l.TenantId).Select(g => new { g.Key, C = g.Count() }).ToListAsync(c);
+                var aMap = agentCounts.ToDictionary(x => x.Key, x => x.C);
+                var lMap = lineCounts.ToDictionary(x => x.Key, x => x.C);
+                return (object)tenants.Select(t => new
+                {
+                    t.Id, t.Name, t.Status, t.Kind,
+                    agents = aMap.TryGetValue(t.Id, out var a) ? a : 0,
+                    lines = lMap.TryGetValue(t.Id, out var l) ? l : 0
+                }).ToList();
+            },
+            result => Results.Json(result, Json)));
+
         // 1. Listado resumido de agentes del tenant.
         group.MapGet("/agents", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
             Run(req, scopes, ct, (svc, _, c) => svc.Agents.ListAsync(c),
@@ -406,13 +430,28 @@ public static class AgentMgmtEndpoints
         sp.GetRequiredService<IEnumerable<IAgentToolset>>());
 
     /// <summary>
-    /// Aplica los gates de seguridad y resuelve el tenant. Devuelve un IResult si hay que cortar
-    /// (404 API deshabilitada, 403 IP no permitida, 401 key mala, 400 tenant ausente/invalido); null si OK.
+    /// Ejecuta un handler que NO necesita tenant (p.ej. descubrir tenants): aplica solo el gate de AUTH
+    /// (sin ?tenant=), abre un scope y resuelve el DbContext. Las consultas deben usar IgnoreQueryFilters.
     /// </summary>
-    private static IResult? CheckGate(HttpRequest req, out Guid tenantId)
+    private static async Task<IResult> RunNoTenant(
+        HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct,
+        Func<IApplicationDbContext, CancellationToken, Task<object?>> work,
+        Func<object?, IResult> shape)
     {
-        tenantId = Guid.Empty;
+        var gate = CheckAuthGate(req);
+        if (gate is not null) { return gate; }
 
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        var result = await work(db, ct);
+        return shape(result);
+    }
+
+    /// <summary>
+    /// Gate de AUTH (sin tenant): 404 si la API esta deshabilitada, 403 IP no permitida, 401 key mala; null si OK.
+    /// </summary>
+    private static IResult? CheckAuthGate(HttpRequest req)
+    {
         var configured = Environment.GetEnvironmentVariable(KeyEnvVar);
         // API deshabilitada si no hay clave: 404 (no revelar que el endpoint existe).
         if (string.IsNullOrWhiteSpace(configured)) { return Results.NotFound(); }
@@ -434,6 +473,19 @@ public static class AgentMgmtEndpoints
         {
             return Results.Unauthorized();
         }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gate completo: AUTH + tenant obligatorio por ?tenant=. Devuelve un IResult si hay que cortar
+    /// (404/403/401/400); null si OK.
+    /// </summary>
+    private static IResult? CheckGate(HttpRequest req, out Guid tenantId)
+    {
+        tenantId = Guid.Empty;
+        var auth = CheckAuthGate(req);
+        if (auth is not null) { return auth; }
 
         var tenantRaw = req.Query["tenant"].ToString();
         if (string.IsNullOrWhiteSpace(tenantRaw) || !Guid.TryParse(tenantRaw, out tenantId) || tenantId == Guid.Empty)

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-08-10 - v0.13.1: /api/mgmt GET /tenants (descubrimiento de tenants) + API habilitada en prod
+
+**Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox. UN archivo
+(`AgentMgmtEndpoints.cs`), sin migracion. COMMITEADO, NO desplegado (prod en v0.13.0).
+
+**Que:** `GET /api/mgmt/tenants` (no requiere `?tenant=`): lista TODOS los tenants con `status`, `kind` y
+conteo de agentes/lineas, para que el operador (Claude) descubra sobre que tenant operar. Se extrajo el
+gate de AUTH (`CheckAuthGate`, sin tenant) del `CheckGate` completo, y un helper `RunNoTenant` que abre
+scope + DbContext y consulta con `IgnoreQueryFilters` (Tenants es global). Verificado: sin header->401,
+con key->lista.
+
+**Ademas (operativo, este dia):** la API `/api/mgmt` se HABILITO en prod (v0.13.0): se genero
+`ECOREX_MGMT_API_KEY`, se agrego al `.env` + al bloque `environment:` del compose (server y repo, commit
+`0a61298`), se recreo el contenedor y se probo E2E contra prod (lectura cross-tenant de AGROMETALICAS +
+crear/configurar/borrar un agente de prueba). La clave la tiene el usuario; vive solo en `/opt/ecorex/.env`.
+
 ## 2026-08-10 - v0.13.0: API de gobierno /api/mgmt extendida (tools MCP + lineas + bindings + logs por conversacion)
 
 **Agentes:** Claude Opus 4.8 (2 sub-agentes Explore para mapear infra + dominio), worktree

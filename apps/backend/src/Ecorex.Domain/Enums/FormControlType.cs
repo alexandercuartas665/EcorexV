@@ -78,5 +78,13 @@ public enum FormControlType
     /// el pipeline de calculo de GridDetail (FormExpressionEvaluator / FormGridCalculator). El registro
     /// capturado se persiste en FormResponse.Data como cualquier otro formulario.
     /// </summary>
-    CascadeConfigurator
+    CascadeConfigurator,
+
+    /// <summary>
+    /// Campo geografico Colombia (Pais/Departamento/Ciudad) auto-encadenado: al ponerlo en el
+    /// formulario pinta 3 selects en cascada (Pais fijo Colombia -> Departamento -> Ciudad) leidos
+    /// del catalogo global DANE (<see cref="Ecorex.Domain.Entities.Ciudad"/>), sin configuracion.
+    /// El valor se persiste en FormResponse.Data como JSON {pais,departamento,ciudad}.
+    /// </summary>
+    Geografia
 }

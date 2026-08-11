@@ -1,0 +1,120 @@
+@* ============================================================
+   Campo geografico Colombia (FormControlType.Geografia): 3 selects
+   ENCADENADOS Pais (fijo Colombia) -> Departamento -> Ciudad, leidos del
+   catalogo global DANE (ICiudadCatalogService). Sin configuracion: al ponerlo
+   en el formulario ya viene relacionado. El valor se emite como JSON
+   {"pais","departamento","ciudad"} (string), reportable como cualquier campo.
+   ============================================================ *@
+@using System.Text.Json
+@inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadesSvc
+
+<div class="dfr-geo">
+    <div class="dfr-geo-col">
+        <label class="dfr-geo-lbl">Pais</label>
+        <select class="dfr-geo-sel" disabled>
+            <option>Colombia</option>
+        </select>
+    </div>
+    <div class="dfr-geo-col">
+        <label class="dfr-geo-lbl">Departamento</label>
+        <select class="dfr-geo-sel" disabled="@Disabled" value="@_departamento"
+                @onchange="OnDepartamentoChanged">
+            <option value="">-- Departamento --</option>
+            @foreach (var d in _departamentos)
+            {
+                <option value="@d" selected="@(d == _departamento)">@d</option>
+            }
+        </select>
+    </div>
+    <div class="dfr-geo-col">
+        <label class="dfr-geo-lbl">Ciudad</label>
+        <select class="dfr-geo-sel" disabled="@(Disabled || string.IsNullOrEmpty(_departamento))"
+                value="@_ciudad" @onchange="OnCiudadChanged">
+            <option value="">@(string.IsNullOrEmpty(_departamento) ? "Elige departamento" : "-- Ciudad --")</option>
+            @foreach (var c in _municipios)
+            {
+                <option value="@c" selected="@(c == _ciudad)">@c</option>
+            }
+        </select>
+    </div>
+</div>
+
+@code {
+    private const string Pais = "Colombia";
+
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private IReadOnlyList<string> _departamentos = Array.Empty<string>();
+    private IReadOnlyList<string> _municipios = Array.Empty<string>();
+    private string _departamento = "";
+    private string _ciudad = "";
+    private string? _lastEmitted;
+
+    protected override async Task OnInitializedAsync()
+        => _departamentos = await CiudadesSvc.ListDepartamentosAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Solo re-hidrata desde Value si el cambio viene de AFUERA (autollenado/regla), no de
+        // nuestra propia emision, para no pisar lo que el usuario esta eligiendo.
+        if (Value == _lastEmitted) { return; }
+        var (dep, ciu) = Parse(Value);
+        _departamento = dep;
+        _ciudad = ciu;
+        _municipios = string.IsNullOrEmpty(_departamento)
+            ? Array.Empty<string>()
+            : await CiudadesSvc.ListMunicipiosAsync(_departamento);
+    }
+
+    private async Task OnDepartamentoChanged(ChangeEventArgs e)
+    {
+        _departamento = e.Value?.ToString() ?? "";
+        _ciudad = "";
+        _municipios = string.IsNullOrEmpty(_departamento)
+            ? Array.Empty<string>()
+            : await CiudadesSvc.ListMunicipiosAsync(_departamento);
+        await EmitAsync();
+    }
+
+    private async Task OnCiudadChanged(ChangeEventArgs e)
+    {
+        _ciudad = e.Value?.ToString() ?? "";
+        await EmitAsync();
+    }
+
+    private async Task EmitAsync()
+    {
+        // Vacio total -> emite null/"" para que el campo cuente como "sin valor".
+        string payload;
+        if (string.IsNullOrEmpty(_departamento) && string.IsNullOrEmpty(_ciudad))
+        {
+            payload = "";
+        }
+        else
+        {
+            payload = JsonSerializer.Serialize(new GeoValue(Pais, _departamento, _ciudad));
+        }
+        _lastEmitted = payload;
+        await ValueChanged.InvokeAsync(payload);
+    }
+
+    private static (string Dep, string Ciu) Parse(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return ("", ""); }
+        var t = raw.TrimStart();
+        if (t.Length > 0 && t[0] == '{')
+        {
+            try
+            {
+                var v = JsonSerializer.Deserialize<GeoValue>(raw);
+                if (v is not null) { return (v.Departamento ?? "", v.Ciudad ?? ""); }
+            }
+            catch (JsonException) { /* valor viejo o corrupto: cae a vacio */ }
+        }
+        return ("", "");
+    }
+
+    private sealed record GeoValue(string? Pais, string? Departamento, string? Ciudad);
+}

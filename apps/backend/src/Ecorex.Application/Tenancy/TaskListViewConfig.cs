@@ -24,7 +24,11 @@ public sealed record TaskListColumnConfig(
     string? CellColor = null,
     // Supra-titulo: columnas CONSECUTIVAS con el mismo Group se agrupan bajo un encabezado que
     // las abarca (colspan) en una fila superior de la cabecera. Null/"" = sin grupo.
-    string? Group = null);
+    string? Group = null,
+    // Ancho de la columna en px. Null = automatico (se ajusta al contenido). Cuando ALGUNA columna
+    // trae ancho, la tabla pasa a layout fijo y las celdas recortan con elipsis. Se persiste por
+    // tablero y se puede ajustar arrastrando el borde del encabezado en la vista Lista.
+    int? Width = null);
 
 /// <summary>
 /// Detalle EXPANDIBLE de la vista Lista (ADR-0065): cada fila (tarea/cotizacion) se puede abrir para

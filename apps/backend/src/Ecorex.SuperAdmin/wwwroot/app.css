@@ -2450,6 +2450,22 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .tkl-row:hover td.tkl-pin { background: var(--surface-2); }
 .tkl th.tkl-pin { background: var(--surface-2); box-shadow: 1px 0 0 var(--line); }
 .tkl-mono { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 12px; }
+/* Bordes de columna visibles (rejilla), como en la hoja de Excel. */
+.tkl thead th, .tkl tbody td { border-right: 1px solid var(--line); }
+.tkl thead th:last-child, .tkl tbody td:last-child { border-right: none; }
+/* Ancho configurable por tablero: cuando alguna columna trae ancho, la tabla pasa a layout fijo y
+   las celdas recortan con elipsis (asi se pueden angostar columnas mas alla del contenido). */
+.tkl-fixed { table-layout: fixed; }
+.tkl-fixed thead th, .tkl-fixed tbody td { overflow: hidden; text-overflow: ellipsis; }
+.tkl-fixed td.tkl-pin, .tkl-fixed th.tkl-pin { min-width: 0; max-width: none; }
+/* Tirador para arrastrar el borde derecho del encabezado y redimensionar la columna. */
+.tkl thead th { position: sticky; } /* asegura contexto posicionado para el tirador absoluto */
+.tkl-resizer { position: absolute; top: 0; right: -3px; width: 12px; height: 100%; cursor: col-resize; user-select: none; touch-action: none; z-index: 8; }
+.tkl-resizer:hover { background: color-mix(in srgb, var(--brand, #7c5cff) 45%, transparent); }
+/* En layout fijo el th recorta con overflow:hidden; el tirador debe poder sobresalir para agarrarse. */
+.tkl-fixed thead th { overflow: visible; }
+.tkl-fixed tbody td { overflow: hidden; text-overflow: ellipsis; }
+.lc-width { width: 74px; text-align: right; }
 .tkl-cf { color: var(--ink-2); }
 .tkl-tags { display: flex; gap: 5px; flex-wrap: wrap; }
 .tkl-tag { font-size: 10.5px; padding: 1px 8px; border-radius: 999px; }
@@ -2623,3 +2639,17 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .tk-av-solid { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; flex: none; }
 .tk-dashed-add { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; padding: 8px; border-radius: 9px; border: 1.5px dashed var(--line-2, var(--border)); background: none; color: var(--ink-3, var(--muted-foreground)); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; width: 100%; }
 .tk-dashed-add:hover { border-color: var(--brand, var(--primary)); color: var(--brand, var(--primary)); }
+
+/* Campo geografico (FormControlType.Geografia): 3 selects encadenados Pais/Depto/Ciudad. */
+.dfr-geo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dfr-geo-col { display: flex; flex-direction: column; gap: 4px; }
+.dfr-geo-lbl { font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .03em; }
+.dfr-geo-sel { padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13.5px; }
+.dfr-geo-sel:disabled { background: var(--surface-2); color: var(--ink-3); }
+@media (max-width: 620px) { .dfr-geo { grid-template-columns: 1fr; } }
+
+/* #5 Colores de grupo en el configurador de columnas. */
+.tkl-grpcolors { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.tkl-grpcolors-lbl { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tkl-grpchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); }
+.tkl-grpchip input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }

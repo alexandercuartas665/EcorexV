@@ -26,6 +26,19 @@
 }
 .fx-btn-new:hover { opacity: .9; }
 .fx-btn-new:disabled { opacity: .6; cursor: default; }
+.fx-btn-ghost {
+    display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 15px;
+    border-radius: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    font: inherit; font-weight: 600; font-size: 13.5px; cursor: pointer;
+}
+.fx-btn-ghost:hover { background: var(--surface-2); }
+.fx-btn-ghost:disabled { opacity: .6; cursor: default; }
+.fx-import-ta {
+    width: 100%; box-sizing: border-box; margin-top: 10px; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
+    resize: vertical;
+}
 
 .fx-error {
     font-size: 12.5px; color: var(--t-rose); background: var(--t-rose-bg);

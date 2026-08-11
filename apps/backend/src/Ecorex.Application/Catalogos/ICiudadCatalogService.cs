@@ -18,4 +18,10 @@ public interface ICiudadCatalogService
     /// devuelve las primeras <paramref name="take"/> por nombre. Case-insensitive.
     /// </summary>
     Task<IReadOnlyList<CiudadDto>> SearchAsync(string? term, int take = 30, CancellationToken cancellationToken = default);
+
+    /// <summary>Departamentos distintos del catalogo (para la cascada geografica), ordenados.</summary>
+    Task<IReadOnlyList<string>> ListDepartamentosAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Municipios de un departamento (para la cascada geografica), ordenados por nombre.</summary>
+    Task<IReadOnlyList<string>> ListMunicipiosAsync(string departamento, CancellationToken cancellationToken = default);
 }

@@ -18,6 +18,12 @@ public interface IFormDefinitionService
 
     Task<FormResult<FormDefinitionDetailDto>> CreateAsync(CreateFormDefinitionRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Serializa un formulario completo (cabecera + contenedores + preguntas) a JSON portable.</summary>
+    Task<FormResult<string>> ExportAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Crea un formulario NUEVO a partir de un JSON exportado. Genera un codigo unico: NUNCA pisa uno existente.</summary>
+    Task<FormResult<FormDefinitionDetailDto>> ImportAsync(string json, CancellationToken cancellationToken = default);
+
     Task<FormResult<FormDefinitionDetailDto>> UpdateHeaderAsync(Guid definitionId, UpdateFormDefinitionRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>Configura la transaccionalidad del formulario (ola F3): IsTransactional + modo de identidad + campo clave.</summary>

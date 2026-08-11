@@ -389,7 +389,18 @@
                 @* Barra de scroll horizontal SUPERIOR, sincronizada con la inferior (JS ecorexBoardList). *@
                 <div class="tkl-topscroll"><div class="tkl-topscroll-inner"></div></div>
                 <div class="tkl-scroll">
-                    <table class="tkl">
+                    @{
+                        var _anyW = lcols.Any(x => x.Width is > 0);
+                    }
+                    <table class="tkl @(_anyW ? "tkl-fixed" : "")">
+                        <colgroup>
+                            @for (var _ci = 0; _ci < lcols.Count; _ci++)
+                            {
+                                var _w = lcols[_ci].Width;
+                                int? _wpx = _w is > 0 ? _w : (_anyW ? (_ci == 0 ? 240 : 150) : (int?)null);
+                                <col style="@(_wpx is int _p ? $"width:{_p}px" : "")" />
+                            }
+                        </colgroup>
                         <thead>
                             @{
                                 var _hasGroup = lcols.Any(x => !string.IsNullOrWhiteSpace(x.Group));
@@ -401,7 +412,7 @@
                                 <tr>
                                     @foreach (var run in MergeRuns(lcols, x => x.Group))
                                     {
-                                        <th colspan="@run.Span" class="tkl-group @(run.Start == 0 ? "tkl-pin" : "")">@run.Value</th>
+                                        <th colspan="@run.Span" class="tkl-group @(run.Start == 0 ? "tkl-pin" : "")" style="@GroupHeadStyle(lcols[run.Start])">@run.Value</th>
                                     }
                                 </tr>
                             }
@@ -409,7 +420,7 @@
                             <tr>
                                 @foreach (var run in MergeRuns(lcols, x => x.Title))
                                 {
-                                    <th colspan="@run.Span" class="tkl-th-main @(run.Start == 0 ? "tkl-pin" : "")" style="@ColHeadStyle(lcols[run.Start])">@run.Value</th>
+                                    <th colspan="@run.Span" class="tkl-th-main @(run.Start == 0 ? "tkl-pin" : "")" style="@ColHeadStyle(lcols[run.Start])">@run.Value<span class="tkl-resizer" data-ci="@(run.Start + run.Span - 1)" data-key="@lcols[run.Start + run.Span - 1].Key" title="Arrastra para ajustar el ancho"></span></th>
                                 }
                             </tr>
                             @* Nivel 3: SUBTITULO (fusiona consecutivos con el mismo subtitulo). *@
@@ -690,8 +701,26 @@
                     </div>
 
                     <p class="tkl-cfg-hint" style="margin:0 0 8px;">Tip: pon el mismo <strong>Grupo</strong> en columnas seguidas para que compartan un supra-titulo que las abarque. Hay <strong>dos</strong> colores por columna: <strong>Encab.</strong> tine el encabezado y <strong>Columna</strong> tine TODA la columna (las celdas de esa columna en cada fila).</p>
+                    @{
+                        var _grupos = _lc.Where(r => !string.IsNullOrWhiteSpace(r.Group))
+                            .Select(r => r.Group.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    }
+                    @if (_grupos.Count > 0)
+                    {
+                        <div class="tkl-grpcolors">
+                            <span class="tkl-grpcolors-lbl">Color de grupo (banda del supra-titulo):</span>
+                            @foreach (var g in _grupos)
+                            {
+                                var gg = g;
+                                <label class="tkl-grpchip">
+                                    <input type="color" value="@GroupColorOf(gg)" @onchange="@(e => SetGroupColor(gg, e.Value?.ToString()))" />
+                                    <span>@gg</span>
+                                </label>
+                            }
+                        </div>
+                    }
                     <table class="lc-tbl">
-                        <thead><tr><th></th><th>Ver</th><th>Campo</th><th>Grupo</th><th>Titulo</th><th>Subtitulo</th><th>Encab.</th><th>Columna</th></tr></thead>
+                        <thead><tr><th></th><th>Ver</th><th>Campo</th><th>Grupo</th><th>Titulo</th><th>Subtitulo</th><th>Encab.</th><th>Columna</th><th>Ancho</th></tr></thead>
                         <tbody>
                             @for (var i = 0; i < _lc.Count; i++)
                             {
@@ -721,6 +750,7 @@
                                             <button type="button" class="lc-clear" title="Sin color de columna" @onclick="@(() => r.CellColor = string.Empty)">&times;</button>
                                         }
                                     </td>
+                                    <td><input class="ab-input lc-width" type="number" min="60" max="900" step="10" placeholder="auto" value="@(r.Width?.ToString() ?? string.Empty)" @onchange="@(e => r.Width = int.TryParse(e.Value?.ToString(), out var w) && w > 0 ? w : (int?)null)" /></td>
                                 </tr>
                             }
                         </tbody>
@@ -1364,6 +1394,13 @@
     private FormFirstStarter? _formFirst;
     private bool _openWizardPending;
 
+    // #2: preferencias de UI por USUARIO (localStorage del navegador), por tablero: ultima vista +
+    // si el panel de filtros estaba abierto. Se cargan una vez y se persisten al cambiar.
+    private bool _prefsLoaded;
+    private string _prefView = "";
+    private bool _prefFilters;
+    private string PrefsKey() => $"ecorex.board.{BoardId}.prefs";
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Los @ref existen recien tras el primer render; aqui abrimos el arranque UNA vez.
@@ -1383,10 +1420,50 @@
             await _wizard.OpenAsync(presetSubcategoriaId: presetSub);
         }
 
+        // #2: carga UNA vez la vista + estado de filtro guardados para este usuario/tablero, y luego
+        // persiste cada cambio. localStorage se llama directo (getItem/setItem) sin JS propio.
+        if (!_prefsLoaded)
+        {
+            _prefsLoaded = true;
+            try
+            {
+                var raw = await JS.InvokeAsync<string?>("localStorage.getItem", PrefsKey());
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    var parts = raw.Split('|');
+                    if (parts.Length == 2)
+                    {
+                        if (parts[0] is "tablero" or "lista" or "calendario" or "gantt") { _view = parts[0]; }
+                        _filtersVisible = parts[1] == "1";
+                    }
+                }
+            }
+            catch (Microsoft.JSInterop.JSException) { /* prerender: sin JS todavia */ }
+            catch (InvalidOperationException) { }
+            _prefView = _view;
+            _prefFilters = _filtersVisible;
+            StateHasChanged();
+            return;
+        }
+        if (_view != _prefView || _filtersVisible != _prefFilters)
+        {
+            _prefView = _view;
+            _prefFilters = _filtersVisible;
+            try { await JS.InvokeVoidAsync("localStorage.setItem", PrefsKey(), $"{_view}|{(_filtersVisible ? "1" : "0")}"); }
+            catch (Microsoft.JSInterop.JSException) { }
+            catch (InvalidOperationException) { }
+        }
+
         // Sincroniza la barra de scroll superior de la Lista con la inferior (ancho + posicion).
         if (_view == "lista")
         {
-            try { await JS.InvokeVoidAsync("ecorexBoardList.syncScroll"); }
+            _selfRef ??= Microsoft.JSInterop.DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("ecorexBoardList.syncScroll");
+                // Engancha el arrastre de bordes para redimensionar columnas (persistente por tablero).
+                await JS.InvokeVoidAsync("ecorexBoardList.initResizers", _selfRef);
+            }
             catch (Microsoft.JSInterop.JSException) { /* el JS aun no cargo */ }
             catch (InvalidOperationException) { /* prerender: sin JS todavia */ }
         }
@@ -2014,7 +2091,7 @@
     // Ola 2 ADR-0065: vista Lista configurable por tablero
     // ============================================================
     private sealed record ListCol(string Key, string Title, string? Subtitle, string? Color, bool Visible,
-        string? CellColor = null, string? Group = null);
+        string? CellColor = null, string? Group = null, int? Width = null);
 
     // Una corrida de columnas CONSECUTIVAS con el mismo valor en un nivel de la cabecera (grupo,
     // titulo o subtitulo): se fusionan en una celda con colspan.
@@ -2101,7 +2178,7 @@
                     c.Key,
                     string.IsNullOrWhiteSpace(c.Title) ? def : c.Title!,
                     string.IsNullOrWhiteSpace(c.Subtitle) ? null : c.Subtitle,
-                    c.Color, c.Visible, c.CellColor, c.Group));
+                    c.Color, c.Visible, c.CellColor, c.Group, c.Width));
             }
             foreach (var (key, label) in catalog)
             {
@@ -2124,6 +2201,32 @@
     private string ColHeadStyle(ListCol c)
         => string.IsNullOrWhiteSpace(c.Color) ? string.Empty
             : $"background:color-mix(in srgb,{c.Color} 22%,var(--surface-2));border-bottom:3px solid {c.Color};color:color-mix(in srgb,{c.Color} 68%,var(--ink));";
+
+    // Banda de GRUPO (supra-titulo, nivel 1): a diferencia del titulo de columna (tinte claro),
+    // se pinta SOLIDA con el color del grupo y texto blanco, para replicar los headers del Excel
+    // "SEGUIMIENTO_COTIZACIONES" (bandas saturadas por grupo). El color sale de la 1a columna del run.
+    private string GroupHeadStyle(ListCol c)
+        => string.IsNullOrWhiteSpace(c.Color) ? string.Empty
+            : $"background:{c.Color};color:#fff;border-bottom:1px solid color-mix(in srgb,{c.Color} 55%,#000);";
+
+    // #5: color de un GRUPO en el configurador. Se toma de la 1a columna del grupo con color (la banda
+    // usa ese mismo color); al fijarlo, se aplica a TODAS las columnas del grupo (banda solida + tinte
+    // uniforme del mismo color en los titulos), que es justo el look del Excel.
+    private string GroupColorOf(string group)
+    {
+        var c = _lc.FirstOrDefault(r => string.Equals(r.Group?.Trim(), group, StringComparison.OrdinalIgnoreCase)
+                                        && !string.IsNullOrWhiteSpace(r.Color))?.Color;
+        return string.IsNullOrWhiteSpace(c) ? "#1d7a4a" : c!;
+    }
+
+    private void SetGroupColor(string group, string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) { return; }
+        foreach (var r in _lc.Where(r => string.Equals(r.Group?.Trim(), group, StringComparison.OrdinalIgnoreCase)))
+        {
+            r.Color = hex;
+        }
+    }
 
     // Color del CUERPO de la columna: tinte opaco (sobre --surface para que la 1a columna fija tape
     // el contenido que se desplaza debajo) + un hilo lateral del color para que la columna se lea
@@ -2398,6 +2501,7 @@
         public string Color = string.Empty;
         public string CellColor = string.Empty;
         public string Group = string.Empty;
+        public int? Width;
     }
 
     private async Task OpenListConfig()
@@ -2499,7 +2603,8 @@
                     Subtitle = c.Subtitle ?? string.Empty,
                     Color = c.Color ?? string.Empty,
                     CellColor = c.CellColor ?? string.Empty,
-                    Group = c.Group ?? string.Empty
+                    Group = c.Group ?? string.Empty,
+                    Width = c.Width
                 });
             }
         }
@@ -2538,7 +2643,8 @@
             string.IsNullOrWhiteSpace(r.Color) ? null : r.Color.Trim(),
             r.IsForm ? (string.IsNullOrWhiteSpace(r.Label) ? r.DefaultLabel : r.Label) : null,
             string.IsNullOrWhiteSpace(r.CellColor) ? null : r.CellColor.Trim(),
-            string.IsNullOrWhiteSpace(r.Group) ? null : r.Group.Trim())).ToList(),
+            string.IsNullOrWhiteSpace(r.Group) ? null : r.Group.Trim(),
+            r.Width is > 0 ? r.Width : null)).ToList(),
             BuildDetailConfig());
         await BoardsSvc.SetListViewConfigAsync(BoardId, cfg.ToJson());
         _lcOpen = false;
@@ -2550,6 +2656,23 @@
         await BoardsSvc.SetListViewConfigAsync(BoardId, null);
         _lcOpen = false;
         await ReloadAsync();
+    }
+
+    // Persistencia del ancho tras ARRASTRAR el borde del encabezado (JS -> aqui). Actualiza la config
+    // viva del tablero (sin abrir el modal) y la guarda; el re-render repinta el <col> con el ancho
+    // definitivo. Solo aplica si el tablero ya tiene config de columnas (que es cuando hay que ajustar).
+    private Microsoft.JSInterop.DotNetObjectReference<ActivityBoardDetail>? _selfRef;
+
+    [Microsoft.JSInterop.JSInvokable]
+    public async Task SaveColumnWidthAsync(string key, int width)
+    {
+        if (_listCfg is not { Columns.Count: > 0 }) { return; }
+        var cols = _listCfg.Columns
+            .Select(c => c.Key == key ? c with { Width = width > 0 ? width : (int?)null } : c)
+            .ToList();
+        _listCfg = _listCfg with { Columns = cols };
+        await BoardsSvc.SetListViewConfigAsync(BoardId, _listCfg.ToJson());
+        await InvokeAsync(StateHasChanged);
     }
 
     // ---- Columnas de campo de FORMULARIO (key "form:{defId}:{fieldCode}") ----
@@ -2568,6 +2691,11 @@
 
     // Cache de los valores de formulario por (tarjeta, definicion): FieldCode -> valor.
     private readonly Dictionary<(Guid, Guid), Dictionary<string, string?>> _formValues = new();
+
+    // Meta de los campos de formulario usados en columnas: (defId, fieldCode) -> pregunta (para formato #4 y lookup #3).
+    private readonly Dictionary<(Guid, string), FormQuestionDto> _formFieldMeta = new();
+    // Etiqueta resuelta de un valor lookup (id -> nombre), por (defId, fieldCode, idValor). Evita mostrar el id crudo.
+    private readonly Dictionary<(Guid, string, string), string> _formLookupLabels = new();
 
     // Detalle expandible (GridDetail, ADR-0065): filas del grid por tarea + fuentes para el configurador.
     private readonly Dictionary<Guid, List<Dictionary<string, string?>>> _detailRows = new();
@@ -2589,6 +2717,8 @@
     private async Task EnsureFormValuesAsync()
     {
         _formValues.Clear();
+        _formFieldMeta.Clear();
+        _formLookupLabels.Clear();
         var defIds = VisibleListColumns()
             .Select(c => ParseFormKey(c.Key)?.DefId)
             .Where(g => g is not null).Select(g => g!.Value).Distinct().ToList();
@@ -2597,6 +2727,47 @@
         foreach (var r in rows)
         {
             _formValues[(r.TaskItemId, r.DefinitionId)] = ParseFormData(r.Data);
+        }
+
+        // Meta de los campos (formato #4 + lookup #3): una sola lectura por definicion usada en columnas.
+        foreach (var defId in defIds)
+        {
+            var def = await FormDefSvc.GetAsync(defId);
+            if (def?.Questions is null) { continue; }
+            foreach (var q in def.Questions)
+            {
+                if (!string.IsNullOrWhiteSpace(q.FieldCode)) { _formFieldMeta[(defId, q.FieldCode)] = q; }
+            }
+        }
+
+        // #3: resolver los valores de columnas LOOKUP (Tercero/Item/DataContainer) a su nombre. Se
+        // resuelve UNA vez por valor distinto (no por fila) y se cachea id -> etiqueta.
+        var lookupCols = VisibleListColumns()
+            .Select(c => ParseFormKey(c.Key)).Where(pk => pk is not null).Select(pk => pk!.Value)
+            .Where(pk => _formFieldMeta.TryGetValue((pk.DefId, pk.Code), out var m)
+                         && m.SourceKind != FormSourceKind.Options)
+            .Distinct().ToList();
+        foreach (var (defId, code) in lookupCols)
+        {
+            var meta = _formFieldMeta[(defId, code)];
+            var fields = new List<string>();
+            if (!string.IsNullOrWhiteSpace(meta.DisplayField)) { fields.Add(meta.DisplayField!); }
+            if (!string.IsNullOrWhiteSpace(meta.ValueField)) { fields.Add(meta.ValueField!); }
+            var valores = _formValues.Values
+                .Select(d => d.TryGetValue(code, out var v) ? v : null)
+                .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+            foreach (var val in valores)
+            {
+                try
+                {
+                    var item = await FormLookupSvc.ResolveAsync(meta.SourceKind, meta.SourceRef ?? "", val!, fields);
+                    if (item is not null && !string.IsNullOrWhiteSpace(item.Display))
+                    {
+                        _formLookupLabels[(defId, code, val!)] = item.Display;
+                    }
+                }
+                catch { /* fila borrada / fuente no resoluble: se deja el valor crudo */ }
+            }
         }
     }
 
@@ -2631,8 +2802,42 @@
     {
         var pk = ParseFormKey(key);
         if (pk is null) { return string.Empty; }
-        return _formValues.TryGetValue((c.Id, pk.Value.DefId), out var d) && d.TryGetValue(pk.Value.Code, out var v)
-            ? v ?? string.Empty : string.Empty;
+        if (!_formValues.TryGetValue((c.Id, pk.Value.DefId), out var d) || !d.TryGetValue(pk.Value.Code, out var v) || string.IsNullOrEmpty(v))
+        {
+            return string.Empty;
+        }
+        // #3: si es un campo lookup, mostrar el NOMBRE resuelto en vez del id crudo.
+        if (_formLookupLabels.TryGetValue((pk.Value.DefId, pk.Value.Code, v), out var label))
+        {
+            return label;
+        }
+        // #4: aplicar el formato del campo (moneda/entero/decimal/%) igual que en los totales del formulario.
+        if (_formFieldMeta.TryGetValue((pk.Value.DefId, pk.Value.Code), out var meta) && !string.IsNullOrWhiteSpace(meta.Format))
+        {
+            return FormatFormValue(meta.Format, v);
+        }
+        return v;
+    }
+
+    // Formato de presentacion de un valor de formulario (copia del helper del DynamicFormRenderer):
+    // moneda/entero/decimal/porcentaje/documento. Sin formato o no-numero: el valor tal cual.
+    private static string FormatFormValue(string? format, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(format) || string.IsNullOrWhiteSpace(value)) { return value ?? string.Empty; }
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!decimal.TryParse(value.Replace(" ", "").Replace(",", ""), System.Globalization.NumberStyles.Any, ci, out var num))
+        {
+            return value;
+        }
+        return format.Trim().ToLowerInvariant() switch
+        {
+            "currency" => "$ " + num.ToString("#,##0", ci),
+            "percent" => num.ToString("0.##", ci) + " %",
+            "integer" => Math.Round(num).ToString("#,##0", ci),
+            "decimal" => num.ToString("#,##0.00", ci),
+            "document" => num.ToString("#,##0", ci),
+            _ => value,
+        };
     }
 
     // ---- Selector "Agregar campos de formulario" dentro del configurador ----
@@ -2921,6 +3126,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _selfRef?.Dispose();
         if (_hub is not null)
         {
             try

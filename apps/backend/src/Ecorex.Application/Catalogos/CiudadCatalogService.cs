@@ -42,4 +42,23 @@ public sealed class CiudadCatalogService : ICiudadCatalogService
             .Select(c => new CiudadDto(c.Id, c.Nombre, c.Departamento, c.CodigoDane))
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<string>> ListDepartamentosAsync(CancellationToken cancellationToken = default)
+        => await _db.Ciudades.AsNoTracking()
+            .Where(c => c.Departamento != null && c.Departamento != "")
+            .Select(c => c.Departamento!)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<string>> ListMunicipiosAsync(string departamento, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(departamento)) { return Array.Empty<string>(); }
+        var dep = departamento.Trim();
+        return await _db.Ciudades.AsNoTracking()
+            .Where(c => c.Departamento == dep)
+            .OrderBy(c => c.Nombre)
+            .Select(c => c.Nombre)
+            .ToListAsync(cancellationToken);
+    }
 }

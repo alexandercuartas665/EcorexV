@@ -7,6 +7,7 @@
 @using Ecorex.Domain.Enums
 @inject IFormDefinitionService FormsSvc
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 @* ============================================================
    INDICE DE FORMULARIOS del prototipo (ECOREX.dc.html, pantalla
@@ -24,10 +25,16 @@
             <h1 class="fx-title">Formularios</h1>
             <p class="fx-subtitle">Todos los formularios del motor EAV. Abre uno para editarlo en el constructor.</p>
         </div>
-        <button class="fx-btn-new" @onclick="CreateAndOpenAsync" disabled="@_busy">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-            Nuevo formulario
-        </button>
+        <div style="display:flex;gap:10px;align-items:center;">
+            <button class="fx-btn-ghost" @onclick="OpenImport" disabled="@_busy" title="Crear un formulario a partir de un JSON exportado">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>
+                Importar JSON
+            </button>
+            <button class="fx-btn-new" @onclick="CreateAndOpenAsync" disabled="@_busy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                Nuevo formulario
+            </button>
+        </div>
     </div>
 
     @if (_error is not null)
@@ -137,6 +144,11 @@
                         </span>
                         <span class="fx-badge" style="background:@ToneSoft(d);color:@Tone(d)">@EstadoLabel(d)</span>
                         @* stopPropagation: sin esto el clic tambien abriria el disenador detras. *@
+                        <button class="fx-card-del" title="Exportar a JSON" aria-label="Exportar @d.Title"
+                                disabled="@_busy" @onclick:stopPropagation="true"
+                                @onclick="@(() => ExportAsync(d))">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M5 21h14"/></svg>
+                        </button>
                         <button class="fx-card-del @(d.IsArchived ? "on" : "")"
                                 title="@(d.IsArchived ? "Restaurar formulario" : "Archivar formulario")"
                                 aria-label="@(d.IsArchived ? "Restaurar" : "Archivar") @d.Title"
@@ -227,10 +239,38 @@
     </div>
 }
 
+@if (_importOpen)
+{
+    <div class="fx-overlay" @onclick="CloseImport">
+        <div class="fx-modal" @onclick:stopPropagation="true" style="max-width:660px;width:94vw;">
+            <div class="fx-m-body">
+                <div class="fx-m-title">Importar formulario (JSON)</div>
+                <p class="fx-m-text">Pega el JSON exportado de un formulario. Se creara uno <b>nuevo</b>
+                   con codigo unico: nunca sobrescribe uno existente.</p>
+                <textarea class="fx-import-ta" rows="12" spellcheck="false"
+                          placeholder='{ &quot;formatVersion&quot;: 1, &quot;definition&quot;: { ... } }'
+                          @bind="_importJson" @bind:event="oninput"></textarea>
+                @if (_importError is not null)
+                {
+                    <div class="fx-m-err">@_importError</div>
+                }
+            </div>
+            <div class="fx-m-foot">
+                <button class="fx-mbtn" @onclick="CloseImport" disabled="@_busy">Cancelar</button>
+                <button class="fx-mbtn fx-mbtn-go" @onclick="DoImportAsync"
+                        disabled="@(_busy || string.IsNullOrWhiteSpace(_importJson))">Importar y abrir</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
     private bool _listView;
+    private bool _importOpen;
+    private string _importJson = "";
+    private string? _importError;
 
     /// <summary>Pestana activa: false = activos (lo normal), true = el archivo.</summary>
     private bool _showArchived;
@@ -371,6 +411,44 @@
     private static string Category(FormDefinitionListItemDto d) => "General";
 
     private void OpenDesigner(Guid id) => Nav.NavigateTo($"/formularios/{id}/disenar");
+
+    private void OpenImport() { _importError = null; _importJson = ""; _importOpen = true; }
+    private void CloseImport() { _importOpen = false; _importError = null; }
+
+    /// <summary>Importa un formulario desde JSON (crea uno NUEVO con codigo unico) y abre el constructor.</summary>
+    private async Task DoImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_importJson)) { return; }
+        _busy = true;
+        _importError = null;
+        try
+        {
+            var result = await FormsSvc.ImportAsync(_importJson);
+            if (!result.IsOk || result.Value is null)
+            {
+                _importError = result.Error ?? "No se pudo importar el formulario.";
+                return;
+            }
+            _importOpen = false;
+            Nav.NavigateTo($"/formularios/{result.Value.Id}/disenar");
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Exporta la definicion completa a JSON y la descarga como archivo.</summary>
+    private async Task ExportAsync(FormDefinitionListItemDto d)
+    {
+        _error = null;
+        var result = await FormsSvc.ExportAsync(d.Id);
+        if (!result.IsOk || result.Value is null)
+        {
+            _error = result.Error ?? "No se pudo exportar el formulario.";
+            return;
+        }
+        var safe = new string((d.Code ?? "form").Where(char.IsLetterOrDigit).ToArray());
+        if (safe.Length == 0) { safe = "form"; }
+        await JS.InvokeVoidAsync("ecorexDownloadText", $"form-{safe}.json", result.Value);
+    }
 
     /// <summary>"Nuevo formulario" del prototipo: crea (codigo FRM-### siguiente) y abre el constructor.</summary>
     private async Task CreateAndOpenAsync()

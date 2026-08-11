@@ -762,6 +762,10 @@ else
                    el motor generico la renderiza. Valor = JSON reportable en el campo. *@
                 @RenderCascade(q, value)
                 break;
+            case FormControlType.Geografia:
+                @* Geografia Colombia (Pais/Departamento/Ciudad) auto-encadenada desde el catalogo DANE. *@
+                @RenderGeografia(q, value)
+                break;
             case FormControlType.Subform:
                 @* Maestro-detalle (ola F5, doc 01 D7): registros HIJOS de otra definicion. *@
                 @RenderSubform(q)
@@ -1213,6 +1217,16 @@ else
         builder.AddComponentParameter(4, nameof(CascadeConfigurator.Config), cfg);
         builder.AddComponentParameter(5, nameof(CascadeConfigurator.Value), value);
         builder.AddComponentParameter(6, nameof(CascadeConfigurator.ValueChanged),
+            EventCallback.Factory.Create<string>(this, v => SetValue(q, v)));
+        builder.CloseComponent();
+    };
+
+    private RenderFragment RenderGeografia(FormQuestionDto q, string? value) => builder =>
+    {
+        builder.OpenComponent<GeografiaField>(0);
+        builder.AddComponentParameter(1, nameof(GeografiaField.Value), value);
+        builder.AddComponentParameter(2, nameof(GeografiaField.Disabled), (object)IsDisabled);
+        builder.AddComponentParameter(3, nameof(GeografiaField.ValueChanged),
             EventCallback.Factory.Create<string>(this, v => SetValue(q, v)));
         builder.CloseComponent();
     };

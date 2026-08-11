@@ -8505,3 +8505,15 @@ facturas `8de607a4-028e-5def-8e21-b371f2a01321`, items `ab2680f3-5f49-538f-9004-
 
 Nota: repetibilidad -> las cabeceras podrian tener conector + sync como clientes; los items requeririan
 un modo "aplanar arreglo anidado inline" (feature de codigo) o recarga manual.
+
+---
+
+## 2026-08-10 (sesion datos - prod) - Contenedor "Maestro comercial" en AGROMETALICAS
+
+**Hecho**: nuevo modelo/contenedor de datos "Maestro comercial" (id 8db1b5ed-e7f2-5f3c-a9dd-682edc39e34a)
+en AGROMETALICAS, con 10 tablas-catalogo parseadas de la hoja TABLAS de `MAESTRO ECOREX V2 (1).xlsx`
+(cada bloque = titulo + encabezado + filas): ESTADOS CICLO DE VIDA(9), ORIGENES CLIENTES(9),
+CALIFICACION COMERCIAL(4), ATENCION COMERCIAL(10), CANAL CONTACTO(32), FRECUENCIA DE COMPRA(6),
+SECTOR ECONOMICO(22), NIVEL DE ORGANIZACION(3), ORIGENES DE MERCADO(9), CANALES DE CONTACTO(47).
+Todas las columnas Text; datos cargados. uuid5 idempotente. Backup `ecorex-2026-08-10-2021.sql.gz`.
+SQL directo (excepcion ETL).

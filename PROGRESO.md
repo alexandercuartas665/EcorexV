@@ -8517,3 +8517,16 @@ CALIFICACION COMERCIAL(4), ATENCION COMERCIAL(10), CANAL CONTACTO(32), FRECUENCI
 SECTOR ECONOMICO(22), NIVEL DE ORGANIZACION(3), ORIGENES DE MERCADO(9), CANALES DE CONTACTO(47).
 Todas las columnas Text; datos cargados. uuid5 idempotente. Backup `ecorex-2026-08-10-2021.sql.gz`.
 SQL directo (excepcion ETL).
+
+---
+
+## 2026-08-10 (sesion datos - prod) - Maestro comercial: relacion + ceros + replica en SOLDARCO
+
+**Hecho**: (1) ceros adelante (pad a 2 digitos) en todas las columnas 'codigo' de las 10 tablas del
+contenedor Maestro comercial (AGROMETALICAS) - ojo: las columnas acentuadas 'Codigo' requerian
+normalizar el acento para detectarlas. (2) Relacion CANALES DE CONTACTO -> ORIGENES DE MERCADO
+(data_model_relations ManyToOne + 47 data_model_relation_links fila-a-fila por 'codigo origen de
+mercado' <-> 'Codigo Mercado'). (3) Replica de TODA la estructura (10 tablas + datos + ceros +
+relacion) en SOLDARCO tenant e3519cc4..., contenedor GESTION COMERCIAL (model 6f80eaef..., estaba
+vacio). Verificado en ambos: codigos 01..32, relacion 47 links. Backup ecorex-2026-08-10-2103.sql.gz.
+uuid5 idempotente (celdas DO UPDATE para el fix de ceros). SQL directo (excepcion ETL).

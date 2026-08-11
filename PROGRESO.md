@@ -5,6 +5,49 @@
 
 ---
 
+## 2026-08-11 - Lista: colores Excel + bordes + ancho por columna + import/export de formularios
+
+**Agentes:** Claude Opus 4.8. Trabajo contra la BD de PROD (tunel 15433 -> db `ecorex`) y el docker local
+`ecorex_dev` segun el caso. Build verde (SuperAdmin + Application). SIN commit ni deploy aun.
+
+**Contexto:** afinando el tablero "Comercial - Requerimiento Infraestructura" (SKY SYSTEM) para que se vea
+como la hoja `SEGUIMIENTO_COTIZACIONES` del Cotizador.xlsx.
+
+**Que:**
+- **Colores de header = Excel**: la banda de GRUPO (supra-titulo) ahora se pinta SOLIDA con texto blanco
+  (`GroupHeadStyle`); antes no tenia color. Config del tablero (local) con los hex del Excel por grupo
+  (Datos cliente `#1D7A4A`, Cotizacion `#8B6914`, Asesor `#374151`, Seguimiento tarea `#7A1D1D`).
+- **Bordes de columna** visibles (rejilla) en la Lista.
+- **Ancho por columna configurable y persistente por tablero**: nuevo `TaskListColumnConfig.Width` (aditivo).
+  Se ajusta ARRASTRANDO el borde derecho del encabezado (`.tkl-resizer` + JS `initResizers` -> `[JSInvokable]
+  SaveColumnWidthAsync` que guarda en `list_view_config_json`) o por el campo "Ancho" del configurador.
+  Cuando hay anchos, la tabla pasa a `table-layout:fixed` con elipsis (permite angostar). `<colgroup>` render.
+- **Import/Export de formularios por JSON** (000131): `IFormDefinitionService.ExportAsync/ImportAsync`
+  (partial `FormDefinitionService.ImportExport.cs`). Export = sobre `{formatVersion, definition}` con el
+  DetailDto (contenedores+preguntas, enums por nombre). Import = crea SIEMPRE uno NUEVO con codigo unico
+  (nunca pisa), remapea contenedores padre-primero y ContainerId de preguntas, anula SubformDefinitionId
+  colgado. UI en `Formularios.razor`: boton "Importar JSON" (modal textarea) + "Exportar" por tarjeta
+  (descarga via `ecorexDownloadText` en board-list.js?v=3).
+- **Bug formularios en la tarjeta**: el modal exige `tarea -> subcategoria -> FormDefinitionId`; el tablero
+  no. En local las tareas de ejemplo no tenian subcategoria y el concepto no tenia form. Corregido (dato):
+  concepto "Cotizacion de equipos" (local) enlazado + T00010/T00011 con subcategoria.
+
+**Identidades (a pedido del usuario):**
+- PROD: reset clave de `mercadeo@skysystem.com.co` (Owner SKY) a la que pidio. `calidad@agrometalicas.com`
+  ya era solo de AGROMETALICAS (nada que quitar).
+- LOCAL (`ecorex_dev`): creado `mercadeo@skysystem.com.co` (Owner SKY) + creado tenant AGROMETALICAS
+  (clonando tenant+suscripcion+vista de menu "Completo" de SKY, 69 nodos) y movido `calidad` a AGROMETALICAS.
+
+**Siguiente:**
+- Traer SIMULADOR DE COTIZACIONES (prod `59a91ffe...`) a LOCAL via el Import nuevo, reenlazar el concepto y
+  reconfigurar las columnas del tablero contra los field codes de SIMULADOR (en PROD el concepto ya apunta a
+  SIMULADOR: correcto). Reiniciar la app local para cargar el codigo nuevo. Commit/deploy pendientes.
+
+**Decisiones:** dev conectado a PROD por diseno (appsettings `Default` gana sobre `ECOREX_DB_CONNECTION`).
+Import de formulario = SIEMPRE crea nuevo (no sobrescribe).
+
+---
+
 ## 2026-08-10 - v0.14.0: detalle configurable en la Lista (expandir filas de un GridDetail)
 
 **Agentes:** Claude Opus 4.8, worktree `feat/campos-personalizados-tarea`. Validado en sandbox (sembrando
@@ -8576,3 +8619,17 @@ sin coincidir; el primer INSERT (dedup por field_key) genero 5 duplicados por et
 verificado 0 datos capturados -> DELETE de los 5 campos de sistema renombrados + INSERT 35_razon_social.
 Estado final: 23 campos DIAN limpios (key=etiqueta), sin dup, sin perdida. Backup ecorex-2026-08-11-0909.sql.gz.
 Nota: queda un campo generico 'direccion' (sistema) redundante con '41 direccion principal'.
+
+---
+
+## 2026-08-11 (sesion datos - prod) - SOLDARCO: contenedor Maestro Fiscal DIAN + lookups
+
+**Hecho**: creado contenedor de datos "Maestro Fiscal DIAN" (data_model 6ab6e99f-2677-55ac-b70e-e496b8e17c48)
+en SOLDARCO con 3 tablas catalogo de la hoja TABLA FISCAL del MAESTRO ECOREX V2: "24 Tipo de
+contribuyente" (12 filas), "25 Tipo de documento" (9 filas), "53 Responsabilidad -Calidades Y
+Atributos" (21 filas). Enlazados los campos fiscales del Directorio (tercero_field_definitions) 24 y 25
+como tipo Lookup (options=DataLookupConfig JSON: tableId+displayColumnId+displayMode=List) apuntando a
+sus tablas. uuid5 deterministas + ON CONFLICT. Backup ecorex-2026-08-11-1019.sql.gz.
+
+**Pendiente**: el campo fiscal 53 (Responsabilidad) NO existe aun; es MULTIPLE (el usuario lo explicara);
+la tabla 53 ya esta lista para engancharla. Enlace 53 pendiente.

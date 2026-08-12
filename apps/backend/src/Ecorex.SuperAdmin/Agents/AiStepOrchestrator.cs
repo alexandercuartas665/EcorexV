@@ -7,7 +7,10 @@ namespace Ecorex.SuperAdmin.Agents;
 /// <summary>Insumos de un paso de IA (lo que el operador configuro + a que agente/tabla va).</summary>
 public sealed record AiStepContext(
     string ClientId, Guid TenantId, string Instruction, Guid TargetContainerId,
-    IReadOnlyList<string> ToolAllowList, int MaxSteps, int MaxSeconds, Guid? AiProviderId, string? Secret);
+    IReadOnlyList<string> ToolAllowList, int MaxSteps, int MaxSeconds, Guid? AiProviderId, string? Secret,
+    // Sumidero alternativo para las filas de 'guardar_filas'. Null = el DataContainer por defecto
+    // (flujos de extraccion). Las busquedas de contactos pasan un sink propio -> ProspectoScrapeado.
+    IScrapeRowSink? SinkOverride = null);
 
 /// <summary>Como quedo el paso de IA.</summary>
 public sealed record AiStepOutcome(bool Ok, int Inserted, int Updated, int Deleted, string? Error, int RoundsUsed);
@@ -263,7 +266,8 @@ public sealed class AiStepOrchestrator(
             }
             var rows = ScrapeRowIngest.ParseRows(filas.GetRawText());
             if (rows.Count == 0) { return (0, 0, 0, false, "error: no llegaron filas validas."); }
-            var (i, u, d) = await rowSink.IngestAsync(ctx.TargetContainerId, ctx.TenantId, null, rows, ct);
+            var sink = ctx.SinkOverride ?? rowSink;
+            var (i, u, d) = await sink.IngestAsync(ctx.TargetContainerId, ctx.TenantId, null, rows, ct);
             return (i, u, d, true, $"guardadas {i} filas.");
         }
         catch (Exception ex)

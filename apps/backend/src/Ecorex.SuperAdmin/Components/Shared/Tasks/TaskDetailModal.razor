@@ -1,3 +1,5 @@
+@using System.IO
+@using Microsoft.AspNetCore.Components.Forms
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Tenancy
@@ -21,6 +23,8 @@
 @inject ITaskBroadcaster Broadcaster
 @inject IJSRuntime JS
 @inject IServiceScopeFactory ScopeFactory
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject Ecorex.Application.Common.ITenantContext TenantCtx
 
 @if (_detail is not null)
 {
@@ -483,7 +487,7 @@
                                     }
                                     else
                                     {
-                                        <div class="@TaskFieldUi.ColClass(f.Column) field">
+                                        <div class="col-12 field">
                                             <label class="form-label">@f.Label</label>
                                             @if (f.FieldType == TerceroFieldType.Select)
                                             {
@@ -643,12 +647,7 @@
                             }
                         </div>
                     </div>
-                </div>
-
-                <div class="tk-detail-side">
-                    @* Lista de chequeo (ADR-0020, patron del prototipo: checkbox 20px r6,
-                       verde al completar, texto tachado; el Progreso de la tarjeta del
-                       tablero sale de aqui). *@
+                    @* Lista de chequeo (bajada a la columna principal, ancho completo). *@
                     <div class="tk-card tk-checklist">
                         <div class="tk-card-head">
                             <h3>Lista de chequeo</h3>
@@ -685,43 +684,9 @@
                             }
                         </div>
                     </div>
+                </div>
 
-                    @* Asignados M:N (ADR-0020): equipo adicional; el encargado single vive en el hero. *@
-                    <div class="tk-card tk-assignees">
-                        <div class="tk-card-head"><h3>Asignados</h3></div>
-                        <div style="display:flex;flex-direction:column;gap:2px;">
-                            @if (_detail.Assignees.Count == 0)
-                            {
-                                <p class="tk-empty-note">Sin asignados adicionales.</p>
-                            }
-                            @foreach (var assignee in _detail.Assignees)
-                            {
-                                var a = assignee;
-                                <div class="tk-assignee-row">
-                                    <span class="tk-av-solid" style="background:@AbUi.AvatarBg(a.Initials)">@a.Initials</span>
-                                    <span class="name">@a.DisplayName</span>
-                                    @if (!readOnly)
-                                    {
-                                        <button class="tk-assignee-x" title="Quitar asignado" @onclick="@(() => RemoveAssigneeAsync(a.TenantUserId))">&times;</button>
-                                    }
-                                </div>
-                            }
-                            @if (!readOnly)
-                            {
-                                <div class="tk-check-add">
-                                    <select class="form-control form-control-sm" @bind="_addAssigneeId">
-                                        <option value="">Agregar usuario...</option>
-                                        @foreach (var u in _users.Where(u => _detail.Assignees.All(a => a.TenantUserId != u.Id)))
-                                        {
-                                            <option value="@u.Id">@TaskUi.UserLabel(u)</option>
-                                        }
-                                    </select>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddAssigneeAsync" disabled="@(_busy || string.IsNullOrEmpty(_addAssigneeId))">Agregar</button>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
+                <div class="tk-detail-side">
                     @* Flujo (runtime, ola F2, ADR-0036): paso current del flujo y, si el usuario
                        es candidato, Atender directo (completar/aprobar). Los pasos con formulario
                        se atienden por la seccion "Formularios del paso" de arriba. *@
@@ -991,12 +956,25 @@
 
                         @if (!readOnly)
                         {
-                            @* TODO FASE posterior: upload real a object storage; por ahora se referencia por URL. *@
-                            <div class="tk-attachment-add">
-                                <input class="form-control form-control-sm" @bind="_attName" placeholder="Nombre del archivo" />
-                                <input class="form-control form-control-sm" @bind="_attUrl" placeholder="https://..." />
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddAttachmentAsync" disabled="@_busy">Agregar</button>
+                            @* Subida real: arrastra o elige archivos. El <InputFile> cubre la zona (transparente). *@
+                            <div class="tk-drop @(_attDragOver ? "over" : "")"
+                                 @ondragenter:preventDefault="true" @ondragenter="() => _attDragOver = true"
+                                 @ondragover:preventDefault="true"
+                                 @ondragleave:preventDefault="true" @ondragleave="() => _attDragOver = false"
+                                 @ondrop:preventDefault="true" @ondrop="() => _attDragOver = false">
+                                <InputFile class="tk-drop-input" multiple OnChange="OnAttachFilesAsync" disabled="@(_busy || _attUploading)" />
+                                <svg class="tk-drop-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg>
+                                <div class="tk-drop-title">@(_attUploading ? "Subiendo archivos..." : "Arrastra tus archivos aqui o haz clic para elegir")</div>
+                                <div class="tk-drop-hint">PDF, imagenes, Office, texto o comprimidos. Hasta @(MaxAttBytes / (1024 * 1024)) MB por archivo.</div>
                             </div>
+                            <details class="tk-att-url">
+                                <summary>o adjuntar por enlace (URL)</summary>
+                                <div class="tk-attachment-add">
+                                    <input class="form-control form-control-sm" @bind="_attName" placeholder="Nombre del archivo" />
+                                    <input class="form-control form-control-sm" @bind="_attUrl" placeholder="https://..." />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddAttachmentAsync" disabled="@_busy">Agregar</button>
+                                </div>
+                            </details>
                             @if (_attError is not null)
                             {
                                 <div class="tk-field-error">@_attError</div>
@@ -1208,6 +1186,15 @@
     private string _attName = "";
     private string _attUrl = "";
     private string? _attError;
+    private bool _attDragOver;
+    private bool _attUploading;
+    private const long MaxAttBytes = 25 * 1024 * 1024; // 25 MB por archivo
+    private static readonly HashSet<string> AttExtWhitelist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
+        ".txt", ".rtf", ".zip", ".rar", ".7z"
+    };
 
     // Tablero de actividades (ADR-0020, ola 2): columnas para "Mover a", checklist y asignados.
     private List<ActivityBoardColumnDto> _boardColumns = new();
@@ -2436,6 +2423,84 @@
         {
             _busy = false;
         }
+    }
+
+    private async Task OnAttachFilesAsync(InputFileChangeEventArgs e)
+    {
+        if (_detail is null) { return; }
+        _attError = null;
+        _attDragOver = false;
+        _attUploading = true;
+        _busy = true;
+        var errores = new List<string>();
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                var saved = await StoreAttachmentAsync(file, errores);
+                if (saved is null) { continue; }
+                var result = await TasksSvc.AddAttachmentAsync(
+                    new AddTaskAttachmentRequest(_detail.Item.Id, RecortarNombreAtt(file.Name), saved.Value.Url, saved.Value.ContentType, saved.Value.Size),
+                    actor, actorName);
+                if (!result.IsOk) { errores.Add(result.Error ?? $"No se pudo registrar {file.Name}."); }
+            }
+            await ReloadAsync(_detail.Item.Id);
+        }
+        catch (InvalidOperationException)
+        {
+            errores.Add("Solo se pueden subir 10 archivos a la vez.");
+        }
+        finally
+        {
+            _attUploading = false;
+            _busy = false;
+            if (errores.Count > 0) { _attError = string.Join(" ", errores); }
+        }
+    }
+
+    // Guarda el archivo en wwwroot/uploads/tasks/{tenant}/{guid}.{ext} (mismo patron que Inventario)
+    // y devuelve (url, tamano, contentType). Valida extension (lista blanca) y tamano; carpeta por
+    // tenant + nombre Guid = aislamiento total entre tenants.
+    private async Task<(string Url, long Size, string? ContentType)?> StoreAttachmentAsync(IBrowserFile file, List<string> errores)
+    {
+        if (TenantCtx.TenantId is not Guid tenantId) { errores.Add("Sin tenant activo."); return null; }
+        var ext = Path.GetExtension(file.Name);
+        if (string.IsNullOrWhiteSpace(ext) || !AttExtWhitelist.Contains(ext))
+        {
+            errores.Add($"{file.Name}: tipo de archivo no permitido.");
+            return null;
+        }
+        if (file.Size > MaxAttBytes)
+        {
+            errores.Add($"{file.Name}: supera {MaxAttBytes / (1024 * 1024)} MB.");
+            return null;
+        }
+        try
+        {
+            var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
+            Directory.CreateDirectory(dir);
+            var stored = $"{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
+            await using var srcStream = file.OpenReadStream(MaxAttBytes);
+            await using (var dst = File.Create(Path.Combine(dir, stored)))
+            {
+                await srcStream.CopyToAsync(dst);
+            }
+            return ($"/uploads/tasks/{tenantId:N}/{stored}", file.Size,
+                    string.IsNullOrWhiteSpace(file.ContentType) ? null : file.ContentType);
+        }
+        catch (Exception)
+        {
+            errores.Add($"{file.Name}: error al guardar.");
+            return null;
+        }
+    }
+
+    private static string RecortarNombreAtt(string name)
+    {
+        var n = (name ?? "archivo").Trim();
+        return n.Length > 180 ? n[..180] : n;
     }
 
     private async Task AddAttachmentAsync()

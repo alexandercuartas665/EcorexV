@@ -61,6 +61,7 @@ public static class AgentChannel
         services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();
         services.AddScoped<IScrapeRowSink, ScrapeRowSink>();
+        services.AddScoped<IContactSearchRunner, ContactSearchRunner>();
         services.AddScoped<IScrapeFlowRunLog, ScrapeFlowRunLog>();
         // Ejecuta una programacion AHORA (boton "Actualizar datos"). Scoped: usa el DbContext y el
         // tenant del request. Lo reusa el scheduler para que el horario y el boton hagan lo mismo.

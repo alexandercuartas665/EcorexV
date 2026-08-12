@@ -12,6 +12,7 @@
 @using Ecorex.SuperAdmin.Auth
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
+@inject ITerceroFichaService FichaSvc
 @inject ITerceroFormService FormsSvc
 @inject ICurrentPermissions Perms
 @inject IJSRuntime JS
@@ -377,11 +378,68 @@
                 @* --- Selector de ficha --- *@
                 <label class="dg-sec-lbl">FICHA</label>
                 <div class="dg-cfg-fichas">
-                    @foreach (var m in FichaCatalog)
+                    @foreach (var m in _fichas)
                     {
-                        <button class="dg-cfg-fchip @(_cfgFicha == m.Key ? "active" : "")" @onclick="() => SelectCfgFichaAsync(m.Key)" disabled="@_busy">@m.ConfigLabel</button>
+                        var mm = m;
+                        <div class="dg-fchip @(_cfgFicha == m.FichaKey ? "active" : "") @(m.IsHidden ? "is-hidden" : "")"
+                             style="@ChipStyle(m)">
+                            <button class="dg-fchip-lbl" @onclick="() => SelectCfgFichaAsync(mm.FichaKey)" disabled="@_busy" title="Seleccionar ficha">
+                                @m.Title
+                                @if (m.IsHidden) { <span class="dg-fchip-tag" title="Oculta en el modal del tercero">oculta</span> }
+                            </button>
+                            <button class="dg-fchip-gear" @onclick="() => OpenFichaCfg(mm)" disabled="@_busy" title="Configurar esta ficha (nombre, color, visibilidad, ocultar)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+                            </button>
+                        </div>
                     }
+                    <button class="dg-cfg-fchip dg-cfg-fnew" @onclick="StartNewFichaAsync" disabled="@_busy" title="Crear una ficha nueva">+ Nueva ficha</button>
                 </div>
+
+                @* Modalcito de configuracion por ficha (nombre, color, visibilidad, ocultar, reordenar, eliminar) *@
+                @if (_fichaCfgOpen)
+                {
+                    <div class="dg-fm-ov" @onclick="CloseFichaCfg">
+                        <div class="dg-fm" @onclick:stopPropagation="true">
+                            <div class="dg-fm-head">
+                                <span>@(_fichaEditId is null ? "Nueva ficha" : "Configurar ficha")</span>
+                                <button class="dg-fm-x" @onclick="CloseFichaCfg" title="Cerrar">&times;</button>
+                            </div>
+                            <label class="dg-fm-lbl">Nombre</label>
+                            <input class="dg-cfg-input" @bind="_fichaName" maxlength="80" placeholder="Nombre de la ficha" />
+                            <div class="dg-fm-2">
+                                <div>
+                                    <label class="dg-fm-lbl">Color</label>
+                                    <input type="color" class="dg-ficha-color" value="@(_fichaColor ?? "#6b7280")" @onchange="e => _fichaColor = e.Value?.ToString()" title="Color de la pildora" />
+                                </div>
+                                <div style="flex:1">
+                                    <label class="dg-fm-lbl">Visibilidad</label>
+                                    <select class="dg-cfg-input" @bind="_fichaPerfil" title="Cuando se muestra en la ficha del tercero">
+                                        <option value="">Siempre visible</option>
+                                        <option value="cliente">Solo clientes</option>
+                                        <option value="proveedor">Solo proveedores</option>
+                                        <option value="empleado">Solo empleados</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <label class="dg-fm-check"><input type="checkbox" @bind="_fichaHidden" /> Ocultar esta ficha en el modal del tercero</label>
+                            @if (_fichaError is not null) { <div class="dg-ficha-err">@_fichaError</div> }
+                            <div class="dg-fm-foot">
+                                @if (_fichaEditId is Guid)
+                                {
+                                    <button class="dg-cfg-mbtn" @onclick="() => ReorderFromModalAsync(true)" disabled="@_busy" title="Mover a la izquierda">&#9664;</button>
+                                    <button class="dg-cfg-mbtn" @onclick="() => ReorderFromModalAsync(false)" disabled="@_busy" title="Mover a la derecha">&#9654;</button>
+                                    @if (!_fichaIsSystem)
+                                    {
+                                        <button class="dg-cfg-ebtn dg-ficha-del" @onclick="DeleteFichaFromModalAsync" disabled="@_busy" title="Eliminar ficha">Eliminar</button>
+                                    }
+                                }
+                                <span style="flex:1"></span>
+                                <button class="dg-cfg-mbtn" @onclick="CloseFichaCfg" disabled="@_busy">Cancelar</button>
+                                <button class="dg-btn-cfg" @onclick="SaveFichaAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_fichaName))">Guardar</button>
+                            </div>
+                        </div>
+                    </div>
+                }
 
                 <div class="dg-cfg-cols">
                 <div class="dg-cfg-left">
@@ -420,9 +478,9 @@
                                 value=""
                                 @onchange="e => MoveCfgFieldToFichaAsync(f, e.Value?.ToString())">
                             <option value="">Mover a...</option>
-                            @foreach (var m in FichaCatalog.Where(x => x.Key != f.FichaKey))
+                            @foreach (var m in _fichas.Where(x => x.FichaKey != f.FichaKey))
                             {
-                                <option value="@m.Key">@m.ConfigLabel</option>
+                                <option value="@m.FichaKey">@m.Title</option>
                             }
                         </select>
                         <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgFieldAsync(f)" title="Editar campo">
@@ -1047,23 +1105,8 @@
     }
 
 
-    private sealed record FichaMeta(string Key, string Title, string Desc, string ConfigLabel, string Color, string Bg, string IconPath);
-
-    // Catalogo de fichas (mismas claves que ITerceroFieldService.FichaKeys). Solo metadatos
-    // de presentacion: los campos son 100% configurables via el servicio.
-    private static readonly FichaMeta[] FichaCatalog =
-    {
-        new("fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "Datos fiscales", "--t-amber", "--t-amber-bg",
-            "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
-        new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
-            "m3 11 19-9-9 19-2-8-8-2z"),
-        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
-            "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
-        new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
-            "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
-        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
-            "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
-    };
+    /// <summary>Ficha seleccionada en el configurador (para la barra de herramientas de ficha).</summary>
+    private TerceroFichaDto? SelFicha => _fichas.FirstOrDefault(x => x.FichaKey == _cfgFicha);
 
     // ---- Configurador de campos ----
     private bool _cfgOpen;
@@ -1085,6 +1128,109 @@
 
     /// <summary>Todos los campos del tenant: la formula puede referenciar cualquier ficha.</summary>
     private List<TerceroFieldDto> _cfgAllFields = new();
+
+    // ---- Fichas (pildoras) configurables por tenant (data-driven) ----
+    private List<TerceroFichaDto> _fichas = new();
+    private bool _fichaCfgOpen;
+    private Guid? _fichaEditId;
+    private bool _fichaIsSystem;
+    private string _fichaName = "";
+    private string? _fichaColor;
+    private string _fichaPerfil = "";
+    private bool _fichaHidden;
+    private string? _fichaError;
+
+    /// <summary>Estilo de acento (color) de la pildora en el configurador.</summary>
+    private static string ChipStyle(TerceroFichaDto m)
+        => string.IsNullOrWhiteSpace(m.Color) ? "" : $"border-color:{m.Color};box-shadow:inset 0 -2px 0 {m.Color}";
+
+    private void StartNewFichaAsync()
+    {
+        _fichaError = null;
+        _fichaEditId = null;
+        _fichaIsSystem = false;
+        _fichaName = "";
+        _fichaColor = "#6b7280";
+        _fichaPerfil = "";
+        _fichaHidden = false;
+        _fichaCfgOpen = true;
+    }
+
+    private void OpenFichaCfg(TerceroFichaDto f)
+    {
+        _fichaError = null;
+        _fichaEditId = f.Id;
+        _fichaIsSystem = f.IsSystem;
+        _fichaName = f.Title;
+        _fichaColor = f.Color ?? "#6b7280";
+        _fichaPerfil = f.Perfil ?? "";
+        _fichaHidden = f.IsHidden;
+        _fichaCfgOpen = true;
+    }
+
+    private void CloseFichaCfg()
+    {
+        _fichaCfgOpen = false;
+        _fichaError = null;
+    }
+
+    private async Task SaveFichaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_fichaName)) { return; }
+        _busy = true;
+        _fichaError = null;
+        try
+        {
+            if (_fichaEditId is Guid id)
+            {
+                _fichaError = await FichaSvc.UpdateAsync(id, _fichaName, _fichaColor, _fichaPerfil);
+                if (_fichaError is not null) { return; }
+                _fichaError = await FichaSvc.SetHiddenAsync(id, _fichaHidden);
+                if (_fichaError is not null) { return; }
+            }
+            else
+            {
+                var created = await FichaSvc.CreateAsync(_fichaName, _fichaColor, _fichaPerfil);
+                if (created is null) { _fichaError = "No se pudo crear la ficha."; return; }
+                if (_fichaHidden) { await FichaSvc.SetHiddenAsync(created.Id, true); }
+                _cfgFicha = created.FichaKey;
+            }
+            _fichas = (await FichaSvc.ListAsync()).ToList();
+            _fichaCfgOpen = false;
+            await SelectCfgFichaAsync(_cfgFicha);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteFichaFromModalAsync()
+    {
+        if (_fichaEditId is not Guid id) { return; }
+        _busy = true;
+        _fichaError = null;
+        try
+        {
+            _fichaError = await FichaSvc.DeleteAsync(id);
+            if (_fichaError is not null) { return; }
+            _fichas = (await FichaSvc.ListAsync()).ToList();
+            _cfgFicha = _fichas.FirstOrDefault()?.FichaKey ?? "";
+            _fichaCfgOpen = false;
+            await SelectCfgFichaAsync(_cfgFicha);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ReorderFromModalAsync(bool up)
+    {
+        if (_fichaEditId is not Guid id) { return; }
+        _busy = true;
+        _fichaError = null;
+        try
+        {
+            await FichaSvc.ReorderAsync(id, up);
+            _fichas = (await FichaSvc.ListAsync()).ToList();
+        }
+        finally { _busy = false; }
+    }
 
     // ---- Formularios ofrecidos en el modal de tercero (3a columna) ----
     private IReadOnlyList<TerceroFormLinkDto> _cfgForms = Array.Empty<TerceroFormLinkDto>();
@@ -1123,7 +1269,10 @@
 
     private async Task OpenConfigAsync()
     {
-        _cfgFicha = FichaCatalog[0].Key;
+        _fichaCfgOpen = false;
+        _fichaError = null;
+        _fichas = (await FichaSvc.ListAsync()).ToList();
+        _cfgFicha = _fichas.FirstOrDefault()?.FichaKey ?? "fiscal";
         ResetCfgForm();
         await FieldSvc.EnsureDefaultsAsync();
         await LoadCfgFieldsAsync();
@@ -1446,8 +1595,8 @@
         _ => "pequena"
     };
 
-    private static string FichaLabel(string fichaKey)
-        => FichaCatalog.FirstOrDefault(f => f.Key == fichaKey).ConfigLabel ?? fichaKey;
+    private string FichaLabel(string fichaKey)
+        => _fichas.FirstOrDefault(f => f.FichaKey == fichaKey)?.Title ?? fichaKey;
 
     private async Task MoveCfgFieldToFichaAsync(TerceroFieldDto f, string? targetFicha)
     {

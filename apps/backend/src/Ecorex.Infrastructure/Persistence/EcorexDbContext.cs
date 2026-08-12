@@ -75,6 +75,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<ScrapeRun> ScrapeRuns => Set<ScrapeRun>();
     // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
     public DbSet<ScrapeFlow> ScrapeFlows => Set<ScrapeFlow>();
+    public DbSet<ContactSearchDefinition> ContactSearchDefinitions => Set<ContactSearchDefinition>();
     public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
     public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
     public DbSet<ScrapeFlowRun> ScrapeFlowRuns => Set<ScrapeFlowRun>();
@@ -242,6 +243,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     public DbSet<Asesor> Asesores => Set<Asesor>();
     public DbSet<TerceroContacto> TerceroContactos => Set<TerceroContacto>();
     public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => Set<TerceroFieldDefinition>();
+    public DbSet<TerceroFichaDefinition> TerceroFichaDefinitions => Set<TerceroFichaDefinition>();
     public DbSet<TerceroFormLink> TerceroFormLinks => Set<TerceroFormLink>();
     public DbSet<TerceroNota> TerceroNotas => Set<TerceroNota>();
     // ---- Gestor de Clientes (000740) ----
@@ -796,6 +798,24 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
                 .HasForeignKey(x => x.ContainerId).OnDelete(DeleteBehavior.SetNull);
             // El nombre identifica el flujo dentro del tenant (el servicio valida el duplicado con
             // mensaje claro; el indice unico es la defensa en profundidad).
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        // Busquedas de contactos configuradas (Cargador de contactos 000873): el agente Colmena navega
+        // guiado por un agente IA y el resultado aterriza como ProspectoScrapeado. SourceType como texto.
+        modelBuilder.Entity<ContactSearchDefinition>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            b.Property(x => x.SourceType).HasConversion<string>().HasMaxLength(30).IsRequired();
+            b.Property(x => x.Query).HasMaxLength(400);
+            b.Property(x => x.SubQuery).HasMaxLength(400);
+            b.Property(x => x.Country).HasMaxLength(120);
+            b.Property(x => x.Region).HasMaxLength(120);
+            b.Property(x => x.City).HasMaxLength(120);
+            b.Property(x => x.ExtractionPrompt).HasMaxLength(4000).IsRequired();
+            b.Property(x => x.ClientId).HasMaxLength(120);
+            b.Property(x => x.Schedule).HasConversion<string>().HasMaxLength(20).IsRequired();
+            b.Property(x => x.RunTime).HasMaxLength(5);
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         });
 
@@ -1957,6 +1977,20 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.RepeatWithFieldKey).HasMaxLength(80);
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.SortOrder });
             b.HasIndex(x => new { x.TenantId, x.FichaKey, x.FieldKey }).IsUnique();
+        });
+
+        // Fichas (pildoras/categorias) configurables por tenant del Directorio General (000232).
+        // Data-driven: reemplaza el catalogo hardcodeado. La FichaKey es la llave estable que usan
+        // los campos; unica por tenant.
+        modelBuilder.Entity<TerceroFichaDefinition>(b =>
+        {
+            b.Property(x => x.FichaKey).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(300);
+            b.Property(x => x.Color).HasMaxLength(20);
+            b.Property(x => x.Perfil).HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.SortOrder });
+            b.HasIndex(x => new { x.TenantId, x.FichaKey }).IsUnique();
         });
 
         // Formularios ofrecidos en el modal de tercero (config por tenant desde "Configurar campos").

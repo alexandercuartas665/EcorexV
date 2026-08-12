@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260811214336_AddTerceroFichaDefinitions")]
+    partial class AddTerceroFichaDefinitions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2039,126 +2042,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_contact_import_batches_tenant_id_created_at");
 
                     b.ToTable("contact_import_batches", (string)null);
-                });
-
-            modelBuilder.Entity("Ecorex.Domain.Entities.ContactSearchDefinition", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("id");
-
-                    b.Property<string>("City")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
-                        .HasColumnName("city");
-
-                    b.Property<Guid?>("ClassifierAiAgentId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("classifier_ai_agent_id");
-
-                    b.Property<string>("ClientId")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
-                        .HasColumnName("client_id");
-
-                    b.Property<string>("Country")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
-                        .HasColumnName("country");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("created_by");
-
-                    b.Property<int?>("DayOfMonth")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_month");
-
-                    b.Property<int?>("DayOfWeek")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_week");
-
-                    b.Property<string>("ExtractionPrompt")
-                        .IsRequired()
-                        .HasMaxLength(4000)
-                        .HasColumnType("nvarchar(4000)")
-                        .HasColumnName("extraction_prompt");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit")
-                        .HasColumnName("is_active");
-
-                    b.Property<DateTimeOffset?>("LastRunAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("last_run_at");
-
-                    b.Property<int>("MaxContacts")
-                        .HasColumnType("int")
-                        .HasColumnName("max_contacts");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("Query")
-                        .HasMaxLength(400)
-                        .HasColumnType("nvarchar(400)")
-                        .HasColumnName("query");
-
-                    b.Property<string>("Region")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)")
-                        .HasColumnName("region");
-
-                    b.Property<string>("RunTime")
-                        .HasMaxLength(5)
-                        .HasColumnType("nvarchar(5)")
-                        .HasColumnName("run_time");
-
-                    b.Property<string>("Schedule")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasColumnName("schedule");
-
-                    b.Property<string>("SourceType")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasColumnName("source_type");
-
-                    b.Property<string>("SubQuery")
-                        .HasMaxLength(400)
-                        .HasColumnType("nvarchar(400)")
-                        .HasColumnName("sub_query");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("updated_by");
-
-                    b.HasKey("Id")
-                        .HasName("pk_contact_search_definitions");
-
-                    b.HasIndex("TenantId", "Name")
-                        .IsUnique()
-                        .HasDatabaseName("ix_contact_search_definitions_tenant_id_name");
-
-                    b.ToTable("contact_search_definitions", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
@@ -12867,10 +12750,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("ficha_key");
-
-                    b.Property<bool>("IsHidden")
-                        .HasColumnType("bit")
-                        .HasColumnName("is_hidden");
 
                     b.Property<bool>("IsSystem")
                         .HasColumnType("bit")

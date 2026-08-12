@@ -85,6 +85,7 @@ public class ContactWorkflowDispatcherTests
     private sealed class FakeTasks : ITaskItemService
     {
         public Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<TaskCoreResult<TaskItemDetailDto>> CreateSubtaskAsync(Guid parentId, string title, Guid? assigneeTenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
@@ -300,6 +301,8 @@ public class ContactWorkflowDispatcherTests
         public DbSet<RolPermiso> RolPermisos => NotUsed<RolPermiso>();
         public DbSet<TerceroContacto> TerceroContactos => NotUsed<TerceroContacto>();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => NotUsed<TerceroFieldDefinition>();
+        public DbSet<ContactSearchDefinition> ContactSearchDefinitions => NotUsed<ContactSearchDefinition>();
+        public DbSet<TerceroFichaDefinition> TerceroFichaDefinitions => NotUsed<TerceroFichaDefinition>();
         public DbSet<TerceroNota> TerceroNotas => NotUsed<TerceroNota>();
         public DbSet<BolsaColumna> BolsaColumnas => NotUsed<BolsaColumna>();
         public DbSet<Oportunidad> Oportunidades => NotUsed<Oportunidad>();

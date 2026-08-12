@@ -1,3 +1,5 @@
+@using System.IO
+@using Microsoft.AspNetCore.Components.Forms
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Actividades
 @using Ecorex.Application.Entidades
@@ -15,6 +17,7 @@
 @inject ITaskBroadcaster Broadcaster
 @inject IFormResponseService FormResponsesSvc
 @inject IActivityCatalogService ActCatalogSvc
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 
 @* ===== Wizard "Nueva actividad" (Ola 3): 4 pasos, milimetrico al prototipo ECOREX.dc.html =====
    Clasifica por CONCEPTO (Empresa/Area -> Tipo/categoria -> Actividad/subcategoria -> Encargado). *@
@@ -329,12 +332,28 @@
                             <div style="width:100%">
                                 <div style="@CardStyle">
                                     <div style="font-weight:700;font-size:15px;margin-bottom:14px">Archivos adjuntos</div>
-                                    <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">Podras adjuntar archivos desde el detalle una vez creada la actividad.</p>
-                                    <div style="border:2px dashed var(--line-2);border-radius:14px;padding:40px 24px;text-align:center;color:var(--ink-3)">
-                                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 12px;display:block"><path d="M12 16V4M5 11l7-7 7 7M5 20h14"></path></svg>
-                                        <div style="font-size:14px;font-weight:600">Arrastra tus archivos aqui o haz clic para elegir</div>
-                                        <div style="font-size:12px;margin-top:4px">PDF, imagenes, hojas de calculo</div>
+                                    <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:14px">Arrastra o elige archivos: se adjuntan a la actividad al crearla y quedan visibles en su detalle.</p>
+                                    <div class="tk-drop @(_wizDragOver ? "over" : "")"
+                                         @ondragenter:preventDefault="true" @ondragenter="() => _wizDragOver = true"
+                                         @ondragover:preventDefault="true"
+                                         @ondragleave:preventDefault="true" @ondragleave="() => _wizDragOver = false"
+                                         @ondrop:preventDefault="true" @ondrop="() => _wizDragOver = false">
+                                        <InputFile class="tk-drop-input" multiple OnChange="OnWizFilesAsync" disabled="@_busy" />
+                                        <svg class="tk-drop-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M5 11l7-7 7 7M5 20h14"></path></svg>
+                                        <div class="tk-drop-title">Arrastra tus archivos aqui o haz clic para elegir</div>
+                                        <div class="tk-drop-hint">PDF, imagenes, Office, texto o comprimidos. Hasta 25 MB por archivo.</div>
                                     </div>
+                                    @if (_wizFiles.Count > 0)
+                                    {
+                                        <ul class="tk-wizfiles">
+                                            @for (var _fi = 0; _fi < _wizFiles.Count; _fi++)
+                                            {
+                                                var fi = _fi;
+                                                <li><span>@_wizFiles[fi].Name</span><button type="button" @onclick="() => _wizFiles.RemoveAt(fi)" disabled="@_busy" title="Quitar">&times;</button></li>
+                                            }
+                                        </ul>
+                                    }
+                                    @if (_wizError is not null) { <div style="@ErrStyle;margin-top:8px">@_wizError</div> }
                                 </div>
                             </div>
                         }
@@ -417,6 +436,67 @@
     // Actividad recien creada: cuando no es null, el modal muestra la pantalla de RESUMEN (con el
     // numero asignado) en vez de cerrarse, para que el usuario cierre o cree otra.
     private TaskItemDetailDto? _created;
+
+    // Archivos adjuntos elegidos en el paso "Archivos": se guardan al crear la actividad.
+    private readonly List<IBrowserFile> _wizFiles = new();
+    private bool _wizDragOver;
+    private string? _wizError;
+    private const long WizMaxBytes = 25 * 1024 * 1024;
+    private static readonly HashSet<string> WizExtWhitelist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
+        ".txt", ".rtf", ".zip", ".rar", ".7z"
+    };
+
+    private void OnWizFilesAsync(InputFileChangeEventArgs e)
+    {
+        _wizError = null;
+        _wizDragOver = false;
+        try
+        {
+            foreach (var f in e.GetMultipleFiles(10))
+            {
+                var ext = Path.GetExtension(f.Name);
+                if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext)) { _wizError = $"{f.Name}: tipo de archivo no permitido."; continue; }
+                if (f.Size > WizMaxBytes) { _wizError = $"{f.Name}: supera {WizMaxBytes / (1024 * 1024)} MB."; continue; }
+                _wizFiles.Add(f);
+            }
+        }
+        catch (InvalidOperationException) { _wizError = "Maximo 10 archivos por seleccion."; }
+    }
+
+    // Guarda los archivos elegidos y los adjunta a la actividad recien creada (mismo almacen que el
+    // detalle: wwwroot/uploads/tasks/{tenant}). Un archivo que falle se omite; no aborta la creacion.
+    private async Task AttachWizFilesAsync(Guid taskId)
+    {
+        if (await TenantIdAsync() is not Guid tenantId) { return; }
+        var actor = await ActorAsync();
+        var actorName = await ActorNameAsync();
+        var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
+        Directory.CreateDirectory(dir);
+        foreach (var f in _wizFiles)
+        {
+            try
+            {
+                var ext = Path.GetExtension(f.Name).ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext) || f.Size > WizMaxBytes) { continue; }
+                var stored = $"{Guid.NewGuid():N}{ext}";
+                await using var srcStream = f.OpenReadStream(WizMaxBytes);
+                await using (var dst = File.Create(Path.Combine(dir, stored)))
+                {
+                    await srcStream.CopyToAsync(dst);
+                }
+                var url = $"/uploads/tasks/{tenantId:N}/{stored}";
+                var name = f.Name.Length > 180 ? f.Name[..180] : f.Name;
+                await TasksSvc.AddAttachmentAsync(
+                    new AddTaskAttachmentRequest(taskId, name, url, string.IsNullOrWhiteSpace(f.ContentType) ? null : f.ContentType, f.Size),
+                    actor, actorName);
+            }
+            catch { /* un archivo fallo: se omite */ }
+        }
+        _wizFiles.Clear();
+    }
 
     // Datos
     private List<EntidadOptionDto> _entidades = new();
@@ -601,6 +681,8 @@
         if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
         _milestoneId = null;
         _formResponseId = null;
+        _wizFiles.Clear();
+        _wizError = null;
         _errors.Clear();
         _step = 1;
     }
@@ -896,6 +978,13 @@
             if (_formResponseId is Guid formResponseId)
             {
                 await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number + "-1");
+            }
+
+            // Archivos elegidos en el paso "Archivos" -> se adjuntan a la actividad recien creada, para
+            // que aparezcan en su detalle (conexion creacion <-> detalle).
+            if (_wizFiles.Count > 0)
+            {
+                await AttachWizFilesAsync(result.Value!.Item.Id);
             }
 
             await OnCreated.InvokeAsync(result.Value!);

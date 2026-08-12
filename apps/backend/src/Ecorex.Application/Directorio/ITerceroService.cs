@@ -48,6 +48,15 @@ public interface ITerceroService
     Task<TerceroResult<bool>> DeleteContactoAsync(
         Guid contactoId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Promueve un contacto ligero heredado (<see cref="Ecorex.Domain.Entities.TerceroContacto"/>) a un
+    /// Tercero tipo Persona vinculado a la misma empresa, para que se edite con el modal COMPLETO (unifica
+    /// el contacto: todo contacto es un tercero). Copia nombre/cargo/correo/telefono, borra el ligero y
+    /// devuelve el Id del nuevo tercero.
+    /// </summary>
+    Task<TerceroResult<Guid>> PromoteContactoToTerceroAsync(
+        Guid contactoId, CancellationToken cancellationToken = default);
+
     // ---- Notas / gestiones "Contacto cliente" (timeline) ----
 
     Task<IReadOnlyList<TerceroNotaDto>> ListNotasAsync(

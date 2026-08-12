@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IPipelineService, Tenancy.PipelineService>();
         services.AddScoped<Tenancy.ILeadService, Tenancy.LeadService>();
         services.AddScoped<Tenancy.IContactLoaderService, Tenancy.ContactLoaderService>();
+        services.AddScoped<Contactos.IContactSearchService, Contactos.ContactSearchService>();
         services.AddScoped<Tenancy.ITenantApiService, Tenancy.TenantApiService>();
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();
@@ -187,6 +188,7 @@ public static class DependencyInjection
         services.AddScoped<Asesores.IAsesorService, Asesores.AsesorService>();
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
+        services.AddScoped<Directorio.ITerceroFichaService, Directorio.TerceroFichaService>();
         services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
         // Catalogo GLOBAL de ciudades / municipios (Colombia): alimenta el selector de ciudad del
         // Directorio y del modal de Tercero (reemplaza el input libre). No tenant-scoped.

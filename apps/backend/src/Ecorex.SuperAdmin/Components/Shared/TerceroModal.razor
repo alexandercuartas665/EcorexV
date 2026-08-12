@@ -18,6 +18,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Forms
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
+@inject ITerceroFichaService FichaSvc
 @inject ITerceroFormService FormsSvc
 @inject IGestorContactosService GestorSvc
 @inject Ecorex.Application.Crm.IConceptoActividadService ConceptosSvc
@@ -116,7 +117,7 @@
                         <div class="dg-m-cols">
                             @* ---- Aside: perfiles ---- *@
                             <aside class="dg-aside">
-                                <label class="dg-aside-lbl">PERFILES DEL TERCERO</label>
+                                <label class="dg-aside-lbl" title="Perfiles del tercero">PERFILES</label>
                                 <div class="dg-chips-col">
                                     <button class="dg-pchip @(HasPerfil(TerceroPerfil.Cliente) ? "on-violet" : "")" disabled="@(!_canCrearCliente && _editingId is null)" @onclick="() => TogglePerfil(TerceroPerfil.Cliente)">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Cliente
@@ -131,41 +132,65 @@
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>Empleado
                                     </button>
                                 </div>
-                                <p class="dg-aside-note">Un tercero puede tener varios perfiles. Cada perfil activa su ficha de datos.</p>
+                                <p class="dg-aside-note" title="Un tercero puede tener varios perfiles. Cada perfil activa su ficha de datos.">Varios perfiles por tercero.</p>
                             </aside>
 
                             @* ---- Campos principales ---- *@
                             <div class="dg-field-col">
                                 <label class="dg-sec-lbl">TIPO DE CONTACTO</label>
-                                <div class="dg-kind-row">
-                                    <button class="dg-kind @(_mTipo == TerceroTipo.Empresa ? "active" : "")" disabled="@(!_canCrearEmpresa && _editingId is null)" @onclick="() => SetTipoModal(TerceroTipo.Empresa)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>Empresa
-                                    </button>
-                                    <button class="dg-kind @(_mTipo == TerceroTipo.Persona ? "active" : "")" @onclick="() => SetTipoModal(TerceroTipo.Persona)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Contacto
-                                    </button>
-                                </div>
-
-                                <div class="dg-idbox">
-                                    <label class="dg-idbox-lbl">IDENTIFICAR POR</label>
-                                    <div class="dg-idchips">
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Nit ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Nit">NIT</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Identificacion ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Identificacion">Identificacion</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Correo ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Correo">Correo</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Telefono ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Telefono">Telefono</button>
-                                        <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Ninguno ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Ninguno">No se identifica</button>
+                                <div class="dg-tipo-wrap">
+                                    <div class="dg-kind-row">
+                                        <button class="dg-kind @(_mTipo == TerceroTipo.Empresa ? "active" : "")" disabled="@(!_canCrearEmpresa && _editingId is null)" @onclick="() => SetTipoModal(TerceroTipo.Empresa)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M10 9h.01M14 9h.01M10 13h.01M14 13h.01" /></svg>Empresa
+                                        </button>
+                                        <button class="dg-kind @(_mTipo == TerceroTipo.Persona ? "active" : "")" @onclick="() => SetTipoModal(TerceroTipo.Persona)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>Contacto
+                                        </button>
+                                        @* Identificacion como tarjeta flotante: el resumen abre/cierra el popover y libera el ancho. *@
+                                        <button type="button" class="dg-id-summary @(_idboxOpen ? "open" : "")" @onclick="() => _idboxOpen = !_idboxOpen" title="Como se identifica este tercero">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 9h4M7 13h6M15 8h3v4h-3z" /></svg>
+                                            <span class="dg-id-sum-t">
+                                                @if (_mIdTipo == TerceroIdTipo.Ninguno)
+                                                {
+                                                    <b>No se identifica</b>
+                                                }
+                                                else
+                                                {
+                                                    <span class="mut">@IdLabel()</span>
+                                                    <b>@(string.IsNullOrWhiteSpace(_mIdValor) ? "sin valor" : _mIdValor)</b>
+                                                }
+                                            </span>
+                                            <svg class="dg-id-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                        </button>
                                     </div>
-                                    @if (_mIdTipo == TerceroIdTipo.Ninguno)
+
+                                    @if (_idboxOpen)
                                     {
-                                        <div class="dg-idnote">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
-                                            Este tercero se registra sin documento de identificacion.
+                                        <div class="dg-idpop" @onclick:stopPropagation="true">
+                                            <div class="dg-idpop-head">
+                                                <span>IDENTIFICAR POR</span>
+                                                <button type="button" class="dg-idpop-x" @onclick="() => _idboxOpen = false" title="Cerrar">&times;</button>
+                                            </div>
+                                            <div class="dg-idchips">
+                                                <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Nit ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Nit">NIT</button>
+                                                <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Identificacion ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Identificacion">Identificacion</button>
+                                                <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Correo ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Correo">Correo</button>
+                                                <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Telefono ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Telefono">Telefono</button>
+                                                <button class="dg-idchip @(_mIdTipo == TerceroIdTipo.Ninguno ? "active" : "")" @onclick="() => _mIdTipo = TerceroIdTipo.Ninguno">No se identifica</button>
+                                            </div>
+                                            @if (_mIdTipo == TerceroIdTipo.Ninguno)
+                                            {
+                                                <div class="dg-idnote">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
+                                                    Este tercero se registra sin documento de identificacion.
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
+                                                <input class="dg-input tall" placeholder="@IdPlaceholder()" @bind="_mIdValor" @bind:event="oninput" />
+                                            }
                                         </div>
-                                    }
-                                    else
-                                    {
-                                        <label class="dg-idbox-lbl">@IdLabel() <span class="dg-req">*</span></label>
-                                        <input class="dg-input tall" placeholder="@IdPlaceholder()" @bind="_mIdValor" />
                                     }
                                 </div>
 
@@ -256,16 +281,16 @@
                                     <div class="dg-fichas">
                                         @foreach (var fc in fichas)
                                         {
-                                            var open = _fichaOpen.Contains(fc.Key);
-                                            var fcFields = FieldsFor(fc.Key);
+                                            var open = _fichaOpen.Contains(fc.FichaKey);
+                                            var fcFields = FieldsFor(fc.FichaKey);
                                             <div class="dg-ficha">
-                                                <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.Key)">
-                                                    <span class="dg-ficha-ic" style="background:var(@fc.Bg);color:var(@fc.Color)">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="@fc.IconPath" /></svg>
+                                                <div class="dg-ficha-head" @onclick="() => ToggleFicha(fc.FichaKey)">
+                                                    <span class="dg-ficha-ic" style="@FichaIcoStyle(fc.Color)">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
                                                     </span>
                                                     <div style="flex:1;min-width:0">
                                                         <div class="dg-ficha-title">@fc.Title</div>
-                                                        <div class="dg-ficha-desc">@fc.Desc</div>
+                                                        <div class="dg-ficha-desc">@fc.Description</div>
                                                     </div>
                                                     <span class="dg-ficha-count">@fcFields.Count campos</span>
                                                     <span class="dg-ficha-chev" style="transform:rotate(@(open ? "90deg" : "0deg"))">
@@ -295,21 +320,21 @@
                                                                         {
                                                                             @* Se pide tantas veces como diga el campo que lo gobierna. *@
                                                                             <label class="dg-flabel">@f.Label</label>
-                                                                            var rc = RepeatCount(fc.Key, f.RepeatWithFieldKey!);
+                                                                            var rc = RepeatCount(fc.FichaKey, f.RepeatWithFieldKey!);
                                                                             if (rc <= 0)
                                                                             {
                                                                                 <div class="dg-rep-hint">Indica "@FieldLabel(f.RepeatWithFieldKey!)" para capturar @f.Label.</div>
                                                                             }
                                                                             else
                                                                             {
-                                                                                var rvals = RepeatValues(fc.Key, f.FieldKey, rc);
+                                                                                var rvals = RepeatValues(fc.FichaKey, f.FieldKey, rc);
                                                                                 for (var ri = 0; ri < rc; ri++)
                                                                                 {
                                                                                     var idx = ri;
                                                                                     <div class="dg-rep-row">
                                                                                         <span class="dg-rep-idx">@(idx + 1)</span>
                                                                                         <input class="dg-input" type="@InputType(f.FieldType)" value="@rvals[idx]"
-                                                                                               @onchange="e => SetRepeatValue(fc.Key, f.FieldKey, idx, rc, e.Value?.ToString())" />
+                                                                                               @onchange="e => SetRepeatValue(fc.FichaKey, f.FieldKey, idx, rc, e.Value?.ToString())" />
                                                                                     </div>
                                                                                 }
                                                                             }
@@ -320,7 +345,7 @@
                                                                             @switch (f.FieldType)
                                                                             {
                                                                                 case TerceroFieldType.Select:
-                                                                                    <select class="dg-input" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())">
+                                                                                    <select class="dg-input" value="@GetFicha(fc.FichaKey, f.FieldKey)" @onchange="e => SetFicha(fc.FichaKey, f.FieldKey, e.Value?.ToString())">
                                                                                         <option value="">-</option>
                                                                                         @foreach (var o in SplitOptions(f.Options))
                                                                                         {
@@ -329,7 +354,7 @@
                                                                                     </select>
                                                                                     break;
                                                                                 case TerceroFieldType.TextArea:
-                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())"></textarea>
+                                                                                    <textarea class="dg-input dg-textarea" value="@GetFicha(fc.FichaKey, f.FieldKey)" @onchange="e => SetFicha(fc.FichaKey, f.FieldKey, e.Value?.ToString())"></textarea>
                                                                                     break;
                                                                                 case TerceroFieldType.Lookup:
                                                                                     @* Lista alimentada por el Contenedor de datos. Se guarda el Id de la
@@ -337,8 +362,8 @@
                                                                                     @if (LookupCfg(f) is { } lkCfg)
                                                                                     {
                                                                                         <DataLookupField Config="lkCfg"
-                                                                                                         Value="@GetFicha(fc.Key, f.FieldKey)"
-                                                                                                         ValueChanged="v => SetFicha(fc.Key, f.FieldKey, v)"
+                                                                                                         Value="@GetFicha(fc.FichaKey, f.FieldKey)"
+                                                                                                         ValueChanged="v => SetFicha(fc.FichaKey, f.FieldKey, v)"
                                                                                                          FormValues="TodosLosValores()"
                                                                                                          OnAutofill="AplicarAutollenado"
                                                                                                          ActorUserId="_actorId"
@@ -364,7 +389,7 @@
                                                                                     }
                                                                                     break;
                                                                                 default:
-                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.Key, f.FieldKey)" @onchange="e => SetFicha(fc.Key, f.FieldKey, e.Value?.ToString())" />
+                                                                                    <input class="dg-input" type="@InputType(f.FieldType)" value="@GetFicha(fc.FichaKey, f.FieldKey)" @onchange="e => SetFicha(fc.FichaKey, f.FieldKey, e.Value?.ToString())" />
                                                                                     break;
                                                                             }
                                                                         }
@@ -432,7 +457,14 @@
                                                     <span class="dg-kid-meta">@k.Telefono</span>
                                                 }
                                                 <div class="dg-kid-acts">
-                                                    @if (k.EsTercero)
+                                                    @if (_confirmDelContactoId == k.Id)
+                                                    {
+                                                        @* Doble confirmacion al eliminar un contacto. *@
+                                                        <span class="dg-kid-confirm">Eliminar?</span>
+                                                        <button class="dg-btn-mini danger" @onclick="() => ConfirmDeleteContactoAsync(_editingId!.Value, k.Id)" disabled="@_busy">Si, eliminar</button>
+                                                        <button class="dg-btn-mini" @onclick="() => _confirmDelContactoId = null" disabled="@_busy">Cancelar</button>
+                                                    }
+                                                    else if (k.EsTercero)
                                                     {
                                                         <button class="dg-act edit" title="Editar contacto" @onclick="() => OpenEditAsync(k.Id, _editingId)">
                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
@@ -443,10 +475,11 @@
                                                     }
                                                     else
                                                     {
-                                                        <button class="dg-act edit" title="Editar contacto" @onclick="() => OpenContacto(_editingId!.Value, k)">
+                                                        @* Contacto ligero heredado: al editar se PROMUEVE a tercero y abre el modal completo (unifica). *@
+                                                        <button class="dg-act edit" title="Editar contacto (modal completo)" @onclick="() => EditContactoLigeroAsync(k)" disabled="@_busy">
                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                                                         </button>
-                                                        <button class="dg-act del" title="Eliminar contacto" @onclick="() => DeleteContactoAsync(_editingId!.Value, k.Id)" disabled="@_busy">
+                                                        <button class="dg-act del" title="Eliminar contacto" @onclick="() => _confirmDelContactoId = k.Id" disabled="@_busy">
                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
                                                         </button>
                                                     }
@@ -797,6 +830,8 @@
     private TerceroEstado _mEstado = TerceroEstado.Activo;
     private TerceroIdTipo _mIdTipo = TerceroIdTipo.Nit;
     private string _mIdValor = "";
+    // Popover flotante de "Identificar por" sobre el boton de tipo (libera el ancho de la ficha).
+    private bool _idboxOpen;
     private string _mNombre = "";
     private string _mVendedor = "";
     // Vendedor asignado desde el catalogo de asesores (000074). _mVendedor queda como texto legado.
@@ -865,6 +900,7 @@
             _permsLoaded = true;
         }
         await FieldSvc.EnsureDefaultsAsync();
+        _fichas = (await FichaSvc.ListAsync()).ToList();
         // Asesores activos para el selector "Vendedor asignado". Se recarga en cada apertura para
         // reflejar altas recientes del catalogo; es una lista corta por tenant.
         _asesorOptions = (await AsesorSvc.ListOptionsAsync()).ToList();
@@ -873,10 +909,10 @@
     private async Task LoadFichaFieldsAsync()
     {
         _fichaFields.Clear();
-        foreach (var m in FichaCatalog)
+        foreach (var m in _fichas)
         {
-            var list = await FieldSvc.ListByFichaAsync(m.Key);
-            _fichaFields[m.Key] = list.OrderBy(f => f.SortOrder).ToList();
+            var list = await FieldSvc.ListByFichaAsync(m.FichaKey);
+            _fichaFields[m.FichaKey] = list.OrderBy(f => f.SortOrder).ToList();
         }
     }
 
@@ -958,6 +994,8 @@
         _mEstado = TerceroEstado.Activo;
         _mIdTipo = _mTipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
         _mIdValor = "";
+        _idboxOpen = false;
+        _confirmDelContactoId = null;
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
         _mVendedorAsesorId = null;
         _ciudadQuery = "";
@@ -1011,6 +1049,8 @@
         _mEstado = d.Estado == TerceroEstado.Inactivo ? TerceroEstado.Activo : d.Estado;
         _mIdTipo = d.IdTipo;
         _mIdValor = d.IdValor ?? "";
+        _idboxOpen = false;
+        _confirmDelContactoId = null;
         _mNombre = d.Nombre;
         _mVendedor = d.Vendedor ?? "";
         _mVendedorAsesorId = d.VendedorAsesorId;
@@ -1087,6 +1127,8 @@
         {
             _mIdTipo = tipo == TerceroTipo.Empresa ? TerceroIdTipo.Nit : TerceroIdTipo.Identificacion;
         }
+        // Al elegir el tipo, abre la tarjeta flotante de identificacion (se queda abierta).
+        _idboxOpen = true;
     }
 
     private bool HasPerfil(TerceroPerfil p) => (_mPerfiles & p) == p;
@@ -1329,11 +1371,11 @@
         var fichas = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
         foreach (var def in VisibleFichas())
         {
-            if (!_fichaValues.TryGetValue(def.Key, out var vals)) { continue; }
+            if (!_fichaValues.TryGetValue(def.FichaKey, out var vals)) { continue; }
             var nonEmpty = vals
                 .Where(kv => !string.IsNullOrWhiteSpace(kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
-            if (nonEmpty.Count > 0) { fichas[def.Key] = nonEmpty; }
+            if (nonEmpty.Count > 0) { fichas[def.FichaKey] = nonEmpty; }
         }
         var fichasJson = fichas.Count > 0 ? JsonSerializer.Serialize(fichas) : null;
 
@@ -1445,11 +1487,15 @@
         StateHasChanged();
     }
 
-    private async Task DeleteContactoAsync(Guid parentId, Guid contactoId)
+    // Doble confirmacion: la papelera arma _confirmDelContactoId; este metodo es el 2o clic ("Si, eliminar").
+    private Guid? _confirmDelContactoId;
+
+    private async Task ConfirmDeleteContactoAsync(Guid parentId, Guid contactoId)
     {
         _busy = true;
         var res = await TerceroSvc.DeleteContactoAsync(contactoId);
         _busy = false;
+        _confirmDelContactoId = null;
         if (!res.IsOk) { return; }
         // Optimista: quita la fila borrada de la lista abierta sin re-consultar (misma razon que el alta).
         if (_editingId == parentId)
@@ -1458,6 +1504,24 @@
         }
         await OnChanged.InvokeAsync();
         StateHasChanged();
+    }
+
+    /// <summary>Edita un contacto ligero heredado: lo PROMUEVE a Tercero Persona (unifica el modal) y abre
+    /// el modal completo del nuevo tercero, con retorno a la empresa actual.</summary>
+    private async Task EditContactoLigeroAsync(TerceroContactoDto k)
+    {
+        if (_editingId is not Guid parentId) { return; }
+        _busy = true;
+        var res = await TerceroSvc.PromoteContactoToTerceroAsync(k.Id);
+        _busy = false;
+        if (!res.IsOk || res.Value == Guid.Empty)
+        {
+            _modalError = res.Error ?? "No se pudo abrir el contacto.";
+            StateHasChanged();
+            return;
+        }
+        await OnChanged.InvokeAsync();
+        await OpenEditAsync(res.Value, parentId);
     }
 
     /// <summary>Quita un contacto que es Tercero Persona de la empresa (desvincula, EmpresaId=null): la
@@ -1749,41 +1813,30 @@
         };
     }
 
-    // ---- Fichas dinamicas por perfil: metadatos visuales; los CAMPOS se leen del servicio. ----
-    private List<FichaMeta> VisibleFichas()
-    {
-        var list = new List<FichaMeta>();
-        var cliente = HasPerfil(TerceroPerfil.Cliente);
-        var sospechoso = HasPerfil(TerceroPerfil.Sospechoso);
-        var proveedor = HasPerfil(TerceroPerfil.Proveedor);
-        var empleado = HasPerfil(TerceroPerfil.Empleado);
+    // ---- Fichas configurables por tenant (data-driven; cargadas al abrir el modal). ----
+    private List<TerceroFichaDto> _fichas = new();
 
-        if (cliente || proveedor) { list.Add(FichaCatalog[0]); }
-        if (cliente || sospechoso) { list.Add(FichaCatalog[1]); }
-        if (cliente) { list.Add(FichaCatalog[2]); }
-        if (proveedor) { list.Add(FichaCatalog[3]); }
-        if (empleado) { list.Add(FichaCatalog[4]); }
-        return list;
+    // Fichas visibles segun los perfiles del tercero: Perfil vacio = siempre visible; si trae
+    // perfiles (coma-separados) se muestra cuando el tercero tiene alguno de ellos. Reemplaza el
+    // mapeo fragil por indice posicional del catalogo hardcodeado.
+    private List<TerceroFichaDto> VisibleFichas()
+    {
+        var perfiles = new HashSet<string>(StringComparer.Ordinal);
+        if (HasPerfil(TerceroPerfil.Cliente)) { perfiles.Add("cliente"); }
+        if (HasPerfil(TerceroPerfil.Sospechoso)) { perfiles.Add("sospechoso"); }
+        if (HasPerfil(TerceroPerfil.Proveedor)) { perfiles.Add("proveedor"); }
+        if (HasPerfil(TerceroPerfil.Empleado)) { perfiles.Add("empleado"); }
+        return _fichas.Where(f => !f.IsHidden && (string.IsNullOrWhiteSpace(f.Perfil)
+            || f.Perfil.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(perfiles.Contains)))
+            .ToList();
     }
 
-    private sealed record FichaMeta(string Key, string Title, string Desc, string ConfigLabel, string Color, string Bg, string IconPath);
-
-    // Catalogo de fichas (mismas claves que ITerceroFieldService.FichaKeys). Solo metadatos de
-    // presentacion: los campos son 100% configurables via el servicio. Copia del catalogo del
-    // Directorio (que lo reusa en su configurador de campos); mantener ambos en sincronia.
-    private static readonly FichaMeta[] FichaCatalog =
+    // Estilo del badge de una ficha a partir de su color hex (tinte de fondo + trazo del color).
+    private static string FichaIcoStyle(string? color)
     {
-        new("fiscal", "Ficha fiscal / tributaria", "Datos tributarios y de facturacion", "Datos fiscales", "--t-amber", "--t-amber-bg",
-            "M3 3h18v4H3zM3 7v14h18V7M8 12h8M8 16h5"),
-        new("comercial", "Ficha comercial", "Vendedor, origen y gestion de riesgo", "Datos comerciales", "--t-violet", "--t-violet-bg",
-            "m3 11 19-9-9 19-2-8-8-2z"),
-        new("cliente", "Ficha de cliente", "Condiciones comerciales de venta", "Ficha de cliente", "--t-green", "--t-green-bg",
-            "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"),
-        new("proveedor", "Ficha de proveedor", "Condiciones de compra y pago", "Ficha de proveedor", "--t-blue", "--t-blue-bg",
-            "M1 3h15v13H1zM16 8h4l3 3v5h-7V8ZM5.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18.5 21a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"),
-        new("empleado", "Ficha de empleado", "Vinculacion laboral", "Ficha de empleado", "--t-rose", "--t-rose-bg",
-            "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6")
-    };
+        var c = string.IsNullOrWhiteSpace(color) ? "#6b7280" : color!;
+        return $"background:color-mix(in srgb,{c} 16%,transparent);color:{c}";
+    }
 
     // ---- Helpers de presentacion ----
     private sealed record TagInfo(string Label, string Color, string Bg);

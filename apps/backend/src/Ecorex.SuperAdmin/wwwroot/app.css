@@ -1697,8 +1697,10 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-conflict-x { margin-left: auto; border: none; background: none; font-size: 16px; line-height: 1; color: inherit; cursor: pointer; }
 
 /* Cuerpo 2 columnas del detalle */
-.tk-detail-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 960px) { .tk-detail-body { grid-template-columns: 1fr; } }
+/* Cuerpo del detalle en UNA sola columna: los campos del tablero y demas secciones ocupan todo el
+   ancho del area de contenido (la columna lateral vacia robaba espacio). El Flujo, cuando existe,
+   baja a ancho completo. El Resumen/Bitacora siguen en el rail lateral (contenedor externo). */
+.tk-detail-body { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 .tk-detail-main, .tk-detail-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .tk-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
 .tk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
@@ -2653,3 +2655,112 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .tkl-grpcolors-lbl { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .tkl-grpchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); }
 .tkl-grpchip input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
+
+/* Directorio General: gestion de fichas (pildoras) configurables. */
+.dg-cfg-fnew { border-style: dashed !important; font-weight: 600; }
+.dg-ficha-edit, .dg-ficha-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.dg-cfg-input { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.dg-ficha-color { width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
+.dg-ficha-cancel { font-size: 16px; line-height: 1; }
+.dg-ficha-del { color: var(--danger, #dc2626); border-color: color-mix(in srgb, var(--danger, #dc2626) 40%, var(--line)); }
+.dg-ficha-err { color: var(--danger, #dc2626); font-size: 12.5px; }
+
+/* ---- Pildora-ficha con engranaje de configuracion (config por ficha) ---- */
+.dg-fchip { display: inline-flex; align-items: stretch; height: 34px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--surface); overflow: hidden; }
+.dg-fchip:hover { border-color: var(--ink-3); }
+.dg-fchip.active { border-color: var(--brand); background: var(--brand); }
+.dg-fchip.active .dg-fchip-lbl { color: var(--on-brand); }
+.dg-fchip.active .dg-fchip-gear { color: var(--on-brand); border-left-color: color-mix(in srgb, var(--on-brand) 30%, transparent); }
+.dg-fchip.is-hidden { opacity: .6; }
+.dg-fchip-lbl { display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: none; background: transparent; color: var(--ink-2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.dg-fchip-lbl:disabled { cursor: not-allowed; }
+.dg-fchip-tag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); background: var(--surface-3); border-radius: 5px; padding: 1px 5px; }
+.dg-fchip.active .dg-fchip-tag { color: var(--on-brand); background: color-mix(in srgb, var(--on-brand) 22%, transparent); }
+.dg-fchip-gear { width: 30px; border: none; border-left: 1px solid var(--line); background: transparent; color: var(--ink-3); cursor: pointer; display: grid; place-items: center; }
+.dg-fchip-gear:hover:not(:disabled) { background: var(--surface-3); color: var(--brand); }
+.dg-fchip-gear:disabled { opacity: .4; cursor: not-allowed; }
+.dg-fchip-gear svg { width: 14px; height: 14px; }
+
+/* ---- Modalcito de configuracion de una ficha ---- */
+.dg-fm-ov { position: fixed; inset: 0; z-index: 2600; background: rgba(15,23,42,.42); display: grid; place-items: center; padding: 20px; }
+.dg-fm { width: min(400px, 94vw); background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: var(--sh-lg, 0 20px 50px rgba(0,0,0,.25)); padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.dg-fm-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 800; color: var(--ink); margin-bottom: 2px; }
+.dg-fm-x { border: none; background: transparent; color: var(--ink-3); font-size: 20px; line-height: 1; cursor: pointer; }
+.dg-fm-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); margin-top: 4px; }
+.dg-fm .dg-cfg-input { width: 100%; box-sizing: border-box; }
+.dg-fm-2 { display: flex; gap: 12px; align-items: flex-end; }
+.dg-fm-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-top: 8px; cursor: pointer; }
+.dg-fm-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+
+/* Adjuntos de tarea: zona drag & drop (modal de detalle y wizard). */
+.tk-drop { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px 16px; border: 2px dashed var(--line); border-radius: 12px; background: var(--surface-2); text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+.tk-drop.over { border-color: var(--brand, #7c5cff); background: color-mix(in srgb, var(--brand, #7c5cff) 8%, var(--surface-2)); }
+.tk-drop-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.tk-drop-ic { width: 26px; height: 26px; color: var(--ink-3); }
+.tk-drop-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.tk-drop-hint { font-size: 11.5px; color: var(--ink-3); }
+.tk-att-url { margin-top: 8px; }
+.tk-att-url > summary { font-size: 12px; color: var(--ink-3); cursor: pointer; }
+.tk-att-url > summary:hover { color: var(--ink); }
+
+/* Wizard: lista de archivos elegidos antes de crear la actividad. */
+.tk-wizfiles { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.tk-wizfiles li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12.5px; }
+.tk-wizfiles li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.tk-wizfiles li button { border: none; background: none; color: var(--ink-3); font-size: 16px; line-height: 1; cursor: pointer; }
+.tk-wizfiles li button:hover { color: var(--danger, #dc2626); }
+
+/* Cargador de contactos: modal de configurar busquedas. */
+.cs-editor { display: flex; flex-direction: column; gap: 12px; }
+.cs-editor label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2, var(--ink)); }
+.cs-editor .form-control { font-weight: 400; }
+.cs-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.cs-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
+.cs-editor-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+.cs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cs-table th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 11px; text-transform: uppercase; color: var(--ink-3); letter-spacing: .04em; }
+.cs-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.cs-table tr.cs-off td { opacity: .5; }
+.cs-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.cs-empty { text-align: center; color: var(--ink-3); padding: 20px 0 !important; }
+.cs-note { font-size: 12px; color: var(--ink-3); max-width: 720px; }
+
+/* ---- Configurar busquedas: version GLOBAL de cl-btn/cl-flash (el scoped vive en CargadorContactos,
+   este componente se usa desde el Gestor de contactos y no hereda ese scope) ---- */
+.cs-editor .cl-btn, .cs-grid .cl-btn, .cs-editor + .cl-flash, .modal-body .cl-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); color: var(--ink);
+    font-size: 12.5px; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.modal-body .cl-btn:hover:not(:disabled) { background: var(--surface-3); }
+.modal-body .cl-btn:disabled { opacity: .55; cursor: default; }
+.modal-body .cl-btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+.modal-body .cl-btn.sm { padding: 4px 8px; font-size: 11.5px; }
+.modal-body .cl-btn.danger { color: var(--danger); border-color: var(--line-2); font-weight: 700; }
+.modal-body .cl-btn.danger:hover:not(:disabled) { background: var(--t-rose-bg); border-color: var(--danger); }
+.modal-body .cl-flash {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 14px; border: 1px solid var(--line-2); border-radius: 8px;
+    background: var(--surface); font-size: 12.5px;
+}
+.modal-body .cl-flash.ok { border-color: var(--ok); color: var(--ok); background: var(--t-green-bg); }
+.modal-body .cl-flash.err { border-color: var(--danger); color: var(--danger); background: var(--t-rose-bg); }
+
+/* ---- Grilla de busquedas con edicion en linea ---- */
+.cs-grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cs-grid th { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 10.5px; text-transform: uppercase; color: var(--ink-3); letter-spacing: .04em; white-space: nowrap; }
+.cs-grid td { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: middle; }
+.cs-grid tr.cs-off > td { opacity: .55; }
+.cs-grid tr.cs-draft > td { background: var(--surface-2, var(--surface)); }
+.cs-grid tr.cs-detail > td { background: var(--surface-2, var(--surface)); padding: 12px 14px; }
+.cs-in { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12.5px; font-family: inherit; }
+.cs-in:focus { outline: none; border-color: var(--brand); }
+.cs-num { text-align: right; }
+.cs-c-exp { text-align: center; }
+.cs-exp { border: none; background: transparent; color: var(--ink-3); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; }
+.cs-c-chk { text-align: center; }
+.cs-detail-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.cs-sched { border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2, var(--surface)); }
+.cs-sched-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
+.cs-sched-cap { font-size: 10px; color: var(--ink-3); margin-top: 3px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

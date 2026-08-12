@@ -153,7 +153,9 @@ public sealed class TerceroFieldService : ITerceroFieldService
             return null;
         }
         var ficha = (request.FichaKey ?? string.Empty).Trim().ToLowerInvariant();
-        if (!FichaKeys.Contains(ficha))
+        // La ficha debe existir en el catalogo del tenant (ahora data-driven: fichas por defecto +
+        // las que crea el usuario), no en una lista fija.
+        if (!await _db.TerceroFichaDefinitions.AnyAsync(f => f.FichaKey == ficha, cancellationToken))
         {
             return null;
         }
@@ -241,7 +243,7 @@ public sealed class TerceroFieldService : ITerceroFieldService
     public async Task<string?> MoveFieldToFichaAsync(Guid fieldId, string targetFichaKey, CancellationToken cancellationToken = default)
     {
         var ficha = (targetFichaKey ?? string.Empty).Trim().ToLowerInvariant();
-        if (!FichaKeys.Contains(ficha)) { return "La ficha destino no existe."; }
+        if (!await _db.TerceroFichaDefinitions.AnyAsync(f => f.FichaKey == ficha, cancellationToken)) { return "La ficha destino no existe."; }
 
         var field = await _db.TerceroFieldDefinitions.FirstOrDefaultAsync(f => f.Id == fieldId, cancellationToken);
         if (field is null) { return "El campo no existe."; }

@@ -9,6 +9,7 @@
 @using Ecorex.Application.Directorio
 @using Ecorex.Application.Crm
 @using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Contactos
 @inject IGestorContactosService GestorSvc
 @inject ITerceroService TerceroSvc
 @inject IOportunidadEstadoService EstadosSvc
@@ -181,7 +182,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                                 Nuevo contacto
                             </button>
-                            <button class="gc-btn-line" disabled>Enviar a workflow</button>
+                            <button class="gc-btn-line" @onclick="OpenSearchConfigAsync">Configurar busquedas</button>
                             <button class="gc-btn-line" disabled>Asignar KAM</button>
                         </div>
                     </div>
@@ -264,9 +265,10 @@
                                         }
                                         else if (rr.ProspectoId is Guid pid)
                                         {
-                                            <button class="gc-btn-mini" @onclick="() => PromoverAsync(pid)" disabled="@_busy">
+                                            @* Mismo boton "Editar" (lapiz) que el tercero y Directorio General: al abrirlo
+                                               se promueve el prospecto (crea/vincula el Tercero) y se abre su ficha. *@
+                                            <button class="gc-act edit" title="Editar contacto" @onclick="() => PromoverAsync(pid)" disabled="@_busy">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                                Editar
                                             </button>
                                         }
                                     </div>
@@ -813,6 +815,9 @@
    cliente; ambos modulos comparten los registros Tercero). Se abre in-place por @@ref. *@
 <TerceroModal @ref="_terceroModal" OnChanged="ReloadAllAsync" CrmWiring="true" />
 
+@* Configurar busquedas de contactos (agente Colmena -> agente IA -> prospecto). *@
+<ContactSearchConfig @ref="_searchCfg" />
+
 @* ===================== MODAL ASIGNAR A EMPRESA ===================== *@
 @* Mismo patron que el Directorio General: una persona pasa a colgar dentro de una empresa. *@
 @if (_assignOpen && _assignTerceroId is Guid apid)
@@ -867,6 +872,13 @@
     // cliente; ambos modulos se alimentan de los registros Tercero). El modal es el componente
     // compartido TerceroModal; aqui solo lo abrimos por @ref y refrescamos al recibir OnChanged. ----
     private TerceroModal? _terceroModal;
+
+    // Modal de configurar busquedas de contactos (agente Colmena -> agente IA -> prospecto).
+    private ContactSearchConfig? _searchCfg;
+    private async Task OpenSearchConfigAsync()
+    {
+        if (_searchCfg is not null) { await _searchCfg.OpenAsync(); }
+    }
 
     // Disenador de acciones por filtro (ADR-0056, Fase 1). Se abre desde "Acciones" del menu del filtro.
     private ContactWorkflowDesigner? _workflowDesigner;

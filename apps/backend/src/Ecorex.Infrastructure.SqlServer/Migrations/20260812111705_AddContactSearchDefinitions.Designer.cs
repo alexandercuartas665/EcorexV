@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812111705_AddContactSearchDefinitions")]
+    partial class AddContactSearchDefinitions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2075,14 +2078,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
-                    b.Property<int?>("DayOfMonth")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_month");
-
-                    b.Property<int?>("DayOfWeek")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_week");
-
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -2092,14 +2087,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
-
-                    b.Property<DateTimeOffset?>("LastRunAt")
-                        .HasColumnType("datetimeoffset")
-                        .HasColumnName("last_run_at");
-
-                    b.Property<int>("MaxContacts")
-                        .HasColumnType("int")
-                        .HasColumnName("max_contacts");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -2116,17 +2103,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("region");
-
-                    b.Property<string>("RunTime")
-                        .HasMaxLength(5)
-                        .HasColumnType("nvarchar(5)")
-                        .HasColumnName("run_time");
-
-                    b.Property<string>("Schedule")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
-                        .HasColumnName("schedule");
 
                     b.Property<string>("SourceType")
                         .IsRequired()
@@ -12867,10 +12843,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("ficha_key");
-
-                    b.Property<bool>("IsHidden")
-                        .HasColumnType("bit")
-                        .HasColumnName("is_hidden");
 
                     b.Property<bool>("IsSystem")
                         .HasColumnType("bit")

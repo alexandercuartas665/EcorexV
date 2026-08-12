@@ -2572,6 +2572,15 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     /// </summary>
     public async Task EnsureDirectorioFieldDefaultsAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
+        // Fichas por defecto (pildoras): data-driven, se siembran una vez por tenant. Van primero
+        // porque los campos referencian su FichaKey.
+        if (!await _db.TerceroFichaDefinitions.IgnoreQueryFilters().AnyAsync(f => f.TenantId == tenantId, cancellationToken))
+        {
+            _db.TerceroFichaDefinitions.AddRange(
+                Ecorex.Application.Directorio.TerceroFichaService.BuildDefaultFichas(tenantId));
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         if (await _db.TerceroFieldDefinitions.IgnoreQueryFilters().AnyAsync(f => f.TenantId == tenantId, cancellationToken))
         {
             return;

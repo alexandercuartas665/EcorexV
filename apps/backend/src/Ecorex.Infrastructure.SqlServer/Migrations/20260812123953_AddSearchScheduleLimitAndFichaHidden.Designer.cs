@@ -4,6 +4,7 @@ using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ecorex.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(SqlServerEcorexDbContext))]
-    partial class SqlServerEcorexDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812123953_AddSearchScheduleLimitAndFichaHidden")]
+    partial class AddSearchScheduleLimitAndFichaHidden
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2075,14 +2078,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
-                    b.Property<int?>("DayOfMonth")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_month");
-
-                    b.Property<int?>("DayOfWeek")
-                        .HasColumnType("int")
-                        .HasColumnName("day_of_week");
-
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -2116,11 +2111,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("region");
-
-                    b.Property<string>("RunTime")
-                        .HasMaxLength(5)
-                        .HasColumnType("nvarchar(5)")
-                        .HasColumnName("run_time");
 
                     b.Property<string>("Schedule")
                         .IsRequired()

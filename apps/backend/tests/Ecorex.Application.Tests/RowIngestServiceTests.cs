@@ -203,6 +203,8 @@ public class RowIngestServiceTests
         public DbSet<Tercero> Terceros => throw new NotSupportedException();
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => throw new NotSupportedException();
+        public DbSet<ContactSearchDefinition> ContactSearchDefinitions => throw new NotSupportedException();
+        public DbSet<TerceroFichaDefinition> TerceroFichaDefinitions => throw new NotSupportedException();
         public DbSet<TerceroNota> TerceroNotas => throw new NotSupportedException();
         public DbSet<BolsaColumna> BolsaColumnas => throw new NotSupportedException();
         public DbSet<Oportunidad> Oportunidades => throw new NotSupportedException();

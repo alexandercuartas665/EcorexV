@@ -213,6 +213,8 @@ public class ScheduledUpsertRunTests
         public DbSet<Tercero> Terceros => NotUsed<Tercero>();
         public DbSet<TerceroContacto> TerceroContactos => NotUsed<TerceroContacto>();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => NotUsed<TerceroFieldDefinition>();
+        public DbSet<ContactSearchDefinition> ContactSearchDefinitions => NotUsed<ContactSearchDefinition>();
+        public DbSet<TerceroFichaDefinition> TerceroFichaDefinitions => NotUsed<TerceroFichaDefinition>();
         public DbSet<TerceroNota> TerceroNotas => NotUsed<TerceroNota>();
         public DbSet<BolsaColumna> BolsaColumnas => NotUsed<BolsaColumna>();
         public DbSet<Oportunidad> Oportunidades => NotUsed<Oportunidad>();

@@ -424,6 +424,40 @@ public sealed class TerceroService : ITerceroService
         return TerceroResult<bool>.Ok(true);
     }
 
+    public async Task<TerceroResult<Guid>> PromoteContactoToTerceroAsync(
+        Guid contactoId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId)
+        {
+            return TerceroResult<Guid>.Invalid("No hay tenant activo.");
+        }
+        var contacto = await _db.TerceroContactos.FirstOrDefaultAsync(x => x.Id == contactoId, cancellationToken);
+        if (contacto is null)
+        {
+            return TerceroResult<Guid>.NotFound("El contacto no existe.");
+        }
+        // Reproduce exactamente lo que crea "Agregar contacto": una Persona vinculada por EmpresaId, sin
+        // documento, sin perfiles. Copia los datos ligeros y elimina el registro heredado (misma transaccion).
+        var persona = new Tercero
+        {
+            TenantId = tenantId,
+            Nombre = contacto.Nombre,
+            Tipo = TerceroTipo.Persona,
+            Perfiles = TerceroPerfil.Ninguno,
+            Estado = TerceroEstado.Activo,
+            IdTipo = TerceroIdTipo.Ninguno,
+            IdValor = null,
+            Cargo = Normalize(contacto.Cargo),
+            Email = Normalize(contacto.Email),
+            Telefono = Normalize(contacto.Telefono),
+            EmpresaId = contacto.TerceroId
+        };
+        _db.Terceros.Add(persona);
+        _db.TerceroContactos.Remove(contacto);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TerceroResult<Guid>.Ok(persona.Id);
+    }
+
     // ---- Notas / gestiones "Contacto cliente" ----
 
     public async Task<IReadOnlyList<TerceroNotaDto>> ListNotasAsync(

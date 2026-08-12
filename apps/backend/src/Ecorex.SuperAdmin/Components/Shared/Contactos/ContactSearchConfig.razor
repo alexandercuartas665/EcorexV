@@ -1,0 +1,312 @@
+@* ============================================================
+   Configurar busquedas de contactos (agente Colmena -> agente IA -> ProspectoScrapeado).
+   Modal reutilizable: se abre por @ref -> OpenAsync(). Vive en el Gestor de contactos
+   (000740), donde aterrizan los prospectos. Config-driven por tenant.
+   Modo TABLA con edicion en linea: cada fila es una busqueda; los campos largos (terminos,
+   sub-busqueda, geografia, prompt) se editan al expandir la fila.
+   ============================================================ *@
+@using Ecorex.Application.Contactos
+@using Ecorex.Application.Tenancy
+@using Ecorex.Application.Agents
+@using Ecorex.Domain.Enums
+@inject IContactSearchService SearchSvc
+@inject IAiAgentService AiAgentSvc
+@inject IAgentClientService ClientSvc
+@inject Ecorex.SuperAdmin.Agents.IContactSearchRunner Runner
+
+@if (_open)
+{
+    <div class="modal-overlay" @onclick="() => _open = false">
+        <div class="modal-dialog" style="max-width:1100px;width:97vw;max-height:92vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configurar busquedas de contactos</h3>
+                <button class="modal-close" @onclick="() => _open = false">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow:auto;padding:16px 20px;">
+                @if (_error is not null)
+                {
+                    <div class="cl-flash err" style="margin-bottom:12px;">@_error</div>
+                }
+                @if (_runMsg is not null)
+                {
+                    <div class="cl-flash @(_runError ? "err" : "ok")" style="margin-bottom:10px;">@_runMsg</div>
+                }
+                <div class="cs-note" style="margin-bottom:10px;">
+                    Cada fila es una busqueda reutilizable. La ejecuta el agente Colmena guiado por el agente IA;
+                    los resultados entran a "Prospectos scrapeados" (Bolsa). Edita en linea y pulsa Guardar; expande la
+                    fila (&#9656;) para terminos, geografia y el prompt de extraccion.
+                </div>
+
+                <table class="cs-grid">
+                    <thead>
+                        <tr>
+                            <th style="width:26px;"></th>
+                            <th>Nombre</th>
+                            <th style="width:150px;">Fuente</th>
+                            <th style="width:120px;">Programador</th>
+                            <th style="width:78px;">Limite</th>
+                            <th style="width:150px;">Agente IA</th>
+                            <th style="width:150px;">Colmena</th>
+                            <th style="width:56px;">Activa</th>
+                            <th style="width:210px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _rows)
+                        {
+                            var row = r;
+                            var isDraft = row.Id is null;
+                            <tr class="@(isDraft ? "cs-draft" : (row.Active ? "" : "cs-off"))">
+                                <td class="cs-c-exp">
+                                    <button class="cs-exp" @onclick="() => row.Expanded = !row.Expanded"
+                                            title="@(row.Expanded ? "Contraer" : "Terminos, geografia y prompt")">@(row.Expanded ? "▾" : "▸")</button>
+                                </td>
+                                <td><input class="cs-in" @bind="row.Name" maxlength="200" placeholder="@(isDraft ? "+ Nueva busqueda..." : "")" /></td>
+                                <td>
+                                    <select class="cs-in" @bind="row.Source">
+                                        <option value="@ContactSearchSource.Maps">Google Maps</option>
+                                        <option value="@ContactSearchSource.LinkedIn">LinkedIn</option>
+                                        <option value="@ContactSearchSource.Web">Web / directorios</option>
+                                        <option value="@ContactSearchSource.Instagram">Instagram</option>
+                                        <option value="@ContactSearchSource.Facebook">Facebook</option>
+                                        <option value="@ContactSearchSource.X">X (Twitter)</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select class="cs-in" @bind="row.Schedule" title="Cada cuanto deberia ejecutarse (por ahora se guarda; la corrida automatica es una fase siguiente)">
+                                        <option value="@ContactSearchSchedule.Manual">Manual</option>
+                                        <option value="@ContactSearchSchedule.Diaria">Diaria</option>
+                                        <option value="@ContactSearchSchedule.Semanal">Semanal</option>
+                                        <option value="@ContactSearchSchedule.Mensual">Mensual</option>
+                                    </select>
+                                    @if (row.Schedule != ContactSearchSchedule.Manual)
+                                    {
+                                        <div class="cs-sched-cap" title="@SchedSummary(row)">@SchedSummary(row)</div>
+                                    }
+                                </td>
+                                <td><input class="cs-in cs-num" type="number" min="0" max="500" step="1" @bind="row.MaxContacts" title="Tope de contactos por corrida (0 = sin tope)" /></td>
+                                <td>
+                                    <select class="cs-in" @bind="row.AgentId">
+                                        <option value="">-- IA --</option>
+                                        @foreach (var a in _aiAgents) { <option value="@a.Id">@a.Name</option> }
+                                    </select>
+                                </td>
+                                <td>
+                                    <select class="cs-in" @bind="row.ClientId">
+                                        <option value="">-- Colmena --</option>
+                                        @foreach (var c in _clients) { <option value="@c.ClientId">@c.Name</option> }
+                                    </select>
+                                </td>
+                                <td class="cs-c-chk"><input type="checkbox" @bind="row.Active" /></td>
+                                <td class="cs-actions">
+                                    <button class="cl-btn primary sm" @onclick="() => SaveAsync(row)" disabled="@(_busy || string.IsNullOrWhiteSpace(row.Name))" title="Guardar la busqueda">@(isDraft ? "Agregar" : "Guardar")</button>
+                                    @if (!isDraft)
+                                    {
+                                        <button class="cl-btn sm" @onclick="() => RunAsync(row)" disabled="@_busy" title="Disparar con el agente Colmena">@(_runningId == row.Id ? "..." : "Ejecutar")</button>
+                                        <button class="cl-btn sm danger" @onclick="() => DeleteAsync(row)" disabled="@_busy" title="Eliminar">&times;</button>
+                                    }
+                                </td>
+                            </tr>
+                            @if (row.Expanded)
+                            {
+                                <tr class="cs-detail">
+                                    <td></td>
+                                    <td colspan="8">
+                                        <div class="cs-editor">
+                                            @if (row.Error is not null) { <div class="cl-flash err" style="margin-bottom:8px;">@row.Error</div> }
+                                            <label>Que buscar (terminos)<input class="form-control" @bind="row.Query" placeholder="rubro, cargo, palabra clave..." /></label>
+                                            @if (row.Source == ContactSearchSource.Maps)
+                                            {
+                                                <div class="cs-row">
+                                                    <label>Pais<input class="form-control" @bind="row.Country" placeholder="Colombia" /></label>
+                                                    <label>Region / zona<input class="form-control" @bind="row.Region" placeholder="Norte, Sur, departamento..." /></label>
+                                                    <label>Ciudad<input class="form-control" @bind="row.City" placeholder="Bogota" /></label>
+                                                </div>
+                                            }
+                                            <label>Sub-busqueda (opcional)<input class="form-control" @bind="row.SubQuery" placeholder="refinamiento sobre cada resultado (ej. abrir la ficha y sacar el telefono)" /></label>
+                                            <label>Prompt de extraccion (que datos debe tomar el agente) *<textarea class="form-control" rows="3" @bind="row.Prompt" placeholder="Ej: extrae de cada resultado el nombre del negocio, telefono, direccion, correo y ciudad."></textarea></label>
+                                            @if (row.Schedule != ContactSearchSchedule.Manual)
+                                            {
+                                                <div class="cs-sched">
+                                                    <div class="cs-sched-h">Programacion (@SchedLabel(row.Schedule))</div>
+                                                    <div class="cs-row">
+                                                        <label>Hora del dia<input class="form-control" type="time" @bind="row.RunTimeValue" /></label>
+                                                        @if (row.Schedule == ContactSearchSchedule.Semanal)
+                                                        {
+                                                            <label>Dia de la semana
+                                                                <select class="form-control" @bind="row.DayOfWeek">
+                                                                    <option value="1">Lunes</option>
+                                                                    <option value="2">Martes</option>
+                                                                    <option value="3">Miercoles</option>
+                                                                    <option value="4">Jueves</option>
+                                                                    <option value="5">Viernes</option>
+                                                                    <option value="6">Sabado</option>
+                                                                    <option value="0">Domingo</option>
+                                                                </select>
+                                                            </label>
+                                                        }
+                                                        else if (row.Schedule == ContactSearchSchedule.Mensual)
+                                                        {
+                                                            <label>Dia del mes<input class="form-control" type="number" min="1" max="31" step="1" @bind="row.DayOfMonth" /></label>
+                                                        }
+                                                    </div>
+                                                    <div class="cs-note">@SchedSummary(row)</div>
+                                                </div>
+                                            }
+                                            <div class="cs-detail-foot">
+                                                <span class="cs-note">@(row.LastRunAt is null ? "Sin ejecutar aun." : $"Ultima corrida: {row.LastRunAt:yyyy-MM-dd HH:mm}")</span>
+                                                <button class="cl-btn primary sm" @onclick="() => SaveAsync(row)" disabled="@(_busy || string.IsNullOrWhiteSpace(row.Name))">@(isDraft ? "Agregar busqueda" : "Guardar cambios")</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _open;
+    private bool _busy;
+    private string? _error;
+    private IReadOnlyList<AiAgentDto> _aiAgents = Array.Empty<AiAgentDto>();
+    private IReadOnlyList<AgentClientDto> _clients = Array.Empty<AgentClientDto>();
+    private List<Row> _rows = new();
+    private Guid? _runningId;
+    private string? _runMsg;
+    private bool _runError;
+
+    private sealed class Row
+    {
+        public Guid? Id;
+        public string Name = "";
+        public ContactSearchSource Source = ContactSearchSource.Maps;
+        public string Query = "";
+        public string SubQuery = "";
+        public string Country = "";
+        public string Region = "";
+        public string City = "";
+        public string Prompt = "";
+        public string ClientId = "";
+        public string AgentId = "";
+        public int MaxContacts = 30;
+        public ContactSearchSchedule Schedule = ContactSearchSchedule.Manual;
+        public string RunTime = "09:00";
+        // Puente para <input type="time"> (Blazor liga TimeOnly, no string).
+        public TimeOnly RunTimeValue
+        {
+            get => TimeOnly.TryParse(RunTime, out var t) ? t : new TimeOnly(9, 0);
+            set => RunTime = value.ToString("HH:mm");
+        }
+        public int DayOfWeek = 1;   // 0=Domingo .. 6=Sabado (Semanal)
+        public int DayOfMonth = 1;  // 1..31 (Mensual)
+        public bool Active = true;
+        public DateTimeOffset? LastRunAt;
+        public bool Expanded;
+        public string? Error;
+    }
+
+    public async Task OpenAsync()
+    {
+        _error = null; _runMsg = null;
+        _aiAgents = await AiAgentSvc.ListAsync();
+        _clients = await ClientSvc.ListAsync();
+        await LoadRowsAsync();
+        _open = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        var searches = await SearchSvc.ListAsync();
+        _rows = searches.Select(ToRow).ToList();
+        _rows.Add(new Row()); // fila-borrador siempre al final para agregar.
+    }
+
+    private static Row ToRow(ContactSearchDto s) => new()
+    {
+        Id = s.Id, Name = s.Name, Source = s.SourceType,
+        Query = s.Query ?? "", SubQuery = s.SubQuery ?? "",
+        Country = s.Country ?? "", Region = s.Region ?? "", City = s.City ?? "",
+        Prompt = s.ExtractionPrompt, ClientId = s.ClientId ?? "",
+        AgentId = s.ClassifierAiAgentId?.ToString() ?? "",
+        MaxContacts = s.MaxContacts, Schedule = s.Schedule,
+        RunTime = string.IsNullOrWhiteSpace(s.RunTime) ? "09:00" : s.RunTime!,
+        DayOfWeek = s.DayOfWeek ?? 1, DayOfMonth = s.DayOfMonth ?? 1,
+        LastRunAt = s.LastRunAt, Active = s.IsActive
+    };
+
+    private async Task SaveAsync(Row r)
+    {
+        r.Error = null;
+        if (string.IsNullOrWhiteSpace(r.Prompt))
+        {
+            r.Expanded = true;
+            r.Error = "Expande la fila y escribe el prompt de extraccion (es obligatorio).";
+            return;
+        }
+        _busy = true; _error = null;
+        try
+        {
+            Guid? agentId = Guid.TryParse(r.AgentId, out var g) ? g : null;
+            var req = new SaveContactSearchRequest(r.Id, r.Name, r.Source,
+                Nz(r.Query), Nz(r.SubQuery), Nz(r.Country), Nz(r.Region), Nz(r.City),
+                r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, r.Schedule,
+                r.RunTime, r.DayOfWeek, r.DayOfMonth, r.Active);
+            var err = await SearchSvc.SaveAsync(req);
+            if (err is not null) { r.Error = err; r.Expanded = true; return; }
+            await LoadRowsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(Row r)
+    {
+        if (r.Id is not Guid id) { return; }
+        _busy = true;
+        try { await SearchSvc.DeleteAsync(id); await LoadRowsAsync(); }
+        finally { _busy = false; }
+    }
+
+    private async Task RunAsync(Row r)
+    {
+        if (r.Id is not Guid id) { return; }
+        _busy = true; _runningId = id; _runMsg = null;
+        try
+        {
+            var res = await Runner.RunAsync(id);
+            _runError = !res.Ok;
+            _runMsg = res.Ok
+                ? $"Busqueda '{r.Name}': {res.Created} prospecto(s) creado(s). Revisalos en 'Prospectos scrapeados'."
+                : $"Busqueda '{r.Name}': {res.Error}";
+            await LoadRowsAsync();
+        }
+        catch (Exception ex) { _runError = true; _runMsg = $"Error al ejecutar: {ex.Message}"; }
+        finally { _busy = false; _runningId = null; }
+    }
+
+    private static string? Nz(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string SchedLabel(ContactSearchSchedule s) => s switch
+    {
+        ContactSearchSchedule.Diaria => "diaria",
+        ContactSearchSchedule.Semanal => "semanal",
+        ContactSearchSchedule.Mensual => "mensual",
+        _ => "manual"
+    };
+
+    private static readonly string[] DiasSemana = { "Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado" };
+
+    // Resumen legible del programador (estilo agente SQL): "Todos los dias a las 09:00", etc.
+    private static string SchedSummary(Row r) => r.Schedule switch
+    {
+        ContactSearchSchedule.Diaria => $"Todos los dias a las {r.RunTime}",
+        ContactSearchSchedule.Semanal => $"Cada {DiasSemana[Math.Clamp(r.DayOfWeek, 0, 6)]} a las {r.RunTime}",
+        ContactSearchSchedule.Mensual => $"El dia {Math.Clamp(r.DayOfMonth, 1, 31)} de cada mes a las {r.RunTime}",
+        _ => "Solo manual"
+    };
+}

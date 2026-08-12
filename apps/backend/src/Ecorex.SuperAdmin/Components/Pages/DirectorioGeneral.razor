@@ -955,7 +955,16 @@
     private async Task OpenCreateAsync()
     {
         if (_loading || _reloading || _terceroModal is null) { return; }
-        await _terceroModal.OpenCreate();
+        // El filtro TIPO activo preselecciona el perfil: crear desde "Clientes" nace con la pildora Cliente
+        // activada y su ficha abierta (idem Proveedores/Empleados). "Todos" nace sin perfil.
+        var perfil = _tipo switch
+        {
+            TerceroTabTipo.Clientes => TerceroPerfil.Cliente,
+            TerceroTabTipo.Proveedores => TerceroPerfil.Proveedor,
+            TerceroTabTipo.Empleados => TerceroPerfil.Empleado,
+            _ => TerceroPerfil.Ninguno
+        };
+        await _terceroModal.OpenCreate(perfil);
     }
 
     // Refresca lista + KPIs + contactos expandidos tras un cambio en el modal compartido.

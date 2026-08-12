@@ -73,16 +73,9 @@
                                     </select>
                                 </td>
                                 <td>
-                                    <select class="cs-in" @bind="row.Schedule" title="Cada cuanto deberia ejecutarse (por ahora se guarda; la corrida automatica es una fase siguiente)">
-                                        <option value="@ContactSearchSchedule.Manual">Manual</option>
-                                        <option value="@ContactSearchSchedule.Diaria">Diaria</option>
-                                        <option value="@ContactSearchSchedule.Semanal">Semanal</option>
-                                        <option value="@ContactSearchSchedule.Mensual">Mensual</option>
-                                    </select>
-                                    @if (row.Schedule != ContactSearchSchedule.Manual)
-                                    {
-                                        <div class="cs-sched-cap" title="@SchedSummary(row)">@SchedSummary(row)</div>
-                                    }
+                                    <button class="cs-in cs-sched-btn" @onclick="() => row.Expanded = true" title="Editar programaciones (se editan al expandir la fila)">
+                                        @SchedSummary(row)
+                                    </button>
                                 </td>
                                 <td><input class="cs-in cs-num" type="number" min="0" max="500" step="1" @bind="row.MaxContacts" title="Tope de contactos por corrida (0 = sin tope)" /></td>
                                 <td>
@@ -125,34 +118,44 @@
                                             }
                                             <label>Sub-busqueda (opcional)<input class="form-control" @bind="row.SubQuery" placeholder="refinamiento sobre cada resultado (ej. abrir la ficha y sacar el telefono)" /></label>
                                             <label>Prompt de extraccion (que datos debe tomar el agente) *<textarea class="form-control" rows="3" @bind="row.Prompt" placeholder="Ej: extrae de cada resultado el nombre del negocio, telefono, direccion, correo y ciudad."></textarea></label>
-                                            @if (row.Schedule != ContactSearchSchedule.Manual)
-                                            {
-                                                <div class="cs-sched">
-                                                    <div class="cs-sched-h">Programacion (@SchedLabel(row.Schedule))</div>
-                                                    <div class="cs-row">
-                                                        <label>Hora del dia<input class="form-control" type="time" @bind="row.RunTimeValue" /></label>
-                                                        @if (row.Schedule == ContactSearchSchedule.Semanal)
+                                            <div class="cs-sched">
+                                                <div class="cs-sched-h">Programaciones (cada una es un evento; vacio = solo manual)</div>
+                                                @if (row.Schedules.Count == 0)
+                                                {
+                                                    <div class="cs-note">Manual: solo se ejecuta bajo demanda (boton Ejecutar).</div>
+                                                }
+                                                @foreach (var slot in row.Schedules)
+                                                {
+                                                    var sl = slot;
+                                                    <div class="cs-slot">
+                                                        <select class="form-control" @bind="sl.Frequency" title="Frecuencia">
+                                                            <option value="@ContactSearchSchedule.Diaria">Diaria</option>
+                                                            <option value="@ContactSearchSchedule.Semanal">Semanal</option>
+                                                            <option value="@ContactSearchSchedule.Mensual">Mensual</option>
+                                                        </select>
+                                                        <input class="form-control" type="time" @bind="sl.RunTimeValue" title="Hora del dia" />
+                                                        @if (sl.Frequency == ContactSearchSchedule.Semanal)
                                                         {
-                                                            <label>Dia de la semana
-                                                                <select class="form-control" @bind="row.DayOfWeek">
-                                                                    <option value="1">Lunes</option>
-                                                                    <option value="2">Martes</option>
-                                                                    <option value="3">Miercoles</option>
-                                                                    <option value="4">Jueves</option>
-                                                                    <option value="5">Viernes</option>
-                                                                    <option value="6">Sabado</option>
-                                                                    <option value="0">Domingo</option>
-                                                                </select>
-                                                            </label>
+                                                            <select class="form-control" @bind="sl.DayOfWeek" title="Dia de la semana">
+                                                                <option value="1">Lunes</option>
+                                                                <option value="2">Martes</option>
+                                                                <option value="3">Miercoles</option>
+                                                                <option value="4">Jueves</option>
+                                                                <option value="5">Viernes</option>
+                                                                <option value="6">Sabado</option>
+                                                                <option value="0">Domingo</option>
+                                                            </select>
                                                         }
-                                                        else if (row.Schedule == ContactSearchSchedule.Mensual)
+                                                        else if (sl.Frequency == ContactSearchSchedule.Mensual)
                                                         {
-                                                            <label>Dia del mes<input class="form-control" type="number" min="1" max="31" step="1" @bind="row.DayOfMonth" /></label>
+                                                            <input class="form-control" type="number" min="1" max="31" step="1" @bind="sl.DayOfMonth" title="Dia del mes" />
                                                         }
+                                                        <span class="cs-slot-sum">@SlotSummary(sl)</span>
+                                                        <button class="cl-btn sm danger" @onclick="() => row.Schedules.Remove(sl)" title="Quitar esta programacion">&times;</button>
                                                     </div>
-                                                    <div class="cs-note">@SchedSummary(row)</div>
-                                                </div>
-                                            }
+                                                }
+                                                <button class="cl-btn sm" @onclick="() => row.Schedules.Add(new SlotEdit())" style="margin-top:2px;">+ Agregar programacion</button>
+                                            </div>
                                             <div class="cs-detail-foot">
                                                 <span class="cs-note">@(row.LastRunAt is null ? "Sin ejecutar aun." : $"Ultima corrida: {row.LastRunAt:yyyy-MM-dd HH:mm}")</span>
                                                 <button class="cl-btn primary sm" @onclick="() => SaveAsync(row)" disabled="@(_busy || string.IsNullOrWhiteSpace(row.Name))">@(isDraft ? "Agregar busqueda" : "Guardar cambios")</button>
@@ -194,7 +197,17 @@
         public string ClientId = "";
         public string AgentId = "";
         public int MaxContacts = 30;
-        public ContactSearchSchedule Schedule = ContactSearchSchedule.Manual;
+        public List<SlotEdit> Schedules = new();  // varias programaciones; vacio = Manual
+        public bool Active = true;
+        public DateTimeOffset? LastRunAt;
+        public bool Expanded;
+        public string? Error;
+    }
+
+    // Una programacion editable en la UI (frecuencia + hora + dia).
+    private sealed class SlotEdit
+    {
+        public ContactSearchSchedule Frequency = ContactSearchSchedule.Diaria;
         public string RunTime = "09:00";
         // Puente para <input type="time"> (Blazor liga TimeOnly, no string).
         public TimeOnly RunTimeValue
@@ -204,10 +217,6 @@
         }
         public int DayOfWeek = 1;   // 0=Domingo .. 6=Sabado (Semanal)
         public int DayOfMonth = 1;  // 1..31 (Mensual)
-        public bool Active = true;
-        public DateTimeOffset? LastRunAt;
-        public bool Expanded;
-        public string? Error;
     }
 
     public async Task OpenAsync()
@@ -234,9 +243,14 @@
         Country = s.Country ?? "", Region = s.Region ?? "", City = s.City ?? "",
         Prompt = s.ExtractionPrompt, ClientId = s.ClientId ?? "",
         AgentId = s.ClassifierAiAgentId?.ToString() ?? "",
-        MaxContacts = s.MaxContacts, Schedule = s.Schedule,
-        RunTime = string.IsNullOrWhiteSpace(s.RunTime) ? "09:00" : s.RunTime!,
-        DayOfWeek = s.DayOfWeek ?? 1, DayOfMonth = s.DayOfMonth ?? 1,
+        MaxContacts = s.MaxContacts,
+        Schedules = s.Schedules.Select(sl => new SlotEdit
+        {
+            Frequency = sl.Frequency == ContactSearchSchedule.Manual ? ContactSearchSchedule.Diaria : sl.Frequency,
+            RunTime = string.IsNullOrWhiteSpace(sl.RunTime) ? "09:00" : sl.RunTime!,
+            DayOfWeek = sl.DayOfWeek ?? 1,
+            DayOfMonth = sl.DayOfMonth ?? 1
+        }).ToList(),
         LastRunAt = s.LastRunAt, Active = s.IsActive
     };
 
@@ -253,10 +267,12 @@
         try
         {
             Guid? agentId = Guid.TryParse(r.AgentId, out var g) ? g : null;
+            var slots = r.Schedules
+                .Select(sl => new ContactSearchScheduleSlot(sl.Frequency, sl.RunTime, sl.DayOfWeek, sl.DayOfMonth))
+                .ToList();
             var req = new SaveContactSearchRequest(r.Id, r.Name, r.Source,
                 Nz(r.Query), Nz(r.SubQuery), Nz(r.Country), Nz(r.Region), Nz(r.City),
-                r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, r.Schedule,
-                r.RunTime, r.DayOfWeek, r.DayOfMonth, r.Active);
+                r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, slots, r.Active);
             var err = await SearchSvc.SaveAsync(req);
             if (err is not null) { r.Error = err; r.Expanded = true; return; }
             await LoadRowsAsync();
@@ -291,22 +307,22 @@
 
     private static string? Nz(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    private static string SchedLabel(ContactSearchSchedule s) => s switch
-    {
-        ContactSearchSchedule.Diaria => "diaria",
-        ContactSearchSchedule.Semanal => "semanal",
-        ContactSearchSchedule.Mensual => "mensual",
-        _ => "manual"
-    };
-
     private static readonly string[] DiasSemana = { "Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado" };
 
-    // Resumen legible del programador (estilo agente SQL): "Todos los dias a las 09:00", etc.
-    private static string SchedSummary(Row r) => r.Schedule switch
+    // Resumen legible de UNA programacion: "Todos los dias 09:00", "Lunes 08:30", "Dia 15 09:00".
+    private static string SlotSummary(SlotEdit s) => s.Frequency switch
     {
-        ContactSearchSchedule.Diaria => $"Todos los dias a las {r.RunTime}",
-        ContactSearchSchedule.Semanal => $"Cada {DiasSemana[Math.Clamp(r.DayOfWeek, 0, 6)]} a las {r.RunTime}",
-        ContactSearchSchedule.Mensual => $"El dia {Math.Clamp(r.DayOfMonth, 1, 31)} de cada mes a las {r.RunTime}",
-        _ => "Solo manual"
+        ContactSearchSchedule.Diaria => $"Diario {s.RunTime}",
+        ContactSearchSchedule.Semanal => $"{DiasSemana[Math.Clamp(s.DayOfWeek, 0, 6)]} {s.RunTime}",
+        ContactSearchSchedule.Mensual => $"Dia {Math.Clamp(s.DayOfMonth, 1, 31)} {s.RunTime}",
+        _ => "Manual"
+    };
+
+    // Resumen para la celda del programador: "Manual", una programacion legible, o "N programaciones".
+    private static string SchedSummary(Row r) => r.Schedules.Count switch
+    {
+        0 => "Manual",
+        1 => SlotSummary(r.Schedules[0]),
+        var n => $"{n} programaciones"
     };
 }

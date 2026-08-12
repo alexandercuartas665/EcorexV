@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ecorex.Application.Common;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -21,10 +23,13 @@ public sealed class ContactSearchService : IContactSearchService
     }
 
     public async Task<IReadOnlyList<ContactSearchDto>> ListAsync(CancellationToken cancellationToken = default)
-        => await _db.ContactSearchDefinitions.AsNoTracking()
+    {
+        // Se materializa antes de Map: este deserializa SchedulesJson (no traducible a SQL).
+        var rows = await _db.ContactSearchDefinitions.AsNoTracking()
             .OrderBy(x => x.Name)
-            .Select(x => Map(x))
             .ToListAsync(cancellationToken);
+        return rows.Select(Map).ToList();
+    }
 
     public async Task<ContactSearchDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -69,15 +74,16 @@ public sealed class ContactSearchService : IContactSearchService
         entity.ClientId = Trim(request.ClientId);
         entity.ClassifierAiAgentId = request.ClassifierAiAgentId;
         entity.MaxContacts = request.MaxContacts < 0 ? 0 : request.MaxContacts > 500 ? 500 : request.MaxContacts;
-        entity.Schedule = request.Schedule;
-        // Detalle del programador solo tiene sentido si no es Manual; se limpia cuando vuelve a Manual.
-        entity.RunTime = request.Schedule == ContactSearchSchedule.Manual ? null : NormalizeTime(request.RunTime);
-        entity.DayOfWeek = request.Schedule == ContactSearchSchedule.Semanal
-            ? (request.DayOfWeek is >= 0 and <= 6 ? request.DayOfWeek : 1)
-            : null;
-        entity.DayOfMonth = request.Schedule == ContactSearchSchedule.Mensual
-            ? (request.DayOfMonth is >= 1 and <= 31 ? request.DayOfMonth : 1)
-            : null;
+
+        // Varias programaciones: normaliza (descarta Manual, acota hora/dia) y guarda como JSON. La primera
+        // se espeja en las columnas LEGACY por compatibilidad. Lista vacia = Manual (solo bajo demanda).
+        var slots = NormalizeSlots(request.Schedules);
+        entity.SchedulesJson = slots.Count == 0 ? null : JsonSerializer.Serialize(slots, JsonOpts);
+        var first = slots.Count > 0 ? slots[0] : null;
+        entity.Schedule = first?.Frequency ?? ContactSearchSchedule.Manual;
+        entity.RunTime = first?.RunTime;
+        entity.DayOfWeek = first?.DayOfWeek;
+        entity.DayOfMonth = first?.DayOfMonth;
         entity.IsActive = request.IsActive;
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -102,8 +108,47 @@ public sealed class ContactSearchService : IContactSearchService
         return TimeOnly.TryParse(s.Trim(), out var t) ? t.ToString("HH:mm") : null;
     }
 
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    // Descarta Manual (Manual = sin programacion), acota hora/dia por frecuencia.
+    private static List<ContactSearchScheduleSlot> NormalizeSlots(IEnumerable<ContactSearchScheduleSlot>? slots)
+    {
+        var list = new List<ContactSearchScheduleSlot>();
+        if (slots is null) { return list; }
+        foreach (var s in slots)
+        {
+            if (s.Frequency == ContactSearchSchedule.Manual) { continue; }
+            var dow = s.Frequency == ContactSearchSchedule.Semanal
+                ? (s.DayOfWeek is >= 0 and <= 6 ? s.DayOfWeek : 1) : (int?)null;
+            var dom = s.Frequency == ContactSearchSchedule.Mensual
+                ? (s.DayOfMonth is >= 1 and <= 31 ? s.DayOfMonth : 1) : (int?)null;
+            list.Add(new ContactSearchScheduleSlot(s.Frequency, NormalizeTime(s.RunTime), dow, dom));
+        }
+        return list;
+    }
+
+    // Fuente de verdad = SchedulesJson; si esta vacio pero hay una programacion LEGACY, se sintetiza una.
+    private static IReadOnlyList<ContactSearchScheduleSlot> ReadSlots(ContactSearchDefinition x)
+    {
+        if (!string.IsNullOrWhiteSpace(x.SchedulesJson))
+        {
+            try
+            {
+                var list = JsonSerializer.Deserialize<List<ContactSearchScheduleSlot>>(x.SchedulesJson, JsonOpts);
+                if (list is not null) { return list; }
+            }
+            catch (JsonException) { /* cae al fallback legacy */ }
+        }
+        return x.Schedule != ContactSearchSchedule.Manual
+            ? new[] { new ContactSearchScheduleSlot(x.Schedule, x.RunTime, x.DayOfWeek, x.DayOfMonth) }
+            : Array.Empty<ContactSearchScheduleSlot>();
+    }
+
     private static ContactSearchDto Map(ContactSearchDefinition x) => new(
         x.Id, x.Name, x.SourceType, x.Query, x.SubQuery, x.Country, x.Region, x.City,
-        x.ExtractionPrompt, x.ClientId, x.ClassifierAiAgentId, x.MaxContacts, x.Schedule,
-        x.RunTime, x.DayOfWeek, x.DayOfMonth, x.LastRunAt, x.IsActive);
+        x.ExtractionPrompt, x.ClientId, x.ClassifierAiAgentId, x.MaxContacts,
+        ReadSlots(x), x.LastRunAt, x.IsActive);
 }

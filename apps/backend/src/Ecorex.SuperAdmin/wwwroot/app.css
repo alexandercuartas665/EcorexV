@@ -2764,3 +2764,8 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .cs-sched { border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2, var(--surface)); }
 .cs-sched-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
 .cs-sched-cap { font-size: 10px; color: var(--ink-3); margin-top: 3px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-sched-btn { text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-sched-btn:hover { border-color: var(--brand); }
+.cs-slot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.cs-slot .form-control { max-width: 150px; }
+.cs-slot-sum { font-size: 11.5px; color: var(--ink-3); margin-left: auto; }

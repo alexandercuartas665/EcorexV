@@ -49,17 +49,25 @@ public class ContactSearchDefinition : TenantEntity
     /// <summary>Tope de contactos a capturar por corrida (defensa: evita barridos enormes). 0 = sin tope.</summary>
     public int MaxContacts { get; set; } = 30;
 
-    /// <summary>Cada cuanto deberia ejecutarse (por ahora solo se guarda; la corrida automatica es ola siguiente).</summary>
+    /// <summary>Cada cuanto deberia ejecutarse (LEGACY: una sola programacion). Se conserva por
+    /// compatibilidad; la fuente de verdad es <see cref="SchedulesJson"/> (varias programaciones).</summary>
     public ContactSearchSchedule Schedule { get; set; } = ContactSearchSchedule.Manual;
 
-    /// <summary>Hora del dia (HH:mm, hora del tenant) a la que corre segun el programador. Null = sin hora fija.</summary>
+    /// <summary>Hora del dia (HH:mm) de la programacion LEGACY. Ver <see cref="SchedulesJson"/>.</summary>
     public string? RunTime { get; set; }
 
-    /// <summary>Dia de la semana para el programador Semanal (0=Domingo .. 6=Sabado). Null si no aplica.</summary>
+    /// <summary>Dia de la semana (0=Domingo..6=Sabado) de la programacion LEGACY.</summary>
     public int? DayOfWeek { get; set; }
 
-    /// <summary>Dia del mes (1..31) para el programador Mensual. Null si no aplica.</summary>
+    /// <summary>Dia del mes (1..31) de la programacion LEGACY.</summary>
     public int? DayOfMonth { get; set; }
+
+    /// <summary>
+    /// VARIAS programaciones (estilo agente SQL): lista JSON de slots {Frequency, RunTime, DayOfWeek,
+    /// DayOfMonth}. Fuente de verdad del programador. Vacio/null = Manual (solo bajo demanda). Si esta
+    /// vacio pero las columnas LEGACY tienen una, se sintetiza una sola programacion al leer.
+    /// </summary>
+    public string? SchedulesJson { get; set; }
 
     /// <summary>Ultima vez que se ejecuto (manual o automatica). Base para calcular "vencida" a futuro.</summary>
     public DateTimeOffset? LastRunAt { get; set; }

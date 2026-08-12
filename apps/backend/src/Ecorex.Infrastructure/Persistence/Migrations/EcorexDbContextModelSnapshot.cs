@@ -2128,6 +2128,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("schedule");
 
+                    b.Property<string>("SchedulesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("schedules_json");
+
                     b.Property<string>("SourceType")
                         .IsRequired()
                         .HasMaxLength(30)

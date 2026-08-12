@@ -816,6 +816,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.ClientId).HasMaxLength(120);
             b.Property(x => x.Schedule).HasConversion<string>().HasMaxLength(20).IsRequired();
             b.Property(x => x.RunTime).HasMaxLength(5);
+            // SchedulesJson: lista de programaciones (varios horarios). Texto largo, sin tope.
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         });
 

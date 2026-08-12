@@ -2,19 +2,24 @@ using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Contactos;
 
+/// <summary>Una programacion (slot) del programador estilo agente SQL: frecuencia + hora + dia. Manual no
+/// se guarda como slot (Manual = lista vacia).</summary>
+public sealed record ContactSearchScheduleSlot(
+    ContactSearchSchedule Frequency, string? RunTime, int? DayOfWeek, int? DayOfMonth);
+
 /// <summary>Una busqueda de contactos configurada (Cargador de contactos 000873).</summary>
 public sealed record ContactSearchDto(
     Guid Id, string Name, ContactSearchSource SourceType, string? Query, string? SubQuery,
     string? Country, string? Region, string? City, string ExtractionPrompt,
-    string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts, ContactSearchSchedule Schedule,
-    string? RunTime, int? DayOfWeek, int? DayOfMonth, DateTimeOffset? LastRunAt, bool IsActive);
+    string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
+    IReadOnlyList<ContactSearchScheduleSlot> Schedules, DateTimeOffset? LastRunAt, bool IsActive);
 
 /// <summary>Alta/edicion de una busqueda configurada.</summary>
 public sealed record SaveContactSearchRequest(
     Guid? Id, string Name, ContactSearchSource SourceType, string? Query, string? SubQuery,
     string? Country, string? Region, string? City, string ExtractionPrompt,
-    string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts, ContactSearchSchedule Schedule,
-    string? RunTime, int? DayOfWeek, int? DayOfMonth, bool IsActive);
+    string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
+    IReadOnlyList<ContactSearchScheduleSlot> Schedules, bool IsActive);
 
 /// <summary>
 /// CRUD de las busquedas de contactos configuradas por tenant. La EJECUCION (disparar el agente

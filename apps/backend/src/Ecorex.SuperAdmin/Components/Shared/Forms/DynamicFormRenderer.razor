@@ -1469,9 +1469,14 @@ else
                                     else if (colExtras?.Resolve is not null && col.Calc is null)
                                     {
                                         @* Columna auto-resuelta (VLOOKUP multi-clave): solo lectura; se re-resuelve
-                                           al cambiar sus dependencias (match/when) de la MISMA fila. *@
-                                        <input class="form-control form-control-sm dfr-calc@(NumCls(col.Format))" tabindex="-1" readonly disabled
+                                           al cambiar sus dependencias (match/when) de la MISMA fila. Si las claves
+                                           estan completas pero no hay fila en la fuente -> aviso "sin tarifa". *@
+                                        <input class="@ResolveCellClass(q, rowIndex, colId, col.Format)" tabindex="-1" readonly disabled
                                                value="@FormatValue(col.Format, cell)" />
+                                        @if (_gridResolveNote.GetValueOrDefault(GridCellKey(q, rowIndex, colId)) is { Length: > 0 } _rnote)
+                                        {
+                                            <div class="dfr-gridlk-note dfr-resolve-note" title="@_rnote">sin tarifa</div>
+                                        }
                                     }
                                     else if (col.Calc is not null)
                                     {
@@ -1550,6 +1555,10 @@ else
     // columna buscan cosas distintas a la vez.
     private readonly Dictionary<string, IReadOnlyList<FormLookupItem>> _gridLookupResults = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string?> _gridLookupNote = new(StringComparer.Ordinal);
+    // Aviso "sin tarifa" de columnas RESOLVE: se llena cuando las claves de match estan completas pero
+    // la resolucion no encuentra fila (dato faltante en la fuente). Dedicado (misma forma de clave que
+    // _gridLookupNote) para no chocar con la purga de lookups. Valor = mensaje del tooltip.
+    private readonly Dictionary<string, string?> _gridResolveNote = new(StringComparer.Ordinal);
     private readonly HashSet<string> _gridLookupOpen = new(StringComparer.Ordinal);
     private readonly HashSet<string> _gridLookupBusy = new(StringComparer.Ordinal);
 
@@ -1560,6 +1569,12 @@ else
 
     private static string GridCellKey(FormQuestionDto q, int rowIndex, string colId)
         => $"{q.FieldCode}#{rowIndex}#{colId}";
+
+    // Clase de la celda RESOLVE: base + formato numerico + resalte ambar si tiene aviso "sin tarifa".
+    // En helper (no inline) para evitar comillas dobles anidadas dentro del atributo class.
+    private string ResolveCellClass(FormQuestionDto q, int rowIndex, string colId, string? format)
+        => "form-control form-control-sm dfr-calc" + NumCls(format)
+           + (_gridResolveNote.ContainsKey(GridCellKey(q, rowIndex, colId)) ? " dfr-resolve-missing" : "");
 
     /// <summary>Clave secundaria a mostrar junto al Display de un resultado de COLUMNA (ej. el SKU).
     /// Usa el subLabel configurado o, si no, la clave (valueField/KeyOf). No se muestra si esta vacia,
@@ -1993,10 +2008,12 @@ else
         foreach (var ex in resolvers)
         {
             var rc = ex.Resolve!;
+            var noteKey = GridCellKey(q, rowIndex, ex.Id);
             // 'when': todas las condiciones deben cumplir (exacto). Si no, celda vacia (0 en el calculo).
             if (!rc.When.All(kv => CellsEqualExact(SubstituteRowRefs(kv.Key, row), kv.Value)))
             {
                 row[ex.Id] = string.Empty;
+                _gridResolveNote.Remove(noteKey);
                 continue;
             }
             var match = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -2009,13 +2026,24 @@ else
             }
             if (!complete || string.IsNullOrWhiteSpace(rc.SourceRef))
             {
+                // Claves incompletas = "pendiente", no error: sin celda y sin aviso.
                 row[ex.Id] = string.Empty;
+                _gridResolveNote.Remove(noteKey);
                 continue;
             }
             string? result;
             try { result = await LookupSvc.MatchAsync(rc.SourceKind, rc.SourceRef!, match, rc.ReturnField); }
             catch { result = null; }
             row[ex.Id] = result ?? string.Empty;
+            // Todas las claves con valor pero SIN fila en la fuente = "sin tarifa" (aviso UX no bloqueante).
+            if (string.IsNullOrWhiteSpace(result))
+            {
+                _gridResolveNote[noteKey] = "No hay tarifa para " + string.Join(", ", match.Select(kv => $"{kv.Key}={kv.Value}"));
+            }
+            else
+            {
+                _gridResolveNote.Remove(noteKey);
+            }
         }
     }
 

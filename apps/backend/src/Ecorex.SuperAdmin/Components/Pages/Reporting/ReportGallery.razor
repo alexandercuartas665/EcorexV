@@ -3,6 +3,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
 @using Ecorex.Application.Reporting.External
+@using Ecorex.Application.Reporting.Panels
 @using Ecorex.Application.Reporting.Templates
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
@@ -33,6 +34,8 @@
         @if (_canCreate)
         {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
+                        @onclick="OpenNewPanel" disabled="@_busy" title="Crear un panel GENERICO pegando un PanelSpec (ADR-0066): sin codigo ni deploy">Nuevo panel</button>
                 <button style="background:#f0fdf4;color:#166534;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
                         @onclick="OpenImportAsync" disabled="@_busy" title="Importar un RDL alimentado por una fuente de datos externa concedida">Importar RDL externo</button>
                 <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
@@ -102,6 +105,12 @@
                     {
                         <button style="@ToggleStyle(_view == "imprimible")" @onclick="ShowImprimibleAsync">Imprimible</button>
                     }
+                    @if (_isSpecPanel && _canCreate)
+                    {
+                        <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="EditOpenPanel">Editar</button>
+                        <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="DuplicateOpenPanel">Duplicar</button>
+                        <button style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;" @onclick="ArchiveOpenPanel">Archivar</button>
+                    }
                     <button class="modal-close" @onclick="Close">&times;</button>
                 </div>
             </div>
@@ -115,9 +124,17 @@
                 {
                     @if (_isPanel)
                     {
-                        @* Reporte tipo PANEL: dashboard completo (KPIs + varios graficos + tabla). El
-                           componente concreto se resuelve por SourceKey (panel:ocs, panel:system-activities...). *@
-                        <DynamicComponent Type="ResolvePanelType(_open.SourceKey)" />
+                        @if (_isSpecPanel)
+                        {
+                            @* Panel GENERICO por spec (ADR-0066): UN solo renderizador interpreta el PanelSpec. *@
+                            <SpecPanelRenderer ReportId="_open.Id" />
+                        }
+                        else
+                        {
+                            @* Reporte tipo PANEL a medida: el componente concreto se resuelve por SourceKey
+                               (panel:ocs, panel:system-activities...) como FALLBACK vivo. *@
+                            <DynamicComponent Type="ResolvePanelType(_open.SourceKey)" />
+                        }
                     }
                     else if (_run is not null)
                     {
@@ -262,6 +279,61 @@
     </div>
 }
 
+@* ===================== MODAL: Nuevo / Editar panel por spec (ADR-0066) ===================== *@
+@if (_panelOpen)
+{
+    <div class="modal-overlay" @onclick="ClosePanel">
+        <div class="modal-dialog" style="max-width:900px;width:96vw;max-height:94vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>@(_panelEditId is null ? "Nuevo panel (spec)" : "Editar panel")</h3>
+                <button class="modal-close" @onclick="ClosePanel">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow:auto;padding:18px 22px;">
+                <p style="font-size:12.5px;color:#6b7280;margin:0 0 12px;">
+                    Un panel es DATO: pega un <strong>PanelSpec</strong> (JSON). El spec referencia SOLO fuentes y
+                    campos del catalogo de este tenant. <strong>Valida</strong> antes de guardar; al guardar aparece en
+                    la galeria y abre por el renderizador generico, sin recompilar ni desplegar.
+                </p>
+                <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:10px;">Nombre del panel
+                    <input class="form-control" @bind="_panelName" maxlength="200" placeholder="Ventas y Facturacion (SIIGO)" style="margin-top:4px;" />
+                </label>
+                <label style="font-size:12px;font-weight:600;color:#374151;display:block;">PanelSpec (JSON)</label>
+                <textarea @bind="_panelJson" spellcheck="false"
+                          style="width:100%;height:46vh;margin-top:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;border:1px solid #d1d5db;border-radius:8px;padding:10px;resize:vertical;"></textarea>
+
+                @if (_panelErrors.Count > 0)
+                {
+                    <div class="tk-field-error" style="margin-top:12px;">
+                        <strong>El spec tiene @_panelErrors.Count problema(s):</strong>
+                        <ul style="margin:6px 0 0 18px;padding:0;">
+                            @foreach (var e in _panelErrors) { <li>@e</li> }
+                        </ul>
+                    </div>
+                }
+                else if (_panelValidated)
+                {
+                    <div style="margin-top:12px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:13px;">
+                        Spec valido contra el catalogo de este tenant.
+                    </div>
+                }
+                @if (_panelSaveError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:12px;">@_panelSaveError</div>
+                }
+            </div>
+            <div class="modal-head" style="border-top:1px solid #eef0f3;border-bottom:none;justify-content:space-between;gap:8px;">
+                <button style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;"
+                        @onclick="ValidatePanel" disabled="@_panelBusy">Validar</button>
+                <div style="display:flex;gap:8px;">
+                    <button class="modal-close" style="width:auto;padding:8px 14px;font-size:13px;" @onclick="ClosePanel" disabled="@_panelBusy">Cancelar</button>
+                    <button style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;"
+                            @onclick="SavePanelAsync" disabled="@_panelBusy">@(_panelBusy ? "Guardando..." : "Guardar")</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private IReadOnlyList<ReportDefinitionSummary> _cards = Array.Empty<ReportDefinitionSummary>();
     private bool _canCreate;
@@ -273,6 +345,7 @@
     private bool _imprimibleAvail;
     private bool _rdlReady;
     private bool _isPanel;   // reporte tipo panel (dashboard multi-grafico): SourceKey "panel:..."
+    private bool _isSpecPanel;   // panel GENERICO por spec (ADR-0066): SourceKey "panel:spec"
     private ReportRunResult? _run;
     private string? _error;
     private ElementReference _overlayRef;
@@ -448,6 +521,7 @@
         // Reporte tipo PANEL (dashboard multi-grafico): se renderiza el componente completo, no un
         // solo grafico; no aplica la vista imprimible.
         _isPanel = card.SourceKey is not null && card.SourceKey.StartsWith("panel:", StringComparison.OrdinalIgnoreCase);
+        _isSpecPanel = PanelSpecSource.Is(card.SourceKey);
         if (_isPanel)
         {
             _tableroAvail = true;
@@ -513,4 +587,122 @@
 
     private static string ToggleStyle(bool on) =>
         $"border:1px solid {(on ? "#4f46e5" : "#e5e7eb")};background:{(on ? "#4f46e5" : "#fff")};color:{(on ? "#fff" : "#374151")};border-radius:8px;padding:5px 14px;font-size:12.5px;font-weight:600;cursor:pointer;";
+
+    // ---- Autoria de paneles GENERICOS por spec (ADR-0066): panel como DATO, sin codigo ni deploy ----
+    private bool _panelOpen;
+    private bool _panelBusy;
+    private bool _panelValidated;
+    private Guid? _panelEditId;
+    private string _panelName = "";
+    private string _panelJson = "";
+    private string? _panelSaveError;
+    private IReadOnlyList<string> _panelErrors = Array.Empty<string>();
+
+    private void OpenNewPanel()
+    {
+        _panelEditId = null;
+        _panelName = "";
+        _panelJson = PanelSpecTemplate;
+        _panelErrors = Array.Empty<string>();
+        _panelValidated = false;
+        _panelSaveError = null;
+        _panelOpen = true;
+    }
+
+    private async Task EditOpenPanel()
+    {
+        if (_open is null) { return; }
+        _panelEditId = _open.Id;
+        _panelName = _open.Name;
+        _panelJson = await Defs.GetSpecJsonAsync(_open.Id) ?? PanelSpecTemplate;
+        _panelErrors = Array.Empty<string>();
+        _panelValidated = false;
+        _panelSaveError = null;
+        Close();
+        _panelOpen = true;
+    }
+
+    private async Task DuplicateOpenPanel()
+    {
+        if (_open is null) { return; }
+        try
+        {
+            await Defs.DuplicatePanelSpecAsync(_open.Id, _open.Name + " (copia)");
+            Close();
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task ArchiveOpenPanel()
+    {
+        if (_open is null) { return; }
+        try
+        {
+            await Defs.ArchiveAsync(_open.Id);
+            Close();
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void ClosePanel() => _panelOpen = false;
+
+    private async Task ValidatePanel()
+    {
+        _panelSaveError = null;
+        _panelBusy = true;
+        try
+        {
+            _panelErrors = await Defs.ValidatePanelSpecAsync(_panelJson);
+            _panelValidated = _panelErrors.Count == 0;
+        }
+        catch (Exception ex) { _panelSaveError = ex.Message; }
+        finally { _panelBusy = false; }
+    }
+
+    private async Task SavePanelAsync()
+    {
+        _panelSaveError = null;
+        if (string.IsNullOrWhiteSpace(_panelName)) { _panelSaveError = "Ponle un nombre al panel."; return; }
+
+        _panelBusy = true;
+        try
+        {
+            _panelErrors = await Defs.ValidatePanelSpecAsync(_panelJson);
+            if (_panelErrors.Count > 0)
+            {
+                _panelValidated = false;
+                return;
+            }
+
+            if (_panelEditId is Guid id)
+            {
+                await Defs.UpdatePanelSpecAsync(id, _panelName.Trim(), _panelJson);
+            }
+            else
+            {
+                await Defs.SavePanelSpecAsync(_panelName.Trim(), _panelJson);
+            }
+
+            _panelOpen = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _panelSaveError = ex.Message; }
+        finally { _panelBusy = false; }
+    }
+
+    // Plantilla de arranque para "Nuevo panel": un esqueleto minimo valido de PanelSpec.
+    private const string PanelSpecTemplate = @"{
+  ""title"": ""Mi panel"",
+  ""sources"": { ""main"": { ""container"": ""NOMBRE_DEL_CONTENEDOR"" }, ""lookups"": [] },
+  ""derived"": [],
+  ""filters"": [],
+  ""kpis"": [
+    { ""label"": ""Registros"", ""agg"": ""count"", ""format"": ""int"" }
+  ],
+  ""widgets"": [
+    { ""type"": ""donut"", ""title"": ""Por categoria"", ""dim"": ""CAMPO"", ""agg"": ""count"" }
+  ]
+}";
 }

@@ -5,6 +5,52 @@
 
 ---
 
+## 2026-08-12 - Renderizador de panel GENERICO por spec (ADR-0066)
+
+**Agentes:** Claude Opus 4.8 (worktree `feat/renderizador-panel-spec-adr0066` desde
+`origin/fase-0/clon-backbone`). Build verde (Application + SuperAdmin). Application.Tests 663/663.
+SIN commit-a-tronco ni deploy (PR abierto a `fase-0/clon-backbone`; deploy lo maneja la sesion principal).
+
+**Contexto:** peticion de la sesion de reportes para dejar de necesitar codigo + deploy por cada panel.
+Un panel debe ser DATO (un PanelSpec JSON) que UN solo componente renderiza, con la MISMA calidad que
+los paneles a medida (OCS/Tareas/SIIGO).
+
+**Que (ADR-0066, implementado):**
+- **PanelSpec + validador** (`Ecorex.Application/Reporting/Panels/`): DTO del spec (sources main+lookups,
+  join, derived year/yyyymm/month/date, filters dropdown|daterange|text, kpis sum|count|countDistinct|avg
+  con format money|moneyM|percent|int, widgets line|bar|donut|pareto|matrix|table). `PanelSpecValidator`
+  PURO valida contra el catalogo tenant-safe (fuentes por nombre de negocio, alias de lookup, derivados).
+- **PanelDataEngine** (puro, testeable sin Docker/Blazor): join + derivados + filtros + agregaciones +
+  group-aggregate (escala/topN/orden) + pareto con acumulado + matriz cruzada + tabla + formato. Es el
+  nucleo NUMERICO que reproduce 1:1 a los paneles a medida.
+- **EChartBuilders** (Shared/Reporting): builders de option de ECharts extraidos (Line/VerticalBar/
+  HorizontalBar/Donut/Pareto) para que a-medida y generico usen el mismo option.
+- **SpecPanelRenderer.razor(.css)**: UN componente que resuelve fuentes por nombre, carga la principal
+  UNA vez, join/derivados/filtros en memoria, y pinta KPIs+widgets reusando los estilos rpt-*.
+- **Autoria como DATO** en la Galeria: boton "Nuevo panel" (Nombre + editor JSON + Validar contra el
+  catalogo + Guardar como ReportDefinition Kind=Dashboard, SourceKey `panel:spec`) + Editar/Duplicar/
+  Archivar desde el visor. Sin recompilar, sin desplegar. Convive con `panel:ocs`/`panel:system-activities`
+  a medida (fallback vivo). Reusa plantillas (ADR-0062) para ofrecerlo entre tenants (ReportTemplate
+  Kind=Panel + SourceKey `panel:spec`).
+- **Migraciones:** NINGUNA (se reusa `ReportDefinition.SpecJson`/`SourceKey`).
+- **Pruebas:** `PanelDataEngineTests` + `PanelSpecValidatorTests` (20 nuevas, verdes).
+- **Ejemplos:** `docs/decisiones/ADR-0066-ejemplos/{ocs,tareas,siigo}.json`.
+
+**1:1 vs fallback:** SIIGO se reproduce 1:1 (KPIs, serie mensual, pareto con acumulado, join NIT->Nombre,
+millones, por vendedor/estado, tabla). OCS reproduce KPIs/graficas/matriz+heatmap (orden de filas de la
+matriz por total de celda, no por equipos distintos: valores y heatmap iguales, orden minimamente distinto).
+Tareas reproduce graficas + KPI Total; los KPIs CONDICIONALES (Abiertas/Cerradas/Suspendidas) NO son una
+agregacion simple -> `ActivitiesDashboardPanel` sigue como componente a medida (escape previsto por la ADR).
+
+**Siguiente:** que la sesion de reportes cargue los 3 specs de ejemplo (o los publique como plantillas) y
+valide en PROD con los contenedores reales (facturas/clientes, Software OCS). Posible: op derivada extra
+y KPIs condicionales por spec si se quiere jubilar el panel de tareas a medida.
+
+**Decisiones:** ADR-0066 ACEPTADA (portada al tronco desde `feat/reporte-siigo-agro` con addendum de
+implementacion). El panel es dato; el componente a medida queda como escape.
+
+---
+
 ## 2026-08-11 - Lista: colores Excel + bordes + ancho por columna + import/export de formularios
 
 **Agentes:** Claude Opus 4.8. Trabajo contra la BD de PROD (tunel 15433 -> db `ecorex`) y el docker local

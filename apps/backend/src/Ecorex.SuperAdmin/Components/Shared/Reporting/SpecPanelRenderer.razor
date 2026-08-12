@@ -1,0 +1,620 @@
+@using System.Globalization
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Panels
+@inject IReportCatalog Catalog
+@inject IReportDataSource ReportDs
+@inject IReportDefinitionService Defs
+
+@* ADR-0066 - Renderizador de panel GENERICO por spec. UN solo componente que interpreta un PanelSpec
+   (dato) y pinta KPIs + graficos + matriz + tabla REUSANDO los estilos rpt-* y los MISMOS builders de
+   ECharts (EChartBuilders) que usan los paneles a medida. Resuelve las fuentes por nombre en el tenant
+   activo (tenant-safe via IReportCatalog/IReportDataSource), carga la principal UNA vez, hace join y
+   derivados en memoria, filtra en memoria y agrega con PanelDataEngine. Sin recompilar ni desplegar:
+   cada panel nuevo es un ReportDefinition.SpecJson. *@
+
+<div class="rpt-dash">
+    @if (_filters.Count > 0)
+    {
+        <div class="rpt-filters">
+            @foreach (var f in _filters)
+            {
+                var filter = f;
+                @if (filter.Spec.Control.Equals("daterange", StringComparison.OrdinalIgnoreCase))
+                {
+                    <label>@filter.Label desde <input type="date" value="@filter.From" @onchange="e => SetFrom(filter, e.Value?.ToString())" /></label>
+                    <label>hasta <input type="date" value="@filter.To" @onchange="e => SetTo(filter, e.Value?.ToString())" /></label>
+                }
+                else if (filter.Spec.Control.Equals("text", StringComparison.OrdinalIgnoreCase))
+                {
+                    <label>@filter.Label <input type="text" placeholder="contiene..." value="@filter.Value" @onchange="e => SetValue(filter, e.Value?.ToString())" /></label>
+                }
+                else
+                {
+                    <label>@filter.Label
+                        <select value="@filter.Value" @onchange="e => SetValue(filter, e.Value?.ToString())">
+                            <option value="">(todos)</option>
+                            @foreach (var o in filter.Options) { <option value="@o">@o</option> }
+                        </select>
+                    </label>
+                }
+            }
+            <button class="rpt-btn ghost" @onclick="ClearFilters">Limpiar</button>
+        </div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="rpt-error">@_error</div>
+    }
+    else if (_loading)
+    {
+        <div class="rpt-sub">Cargando datos del panel...</div>
+    }
+    else
+    {
+        @if (_kpis.Count > 0)
+        {
+            <div class="rpt-kpis" style="grid-template-columns:repeat(@Math.Min(_kpis.Count, 6), 1fr);">
+                @{ var ki = 0; }
+                @foreach (var k in _kpis)
+                {
+                    var accent = KpiAccent(ki++);
+                    <div class="rpt-kpi @accent"><span class="k-val">@k.Value</span><span class="k-lbl">@k.Label</span></div>
+                }
+            </div>
+        }
+
+        <div class="rpt-grid">
+            @foreach (var w in _widgets)
+            {
+                var widget = w;
+                <div class="rpt-card @(widget.Full ? "rpt-full" : "")">
+                    <h3>@widget.Title</h3>
+                    @switch (widget.Kind)
+                    {
+                        case WKind.Chart:
+                            <EChart Option="widget.Option" Height="@(widget.Height + "px")" />
+                            break;
+                        case WKind.Matrix:
+                            @if (widget.Matrix is null || widget.Matrix.RowKeys.Count == 0)
+                            {
+                                <p class="rpt-empty">Sin datos.</p>
+                            }
+                            else
+                            {
+                                <table class="rpt-matrix">
+                                    <thead>
+                                        <tr>
+                                            <th class="corner">@widget.RowDimLabel \ @widget.ColDimLabel</th>
+                                            @foreach (var c in widget.Matrix.ColKeys) { <th>@c</th> }
+                                            <th class="tot">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var r in widget.Matrix.RowKeys)
+                                        {
+                                            <tr>
+                                                <td class="rowhead">@r</td>
+                                                @foreach (var c in widget.Matrix.ColKeys)
+                                                {
+                                                    var v = widget.Matrix.Cell(r, c);
+                                                    <td class="num @(v == 0 ? "zero" : "")" style="@HeatStyle(widget, v)">@(v == 0 ? "" : Fmt(v))</td>
+                                                }
+                                                <td class="num tot">@Fmt(widget.Matrix.RowTotal(r))</td>
+                                            </tr>
+                                        }
+                                        <tr class="totalrow">
+                                            <td class="rowhead">Total</td>
+                                            @foreach (var c in widget.Matrix.ColKeys) { <td class="num tot">@Fmt(widget.Matrix.ColTotal(c))</td> }
+                                            <td class="num grand">@Fmt(widget.Matrix.Grand)</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            }
+                            break;
+                        case WKind.Table:
+                            <table class="rpt-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        @for (var i = 0; i < widget.TableHeaders.Count; i++)
+                                        {
+                                            <th class="@(widget.TableNumeric[i] ? "num" : "")">@widget.TableHeaders[i]</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ var rank = 0; }
+                                    @foreach (var row in widget.TableRows)
+                                    {
+                                        rank++;
+                                        <tr>
+                                            <td>@rank</td>
+                                            @for (var i = 0; i < row.Count; i++)
+                                            {
+                                                <td class="@(widget.TableNumeric[i] ? "num" : "")">@row[i]</td>
+                                            }
+                                        </tr>
+                                    }
+                                    @if (widget.TableRows.Count == 0)
+                                    {
+                                        <tr><td colspan="@(widget.TableHeaders.Count + 1)" class="rpt-empty">Sin datos para el filtro.</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                            break;
+                        default:
+                            <p class="rpt-empty">@widget.Message</p>
+                            break;
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Id del ReportDefinition (Kind=Panel, SourceKey "panel:spec") cuyo SpecJson se pinta.</summary>
+    [Parameter] public Guid ReportId { get; set; }
+
+    /// <summary>Alternativa a ReportId: el PanelSpec en JSON directo (para vista previa del editor).</summary>
+    [Parameter] public string? SpecJson { get; set; }
+
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    private PanelSpec? _spec;
+    private string? _error;
+    private bool _loading = true;
+    private bool _loaded;
+
+    private readonly List<PanelRow> _rows = new();     // filas enriquecidas (join + derivados)
+    private List<PanelRow> _filtered = new();
+    private readonly List<ActiveFilter> _filters = new();
+    private readonly List<KpiValue> _kpis = new();
+    private readonly List<RenderWidget> _widgets = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded)
+        {
+            return;
+        }
+
+        _loaded = true;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var json = SpecJson;
+            if (string.IsNullOrWhiteSpace(json) && ReportId != Guid.Empty)
+            {
+                json = await Defs.GetSpecJsonAsync(ReportId);
+            }
+
+            _spec = PanelSpec.FromJson(json);
+            if (_spec is null)
+            {
+                _error = "El panel no tiene un PanelSpec valido.";
+                return;
+            }
+
+            var sources = await Catalog.GetSourcesAsync();
+            var main = PanelSpecValidator.FindSource(sources, _spec.Sources.Main.Container);
+            if (main is null)
+            {
+                _error = $"Este tenant no tiene la fuente requerida '{_spec.Sources.Main.Container}'. El panel no se puede mostrar aqui.";
+                return;
+            }
+
+            // 1) Fuente principal: UNA consulta tabular con todos sus campos escalares.
+            var mainDs = await ReportDs.QueryAsync(new ReportQuerySpec
+            {
+                SourceKey = main.Key,
+                Fields = main.Fields.Select(f => f.Key).ToArray()
+            }, new ReportContext(Guid.Empty));
+            var mainCols = mainDs.Columns;
+
+            _rows.Clear();
+            foreach (var raw in mainDs.Rows)
+            {
+                var row = new PanelRow();
+                for (var i = 0; i < mainCols.Count && i < raw.Count; i++)
+                {
+                    row[mainCols[i].DisplayName] = raw[i];
+                }
+
+                _rows.Add(row);
+            }
+
+            // 2) Lookups + join en memoria (codigo -> nombre).
+            await ApplyLookupsAsync(sources);
+
+            // 3) Derivados (buckets de fecha).
+            foreach (var d in _spec.Derived)
+            {
+                foreach (var row in _rows)
+                {
+                    row[d.Name] = PanelDataEngine.Derive(row.GetValueOrDefault(d.From), d.Op);
+                }
+            }
+
+            // 4) Filtros: opciones distintas para dropdown; vacio para el resto.
+            BuildFilters();
+
+            Recompute();
+        }
+        catch (ReportValidationException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ApplyLookupsAsync(IReadOnlyList<ReportSourceDescriptor> sources)
+    {
+        if (_spec!.Join is null)
+        {
+            return;
+        }
+
+        var join = _spec.Join;
+        var lookupSpec = _spec.Sources.Lookups
+            .FirstOrDefault(l => string.Equals(l.Container, join.Lookup, StringComparison.OrdinalIgnoreCase));
+        if (lookupSpec is null || string.IsNullOrWhiteSpace(join.MainKey))
+        {
+            return;
+        }
+
+        var lookupSrc = PanelSpecValidator.FindSource(sources, lookupSpec.Container);
+        if (lookupSrc is null)
+        {
+            return;
+        }
+
+        var keyField = FieldKeyByName(lookupSrc, lookupSpec.Key);
+        var bringFields = lookupSpec.Bring
+            .Select(b => (Src: b.Key, Alias: b.Value, Key: FieldKeyByName(lookupSrc, b.Key)))
+            .Where(x => x.Key is not null)
+            .ToList();
+        if (keyField is null || bringFields.Count == 0)
+        {
+            return;
+        }
+
+        var fieldKeys = new List<string> { keyField };
+        fieldKeys.AddRange(bringFields.Select(b => b.Key!));
+
+        var ds = await ReportDs.QueryAsync(new ReportQuerySpec
+        {
+            SourceKey = lookupSrc.Key,
+            Fields = fieldKeys.ToArray()
+        }, new ReportContext(Guid.Empty));
+
+        var idx = ds.Columns.Select((c, i) => (c.Key, i))
+            .ToDictionary(x => x.Key, x => x.i, StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in ds.Rows)
+        {
+            var key = PanelDataEngine.Norm(raw[idx[keyField]]);
+            if (key.Length == 0 || map.ContainsKey(key))
+            {
+                continue;
+            }
+
+            var brought = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var b in bringFields)
+            {
+                brought[b.Alias] = raw[idx[b.Key!]];
+            }
+
+            map[key] = brought;
+        }
+
+        foreach (var row in _rows)
+        {
+            var mainKeyVal = PanelDataEngine.Norm(row.GetValueOrDefault(join.MainKey));
+            if (map.TryGetValue(mainKeyVal, out var brought))
+            {
+                foreach (var kv in brought)
+                {
+                    row[kv.Key] = kv.Value;
+                }
+            }
+        }
+    }
+
+    private void BuildFilters()
+    {
+        _filters.Clear();
+        foreach (var f in _spec!.Filters)
+        {
+            var af = new ActiveFilter
+            {
+                Spec = f,
+                Label = string.IsNullOrWhiteSpace(f.Label) ? f.Field : f.Label!
+            };
+            if (f.Control.Equals("dropdown", StringComparison.OrdinalIgnoreCase))
+            {
+                af.Options = _rows.Select(r => PanelDataEngine.Norm(r.GetValueOrDefault(f.Field)))
+                    .Where(s => s.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            _filters.Add(af);
+        }
+    }
+
+    private void SetValue(ActiveFilter f, string? value) { f.Value = value ?? ""; Recompute(); }
+    private void SetFrom(ActiveFilter f, string? value) { f.From = value; Recompute(); }
+    private void SetTo(ActiveFilter f, string? value) { f.To = value; Recompute(); }
+
+    private void ClearFilters()
+    {
+        foreach (var f in _filters) { f.Value = ""; f.From = f.To = null; }
+        Recompute();
+    }
+
+    private void Recompute()
+    {
+        _filtered = ApplyFilters(_rows);
+        BuildKpis();
+        BuildWidgets();
+    }
+
+    private List<PanelRow> ApplyFilters(List<PanelRow> rows)
+    {
+        IEnumerable<PanelRow> q = rows;
+        foreach (var f in _filters)
+        {
+            var spec = f.Spec;
+            if (spec.Control.Equals("daterange", StringComparison.OrdinalIgnoreCase))
+            {
+                var from = ParseDate(f.From);
+                var to = ParseDate(f.To);
+                if (from is not null)
+                {
+                    q = q.Where(r => PanelDataEngine.AsDate(r.GetValueOrDefault(spec.Field)) is DateTimeOffset d && d >= from);
+                }
+
+                if (to is not null)
+                {
+                    var toEnd = to.Value.AddDays(1);
+                    q = q.Where(r => PanelDataEngine.AsDate(r.GetValueOrDefault(spec.Field)) is DateTimeOffset d && d < toEnd);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(f.Value))
+            {
+                var val = f.Value.Trim();
+                if (spec.Control.Equals("text", StringComparison.OrdinalIgnoreCase))
+                {
+                    q = q.Where(r => PanelDataEngine.Norm(r.GetValueOrDefault(spec.Field)).Contains(val, StringComparison.OrdinalIgnoreCase));
+                }
+                else
+                {
+                    q = q.Where(r => string.Equals(PanelDataEngine.Norm(r.GetValueOrDefault(spec.Field)), val, StringComparison.OrdinalIgnoreCase));
+                }
+            }
+        }
+
+        return q.ToList();
+    }
+
+    private void BuildKpis()
+    {
+        _kpis.Clear();
+        foreach (var k in _spec!.Kpis)
+        {
+            var value = PanelDataEngine.Aggregate(_filtered, k.Agg, k.Field);
+            _kpis.Add(new KpiValue(k.Label, PanelDataEngine.Format(value, k.Format)));
+        }
+    }
+
+    private void BuildWidgets()
+    {
+        _widgets.Clear();
+        foreach (var w in _spec!.Widgets)
+        {
+            _widgets.Add(BuildWidget(w));
+        }
+    }
+
+    private RenderWidget BuildWidget(PanelWidget w)
+    {
+        var full = string.Equals(w.Width, "full", StringComparison.OrdinalIgnoreCase);
+        var rw = new RenderWidget { Title = w.Title, Full = full };
+        var scale = w.Scale is double sc && sc > 0 ? sc : 1d;
+        var isInteger = scale == 1d && (w.Agg is null
+            || w.Agg.Equals("count", StringComparison.OrdinalIgnoreCase)
+            || w.Agg.Equals("countDistinct", StringComparison.OrdinalIgnoreCase));
+
+        try
+        {
+            switch ((w.Type ?? "").ToLowerInvariant())
+            {
+                case "line":
+                {
+                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, null, PanelSliceOrder.DimAsc);
+                    rw.Kind = WKind.Chart;
+                    rw.Height = w.Height ?? 320;
+                    rw.Option = EChartBuilders.Line(slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList());
+                    break;
+                }
+                case "bar":
+                {
+                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN, PanelSliceOrder.ValueDesc);
+                    rw.Kind = WKind.Chart;
+                    rw.Height = w.Height ?? 320;
+                    if (string.Equals(w.Orientation, "horizontal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rw.Option = EChartBuilders.HorizontalBar(
+                            slices.Select(s => Trunc(s.Key, 18)).ToList(), slices.Select(s => s.Value).ToList(),
+                            color: EChartBuilders.Palette[2], integer: isInteger);
+                    }
+                    else
+                    {
+                        rw.Option = EChartBuilders.VerticalBar(
+                            slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList(),
+                            rotate: 24, label: true, rawValues: isInteger, gridBottom: 70, gridLeft: 44);
+                    }
+
+                    break;
+                }
+                case "donut":
+                {
+                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN, PanelSliceOrder.ValueDesc, includeBlank: true);
+                    rw.Kind = WKind.Chart;
+                    rw.Height = w.Height ?? 320;
+                    rw.Option = EChartBuilders.Donut(slices.Select(s => (s.Key, s.Value)).ToList(), integerValues: isInteger);
+                    break;
+                }
+                case "pareto":
+                {
+                    var (cats, bars, cum) = PanelDataEngine.Pareto(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN ?? 20);
+                    rw.Kind = WKind.Chart;
+                    rw.Height = w.Height ?? 360;
+                    var barName = MeasureLabel(w, scale);
+                    rw.Option = EChartBuilders.Pareto(cats.Select(c => Trunc(c, 22)).ToList(), bars, cum,
+                        barName: barName, cumName: "Acumulado %", leftAxisName: scale == 1_000_000d ? "M" : "");
+                    break;
+                }
+                case "matrix":
+                {
+                    rw.Kind = WKind.Matrix;
+                    rw.Heatmap = w.Heatmap;
+                    rw.RowDimLabel = w.RowDim ?? "";
+                    rw.ColDimLabel = w.ColDim ?? "";
+                    rw.Matrix = PanelDataEngine.Matrix(_filtered, w.RowDim!, w.ColDim!, w.Agg, w.Field);
+                    rw.Full = true;
+                    break;
+                }
+                case "table":
+                {
+                    rw.Kind = WKind.Table;
+                    rw.Full = true;
+                    var rows = PanelDataEngine.TableRows(_filtered, w.GroupBy!, w.Columns, w.TopN);
+                    foreach (var col in w.Columns)
+                    {
+                        rw.TableHeaders.Add(col.Label);
+                        rw.TableNumeric.Add(!string.IsNullOrWhiteSpace(col.Agg));
+                    }
+
+                    foreach (var raw in rows)
+                    {
+                        var cells = new List<string>(w.Columns.Count);
+                        for (var i = 0; i < w.Columns.Count; i++)
+                        {
+                            var col = w.Columns[i];
+                            if (!string.IsNullOrWhiteSpace(col.Agg))
+                            {
+                                var dec = raw[i] is decimal d ? d : 0m;
+                                cells.Add(PanelDataEngine.Format(dec, col.Format ?? "int"));
+                            }
+                            else
+                            {
+                                cells.Add(PanelDataEngine.Norm(raw[i]));
+                            }
+                        }
+
+                        rw.TableRows.Add(cells);
+                    }
+
+                    break;
+                }
+                default:
+                    rw.Kind = WKind.Unsupported;
+                    rw.Message = $"Widget no soportado: '{w.Type}'.";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            rw.Kind = WKind.Unsupported;
+            rw.Message = ex.Message;
+        }
+
+        return rw;
+    }
+
+    private static string MeasureLabel(PanelWidget w, double scale)
+    {
+        var baseLabel = string.IsNullOrWhiteSpace(w.Field) ? "Valor" : w.Field!;
+        return scale == 1_000_000d ? baseLabel + " (M)" : baseLabel;
+    }
+
+    private string Fmt(double v) => v.ToString("N0", Inv);
+
+    private static string Trunc(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 2) + "..";
+
+    private static DateTimeOffset? ParseDate(string? s) =>
+        DateTimeOffset.TryParse(s, Inv, DateTimeStyles.AssumeUniversal, out var d) ? d : null;
+
+    private static string? FieldKeyByName(ReportSourceDescriptor d, string displayName) =>
+        d.Fields.FirstOrDefault(f => string.Equals(f.DisplayName, displayName, StringComparison.OrdinalIgnoreCase))?.Key;
+
+    private static string KpiAccent(int i) => i switch
+    {
+        0 => "",
+        1 => "prog",
+        2 => "open",
+        3 => "done",
+        4 => "over",
+        _ => "susp"
+    };
+
+    private string HeatStyle(RenderWidget w, double v)
+    {
+        if (!w.Heatmap || v == 0 || w.Matrix is null || w.Matrix.Max == 0)
+        {
+            return "";
+        }
+
+        var t = v / w.Matrix.Max;
+        var alpha = (0.08 + t * 0.42).ToString("0.###", Inv);
+        return $"background: rgba(79,70,229,{alpha});";
+    }
+
+    private enum WKind { Chart, Matrix, Table, Unsupported }
+
+    private sealed class ActiveFilter
+    {
+        public PanelFilter Spec { get; set; } = new();
+        public string Label { get; set; } = "";
+        public List<string> Options { get; set; } = new();
+        public string Value { get; set; } = "";
+        public string? From { get; set; }
+        public string? To { get; set; }
+    }
+
+    private sealed record KpiValue(string Label, string Value);
+
+    private sealed class RenderWidget
+    {
+        public WKind Kind { get; set; }
+        public string Title { get; set; } = "";
+        public bool Full { get; set; }
+        public int Height { get; set; } = 320;
+        public object? Option { get; set; }
+        public PanelMatrix? Matrix { get; set; }
+        public bool Heatmap { get; set; }
+        public string RowDimLabel { get; set; } = "";
+        public string ColDimLabel { get; set; } = "";
+        public List<string> TableHeaders { get; } = new();
+        public List<bool> TableNumeric { get; } = new();
+        public List<List<string>> TableRows { get; } = new();
+        public string? Message { get; set; }
+    }
+}

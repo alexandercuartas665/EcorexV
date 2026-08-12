@@ -2,14 +2,18 @@
 @attribute [Authorize(Policy = "Perm:reportes/galeria:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.External
 @using Ecorex.Application.Reporting.Templates
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.Reporting
+@using Microsoft.AspNetCore.Components.Forms
 @inject IReportDefinitionService Defs
 @inject IReportActivationService Activation
 @inject ICurrentPermissions Perms
+@inject IExternalReportBindingService ExternalReports
+@inject NavigationManager Nav
 
 @* Galeria de reportes (ADR-0051): TODOS los reportes que el usuario puede usar como tarjetas
    (gobernados por rol). Clic en una tarjeta -> modal gigante con DOBLE VISTA: Tablero (ECharts
@@ -28,8 +32,12 @@
         </div>
         @if (_canCreate)
         {
-            <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
-                    @onclick="CreateExamplesAsync" disabled="@_busy">@(_busy ? "Generando..." : "Generar reportes de ejemplo")</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button style="background:#f0fdf4;color:#166534;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
+                        @onclick="OpenImportAsync" disabled="@_busy" title="Importar un RDL alimentado por una fuente de datos externa concedida">Importar RDL externo</button>
+                <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
+                        @onclick="CreateExamplesAsync" disabled="@_busy">@(_busy ? "Generando..." : "Generar reportes de ejemplo")</button>
+            </div>
         }
     </div>
 
@@ -164,6 +172,96 @@
     </div>
 }
 
+@* ===================== MODAL: Importar RDL externo (ADR-0064) ===================== *@
+@if (_importOpen)
+{
+    <div class="modal-overlay" @onclick="CloseImport">
+        <div class="modal-dialog" style="max-width:760px;width:96vw;max-height:92vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Importar RDL externo</h3>
+                <button class="modal-close" @onclick="CloseImport">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow:auto;padding:18px 22px;">
+                @if (_impError is not null)
+                {
+                    <div class="tk-field-error" style="margin-bottom:12px;">@_impError</div>
+                }
+                @if (_impGranted.Count == 0)
+                {
+                    <p style="font-size:13px;color:#6b7280;">
+                        No hay fuentes de datos externas concedidas a este tenant. Pide al administrador de plataforma
+                        que conceda una fuente (Fuentes externas &rarr; Conceder) antes de importar un RDL que la use.
+                    </p>
+                }
+                else
+                {
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+                        <label style="font-size:12px;font-weight:600;color:#374151;">Nombre del reporte
+                            <input class="form-control" @bind="_impName" maxlength="200" placeholder="Reporte de Sistema de Tareas Personal" />
+                        </label>
+                        <label style="font-size:12px;font-weight:600;color:#374151;">Descripcion (opcional)
+                            <input class="form-control" @bind="_impDesc" maxlength="400" />
+                        </label>
+                    </div>
+                    <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Archivo .rdl</label>
+                    <InputFile OnChange="OnRdlSelected" accept=".rdl,.xml" />
+
+                    @if (_impDsNames.Count > 0)
+                    {
+                        <div style="margin-top:16px;font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.03em;">
+                            Mapea cada dataset del RDL a un dataset externo concedido
+                        </div>
+                        @foreach (var name in _impDsNames)
+                        {
+                            var rdlName = name;
+                            var picked = PickedDs(rdlName);
+                            <div style="border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-top:10px;">
+                                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                    <span style="font-weight:700;font-size:13px;color:#111827;min-width:120px;">@rdlName</span>
+                                    <span style="color:#9ca3af;">&rarr;</span>
+                                    <select class="form-control" style="max-width:320px;" @onchange="e => OnPickDs(rdlName, e.Value?.ToString())">
+                                        <option value="">-- Elegir dataset externo --</option>
+                                        @foreach (var ds in _impGranted)
+                                        {
+                                            <option value="@ds.Id" selected="@(_impMap.GetValueOrDefault(rdlName) == ds.Id)">@ds.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                                @if (picked is not null && picked.Inputs.Count > 0)
+                                {
+                                    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+                                        @foreach (var inp in picked.Inputs)
+                                        {
+                                            var input = inp;
+                                            <label style="font-size:11.5px;font-weight:600;color:#6b7280;">
+                                                @input.Name <span style="font-weight:400;">(@input.Type)</span>
+                                                <input class="form-control" value="@GetInput(rdlName, input.Name)"
+                                                       @onchange="e => SetInput(rdlName, input.Name, e.Value?.ToString())" />
+                                            </label>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_impRdl is not null)
+                    {
+                        <p style="font-size:12.5px;color:#b45309;margin-top:12px;">El RDL no declara datasets (o no se pudo parsear).</p>
+                    }
+                }
+            </div>
+            <div class="modal-head" style="border-top:1px solid #eef0f3;border-bottom:none;justify-content:flex-end;gap:8px;">
+                <button class="modal-close" style="width:auto;padding:8px 14px;font-size:13px;" @onclick="CloseImport" disabled="@_impBusy">Cancelar</button>
+                @if (_impGranted.Count > 0)
+                {
+                    <button style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;"
+                            @onclick="DoImportAsync" disabled="@(_impBusy || _impRdl is null)">@(_impBusy ? "Importando..." : "Importar")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private IReadOnlyList<ReportDefinitionSummary> _cards = Array.Empty<ReportDefinitionSummary>();
     private bool _canCreate;
@@ -212,6 +310,117 @@
             await ReloadAsync();
         }
         finally { _busy = false; }
+    }
+
+    // ---- Importar RDL externo (ADR-0064) ----
+    private bool _importOpen;
+    private bool _impBusy;
+    private string? _impError;
+    private string _impName = "";
+    private string _impDesc = "";
+    private string? _impRdl;
+    private IReadOnlyList<string> _impDsNames = Array.Empty<string>();
+    private IReadOnlyList<GrantedExternalDataSetDto> _impGranted = Array.Empty<GrantedExternalDataSetDto>();
+    private readonly Dictionary<string, Guid?> _impMap = new(StringComparer.Ordinal);                     // dataset del RDL -> ExternalDataSetId
+    private readonly Dictionary<string, Dictionary<string, string?>> _impInputs = new(StringComparer.Ordinal); // dataset del RDL -> input -> valor
+
+    private async Task OpenImportAsync()
+    {
+        _impError = null; _impName = ""; _impDesc = ""; _impRdl = null;
+        _impDsNames = Array.Empty<string>();
+        _impMap.Clear(); _impInputs.Clear();
+        _impGranted = await ExternalReports.ListGrantedDataSetsAsync();
+        _importOpen = true;
+    }
+
+    private void CloseImport() => _importOpen = false;
+
+    private async Task OnRdlSelected(InputFileChangeEventArgs e)
+    {
+        _impError = null;
+        var file = e.File;
+        if (file is null) { return; }
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 8 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            _impRdl = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex) { _impError = $"No se pudo leer el archivo: {ex.Message}"; _impRdl = null; return; }
+
+        if (string.IsNullOrWhiteSpace(_impName))
+        {
+            var dot = file.Name.LastIndexOf('.');
+            _impName = dot > 0 ? file.Name[..dot] : file.Name;
+        }
+        _impDsNames = ExternalReports.ReadRdlDataSetNames(_impRdl);
+        _impMap.Clear(); _impInputs.Clear();
+        foreach (var n in _impDsNames)
+        {
+            _impMap[n] = null;
+            _impInputs[n] = new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+    }
+
+    private void OnPickDs(string rdlName, string? value)
+    {
+        _impMap[rdlName] = Guid.TryParse(value, out var g) ? g : (Guid?)null;
+        if (!_impInputs.TryGetValue(rdlName, out var inputs))
+        {
+            inputs = _impInputs[rdlName] = new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
+        inputs.Clear();
+        // Al elegir dataset, precarga los valores por defecto de sus parametros de entrada.
+        var ds = _impMap[rdlName] is Guid gid ? _impGranted.FirstOrDefault(x => x.Id == gid) : null;
+        if (ds is not null)
+        {
+            foreach (var inp in ds.Inputs) { inputs[inp.Name] = inp.DefaultValue; }
+        }
+    }
+
+    private GrantedExternalDataSetDto? PickedDs(string rdlName)
+        => _impMap.TryGetValue(rdlName, out var id) && id is Guid g ? _impGranted.FirstOrDefault(x => x.Id == g) : null;
+
+    private string? GetInput(string rdlName, string inp)
+        => _impInputs.TryGetValue(rdlName, out var d) && d.TryGetValue(inp, out var v) ? v : null;
+
+    private void SetInput(string rdlName, string inp, string? val)
+    {
+        if (!_impInputs.TryGetValue(rdlName, out var d)) { d = _impInputs[rdlName] = new Dictionary<string, string?>(StringComparer.Ordinal); }
+        d[inp] = val;
+    }
+
+    private async Task DoImportAsync()
+    {
+        _impError = null;
+        if (string.IsNullOrWhiteSpace(_impRdl)) { _impError = "Sube un archivo .rdl primero."; return; }
+        if (string.IsNullOrWhiteSpace(_impName)) { _impError = "Ponle un nombre al reporte."; return; }
+
+        var maps = new List<ExternalReportDataSetMapping>();
+        foreach (var rdlName in _impDsNames)
+        {
+            if (_impMap.TryGetValue(rdlName, out var id) && id is Guid gid)
+            {
+                var inputs = _impInputs.TryGetValue(rdlName, out var d)
+                    ? new Dictionary<string, string?>(d, StringComparer.Ordinal)
+                    : new Dictionary<string, string?>(StringComparer.Ordinal);
+                maps.Add(new ExternalReportDataSetMapping(rdlName, gid, inputs));
+            }
+        }
+        if (maps.Count == 0) { _impError = "Mapea al menos un dataset del RDL a un dataset externo concedido."; return; }
+
+        _impBusy = true;
+        try
+        {
+            var id = await ExternalReports.ImportRdlAsync(
+                _impName.Trim(), _impRdl!, new ExternalReportBinding(maps),
+                string.IsNullOrWhiteSpace(_impDesc) ? null : _impDesc.Trim());
+            _importOpen = false;
+            await ReloadAsync();
+            Nav.NavigateTo($"/reportes/imprimibles/{id}");
+        }
+        catch (Exception ex) { _impError = ex.Message; }
+        finally { _impBusy = false; }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

@@ -312,6 +312,21 @@ else
         _busy = true; _dsMsg = null;
         try
         {
+            // Valida los tokens de Type/Binding ANTES de guardar: un token fuera del enum (Int32, DateTime...)
+            // deserializaba a lista vacia y se guardaba en silencio. Ahora se avisa cual es invalido.
+            var pErr = ExternalDataJson.ValidateParametersJson(_dsForm.ParametersJson);
+            var fErr = ExternalDataJson.ValidateFieldsJson(_dsForm.FieldsJson);
+            if (pErr is not null || fErr is not null)
+            {
+                _dsOk = false;
+                _dsMsg = string.Join(" ", new[]
+                {
+                    pErr is null ? null : "Parametros -> " + pErr,
+                    fErr is null ? null : "Campos -> " + fErr
+                }.Where(x => x is not null));
+                return;
+            }
+
             var req = new SaveExternalDataSetRequest(
                 _dsForm.Id, sourceId, _dsForm.Name?.Trim() ?? "", null, _dsForm.CommandText?.Trim() ?? "",
                 ExternalDataJson.DeserializeParameters(_dsForm.ParametersJson),

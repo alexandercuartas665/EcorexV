@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Xml.Linq;
 using Ecorex.Application.Common;
 using Ecorex.Application.Reporting.Authoring;
 using Ecorex.Domain.Entities;
@@ -7,6 +8,14 @@ using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Reporting.External;
+
+/// <summary>Un dataset externo CONCEDIDO al tenant, con sus parametros de entrada, para armar el mapeo
+/// del RDL en la UI de importacion.</summary>
+public sealed record GrantedExternalDataSetDto(
+    Guid Id, string Name, IReadOnlyList<GrantedDataSetInputDto> Inputs);
+
+/// <summary>Un parametro de entrada (Binding=Input) de un dataset concedido: nombre, tipo y valor por defecto.</summary>
+public sealed record GrantedDataSetInputDto(string Name, ExternalDataParameterType Type, string? DefaultValue);
 
 /// <summary>Mapeo de un dataset del RDL a un <see cref="ExternalDataSet"/> concedido + los valores de
 /// entrada guardados (para los parametros Input; los Context los resuelve el conector).</summary>
@@ -34,6 +43,14 @@ public interface IExternalReportBindingService
     /// <summary>Importa un RDL mapeando sus datasets/parametros a datasets externos concedidos. Crea la
     /// ReportDefinition (Kind=Printable) del tenant activo. Devuelve su Id.</summary>
     Task<Guid> ImportRdlAsync(string name, string rdl, ExternalReportBinding binding, string? description, CancellationToken ct = default);
+
+    /// <summary>Nombres de los datasets declarados en el RDL (elementos &lt;DataSet Name="..."&gt; bajo
+    /// &lt;DataSets&gt;). Vacio si el RDL no parsea. No requiere tenant.</summary>
+    IReadOnlyList<string> ReadRdlDataSetNames(string rdl);
+
+    /// <summary>Datasets externos CONCEDIDOS al tenant activo, con sus parametros de entrada, para armar
+    /// el mapeo de la importacion. Vacio si no hay tenant activo o concesiones.</summary>
+    Task<IReadOnlyList<GrantedExternalDataSetDto>> ListGrantedDataSetsAsync(CancellationToken ct = default);
 
     /// <summary>Devuelve el binding guardado de un reporte (o null si no es externo).</summary>
     Task<ExternalReportBinding?> GetBindingAsync(Guid reportDefinitionId, CancellationToken ct = default);
@@ -96,6 +113,63 @@ public sealed class ExternalReportBindingService : IExternalReportBindingService
         _db.ReportDefinitions.Add(def);
         await _db.SaveChangesAsync(ct);
         return def.Id;
+    }
+
+    public IReadOnlyList<string> ReadRdlDataSetNames(string rdl)
+    {
+        if (string.IsNullOrWhiteSpace(rdl)) { return Array.Empty<string>(); }
+        try
+        {
+            var doc = XDocument.Parse(rdl);
+            // <DataSets><DataSet Name="..."> (namespace-agnostico via LocalName; solo los hijos de DataSets
+            // para no confundir con otros elementos DataSet del RDL).
+            return doc.Descendants()
+                .Where(e => e.Name.LocalName == "DataSet" && e.Parent?.Name.LocalName == "DataSets")
+                .Select(e => (string?)e.Attribute("Name"))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n!.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (System.Xml.XmlException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    public async Task<IReadOnlyList<GrantedExternalDataSetDto>> ListGrantedDataSetsAsync(CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return Array.Empty<GrantedExternalDataSetDto>();
+        }
+
+        // Misma puerta de gobernanza que ExternalReportReader: fuente habilitada + concesion vigente del tenant.
+        var grantedSourceIds = await _db.ExternalDataSourceGrants.AsNoTracking()
+            .Where(g => g.TenantId == tenantId && g.IsEnabled)
+            .Select(g => g.ExternalDataSourceId)
+            .Distinct()
+            .ToListAsync(ct);
+        if (grantedSourceIds.Count == 0)
+        {
+            return Array.Empty<GrantedExternalDataSetDto>();
+        }
+
+        var datasets = await _db.ExternalDataSets.AsNoTracking()
+            .Where(ds => ds.IsEnabled && grantedSourceIds.Contains(ds.ExternalDataSourceId)
+                && _db.ExternalDataSources.Any(src => src.Id == ds.ExternalDataSourceId && src.IsEnabled))
+            .OrderBy(ds => ds.Name)
+            .Select(ds => new { ds.Id, ds.Name, ds.ParametersJson })
+            .ToListAsync(ct);
+
+        return datasets.Select(ds =>
+        {
+            var inputs = ExternalDataJson.DeserializeParameters(ds.ParametersJson)
+                .Where(p => p.Binding == ExternalDataParameterBinding.Input)
+                .Select(p => new GrantedDataSetInputDto(p.Name, p.Type, p.DefaultValue))
+                .ToList();
+            return new GrantedExternalDataSetDto(ds.Id, ds.Name, inputs);
+        }).ToList();
     }
 
     public async Task<ExternalReportBinding?> GetBindingAsync(Guid reportDefinitionId, CancellationToken ct = default)

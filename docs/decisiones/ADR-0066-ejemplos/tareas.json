@@ -1,0 +1,27 @@
+{
+  "title": "Actividades del sistema (Tareas)",
+  "sources": { "main": { "container": "Actividades" }, "lookups": [] },
+  "derived": [
+    { "name": "Dia", "from": "Creada", "op": "date" }
+  ],
+  "filters": [
+    { "field": "Estado", "control": "dropdown" },
+    { "field": "Prioridad", "control": "dropdown" },
+    { "field": "Creada", "control": "daterange", "label": "Creada" }
+  ],
+  "kpis": [
+    { "label": "Total", "agg": "count", "format": "int" }
+  ],
+  "widgets": [
+    { "type": "donut", "title": "Actividades por estado", "dim": "Estado", "agg": "count", "height": 300 },
+    { "type": "line", "title": "Creadas por dia", "dim": "Dia", "agg": "count", "height": 300 },
+    { "type": "bar", "title": "Actividades por prioridad", "dim": "Prioridad", "agg": "count", "orientation": "vertical", "height": 300 },
+    { "type": "table", "title": "Actividades recientes", "groupBy": "Numero", "topN": 8,
+      "columns": [
+        { "label": "Numero", "field": "Numero" },
+        { "label": "Titulo", "field": "Titulo" },
+        { "label": "Estado", "field": "Estado" }
+      ]
+    }
+  ]
+}

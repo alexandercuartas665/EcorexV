@@ -1,0 +1,32 @@
+{
+  "title": "Inventario de software (OCS)",
+  "sources": { "main": { "container": "Software OCS" }, "lookups": [] },
+  "derived": [],
+  "filters": [
+    { "field": "SO", "control": "dropdown" },
+    { "field": "Dominio", "control": "dropdown" },
+    { "field": "Bits", "control": "dropdown", "label": "Arquitectura" },
+    { "field": "Programa", "control": "text" },
+    { "field": "Publisher", "control": "text", "label": "Fabricante" }
+  ],
+  "kpis": [
+    { "label": "Equipos", "agg": "countDistinct", "field": "Equipo", "format": "int" },
+    { "label": "Programas distintos", "agg": "countDistinct", "field": "Programa", "format": "int" },
+    { "label": "Instalaciones", "agg": "count", "format": "int" },
+    { "label": "Fabricantes", "agg": "countDistinct", "field": "Publisher", "format": "int" }
+  ],
+  "widgets": [
+    { "type": "bar", "title": "Top 12 software por instalaciones", "dim": "Programa", "agg": "count", "topN": 12, "orientation": "horizontal", "height": 340 },
+    { "type": "donut", "title": "Fabricantes (top 8)", "dim": "Publisher", "agg": "count", "topN": 8, "height": 340 },
+    { "type": "bar", "title": "Equipos por sistema operativo", "dim": "SO", "agg": "countDistinct", "field": "Equipo", "topN": 8, "orientation": "vertical", "height": 320 },
+    { "type": "donut", "title": "Arquitectura", "dim": "Bits", "agg": "count", "height": 320 },
+    { "type": "matrix", "title": "Sistema operativo x Arquitectura", "rowDim": "SO", "colDim": "Bits", "agg": "count", "heatmap": true },
+    { "type": "table", "title": "Detalle - software mas presente", "groupBy": "Programa", "topN": 12, "width": "full",
+      "columns": [
+        { "label": "Programa", "field": "Programa" },
+        { "label": "Fabricante", "field": "Publisher" },
+        { "label": "Instalaciones", "agg": "count" }
+      ]
+    }
+  ]
+}

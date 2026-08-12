@@ -1,5 +1,6 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Reporting.Authoring;
+using Ecorex.Application.Reporting.Panels;
 using Ecorex.Application.Reporting.Sources;
 using Ecorex.Application.Reporting.Templates;
 using Ecorex.Domain.Entities;
@@ -75,6 +76,27 @@ public interface IReportDefinitionService
 
     /// <summary>Persiste el RDL editado en el diseniador Bold. Tenant-scoped. Devuelve false si no existe.</summary>
     Task<bool> UpdateRdlAsync(Guid id, string rdl, CancellationToken ct = default);
+
+    // ---- Paneles GENERICOS por spec (ADR-0066): autoria como DATO, sin recompilar ni desplegar ----
+
+    /// <summary>Devuelve el SpecJson crudo de un reporte (para editar un PanelSpec). Null si no existe.</summary>
+    Task<string?> GetSpecJsonAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Valida un PanelSpec (JSON) contra el catalogo tenant-safe. Lista vacia = valido; en caso
+    /// contrario, mensajes claros de error. Un JSON ilegible devuelve un unico error.</summary>
+    Task<IReadOnlyList<string>> ValidatePanelSpecAsync(string specJson, CancellationToken ct = default);
+
+    /// <summary>Guarda un PanelSpec como ReportDefinition (Kind=Dashboard, SourceKey="panel:spec"),
+    /// tenant-scoped. Valida contra el catalogo; lanza <see cref="ReportValidationException"/> si es
+    /// invalido. Aparece en la galeria y abre por SpecPanelRenderer. Sin recompilar ni desplegar.</summary>
+    Task<Guid> SavePanelSpecAsync(string name, string specJson, CancellationToken ct = default);
+
+    /// <summary>Actualiza el PanelSpec (nombre + JSON) de un reporte panel existente. Valida igual que
+    /// el alta. Devuelve false si no existe.</summary>
+    Task<bool> UpdatePanelSpecAsync(Guid id, string name, string specJson, CancellationToken ct = default);
+
+    /// <summary>Duplica un reporte panel por spec (mismo SpecJson, nombre nuevo). Devuelve el nuevo id.</summary>
+    Task<Guid> DuplicatePanelSpecAsync(Guid id, string? newName, CancellationToken ct = default);
 }
 
 /// <summary>RDL de un imprimible + las filas ya filtradas por tenant que lo alimentan.</summary>
@@ -95,15 +117,17 @@ public sealed class ReportDefinitionService : IReportDefinitionService
     private readonly ITenantContext _tenantContext;
     private readonly IReportDataSource _dataSource;
     private readonly IReportActivationService? _activation;
+    private readonly IReportCatalog? _catalog;
 
     public ReportDefinitionService(
         IApplicationDbContext db, ITenantContext tenantContext, IReportDataSource dataSource,
-        IReportActivationService? activation = null)
+        IReportActivationService? activation = null, IReportCatalog? catalog = null)
     {
         _db = db;
         _tenantContext = tenantContext;
         _dataSource = dataSource;
         _activation = activation;
+        _catalog = catalog;
     }
 
     public async Task<Guid> SaveAsync(ReportSpec spec, string? description, CancellationToken ct = default)
@@ -447,5 +471,108 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         def.Kind = ReportDefinitionKind.Printable;
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    // ---- Paneles GENERICOS por spec (ADR-0066) ----
+
+    public async Task<string?> GetSpecJsonAsync(Guid id, CancellationToken ct = default)
+    {
+        return await _db.ReportDefinitions.AsNoTracking()
+            .Where(d => d.Id == id)
+            .Select(d => d.SpecJson)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<string>> ValidatePanelSpecAsync(string specJson, CancellationToken ct = default)
+    {
+        var spec = PanelSpec.FromJson(specJson);
+        if (spec is null)
+        {
+            return new[] { "El JSON del panel no es valido (no se pudo interpretar)." };
+        }
+
+        if (_catalog is null)
+        {
+            return new[] { "El catalogo de reportes no esta disponible para validar." };
+        }
+
+        var sources = await _catalog.GetSourcesAsync(ct);
+        return PanelSpecValidator.Validate(spec, sources);
+    }
+
+    public async Task<Guid> SavePanelSpecAsync(string name, string specJson, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+
+        await EnsureValidPanelAsync(specJson, ct);
+
+        var def = new ReportDefinition
+        {
+            Id = Guid.CreateVersion7(),
+            Name = string.IsNullOrWhiteSpace(name) ? "Panel sin titulo" : name.Trim(),
+            Description = "Panel generico por spec (ADR-0066)",
+            Kind = ReportDefinitionKind.Dashboard,
+            Status = ReportDefinitionStatus.Active,
+            SourceKey = PanelSpecSource.SourceKey,
+            SpecJson = specJson
+        };
+        _db.ReportDefinitions.Add(def);
+        await _db.SaveChangesAsync(ct);
+        return def.Id;
+    }
+
+    public async Task<bool> UpdatePanelSpecAsync(Guid id, string name, string specJson, CancellationToken ct = default)
+    {
+        var def = await _db.ReportDefinitions.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null)
+        {
+            return false;
+        }
+
+        await EnsureValidPanelAsync(specJson, ct);
+
+        def.Name = string.IsNullOrWhiteSpace(name) ? def.Name : name.Trim();
+        def.SourceKey = PanelSpecSource.SourceKey;
+        def.Kind = ReportDefinitionKind.Dashboard;
+        def.SpecJson = specJson;
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<Guid> DuplicatePanelSpecAsync(Guid id, string? newName, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid)
+        {
+            throw new InvalidOperationException("No hay tenant activo.");
+        }
+
+        var src = await _db.ReportDefinitions.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id, ct)
+            ?? throw new InvalidOperationException("El panel no existe.");
+
+        var def = new ReportDefinition
+        {
+            Id = Guid.CreateVersion7(),
+            Name = string.IsNullOrWhiteSpace(newName) ? src.Name + " (copia)" : newName.Trim(),
+            Description = src.Description,
+            Kind = ReportDefinitionKind.Dashboard,
+            Status = ReportDefinitionStatus.Active,
+            SourceKey = PanelSpecSource.SourceKey,
+            SpecJson = src.SpecJson
+        };
+        _db.ReportDefinitions.Add(def);
+        await _db.SaveChangesAsync(ct);
+        return def.Id;
+    }
+
+    private async Task EnsureValidPanelAsync(string specJson, CancellationToken ct)
+    {
+        var errors = await ValidatePanelSpecAsync(specJson, ct);
+        if (errors.Count > 0)
+        {
+            throw new ReportValidationException(string.Join(" ", errors));
+        }
     }
 }

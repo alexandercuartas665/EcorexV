@@ -1,0 +1,42 @@
+{
+  "title": "Ventas y Facturacion (SIIGO)",
+  "sources": {
+    "main": { "container": "facturas" },
+    "lookups": [
+      { "container": "clientes", "key": "Identificacion", "bring": { "Nombre": "ClienteNombre" } }
+    ]
+  },
+  "join": { "mainKey": "Cliente NIT", "lookup": "clientes" },
+  "derived": [
+    { "name": "Anio", "from": "Fecha", "op": "year" },
+    { "name": "Mes", "from": "Fecha", "op": "yyyymm" }
+  ],
+  "filters": [
+    { "field": "Anio", "control": "dropdown" },
+    { "field": "Vendedor", "control": "dropdown" },
+    { "field": "Estado DIAN", "control": "dropdown" },
+    { "field": "ClienteNombre", "control": "text", "label": "Cliente" }
+  ],
+  "kpis": [
+    { "label": "Ventas", "agg": "sum", "field": "Total", "format": "moneyM" },
+    { "label": "Facturas", "agg": "count", "format": "int" },
+    { "label": "Clientes", "agg": "countDistinct", "field": "Cliente NIT", "format": "int" },
+    { "label": "Ticket promedio", "agg": "avg", "field": "Total", "format": "money" },
+    { "label": "Saldo pendiente", "agg": "sum", "field": "Saldo", "format": "moneyM" }
+  ],
+  "widgets": [
+    { "type": "line", "title": "Ventas mensuales (millones)", "dim": "Mes", "agg": "sum", "field": "Total", "scale": 1000000, "width": "full" },
+    { "type": "pareto", "title": "Pareto de clientes (80/20)", "dim": "ClienteNombre", "agg": "sum", "field": "Total", "scale": 1000000, "topN": 20, "cumulative": true, "width": "full", "height": 360 },
+    { "type": "bar", "title": "Ventas por vendedor (millones)", "dim": "Vendedor", "agg": "sum", "field": "Total", "scale": 1000000, "topN": 10, "orientation": "horizontal" },
+    { "type": "donut", "title": "Facturas por estado DIAN", "dim": "Estado DIAN", "agg": "count" },
+    { "type": "table", "title": "Top 15 clientes", "groupBy": "ClienteNombre", "topN": 15, "width": "full",
+      "columns": [
+        { "label": "Cliente", "field": "ClienteNombre" },
+        { "label": "NIT", "field": "Cliente NIT" },
+        { "label": "Facturas", "agg": "count" },
+        { "label": "Ventas", "agg": "sum", "aggField": "Total", "format": "money" },
+        { "label": "Saldo", "agg": "sum", "aggField": "Saldo", "format": "money" }
+      ]
+    }
+  ]
+}

@@ -1809,6 +1809,10 @@ else
         {
             row[target] = item.Fields.TryGetValue(source, out var v) ? v : null;
         }
+        // Elegir en el lookup pudo cambiar claves de match (tipo_lamina/espesor): re-resuelve las columnas
+        // 'resolve' de ESTA fila igual que SetGridCell, para que precio_corte/doblez y su aviso "sin tarifa"
+        // no queden stale. Debe ir ANTES de SetValue para que el calculo use los precios recien resueltos.
+        await ResolveGridRowAsync(q, rows, rowIndex);
         // SetValue recalcula formulas por fila y roll-ups con los valores recien copiados.
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
     }

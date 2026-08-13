@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Tenancy;
@@ -198,7 +199,11 @@ public sealed class AiStepOrchestrator(
             "IMPORTANTE sobre el navegador: cada 'leer_html' CARGA DE CERO la ultima URL que fijaste con " +
             "'navegar' (no hay sesion persistente ni estado entre pasos), asi que navega DIRECTO a una URL " +
             "de resultados (p.ej. en Google Maps usa https://www.google.com/maps/search/<terminos+ubicacion>) " +
-            "y luego 'leer_html'. Los clics/JS no persisten entre lecturas. Se conciso: " +
+            "y luego 'leer_html'. 'leer_html' devuelve el CONTENIDO YA RENDERIZADO como JSON " +
+            "{title,url,text,items,links}: 'items' son los nombres de cada resultado (los negocios en Maps), " +
+            "'text' es el texto visible de la pagina y 'links' los enlaces; hace auto-scroll para cargar mas " +
+            "resultados. NO es HTML crudo: extrae los datos de items/text/links. Los clics/JS no persisten " +
+            "entre lecturas. Se conciso: " +
             $"tienes un tope de {(ctx.MaxSteps is > 0 ? ctx.MaxSteps : 8)} pasos. No inventes datos: extrae " +
             "solo lo que veas en la pagina. Cuando termines de guardar, no llames mas herramientas.";
     }
@@ -246,9 +251,10 @@ public sealed class AiStepOrchestrator(
             {
                 if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de leer_html."; }
                 actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                // Espera mas larga: los sitios JS (Maps, directorios) pintan los resultados despues de cargar.
-                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 3800));
-                actions.Add(new BrowserAction(BrowserActionKind.Html, Selector: Str(args, "selector")));
+                // ExtractReadable: contenido legible ya renderizado (texto + labels de resultados + enlaces)
+                // con auto-scroll para feeds perezosos (Maps/SPA). Reemplaza al outerHTML crudo. Si el agente
+                // es viejo (<1.6.0) esta accion cae en su 'default' (no soportada) y abajo se hace fallback a Html.
+                actions.Add(new BrowserAction(BrowserActionKind.ExtractReadable, ScrollRounds: 4, WaitMs: 1200));
                 break;
             }
             case "captura":
@@ -290,23 +296,88 @@ public sealed class AiStepOrchestrator(
         {
             var req = new BrowserRequestMsg(corr, ctx.TenantId.ToString(), actions);
             var result = await channel.ExecuteAsync(ctx.ClientId, req, PerActionTimeout, ct);
-            // Si alguna accion fallo (p.ej. navigate rechazado por la allow-list), reporta ese error.
+
+            if (tool == "leer_html")
+            {
+                // Navigate rechazado por la allow-list (u otro fallo del navigate): reportarlo tal cual.
+                var nav = result.Results.FirstOrDefault(r => r.Kind == BrowserActionKind.Navigate);
+                if (nav is not null && !nav.Ok) { return "error: " + (nav.Error ?? "navegacion no permitida"); }
+
+                var ext = result.Results.FirstOrDefault(r => r.Kind == BrowserActionKind.ExtractReadable);
+                if (ext is not null && ext.Ok) { return FormatReadable(ext.Value); }
+
+                // Agente viejo (<1.6.0): ExtractReadable cayo en su 'default' (no soportada). Fallback en la
+                // MISMA llamada al camino previo: Html crudo + limpieza (CleanHtmlForModel). Asi funciona
+                // igual antes y despues de que el usuario instale el MSI 1.6.0.
+                return await ReadHtmlFallbackAsync(ctx, session.CurrentUrl!, Str(args, "selector"), ct);
+            }
+
+            // captura / evaluar_js / clic: el resultado UTIL es el de la ULTIMA accion.
             var failed = result.Results.FirstOrDefault(r => !r.Ok);
             if (failed is not null) { return "error: " + (failed.Error ?? result.Error ?? "sin resultado"); }
-            // El resultado UTIL es el de la ULTIMA accion (Html/Screenshot/Eval/Mouse).
             var res = result.Results.Count > 0 ? result.Results[^1] : null;
             if (res is null) { return "error: " + (result.Error ?? "sin resultado"); }
             var value = res.Value ?? "ok";
-            // leer_html devuelve el outerHTML JSON-escapado (<...) EMPEZANDO por <head>+scripts, que se
-            // comen el presupuesto sin datos. Se des-escapa y se limpia (fuera head/scripts/estilos), asi el
-            // markup del BODY -donde estan los negocios de sitios JS como Maps- si cabe en el tope.
-            if (tool == "leer_html") { value = CleanHtmlForModel(value); }
             return value.Length > MaxHtmlChars ? value[..MaxHtmlChars] + "...[recortado]" : value;
         }
         catch (TimeoutException)
         {
             return "error: el navegador no respondio a tiempo.";
         }
+    }
+
+    /// <summary>Fallback de leer_html para agentes &lt;1.6.0 (sin ExtractReadable): re-navega y lee el
+    /// outerHTML crudo, luego lo des-escapa/limpia (CleanHtmlForModel). Mismo comportamiento que antes.</summary>
+    private async Task<string> ReadHtmlFallbackAsync(AiStepContext ctx, string url, string? selector, CancellationToken ct)
+    {
+        try
+        {
+            var actions = new List<BrowserAction>
+            {
+                new(BrowserActionKind.Navigate, Url: url),
+                new(BrowserActionKind.Wait, WaitMs: 3800),
+                new(BrowserActionKind.Html, Selector: selector),
+            };
+            var result = await channel.ExecuteAsync(
+                ctx.ClientId, new BrowserRequestMsg(NewCorr(), ctx.TenantId.ToString(), actions), PerActionTimeout, ct);
+            var failed = result.Results.FirstOrDefault(r => !r.Ok);
+            if (failed is not null) { return "error: " + (failed.Error ?? result.Error ?? "sin resultado"); }
+            var last = result.Results.Count > 0 ? result.Results[^1] : null;
+            if (last is null) { return "error: " + (result.Error ?? "sin resultado"); }
+            var cleaned = CleanHtmlForModel(last.Value ?? "");
+            return cleaned.Length > MaxHtmlChars ? cleaned[..MaxHtmlChars] + "...[recortado]" : cleaned;
+        }
+        catch (TimeoutException)
+        {
+            return "error: el navegador no respondio a tiempo.";
+        }
+    }
+
+    /// <summary>Formatea la salida de ExtractReadable (JSON {title,url,text,items,links}) para el modelo:
+    /// antepone los 'items' (nombres de cada resultado, p.ej. negocios en Maps) y luego el JSON completo,
+    /// respetando el tope. Si no es JSON valido, devuelve el valor tal cual (acotado).</summary>
+    private static string FormatReadable(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { return "(la pagina no devolvio contenido legible)"; }
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            if (doc.RootElement.TryGetProperty("items", out var items)
+                && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0)
+            {
+                var sb = new StringBuilder("RESULTADOS DETECTADOS:\n");
+                foreach (var it in items.EnumerateArray())
+                {
+                    var s = it.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) { sb.Append("- ").Append(s).Append('\n'); }
+                }
+                sb.Append('\n').Append(value);
+                var outStr = sb.ToString();
+                return outStr.Length > MaxHtmlChars ? outStr[..MaxHtmlChars] + "...[recortado]" : outStr;
+            }
+        }
+        catch { /* no era JSON valido: se devuelve tal cual, acotado */ }
+        return value.Length > MaxHtmlChars ? value[..MaxHtmlChars] + "...[recortado]" : value;
     }
 
     private async Task<(int Ins, int Upd, int Del, bool Ok, string Msg)> SaveRowsAsync(

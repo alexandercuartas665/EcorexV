@@ -311,6 +311,13 @@ public enum BrowserActionKind
 
     // Devuelve el historial reciente de descargas del navegador.
     Downloads,
+
+    // Devuelve CONTENIDO LEGIBLE ya renderizado (texto visible + labels de resultados + enlaces) como
+    // JSON {title,url,text,items,links}, con auto-scroll opcional (ScrollRounds) para feeds perezosos
+    // (Maps y sitios JS). Es JS FIJO del agente -no del servidor-, asi que NO requiere firma (como Html).
+    // OJO COMPAT: va al FINAL a proposito; el enum viaja numerico por el hub, asi que un agente viejo
+    // (<1.6.0) recibe un valor desconocido y cae en el 'default' del switch (Fail), sin romper la orden.
+    ExtractReadable,
 }
 
 /// <summary>
@@ -328,7 +335,9 @@ public sealed record BrowserAction(
     string? Selector = null,
     string? ScriptJson = null,
     bool Screenshot = false,
-    string? Signature = null);
+    string? Signature = null,
+    // ExtractReadable: nº de scrolls al contenedor de resultados antes de extraer (feeds perezosos).
+    int? ScrollRounds = null);
 
 /// <summary>Orden del servidor: una secuencia de acciones tipadas para el sub-agente Navegador.</summary>
 public sealed record BrowserRequestMsg(

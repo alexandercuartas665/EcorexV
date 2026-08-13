@@ -55,11 +55,11 @@ foreach ($d in @($StageDir, $ExeDir)) {
 }
 
 Write-Step "Publicando Servicio (self-contained win-x64)"
-dotnet publish $ServiceProj -p:PublishProfile=$Profile -o $StageDir
+dotnet publish $ServiceProj -p:PublishProfile=$Profile -p:Version=$Version -o $StageDir
 if ($LASTEXITCODE -ne 0) { throw "Fallo la publicacion del Servicio." }
 
 Write-Step "Publicando GUI (self-contained win-x64) en el mismo staging"
-dotnet publish $GuiProj -p:PublishProfile=$Profile -o $StageDir
+dotnet publish $GuiProj -p:PublishProfile=$Profile -p:Version=$Version -o $StageDir
 if ($LASTEXITCODE -ne 0) { throw "Fallo la publicacion de la GUI." }
 
 Write-Step "Limpiando simbolos y docs (.pdb / .xml)"

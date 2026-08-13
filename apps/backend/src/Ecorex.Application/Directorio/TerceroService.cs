@@ -53,11 +53,16 @@ public sealed class TerceroService : ITerceroService
         var term = filter.Busqueda?.Trim().ToLowerInvariant();
         if (!string.IsNullOrEmpty(term))
         {
+            // Busca en CUALQUIER campo del tercero (el buscador del modal lo usa para encontrar existentes).
             query = query.Where(t =>
                 t.Nombre.ToLower().Contains(term)
                 || (t.IdValor != null && t.IdValor.ToLower().Contains(term))
                 || (t.Vendedor != null && t.Vendedor.ToLower().Contains(term))
-                || (t.Ciudad != null && t.Ciudad.ToLower().Contains(term)));
+                || (t.Ciudad != null && t.Ciudad.ToLower().Contains(term))
+                || (t.Email != null && t.Email.ToLower().Contains(term))
+                || (t.Telefono != null && t.Telefono.ToLower().Contains(term))
+                || (t.Cargo != null && t.Cargo.ToLower().Contains(term))
+                || (t.Sector != null && t.Sector.ToLower().Contains(term)));
         }
 
         var rows = await query

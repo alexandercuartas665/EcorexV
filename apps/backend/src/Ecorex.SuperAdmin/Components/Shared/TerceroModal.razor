@@ -802,7 +802,6 @@
                     @if (_editingId is null && _returnToParentId is null)
                     {
                         <button class="dg-btn-ghost" @onclick="() => SaveAsync(true)" disabled="@_busy" title="Guardar y abrir otra ficha en blanco para crear otro">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                             Guardar y nuevo
                         </button>
                     }
@@ -1513,6 +1512,13 @@
             StateHasChanged();
             return;
         }
+        // Al EDITAR NO se cierra: se recarga el registro y el modal SIGUE ABIERTO (se cierra con Cancelar/x).
+        if (_editingId is Guid editedId)
+        {
+            await OpenEditAsync(editedId);
+            StateHasChanged();
+            return;
+        }
         CloseModal();
     }
 
@@ -1594,8 +1600,15 @@
     private async Task EditContactoLigeroAsync(TerceroContactoDto k)
     {
         if (_editingId is not Guid parentId) { return; }
+        await PromoteAndEditContactoAsync(k.Id, parentId);
+    }
+
+    /// <summary>Editar un contacto ligero heredado desde CUALQUIER lugar (p.ej. la lista del directorio):
+    /// lo PROMUEVE a Tercero y abre el modal COMPLETO. Ya no existe el mini-modal.</summary>
+    public async Task PromoteAndEditContactoAsync(Guid contactoId, Guid? returnToParent = null)
+    {
         _busy = true;
-        var res = await TerceroSvc.PromoteContactoToTerceroAsync(k.Id);
+        var res = await TerceroSvc.PromoteContactoToTerceroAsync(contactoId);
         _busy = false;
         if (!res.IsOk || res.Value == Guid.Empty)
         {
@@ -1604,7 +1617,7 @@
             return;
         }
         await OnChanged.InvokeAsync();
-        await OpenEditAsync(res.Value, parentId);
+        await OpenEditAsync(res.Value, returnToParent);
     }
 
     /// <summary>Quita un contacto que es Tercero Persona de la empresa (desvincula, EmpresaId=null): la

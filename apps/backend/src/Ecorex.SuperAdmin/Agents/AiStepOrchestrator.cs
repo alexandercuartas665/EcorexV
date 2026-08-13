@@ -200,10 +200,12 @@ public sealed class AiStepOrchestrator(
             "'navegar' (no hay sesion persistente ni estado entre pasos), asi que navega DIRECTO a una URL " +
             "de resultados (p.ej. en Google Maps usa https://www.google.com/maps/search/<terminos+ubicacion>) " +
             "y luego 'leer_html'. 'leer_html' devuelve el CONTENIDO YA RENDERIZADO como JSON " +
-            "{title,url,text,items,links}: 'items' son los nombres de cada resultado (los negocios en Maps), " +
-            "'text' es el texto visible de la pagina y 'links' los enlaces; hace auto-scroll para cargar mas " +
-            "resultados. NO es HTML crudo: extrae los datos de items/text/links. Los clics/JS no persisten " +
-            "entre lecturas. Se conciso: " +
+            "{title,url,text,items,links,images}: 'items' son los nombres de cada resultado (los negocios en " +
+            "Maps), 'text' es el texto visible, 'links' los enlaces e 'images' las URLs de fotos/logos de la " +
+            "pagina; hace auto-scroll para cargar mas resultados. NO es HTML crudo: extrae los datos de " +
+            "items/text/links/images. Cuando corresponda, pon en cada fila 'imagen_url' (foto o logo del " +
+            "negocio, de 'images') y 'url' (la URL de origen donde encontraste el contacto). Los clics/JS no " +
+            "persisten entre lecturas. Se conciso: " +
             $"tienes un tope de {(ctx.MaxSteps is > 0 ? ctx.MaxSteps : 8)} pasos. No inventes datos: extrae " +
             "solo lo que veas en la pagina. Cuando termines de guardar, no llames mas herramientas.";
     }

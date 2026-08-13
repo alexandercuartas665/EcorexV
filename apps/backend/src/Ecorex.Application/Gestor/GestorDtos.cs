@@ -26,7 +26,9 @@ public sealed record ProspectoDto(
     string? Correo,
     Guid? TerceroId,
     bool Promovido,
-    DateTimeOffset? FechaCaptura);
+    DateTimeOffset? FechaCaptura,
+    string? ImagenUrl = null,
+    string? OrigenUrl = null);
 
 /// <summary>Columna/estado configurable de la Bolsa de contactos (kanban de terceros).</summary>
 public sealed record BolsaColumnaDto(

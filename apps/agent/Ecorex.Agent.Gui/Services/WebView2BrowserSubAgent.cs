@@ -377,8 +377,14 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                 var t=c(as[i].innerText), h=as[i].href; if(!t||t.length<2) continue;
                 var k=t+'|'+h; if(seen[k]) continue; seen[k]=1; links.push({t:t.slice(0,120),h:h});
               }
+              var imgs=[], im=document.querySelectorAll('img');
+              for(var j=0;j<im.length && imgs.length<40;j++){
+                var s=im[j].src||''; if(!/^https?:/.test(s)) continue;
+                if((im[j].naturalWidth||im[j].width||0) < 40) continue;
+                imgs.push({src:s, alt:c(im[j].alt).slice(0,120)});
+              }
               return JSON.stringify({title:document.title,url:location.href,
-                text:c(document.body?document.body.innerText:'').slice(0,9000), items:items, links:links});
+                text:c(document.body?document.body.innerText:'').slice(0,9000), items:items, links:links, images:imgs});
             })()
             """;
     }

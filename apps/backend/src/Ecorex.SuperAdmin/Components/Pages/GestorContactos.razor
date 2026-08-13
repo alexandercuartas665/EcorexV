@@ -223,7 +223,14 @@
                                 }
                                 <div class="gc-tbl-row gc-prosp-grid">
                                     <div class="gc-cell-name">
-                                        <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
+                                        @if (!string.IsNullOrWhiteSpace(rr.ImagenUrl))
+                                        {
+                                            <img class="gc-av gc-av-img" src="@rr.ImagenUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                                        }
+                                        else
+                                        {
+                                            <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
+                                        }
                                         <div style="min-width:0">
                                             <div class="gc-cell-title">@rr.Nombre</div>
                                             <div class="gc-cell-sub">@rr.Sub</div>
@@ -233,7 +240,13 @@
                                         <div>@(string.IsNullOrWhiteSpace(rr.Empresa) ? "-" : rr.Empresa)</div>
                                         <div class="gc-cell-sub">@rr.Ciudad</div>
                                     </div>
-                                    <div class="gc-cell"><span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@rr.Fuente</span></div>
+                                    <div class="gc-cell">
+                                        <span class="gc-chip" style="background:var(@fi.Bg);color:var(@fi.Color)">@rr.Fuente</span>
+                                        @if (!string.IsNullOrWhiteSpace(rr.OrigenUrl))
+                                        {
+                                            <a class="gc-origen" href="@rr.OrigenUrl" target="_blank" rel="noopener noreferrer" title="Ver origen">&#8599;</a>
+                                        }
+                                    </div>
                                     <div class="gc-cell">@(string.IsNullOrWhiteSpace(rr.Metrica) ? "-" : rr.Metrica)</div>
                                     <div class="gc-cell acts">
                                         @if (!string.IsNullOrWhiteSpace(rr.Badge))
@@ -970,7 +983,8 @@
     private sealed record ContactoRow(
         Guid? TerceroId, Guid? ProspectoId, string Nombre, string Sub,
         string Empresa, string Ciudad, string Fuente, string Metrica,
-        string? Badge, bool Promovido, bool EsPersona);
+        string? Badge, bool Promovido, bool EsPersona,
+        string? ImagenUrl = null, string? OrigenUrl = null);
 
     private List<ContactoRow> ContactosFiltrados
     {
@@ -983,7 +997,7 @@
                     null, p.Id, p.NombreCompleto,
                     string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
                     p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
-                    p.Badge, p.Promovido, true)));
+                    p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl)));
             }
             if (_prospFuente is null || string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {

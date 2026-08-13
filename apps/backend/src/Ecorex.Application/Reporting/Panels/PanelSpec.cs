@@ -86,6 +86,12 @@ public sealed class PanelLookup
     /// <summary>Nombre de negocio del contenedor/entidad de lookup en el catalogo.</summary>
     public string Container { get; set; } = "";
 
+    /// <summary>Campo de la fuente PRINCIPAL que cruza con <see cref="Key"/> de ESTE lookup (DisplayName).
+    /// Deja cada lookup autocontenido (MainKey -> Key, trae Bring), permitiendo 2+ lookups. Si falta, por
+    /// compatibilidad se usa <see cref="PanelJoin.MainKey"/> cuando <see cref="PanelJoin.Lookup"/> apunta a
+    /// este lookup (asi el reporte SIIGO actual, que solo usa Join, no se rompe).</summary>
+    public string? MainKey { get; set; }
+
     /// <summary>Campo clave del lookup con el que se cruza (DisplayName).</summary>
     public string Key { get; set; } = "";
 

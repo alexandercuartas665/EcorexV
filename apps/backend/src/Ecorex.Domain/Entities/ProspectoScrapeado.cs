@@ -28,6 +28,14 @@ public class ProspectoScrapeado : TenantEntity
     public string? Telefono { get; set; }
     public string? Correo { get; set; }
 
+    /// <summary>Foto/logo del contacto (URL http/https). Se pinta como avatar circular en la Bolsa;
+    /// si es null cae a las iniciales.</summary>
+    public string? ImagenUrl { get; set; }
+
+    /// <summary>URL de donde el agente localizo el contacto (ficha/pagina). Se muestra como enlace
+    /// "ver origen". Solo http/https (se filtra en la ingesta).</summary>
+    public string? OrigenUrl { get; set; }
+
     /// <summary>JSON crudo del scraper (portabilidad). jsonb en PG.</summary>
     public string? DataJson { get; set; }
 

@@ -161,6 +161,11 @@
 /* ---- Avatares ---- */
 .gc-av { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 11px; }
 .gc-av.xs { width: 22px; height: 22px; font-size: 9px; }
+/* Avatar con foto del contacto scrapeado: mismo circulo/tamano que .gc-av, imagen recortada al circulo. */
+.gc-av-img { display: block; object-fit: cover; background: var(--surface-2); }
+/* Enlace "ver origen" junto al chip de fuente. */
+.gc-origen { margin-left: 6px; color: var(--ink-3); text-decoration: none; font-size: 12px; }
+.gc-origen:hover { color: var(--brand); }
 
 /* ---- Kanban ---- */
 .gc-board-scroll { padding: 16px; overflow-x: auto; }

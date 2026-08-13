@@ -8301,6 +8301,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("fuente");
 
+                    b.Property<string>("ImagenUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("imagen_url");
+
                     b.Property<string>("Metrica")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -8311,6 +8315,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("nombre_completo");
+
+                    b.Property<string>("OrigenUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("origen_url");
 
                     b.Property<string>("Telefono")
                         .HasMaxLength(80)

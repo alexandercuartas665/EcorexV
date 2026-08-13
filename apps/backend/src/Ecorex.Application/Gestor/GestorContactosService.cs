@@ -77,7 +77,8 @@ public sealed class GestorContactosService : IGestorContactosService
             .ToListAsync(cancellationToken);
         return rows.Select(p => new ProspectoDto(
             p.Id, p.Fuente, p.NombreCompleto, p.Cargo, p.Empresa, p.Ciudad, p.Metrica, p.Badge,
-            p.Telefono, p.Correo, p.TerceroId, p.TerceroId != null, p.FechaCaptura)).ToList();
+            p.Telefono, p.Correo, p.TerceroId, p.TerceroId != null, p.FechaCaptura,
+            p.ImagenUrl, p.OrigenUrl)).ToList();
     }
 
     public async Task<TerceroResult<Guid>> PromoverProspectoAsync(

@@ -93,7 +93,10 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.AppendLine(d.ExtractionPrompt);
         sb.AppendLine();
         sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos usando claves como ");
-        sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica. Guarda solo contactos reales con al menos un nombre.");
+        sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica, ");
+        sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece) y ");
+        sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas). ");
+        sb.Append("Guarda solo contactos reales con al menos un nombre.");
         return sb.ToString();
     }
 
@@ -151,6 +154,9 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
                 Correo = Pick(row, "correo", "email", "mail", "e-mail"),
                 Metrica = Pick(row, "metrica", "rating", "resenas", "reviews", "estrellas", "seguidores", "conexiones"),
+                // Solo http/https: no se persisten (ni luego se renderizan) URLs javascript:/data: del scraping.
+                ImagenUrl = SafeHttpUrl(Pick(row, "imagen_url", "imagen", "foto", "image", "photo", "avatar", "logo")),
+                OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
                 DataJson = JsonSerializer.Serialize(row),
                 FechaCaptura = DateTimeOffset.UtcNow,
             });
@@ -174,5 +180,17 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
             }
         }
         return null;
+    }
+
+    /// <summary>Devuelve la URL SOLO si es http/https absoluta; si no, null. Control de seguridad: los
+    /// datos scrapeados NO deben aterrizar URLs javascript:/data:/relativas que luego se rendericen como
+    /// imagen o enlace en la Bolsa.</summary>
+    private static string? SafeHttpUrl(string? value)
+    {
+        var v = value?.Trim();
+        if (string.IsNullOrEmpty(v)) { return null; }
+        return Uri.TryCreate(v, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? v : null;
     }
 }

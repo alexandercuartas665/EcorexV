@@ -38,6 +38,16 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
     private System.Threading.Timer? _configDebounce;
     private readonly object _debounceGate = new();
 
+    /// <summary>Vigila las CAPACIDADES en la boveda (`browser-allow.dat` / `file-allow.dat` /
+    /// `consent.dat`): cuando el flyout de la colmena las escribe ELEVADAS (--save-caps por UAC, porque
+    /// la boveda la posee el Servicio LocalSystem y el pipe no-admin no puede), el Servicio REEMITE su
+    /// estado para que la colmena refleje la lista/consentimiento SIN reiniciar y el sub-agente Navegador
+    /// reciba la politica nueva. Es un canal SEPARADO del de config: aqui NO se rearma el hub, solo se
+    /// reemite estado. Sin esto, la allow-list se persistia en disco pero la colmena seguia mostrando la
+    /// vista vieja del Servicio (el bug de "agrego dominios, guardo, reabro y no aparecen").</summary>
+    private FileSystemWatcher? _capsWatcher;
+    private System.Threading.Timer? _capsDebounce;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("Agente ECOREX: servicio iniciado. Boveda: {Dir}", AgentVault.Dir);
@@ -54,6 +64,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
         logger.LogInformation("Canal local escuchando en \\\\.\\pipe\\{Pipe} (la colmena se conecta aqui).", AgentIpc.PipeName);
 
         SetupConfigWatcher();
+        SetupCapabilityWatcher();
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -132,7 +143,8 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
 
         await DisposeHiveAsync();
         _configWatcher?.Dispose();
-        lock (_debounceGate) { _configDebounce?.Dispose(); }
+        _capsWatcher?.Dispose();
+        lock (_debounceGate) { _configDebounce?.Dispose(); _capsDebounce?.Dispose(); }
         if (_ipc is not null) { await _ipc.DisposeAsync(); }
         logger.LogInformation("Agente ECOREX: servicio detenido.");
     }
@@ -194,6 +206,64 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
             {
                 logger.LogInformation("La boveda de config cambio en disco: se rearma el canal.");
                 try { _configChanged.Release(); } catch (SemaphoreFullException) { /* ya hay una senal pendiente */ }
+            }, null, dueTime: 800, period: Timeout.Infinite);
+        }
+    }
+
+    /// <summary>
+    /// Vigila las capacidades de la boveda (allow-lists + consentimiento). A diferencia del watcher de
+    /// config, aqui NO se rearma el hub (la identidad no cambio): solo se reemite el estado para que la
+    /// colmena refleje la lista/consentimiento recien guardados por UAC y el sub-agente Navegador reciba
+    /// la politica nueva. Best-effort: si no se puede vigilar, la colmena lo recoge al reconectar.
+    /// </summary>
+    private void SetupCapabilityWatcher()
+    {
+        try
+        {
+            Directory.CreateDirectory(AgentVault.Dir);
+            _capsWatcher = new FileSystemWatcher(AgentVault.Dir)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size | NotifyFilters.FileName,
+                EnableRaisingEvents = true,
+            };
+            void OnCaps(object? _, FileSystemEventArgs e)
+            {
+                var name = e.Name ?? string.Empty;
+                if (name.Equals("browser-allow.dat", StringComparison.OrdinalIgnoreCase)
+                 || name.Equals("file-allow.dat", StringComparison.OrdinalIgnoreCase)
+                 || name.Equals("consent.dat", StringComparison.OrdinalIgnoreCase))
+                {
+                    DebounceCapabilityRebroadcast();
+                }
+            }
+            _capsWatcher.Changed += OnCaps;
+            _capsWatcher.Created += OnCaps;
+            _capsWatcher.Renamed += OnCaps;
+            logger.LogInformation("Vigilando capacidades en la boveda (allow-lists + consentimiento): {Dir}", AgentVault.Dir);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "No se pudo vigilar las capacidades; la colmena reflejara los cambios al reconectar (no en vivo).");
+        }
+    }
+
+    private void DebounceCapabilityRebroadcast()
+    {
+        lock (_debounceGate)
+        {
+            _capsDebounce?.Dispose();
+            _capsDebounce = new System.Threading.Timer(async _ =>
+            {
+                try
+                {
+                    logger.LogInformation("Una capacidad de la boveda cambio en disco: se reemite el estado a la colmena.");
+                    if (_ipc is not null) { await _ipc.BroadcastStateAsync(); }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "No se pudo reemitir el estado tras el cambio de capacidad.");
+                }
             }, null, dueTime: 800, period: Timeout.Infinite);
         }
     }

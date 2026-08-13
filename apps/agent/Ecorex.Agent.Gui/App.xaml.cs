@@ -91,6 +91,31 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Guardado COMBINADO de una capacidad (allow-list + consentimiento) en UNA sola invocacion, para
+        // persistir el toggle + la lista del flyout con un UNICO prompt de UAC. La boveda la posee el
+        // Servicio (ADR-0039): el GUI no elevado no puede escribirla, por eso el flyout relanza esto
+        // elevado. --save-caps <browser|files> <0|1> [entries-coma-separadas]
+        if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--save-caps", StringComparison.OrdinalIgnoreCase))
+        {
+            var on = e.Args[2] is "1" or "true";
+            var entries = e.Args.Length >= 4
+                ? e.Args[3].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : Array.Empty<string>();
+            var consent = new CapabilityConsent();
+            if (string.Equals(e.Args[1], "browser", StringComparison.OrdinalIgnoreCase))
+            {
+                new BrowserAllowList().Save(entries);
+                consent.SetBrowser(on);
+            }
+            else if (string.Equals(e.Args[1], "files", StringComparison.OrdinalIgnoreCase))
+            {
+                new FileAllowList().Save(entries);
+                consent.SetFiles(on);
+            }
+            Shutdown(0);
+            return;
+        }
+
         // INSTANCIA UNICA: si ya hay una colmena corriendo, no abrir una segunda (evita la trampa de
         // "Ejecutar como administrador" abriendo una ventana confusa mientras el usuario sigue en el
         // icono de bandeja de la instancia vieja). Se le hace una senal para que se muestre y se sale.

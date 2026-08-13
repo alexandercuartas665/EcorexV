@@ -326,29 +326,39 @@ public sealed class HiveViewModel : ObservableObject
             .Where(e => e.Length > 0)
             .ToList();
 
-        if (_pipe is not null)
+        // Demo/captura: sin servicio detras; el store local basta.
+        if (_pipe is null)
         {
-            // Real: persiste el SERVICIO. Si el operador no es administrador, contesta que no y el
-            // motivo aparece en StatusDetail (via Acked). La allow-list es un control de seguridad:
-            // ensancharla con el servicio corriendo como LocalSystem no puede quedar al alcance de
-            // cualquier usuario del equipo.
-            var browser = _capKind == SubAgentKind.Browser ? CapEnabled : _serviceState?.BrowserEnabled ?? false;
-            var files = _capKind == SubAgentKind.Files ? CapEnabled : _serviceState?.FilesEnabled ?? false;
+            if (_capKind == SubAgentKind.Browser) { _browserAllow.Save(entries); _consent.SetBrowser(CapEnabled); }
+            else if (_capKind == SubAgentKind.Files) { _fileAllow.Save(entries); _consent.SetFiles(CapEnabled); }
+            IsCapConfigOpen = false;
+            return;
+        }
+
+        // Real y YA elevado: la ruta por pipe funciona (el servicio ve una conexion de administrador).
+        if (ElevationHelper.IsElevated())
+        {
             _ = _capKind == SubAgentKind.Browser
                 ? _pipe.SetBrowserAllowAsync(entries)
                 : _pipe.SetFileAllowAsync(entries);
+            var browser = _capKind == SubAgentKind.Browser ? CapEnabled : _serviceState?.BrowserEnabled ?? false;
+            var files = _capKind == SubAgentKind.Files ? CapEnabled : _serviceState?.FilesEnabled ?? false;
             _ = _pipe.SetConsentAsync(browser, files);
+            IsCapConfigOpen = false;
+            return;
         }
-        else if (_capKind == SubAgentKind.Browser)
-        {
-            _browserAllow.Save(entries);
-            _consent.SetBrowser(CapEnabled);
-        }
-        else if (_capKind == SubAgentKind.Files)
-        {
-            _fileAllow.Save(entries);
-            _consent.SetFiles(CapEnabled);
-        }
+
+        // Real y NO elevado (caso tipico: la colmena se auto-lanzo sin elevar): el servicio RECHAZABA el
+        // cambio por el pipe (conexion no-admin), por lo que la allow-list y el consentimiento NO se
+        // persistian (bug: al reabrir, la lista salia vacia). Igual que SaveConfig (ADR-0050): se pide UN
+        // prompt de UAC y se escribe la boveda directo (--save-caps); el servicio recoge el cambio por su
+        // FileSystemWatcher. La allow-list es un control de seguridad: ensancharla EXIGE administrador.
+        var kind = _capKind == SubAgentKind.Browser ? "browser" : "files";
+        Log($"Se pedira confirmacion de administrador (UAC) para guardar la capacidad {CapTitle}...");
+        var res = ElevationHelper.SaveCapabilityElevated(kind, CapEnabled, entries);
+        Log(res.Ok
+            ? $"Capacidad {CapTitle} guardada (elevada). El servicio la aplicara en unos segundos."
+            : $"No se guardo: {res.Error}");
         IsCapConfigOpen = false;
     }
 

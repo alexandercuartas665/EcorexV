@@ -264,19 +264,37 @@
 
     private async Task ApplyLookupsAsync(IReadOnlyList<ReportSourceDescriptor> sources)
     {
-        if (_spec!.Join is null)
+        // Recorre TODOS los lookups (no solo el de _spec.Join): un panel puede cruzar la fuente principal
+        // con 2+ lookups (ej. SIIGO: clientes por NIT Y vendedores por codigo). Cada lookup es
+        // autocontenido via su MainKey; si no lo trae, cae al Join por compatibilidad (SIIGO actual).
+        foreach (var lookupSpec in _spec!.Sources.Lookups)
         {
-            return;
-        }
+            if (string.IsNullOrWhiteSpace(lookupSpec.Container))
+            {
+                continue;
+            }
 
-        var join = _spec.Join;
-        var lookupSpec = _spec.Sources.Lookups
-            .FirstOrDefault(l => string.Equals(l.Container, join.Lookup, StringComparison.OrdinalIgnoreCase));
-        if (lookupSpec is null || string.IsNullOrWhiteSpace(join.MainKey))
-        {
-            return;
-        }
+            var mainKey = !string.IsNullOrWhiteSpace(lookupSpec.MainKey)
+                ? lookupSpec.MainKey!
+                : (_spec.Join is not null
+                    && string.Equals(_spec.Join.Lookup, lookupSpec.Container, StringComparison.OrdinalIgnoreCase)
+                        ? _spec.Join.MainKey
+                        : null);
 
+            if (string.IsNullOrWhiteSpace(mainKey))
+            {
+                continue; // lookup sin forma de cruzar (ni MainKey ni Join que lo apunte): se ignora.
+            }
+
+            await ApplyOneLookupAsync(sources, lookupSpec, mainKey!);
+        }
+    }
+
+    /// <summary>Aplica UN lookup: consulta la fuente de lookup, mapea Key -> (Bring) y asigna los alias a
+    /// cada fila principal usando <paramref name="mainKey"/>. Sin efecto si falta la fuente/clave/Bring.</summary>
+    private async Task ApplyOneLookupAsync(
+        IReadOnlyList<ReportSourceDescriptor> sources, PanelLookup lookupSpec, string mainKey)
+    {
         var lookupSrc = PanelSpecValidator.FindSource(sources, lookupSpec.Container);
         if (lookupSrc is null)
         {
@@ -324,7 +342,7 @@
 
         foreach (var row in _rows)
         {
-            var mainKeyVal = PanelDataEngine.Norm(row.GetValueOrDefault(join.MainKey));
+            var mainKeyVal = PanelDataEngine.Norm(row.GetValueOrDefault(mainKey));
             if (map.TryGetValue(mainKeyVal, out var brought))
             {
                 foreach (var kv in brought)

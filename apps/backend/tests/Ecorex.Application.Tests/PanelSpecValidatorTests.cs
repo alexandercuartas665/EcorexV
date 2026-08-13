@@ -28,8 +28,30 @@ public class PanelSpecValidatorTests
         {
             F("Identificacion", ReportFieldType.Text),
             F("Nombre", ReportFieldType.Text)
+        }),
+        new ReportSourceDescriptor("container:ven", "vendedores", ReportSourceKind.Container, new[]
+        {
+            F("Siigo Id", ReportFieldType.Text),
+            F("Nombre completo", ReportFieldType.Text)
         })
     };
+
+    // Escenario de aceptacion ADR-0066 (multi-lookup): DOS lookups AUTOCONTENIDOS via MainKey (sin Join):
+    // clientes por NIT y vendedores por codigo. Ambos alias se referencian en widgets/filtros.
+    private static PanelSpec MultiLookupSpec() => PanelSpec.FromJson(@"{
+      ""title"": ""Ventas"",
+      ""sources"": { ""main"": { ""container"": ""facturas"" },
+        ""lookups"": [
+          { ""container"": ""clientes"", ""mainKey"": ""Cliente NIT"", ""key"": ""Identificacion"", ""bring"": { ""Nombre"": ""ClienteNombre"" } },
+          { ""container"": ""vendedores"", ""mainKey"": ""Vendedor"", ""key"": ""Siigo Id"", ""bring"": { ""Nombre completo"": ""VendedorNombre"" } }
+        ] },
+      ""filters"": [ { ""field"": ""VendedorNombre"", ""control"": ""dropdown"" }, { ""field"": ""ClienteNombre"", ""control"": ""text"" } ],
+      ""kpis"": [ { ""label"": ""Ventas"", ""agg"": ""sum"", ""field"": ""Total"", ""format"": ""moneyM"" } ],
+      ""widgets"": [
+        { ""type"": ""pareto"", ""dim"": ""ClienteNombre"", ""agg"": ""sum"", ""field"": ""Total"" },
+        { ""type"": ""bar"", ""dim"": ""VendedorNombre"", ""agg"": ""sum"", ""field"": ""Total"" }
+      ]
+    }")!;
 
     private static PanelSpec SiigoSpec() => PanelSpec.FromJson(@"{
       ""title"": ""Ventas"",
@@ -107,6 +129,51 @@ public class PanelSpecValidatorTests
         spec.Widgets[0].Type = "radar";
         var errors = PanelSpecValidator.Validate(spec, Catalog());
         Assert.Contains(errors, e => e.Contains("radar"));
+    }
+
+    [Fact]
+    public void MultiLookup_TwoSelfContainedLookups_ProducesNoErrors()
+    {
+        // clientes (por NIT) Y vendedores (por codigo), ambos via MainByKey, sin Join. Debe validar.
+        var errors = PanelSpecValidator.Validate(MultiLookupSpec(), Catalog());
+        Assert.Empty(errors);
+    }
+
+    [Fact]
+    public void Lookup_WithBadMainKey_IsReported()
+    {
+        var spec = MultiLookupSpec();
+        spec.Sources.Lookups[1].MainKey = "NoEsCampoDeFacturas";
+        var errors = PanelSpecValidator.Validate(spec, Catalog());
+        Assert.Contains(errors, e => e.Contains("mainKey") && e.Contains("NoEsCampoDeFacturas"));
+    }
+
+    [Fact]
+    public void Lookup_AliasCollisionBetweenLookups_IsReported()
+    {
+        // vendedores trae su nombre bajo el MISMO alias que clientes: colision -> error.
+        var spec = MultiLookupSpec();
+        spec.Sources.Lookups[1].Bring["Nombre completo"] = "ClienteNombre";
+        var errors = PanelSpecValidator.Validate(spec, Catalog());
+        Assert.Contains(errors, e => e.Contains("ClienteNombre") && e.Contains("choca"));
+    }
+
+    [Fact]
+    public void Lookup_WithoutMainKeyNorJoin_IsReported()
+    {
+        // Un lookup sin MainKey y sin Join que lo cruce no se aplicaria: se avisa.
+        var spec = MultiLookupSpec();
+        spec.Sources.Lookups[1].MainKey = null;
+        var errors = PanelSpecValidator.Validate(spec, Catalog());
+        Assert.Contains(errors, e => e.Contains("vendedores") && e.Contains("no se aplicaria"));
+    }
+
+    [Fact]
+    public void LegacyJoinLookup_WithoutMainKey_StillValid()
+    {
+        // Compatibilidad: el SiigoSpec usa Join (lookup sin MainKey). Debe seguir validando.
+        var errors = PanelSpecValidator.Validate(SiigoSpec(), Catalog());
+        Assert.Empty(errors);
     }
 
     [Fact]

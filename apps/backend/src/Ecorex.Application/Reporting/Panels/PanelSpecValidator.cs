@@ -71,6 +71,23 @@ public static class PanelSpecValidator
             lookupsByName[lk.Container] = src;
             var lkFields = new HashSet<string>(src.Fields.Select(f => f.DisplayName), StringComparer.OrdinalIgnoreCase);
 
+            // MainKey autocontenido del lookup; si falta, cae al Join (compatibilidad) cuando Join.Lookup
+            // apunta a este lookup. Sin ninguno de los dos, el lookup no se aplicaria.
+            var effMainKey = !string.IsNullOrWhiteSpace(lk.MainKey)
+                ? lk.MainKey
+                : (spec.Join is not null
+                    && string.Equals(spec.Join.Lookup, lk.Container, StringComparison.OrdinalIgnoreCase)
+                        ? spec.Join.MainKey
+                        : null);
+            if (string.IsNullOrWhiteSpace(effMainKey))
+            {
+                errors.Add($"El lookup '{lk.Container}' no declara 'mainKey' y no hay un join que lo cruce: no se aplicaria.");
+            }
+            else if (!mainFields.Contains(effMainKey))
+            {
+                errors.Add($"El lookup '{lk.Container}' usa mainKey '{effMainKey}', que no es un campo de la fuente principal.");
+            }
+
             if (!string.IsNullOrWhiteSpace(lk.Key) && !lkFields.Contains(lk.Key))
             {
                 errors.Add($"El lookup '{lk.Container}' no tiene el campo clave '{lk.Key}'.");
@@ -85,7 +102,12 @@ public static class PanelSpecValidator
 
                 if (!string.IsNullOrWhiteSpace(bring.Value))
                 {
-                    available.Add(bring.Value);
+                    // El alias no debe pisar un campo ya disponible (de la principal o de otro lookup): una
+                    // colision silenciosa mezclaria datos de dos fuentes bajo el mismo nombre logico.
+                    if (!available.Add(bring.Value))
+                    {
+                        errors.Add($"El alias '{bring.Value}' del lookup '{lk.Container}' choca con un campo ya existente (fuente principal u otro lookup).");
+                    }
                 }
             }
         }

@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-13 - Deploy prod v0.15.6 -> v0.15.7 (nombre del tenant en el token del agente)
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Deploy a prod via build-from-git.
+
+**Que:** el agente Colmena no mostraba el nombre del tenant. Causa: `app2.bitcode.com.co` (a donde se
+conecta el agente) corria backend **v0.15.6**, sin el cambio v0.15.7 que devuelve `TenantName` en
+`/api/agente/token` (`AgentChannel.cs`). Aclaracion importante: **app2 NO es un server aparte** — es el
+Caddy externo (66.94.104.237) reverse-proxy a `10.0.0.3:5480` (contenedor `ecorex-app`); se despliega
+por 10.0.0.3 (mi runbook de siempre).
+
+**Deploy:** commit `a704581` (`fase-0/clon-backbone`). Backup `ecorex-2026-08-13-0544.sql.gz` (regla de
+oro) -> `docker compose -f docker-compose.from-git.yml build --no-cache` (~16 min) -> `up -d`. Imagen
+`ecorex-superadmin:local` nueva; `/login` 200; footer local (`:5480`) y publico (`app2`) = **v0.15.7**.
+`.env` INTACTO (a pedido del usuario: no se toco ninguna clave). Warning de fondo no fatal:
+`duplicate key ix_import_runs_tenant_id_process_id_fired_at` (scheduler de importaciones deduplica;
+preexistente). El agente reconecto solo al subir el contenedor (06:07) y ya tiene el TenantName en
+memoria; para PINTARLO en la Colmena falta un refresco de estado (reiniciar Colmena/servicio o instalar
+MSI 1.5.1, que ademas trae el fix de la allow-list).
+
+---
+
 ## 2026-08-12 - Agente Colmena: fix persistencia allow-list del Navegador (MSI 1.5.0)
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Solo `apps/agent` (WPF). Sin cambio de backend

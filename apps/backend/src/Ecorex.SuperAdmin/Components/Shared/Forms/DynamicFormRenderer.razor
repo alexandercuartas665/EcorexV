@@ -221,6 +221,14 @@ else
     /// </summary>
     [Parameter] public Guid? AmbientTenantId { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
+
+    /// <summary>
+    /// Avisa al contenedor el borrador (FormResponse) en cuanto se crea/carga en modo Fill, SIN esperar
+    /// al "Enviar". Lo usa la wizard de tareas para conocer el Id del borrador y poder anclarlo a la
+    /// actividad al guardar aunque el usuario no haya pulsado el submit interno (ver FlushDraftAsync).
+    /// </summary>
+    [Parameter] public EventCallback<FormResponseDto> OnDraftReady { get; set; }
+
     /// <summary>
     /// Opt-in: mantiene el formulario EDITABLE aunque la respuesta ya este Submitted (no lo bloquea al
     /// enviar). Lo usa el formulario del CONCEPTO en el detalle de la tarea, que debe poder editarse
@@ -402,6 +410,13 @@ else
             _autosaveTimer = new System.Threading.Timer(
                 _ => _ = InvokeAsync(AutosaveTickAsync),
                 null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+
+        // Avisa al contenedor (p.ej. la wizard de tareas) el borrador recien creado/cargado, para que
+        // pueda anclarlo a su entidad al guardar aunque el usuario no pulse el "Enviar" interno.
+        if (Mode == FormRenderMode.Fill && _response is not null && OnDraftReady.HasDelegate)
+        {
+            await OnDraftReady.InvokeAsync(_response);
         }
     }
 
@@ -2541,6 +2556,25 @@ else
     // NO pasa a Submitted, asi el servidor (SaveAsync bloquea modificar una respuesta ya enviada) lo deja
     // editable mientras la tarea este abierta. Sin KeepEditable es el envio normal (valida y bloquea).
     private Task OnPrimarySaveAsync() => KeepEditable ? SaveAsync(submit: false) : SubmitAsync();
+
+    /// <summary>
+    /// Persiste el borrador SIN enviarlo (equivale a un autosave inmediato) y devuelve true si el
+    /// formulario tiene AL MENOS un valor capturado. Lo llama el contenedor (wizard de tareas) antes de
+    /// salir del paso o de guardar: asi no se pierden los ultimos campos (el autosave es cada 30 s) y el
+    /// contenedor decide si vale la pena anclar el borrador (no ancla formularios vacios). Sin efecto
+    /// fuera de Fill, sin borrador, o bloqueado.
+    /// </summary>
+    public async Task<bool> FlushDraftAsync()
+    {
+        if (Mode != FormRenderMode.Fill || _response is null || IsLocked)
+        {
+            return false;
+        }
+        await SaveAsync(submit: false);
+        // "Tiene datos" = algun campo con valor no vacio (capturado por el usuario o un default del
+        // disenador). Un formulario abierto pero totalmente vacio devuelve false y no se ancla.
+        return _values.Any(kv => !string.IsNullOrWhiteSpace(kv.Value));
+    }
 
     private async Task SubmitAsync()
     {

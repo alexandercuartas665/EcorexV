@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-08-12 - Agente Colmena: fix persistencia allow-list del Navegador (MSI 1.5.0)
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Solo `apps/agent` (WPF). Sin cambio de backend
+(AppVersion sigue 0.15.7). Commit `e3e5a90` a `fase-0/clon-backbone` + `main`.
+
+**Bug reportado:** en el flyout de Navegador/Archivos de la colmena, agregar dominios y "Guardar",
+cerrar y reabrir -> la lista salia VACIA (no persistia). Ejemplos que se perdian: example.com,
+quotes.toscrape.com, google.com, www.google.com, maps.google.com, google.com.co.
+
+**Causa raiz:** `HiveViewModel.SaveCapability()` escribia por el pipe con la GUI NO elevada. La boveda
+(allow-list + consentimiento) la posee el Servicio LocalSystem (ADR-0039), que rechaza SILENCIOSAMENTE
+escrituras de una conexion no-admin. La colmena se auto-lanza sin elevar tras el MSI, asi que ese era
+el caso tipico -> nunca se guardaba.
+
+**Fix (mismo patron que SaveConfig / ADR-0050):**
+- `App.xaml.cs`: comando headless combinado `--save-caps <browser|files> <0|1> [entries-coma]` que
+  escribe allow-list + consentimiento en UNA invocacion (un solo prompt de UAC).
+- `ElevationHelper.cs`: `SaveCapabilityElevated(kind, enabled, entries)` que relanza el exe elevado
+  (Verb=runas) con `--save-caps`; refactor de `RunElevated(exe, args)` compartido con SaveConfig.
+- `HiveViewModel.SaveCapability()`: si no esta elevado y hay servicio, eleva por UAC (una confirmacion);
+  si ya esta elevado o es demo, conserva la ruta directa/pipe. El Servicio recoge el cambio por su
+  FileSystemWatcher.
+- MSI reconstruido como **1.5.0** (build-installer.ps1 -Version 1.5.0), dejado en Descargas para que el
+  usuario lo instale (upgrade sobre 1.0.0 instalado).
+
+**Siguiente:** usuario instala MSI 1.5.0, habilita Navegador y agrega dominios (ya persisten); rebuild
+de app2 con la rama para que el token devuelva el nombre del tenant (feature v0.15.7).
+
+---
+
 ## 2026-08-12 - Renderizador de panel GENERICO por spec (ADR-0066)
 
 **Agentes:** Claude Opus 4.8 (worktree `feat/renderizador-panel-spec-adr0066` desde

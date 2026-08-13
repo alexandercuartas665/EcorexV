@@ -238,8 +238,10 @@ public sealed record CancelMsg(
 /// </summary>
 public sealed record AgentTokenRequest(string ClientId, long Ts, string Nonce, string Hmac);
 
-/// <summary>Respuesta del endpoint de token: JWT corto para conectar al hub.</summary>
-public sealed record AgentTokenResponse(string AccessToken, DateTimeOffset ExpiresAt);
+/// <summary>Respuesta del endpoint de token: JWT corto para conectar al hub. <see cref="TenantName"/>
+/// es el nombre legible del tenant/cliente dueno del DataClient (para mostrarlo en el agente); opcional
+/// por compatibilidad con servidores viejos que no lo envian.</summary>
+public sealed record AgentTokenResponse(string AccessToken, DateTimeOffset ExpiresAt, string? TenantName = null);
 
 /// <summary>
 /// HMAC compartido del handshake (misma implementacion en agente y servidor para no divergir):

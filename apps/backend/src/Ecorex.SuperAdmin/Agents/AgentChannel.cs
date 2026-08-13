@@ -157,7 +157,13 @@ public static class AgentChannel
             }
 
             var token = issuer.Issue(client.ClientId, client.TenantId);
-            return Results.Json(token);
+            // Nombre legible del tenant/cliente para mostrarlo en el agente (no sensible). Cross-tenant
+            // como el resto de este endpoint anonimo.
+            var tenantName = await db.Tenants.IgnoreQueryFilters()
+                .Where(t => t.Id == client.TenantId)
+                .Select(t => t.Name)
+                .FirstOrDefaultAsync(ct);
+            return Results.Json(token with { TenantName = tenantName });
         }).AllowAnonymous().DisableAntiforgery();
 
         // POST /api/agente/push/{clientId}: disparador MANUAL de una orden de prueba (doc 05 Ola 1).

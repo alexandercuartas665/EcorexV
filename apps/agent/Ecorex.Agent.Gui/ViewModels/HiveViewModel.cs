@@ -106,7 +106,35 @@ public sealed class HiveViewModel : ObservableObject
         SaveCapabilityCommand = new RelayCommand(SaveCapability);
         CloseCapabilityCommand = new RelayCommand(() => IsCapConfigOpen = false);
         CopyLogCommand = new RelayCommand(CopyLog);
+        ClearLogCommand = new RelayCommand(ClearLog);
     }
+
+    /// <summary>Version del agente (assembly), para mostrar en la config. Ej. "v1.2.0".</summary>
+    public string AgentVersion { get; } =
+        "v" + (System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "?");
+
+    private string _tenantName = "";
+
+    /// <summary>Nombre del tenant/cliente al que esta conectado el agente (lo publica el Servicio desde el
+    /// hub al hacer el handshake). Vacio en modo demo o mientras no haya conexion real.</summary>
+    public string TenantName
+    {
+        get => _tenantName;
+        private set
+        {
+            if (SetProperty(ref _tenantName, value))
+            {
+                OnPropertyChanged(nameof(HasTenantName));
+                OnPropertyChanged(nameof(TenantDisplay));
+            }
+        }
+    }
+
+    /// <summary>True si hay un nombre de tenant que mostrar.</summary>
+    public bool HasTenantName => !string.IsNullOrWhiteSpace(_tenantName);
+
+    /// <summary>Texto a mostrar: el tenant, o un aviso mientras no se conoce (sin necesidad de converter).</summary>
+    public string TenantDisplay => HasTenantName ? _tenantName : "(se conoce al conectar)";
 
     public ObservableCollection<HiveCellViewModel> Cells { get; }
 
@@ -119,6 +147,7 @@ public sealed class HiveViewModel : ObservableObject
     public RelayCommand SaveCapabilityCommand { get; }
     public RelayCommand CloseCapabilityCommand { get; }
     public RelayCommand CopyLogCommand { get; }
+    public RelayCommand ClearLogCommand { get; }
 
     public string ClientId
     {
@@ -188,6 +217,7 @@ public sealed class HiveViewModel : ObservableObject
         _serviceState = state;
         ClientId = state.ClientId;
         HubUrl = state.HubUrl;
+        TenantName = state.TenantName ?? "";
         // El secreto NO viaja de vuelta (ADR-0039 s3): se muestra un marcador si hay uno guardado, y
         // si el operador no teclea nada, el servicio conserva el que ya tenia.
         Secret = state.HasSecret ? SecretPlaceholder : string.Empty;
@@ -250,6 +280,13 @@ public sealed class HiveViewModel : ObservableObject
             Log($"No se pudo copiar el registro: {ex.Message}");
         }
     }
+
+    /// <summary>Vacia el Registro (el operador limpia el ruido). No afecta la conexion.</summary>
+    private void ClearLog() => _dispatcher.Invoke(() =>
+    {
+        _log.Clear();
+        _lastLoggedError = null; // un error identico posterior volvera a registrarse
+    });
 
     /// <summary>Abre el flyout de una capacidad sensible (Navegador/Archivos) con su estado actual.</summary>
     public void OpenCapabilityConfig(SubAgentKind kind)

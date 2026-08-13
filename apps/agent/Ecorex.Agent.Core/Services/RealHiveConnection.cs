@@ -56,6 +56,10 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     /// </summary>
     public string? LastError { get; private set; }
 
+    /// <summary>Nombre del tenant/cliente dueno de este DataClient, segun lo devuelve el endpoint de
+    /// token del hub. Null hasta el primer handshake exitoso (o si el servidor no lo envia).</summary>
+    public string? TenantName { get; private set; }
+
     public event Action<ConnectionState>? ConnectionChanged;
     public event Action<HiveRequest>? RequestStarted;
     public event Action<HiveRequestResult>? RequestFinished;
@@ -166,6 +170,8 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
                 return null;
             }
             var body = await resp.Content.ReadFromJsonAsync<AgentTokenResponse>();
+            // El hub nos dice a que tenant/cliente pertenecemos: se muestra en la config del agente.
+            if (!string.IsNullOrWhiteSpace(body?.TenantName)) { TenantName = body!.TenantName; }
             return body?.AccessToken;
         }
         catch (Exception ex)

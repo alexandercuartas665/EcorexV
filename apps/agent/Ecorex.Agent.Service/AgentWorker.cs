@@ -47,7 +47,7 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
         // Canal local con las colmenas (ADR-0039 s3): les publica el estado real, acepta cambios de
         // configuracion (de administradores) y les delega el Navegador.
         _ipc = new AgentIpcServer(
-            () => new AgentIpcServer.StateMsgSource(_hive?.State ?? ConnectionState.Offline, _hive?.LastError),
+            () => new AgentIpcServer.StateMsgSource(_hive?.State ?? ConnectionState.Offline, _hive?.LastError, _hive?.TenantName),
             _ => _configChanged.Release(),
             m => logger.LogInformation("{Mensaje}", m));
         _ipc.Start();

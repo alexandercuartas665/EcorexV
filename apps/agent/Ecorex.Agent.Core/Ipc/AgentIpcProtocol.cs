@@ -67,7 +67,9 @@ public static class AgentIpc
         bool BrowserEnabled,
         bool FilesEnabled,
         IReadOnlyList<string> BrowserAllow,
-        IReadOnlyList<string> FileAllow);
+        IReadOnlyList<string> FileAllow,
+        // Nombre del tenant/cliente al que conecta (lo entrega el hub en el handshake). Null si aun no se sabe.
+        string? TenantName = null);
 
     public sealed record SetConfigMsg(string ClientId, string HubUrl, string? Secret);
 

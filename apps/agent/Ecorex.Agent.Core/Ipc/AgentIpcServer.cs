@@ -32,7 +32,7 @@ public sealed class AgentIpcServer : IAsyncDisposable
     }
 
     /// <summary>Lo que el servicio sabe y la colmena necesita para pintarse.</summary>
-    public sealed record StateMsgSource(ConnectionState Connection, string? LastError);
+    public sealed record StateMsgSource(ConnectionState Connection, string? LastError, string? TenantName = null);
 
     /// <param name="stateSource">Como preguntarle al servicio por su estado vivo del canal.</param>
     /// <param name="onConfigChanged">Aviso al servicio de que la identidad cambio (debe reconectar).</param>
@@ -269,7 +269,7 @@ public sealed class AgentIpcServer : IAsyncDisposable
         return new AgentIpc.StateMsg(
             live.Connection, config.ClientId, config.HubUrl, config.HasSecret, live.LastError,
             consent.IsBrowserEnabled(), consent.IsFilesEnabled(),
-            new BrowserAllowList().Load(), new FileAllowList().Load());
+            new BrowserAllowList().Load(), new FileAllowList().Load(), live.TenantName);
     }
 
     private Task SendStateAsync(ClientConn conn) => SendAsync(conn,

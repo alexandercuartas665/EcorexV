@@ -16,6 +16,7 @@
 @inject IWorkflowStartService StartSvc
 @inject ITaskBroadcaster Broadcaster
 @inject IFormResponseService FormResponsesSvc
+@inject IFormDefinitionService FormDefinitionsSvc
 @inject IActivityCatalogService ActCatalogSvc
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 
@@ -291,35 +292,41 @@
                             <div style="width:100%">
                                 @if (SelectedSub?.FormDefinitionId is Guid formDefId)
                                 {
-                                    @if (_formResponseId is null)
-                                    {
-                                        @* El formulario del CONCEPTO se diligencia AQUI. Al enviarlo se captura la
-                                           respuesta (borrador -> enviado); recien al "Guardar actividad" se ancla al
-                                           numero de la actividad creada. No sustituye al formulario por paso del
-                                           proceso (ese sigue viviendo en el detalle/atencion del paso). *@
-                                        <div style="@CardStyle">
-                                            <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
-                                            <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Diligencia el formulario asociado a este concepto. Al enviarlo, quedara ligado a la actividad cuando la guardes.</p>
-                                            <DynamicFormRenderer @ref="_formRenderer"
-                                                                 DefinitionId="@formDefId"
-                                                                 Mode="FormRenderMode.Fill"
-                                                                 ShowHeader="false"
-                                                                 ResponseId="@_formDraftId"
-                                                                 OnDraftReady="OnWizardFormDraftReadyAsync"
-                                                                 OnSubmitted="OnWizardFormSubmittedAsync" />
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <div style="@CardStyle;display:flex;align-items:center;gap:12px">
-                                            <span style="width:34px;height:34px;border-radius:10px;background:var(--t-green-bg, rgba(20,160,120,.14));color:var(--t-green);display:grid;place-items:center;flex:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>
-                                            <div style="flex:1">
-                                                <div style="font-weight:700;font-size:14px">Formulario diligenciado</div>
-                                                <div style="font-size:12px;color:var(--ink-3)">Quedara ligado a la actividad al guardar. Podras editarlo desde el detalle.</div>
+                                    @* Formularios del CONCEPTO como TARJETAS (como el detalle de la tarea): se
+                                       diligencian en un modal amplio (mas espacio). Cada cotizacion es un borrador
+                                       que, al "Guardar actividad", se ancla al numero (-1, -2, ...). Opcional: se
+                                       puede crear la tarea sin ninguno. Los vacios no se anclan. *@
+                                    <div style="@CardStyle">
+                                        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">
+                                            <div>
+                                                <div style="font-weight:700;font-size:15px">Formularios</div>
+                                                <p style="font-size:12.5px;color:var(--ink-3);margin:3px 0 0">Diligencia una o varias cotizaciones (opcional). Se abren en una ventana amplia y quedan ligadas a la actividad al guardar.</p>
                                             </div>
-                                            <button type="button" @onclick="OnWizardRehacerForm" style="height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12.5px;color:var(--ink-2);cursor:pointer">Rehacer</button>
+                                            <button type="button" @onclick="AddWizFormAsync" disabled="@_busy" style="height:34px;padding:0 14px;border-radius:10px;border:none;background:var(--brand);color:var(--on-brand);font:inherit;font-weight:600;font-size:12.5px;cursor:pointer;flex:none">+ Agregar</button>
                                         </div>
-                                    }
+                                        @if (_formDraftIds.Count == 0)
+                                        {
+                                            <div style="text-align:center;padding:22px;color:var(--ink-3);font-size:13px;border:1px dashed var(--line-2);border-radius:10px">Aun no agregaste ningun formulario. Pulsa "Agregar" para diligenciar uno, o deja la actividad sin formulario.</div>
+                                        }
+                                        else
+                                        {
+                                            <div style="display:flex;flex-direction:column;gap:8px">
+                                                @for (var _i = 0; _i < _formDraftIds.Count; _i++)
+                                                {
+                                                    var idx = _i; var did = _formDraftIds[_i]; var conDatos = _draftsWithData.Contains(did);
+                                                    <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line-2);border-radius:11px;background:var(--surface)">
+                                                        <span style="width:32px;height:32px;border-radius:9px;background:var(--surface-2);color:var(--ink-3);display:grid;place-items:center;flex:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg></span>
+                                                        <div style="flex:1;min-width:0">
+                                                            <div style="font-weight:600;font-size:13.5px">Cotizacion @(idx + 1)</div>
+                                                            <div style="font-size:12px;color:@(conDatos ? "var(--t-green)" : "var(--ink-3)")">@(conDatos ? "Con datos" : "Vacio")</div>
+                                                        </div>
+                                                        <button type="button" @onclick="@(() => OpenWizFormAsync(did))" style="height:31px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12px;color:var(--ink-2);cursor:pointer">Editar</button>
+                                                        <button type="button" @onclick="@(() => RemoveWizForm(did))" title="Quitar" style="height:31px;width:31px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;color:var(--ink-3);cursor:pointer;flex:none">&times;</button>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
                                 }
                                 else
                                 {
@@ -414,6 +421,31 @@
                         </div>
                     </div>
                 </aside>
+            </div>
+        </div>
+    </div>
+}
+
+@* Modal de llenado del formulario (mismo patron que el detalle): DynamicFormRenderer en una ventana
+   amplia dimensionada por el CardLayout del formulario. Reutiliza OnDraftReady/FlushDraftAsync. *@
+@if (_wizFormModalOpen && SelectedSub?.FormDefinitionId is Guid wizFormDefId)
+{
+    <div class="modal-overlay" style="z-index:70;" @onclick="CloseWizFormAsync">
+        <div class="modal-dialog" style="@WizFormModalWidthStyle()" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Formulario de la actividad</h3>
+                <button class="modal-close" @onclick="CloseWizFormAsync">&times;</button>
+            </div>
+            <div class="modal-body">
+                <DynamicFormRenderer @ref="_wizFormRenderer"
+                                     DefinitionId="@wizFormDefId"
+                                     Mode="FormRenderMode.Fill"
+                                     ResponseId="@_wizFormOpenId"
+                                     OnDraftReady="OnWizFormDraftReadyAsync"
+                                     OnSubmitted="OnWizFormSubmittedAsync" />
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--line)">
+                <button class="btn btn-primary" @onclick="CloseWizFormAsync">Listo</button>
             </div>
         </div>
     </div>
@@ -557,61 +589,128 @@
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
     private bool HasForm => SelectedSub?.FormDefinitionId is not null;
 
-    /// <summary>Respuesta del formulario del concepto ENVIADA en el paso 3 (submit interno). Aun sin
-    /// anclar a la actividad, que todavia no existe: se ancla por Number al guardar.</summary>
-    private Guid? _formResponseId;
+    // --- Formularios del concepto como TARJETAS + modal de llenado (reemplaza el formulario incrustado) ---
 
-    /// <summary>Referencia viva al renderer del paso 3 (para hacer flush antes de salir/guardar).</summary>
-    private DynamicFormRenderer? _formRenderer;
+    /// <summary>Borradores de cotizacion iniciados en la creacion (en orden). Cada uno se ancla a la
+    /// actividad al guardar (-1, -2, ...) SIEMPRE que tenga datos. La actividad aun no existe: son
+    /// borradores con Reference=null hasta el "Guardar actividad".</summary>
+    private readonly List<Guid> _formDraftIds = new();
 
-    /// <summary>Id del BORRADOR del formulario del paso 3 (lo avisa OnDraftReady al crearse/cargarse). Se
-    /// pasa de vuelta como ResponseId para REUSAR el mismo borrador si el paso 3 se remonta (evita
-    /// borradores duplicados) y permite anclarlo al guardar aunque el usuario no pulse "Enviar".</summary>
-    private Guid? _formDraftId;
+    /// <summary>Borradores con al menos un valor (lo determina FlushDraftAsync al cerrar el modal). Solo
+    /// estos se anclan (opcion A: no se anclan formularios vacios).</summary>
+    private readonly HashSet<Guid> _draftsWithData = new();
 
-    /// <summary>El borrador del paso 3 tiene al menos un valor (lo determina FlushDraftAsync). Solo se
-    /// ancla si es true (no se anclan formularios abiertos pero vacios).</summary>
-    private bool _formFilled;
+    /// <summary>Modal de llenado abierto y sobre que borrador (null = uno NUEVO, lo crea el renderer).</summary>
+    private bool _wizFormModalOpen;
+    private Guid? _wizFormOpenId;
+    private DynamicFormRenderer? _wizFormRenderer;
 
-    /// <summary>El usuario envio (y el servidor valido) el formulario del concepto en el paso 3.</summary>
-    private Task OnWizardFormSubmittedAsync(FormResponseDto response)
+    /// <summary>Ancho de tarjeta del formulario del concepto, para dimensionar el modal (se resuelve 1 vez).</summary>
+    private Ecorex.Domain.Enums.FormCardLayout _formLayout = Ecorex.Domain.Enums.FormCardLayout.Normal;
+    private Guid? _formLayoutFetchedFor;
+
+    /// <summary>Ancho del modal de llenado segun el CardLayout del formulario (igual criterio que el detalle).</summary>
+    private string WizFormModalWidthStyle() => _formLayout switch
     {
-        _formResponseId = response.Id;
-        _formDraftId = response.Id;
-        _formFilled = true; // enviado = tiene datos.
-        return Task.CompletedTask;
-    }
+        Ecorex.Domain.Enums.FormCardLayout.Completo => "width:min(1600px,96vw);max-width:96vw;",
+        Ecorex.Domain.Enums.FormCardLayout.Ancho => "width:min(1200px,94vw);max-width:94vw;",
+        _ => "width:min(880px,94vw);max-width:94vw;",
+    };
 
-    /// <summary>El renderer del paso 3 creo/cargo su borrador: se guarda su Id para reusarlo y anclarlo.</summary>
-    private Task OnWizardFormDraftReadyAsync(FormResponseDto response)
+    /// <summary>Resuelve una vez el CardLayout del formulario del concepto (para el ancho del modal).</summary>
+    private async Task EnsureFormLayoutAsync(Guid defId)
     {
-        _formDraftId = response.Id;
-        return Task.CompletedTask;
-    }
-
-    /// <summary>"Rehacer": descarta el vinculo actual y arranca un borrador NUEVO (limpia Id/enviado/lleno).</summary>
-    private void OnWizardRehacerForm()
-    {
-        _formResponseId = null;
-        _formDraftId = null;
-        _formFilled = false;
-    }
-
-    /// <summary>Persiste los ultimos valores del formulario del paso 3 (si esta montado) antes de salir del
-    /// paso o de guardar; el autosave del renderer es cada 30 s y no salva al desmontar. Actualiza si el
-    /// borrador tiene datos (para decidir el anclaje).</summary>
-    private async Task FlushWizardFormAsync()
-    {
-        if (_formRenderer is not null)
+        if (_formLayoutFetchedFor == defId) { return; }
+        _formLayoutFetchedFor = defId;
+        try
         {
-            _formFilled = await _formRenderer.FlushDraftAsync();
+            var def = await FormDefinitionsSvc.GetAsync(defId);
+            if (def is not null) { _formLayout = def.CardLayout; }
+        }
+        catch { /* si falla, queda Normal */ }
+    }
+
+    /// <summary>"Agregar": abre el modal para una cotizacion NUEVA (el renderer crea el borrador y lo
+    /// avisa por OnDraftReady).</summary>
+    private async Task AddWizFormAsync()
+    {
+        if (SelectedSub?.FormDefinitionId is not Guid defId) { return; }
+        await EnsureFormLayoutAsync(defId);
+        _wizFormOpenId = null;
+        _wizFormRenderer = null;
+        _wizFormModalOpen = true;
+    }
+
+    /// <summary>"Editar": abre el modal sobre un borrador ya existente.</summary>
+    private async Task OpenWizFormAsync(Guid draftId)
+    {
+        if (SelectedSub?.FormDefinitionId is Guid defId) { await EnsureFormLayoutAsync(defId); }
+        _wizFormOpenId = draftId;
+        _wizFormRenderer = null;
+        _wizFormModalOpen = true;
+    }
+
+    /// <summary>El renderer del modal creo/cargo su borrador: registra la cotizacion (si es nueva).</summary>
+    private Task OnWizFormDraftReadyAsync(FormResponseDto response)
+    {
+        _wizFormOpenId = response.Id;
+        if (!_formDraftIds.Contains(response.Id)) { _formDraftIds.Add(response.Id); }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Enviar (submit interno): tiene datos y se cierra el modal, conservando la tarjeta.</summary>
+    private async Task OnWizFormSubmittedAsync(FormResponseDto response)
+    {
+        _draftsWithData.Add(response.Id);
+        await CloseWizFormAsync();
+    }
+
+    /// <summary>Cierra el modal: hace flush del borrador (no perder los ultimos campos, el autosave es cada
+    /// 30 s y no salva al desmontar) y marca si tiene datos, para decidir el anclaje al guardar.</summary>
+    private async Task CloseWizFormAsync()
+    {
+        if (_wizFormRenderer is not null && _wizFormOpenId is Guid id)
+        {
+            var has = await _wizFormRenderer.FlushDraftAsync();
+            if (has)
+            {
+                _draftsWithData.Add(id);
+            }
+            else
+            {
+                // Borrador vacio (abierto pero sin datos): no deja tarjeta ni se anclara.
+                _draftsWithData.Remove(id);
+                _formDraftIds.Remove(id);
+            }
+        }
+        _wizFormModalOpen = false;
+        _wizFormOpenId = null;
+        _wizFormRenderer = null;
+    }
+
+    /// <summary>"Quitar": saca la cotizacion de la lista (el borrador huerfano no se ancla; queda invisible).</summary>
+    private void RemoveWizForm(Guid draftId)
+    {
+        _formDraftIds.Remove(draftId);
+        _draftsWithData.Remove(draftId);
+    }
+
+    /// <summary>Ancla a la actividad recien creada TODOS los borradores con datos (-1, -2, ...). Asi las
+    /// cotizaciones diligenciadas en la creacion "se portan" a la tarea y aparecen en su detalle.</summary>
+    private async Task AnchorWizFormsAsync(string number)
+    {
+        var n = 0;
+        foreach (var draftId in _formDraftIds)
+        {
+            if (!_draftsWithData.Contains(draftId)) { continue; } // vacios no se anclan (opcion A).
+            n++;
+            await FormResponsesSvc.SetReferenceAsync(draftId, number + "-" + n);
         }
     }
 
-    /// <summary>Retrocede un paso; si venimos del paso 3 (Formulario) hace flush para no perder datos.</summary>
-    private async Task PrevStep()
+    /// <summary>Retrocede un paso.</summary>
+    private void PrevStep()
     {
-        if (_step == 3) { await FlushWizardFormAsync(); }
         if (_step > 1) { _step--; }
     }
 
@@ -719,7 +818,19 @@
         _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
         _firstStep = null; _encargadoRestringido = false;
-        _formResponseId = null; _formDraftId = null; _formFilled = false;
+        ResetWizForms();
+        _formLayoutFetchedFor = null;
+    }
+
+    /// <summary>Limpia el estado de las cotizaciones (lista + modal). El _formLayout fetchado se conserva
+    /// salvo en ResetAll (donde puede cambiar el concepto).</summary>
+    private void ResetWizForms()
+    {
+        _formDraftIds.Clear();
+        _draftsWithData.Clear();
+        _wizFormModalOpen = false;
+        _wizFormOpenId = null;
+        _wizFormRenderer = null;
     }
 
     /// <summary>Limpia el borrador conservando la clasificacion (Empresa/Tipo/Actividad/Encargado).</summary>
@@ -731,9 +842,7 @@
         _ccEmails.Clear(); _ccInput = "";
         if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
         _milestoneId = null;
-        _formResponseId = null;
-        _formDraftId = null;
-        _formFilled = false;
+        ResetWizForms();
         _wizFiles.Clear();
         _wizError = null;
         _errors.Clear();
@@ -941,10 +1050,9 @@
     private async Task NextStep()
     {
         if (!ValidateStep(_step)) { return; }
-        // Al dejar el paso 3 (Formulario), persistir el borrador para no perder los ultimos campos (el
-        // renderer autosalva cada 30 s y NO salva al desmontar): asi se ancla al guardar aunque el
-        // usuario no haya pulsado el "Enviar" interno del formulario.
-        if (_step == 3) { await FlushWizardFormAsync(); }
+        await Task.CompletedTask;
+        // Los formularios del paso 3 se llenan en su modal (que ya hace flush al cerrarse), asi que
+        // avanzar de paso no necesita persistir nada.
         // Ola B2: avanzar de paso NO crea nada. (Hasta B1, pasar al paso Formulario creaba la tarea
         // por adelantado -- parche de la Ola 5 --, asi que un formulario invalido dejaba una tarea
         // huerfana con su flujo ya arrancado. El arranque form-first ahora vive en FormFirstStarter,
@@ -1019,10 +1127,8 @@
     {
         if (!ValidateStep(1)) { _step = 1; return; }
         if (!ValidateStep(2)) { _step = 2; return; }
-        // Si se guarda estando en el paso 3 (p.ej. "Guardar y crear otra"), persistir el borrador primero
-        // para no perder los ultimos campos; en pasos posteriores el renderer ya no esta montado y esto
-        // es un no-op (los datos ya se persistieron al salir del paso 3 via NextStep).
-        await FlushWizardFormAsync();
+        // Si el modal de un formulario quedo abierto, cerrarlo primero (hace flush del borrador).
+        if (_wizFormModalOpen) { await CloseWizFormAsync(); }
         _busy = true;
         try
         {
@@ -1033,16 +1139,10 @@
                 return;
             }
 
-            // Anclaje del formulario del concepto (paso 3) a la actividad recien creada. Se ancla lo que
-            // el usuario ENVIO (_formResponseId) o, si solo lo diligencio sin enviar, el BORRADOR
-            // (_formDraftId) SIEMPRE QUE tenga datos (_formFilled) -- no se anclan formularios vacios.
-            // El numero heredado es "{numero actividad}-1" (la primera cotizacion/formulario); las
-            // siguientes se agregan/copian desde el detalle con -2, -3, ...
-            var formIdToAnchor = _formResponseId ?? (_formFilled ? _formDraftId : null);
-            if (formIdToAnchor is Guid formResponseId)
-            {
-                await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number + "-1");
-            }
+            // Ancla a la actividad recien creada TODAS las cotizaciones del paso 3 con datos (-1, -2, ...):
+            // asi los formularios diligenciados en la creacion "se portan" a la tarea y aparecen en su
+            // detalle. Los borradores vacios (abiertos pero sin datos) NO se anclan (opcion A).
+            await AnchorWizFormsAsync(result.Value!.Item.Number);
 
             // Archivos elegidos en el paso "Archivos" -> se adjuntan a la actividad recien creada, para
             // que aparezcan en su detalle (conexion creacion <-> detalle).

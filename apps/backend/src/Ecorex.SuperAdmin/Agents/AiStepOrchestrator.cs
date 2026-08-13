@@ -68,6 +68,11 @@ public sealed class AiStepOrchestrator(
         int ins = 0, upd = 0, del = 0, round = 0;
         var saved = false;
 
+        // El navegador del agente es EFIMERO por orden (abre-ejecuta-cierra, sin estado entre ordenes),
+        // asi que la "pagina actual" no sobrevive entre tool calls. La sesion recuerda la ultima URL para
+        // RE-NAVEGAR dentro de la misma orden al leer/clicar (ver ExecuteBrowserToolAsync).
+        var session = new BrowserToolSession();
+
         for (; round < maxSteps; round++)
         {
             if (DateTimeOffset.UtcNow >= deadline)
@@ -110,7 +115,7 @@ public sealed class AiStepOrchestrator(
                 }
                 else
                 {
-                    toolResult = await ExecuteBrowserToolAsync(ctx, call.Name, call.ArgumentsJson, ct);
+                    toolResult = await ExecuteBrowserToolAsync(ctx, session, call.Name, call.ArgumentsJson, ct);
                 }
                 messages.Add(new AiToolMessage("tool", toolResult, ToolCallId: call.Id, ToolName: call.Name));
             }
@@ -188,63 +193,107 @@ public sealed class AiStepOrchestrator(
             $"instruccion del operador:\n\n\"{ctx.Instruction}\"\n\n" +
             $"Herramientas disponibles: {toolList}. Usa 'navegar' y 'leer_html' para llegar a los datos, " +
             "razona sobre el HTML, y cuando tengas las filas llama 'guardar_filas' con un arreglo de " +
-            "objetos (una fila por registro; las claves son los nombres de las columnas). Se conciso: " +
+            "objetos (una fila por registro; las claves son los nombres de las columnas). " +
+            "IMPORTANTE sobre el navegador: cada 'leer_html' CARGA DE CERO la ultima URL que fijaste con " +
+            "'navegar' (no hay sesion persistente ni estado entre pasos), asi que navega DIRECTO a una URL " +
+            "de resultados (p.ej. en Google Maps usa https://www.google.com/maps/search/<terminos+ubicacion>) " +
+            "y luego 'leer_html'. Los clics/JS no persisten entre lecturas. Se conciso: " +
             $"tienes un tope de {(ctx.MaxSteps is > 0 ? ctx.MaxSteps : 8)} pasos. No inventes datos: extrae " +
             "solo lo que veas en la pagina. Cuando termines de guardar, no llames mas herramientas.";
     }
 
-    private async Task<string> ExecuteBrowserToolAsync(AiStepContext ctx, string tool, string argsJson, CancellationToken ct)
+    /// <summary>Estado minimo del navegador ENTRE tool calls de una misma corrida: la ultima URL a la
+    /// que el modelo pidio navegar. El navegador del agente es efimero por orden, por eso cada lectura
+    /// re-navega a esta URL en la MISMA orden (si no, caeria en una pestana en blanco).</summary>
+    private sealed class BrowserToolSession
+    {
+        public string? CurrentUrl;
+    }
+
+    private async Task<string> ExecuteBrowserToolAsync(
+        AiStepContext ctx, BrowserToolSession session, string tool, string argsJson, CancellationToken ct)
     {
         JsonElement args;
         try { using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(argsJson) ? "{}" : argsJson); args = d.RootElement.Clone(); }
         catch { return "error: argumentos JSON invalidos."; }
 
         var corr = NewCorr();
-        BrowserAction action;
+
+        // CLAVE: el navegador del agente abre-ejecuta-cierra un WebView2 por ORDEN, sin estado entre
+        // ordenes. Por eso 'navegar' solo FIJA la URL de la sesion, y toda accion que opere sobre "la
+        // pagina actual" (leer_html/captura/evaluar_js/clic) RE-NAVEGA a esa URL dentro de la MISMA orden
+        // (Navigate + Wait + accion). Sin esto la lectura caeria en una pestana en blanco (host vacio) y
+        // el agente la rechaza ("Lectura de HTML no permitida en este dominio").
+        var actions = new List<BrowserAction>();
         switch (tool)
         {
             case "navegar":
-                action = new BrowserAction(BrowserActionKind.Navigate, Url: Str(args, "url"));
-                break;
-            case "leer_html":
-                action = new BrowserAction(BrowserActionKind.Html, Selector: Str(args, "selector"));
-                break;
+            {
+                var url = Str(args, "url");
+                if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+                {
+                    return "error: url invalida (usa una URL http/https completa).";
+                }
+                session.CurrentUrl = url;
+                // No se abre navegador aqui (se perderia al cerrar la celda): la pagina se carga al leer.
+                return "ok: URL fijada. Llama 'leer_html' para obtener el contenido de la pagina.";
+            }
             case "esperar":
-                action = new BrowserAction(BrowserActionKind.Wait, WaitMs: Int(args, "ms") ?? 500);
+                // La espera se pliega dentro de la siguiente lectura; sola no aporta (celda efimera).
+                return "ok";
+            case "leer_html":
+            {
+                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de leer_html."; }
+                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2500));
+                actions.Add(new BrowserAction(BrowserActionKind.Html, Selector: Str(args, "selector")));
                 break;
+            }
             case "captura":
-                action = new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true);
+            {
+                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de captura."; }
+                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                actions.Add(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true));
                 break;
+            }
             case "evaluar_js":
-                {
-                    var js = Str(args, "script");
-                    if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
-                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
-                    action = new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!));
-                    break;
-                }
+            {
+                var js = Str(args, "script");
+                if (string.IsNullOrWhiteSpace(js)) { return "error: falta el script."; }
+                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar JS."; }
+                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de evaluar_js."; }
+                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                actions.Add(new BrowserAction(BrowserActionKind.Eval, Script: js, Signature: AgentSign.SignJs(ctx.Secret!, corr, js!)));
+                break;
+            }
             case "clic":
-                {
-                    var selector = Str(args, "selector");
-                    if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
-                    if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
-                    var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
-                    action = new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson));
-                    break;
-                }
+            {
+                var selector = Str(args, "selector");
+                if (string.IsNullOrWhiteSpace(selector)) { return "error: falta el selector."; }
+                if (string.IsNullOrEmpty(ctx.Secret)) { return "error: el agente no tiene secreto para firmar la accion."; }
+                if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de clic."; }
+                var scriptJson = JsonSerializer.Serialize(new[] { new { action = "click", selector } });
+                actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
+                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2000));
+                actions.Add(new BrowserAction(BrowserActionKind.Mouse, ScriptJson: scriptJson, Signature: AgentSign.SignJs(ctx.Secret!, corr, scriptJson)));
+                break;
+            }
             default:
                 return $"error: herramienta '{tool}' no disponible en este paso.";
         }
 
         try
         {
-            var req = new BrowserRequestMsg(corr, ctx.TenantId.ToString(), new List<BrowserAction> { action });
+            var req = new BrowserRequestMsg(corr, ctx.TenantId.ToString(), actions);
             var result = await channel.ExecuteAsync(ctx.ClientId, req, PerActionTimeout, ct);
-            var res = result.Results.Count > 0 ? result.Results[0] : null;
-            if (res is null || !res.Ok)
-            {
-                return "error: " + (res?.Error ?? result.Error ?? "sin resultado");
-            }
+            // Si alguna accion fallo (p.ej. navigate rechazado por la allow-list), reporta ese error.
+            var failed = result.Results.FirstOrDefault(r => !r.Ok);
+            if (failed is not null) { return "error: " + (failed.Error ?? result.Error ?? "sin resultado"); }
+            // El resultado UTIL es el de la ULTIMA accion (Html/Screenshot/Eval/Mouse).
+            var res = result.Results.Count > 0 ? result.Results[^1] : null;
+            if (res is null) { return "error: " + (result.Error ?? "sin resultado"); }
             var value = res.Value ?? "ok";
             return value.Length > MaxHtmlChars ? value[..MaxHtmlChars] + "...[recortado]" : value;
         }

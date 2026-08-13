@@ -8730,3 +8730,13 @@ Se dedujo "segmento" (venia 2 veces en la lista del usuario). Desambiguaciones m
 CANAL CONTACTO (no CANALES DE CONTACTO, que es matriz canal x origen); origen -> ORIGENES CLIENTES
 (no ORIGENES DE MERCADO). Backup ecorex-2026-08-11-1154.sql.gz. SQL directo (excepcion ETL
 documentada; no pasa por AdminAuditLog).
+
+---
+
+## 2026-08-12 (sesion datos - prod) - Tabla vendedores en contenedor siigo (AGROMETALICAS)
+
+**Hecho**: agregada tabla `vendedores` (id 46b5a7d1-e760-5343-a27b-c6bc8234d587) al modelo siigo de
+AGROMETALICAS (que ya tenia clientes/facturas/facturas_items). Fuente: Siigo `GET /v1/users` (32
+usuarios = vendedores). Columnas: Siigo Id (=facturas.Vendedor/seller), Usuario, Nombre, Apellido,
+Nombre completo, Email, Identificacion, Activo. Verificado el enlace factura.Vendedor 645 -> Diego
+Fernando Rojas Mendoza. Carga puntual SQL, uuid5 idempotente. Backup ecorex-2026-08-12-2055.sql.gz.

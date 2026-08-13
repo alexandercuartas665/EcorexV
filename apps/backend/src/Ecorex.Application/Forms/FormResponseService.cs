@@ -723,7 +723,7 @@ public sealed class FormResponseService : IFormResponseService
                 draft.Value.Id, definition.Id, definition.Code, definition.Title,
                 instanceId, step.NodeId, step.NodeName,
                 link.Status, draft.Value.Status, draft.Value.Reference,
-                isGatewayAhead, approvalOptions));
+                isGatewayAhead, approvalOptions, definition.CardLayout));
         }
         return result;
     }
@@ -772,7 +772,7 @@ public sealed class FormResponseService : IFormResponseService
             r.Reference, ExtractDataField(r.Data, cliCode), r.CreatedAt,
             r.Id == activeId)).ToList();
 
-        return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items);
+        return new TaskConceptFormsDto(def.Id, def.Code, def.Title, items, def.CardLayout);
     }
 
     public async Task<FormResult<TaskConceptFormItemDto>> CreateTaskConceptFormAsync(Guid taskItemId, CancellationToken cancellationToken = default)

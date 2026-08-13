@@ -300,9 +300,12 @@
                                         <div style="@CardStyle">
                                             <div style="font-weight:700;font-size:15px;margin-bottom:6px">Formulario dinamico</div>
                                             <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:16px">Diligencia el formulario asociado a este concepto. Al enviarlo, quedara ligado a la actividad cuando la guardes.</p>
-                                            <DynamicFormRenderer DefinitionId="@formDefId"
+                                            <DynamicFormRenderer @ref="_formRenderer"
+                                                                 DefinitionId="@formDefId"
                                                                  Mode="FormRenderMode.Fill"
                                                                  ShowHeader="false"
+                                                                 ResponseId="@_formDraftId"
+                                                                 OnDraftReady="OnWizardFormDraftReadyAsync"
                                                                  OnSubmitted="OnWizardFormSubmittedAsync" />
                                         </div>
                                     }
@@ -314,7 +317,7 @@
                                                 <div style="font-weight:700;font-size:14px">Formulario diligenciado</div>
                                                 <div style="font-size:12px;color:var(--ink-3)">Quedara ligado a la actividad al guardar. Podras editarlo desde el detalle.</div>
                                             </div>
-                                            <button type="button" @onclick="@(() => _formResponseId = null)" style="height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12.5px;color:var(--ink-2);cursor:pointer">Rehacer</button>
+                                            <button type="button" @onclick="OnWizardRehacerForm" style="height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12.5px;color:var(--ink-2);cursor:pointer">Rehacer</button>
                                         </div>
                                     }
                                 }
@@ -365,7 +368,7 @@
                     <div style="display:flex;align-items:center;gap:10px;padding:16px 26px;border-top:1px solid var(--line);flex:none">
                         @if (_step > 1)
                         {
-                            <button @onclick="@(() => _step--)" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">&larr; Atras</button>
+                            <button @onclick="PrevStep" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-2);cursor:pointer">&larr; Atras</button>
                         }
                         <button @onclick="ClearDraft" disabled="@_busy" style="height:40px;padding:0 15px;border-radius:11px;border:none;background:none;font:inherit;font-weight:600;font-size:13.5px;color:var(--ink-3);cursor:pointer">Limpiar</button>
                         <div style="flex:1"></div>
@@ -554,15 +557,62 @@
     private ActividadSubcategoriaDto? SelectedSub => _subcategorias.FirstOrDefault(s => s.Id == _subcategoriaId);
     private bool HasForm => SelectedSub?.FormDefinitionId is not null;
 
-    /// <summary>Respuesta del formulario del concepto diligenciada en el paso 3 (aun sin anclar a la
-    /// actividad, que todavia no existe). Se ancla por Number al guardar.</summary>
+    /// <summary>Respuesta del formulario del concepto ENVIADA en el paso 3 (submit interno). Aun sin
+    /// anclar a la actividad, que todavia no existe: se ancla por Number al guardar.</summary>
     private Guid? _formResponseId;
+
+    /// <summary>Referencia viva al renderer del paso 3 (para hacer flush antes de salir/guardar).</summary>
+    private DynamicFormRenderer? _formRenderer;
+
+    /// <summary>Id del BORRADOR del formulario del paso 3 (lo avisa OnDraftReady al crearse/cargarse). Se
+    /// pasa de vuelta como ResponseId para REUSAR el mismo borrador si el paso 3 se remonta (evita
+    /// borradores duplicados) y permite anclarlo al guardar aunque el usuario no pulse "Enviar".</summary>
+    private Guid? _formDraftId;
+
+    /// <summary>El borrador del paso 3 tiene al menos un valor (lo determina FlushDraftAsync). Solo se
+    /// ancla si es true (no se anclan formularios abiertos pero vacios).</summary>
+    private bool _formFilled;
 
     /// <summary>El usuario envio (y el servidor valido) el formulario del concepto en el paso 3.</summary>
     private Task OnWizardFormSubmittedAsync(FormResponseDto response)
     {
         _formResponseId = response.Id;
+        _formDraftId = response.Id;
+        _formFilled = true; // enviado = tiene datos.
         return Task.CompletedTask;
+    }
+
+    /// <summary>El renderer del paso 3 creo/cargo su borrador: se guarda su Id para reusarlo y anclarlo.</summary>
+    private Task OnWizardFormDraftReadyAsync(FormResponseDto response)
+    {
+        _formDraftId = response.Id;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>"Rehacer": descarta el vinculo actual y arranca un borrador NUEVO (limpia Id/enviado/lleno).</summary>
+    private void OnWizardRehacerForm()
+    {
+        _formResponseId = null;
+        _formDraftId = null;
+        _formFilled = false;
+    }
+
+    /// <summary>Persiste los ultimos valores del formulario del paso 3 (si esta montado) antes de salir del
+    /// paso o de guardar; el autosave del renderer es cada 30 s y no salva al desmontar. Actualiza si el
+    /// borrador tiene datos (para decidir el anclaje).</summary>
+    private async Task FlushWizardFormAsync()
+    {
+        if (_formRenderer is not null)
+        {
+            _formFilled = await _formRenderer.FlushDraftAsync();
+        }
+    }
+
+    /// <summary>Retrocede un paso; si venimos del paso 3 (Formulario) hace flush para no perder datos.</summary>
+    private async Task PrevStep()
+    {
+        if (_step == 3) { await FlushWizardFormAsync(); }
+        if (_step > 1) { _step--; }
     }
 
     // Restringido: SOLO los candidatos del cargo del nodo (aunque la lista quede vacia).
@@ -669,6 +719,7 @@
         _milestoneId = null; _milestones = new();
         _subcategorias = new(); _encargadoIds = Array.Empty<Guid>();
         _firstStep = null; _encargadoRestringido = false;
+        _formResponseId = null; _formDraftId = null; _formFilled = false;
     }
 
     /// <summary>Limpia el borrador conservando la clasificacion (Empresa/Tipo/Actividad/Encargado).</summary>
@@ -681,6 +732,8 @@
         if (_presetProjectId is null) { _projectId = null; _milestones = new(); }
         _milestoneId = null;
         _formResponseId = null;
+        _formDraftId = null;
+        _formFilled = false;
         _wizFiles.Clear();
         _wizError = null;
         _errors.Clear();
@@ -888,6 +941,10 @@
     private async Task NextStep()
     {
         if (!ValidateStep(_step)) { return; }
+        // Al dejar el paso 3 (Formulario), persistir el borrador para no perder los ultimos campos (el
+        // renderer autosalva cada 30 s y NO salva al desmontar): asi se ancla al guardar aunque el
+        // usuario no haya pulsado el "Enviar" interno del formulario.
+        if (_step == 3) { await FlushWizardFormAsync(); }
         // Ola B2: avanzar de paso NO crea nada. (Hasta B1, pasar al paso Formulario creaba la tarea
         // por adelantado -- parche de la Ola 5 --, asi que un formulario invalido dejaba una tarea
         // huerfana con su flujo ya arrancado. El arranque form-first ahora vive en FormFirstStarter,
@@ -962,6 +1019,10 @@
     {
         if (!ValidateStep(1)) { _step = 1; return; }
         if (!ValidateStep(2)) { _step = 2; return; }
+        // Si se guarda estando en el paso 3 (p.ej. "Guardar y crear otra"), persistir el borrador primero
+        // para no perder los ultimos campos; en pasos posteriores el renderer ya no esta montado y esto
+        // es un no-op (los datos ya se persistieron al salir del paso 3 via NextStep).
+        await FlushWizardFormAsync();
         _busy = true;
         try
         {
@@ -972,10 +1033,13 @@
                 return;
             }
 
-            // Si se diligencio el formulario del concepto en el paso 3, se ancla ahora a la actividad
-            // recien creada. El numero heredado es "{numero actividad}-1" (la primera cotizacion/formulario);
-            // las siguientes se agregan/copian desde el detalle con -2, -3, ...
-            if (_formResponseId is Guid formResponseId)
+            // Anclaje del formulario del concepto (paso 3) a la actividad recien creada. Se ancla lo que
+            // el usuario ENVIO (_formResponseId) o, si solo lo diligencio sin enviar, el BORRADOR
+            // (_formDraftId) SIEMPRE QUE tenga datos (_formFilled) -- no se anclan formularios vacios.
+            // El numero heredado es "{numero actividad}-1" (la primera cotizacion/formulario); las
+            // siguientes se agregan/copian desde el detalle con -2, -3, ...
+            var formIdToAnchor = _formResponseId ?? (_formFilled ? _formDraftId : null);
+            if (formIdToAnchor is Guid formResponseId)
             {
                 await FormResponsesSvc.SetReferenceAsync(formResponseId, result.Value!.Item.Number + "-1");
             }

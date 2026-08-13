@@ -201,6 +201,35 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                     return await MaybeShot(index, a, html);
                 }
 
+                case BrowserActionKind.ExtractReadable:
+                {
+                    // Misma reja que Html (JS FIJO del agente, sin firma). Devuelve CONTENIDO LEGIBLE ya
+                    // renderizado (texto visible + labels de resultados + enlaces) en vez de outerHTML crudo,
+                    // con auto-scroll para feeds perezosos (Maps/SPA). Resuelve la extraccion de contactos.
+                    if (!CurrentHostAllowed(out var host))
+                    {
+                        return Fail(index, a, $"Extraccion no permitida en este dominio: {host}");
+                    }
+
+                    // Espera inicial para que el SPA pinte, luego scroll al feed N veces con pausa entre cada uno.
+                    await Task.Delay(1500);
+                    var rounds = a.ScrollRounds is > 0 ? a.ScrollRounds.Value : 0;
+                    var between = a.WaitMs is > 0 ? a.WaitMs.Value : 1200;
+                    for (var r = 0; r < rounds; r++)
+                    {
+                        await web.CoreWebView2.ExecuteScriptAsync(ScrollFeedJs);
+                        await Task.Delay(between);
+                    }
+
+                    // ExecuteScriptAsync entrega el resultado como cadena JSON-encoded ("...{...}..."): se
+                    // decodifica UNA vez para que el backend reciba el JSON {title,url,text,items,links} limpio.
+                    var extracted = await web.CoreWebView2.ExecuteScriptAsync(ExtractReadableJs);
+                    var decoded = extracted;
+                    try { decoded = JsonSerializer.Deserialize<string>(extracted) ?? extracted; }
+                    catch { /* si no era literal JSON, se deja crudo */ }
+                    return await MaybeShot(index, a, decoded);
+                }
+
                 case BrowserActionKind.Wait:
                 {
                     var timeout = a.WaitMs is > 0 ? a.WaitMs.Value : 5000;
@@ -322,5 +351,35 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             => new(index, a.Kind, Ok: false, Error: error);
 
         private static string JsString(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+        // ---- JS FIJO del agente para ExtractReadable (no viene del servidor, por eso no requiere firma) ----
+
+        // Scroll al contenedor de resultados (feed) o al documento: hace que los feeds perezosos (Maps/SPA)
+        // carguen mas items antes de extraer.
+        private const string ScrollFeedJs =
+            """
+            (function(){var f=document.querySelector('[role="feed"]')||document.scrollingElement||document.body;
+             if(f){f.scrollBy(0, f.scrollHeight);} return true;})()
+            """;
+
+        // Extractor: texto visible + labels de resultados (aria-label) + enlaces, todo acotado. Devuelve
+        // JSON {title,url,text,items,links} listo para el modelo (sin <head>/<script> ni ruido).
+        private const string ExtractReadableJs =
+            """
+            (function(){
+              function c(s){return (s||'').replace(/\s+/g,' ').trim();}
+              var items=[];
+              document.querySelectorAll('[role="article"],[role="feed"] [aria-label]').forEach(function(el){
+                var l=c(el.getAttribute('aria-label')); if(l && items.indexOf(l)<0 && items.length<80) items.push(l);
+              });
+              var seen={}, links=[], as=document.querySelectorAll('a[href]');
+              for(var i=0;i<as.length && links.length<120;i++){
+                var t=c(as[i].innerText), h=as[i].href; if(!t||t.length<2) continue;
+                var k=t+'|'+h; if(seen[k]) continue; seen[k]=1; links.push({t:t.slice(0,120),h:h});
+              }
+              return JSON.stringify({title:document.title,url:location.href,
+                text:c(document.body?document.body.innerText:'').slice(0,9000), items:items, links:links});
+            })()
+            """;
     }
 }

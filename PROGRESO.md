@@ -33,6 +33,18 @@ el caso tipico -> nunca se guardaba.
 **Siguiente:** usuario instala MSI 1.5.0, habilita Navegador y agrega dominios (ya persisten); rebuild
 de app2 con la rama para que el token devuelva el nombre del tenant (feature v0.15.7).
 
+**ACTUALIZACION (mismo dia) - segundo eslabon, MSI 1.5.1 (commit `71fc935`):** con 1.5.0 el usuario
+reporto que SEGUIA sin guardar. Diagnostico completo con evidencia (servicio Running, producto 1.5.0,
+GUI 1.5.0 corriendo, boveda ACL'd ilegible sin elevar): la escritura elevada SI persistia el archivo,
+pero el Servicio -unico que puede LEER la boveda- solo re-difundia estado al conectar o en los Set* del
+pipe; su unico FileSystemWatcher vigilaba SOLO `config.dat`. Como la colmena vive en la BANDEJA, cerrar
+y reabrir la VENTANA no reconecta el pipe (proceso vivo) -> `_serviceState` viejo -> flyout vacio aunque
+el disco tuviera los dominios. Fix: segundo watcher en `AgentWorker` sobre `browser-allow.dat` /
+`file-allow.dat` / `consent.dat` que REEMITE estado (`BroadcastStateAsync`, sin rearmar el hub) al
+detectar la escritura; la colmena refleja la lista en vivo y el sub-agente Navegador recibe la politica
+nueva. MSI reconstruido como **1.5.1** a Descargas. Recordar: SALIR de la colmena desde la bandeja antes
+de instalar para que el binario se reemplace.
+
 ---
 
 ## 2026-08-12 - Renderizador de panel GENERICO por spec (ADR-0066)

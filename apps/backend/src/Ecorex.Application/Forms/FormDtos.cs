@@ -166,7 +166,9 @@ public sealed record TaskStepFormDto(
     Guid ResponseId, Guid DefinitionId, string FormCode, string FormTitle,
     Guid WorkflowInstanceId, Guid WorkflowNodeId, string? NodeName,
     FormFlowLinkStatus LinkStatus, FormResponseStatus ResponseStatus, string? Reference,
-    bool IsGatewayAhead = false, IReadOnlyList<string>? ApprovalOptions = null);
+    bool IsGatewayAhead = false, IReadOnlyList<string>? ApprovalOptions = null,
+    // Ancho de tarjeta del formulario (Normal/Ancho/Completo), para dimensionar el modal del detalle.
+    FormCardLayout CardLayout = FormCardLayout.Normal);
 
 /// <summary>
 /// Formulario por defecto que el concepto definio para la actividad
@@ -197,7 +199,9 @@ public sealed record TaskConceptFormItemDto(
 /// </summary>
 public sealed record TaskConceptFormsDto(
     Guid DefinitionId, string FormCode, string FormTitle,
-    IReadOnlyList<TaskConceptFormItemDto> Items);
+    IReadOnlyList<TaskConceptFormItemDto> Items,
+    // Ancho de tarjeta del formulario (Normal/Ancho/Completo), para dimensionar el modal del detalle.
+    FormCardLayout CardLayout = FormCardLayout.Normal);
 
 /// <summary>
 /// Un formulario relevante para un tablero (ADR-0065, columnas de campo de formulario): el del

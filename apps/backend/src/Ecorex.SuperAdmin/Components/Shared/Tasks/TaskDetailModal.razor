@@ -1122,7 +1122,7 @@
 @if (_openForm is not null)
 {
     <div class="modal-overlay" style="z-index:60;" @onclick="@(() => _openForm = null)">
-        <div class="modal-dialog" style="max-width:840px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="@FormModalWidthStyle()" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>@_openForm.Title</h3>
                 <button class="modal-close" @onclick="@(() => _openForm = null)">&times;</button>
@@ -1219,7 +1219,18 @@
     /// <summary>Estado del modal editor: que respuesta se esta viendo/editando y en que modo.</summary>
     private sealed record OpenFormState(
         Guid DefinitionId, Guid ResponseId, string? Reference, string Title,
-        FormRenderMode Mode, bool IsStep, TaskStepFormDto? Step);
+        FormRenderMode Mode, bool IsStep, TaskStepFormDto? Step,
+        Ecorex.Domain.Enums.FormCardLayout Layout = Ecorex.Domain.Enums.FormCardLayout.Normal);
+
+    /// <summary>Ancho del modal del formulario segun su CardLayout (Normal/Ancho/Completo), para que el
+    /// formulario no salga en un modal chico. Sin ApplyCardWidth, la tarjeta LLENA el modal, asi que el
+    /// tamano del modal es el ancho efectivo del formulario.</summary>
+    private string FormModalWidthStyle() => _openForm?.Layout switch
+    {
+        Ecorex.Domain.Enums.FormCardLayout.Completo => "width:min(1600px,96vw);max-width:96vw;",
+        Ecorex.Domain.Enums.FormCardLayout.Ancho => "width:min(1200px,94vw);max-width:94vw;",
+        _ => "width:min(880px,94vw);max-width:94vw;",
+    };
 
     // Pasos del flujo atendibles por el usuario (bandeja, ola F2, ADR-0036).
     private List<PendingStepDto> _flowSteps = new();
@@ -1913,7 +1924,7 @@
         var finalized = it.Status == FormResponseStatus.Submitted;
         var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
         var title = _conceptForms.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
-        _openForm = new OpenFormState(_conceptForms.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null);
+        _openForm = new OpenFormState(_conceptForms.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: _conceptForms.CardLayout);
     }
 
     /// <summary>"Agregar cotizacion": crea un borrador nuevo y lo abre para diligenciar.</summary>
@@ -2002,7 +2013,7 @@
     private void OpenStepFormModal(TaskStepFormDto sf)
     {
         var mode = sf.LinkStatus == FormFlowLinkStatus.Pending ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
-        _openForm = new OpenFormState(sf.DefinitionId, sf.ResponseId, sf.Reference, sf.FormTitle, mode, IsStep: true, Step: sf);
+        _openForm = new OpenFormState(sf.DefinitionId, sf.ResponseId, sf.Reference, sf.FormTitle, mode, IsStep: true, Step: sf, Layout: sf.CardLayout);
     }
 
     private async Task CloseAsync()

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Ecorex.Application.Tenancy;
 using Ecorex.Contracts.Agent;
 
@@ -41,7 +42,7 @@ public sealed class AiStepOrchestrator(
     IScrapeRowSink rowSink,
     ILogger<AiStepOrchestrator> log) : IAiStepOrchestrator
 {
-    private const int MaxHtmlChars = 6000; // tope de lo que un leer_html/evaluar_js le devuelve al modelo.
+    private const int MaxHtmlChars = 14000; // tope de lo que un leer_html/evaluar_js le devuelve al modelo.
     private static readonly TimeSpan PerActionTimeout = TimeSpan.FromSeconds(45);
 
     public async Task<AiStepOutcome> RunAsync(AiStepContext ctx, CancellationToken ct = default)
@@ -245,7 +246,8 @@ public sealed class AiStepOrchestrator(
             {
                 if (string.IsNullOrWhiteSpace(session.CurrentUrl)) { return "error: navega a una URL antes de leer_html."; }
                 actions.Add(new BrowserAction(BrowserActionKind.Navigate, Url: session.CurrentUrl));
-                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 2500));
+                // Espera mas larga: los sitios JS (Maps, directorios) pintan los resultados despues de cargar.
+                actions.Add(new BrowserAction(BrowserActionKind.Wait, WaitMs: 3800));
                 actions.Add(new BrowserAction(BrowserActionKind.Html, Selector: Str(args, "selector")));
                 break;
             }
@@ -295,6 +297,10 @@ public sealed class AiStepOrchestrator(
             var res = result.Results.Count > 0 ? result.Results[^1] : null;
             if (res is null) { return "error: " + (result.Error ?? "sin resultado"); }
             var value = res.Value ?? "ok";
+            // leer_html devuelve el outerHTML JSON-escapado (<...) EMPEZANDO por <head>+scripts, que se
+            // comen el presupuesto sin datos. Se des-escapa y se limpia (fuera head/scripts/estilos), asi el
+            // markup del BODY -donde estan los negocios de sitios JS como Maps- si cabe en el tope.
+            if (tool == "leer_html") { value = CleanHtmlForModel(value); }
             return value.Length > MaxHtmlChars ? value[..MaxHtmlChars] + "...[recortado]" : value;
         }
         catch (TimeoutException)
@@ -323,6 +329,29 @@ public sealed class AiStepOrchestrator(
         {
             return (0, 0, 0, false, "error al guardar: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Prepara el HTML para el modelo: (1) des-escapa el resultado de WebView2 (ExecuteScriptAsync lo
+    /// devuelve como cadena JSON, p.ej. "<html>..."), (2) quita head/scripts/estilos/comentarios
+    /// -puro ruido sin datos que agota el presupuesto- y (3) colapsa espacios. Deja el markup del body
+    /// (aria-labels, enlaces, direcciones, telefonos) que es donde estan los contactos.
+    /// </summary>
+    private static string CleanHtmlForModel(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) { return raw; }
+        var s = raw;
+        // WebView2 entrega el string como literal JSON (con comillas y \uXXXX). Se decodifica a HTML real.
+        if (s.Length >= 2 && s[0] == '"')
+        {
+            try { s = JsonSerializer.Deserialize<string>(s) ?? s; } catch { /* se usa tal cual */ }
+        }
+        s = Regex.Replace(s, "<head[\\s\\S]*?</head>", " ", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, "<script[\\s\\S]*?</script>", " ", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, "<style[\\s\\S]*?</style>", " ", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, "<!--[\\s\\S]*?-->", " ");
+        s = Regex.Replace(s, "\\s+", " ");
+        return s.Trim();
     }
 
     private static AiStepOutcome Fail(string msg) => new(false, 0, 0, 0, msg, 0);

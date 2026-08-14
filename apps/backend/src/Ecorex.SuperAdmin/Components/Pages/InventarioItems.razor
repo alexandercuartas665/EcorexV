@@ -63,7 +63,7 @@
 
 @* ===== Filtros ===== *@
 <div class="inv-filters">
-    <input class="form-control" style="max-width:230px;" placeholder="Buscar por nombre o SKU..." @bind="_search" @bind:event="oninput" @bind:after="ApplyFiltersAsync" />
+    <input class="form-control" style="max-width:230px;" placeholder="Buscar por nombre o SKU..." value="@_search" @oninput="OnSearchInputAsync" />
     <select class="form-control" style="max-width:180px;" @bind="_fltWarehouse" @bind:after="ApplyFiltersAsync">
         <option value="">Bodega: todas</option>
         @foreach (var w in _warehouses)
@@ -1069,7 +1069,12 @@ else
         finally { _dbGate.Release(); }
     }
 
-    public void Dispose() => _dbGate.Dispose();
+    public void Dispose()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _dbGate.Dispose();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1190,6 +1195,28 @@ else
     {
         _currentPage = 1;
         await ReloadAsync();
+    }
+
+    /// <summary>Buscador con DEBOUNCE: sin esto, @@bind:after disparaba ReloadAsync (una consulta a la BD)
+    /// en CADA tecla y, al teclear rapido, varias corrian a la vez sobre el mismo DbContext del circuito
+    /// ("A second operation was started on this context") y el buscador se reventaba. Ahora se cancela la
+    /// pendiente y solo se consulta ~300 ms despues de dejar de escribir.</summary>
+    private CancellationTokenSource? _searchCts;
+    private async Task OnSearchInputAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _searchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            if (cts.IsCancellationRequested) { return; }
+            _currentPage = 1;
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { /* llego otra tecla: la busqueda vieja se descarta */ }
     }
 
     private async Task GoToPageAsync(int page)
@@ -1346,6 +1373,9 @@ else
     {
         _busy = true;
         _editorError = null;
+        Guid? savedId = null;
+        try
+        {
         await _dbGate.WaitAsync();
         try
         {
@@ -1372,12 +1402,25 @@ else
                 _editorError = result.Error;
                 return;
             }
-            _showEditor = false;
-            await ReloadAsync();
+            savedId = result.Value!.Id;
         }
         finally
         {
             _dbGate.Release();
+        }
+
+        // El editor NO se cierra al guardar (peticion del usuario): se queda abierto en modo EDICION del
+        // item guardado. Al CREAR, esto es lo que habilita subir la imagen en el MISMO flujo (las imagenes
+        // cuelgan de ItemImage.ItemId, que solo existe una vez creado). El usuario cierra con la X/Cancelar
+        // cuando termine. OpenEditorAsync/ReloadAsync se llaman FUERA del _dbGate (ambos lo re-toman).
+        if (savedId is Guid id)
+        {
+            await OpenEditorAsync(id);
+            await ReloadAsync();
+        }
+        }
+        finally
+        {
             _busy = false;
         }
     }

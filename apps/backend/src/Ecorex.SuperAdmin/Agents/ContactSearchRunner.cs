@@ -22,6 +22,9 @@ public interface IContactSearchRunner
 
 public sealed class ContactSearchRunner : IContactSearchRunner
 {
+    /// <summary>Tope de corridas por fuente y dia (defensa anti-baneo de las redes). Configurable aqui.</summary>
+    private const int MaxRunsPerSourcePerDay = 20;
+
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IAiStepOrchestrator _orchestrator;
@@ -48,6 +51,17 @@ public sealed class ContactSearchRunner : IContactSearchRunner
             return new(false, 0, $"El proveedor {agent.Provider} del agente no esta habilitado (Super Admin -> Servidores de IA).");
         }
 
+        // TOPE DIARIO POR FUENTE: como maximo N corridas/dia de esta Source y tenant (redes penalizan por
+        // exceso). Se cuenta por RunAt >= inicio del dia UTC; el filtro de tenant lo pone el query global.
+        var source = def.SourceType.ToString();
+        var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+        var todayRuns = await _db.ContactSearchRuns
+            .CountAsync(r => r.Source == source && r.RunAt >= startOfDayUtc, ct);
+        if (todayRuns >= MaxRunsPerSourcePerDay)
+        {
+            return new(false, 0, $"Alcanzaste el tope diario de {MaxRunsPerSourcePerDay} busquedas de {source}. Intenta de nuevo manana.");
+        }
+
         var cap = def.MaxContacts <= 0 ? int.MaxValue : def.MaxContacts;
         var instruction = BuildInstruction(def, agent);
         var sink = new ProspectoSearchRowSink(_db, tenantId, def.SourceType.ToString(), cap);
@@ -61,6 +75,16 @@ public sealed class ContactSearchRunner : IContactSearchRunner
 
         // Sella la ultima corrida (base del futuro programador automatico). def viene rastreado.
         def.LastRunAt = DateTimeOffset.UtcNow;
+        // Registra la corrida para el tope diario por fuente (cuenta OK y fallidas: ambas tocaron la red).
+        _db.ContactSearchRuns.Add(new ContactSearchRun
+        {
+            TenantId = tenantId,
+            DefinitionId = def.Id,
+            Source = source,
+            RunAt = DateTimeOffset.UtcNow,
+            Ok = outcome.Ok,
+            Inserted = outcome.Inserted,
+        });
         await _db.SaveChangesAsync(ct);
 
         return new(outcome.Ok, outcome.Inserted, outcome.Ok ? null : outcome.Error);

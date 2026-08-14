@@ -2165,6 +2165,64 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("contact_search_definitions", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ContactSearchRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("definition_id");
+
+                    b.Property<int>("Inserted")
+                        .HasColumnType("integer")
+                        .HasColumnName("inserted");
+
+                    b.Property<bool>("Ok")
+                        .HasColumnType("boolean")
+                        .HasColumnName("ok");
+
+                    b.Property<DateTimeOffset>("RunAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("run_at");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_contact_search_runs");
+
+                    b.HasIndex("TenantId", "Source", "RunAt")
+                        .HasDatabaseName("ix_contact_search_runs_tenant_id_source_run_at");
+
+                    b.ToTable("contact_search_runs", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
                 {
                     b.Property<Guid>("Id")

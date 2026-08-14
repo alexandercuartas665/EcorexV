@@ -191,6 +191,7 @@ public interface IApplicationDbContext
     // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
     DbSet<ScrapeFlow> ScrapeFlows { get; }
     DbSet<ContactSearchDefinition> ContactSearchDefinitions { get; }
+    DbSet<ContactSearchRun> ContactSearchRuns { get; }
     DbSet<ScrapeStep> ScrapeSteps { get; }
     DbSet<ScrapeVariable> ScrapeVariables { get; }
     /// <summary>Bitacora de corridas de un flujo de extraccion (runtime, Ola 3).</summary>

@@ -63,7 +63,10 @@
 
 @* ===== Filtros ===== *@
 <div class="inv-filters">
-    <input class="form-control" style="max-width:230px;" placeholder="Buscar por nombre o SKU..." value="@_search" @oninput="OnSearchInputAsync" />
+    @* Input NO controlado (sin value=): en Blazor Server, si el server reescribe value en cada render, al
+       teclear rapido las letras "se comen" (el value viejo del round-trip pisa lo recien tecleado). Sin
+       value=, el DOM conserva el texto del usuario y el server solo LEE por @@oninput (con debounce). *@
+    <input class="form-control" style="max-width:230px;" placeholder="Buscar por nombre o SKU..." @oninput="OnSearchInputAsync" />
     <select class="form-control" style="max-width:180px;" @bind="_fltWarehouse" @bind:after="ApplyFiltersAsync">
         <option value="">Bodega: todas</option>
         @foreach (var w in _warehouses)
@@ -1186,9 +1189,19 @@ else
         await ApplyFiltersAsync();
     }
 
+    /// <summary>Recarga la pagina de items SERIALIZADA por _dbGate: el DbContext scoped se comparte en el
+    /// circuito, asi que dos reloads simultaneos (teclear + cambiar un select, o dos teclas seguidas cuya
+    /// consulta a prod tarda mas que el debounce) reventaban con "A second operation was started on this
+    /// context" y el reload moria en silencio -> la lista quedaba vieja y "el filtro no filtraba". Con el
+    /// gate corren en fila; si aun asi falla, se muestra el error en vez de tragarselo. IMPORTANTE: quien
+    /// llame ReloadAsync NO debe tener el gate tomado (SemaphoreSlim no es reentrante).</summary>
     private async Task ReloadAsync()
     {
-        _page = await ItemSvc.ListAsync(BuildQuery());
+        await GuardAsync(async () =>
+        {
+            try { _page = await ItemSvc.ListAsync(BuildQuery()); _pageError = null; }
+            catch (Exception ex) { _pageError = "No se pudo cargar la lista: " + ex.Message; }
+        });
     }
 
     private async Task ApplyFiltersAsync()
@@ -1445,14 +1458,18 @@ else
     {
         _busy = true;
         _pageError = null;
+        var ok = false;
         await _dbGate.WaitAsync();
         try
         {
             var result = await ItemSvc.SetActiveAsync(item.Id, !item.IsActive);
             if (!result.IsOk) { _pageError = result.Error; }
-            else { await ReloadAsync(); }
+            else { ok = true; }
         }
-        finally { _dbGate.Release(); _busy = false; }
+        finally { _dbGate.Release(); }
+        // ReloadAsync re-toma el gate: se llama FUERA del bloque anterior para no auto-bloquearse.
+        if (ok) { await ReloadAsync(); }
+        _busy = false;
     }
 
     // ---- Configurador de campos por tipo ----

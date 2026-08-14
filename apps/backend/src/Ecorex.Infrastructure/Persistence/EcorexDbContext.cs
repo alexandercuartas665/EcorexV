@@ -76,6 +76,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
     // Flujos de extraccion por navegador (modulo 000730, capitulo "Extraccion de Datos").
     public DbSet<ScrapeFlow> ScrapeFlows => Set<ScrapeFlow>();
     public DbSet<ContactSearchDefinition> ContactSearchDefinitions => Set<ContactSearchDefinition>();
+    public DbSet<ContactSearchRun> ContactSearchRuns => Set<ContactSearchRun>();
     public DbSet<ScrapeStep> ScrapeSteps => Set<ScrapeStep>();
     public DbSet<ScrapeVariable> ScrapeVariables => Set<ScrapeVariable>();
     public DbSet<ScrapeFlowRun> ScrapeFlowRuns => Set<ScrapeFlowRun>();
@@ -818,6 +819,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.RunTime).HasMaxLength(5);
             // SchedulesJson: lista de programaciones (varios horarios). Texto largo, sin tope.
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
+        });
+
+        // Corridas de busquedas de contactos: bitacora para el TOPE DIARIO por fuente. El indice
+        // (TenantId, Source, RunAt) sirve el conteo "corridas de hoy de esta fuente".
+        modelBuilder.Entity<ContactSearchRun>(b =>
+        {
+            b.Property(x => x.Source).HasMaxLength(30).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Source, x.RunAt });
         });
 
         modelBuilder.Entity<ScrapeStep>(b =>

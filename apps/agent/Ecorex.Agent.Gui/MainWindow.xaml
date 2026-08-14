@@ -203,6 +203,24 @@
                         <TextBlock Text="{Binding CapHint}" Foreground="{StaticResource HiveInkDim}"
                                    FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" />
 
+                        <!-- Iniciar sesion en redes (SOLO Navegador): abre un navegador persistente para que
+                             el usuario se loguee a mano; la sesion se guarda y el scraping logueado la reutiliza. -->
+                        <StackPanel Margin="0,16,0,0"
+                                    Visibility="{Binding IsBrowserCap, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Iniciar sesion en redes" Style="{DynamicResource FieldLabel}" />
+                            <TextBlock Text="Abre un navegador para iniciar sesion a mano (usuario/clave/2FA). La sesion queda guardada y el scraping la reutiliza."
+                                       Foreground="{StaticResource HiveInkDim}" FontSize="10.5"
+                                       Margin="0,0,0,8" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="LinkedIn" Command="{Binding LoginLinkedInCommand}"
+                                        Style="{DynamicResource GhostButton}" />
+                                <Button Content="Facebook" Command="{Binding LoginFacebookCommand}"
+                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
+                                <Button Content="Instagram" Command="{Binding LoginInstagramCommand}"
+                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+
                         <StackPanel Orientation="Horizontal" Margin="0,18,0,0" HorizontalAlignment="Right">
                             <Button Content="Cerrar" Command="{Binding CloseCapabilityCommand}"
                                     Style="{DynamicResource GhostButton}" />

@@ -343,7 +343,12 @@ public sealed record BrowserAction(
 public sealed record BrowserRequestMsg(
     string CorrelationId,
     string TenantId,
-    IReadOnlyList<BrowserAction> Actions);
+    IReadOnlyList<BrowserAction> Actions,
+    // Clave de PERFIL persistente del navegador (ej. "linkedin","facebook","instagram"): reusa cookies y
+    // login entre ordenes -> permite scraping LOGUEADO. Null = sesion EFIMERA (comportamiento historico:
+    // carpeta unica que se borra al terminar). Va al FINAL (opcional) a proposito por COMPAT: un backend
+    // viejo no lo envia, y un agente viejo (<1.7.0) ignora el campo y cae al modo efimero de siempre.
+    string? SessionKey = null);
 
 /// <summary>Resultado de una accion individual del navegador.</summary>
 public sealed record BrowserActionResult(

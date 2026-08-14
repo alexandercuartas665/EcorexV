@@ -107,7 +107,24 @@ public sealed class HiveViewModel : ObservableObject
         CloseCapabilityCommand = new RelayCommand(() => IsCapConfigOpen = false);
         CopyLogCommand = new RelayCommand(CopyLog);
         ClearLogCommand = new RelayCommand(ClearLog);
+
+        // "Modo login": abre un navegador persistente para que el usuario inicie sesion a mano en la red; la
+        // sesion queda guardada en el perfil profiles/{red} y el scraping logueado la reutiliza (SessionKey).
+        LoginLinkedInCommand = new RelayCommand(() =>
+            SocialLoginLauncher.Open("linkedin", "https://www.linkedin.com/login", "LinkedIn"));
+        LoginFacebookCommand = new RelayCommand(() =>
+            SocialLoginLauncher.Open("facebook", "https://www.facebook.com/login", "Facebook"));
+        LoginInstagramCommand = new RelayCommand(() =>
+            SocialLoginLauncher.Open("instagram", "https://www.instagram.com/accounts/login/", "Instagram"));
     }
+
+    public RelayCommand LoginLinkedInCommand { get; }
+    public RelayCommand LoginFacebookCommand { get; }
+    public RelayCommand LoginInstagramCommand { get; }
+
+    /// <summary>True cuando el flyout de capacidad abierto es el del Navegador: habilita la seccion
+    /// "Iniciar sesion en redes" (el login solo aplica al navegador).</summary>
+    public bool IsBrowserCap => _capKind == SubAgentKind.Browser;
 
     /// <summary>Version del agente (assembly), para mostrar en la config. Ej. "v1.2.0".</summary>
     public string AgentVersion { get; } =
@@ -292,6 +309,7 @@ public sealed class HiveViewModel : ObservableObject
     public void OpenCapabilityConfig(SubAgentKind kind)
     {
         _capKind = kind;
+        OnPropertyChanged(nameof(IsBrowserCap));
         IsConfigOpen = false;
         if (kind == SubAgentKind.Browser)
         {

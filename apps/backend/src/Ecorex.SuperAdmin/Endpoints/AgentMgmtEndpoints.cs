@@ -359,7 +359,8 @@ public static class AgentMgmtEndpoints
                 new(BrowserActionKind.ExtractReadable, ScrollRounds: scrollRounds, WaitMs: 1200),
                 new(BrowserActionKind.Screenshot, Screenshot: true),
             };
-            var request = new BrowserRequestMsg(corr, presence.TenantId.ToString(), actions);
+            var request = new BrowserRequestMsg(corr, presence.TenantId.ToString(), actions,
+                SessionKey: string.IsNullOrWhiteSpace(body.SessionKey) ? null : body.SessionKey.Trim());
 
             BrowserResultMsg res;
             try
@@ -406,8 +407,9 @@ public static class AgentMgmtEndpoints
         return app;
     }
 
-    // Cuerpo de la prueba headless del Navegador (endpoint 16). url obligatoria http/https.
-    private sealed record NavTestBody(string? Url, int? ScrollRounds, bool? IncludeShot);
+    // Cuerpo de la prueba headless del Navegador (endpoint 16). url obligatoria http/https. sessionKey
+    // opcional = perfil persistente logueado (ej. "linkedin") para probar extraccion CON sesion.
+    private sealed record NavTestBody(string? Url, int? ScrollRounds, bool? IncludeShot, string? SessionKey);
 
     // Sin identidad de usuario detras de la clave: el actor de la auditoria es el sistema.
     private static readonly Guid SystemActor = Guid.Empty;

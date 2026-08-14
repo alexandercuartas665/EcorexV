@@ -54,7 +54,8 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         // TargetContainerId no se usa (el SinkOverride escribe en ProspectoScrapeado). MaxSteps/Segundos acotados.
         var ctx = new AiStepContext(
             def.ClientId!, tenantId, instruction, Guid.Empty, AllowListFor(def.SourceType),
-            MaxSteps: 25, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null, SinkOverride: sink);
+            MaxSteps: 25, MaxSeconds: 180, AiProviderId: providerCfg.Id, Secret: null, SinkOverride: sink,
+            SessionKey: SessionKeyFor(def.SourceType));
 
         var outcome = await _orchestrator.RunAsync(ctx, ct);
 
@@ -109,6 +110,16 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         ContactSearchSource.Facebook => new[] { "facebook.com", "www.facebook.com" },
         ContactSearchSource.X => new[] { "x.com", "twitter.com" },
         _ => new[] { "google.com", "www.google.com", "bing.com", "www.bing.com", "duckduckgo.com" },
+    };
+
+    // Clave de PERFIL persistente por fuente (scraping LOGUEADO). Solo las redes con "modo login" en la
+    // Colmena tienen perfil; Maps/Web/X van efimeros (null) porque no requieren -ni tienen- login guardado.
+    private static string? SessionKeyFor(ContactSearchSource s) => s switch
+    {
+        ContactSearchSource.LinkedIn => "linkedin",
+        ContactSearchSource.Facebook => "facebook",
+        ContactSearchSource.Instagram => "instagram",
+        _ => null,
     };
 }
 

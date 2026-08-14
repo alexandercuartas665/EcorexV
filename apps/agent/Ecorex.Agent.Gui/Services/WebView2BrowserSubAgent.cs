@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using System.IO;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Windows;
 using Ecorex.Agent.Core.Services;
@@ -36,6 +39,32 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
 
     public bool IsAllowed(string? host) => _policy.IsAllowed(host);
 
+    // Locks por PERFIL persistente: WebView2 bloquea el userDataDir mientras esta abierto, asi que dos
+    // ordenes con el MISMO SessionKey no pueden compartir la carpeta a la vez -> se serializan por clave.
+    // Las ordenes EFIMERAS (SessionKey null) NO tocan este dict y siguen 100% en paralelo.
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _profileGates =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static SemaphoreSlim ProfileGate(string sessionKey)
+        => _profileGates.GetOrAdd(SanitizeSessionKey(sessionKey), _ => new SemaphoreSlim(1, 1));
+
+    /// <summary>Normaliza una SessionKey a un nombre de carpeta seguro (<c>[a-z0-9_-]</c>); "default" si
+    /// queda vacia. Misma normalizacion la usa el "modo login" de la GUI para apuntar al MISMO perfil.</summary>
+    public static string SanitizeSessionKey(string sessionKey)
+    {
+        var chars = (sessionKey ?? string.Empty).Trim().ToLowerInvariant()
+            .Select(ch => ((ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9') || ch == '-' || ch == '_') ? ch : '-')
+            .ToArray();
+        var s = new string(chars).Trim('-');
+        return string.IsNullOrEmpty(s) ? "default" : s;
+    }
+
+    /// <summary>Carpeta de datos PERSISTENTE del perfil de una red (cookies/login sobreviven entre ordenes).
+    /// La comparten el scraping logueado y el "modo login" de la GUI (mismo directorio = misma sesion).</summary>
+    public static string ProfileDirFor(string sessionKey) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Ecorex", "Agent", "WebView2", "profiles", SanitizeSessionKey(sessionKey));
+
     /// <summary>
     /// Ejecuta la secuencia en una instancia de navegador NUEVA y aislada, y la cierra al terminar.
     /// Seguro desde cualquier hilo: si no estamos en el de UI, salta a el (WebView2 es un control visual).
@@ -60,31 +89,43 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             return new BrowserResultMsg(req.CorrelationId, false, blocked, "Navegador no habilitado por el operador.");
         }
 
-        // Instancia EFIMERA y AISLADA para esta orden. Se cierra pase lo que pase (finally).
-        BrowserInstance instance;
-        try { instance = await BrowserInstance.CreateAsync(req.CorrelationId, policy); }
-        catch (Exception ex)
-        {
-            var failed = req.Actions
-                .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: $"No se pudo abrir el navegador: {ex.Message}"))
-                .ToList();
-            return new BrowserResultMsg(req.CorrelationId, false, failed, "No se pudo abrir el navegador.");
-        }
-
+        // Con SessionKey (perfil persistente) se serializa por clave: una orden por perfil a la vez (WebView2
+        // bloquea la carpeta). Sin SessionKey (efimero) no hay lock: cada orden tiene su carpeta unica.
+        var gate = string.IsNullOrWhiteSpace(req.SessionKey) ? null : ProfileGate(req.SessionKey!);
+        if (gate is not null) { await gate.WaitAsync(); }
         try
         {
-            var results = new List<BrowserActionResult>(req.Actions.Count);
-            for (var i = 0; i < req.Actions.Count; i++)
+            // Instancia para esta orden: PERSISTENTE si trae SessionKey (reusa login), EFIMERA si no. Se
+            // cierra pase lo que pase (finally); solo la efimera borra su carpeta.
+            BrowserInstance instance;
+            try { instance = await BrowserInstance.CreateAsync(req.CorrelationId, policy, req.SessionKey); }
+            catch (Exception ex)
             {
-                var action = req.Actions[i];
-                try { results.Add(await instance.RunActionAsync(i, action)); }
-                catch (Exception ex) { results.Add(new BrowserActionResult(i, action.Kind, Ok: false, Error: ex.Message)); }
+                var failed = req.Actions
+                    .Select((a, i) => new BrowserActionResult(i, a.Kind, Ok: false, Error: $"No se pudo abrir el navegador: {ex.Message}"))
+                    .ToList();
+                return new BrowserResultMsg(req.CorrelationId, false, failed, "No se pudo abrir el navegador.");
             }
-            return new BrowserResultMsg(req.CorrelationId, results.All(r => r.Ok), results);
+
+            try
+            {
+                var results = new List<BrowserActionResult>(req.Actions.Count);
+                for (var i = 0; i < req.Actions.Count; i++)
+                {
+                    var action = req.Actions[i];
+                    try { results.Add(await instance.RunActionAsync(i, action)); }
+                    catch (Exception ex) { results.Add(new BrowserActionResult(i, action.Kind, Ok: false, Error: ex.Message)); }
+                }
+                return new BrowserResultMsg(req.CorrelationId, results.All(r => r.Ok), results);
+            }
+            finally
+            {
+                instance.Close();
+            }
         }
         finally
         {
-            instance.Close();
+            gate?.Release();
         }
     }
 
@@ -100,19 +141,21 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         private readonly WpfWebView2 _web;
         private readonly BrowserPolicy _policy;
         private readonly string _userDataDir;
+        private readonly bool _persistent;
         private readonly List<DownloadRecord> _downloads = new();
 
-        private BrowserInstance(Window window, WpfWebView2 web, BrowserPolicy policy, string userDataDir)
+        private BrowserInstance(Window window, WpfWebView2 web, BrowserPolicy policy, string userDataDir, bool persistent)
         {
             _window = window;
             _web = web;
             _policy = policy;
             _userDataDir = userDataDir;
+            _persistent = persistent;
         }
 
         private sealed record DownloadRecord(string Uri, string? Path, DateTimeOffset At);
 
-        public static async Task<BrowserInstance> CreateAsync(string correlationId, BrowserPolicy policy)
+        public static async Task<BrowserInstance> CreateAsync(string correlationId, BrowserPolicy policy, string? sessionKey = null)
         {
             var web = new WpfWebView2();
             var shortId = correlationId.Length > 6 ? correlationId[..6] : correlationId;
@@ -129,15 +172,26 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             };
             window.Show();
 
-            // Carpeta de datos UNICA por orden -> sesion aislada (cookies/cache/login independientes) y sin
-            // choque de perfil (WebView2 bloquea la carpeta mientras la usa; dos ordenes con la misma carpeta
-            // no podrian correr a la vez).
-            var userData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Ecorex", "Agent", "WebView2", "sessions", $"s-{shortId}-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(userData);
+            // Carpeta de datos: PERSISTENTE por red si viene SessionKey (cookies/login sobreviven -> scraping
+            // logueado), o EFIMERA y unica por orden si no (sesion desechable, comportamiento historico). El
+            // perfil persistente guarda cookies = acceso a la cuenta, asi que se endurece su ACL (best-effort).
+            var persistent = !string.IsNullOrWhiteSpace(sessionKey);
+            string userData;
+            if (persistent)
+            {
+                userData = ProfileDirFor(sessionKey!);
+                Directory.CreateDirectory(userData);
+                TryHardenProfileAcl(userData);
+            }
+            else
+            {
+                userData = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Ecorex", "Agent", "WebView2", "sessions", $"s-{shortId}-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(userData);
+            }
 
-            var instance = new BrowserInstance(window, web, policy, userData);
+            var instance = new BrowserInstance(window, web, policy, userData, persistent);
             var env = await CoreWebView2Environment.CreateAsync(null, userData, null);
             await web.EnsureCoreWebView2Async(env);
 
@@ -149,13 +203,41 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             return instance;
         }
 
-        /// <summary>Cierra la ventana, libera el WebView2 y borra la carpeta de datos (best-effort).</summary>
+        /// <summary>Cierra la ventana y libera el WebView2. Borra la carpeta de datos SOLO si era EFIMERA;
+        /// el perfil PERSISTENTE (SessionKey) se conserva para que el login sobreviva a la orden.</summary>
         public void Close()
         {
             try { _web.Dispose(); } catch { /* ya cerrado */ }
             try { _window.Close(); } catch { /* ya cerrada */ }
+            if (_persistent) { return; } // perfil logueado: NO se borra.
             try { if (Directory.Exists(_userDataDir)) { Directory.Delete(_userDataDir, recursive: true); } }
             catch { /* el perfil puede quedar bloqueado un instante; se limpia despues */ }
+        }
+
+        /// <summary>
+        /// Endurece el ACL de la carpeta de perfiles persistentes (best-effort): desactiva la herencia y deja
+        /// acceso solo al dueno actual, Administradores y SYSTEM. El perfil guarda cookies de sesion = acceso
+        /// a la cuenta; ya vive bajo LocalApplicationData (por-usuario), esto lo refuerza. Si falla (permisos,
+        /// FS), se deja el ACL heredado y se sigue -no es un control de correctitud, es defensa en profundidad-.
+        /// </summary>
+        private static void TryHardenProfileAcl(string dir)
+        {
+            try
+            {
+                var di = new DirectoryInfo(dir);
+                var sec = di.GetAccessControl();
+                sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                void Allow(IdentityReference id) => sec.AddAccessRule(new FileSystemAccessRule(
+                    id, FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None, AccessControlType.Allow));
+                var me = WindowsIdentity.GetCurrent().User;
+                if (me is not null) { Allow(me); }
+                Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+                Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));
+                di.SetAccessControl(sec);
+            }
+            catch { /* best-effort */ }
         }
 
         public async Task<BrowserActionResult> RunActionAsync(int index, BrowserAction a)

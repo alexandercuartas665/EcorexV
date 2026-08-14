@@ -12,7 +12,10 @@ public sealed record AiStepContext(
     IReadOnlyList<string> ToolAllowList, int MaxSteps, int MaxSeconds, Guid? AiProviderId, string? Secret,
     // Sumidero alternativo para las filas de 'guardar_filas'. Null = el DataContainer por defecto
     // (flujos de extraccion). Las busquedas de contactos pasan un sink propio -> ProspectoScrapeado.
-    IScrapeRowSink? SinkOverride = null);
+    IScrapeRowSink? SinkOverride = null,
+    // Clave de PERFIL persistente del navegador para scraping LOGUEADO (ej. "linkedin"). Null = sesion
+    // efimera. Se propaga a cada BrowserRequestMsg que arma el orquestador.
+    string? SessionKey = null);
 
 /// <summary>Como quedo el paso de IA.</summary>
 public sealed record AiStepOutcome(bool Ok, int Inserted, int Updated, int Deleted, string? Error, int RoundsUsed);
@@ -296,7 +299,7 @@ public sealed class AiStepOrchestrator(
 
         try
         {
-            var req = new BrowserRequestMsg(corr, ctx.TenantId.ToString(), actions);
+            var req = new BrowserRequestMsg(corr, ctx.TenantId.ToString(), actions, SessionKey: ctx.SessionKey);
             var result = await channel.ExecuteAsync(ctx.ClientId, req, PerActionTimeout, ct);
 
             if (tool == "leer_html")
@@ -341,7 +344,7 @@ public sealed class AiStepOrchestrator(
                 new(BrowserActionKind.Html, Selector: selector),
             };
             var result = await channel.ExecuteAsync(
-                ctx.ClientId, new BrowserRequestMsg(NewCorr(), ctx.TenantId.ToString(), actions), PerActionTimeout, ct);
+                ctx.ClientId, new BrowserRequestMsg(NewCorr(), ctx.TenantId.ToString(), actions, SessionKey: ctx.SessionKey), PerActionTimeout, ct);
             var failed = result.Results.FirstOrDefault(r => !r.Ok);
             if (failed is not null) { return "error: " + (failed.Error ?? result.Error ?? "sin resultado"); }
             var last = result.Results.Count > 0 ? result.Results[^1] : null;

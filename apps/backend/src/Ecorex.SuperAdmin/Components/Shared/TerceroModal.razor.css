@@ -93,8 +93,11 @@
 .dg-empty-note { font-size: 12px; color: var(--ink-3); padding: 10px 0; }
 
 /* ---- Overlay + modales ---- */
-.dg-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(15, 15, 18, .5); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 24px; animation: dg-fade .15s ease; }
-.dg-overlay.sm { z-index: 60; background: rgba(15, 15, 18, .45); backdrop-filter: blur(4px); }
+/* z-index alto: el modal de tercero puede abrirse DESDE OTRO modal (p.ej. la wizard de tareas, z-index
+   1060) para "crear tercero" desde el autocompletar; debe quedar por encima. En su uso normal (Directorio)
+   es el modal superior igual. La variante .sm (sub-contacto) va encima del principal. */
+.dg-overlay { position: fixed; inset: 0; z-index: 1100; background: rgba(15, 15, 18, .5); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; padding: 24px; animation: dg-fade .15s ease; }
+.dg-overlay.sm { z-index: 1110; background: rgba(15, 15, 18, .45); backdrop-filter: blur(4px); }
 .dg-modal { width: min(1416px, 98vw); height: min(880px, 94vh); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px; box-shadow: var(--sh-lg); overflow: hidden; animation: dg-pop .2s ease; }
 .dg-modal.sm { width: min(460px, 94vw); height: auto; border-radius: 18px; }
 @keyframes dg-fade { from { opacity: 0; } to { opacity: 1; } }

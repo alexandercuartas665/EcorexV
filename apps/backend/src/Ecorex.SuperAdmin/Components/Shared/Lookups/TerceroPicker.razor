@@ -46,6 +46,10 @@
                     @_resultados.Count de @_total &#183; escribe para afinar
                 </div>
             }
+            @if (OnCrear.HasDelegate)
+            {
+                @CrearRow
+            }
         </div>
     }
     else if (_abierto && !_buscando && !string.IsNullOrWhiteSpace(Value))
@@ -54,6 +58,10 @@
             <div style="padding:10px 12px;font-size:12px;color:var(--ink-3)">
                 Sin coincidencias en el directorio. Puedes escribir el nombre a mano.
             </div>
+            @if (OnCrear.HasDelegate)
+            {
+                @CrearRow
+            }
         </div>
     }
 </div>
@@ -65,6 +73,10 @@
 
     /// <summary>Se dispara SOLO al elegir a alguien del directorio, con sus datos para autollenar.</summary>
     [Parameter] public EventCallback<TerceroSugerencia> OnSelected { get; set; }
+
+    /// <summary>Opcional: si el host lo provee, el dropdown muestra "Crear tercero" al pie (con el texto
+    /// escrito) para crear uno nuevo cuando no esta en el directorio. Lleva el texto actual del campo.</summary>
+    [Parameter] public EventCallback<string?> OnCrear { get; set; }
 
     /// <summary>Estilo del input. Lo pasa el host para que el campo sea identico a los de su lado.</summary>
     [Parameter] public string? InputStyle { get; set; }
@@ -158,6 +170,19 @@
             await OnSelected.InvokeAsync(new TerceroSugerencia(
                 id, nombre, Campo(item, "identificacion"), Campo(item, "email"), Campo(item, "telefono")));
         }
+    }
+
+    /// <summary>Fila "Crear tercero" al pie del dropdown (onmousedown, no onclick, por el blur del input).</summary>
+    private RenderFragment CrearRow => @<div style="padding:9px 12px;cursor:pointer;border-top:1px solid var(--line);color:var(--brand);font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:7px"
+                                             @onmousedown:preventDefault="true" @onmousedown="CrearAsync">
+        <span style="font-size:16px;line-height:1">+</span>
+        <span>Crear tercero@(string.IsNullOrWhiteSpace(Value) ? "" : $" “{Value!.Trim()}”")</span>
+    </div>;
+
+    private async Task CrearAsync()
+    {
+        _abierto = false;
+        if (OnCrear.HasDelegate) { await OnCrear.InvokeAsync(Value); }
     }
 
     /// <summary>Segunda linea de la sugerencia: lo que distingue a dos personas del mismo nombre.</summary>

@@ -820,6 +820,10 @@
     /// contacto de relacion, nota que crea cita/oportunidad) para que el host refresque su lista.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
 
+    /// <summary>Opcional: si el host lo provee, al CREAR un tercero el modal NO se queda en edicion: cierra
+    /// y notifica el Id del recien creado (para que el host lo SELECCIONE, p.ej. la wizard de tareas).</summary>
+    [Parameter] public EventCallback<Guid> OnCreated { get; set; }
+
     /// <summary>Cuando true (Cargador de contactos 000740) habilita el cableado CRM: muestra las
     /// oportunidades del tercero en el aside, la fecha de "Proxima atencion" y crea cita/oportunidad
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
@@ -1014,7 +1018,7 @@
     // ---- Crear / editar ----
     /// <summary>Abre el modal en modo "crear tercero". Con <paramref name="preselectPerfil"/> nace con esa
     /// pildora de perfil ya activada y su(s) ficha(s) abiertas (p.ej. al crear desde el filtro "Clientes").</summary>
-    public async Task OpenCreate(TerceroPerfil preselectPerfil = TerceroPerfil.Ninguno)
+    public async Task OpenCreate(TerceroPerfil preselectPerfil = TerceroPerfil.Ninguno, string? nombre = null)
     {
         await EnsureReadyAsync();
         _editingId = null;
@@ -1031,6 +1035,8 @@
         _buscadorMatches = new();
         _buscadorOpen = false;
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        // Prefill del nombre (p.ej. lo que el operador escribio en el autocompletar antes de "Crear tercero").
+        if (!string.IsNullOrWhiteSpace(nombre)) { _mNombre = nombre.Trim(); }
         _mVendedorAsesorId = null;
         _ciudadQuery = "";
         _ciudadOpen = false;
@@ -1506,6 +1512,14 @@
             {
                 await OpenCreate();
                 StateHasChanged();
+                return;
+            }
+            // Modo "picker-create" (p.ej. la wizard de tareas): notifica el recien creado y CIERRA, para
+            // que el host lo seleccione. Sin OnCreated, se queda en edicion como siempre (DirectorioGeneral).
+            if (OnCreated.HasDelegate)
+            {
+                await OnCreated.InvokeAsync(created.Id);
+                CloseModal();
                 return;
             }
             await OpenEditAsync(created.Id);

@@ -4,6 +4,7 @@
 @using Ecorex.Application.Actividades
 @using Ecorex.Application.Entidades
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Directorio
 @using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
@@ -17,6 +18,7 @@
 @inject ITaskBroadcaster Broadcaster
 @inject IFormResponseService FormResponsesSvc
 @inject IFormDefinitionService FormDefinitionsSvc
+@inject ITerceroService TerceroSvc
 @inject IActivityCatalogService ActCatalogSvc
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 
@@ -245,6 +247,7 @@
                                         <TerceroPicker Value="@_requesterName"
                                                        ValueChanged="@(v => _requesterName = v ?? string.Empty)"
                                                        OnSelected="OnTerceroElegidoAsync"
+                                                       OnCrear="OpenCrearTerceroAsync"
                                                        InputStyle="@InStyle"
                                                        Placeholder="Nombre completo del solicitante" />
                                     </div>
@@ -430,7 +433,7 @@
    amplia dimensionada por el CardLayout del formulario. Reutiliza OnDraftReady/FlushDraftAsync. *@
 @if (_wizFormModalOpen && SelectedSub?.FormDefinitionId is Guid wizFormDefId)
 {
-    <div class="modal-overlay" style="z-index:70;" @onclick="CloseWizFormAsync">
+    <div class="modal-overlay" style="z-index:1090;" @onclick="CloseWizFormAsync">
         <div class="modal-dialog" style="@WizFormModalWidthStyle()" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Formulario de la actividad</h3>
@@ -450,6 +453,10 @@
         </div>
     </div>
 }
+
+@* Crear un tercero SIN salir de la creacion de la tarea: se abre desde el "Crear tercero" del
+   autocompletar de Contacto y, al guardar, se SELECCIONA el recien creado (OnCreated). *@
+<TerceroModal @ref="_terceroModal" OnCreated="OnTerceroCreadoAsync" />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -1039,6 +1046,32 @@
             _errors.Remove("email");
         }
         return Task.CompletedTask;
+    }
+
+    // --- Crear tercero desde el autocompletar de Contacto (sin salir de la creacion) ---
+    private TerceroModal? _terceroModal;
+
+    /// <summary>"Crear tercero" del autocompletar: abre el modal de tercero en modo creacion, con el nombre
+    /// que se venia escribiendo prellenado.</summary>
+    private async Task OpenCrearTerceroAsync(string? nombre)
+    {
+        if (_terceroModal is not null)
+        {
+            await _terceroModal.OpenCreate(nombre: nombre);
+        }
+    }
+
+    /// <summary>El modal creo el tercero: se SELECCIONA en el campo de contacto (mismo volcado que elegirlo
+    /// del directorio), trayendo sus datos.</summary>
+    private async Task OnTerceroCreadoAsync(Guid terceroId)
+    {
+        var d = await TerceroSvc.GetAsync(terceroId);
+        if (d is null) { return; }
+        // Se trata como una eleccion nueva del directorio (pisa lo tecleado antes): los datos buenos son
+        // los del tercero recien creado.
+        _requesterTerceroId = null; // fuerza que OnTerceroElegidoAsync tome estos valores como los buenos.
+        await OnTerceroElegidoAsync(new TerceroPicker.TerceroSugerencia(
+            terceroId, d.Nombre, d.IdValor, d.Email, d.Telefono));
     }
 
     private static string Fusionar(string actual, string? delDirectorio, bool actualVieneDelDirectorio)

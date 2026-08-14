@@ -55,10 +55,14 @@ public sealed class ItemService : IItemService
         }
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim();
+            // CASE-INSENSITIVE y dual-provider: EF.Functions.Like -> LIKE, que en PostgreSQL es SENSIBLE a
+            // mayusculas (los nombres suelen guardarse en MAYUSCULAS: "CARNE"), asi que teclear "carne" no
+            // encontraba nada ("no busca"). lower(campo).Contains(lower(termino)) traduce a lower(x) LIKE
+            // '%...%' en AMBOS motores (en SQL Server tambien funciona; su LIKE ya suele ser insensible).
+            var term = query.Search.Trim().ToLower();
             items = items.Where(i =>
-                EF.Functions.Like(i.Name, $"%{term}%") ||
-                (i.Sku != null && EF.Functions.Like(i.Sku, $"%{term}%")));
+                i.Name.ToLower().Contains(term) ||
+                (i.Sku != null && i.Sku.ToLower().Contains(term)));
         }
         // Filtro de disponibles: solo items con stock > 0 en la bodega indicada.
         if (query.WarehouseId is Guid warehouseId)

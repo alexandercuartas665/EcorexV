@@ -162,7 +162,14 @@
                             <button class="dg-expand" title="Ver contactos" @onclick="() => ToggleExpandAsync(r)">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(_expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
                             </button>
-                            <span class="dg-av @(r.EsEmpresa ? "emp" : "per")" style="background:@AvatarColor(r.Nombre)">@Initials(r.Nombre)</span>
+                            @if (!string.IsNullOrWhiteSpace(r.ImagenUrl))
+                            {
+                                <img class="dg-av @(r.EsEmpresa ? "emp" : "per")" src="@r.ImagenUrl" alt="" loading="lazy" style="object-fit:cover" />
+                            }
+                            else
+                            {
+                                <span class="dg-av @(r.EsEmpresa ? "emp" : "per")" style="background:@AvatarColor(r.Nombre)">@Initials(r.Nombre)</span>
+                            }
                             <div class="dg-name-main" @onclick="() => _terceroModal!.OpenEditAsync(r.Id)">
                                 <div class="dg-name-line">
                                     <span class="dg-name-txt">@r.Nombre</span>

@@ -37,6 +37,10 @@ public class Tercero : TenantEntity
 
     public string? Ciudad { get; set; }
 
+    /// <summary>Foto/logo del tercero (URL a un archivo en wwwroot/uploads/terceros/{tenant}). Se pinta
+    /// como avatar circular en el Directorio y el Cargador de contactos; si es null cae a las iniciales.</summary>
+    public string? ImagenUrl { get; set; }
+
     // ---- Identificacion ----
     public TerceroIdTipo IdTipo { get; set; } = TerceroIdTipo.Nit;
 

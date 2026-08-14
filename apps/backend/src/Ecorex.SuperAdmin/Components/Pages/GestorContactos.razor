@@ -994,7 +994,7 @@
             if (_prospFuente is null || !string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {
                 rows.AddRange(_prospectos.Select(p => new ContactoRow(
-                    null, p.Id, p.NombreCompleto,
+                    p.TerceroId, p.Id, p.NombreCompleto,
                     string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
                     p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
                     p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl)));
@@ -1006,8 +1006,14 @@
                     t.EsEmpresa ? "Empresa" : "Persona",
                     t.EsEmpresa ? "" : (t.Sub ?? ""), t.Ciudad ?? "",
                     FuenteDirectorio, t.Identificacion,
-                    null, false, !t.EsEmpresa)));
+                    null, false, !t.EsEmpresa, t.ImagenUrl)));
             }
+            // Dedup por TerceroId: un prospecto PROMOVIDO crea un Tercero que tambien llega como fila del
+            // directorio; se muestra UNA sola vez (gana la del prospecto, que conserva la fuente). Las filas
+            // sin TerceroId (prospecto aun no promovido) no se tocan.
+            var vistos = new HashSet<Guid>();
+            rows = rows.Where(r => r.TerceroId is not Guid tid || vistos.Add(tid)).ToList();
+
             // Filtro rapido: en memoria sobre lo ya cargado (nombre / empresa / ciudad / identificacion).
             var q = _contactSearch?.Trim();
             if (!string.IsNullOrEmpty(q))

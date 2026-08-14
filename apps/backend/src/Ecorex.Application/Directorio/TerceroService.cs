@@ -82,6 +82,7 @@ public sealed class TerceroService : ITerceroService
                 t.Sector,
                 t.Cargo,
                 t.FichasJson,
+                t.ImagenUrl,
                 // Contactos = contactos embebidos + personas reasignadas a esta empresa.
                 Contactos = _db.TerceroContactos.Count(c => c.TerceroId == t.Id)
                     + _db.Terceros.Count(p => p.EmpresaId == t.Id)
@@ -119,7 +120,8 @@ public sealed class TerceroService : ITerceroService
             t.Tipo == TerceroTipo.Persona,
             ExtractFilterables(t.FichasJson, filterKeys),
             t.VendedorAsesorId,
-            t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null)).ToList();
+            t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null,
+            t.ImagenUrl)).ToList();
     }
 
     /// <summary>
@@ -578,6 +580,7 @@ public sealed class TerceroService : ITerceroService
         entity.Telefono = Normalize(request.Telefono);
         entity.EmpresaId = empresaId;
         entity.FichasJson = Normalize(request.FichasJson);
+        entity.ImagenUrl = Normalize(request.ImagenUrl);
     }
 
     private static TerceroDetailDto ToDetail(
@@ -605,7 +608,8 @@ public sealed class TerceroService : ITerceroService
         ParseFichas(t.FichasJson),
         contactos,
         t.VendedorAsesorId,
-        vendedorAsesorNombre);
+        vendedorAsesorNombre,
+        t.ImagenUrl);
 
     private static string FormatIdentificacion(TerceroIdTipo tipo, string? valor)
     {

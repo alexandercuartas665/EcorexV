@@ -12711,6 +12711,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("id_valor");
 
+                    b.Property<string>("ImagenUrl")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("imagen_url");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)

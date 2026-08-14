@@ -16,6 +16,9 @@
 @using Ecorex.Application.Forms
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Microsoft.AspNetCore.Components.Forms
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject Ecorex.Application.Common.ITenantContext TenantCtx
 @inject ITerceroService TerceroSvc
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFichaService FichaSvc
@@ -81,7 +84,19 @@
     <div class="dg-overlay" @onclick="BackOrCloseAsync">
         <div class="dg-modal" @onclick:stopPropagation="true">
             <div class="dg-m-head">
-                <span class="dg-m-av" style="background:@AvatarColor(string.IsNullOrWhiteSpace(_mNombre) ? "Nuevo" : _mNombre)">@Initials(string.IsNullOrWhiteSpace(_mNombre) ? "?" : _mNombre)</span>
+                <label title="Subir/cambiar foto" style="position:relative;cursor:pointer;flex:none;display:block;line-height:0">
+                    @if (!string.IsNullOrWhiteSpace(_mImagenUrl))
+                    {
+                        <img class="dg-m-av" src="@_mImagenUrl" alt="" style="object-fit:cover" />
+                    }
+                    else
+                    {
+                        <span class="dg-m-av" style="background:@AvatarColor(string.IsNullOrWhiteSpace(_mNombre) ? "Nuevo" : _mNombre)">@Initials(string.IsNullOrWhiteSpace(_mNombre) ? "?" : _mNombre)</span>
+                    }
+                    <InputFile accept="@Ecorex.SuperAdmin.Services.ImageUploadGuard.Accept" OnChange="OnFotoSelectedAsync" disabled="@_busy"
+                               style="position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0" />
+                    <span style="position:absolute;right:-2px;bottom:-2px;width:17px;height:17px;border-radius:50%;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font-size:10px;pointer-events:none;box-shadow:0 0 0 2px var(--surface)">@(_fotoBusy ? "…" : "✎")</span>
+                </label>
                 <div style="flex:1;min-width:0">
                     <div class="dg-m-kicker">@(_editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")</div>
                     <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
@@ -887,6 +902,10 @@
     private string _mCargo = "";
     private string _mEmail = "";
     private string _mTelefono = "";
+    /// <summary>Foto del tercero (URL en wwwroot/uploads/terceros/{tenant}). Se sube en la cabecera del
+    /// modal (crear o editar) y viaja en el SaveTerceroRequest.</summary>
+    private string _mImagenUrl = "";
+    private bool _fotoBusy;
     private readonly Dictionary<string, Dictionary<string, string>> _fichaValues = new(StringComparer.Ordinal);
     private readonly HashSet<string> _fichaOpen = new(StringComparer.Ordinal);
     private string? _modalError;
@@ -1035,6 +1054,7 @@
         _buscadorMatches = new();
         _buscadorOpen = false;
         _mNombre = _mVendedor = _mCiudad = _mSector = _mCargo = _mEmail = _mTelefono = "";
+        _mImagenUrl = "";
         // Prefill del nombre (p.ej. lo que el operador escribio en el autocompletar antes de "Crear tercero").
         if (!string.IsNullOrWhiteSpace(nombre)) { _mNombre = nombre.Trim(); }
         _mVendedorAsesorId = null;
@@ -1106,6 +1126,7 @@
         _mSector = d.Sector ?? "";
         _mCargo = d.Cargo ?? "";
         _mEmail = d.Email ?? "";
+        _mImagenUrl = d.ImagenUrl ?? "";
         _mTelefono = d.Telefono ?? "";
         _fichaValues.Clear();
         _fichaOpen.Clear();
@@ -1477,7 +1498,8 @@
             // Persona: conserva/asigna su empresa (el servicio lo ignora para tipo Empresa). Antes iba
             // null y editar una persona la desvinculaba de su empresa.
             EmpresaId: _empresaId,
-            FichasJson: fichasJson);
+            FichasJson: fichasJson,
+            ImagenUrl: Blank(_mImagenUrl));
 
         var wasCreate = _editingId is null;
         _busy = true;
@@ -1537,6 +1559,52 @@
     }
 
     private static string? Blank(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+    /// <summary>Sube la foto del tercero (crear o editar): valida y guarda el archivo en
+    /// wwwroot/uploads/terceros/{tenant} y pone su URL en _mImagenUrl (viaja en el SaveTerceroRequest al
+    /// guardar). Mismo patron/guardas que Inventario (ImageUploadGuard: formato + firma + tamano; carpeta
+    /// por tenant + nombre con Guid, asi un tenant no puede pisar el archivo de otro).</summary>
+    private async Task OnFotoSelectedAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) { return; }
+        _fotoBusy = true;
+        _busy = true;
+        _modalError = null;
+        try
+        {
+            var url = await StoreFotoAsync(file);
+            if (url is not null) { _mImagenUrl = url; }
+        }
+        finally { _fotoBusy = false; _busy = false; }
+    }
+
+    private async Task<string?> StoreFotoAsync(IBrowserFile file)
+    {
+        if (TenantCtx.TenantId is not Guid tenantId) { _modalError = "No hay tenant activo."; return null; }
+        var ext = Ecorex.SuperAdmin.Services.ImageUploadGuard.ResolveExtension(file.Name);
+        if (ext is null) { _modalError = $"Formato no permitido. Solo {Ecorex.SuperAdmin.Services.ImageUploadGuard.FormatosTexto}."; return null; }
+        const long max = 4L * 1024 * 1024;
+        if (file.Size <= 0) { _modalError = "El archivo esta vacio."; return null; }
+        if (file.Size > max) { _modalError = $"La imagen supera {max / (1024 * 1024)} MB."; return null; }
+        try
+        {
+            using var ms = new System.IO.MemoryStream();
+            await file.OpenReadStream(max).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            if (!Ecorex.SuperAdmin.Services.ImageUploadGuard.MatchesSignature(bytes, ext))
+            {
+                _modalError = $"El contenido no es una imagen {ext.TrimStart('.').ToUpperInvariant()} valida.";
+                return null;
+            }
+            var dir = System.IO.Path.Combine(Env.WebRootPath, "uploads", "terceros", tenantId.ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            var stored = Ecorex.SuperAdmin.Services.ImageUploadGuard.BuildStoredFileName("tercero", ext);
+            await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, stored), bytes);
+            return $"/uploads/terceros/{tenantId:N}/{stored}";
+        }
+        catch { _modalError = "No se pudo subir la foto."; return null; }
+    }
 
     // ---- Contactos de relacion (sub-modal reusado por la tabla del host y por la pestana Relaciones) ----
     /// <summary>Abre el sub-modal para agregar (c=null) o editar un contacto de relacion del tercero.</summary>

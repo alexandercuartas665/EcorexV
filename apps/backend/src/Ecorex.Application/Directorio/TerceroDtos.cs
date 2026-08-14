@@ -28,7 +28,9 @@ public sealed record TerceroListItemDto(
     // Vendedor asignado desde el catalogo de asesores (000074). Null = sin asesor; en ese caso la UI
     // cae al texto libre legado de <see cref="Vendedor"/>.
     Guid? VendedorAsesorId = null,
-    string? VendedorAsesorNombre = null);
+    string? VendedorAsesorNombre = null,
+    // Foto/logo del tercero (avatar circular; null = iniciales).
+    string? ImagenUrl = null);
 
 /// <summary>Detalle completo de un tercero: campos + fichas dinamicas + contactos.</summary>
 public sealed record TerceroDetailDto(
@@ -54,7 +56,9 @@ public sealed record TerceroDetailDto(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> Fichas,
     IReadOnlyList<TerceroContactoDto> Contactos,
     Guid? VendedorAsesorId = null,
-    string? VendedorAsesorNombre = null);
+    string? VendedorAsesorNombre = null,
+    // Foto/logo del tercero (avatar circular; null = iniciales).
+    string? ImagenUrl = null);
 
 /// <summary>Contacto embebido de una empresa.</summary>
 public sealed record TerceroContactoDto(
@@ -84,7 +88,9 @@ public sealed record SaveTerceroRequest(
     string? Telefono = null,
     Guid? EmpresaId = null,
     string? FichasJson = null,
-    Guid? VendedorAsesorId = null);
+    Guid? VendedorAsesorId = null,
+    // Foto/logo del tercero (URL a wwwroot/uploads/terceros/{tenant}). Null = sin foto.
+    string? ImagenUrl = null);
 
 /// <summary>Alta/edicion de un contacto embebido de una empresa.</summary>
 public sealed record SaveContactoRequest(

@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
+using Ecorex.Contracts.Agent;
 using Ecorex.Domain.Enums;
+using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Microsoft.EntityFrameworkCore;
 
@@ -313,8 +315,99 @@ public static class AgentMgmtEndpoints
             ShapeOutcome))
             .DisableAntiforgery();
 
+        // 16. PRUEBA HEADLESS del Navegador Colmena: despacha Navigate -> ExtractReadable -> Screenshot a
+        //     una Colmena YA conectada y DEVUELVE el resultado (para afinar scraping antes de formalizar
+        //     una busqueda). Auth por mgmt-key (misma que el resto de /api/mgmt); NO usa ?tenant= porque el
+        //     tenant sale de la PRESENCIA del agente (registry.Get), como el push de prueba.
+        //     SEGURIDAD: este endpoint NO baja la allow-list ni el consentimiento del agente. La Colmena los
+        //     sigue aplicando: si el dominio no esta permitido o el Navegador esta apagado, la accion falla y
+        //     se reporta en actions[].error/ok:false. Solo lectura/extraccion; sin JS del modelo (acciones
+        //     tipadas Navigate/ExtractReadable/Screenshot no requieren firma).
+        group.MapPost("/nav-test/{clientId}", async (
+            string clientId,
+            HttpRequest req,
+            IAgentRegistry registry,
+            IBrowserActionChannel browserChannel,
+            CancellationToken ct) =>
+        {
+            var gate = CheckAuthGate(req);
+            if (gate is not null) { return gate; }
+
+            NavTestBody? body;
+            try { body = await req.ReadFromJsonAsync<NavTestBody>(Json, ct); }
+            catch (JsonException) { return Results.Json(new { ok = false, error = "cuerpo JSON invalido" }, Json, statusCode: 400); }
+
+            if (body is null || string.IsNullOrWhiteSpace(body.Url)
+                || !Uri.TryCreate(body.Url, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return Results.Json(new { ok = false, error = "url http/https absoluta es obligatoria" }, Json, statusCode: 400);
+            }
+
+            var presence = registry.Get(clientId);
+            if (presence is null)
+            {
+                return Results.Json(new { ok = false, error = "Agente offline." }, Json, statusCode: 409);
+            }
+
+            var scrollRounds = body.ScrollRounds is > 0 ? body.ScrollRounds.Value : 4;
+            var includeShot = body.IncludeShot ?? true;
+            var corr = Guid.NewGuid().ToString("N")[..8];
+            var actions = new List<BrowserAction>
+            {
+                new(BrowserActionKind.Navigate, Url: uri.ToString()),
+                new(BrowserActionKind.ExtractReadable, ScrollRounds: scrollRounds, WaitMs: 1200),
+                new(BrowserActionKind.Screenshot, Screenshot: true),
+            };
+            var request = new BrowserRequestMsg(corr, presence.TenantId.ToString(), actions);
+
+            BrowserResultMsg res;
+            try
+            {
+                res = await browserChannel.ExecuteAsync(clientId, request, TimeSpan.FromSeconds(60), ct);
+            }
+            catch (TimeoutException)
+            {
+                return Results.Json(new { ok = false, error = "El navegador no respondio a tiempo." }, Json, statusCode: 504);
+            }
+
+            var results = res.Results ?? Array.Empty<BrowserActionResult>();
+            var actionsOut = results
+                .Select(r => new { kind = r.Kind.ToString(), ok = r.Ok, error = r.Error })
+                .ToList();
+            var allOk = res.Error is null && results.Count > 0 && results.All(r => r.Ok);
+
+            // extract: el Value de ExtractReadable, ya JSON {title,url,text,items,links,images}. Si parsea, se
+            // devuelve como objeto; si no, como string crudo.
+            object? extract = null;
+            var er = results.FirstOrDefault(r => r.Kind == BrowserActionKind.ExtractReadable);
+            if (er?.Value is { Length: > 0 } rawExtract)
+            {
+                try { extract = JsonSerializer.Deserialize<JsonElement>(rawExtract, Json); }
+                catch (JsonException) { extract = rawExtract; }
+            }
+
+            var shot = includeShot
+                ? results.FirstOrDefault(r => r.Kind == BrowserActionKind.Screenshot)?.ScreenshotBase64
+                : null;
+
+            return Results.Json(new
+            {
+                ok = allOk,
+                clientId,
+                correlationId = corr,
+                actions = actionsOut,
+                extract,
+                error = res.Error,
+                screenshotBase64 = shot,
+            }, Json);
+        }).DisableAntiforgery();
+
         return app;
     }
+
+    // Cuerpo de la prueba headless del Navegador (endpoint 16). url obligatoria http/https.
+    private sealed record NavTestBody(string? Url, int? ScrollRounds, bool? IncludeShot);
 
     // Sin identidad de usuario detras de la clave: el actor de la auditoria es el sistema.
     private static readonly Guid SystemActor = Guid.Empty;

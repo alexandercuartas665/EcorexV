@@ -358,25 +358,54 @@ public sealed class AiStepOrchestrator(
         }
     }
 
-    /// <summary>Formatea la salida de ExtractReadable (JSON {title,url,text,items,links}) para el modelo:
-    /// antepone los 'items' (nombres de cada resultado, p.ej. negocios en Maps) y luego el JSON completo,
-    /// respetando el tope. Si no es JSON valido, devuelve el valor tal cual (acotado).</summary>
+    /// <summary>Formatea la salida de ExtractReadable (JSON {title,url,text,items,links,images,profiles})
+    /// para el modelo: antepone las PERSONAS de LinkedIn ('profiles') y los 'items' (nombres de cada
+    /// resultado, p.ej. negocios en Maps) y luego el JSON completo, respetando el tope. Si no es JSON
+    /// valido, devuelve el valor tal cual (acotado).</summary>
     private static string FormatReadable(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) { return "(la pagina no devolvio contenido legible)"; }
         try
         {
             using var doc = JsonDocument.Parse(value);
-            if (doc.RootElement.TryGetProperty("items", out var items)
+            var root = doc.RootElement;
+            var sb = new StringBuilder();
+
+            // PERSONAS (LinkedIn): una por linea con nombre | cargo(headline) | url del perfil.
+            if (root.TryGetProperty("profiles", out var profiles)
+                && profiles.ValueKind == JsonValueKind.Array && profiles.GetArrayLength() > 0)
+            {
+                sb.Append("PERSONAS DETECTADAS (LinkedIn):\n");
+                foreach (var p in profiles.EnumerateArray())
+                {
+                    var name = p.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(name)) { continue; }
+                    var head = p.TryGetProperty("headline", out var hh) ? hh.GetString() : null;
+                    var url = p.TryGetProperty("url", out var u) ? u.GetString() : null;
+                    sb.Append("- ").Append(name);
+                    if (!string.IsNullOrWhiteSpace(head)) { sb.Append(" | ").Append(head); }
+                    if (!string.IsNullOrWhiteSpace(url)) { sb.Append(" | ").Append(url); }
+                    sb.Append('\n');
+                }
+                sb.Append('\n');
+            }
+
+            // RESULTADOS (Maps u otros): nombre de cada resultado (aria-label).
+            if (root.TryGetProperty("items", out var items)
                 && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0)
             {
-                var sb = new StringBuilder("RESULTADOS DETECTADOS:\n");
+                sb.Append("RESULTADOS DETECTADOS:\n");
                 foreach (var it in items.EnumerateArray())
                 {
                     var s = it.GetString();
                     if (!string.IsNullOrWhiteSpace(s)) { sb.Append("- ").Append(s).Append('\n'); }
                 }
-                sb.Append('\n').Append(value);
+                sb.Append('\n');
+            }
+
+            if (sb.Length > 0)
+            {
+                sb.Append(value);
                 var outStr = sb.ToString();
                 return outStr.Length > MaxHtmlChars ? outStr[..MaxHtmlChars] + "...[recortado]" : outStr;
             }

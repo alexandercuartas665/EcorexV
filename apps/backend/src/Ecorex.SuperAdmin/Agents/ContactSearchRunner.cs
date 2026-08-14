@@ -23,7 +23,14 @@ public interface IContactSearchRunner
 public sealed class ContactSearchRunner : IContactSearchRunner
 {
     /// <summary>Tope de corridas por fuente y dia (defensa anti-baneo de las redes). Configurable aqui.</summary>
-    private const int MaxRunsPerSourcePerDay = 20;
+    /// <summary>Tope de corridas por dia y red SOCIAL (defensa anti-baneo de LinkedIn/Facebook/Instagram/X).
+    /// Maps/Web NO tienen tope. Configurable aqui.</summary>
+    private const int DailySocialCap = 20;
+
+    /// <summary>Fuentes sociales sujetas al tope diario (las que penalizan por exceso de scraping).</summary>
+    private static bool IsSocial(ContactSearchSource s) => s
+        is ContactSearchSource.LinkedIn or ContactSearchSource.Facebook
+        or ContactSearchSource.Instagram or ContactSearchSource.X;
 
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
@@ -51,15 +58,19 @@ public sealed class ContactSearchRunner : IContactSearchRunner
             return new(false, 0, $"El proveedor {agent.Provider} del agente no esta habilitado (Super Admin -> Servidores de IA).");
         }
 
-        // TOPE DIARIO POR FUENTE: como maximo N corridas/dia de esta Source y tenant (redes penalizan por
-        // exceso). Se cuenta por RunAt >= inicio del dia UTC; el filtro de tenant lo pone el query global.
+        // TOPE DIARIO SOLO PARA REDES SOCIALES: max DailySocialCap corridas/dia de esa red y tenant (penalizan
+        // por exceso). Maps/Web NO tienen tope. Se cuenta por RunAt >= inicio del dia UTC (huso del tenant queda
+        // para despues); el filtro de tenant lo pone el query global.
         var source = def.SourceType.ToString();
-        var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
-        var todayRuns = await _db.ContactSearchRuns
-            .CountAsync(r => r.Source == source && r.RunAt >= startOfDayUtc, ct);
-        if (todayRuns >= MaxRunsPerSourcePerDay)
+        if (IsSocial(def.SourceType))
         {
-            return new(false, 0, $"Alcanzaste el tope diario de {MaxRunsPerSourcePerDay} busquedas de {source}. Intenta de nuevo manana.");
+            var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+            var todayRuns = await _db.ContactSearchRuns
+                .CountAsync(r => r.Source == source && r.RunAt >= startOfDayUtc, ct);
+            if (todayRuns >= DailySocialCap)
+            {
+                return new(false, 0, $"Alcanzaste el tope diario de {DailySocialCap} busquedas de {source}. Intenta manana.");
+            }
         }
 
         var cap = def.MaxContacts <= 0 ? int.MaxValue : def.MaxContacts;
@@ -117,6 +128,20 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.AppendLine();
         sb.AppendLine(d.ExtractionPrompt);
         sb.AppendLine();
+        // Guia especifica por fuente: LinkedIn descubre PERSONAS (una fila c/u); FB/IG es UN negocio (una fila).
+        var guidance = d.SourceType switch
+        {
+            ContactSearchSource.LinkedIn =>
+                "El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y en enlaces de perfil (/in/). Guarda UNA fila por "
+                + "persona con: nombre, cargo (el headline que sigue al nombre) y url = la URL del perfil (/in/...). "
+                + "No inventes telefono ni correo si no aparecen.",
+            ContactSearchSource.Facebook or ContactSearchSource.Instagram =>
+                "Es la pagina/perfil de UN negocio (no una lista). Guarda UNA sola fila con: nombre del negocio, empresa, "
+                + "sitio web y seguidores en 'metrica', y url = la URL del perfil/pagina. Ignora el texto de los posts "
+                + "(suele venir con caracteres basura anti-scraping); la firmografia de la cabecera si es confiable.",
+            _ => string.Empty,
+        };
+        if (!string.IsNullOrEmpty(guidance)) { sb.AppendLine(guidance).AppendLine(); }
         sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos usando claves como ");
         sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica, ");
         sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece) y ");

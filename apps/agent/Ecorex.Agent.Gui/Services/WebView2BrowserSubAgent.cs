@@ -110,11 +110,23 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             try
             {
                 var results = new List<BrowserActionResult>(req.Actions.Count);
+                // Si un Navigate falla (dominio fuera de la allow-list, red, etc.), NO se ejecutan las
+                // acciones siguientes: se marcan "omitida". Evita el "CoreWebView2 ... disposed" que salta
+                // cuando un Screenshot/Extract corre tras una navegacion que nunca cargo.
+                var aborted = false;
                 for (var i = 0; i < req.Actions.Count; i++)
                 {
                     var action = req.Actions[i];
-                    try { results.Add(await instance.RunActionAsync(i, action)); }
-                    catch (Exception ex) { results.Add(new BrowserActionResult(i, action.Kind, Ok: false, Error: ex.Message)); }
+                    if (aborted)
+                    {
+                        results.Add(new BrowserActionResult(i, action.Kind, Ok: false, Error: "omitida: el Navigate previo fallo"));
+                        continue;
+                    }
+                    BrowserActionResult r;
+                    try { r = await instance.RunActionAsync(i, action); }
+                    catch (Exception ex) { r = new BrowserActionResult(i, action.Kind, Ok: false, Error: ex.Message); }
+                    results.Add(r);
+                    if (action.Kind == BrowserActionKind.Navigate && !r.Ok) { aborted = true; }
                 }
                 return new BrowserResultMsg(req.CorrelationId, results.All(r => r.Ok), results);
             }
@@ -444,8 +456,10 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
              if(f){f.scrollBy(0, f.scrollHeight);} return true;})()
             """;
 
-        // Extractor: texto visible + labels de resultados (aria-label) + enlaces, todo acotado. Devuelve
-        // JSON {title,url,text,items,links} listo para el modelo (sin <head>/<script> ni ruido).
+        // Extractor: texto visible + labels de resultados (aria-label) + enlaces + PERSONAS de LinkedIn,
+        // todo acotado. Devuelve JSON {title,url,text,items,links,images,profiles} listo para el modelo.
+        // 'profiles' solo se llena en LinkedIn (enlaces /in/): nombre y headline separados (quitando el
+        // grado de conexion 1er/2do/3ro). En FB/IG queda vacio (la firmografia sale por text+links).
         private const string ExtractReadableJs =
             """
             (function(){
@@ -465,8 +479,20 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
                 if((im[j].naturalWidth||im[j].width||0) < 40) continue;
                 imgs.push({src:s, alt:c(im[j].alt).slice(0,120)});
               }
+              // PERSONAS (LinkedIn): enlaces a /in/ con nombre + headline separados.
+              function degIdx(s){ var m=s.match(/\s(1er|2do|3ro|1st|2nd|3rd|1°|2°|3°)\b/i); return m?m.index:-1; }
+              var profs=[], seenP={};
+              document.querySelectorAll('a[href*="/in/"]').forEach(function(a){
+                var h=(a.href||'').split('?')[0]; if(!/linkedin\.com\/in\//.test(h)) return;
+                if(seenP[h]) return; seenP[h]=1;
+                var raw=c(a.innerText); if(!raw||raw.length<2) return;
+                var i=degIdx(raw);
+                var name = i>0 ? raw.slice(0,i).trim() : raw;
+                var head = i>0 ? raw.slice(i).replace(/^(\s|1er|2do|3ro|1st|2nd|3rd|·|•|1°|2°|3°)+/gi,'').trim() : '';
+                if(profs.length<60) profs.push({name:name.slice(0,80), headline:head.slice(0,120), url:h});
+              });
               return JSON.stringify({title:document.title,url:location.href,
-                text:c(document.body?document.body.innerText:'').slice(0,9000), items:items, links:links, images:imgs});
+                text:c(document.body?document.body.innerText:'').slice(0,9000), items:items, links:links, images:imgs, profiles:profs});
             })()
             """;
     }

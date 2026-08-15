@@ -484,8 +484,8 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
               var profs=[], seenP={};
               document.querySelectorAll('a[href*="/in/"]').forEach(function(a){
                 var h=(a.href||'').split('?')[0]; if(!/linkedin\.com\/in\//.test(h)) return;
-                if(seenP[h]) return; seenP[h]=1;
-                var raw=c(a.innerText); if(!raw||raw.length<2) return;
+                var raw=c(a.innerText); if(!raw||raw.length<2) return; // primero: descarta la foto (texto vacio)
+                if(seenP[h]) return; seenP[h]=1;                        // dedup DESPUES de tener texto
                 var i=degIdx(raw);
                 var name = i>0 ? raw.slice(0,i).trim() : raw;
                 var head = i>0 ? raw.slice(i).replace(/^(\s|1er|2do|3ro|1st|2nd|3rd|·|•|1°|2°|3°)+/gi,'').trim() : '';

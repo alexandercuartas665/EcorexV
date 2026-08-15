@@ -371,19 +371,33 @@ public sealed class AiStepOrchestrator(
             var root = doc.RootElement;
             var sb = new StringBuilder();
 
-            // PERSONAS (LinkedIn): una por linea con nombre | cargo(headline) | url del perfil.
-            if (root.TryGetProperty("profiles", out var profiles)
-                && profiles.ValueKind == JsonValueKind.Array && profiles.GetArrayLength() > 0)
+            // PERSONAS (LinkedIn): se DERIVAN de 'links' (/in/), MAS FIABLE que 'profiles' del agente 1.7.1
+            // (que dedup-ea el enlace de la foto -texto vacio- antes que el del nombre y pierde casi todas).
+            // Si no hay links /in/, se cae a 'profiles' del agente (otras variantes / futuros MSI corregidos).
+            var people = new List<(string Name, string Headline, string Url)>();
+            if (root.TryGetProperty("links", out var links) && links.ValueKind == JsonValueKind.Array)
             {
-                sb.Append("PERSONAS DETECTADAS (LinkedIn):\n");
+                people = DeriveLinkedInPeople(links);
+            }
+            if (people.Count == 0 && root.TryGetProperty("profiles", out var profiles)
+                && profiles.ValueKind == JsonValueKind.Array)
+            {
                 foreach (var p in profiles.EnumerateArray())
                 {
-                    var name = p.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    if (string.IsNullOrWhiteSpace(name)) { continue; }
-                    var head = p.TryGetProperty("headline", out var hh) ? hh.GetString() : null;
-                    var url = p.TryGetProperty("url", out var u) ? u.GetString() : null;
+                    var nm = p.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(nm)) { continue; }
+                    var hd = p.TryGetProperty("headline", out var hh) ? hh.GetString() : null;
+                    var ur = p.TryGetProperty("url", out var u) ? u.GetString() : null;
+                    people.Add((nm, hd ?? string.Empty, ur ?? string.Empty));
+                }
+            }
+            if (people.Count > 0)
+            {
+                sb.Append("PERSONAS DETECTADAS (LinkedIn):\n");
+                foreach (var (name, headline, url) in people)
+                {
                     sb.Append("- ").Append(name);
-                    if (!string.IsNullOrWhiteSpace(head)) { sb.Append(" | ").Append(head); }
+                    if (!string.IsNullOrWhiteSpace(headline)) { sb.Append(" | ").Append(headline); }
                     if (!string.IsNullOrWhiteSpace(url)) { sb.Append(" | ").Append(url); }
                     sb.Append('\n');
                 }
@@ -412,6 +426,54 @@ public sealed class AiStepOrchestrator(
         }
         catch { /* no era JSON valido: se devuelve tal cual, acotado */ }
         return value.Length > MaxHtmlChars ? value[..MaxHtmlChars] + "...[recortado]" : value;
+    }
+
+    /// <summary>Deriva PERSONAS de LinkedIn desde 'links': enlaces a /in/, dedup por href quedandose con el
+    /// texto MAS LARGO (el enlace del nombre trae mas que el de la foto), separa nombre/headline por el grado
+    /// de conexion, y descarta basura ("Ofrece servicios..." y slugs ofuscados "ACoAA...").</summary>
+    private static List<(string Name, string Headline, string Url)> DeriveLinkedInPeople(JsonElement links)
+    {
+        var best = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // href -> mejor texto
+        foreach (var l in links.EnumerateArray())
+        {
+            var h = l.TryGetProperty("h", out var hp) ? hp.GetString() : null;
+            var t = l.TryGetProperty("t", out var tp) ? tp.GetString() : null;
+            if (string.IsNullOrWhiteSpace(h) || string.IsNullOrWhiteSpace(t)) { continue; }
+            var href = h.Split('?')[0];
+            if (!href.Contains("linkedin.com/in/", StringComparison.OrdinalIgnoreCase)) { continue; }
+            var slug = href.TrimEnd('/');
+            slug = slug[(slug.LastIndexOf('/') + 1)..];
+            if (slug.StartsWith("ACoAA", StringComparison.Ordinal)) { continue; } // ids ofuscados, no personas
+            var text = t.Trim();
+            if (text.StartsWith("Ofrece servicios", StringComparison.OrdinalIgnoreCase)) { continue; }
+            if (!best.TryGetValue(href, out var prev) || text.Length > prev.Length) { best[href] = text; }
+        }
+        var people = new List<(string, string, string)>();
+        foreach (var (href, text) in best)
+        {
+            var (name, headline) = SplitNameHeadline(text);
+            if (!string.IsNullOrWhiteSpace(name)) { people.Add((name, headline, href)); }
+        }
+        return people;
+    }
+
+    // Grado de conexion de LinkedIn (1er/2do/3ro ES, 1st/2nd/3rd EN, o 1-3 con el simbolo de grado): marca
+    // el corte entre el nombre y el headline. DegreeLeadRx quita ademas separadores middot/bullet iniciales.
+    private static readonly Regex DegreeRx = new(@"\s(1er|2do|3ro|1st|2nd|3rd|1°|2°|3°)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex DegreeLeadRx = new(@"^(\s|1er|2do|3ro|1st|2nd|3rd|·|•|1°|2°|3°)+",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static (string Name, string Headline) SplitNameHeadline(string text)
+    {
+        var m = DegreeRx.Match(text);
+        if (m.Success && m.Index > 0)
+        {
+            var name = text[..m.Index].Trim();
+            var head = DegreeLeadRx.Replace(text[m.Index..], string.Empty).Trim();
+            return (name, head);
+        }
+        return (text, string.Empty);
     }
 
     private async Task<(int Ins, int Upd, int Del, bool Ok, string Msg)> SaveRowsAsync(

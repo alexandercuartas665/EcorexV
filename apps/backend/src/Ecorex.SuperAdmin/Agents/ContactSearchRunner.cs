@@ -128,13 +128,20 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         sb.AppendLine();
         sb.AppendLine(d.ExtractionPrompt);
         sb.AppendLine();
+        // LinkedIn logueado: navegar DIRECTO a la busqueda de PERSONAS (no Google). keywords = terminos + ubicacion.
+        var lkTerms = new List<string>();
+        if (!string.IsNullOrWhiteSpace(d.Query)) { lkTerms.Add(d.Query!); }
+        lkTerms.AddRange(geo);
+        var lkUrl = $"https://www.linkedin.com/search/results/people/?keywords={Uri.EscapeDataString(string.Join(" ", lkTerms))}";
+
         // Guia especifica por fuente: LinkedIn descubre PERSONAS (una fila c/u); FB/IG es UN negocio (una fila).
         var guidance = d.SourceType switch
         {
             ContactSearchSource.LinkedIn =>
-                "El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y en enlaces de perfil (/in/). Guarda UNA fila por "
-                + "persona con: nombre, cargo (el headline que sigue al nombre) y url = la URL del perfil (/in/...). "
-                + "No inventes telefono ni correo si no aparecen.",
+                $"Estas logueado en LinkedIn. NAVEGA directamente a {lkUrl} (NO uses Google ni site:linkedin.com). "
+                + "Haz scroll para cargar mas resultados. El contenido trae PERSONAS en 'PERSONAS DETECTADAS' y enlaces "
+                + "de perfil (/in/): guarda UNA fila por persona con nombre, cargo (el headline tras el nombre) y "
+                + "url = la URL del perfil (/in/...). No inventes telefono ni correo si no aparecen.",
             ContactSearchSource.Facebook or ContactSearchSource.Instagram =>
                 "Es la pagina/perfil de UN negocio (no una lista). Guarda UNA sola fila con: nombre del negocio, empresa, "
                 + "sitio web y seguidores en 'metrica', y url = la URL del perfil/pagina. Ignora el texto de los posts "

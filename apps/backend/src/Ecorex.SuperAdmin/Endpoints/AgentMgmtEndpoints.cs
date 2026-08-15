@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
 using Ecorex.Contracts.Agent;
+using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
@@ -315,6 +316,75 @@ public static class AgentMgmtEndpoints
             ShapeOutcome))
             .DisableAntiforgery();
 
+        // 17. ALTA MASIVA de busquedas de contactos (ContactSearchDefinition) en un tenant, para cargar un
+        //     paquete de prueba por API sin login ni DB directa. Tenant por ?tenant= (cross-tenant, mgmt-key).
+        //     Valida source; si vienen, que clientId/aiAgentId pertenezcan al tenant; dedup por NAME (el
+        //     indice unico es (TenantId, Name), NO incluye source). Se salta y reporta lo invalido/duplicado.
+        group.MapPost("/contact-searches", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<List<ContactSearchCreateBody>>(req, scopes, ct, async (svc, body, tenant, c) =>
+            {
+                if (body is null || body.Count == 0)
+                {
+                    return new ApiOutcome(400, new { error = "El cuerpo debe ser un arreglo no vacio de busquedas." });
+                }
+                const string defaultPrompt = "Extrae nombre, cargo, empresa, telefono, correo, ciudad, la URL de origen y la imagen si aparece.";
+                var created = new List<object>();
+                var skipped = new List<object>();
+                var seenNames = new HashSet<string>(StringComparer.Ordinal); // dedup DENTRO del lote (el indice es case-sensitive)
+                foreach (var item in body)
+                {
+                    var name = item.Name?.Trim();
+                    if (string.IsNullOrWhiteSpace(name)) { skipped.Add(new { name = item.Name, reason = "name vacio" }); continue; }
+                    if (string.IsNullOrWhiteSpace(item.Source) || !Enum.TryParse<ContactSearchSource>(item.Source, ignoreCase: true, out var source))
+                    {
+                        skipped.Add(new { name, reason = $"source invalido: {item.Source}" }); continue;
+                    }
+                    if (!string.IsNullOrWhiteSpace(item.ClientId)
+                        && !await svc.Db.DataClients.AnyAsync(d => d.ClientId == item.ClientId, c))
+                    {
+                        skipped.Add(new { name, reason = $"clientId no pertenece al tenant: {item.ClientId}" }); continue;
+                    }
+                    if (item.AiAgentId is Guid aid && !await svc.Db.AiAgents.AnyAsync(a => a.Id == aid, c))
+                    {
+                        skipped.Add(new { name, reason = $"aiAgentId no pertenece al tenant: {aid}" }); continue;
+                    }
+                    // Unicidad (TenantId, Name): dedup contra la BD y dentro del propio lote.
+                    if (!seenNames.Add(name) || await svc.Db.ContactSearchDefinitions.AnyAsync(d => d.Name == name, c))
+                    {
+                        skipped.Add(new { name, reason = "ya existe una busqueda con ese nombre en el tenant" }); continue;
+                    }
+                    var def = new ContactSearchDefinition
+                    {
+                        TenantId = tenant,
+                        Name = name,
+                        SourceType = source,
+                        Query = NullIfEmpty(item.Query),
+                        City = NullIfEmpty(item.City),
+                        Region = NullIfEmpty(item.Region),
+                        Country = NullIfEmpty(item.Country),
+                        SubQuery = NullIfEmpty(item.SubQuery),
+                        MaxContacts = item.MaxContacts is > 0 ? item.MaxContacts.Value : 10,
+                        ClientId = NullIfEmpty(item.ClientId),
+                        ClassifierAiAgentId = item.AiAgentId,
+                        ExtractionPrompt = string.IsNullOrWhiteSpace(item.ExtractionPrompt) ? defaultPrompt : item.ExtractionPrompt.Trim(),
+                        IsActive = item.Active ?? true,
+                        SchedulesJson = null,
+                    };
+                    svc.Db.ContactSearchDefinitions.Add(def);
+                    created.Add(new { def.Id, def.Name, source = source.ToString() });
+                }
+                if (created.Count > 0)
+                {
+                    await svc.Db.SaveChangesAsync(c);
+                    await AuditAsync(svc, tenant, "mgmt-api.contact-search.bulk-create",
+                        nameof(Ecorex.Domain.Entities.ContactSearchDefinition), null,
+                        new { created = created.Count, skipped = skipped.Count }, c);
+                }
+                return new ApiOutcome(201, new { created, skipped });
+            },
+            ShapeOutcome))
+            .DisableAntiforgery();
+
         // 16. PRUEBA HEADLESS del Navegador Colmena: despacha Navigate -> ExtractReadable -> Screenshot a
         //     una Colmena YA conectada y DEVUELVE el resultado (para afinar scraping antes de formalizar
         //     una busqueda). Auth por mgmt-key (misma que el resto de /api/mgmt); NO usa ?tenant= porque el
@@ -410,6 +480,14 @@ public static class AgentMgmtEndpoints
     // Cuerpo de la prueba headless del Navegador (endpoint 16). url obligatoria http/https. sessionKey
     // opcional = perfil persistente logueado (ej. "linkedin") para probar extraccion CON sesion.
     private sealed record NavTestBody(string? Url, int? ScrollRounds, bool? IncludeShot, string? SessionKey);
+
+    // Item del alta masiva de busquedas de contactos (endpoint 17). 'source' = nombre del enum
+    // ContactSearchSource (Maps/LinkedIn/Facebook/Instagram/X/Web). 'aiAgentId' = ClassifierAiAgentId.
+    private sealed record ContactSearchCreateBody(
+        string? Name, string? Source, string? Query, string? City, string? Region, string? Country,
+        string? SubQuery, int? MaxContacts, string? ClientId, Guid? AiAgentId, string? ExtractionPrompt, bool? Active);
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     // Sin identidad de usuario detras de la clave: el actor de la auditoria es el sistema.
     private static readonly Guid SystemActor = Guid.Empty;

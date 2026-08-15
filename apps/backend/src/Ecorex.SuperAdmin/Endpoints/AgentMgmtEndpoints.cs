@@ -385,6 +385,38 @@ public static class AgentMgmtEndpoints
             ShapeOutcome))
             .DisableAntiforgery();
 
+        // 18. LIST de busquedas de contactos del tenant (ver el paquete cargado y sus ids para ejecutarlas).
+        //     Cross-tenant por ?tenant=; el filtro global ya acota al tenant que fija el helper Run.
+        group.MapGet("/contact-searches", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, _, c) =>
+            {
+                var defs = await svc.Db.ContactSearchDefinitions.AsNoTracking().OrderBy(d => d.Name).ToListAsync(c);
+                return (object)defs.Select(d => new
+                {
+                    d.Id, d.Name, source = d.SourceType.ToString(), d.Query, d.City, d.Region, d.Country,
+                    d.MaxContacts, d.ClientId, aiAgentId = d.ClassifierAiAgentId, active = d.IsActive, d.LastRunAt
+                }).ToList();
+            },
+            result => Results.Json(result, Json)));
+
+        // 19. EJECUTAR una busqueda (IContactSearchRunner) EN EL CONTEXTO del tenant indicado. El helper Run
+        //     fija AmbientTenantContext.Begin(tenant), asi que el ITenantContext del runner ve ese tenant y
+        //     RunAsync corre alli (aterriza en ProspectoScrapeado del tenant). Sincrono: el navegador Colmena
+        //     puede tardar 1-3 min. Respeta el tope 20/dia (que ya vive en el runner). Si la Colmena esta
+        //     offline u ocurre otro fallo, se devuelve ok:false con el error del canal.
+        group.MapPost("/contact-searches/{id:guid}/run", (Guid id, HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            Run(req, scopes, ct, async (svc, _, c) =>
+            {
+                if (!await svc.Db.ContactSearchDefinitions.AnyAsync(d => d.Id == id, c))
+                {
+                    return new ApiOutcome(404, new { ok = false, error = "La busqueda no existe en el tenant." });
+                }
+                var res = await svc.ContactSearchRunner.RunAsync(id, c);
+                return new ApiOutcome(200, new { ok = res.Ok, created = res.Created, error = res.Error });
+            },
+            result => result is ApiOutcome o ? Results.Json(o.Payload, Json, statusCode: o.Status) : Results.NotFound()))
+            .DisableAntiforgery();
+
         // 16. PRUEBA HEADLESS del Navegador Colmena: despacha Navigate -> ExtractReadable -> Screenshot a
         //     una Colmena YA conectada y DEVUELVE el resultado (para afinar scraping antes de formalizar
         //     una busqueda). Auth por mgmt-key (misma que el resto de /api/mgmt); NO usa ?tenant= porque el
@@ -499,7 +531,8 @@ public static class AgentMgmtEndpoints
 
     /// <summary>Servicios tenant-scoped resueltos dentro del scope con el tenant ya fijado.</summary>
     private readonly record struct MgmtServices(IAiAgentService Agents, IAiAgentCacheService Cache, IAuditWriter Audit,
-        IApplicationDbContext Db, IAiAgentLineService Lines, IEnumerable<IAgentToolset> Toolsets);
+        IApplicationDbContext Db, IAiAgentLineService Lines, IEnumerable<IAgentToolset> Toolsets,
+        IContactSearchRunner ContactSearchRunner);
 
     // --- Cuerpos y DTOs de la extension (tools/lineas/bindings/recursos) ---
     private sealed record ToolsBody(IReadOnlyList<string>? ToolKeys);
@@ -600,7 +633,8 @@ public static class AgentMgmtEndpoints
         sp.GetRequiredService<IAuditWriter>(),
         sp.GetRequiredService<IApplicationDbContext>(),
         sp.GetRequiredService<IAiAgentLineService>(),
-        sp.GetRequiredService<IEnumerable<IAgentToolset>>());
+        sp.GetRequiredService<IEnumerable<IAgentToolset>>(),
+        sp.GetRequiredService<IContactSearchRunner>());
 
     /// <summary>
     /// Ejecuta un handler que NO necesita tenant (p.ej. descubrir tenants): aplica solo el gate de AUTH

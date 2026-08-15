@@ -17,5 +17,22 @@
         <SolidColorBrush x:Key="HiveFillDim" Color="#26FFFFFF" />
         <SolidColorBrush x:Key="HiveError" Color="#E5556B" />
         <SolidColorBrush x:Key="HiveOnline" Color="#8FE3A2" />
+
+        <!-- Panal AMBAR (rediseno 2026-08-15): celdas doradas con leve degradado vertical (look 3D
+             embebido) y texto oscuro, para que el panal se vea como el mockup dorado. Solo aplica a las
+             celdas (HexTile); los flyouts de config siguen oscuros para legibilidad. -->
+        <LinearGradientBrush x:Key="HiveAmberFill" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#F6C34A" Offset="0" />
+            <GradientStop Color="#EDA92A" Offset="0.55" />
+            <GradientStop Color="#E0930E" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="HiveAmberFillActive" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#FFD766" Offset="0" />
+            <GradientStop Color="#F7B733" Offset="0.55" />
+            <GradientStop Color="#EFA114" Offset="1" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="HiveAmberStroke" Color="#9A5B08" />
+        <SolidColorBrush x:Key="HiveAmberInk" Color="#2A2004" />
+        <Color x:Key="HiveAmberGlow">#FFCF4D</Color>
     </Application.Resources>
 </Application>

@@ -96,13 +96,29 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Arrastre de la ventana sin barra de titulo nativa (solo con boton izquierdo).</summary>
+    /// <summary>
+    /// Arrastre de la ventana sin barra de titulo (rediseno: se arrastra desde el area vacia del panal).
+    /// Guardas: no arrastra si hay un flyout abierto (se esta interactuando con el) ni si el clic cayo
+    /// sobre una celda (HexTile maneja su propio click en MouseUp). Asi mover la ventana y clicar celdas
+    /// conviven sobre el mismo fondo.
+    /// </summary>
     private void OnDragBackground(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left)
+        if (e.ChangedButton != MouseButton.Left) { return; }
+        if (_vm.IsConfigOpen || _vm.IsCapConfigOpen) { return; }
+        if (IsWithinCell(e.OriginalSource as DependencyObject)) { return; }
+        DragMove();
+    }
+
+    /// <summary>True si el elemento clicado esta dentro de una celda del panal (para no arrastrar al clicarla).</summary>
+    private static bool IsWithinCell(DependencyObject? d)
+    {
+        while (d is not null)
         {
-            DragMove();
+            if (d is Controls.HexTile) { return true; }
+            d = System.Windows.Media.VisualTreeHelper.GetParent(d);
         }
+        return false;
     }
 
     /// <summary>

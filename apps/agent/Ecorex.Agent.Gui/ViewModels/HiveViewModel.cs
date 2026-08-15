@@ -116,11 +116,14 @@ public sealed class HiveViewModel : ObservableObject
             SocialLoginLauncher.Open("facebook", "https://www.facebook.com/login", "Facebook"));
         LoginInstagramCommand = new RelayCommand(() =>
             SocialLoginLauncher.Open("instagram", "https://www.instagram.com/accounts/login/", "Instagram"));
+        LoginTikTokCommand = new RelayCommand(() =>
+            SocialLoginLauncher.Open("tiktok", "https://www.tiktok.com/login", "TikTok"));
     }
 
     public RelayCommand LoginLinkedInCommand { get; }
     public RelayCommand LoginFacebookCommand { get; }
     public RelayCommand LoginInstagramCommand { get; }
+    public RelayCommand LoginTikTokCommand { get; }
 
     /// <summary>True cuando el flyout de capacidad abierto es el del Navegador: habilita la seccion
     /// "Iniciar sesion en redes" (el login solo aplica al navegador).</summary>

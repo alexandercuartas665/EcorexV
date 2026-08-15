@@ -9,46 +9,52 @@
             <Grid Width="92" Height="106" ToolTip="{Binding Label}">
                 <Path x:Name="Hex"
                       Data="M46,0 L92,26.5 L92,79.5 L46,106 L0,79.5 L0,26.5 Z"
-                      StrokeThickness="1.6"
-                      Stroke="{StaticResource HiveStrokeSoft}"
-                      Fill="{StaticResource HiveFillDim}"
+                      StrokeThickness="2"
+                      Stroke="{StaticResource HiveAmberStroke}"
+                      Fill="{StaticResource HiveAmberFill}"
                       RenderTransformOrigin="0.5,0.5">
                     <Path.RenderTransform>
                         <ScaleTransform ScaleX="1" ScaleY="1" />
                     </Path.RenderTransform>
+                    <!-- Sombra dorada oscura hacia abajo: da el relieve de celda ELEVADA sobre el escritorio. -->
                     <Path.Effect>
-                        <DropShadowEffect Color="#FFFFFF" BlurRadius="0" ShadowDepth="0" Opacity="0" />
+                        <DropShadowEffect Color="#5A3A00" BlurRadius="12" ShadowDepth="3" Direction="270" Opacity="0.45" />
                     </Path.Effect>
                 </Path>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBlock x:Name="GlyphText" Text="{Binding Glyph}"
                                HorizontalAlignment="Center"
-                               FontSize="19" FontWeight="SemiBold"
-                               Foreground="{StaticResource HiveInkDim}" />
+                               FontSize="19" FontWeight="Bold"
+                               Foreground="{StaticResource HiveAmberInk}" />
                     <TextBlock x:Name="MiniLabel" Text="{Binding Label}"
                                HorizontalAlignment="Center" Margin="0,1,0,0"
-                               FontSize="8.5" Foreground="{StaticResource HiveInkDim}"
+                               FontSize="8.5" FontWeight="SemiBold" Foreground="{StaticResource HiveAmberInk}"
                                MaxWidth="78" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Grid>
 
             <ControlTemplate.Triggers>
-                <!-- ACTIVE: lleno, borde claro, glyph oscuro sobre relleno claro, glow suave. -->
+                <!-- ACTIVE: dorado mas brillante + glow ambar suave. -->
                 <DataTrigger Binding="{Binding State}" Value="{x:Static c:HiveCellState.Active}">
-                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveFill}" />
-                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveInk}" />
-                    <Setter TargetName="GlyphText" Property="Foreground" Value="#161618" />
+                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveAmberFillActive}" />
+                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveAmberStroke}" />
+                    <Setter TargetName="GlyphText" Property="Foreground" Value="{StaticResource HiveAmberInk}" />
                     <Setter TargetName="Hex" Property="Effect">
                         <Setter.Value>
-                            <DropShadowEffect Color="#FFFFFF" BlurRadius="22" ShadowDepth="0" Opacity="0.35" />
+                            <DropShadowEffect Color="{StaticResource HiveAmberGlow}" BlurRadius="24" ShadowDepth="0" Opacity="0.55" />
                         </Setter.Value>
                     </Setter>
                 </DataTrigger>
-                <!-- WORKING: lleno + pulso (glow y escala se animan sobre el propio Path). -->
+                <!-- WORKING: dorado brillante + pulso de glow ambar (y escala) sobre el propio Path. -->
                 <DataTrigger Binding="{Binding State}" Value="{x:Static c:HiveCellState.Working}">
-                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveFill}" />
-                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveInk}" />
-                    <Setter TargetName="GlyphText" Property="Foreground" Value="#161618" />
+                    <Setter TargetName="Hex" Property="Fill" Value="{StaticResource HiveAmberFillActive}" />
+                    <Setter TargetName="Hex" Property="Stroke" Value="{StaticResource HiveAmberStroke}" />
+                    <Setter TargetName="GlyphText" Property="Foreground" Value="{StaticResource HiveAmberInk}" />
+                    <Setter TargetName="Hex" Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="{StaticResource HiveAmberGlow}" BlurRadius="16" ShadowDepth="0" Opacity="0.4" />
+                        </Setter.Value>
+                    </Setter>
                     <DataTrigger.EnterActions>
                         <BeginStoryboard x:Name="PulseSb">
                             <Storyboard RepeatBehavior="Forever" AutoReverse="True">

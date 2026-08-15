@@ -17,48 +17,14 @@
         <KeyBinding Modifiers="Control" Key="K" Command="{Binding ToggleConfigCommand}" />
     </Window.InputBindings>
 
-    <!-- Marco translucido oscuro con esquinas redondeadas y borde tenue. Todo MONOCROMO. -->
-    <Border CornerRadius="18"
-            Background="{StaticResource HivePanel}"
-            BorderBrush="{StaticResource HiveStroke}"
-            BorderThickness="1">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="28" ShadowDepth="0" Opacity="0.55" Color="#000000" />
-        </Border.Effect>
-
+    <!-- Rediseno 2026-08-15: SIN marco ni fondo oscuro. Solo el panal ambar flota sobre el escritorio
+         (la Window ya es WindowStyle=None + AllowsTransparency + Background Transparent). La ventana se
+         arrastra desde el area vacia del panal (OnDragBackground, con guardas) y cerrar/salir/mostrar
+         viven en el icono de bandeja (clic derecho). -->
+    <Border Background="Transparent" BorderThickness="0">
         <Grid Margin="2">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <!-- Barra superior (zona de arrastre) + minimizar/cerrar propios. -->
-            <Grid Grid.Row="0" Margin="18,14,12,4" Background="Transparent"
-                  MouseLeftButtonDown="OnDragBackground">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="26" Height="26" CornerRadius="8" Background="{StaticResource HiveFill}">
-                        <TextBlock Text="E" FontWeight="Bold" FontSize="14" Foreground="#161618"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="Agente Conector" Foreground="{StaticResource HiveInk}"
-                                   FontSize="13.5" FontWeight="SemiBold" />
-                        <TextBlock Text="ECOREX - colmena on-prem" Foreground="{StaticResource HiveInkDim}"
-                                   FontSize="10.5" />
-                    </StackPanel>
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
-                    <Button x:Name="MinButton" Content="&#x2013;" Click="OnMinimize"
-                            Style="{DynamicResource ChromeButton}" />
-                    <Button x:Name="CloseButton" Content="&#x2715;" Click="OnClose"
-                            Style="{DynamicResource ChromeButton}" />
-                </StackPanel>
-            </Grid>
-
-            <!-- Area del panal + flyout de configuracion superpuesto. -->
-            <Grid Grid.Row="1">
+            <!-- Area del panal + flyouts superpuestos. Fondo Transparent para capturar el arrastre. -->
+            <Grid Background="Transparent" MouseLeftButtonDown="OnDragBackground">
                 <ItemsControl ItemsSource="{Binding Cells}"
                               HorizontalAlignment="Center" VerticalAlignment="Center"
                               Margin="18,6,18,6">
@@ -218,6 +184,8 @@
                                         Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
                                 <Button Content="Instagram" Command="{Binding LoginInstagramCommand}"
                                         Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
+                                <Button Content="TikTok" Command="{Binding LoginTikTokCommand}"
+                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
                             </StackPanel>
                         </StackPanel>
 
@@ -229,18 +197,6 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
-            </Grid>
-
-            <!-- Barra de estado inferior: conexion global + pista de demo. -->
-            <Grid Grid.Row="2" Margin="18,4,18,14">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                             Fill="{Binding IsOnline, Converter={StaticResource BoolToStatusBrush}}" />
-                    <TextBlock Text="{Binding ConnectionLabel}" Foreground="{StaticResource HiveInkDim}"
-                               Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11" />
-                </StackPanel>
-                <TextBlock Text="Ctrl+D: demo" Foreground="{StaticResource HiveInkDim}" Opacity="0.6"
-                           HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10.5" />
             </Grid>
         </Grid>
     </Border>

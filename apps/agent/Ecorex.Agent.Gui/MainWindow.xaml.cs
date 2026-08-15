@@ -96,30 +96,36 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Arrastre de la ventana sin barra de titulo (rediseno: se arrastra desde el area vacia del panal).
-    /// Guardas: no arrastra si hay un flyout abierto (se esta interactuando con el) ni si el clic cayo
-    /// sobre una celda (HexTile maneja su propio click en MouseUp). Asi mover la ventana y clicar celdas
-    /// conviven sobre el mismo fondo.
-    /// </summary>
+    // ---- Arrastre de la ventana sin barra de titulo (rediseno: se arrastra desde CUALQUIER parte del
+    // panal, celdas incluidas). Se distingue CLIC de ARRASTRE por umbral: DragMove solo se dispara cuando
+    // el puntero se mueve mas del minimo del sistema con el boton presionado; un clic seco (sin mover) NO
+    // arrastra, asi el MouseUp de la celda (OnCellClick) sigue abriendo Configuracion. ----
+    private System.Windows.Point _pressPos;
+    private bool _pressed;
+
     private void OnDragBackground(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) { return; }
-        if (_vm.IsConfigOpen || _vm.IsCapConfigOpen) { return; }
-        if (IsWithinCell(e.OriginalSource as DependencyObject)) { return; }
+        _pressPos = e.GetPosition(this);
+        _pressed = true;
+    }
+
+    private void OnDragMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_pressed || e.LeftButton != MouseButtonState.Pressed) { _pressed = false; return; }
+        // Con un flyout abierto no se arrastra (se esta interactuando con el).
+        if (_vm.IsConfigOpen || _vm.IsCapConfigOpen) { _pressed = false; return; }
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - _pressPos.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(p.Y - _pressPos.Y) < SystemParameters.MinimumVerticalDragDistance) { return; }
+        _pressed = false;
         DragMove();
     }
 
-    /// <summary>True si el elemento clicado esta dentro de una celda del panal (para no arrastrar al clicarla).</summary>
-    private static bool IsWithinCell(DependencyObject? d)
-    {
-        while (d is not null)
-        {
-            if (d is Controls.HexTile) { return true; }
-            d = System.Windows.Media.VisualTreeHelper.GetParent(d);
-        }
-        return false;
-    }
+    private void OnDragEnd(object sender, MouseButtonEventArgs e) => _pressed = false;
+
+    /// <summary>Menu contextual (clic derecho): "Salir" termina el proceso de verdad.</summary>
+    private void OnExitMenu(object sender, RoutedEventArgs e) => ExitApp();
 
     /// <summary>
     /// Clic sobre una celda: Configuracion abre su flyout; las capacidades sensibles (Navegador/

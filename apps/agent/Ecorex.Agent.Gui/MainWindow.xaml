@@ -23,8 +23,21 @@
          viven en el icono de bandeja (clic derecho). -->
     <Border Background="Transparent" BorderThickness="0">
         <Grid Margin="2">
-            <!-- Area del panal + flyouts superpuestos. Fondo Transparent para capturar el arrastre. -->
-            <Grid Background="Transparent" MouseLeftButtonDown="OnDragBackground">
+            <!-- Area del panal + flyouts superpuestos. Fondo Transparent para capturar el arrastre desde
+                 cualquier punto (clic-vs-arrastre por umbral). Clic derecho = menu (Minimizar/Ocultar/Salir),
+                 ya que no hay barra con botones. -->
+            <Grid Background="Transparent"
+                  MouseLeftButtonDown="OnDragBackground"
+                  MouseMove="OnDragMove"
+                  MouseLeftButtonUp="OnDragEnd">
+                <Grid.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Minimizar" Click="OnMinimize" />
+                        <MenuItem Header="Ocultar a la bandeja" Click="OnClose" />
+                        <Separator />
+                        <MenuItem Header="Salir" Click="OnExitMenu" />
+                    </ContextMenu>
+                </Grid.ContextMenu>
                 <ItemsControl ItemsSource="{Binding Cells}"
                               HorizontalAlignment="Center" VerticalAlignment="Center"
                               Margin="18,6,18,6">

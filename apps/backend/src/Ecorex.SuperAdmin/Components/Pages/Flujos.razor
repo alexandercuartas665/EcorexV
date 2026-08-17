@@ -85,16 +85,24 @@
         <div class="fl-cards">
             @foreach (var card in Filtered)
             {
-                <button class="fl-card" @onclick="@(() => OpenEditor(card.DefinitionId))">
+                @* Tarjeta como DIV (no button) para poder anidar el boton de eliminar. Clic en el cuerpo
+                   abre el editor; el boton papelera (arriba-derecha) elimina el flujo (con confirmacion). *@
+                <div class="fl-card" @onclick="@(() => OpenEditor(card.DefinitionId))" style="cursor:pointer;">
                     <div class="fl-card-top">
                         <span class="fl-card-id">@card.ProcessCode</span>
-                        <span class="fl-badge" style="background:@ToneSoft(card.Estado);color:@Tone(card.Estado)">
-                            @if (card.RunningInstances > 0)
-                            {
-                                <span class="fl-dot" style="background:@Tone(card.Estado)"></span>
-                            }
-                            @card.Estado
-                        </span>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span class="fl-badge" style="background:@ToneSoft(card.Estado);color:@Tone(card.Estado)">
+                                @if (card.RunningInstances > 0)
+                                {
+                                    <span class="fl-dot" style="background:@Tone(card.Estado)"></span>
+                                }
+                                @card.Estado
+                            </span>
+                            <button title="Eliminar flujo" @onclick:stopPropagation="true" @onclick="@(() => AskDelete(card.DefinitionId, card.Name, card.RunningInstances))" disabled="@_busy"
+                                    style="width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--ink-3,#94a3b8);border-radius:6px;cursor:pointer;">
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="fl-card-name">@card.Name</div>
                     <div class="fl-card-meta">
@@ -106,7 +114,7 @@
                         <div><div class="fl-stat-v">@N(card.MonthExecutions)</div><div class="fl-stat-l">ejecuciones</div></div>
                         <div><div class="fl-stat-v green">@card.SuccessRate%</div><div class="fl-stat-l">exito</div></div>
                     </div>
-                </button>
+                </div>
             }
         </div>
     }
@@ -170,6 +178,40 @@
                 OnDefinitionSwitched="SwitchEditorAsync" />
 }
 
+@* ---- Confirmacion de eliminar flujo ---- *@
+@if (_deleteId is not null)
+{
+    <div class="fl-overlay" @onclick="@(() => _deleteId = null)">
+        <div class="fl-modal" style="width:min(420px,94vw)" @onclick:stopPropagation>
+            <div class="fl-modal-head">
+                <h3 style="margin:0;">Eliminar flujo</h3>
+                <button class="fl-modal-x" @onclick="@(() => _deleteId = null)">&times;</button>
+            </div>
+            <div style="padding:8px 2px 12px;font-size:14px;color:var(--ink-2,#475569);">
+                @if (_deleteRunning > 0)
+                {
+                    <p>El flujo <strong>@_deleteName</strong> tiene <strong>@_deleteRunning</strong> instancia(s) en marcha. Deten o cancela esas instancias antes de eliminarlo.</p>
+                }
+                else
+                {
+                    <p>Se archivara el flujo <strong>@_deleteName</strong> (todas sus versiones) y saldra del listado. Las instancias ya finalizadas se conservan.</p>
+                }
+                @if (_deleteError is not null)
+                {
+                    <div style="color:var(--t-red,#dc2626);font-size:13px;margin-top:6px;">@_deleteError</div>
+                }
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button class="fl-btn-ghost" @onclick="@(() => _deleteId = null)" disabled="@_busy">Cancelar</button>
+                @if (_deleteRunning == 0)
+                {
+                    <button class="fl-btn-brand" style="background:var(--t-red,#dc2626);border-color:var(--t-red,#dc2626);" @onclick="ConfirmDeleteAsync" disabled="@_busy">Eliminar</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool _loading = true;
     private bool _busy;
@@ -192,6 +234,29 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    // Confirmacion de eliminar flujo.
+    private Guid? _deleteId;
+    private string? _deleteName;
+    private int _deleteRunning;
+    private string? _deleteError;
+
+    private void AskDelete(Guid id, string name, int running)
+    {
+        _deleteId = id; _deleteName = name; _deleteRunning = running; _deleteError = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_deleteId is not Guid id) { return; }
+        _busy = true;
+        _deleteError = null;
+        var res = await DesignSvc.DeleteDefinitionAsync(id);
+        _busy = false;
+        if (!res.IsOk) { _deleteError = res.Error ?? "No se pudo eliminar el flujo."; return; }
+        _deleteId = null;
+        await ReloadAsync();
+    }
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 

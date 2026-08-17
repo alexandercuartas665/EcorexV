@@ -1199,9 +1199,13 @@ public sealed class TaskItemService : ITaskItemService
         _db.TaskWorkLogs.Add(workLog);
         if (request.LogActivity)
         {
-            var minutes = Math.Max(1, request.Seconds / 60);
+            // La Bitacora es ahora el UNICO historial del tiempo (se quito la lista aparte), asi que la
+            // entrada muestra la DURACION real + la nota.
+            var s = request.Seconds;
+            var dur = s >= 3600 ? $"{s / 3600}h {(s % 3600) / 60:00}m" : s >= 60 ? $"{s / 60}m" : $"{s}s";
+            var noteSuffix = string.IsNullOrWhiteSpace(request.Note) ? string.Empty : $": {request.Note.Trim()}";
             _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
-                TaskActivityType.Action, $"registro {minutes} minutos de trabajo"));
+                TaskActivityType.Action, $"registro {dur} de trabajo{noteSuffix}"));
         }
         await _db.SaveChangesAsync(cancellationToken);
         return TaskCoreResult<TaskWorkLogDto>.Ok(new TaskWorkLogDto(

@@ -528,6 +528,32 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             edge.Id, edge.SourceNodeId, edge.TargetNodeId, edge.BpmnElementId, null, null));
     }
 
+    public async Task<WorkflowResult<bool>> DeleteDefinitionAsync(Guid definitionId, CancellationToken cancellationToken = default)
+    {
+        var def = await _db.WorkflowDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (def is null) { return WorkflowResult<bool>.NotFound("El flujo no existe."); }
+
+        // Un "flujo" son TODAS las versiones del mismo ProcessCode; se archivan juntas.
+        var versions = await _db.WorkflowDefinitions
+            .Where(d => d.ProcessCode == def.ProcessCode)
+            .ToListAsync(cancellationToken);
+        var versionIds = versions.Select(d => d.Id).ToList();
+
+        // Guarda: no se elimina si hay instancias EN MARCHA (podrian quedar huerfanas a medio proceso).
+        var running = await _db.WorkflowInstances
+            .CountAsync(i => versionIds.Contains(i.DefinitionId) && i.Status == WorkflowInstanceStatus.Running, cancellationToken);
+        if (running > 0)
+        {
+            return WorkflowResult<bool>.Invalid(
+                $"No se puede eliminar: el flujo tiene {running} instancia(s) en marcha. Deten o cancela esas instancias primero.");
+        }
+
+        // Soft-delete: archiva todas las versiones (salen del indice) y las despublica.
+        foreach (var d in versions) { d.IsArchived = true; d.IsPublished = false; }
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<bool>> DeleteNodeAsync(Guid nodeId, CancellationToken cancellationToken = default)
     {
         var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);

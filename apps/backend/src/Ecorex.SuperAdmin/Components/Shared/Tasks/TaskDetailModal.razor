@@ -563,7 +563,9 @@
                         </div>
                     }
 
-                    @* Worklog: timer + entrada manual + historial *@
+                    @* Registro de tiempo: UNA sola caja combinada (cronometro EN VIVO o HH:MM manual, con un
+                       solo Guardar). El HISTORIAL ya no vive aqui: cada registro queda en la BITACORA (columna
+                       derecha), para no tener dos historiales. El "Total" se mantiene como resumen. *@
                     <div class="tk-card">
                         <div class="tk-card-head">
                             <h3>Registro de tiempo</h3>
@@ -582,40 +584,19 @@
                                 {
                                     <button class="btn btn-sm btn-primary" @onclick="StartTimerAsync">Iniciar</button>
                                 }
-                                <input class="form-control form-control-sm tk-timer-note" @bind="_timerNote" placeholder="Nota del avance..." />
-                                <button class="btn btn-sm btn-outline-success" @onclick="SaveTimerWorkLogAsync" disabled="@_busy">Guardar avance</button>
-                            </div>
-
-                            <div class="tk-manual">
-                                <span class="tk-manual-lbl">Manual</span>
+                                <span class="tk-manual-lbl" style="opacity:.7;">o</span>
                                 <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_manualHours" min="0" max="23" placeholder="HH" />
                                 <span>:</span>
                                 <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_manualMinutes" min="0" max="59" placeholder="MM" />
-                                <input class="form-control form-control-sm tk-timer-note" @bind="_manualNote" placeholder="Detalle del trabajo..." />
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="SaveManualWorkLogAsync" disabled="@_busy">Guardar</button>
+                                <input class="form-control form-control-sm tk-timer-note" @bind="_timerNote" placeholder="Nota del avance..." />
+                                <button class="btn btn-sm btn-outline-success" @onclick="SaveWorkLogAsync" disabled="@_busy">Guardar</button>
                             </div>
                             @if (_workLogError is not null)
                             {
                                 <div class="tk-field-error">@_workLogError</div>
                             }
+                            <p class="tk-empty-note" style="margin-top:6px;">Cronometra con Iniciar, o escribe horas:minutos. Cada registro queda en la Bitacora.</p>
                         }
-
-                        <div class="tk-worklog-list">
-                            @if (_workLogs.Count == 0)
-                            {
-                                <p class="tk-empty-note">Aun no hay tiempo registrado.</p>
-                            }
-                            @foreach (var log in _workLogs.Take(10))
-                            {
-                                <div class="tk-worklog-row">
-                                    <span class="tb-avatar" title="@UserEmail(log.TenantUserId)">@TaskUi.InitialsOf(UserEmail(log.TenantUserId))</span>
-                                    <span class="tk-worklog-dur">@TaskUi.FormatDuration(log.Seconds)</span>
-                                    <span class="tk-worklog-kind">@(log.Kind == WorkLogKind.Timer ? "Cronometro" : "Manual")</span>
-                                    <span class="tk-worklog-note">@log.Note</span>
-                                    <span class="tk-worklog-when">@TaskUi.FormatRelative(log.LoggedAt)</span>
-                                </div>
-                            }
-                        </div>
                     </div>
                     @* Subtareas (tareas hijas, ADR-0065): tareas completas colgadas de esta; el
                        "Avance" de arriba agrega su progreso. Clic en una la abre en este mismo modal. *@
@@ -1148,7 +1129,6 @@
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private TaskItemDetailDto? _detail;
-    private List<TaskWorkLogDto> _workLogs = new();
     private long _totalSeconds;
     private List<TenantUserDto> _users = new();
     private List<ActivityTypeDto> _types = new();
@@ -1179,7 +1159,6 @@
     private string _timerNote = "";
     private int? _manualHours;
     private int? _manualMinutes;
-    private string _manualNote = "";
     private string? _workLogError;
 
     private string _newComment = "";
@@ -1255,7 +1234,7 @@
         _conflict = _actionError = _workLogError = _attError = _moveNote = null;
         _openMenu = null;
         _timerRunning = false;
-        _timerNote = _manualNote = _newComment = _attName = _attUrl = "";
+        _timerNote = _newComment = _attName = _attUrl = "";
         _newCheckText = "";
         _addAssigneeId = "";
         _tagMenuOpen = false;
@@ -1323,7 +1302,6 @@
         _detail = await tasksSvc.GetDetailAsync(taskId);
         if (_detail is not null)
         {
-            _workLogs = (await tasksSvc.ListWorkLogsAsync(taskId)).ToList();
             _totalSeconds = _detail.TotalWorkSeconds;
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
@@ -2343,40 +2321,42 @@
         _timerRunning = false;
     }
 
-    private async Task SaveTimerWorkLogAsync()
+    /// <summary>Guardado UNICO de la caja combinada: si el cronometro tiene tiempo acumulado, se registra
+    /// ese (Timer); si no, se usa el HH:MM manual. Un solo boton para ambos modos.</summary>
+    private async Task SaveWorkLogAsync()
     {
         if (_detail is null) { return; }
         _workLogError = null;
-        var seconds = await JS.InvokeAsync<int>("ecorexTaskTimer.getSeconds");
-        if (seconds <= 0)
-        {
-            _workLogError = "El cronometro no tiene tiempo acumulado.";
-            return;
-        }
-        await AddWorkLogAsync(seconds, _timerNote, WorkLogKind.Timer);
-        if (_workLogError is null)
-        {
-            await JS.InvokeVoidAsync("ecorexTaskTimer.reset");
-            _timerRunning = false;
-            _timerNote = "";
-        }
-    }
 
-    private async Task SaveManualWorkLogAsync()
-    {
-        if (_detail is null) { return; }
-        _workLogError = null;
-        var seconds = (_manualHours ?? 0) * 3600 + (_manualMinutes ?? 0) * 60;
+        var timerSeconds = await JS.InvokeAsync<int>("ecorexTaskTimer.getSeconds");
+        int seconds;
+        WorkLogKind kind;
+        if (timerSeconds > 0)
+        {
+            seconds = timerSeconds;
+            kind = WorkLogKind.Timer;
+        }
+        else
+        {
+            seconds = (_manualHours ?? 0) * 3600 + (_manualMinutes ?? 0) * 60;
+            kind = WorkLogKind.Manual;
+        }
         if (seconds <= 0)
         {
-            _workLogError = "Ingresa una duracion valida (HH:MM).";
+            _workLogError = "Inicia el cronometro o ingresa una duracion (HH:MM).";
             return;
         }
-        await AddWorkLogAsync(seconds, _manualNote, WorkLogKind.Manual);
+
+        await AddWorkLogAsync(seconds, _timerNote, kind);
         if (_workLogError is null)
         {
+            if (kind == WorkLogKind.Timer)
+            {
+                await JS.InvokeVoidAsync("ecorexTaskTimer.reset");
+                _timerRunning = false;
+            }
             _manualHours = _manualMinutes = null;
-            _manualNote = "";
+            _timerNote = "";
         }
     }
 

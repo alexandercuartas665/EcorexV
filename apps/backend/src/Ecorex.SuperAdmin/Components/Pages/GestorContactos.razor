@@ -278,10 +278,13 @@
                                         }
                                         else if (rr.ProspectoId is Guid pid)
                                         {
-                                            @* Mismo boton "Editar" (lapiz) que el tercero y Directorio General: al abrirlo
-                                               se promueve el prospecto (crea/vincula el Tercero) y se abre su ficha. *@
-                                            <button class="gc-act edit" title="Editar contacto" @onclick="() => PromoverAsync(pid)" disabled="@_busy">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                            @* Boton PROMOVER explicito: deja claro que esta accion CREA el contacto
+                                               (crea/vincula el Tercero) y lo mete al Directorio + a la Bolsa. Antes era
+                                               un lapiz "Editar" que confundia. *@
+                                            <button title="Promover: crea el contacto en el Directorio y la Bolsa" @onclick="() => PromoverAsync(pid)" disabled="@_busy"
+                                                    style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid var(--t-green,#15803d);color:var(--t-green,#15803d);background:transparent;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;">
+                                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                                Promover
                                             </button>
                                         }
                                     </div>

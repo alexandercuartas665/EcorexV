@@ -69,6 +69,10 @@ public interface IWorkflowDesignService
 
     Task<WorkflowResult<bool>> DeleteEdgeAsync(Guid edgeId, CancellationToken cancellationToken = default);
 
+    /// <summary>Elimina un FLUJO completo (todas las versiones de su ProcessCode) por soft-delete
+    /// (IsArchived=true, sale del indice). Falla si hay instancias en marcha (hay que detenerlas antes).</summary>
+    Task<WorkflowResult<bool>> DeleteDefinitionAsync(Guid definitionId, CancellationToken cancellationToken = default);
+
     /// <summary>Condicion de la arista (formato del motor: "approval == 'Approved'"; vacio = rama default).</summary>
     Task<WorkflowResult<bool>> SetEdgeConditionAsync(Guid edgeId, string? conditionExpression, CancellationToken cancellationToken = default);
 

@@ -1557,13 +1557,25 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 
 /* ADR-0051 (reestructura): modal con tabs (Detalle/Formularios/Documentos) + columna lateral de
    Bitacora. El layout con columna lateral pide mas ancho; la tarea de proceso suma el diagrama. */
-.tk-detail.tk-detail-tabbed { max-width: 1240px; }
-.tk-detail.tk-detail-tabbed.tk-detail-flow { max-width: 1360px; }
-.tk-detail-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.tk-detail.tk-detail-tabbed { max-width: 1440px; }
+.tk-detail.tk-detail-tabbed.tk-detail-flow { max-width: 1520px; }
+/* 3 columnas: contenido (1fr) | Resumen + Lista de chequeo (rail) | Bitacora (columna propia). */
+.tk-detail-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px 320px; gap: 16px; align-items: start; }
+/* Bitacora: SIEMPRE al alto del modal (columna fija) con scroll interno propio. */
+.tk-detail-bitacora-col { min-width: 0; display: flex; flex-direction: column; position: sticky; top: 0; align-self: start; height: calc(92vh - 128px); overflow: visible; }
+/* Angosto: la Bitacora baja a lo ancho debajo de las 2 columnas; mas angosto aun, una sola columna. */
+@media (max-width: 1280px) {
+    .tk-detail-split { grid-template-columns: minmax(0, 1fr) 300px; }
+    .tk-detail-bitacora-col { grid-column: 1 / -1; position: static; max-height: none; }
+}
 @media (max-width: 1080px) { .tk-detail-split { grid-template-columns: 1fr; } }
-.tk-detail-left { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.tk-detail-rail { min-width: 0; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; align-self: start; max-height: calc(92vh - 40px); overflow-y: auto; }
+/* La 1a columna scrollea SOLA (asi se ve toda la data de la tarea) mientras Resumen y Bitacora quedan. */
+.tk-detail-left { min-width: 0; display: flex; flex-direction: column; gap: 14px; max-height: calc(92vh - 128px); overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
+.tk-detail-rail { min-width: 0; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; align-self: start; max-height: calc(92vh - 128px); overflow-y: auto; }
 .tk-detail-bitacora { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--sh-sm); }
+/* Dentro de la columna Bitacora, la tarjeta llena el alto y su lista de actividad scrollea. */
+.tk-detail-bitacora-col > .tk-detail-bitacora { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: visible; }
+.tk-detail-bitacora-col > .tk-detail-bitacora > .tk-activity-list { flex: 1; min-height: 0; max-height: none; }
 .tk-detail-bitacora > .tk-card-head { margin-bottom: 10px; }
 
 /* Tabs */
@@ -1740,11 +1752,30 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 /* Actividad (comentarios + acciones) */
 .tk-comment-box { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
 .tk-comment-box textarea { width: 100%; }
-.tk-activity-list { display: flex; flex-direction: column; gap: 10px; max-height: 340px; overflow-y: auto; }
-.tk-activity-item { display: flex; gap: 9px; align-items: flex-start; }
+.tk-activity-list { display: flex; flex-direction: column; gap: 10px; max-height: 340px; overflow-y: auto; overflow-x: hidden; }
+.tk-activity-item { display: flex; gap: 9px; align-items: flex-start; min-width: 0; }
+.tk-activity-body { min-width: 0; flex: 1; }
 .tk-activity-body { flex: 1; min-width: 0; }
 .tk-activity-bubble { background: var(--muted); border-radius: 10px; padding: 8px 11px; }
-.tk-activity-bubble p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.tk-activity-bubble p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tk-activity-action { overflow-wrap: anywhere; }
+/* Bitacora enriquecida: barra de comentario (adjuntar/mencionar), chips de adjuntos y preview inline. */
+.tk-comment-tools { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.tk-comment-tool { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted-foreground); cursor: pointer; font-weight: 700; }
+.tk-comment-tool:hover { color: var(--foreground); }
+.tk-comment-file { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.tk-comment-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tk-comment-att { display: inline-flex; align-items: center; gap: 5px; max-width: 170px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--muted); font-size: 11.5px; }
+.tk-comment-att img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; }
+.tk-comment-att-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-comment-att-x { border: 0; background: transparent; cursor: pointer; color: var(--muted-foreground); font-size: 14px; }
+.tk-mention-wrap { position: relative; }
+.tk-mention-menu { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30; width: 260px; max-height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--sh-lg); padding: 4px; }
+.tk-mention-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; background: transparent; cursor: pointer; border-radius: 7px; font-size: 12.5px; text-align: left; }
+.tk-mention-item:hover { background: var(--muted); }
+.tk-activity-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tk-activity-img { max-width: 100%; max-height: 180px; border-radius: 8px; border: 1px solid var(--line); cursor: pointer; display: block; }
+.tk-activity-file { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--foreground); background: var(--muted); }
 .tk-activity-meta { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .tk-activity-meta span { color: var(--muted-foreground); font-size: 11px; }
 .tk-activity-action { font-size: 12.5px; color: var(--muted-foreground); padding-top: 3px; }

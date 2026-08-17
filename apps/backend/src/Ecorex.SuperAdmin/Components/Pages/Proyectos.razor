@@ -103,8 +103,12 @@ else
             <div class="modal-body">
                 <div class="field-row">
                     <div class="field">
-                        <label class="form-label">Codigo *</label>
-                        <input class="form-control" @bind="_code" maxlength="20" placeholder="PRJ-002" disabled="@(_editing is not null)" />
+                        <label class="form-label">Codigo</label>
+                        <input class="form-control" @bind="_code" maxlength="20" placeholder="@(_editing is null ? "Se genera solo (PRY-...)" : "")" disabled="@(_editing is not null)" />
+                        @if (_editing is null)
+                        {
+                            <small class="tk-fld-help" style="color:var(--ink-3, var(--muted-foreground));font-size:11.5px;">Opcional: si lo dejas vacio, el sistema lo asigna.</small>
+                        }
                         @if (_errors.TryGetValue("code", out var codeErr))
                         {
                             <div class="tk-field-error">@codeErr</div>
@@ -249,7 +253,7 @@ else
     private bool Validate()
     {
         _errors.Clear();
-        if (_editing is null && string.IsNullOrWhiteSpace(_code)) { _errors["code"] = "El codigo es obligatorio."; }
+        // El codigo es OPCIONAL al crear: si va vacio, el servicio asigna el siguiente PRY-### automatico.
         if (string.IsNullOrWhiteSpace(_name)) { _errors["name"] = "El nombre es obligatorio."; }
         if (_ownerId is null) { _errors["owner"] = "Selecciona el owner."; }
         if (_startDate is not null && _endDate is not null && _endDate < _startDate)

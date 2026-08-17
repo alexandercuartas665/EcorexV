@@ -487,7 +487,7 @@
                                     }
                                     else
                                     {
-                                        <div class="col-12 field">
+                                        <div class="@CustomColClass(f.Column) field">
                                             <label class="form-label">@f.Label</label>
                                             @if (f.FieldType == TerceroFieldType.Select)
                                             {
@@ -628,43 +628,7 @@
                             }
                         </div>
                     </div>
-                    @* Lista de chequeo (bajada a la columna principal, ancho completo). *@
-                    <div class="tk-card tk-checklist">
-                        <div class="tk-card-head">
-                            <h3>Lista de chequeo</h3>
-                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></span>
-                        </div>
-                        <div style="display:flex;flex-direction:column;gap:10px;">
-                            @if (_detail.Checklist.Count == 0)
-                            {
-                                <p class="tk-empty-note">Sin items de chequeo.</p>
-                            }
-                            @foreach (var ck in _detail.Checklist)
-                            {
-                                var checkItem = ck;
-                                <div class="tk-check-row">
-                                    <button class="tk-check-box @(checkItem.IsCompleted ? "done" : "")" @onclick="@(() => ToggleChecklistAsync(checkItem))" disabled="@readOnly" aria-label="Completar item">
-                                        @if (checkItem.IsCompleted)
-                                        {
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
-                                        }
-                                    </button>
-                                    <span class="tk-check-txt @(checkItem.IsCompleted ? "done" : "")">@checkItem.Text</span>
-                                    @if (!readOnly)
-                                    {
-                                        <button class="tk-check-del" title="Eliminar item" @onclick="@(() => RemoveChecklistAsync(checkItem.Id))">&times;</button>
-                                    }
-                                </div>
-                            }
-                            @if (!readOnly)
-                            {
-                                <div class="tk-check-add">
-                                    <input class="form-control form-control-sm" @bind="_newCheckText" maxlength="300" placeholder="Nuevo item..." />
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
-                                </div>
-                            }
-                        </div>
-                    </div>
+                    @* Lista de chequeo: MOVIDA al rail (2a columna, debajo del Resumen) por peticion del usuario. *@
                 </div>
 
                 <div class="tk-detail-side">
@@ -1058,13 +1022,92 @@
                             </div>
                         </div>
                     </div>
+                    @* Lista de chequeo: en el rail, DEBAJO del Resumen (2a columna) por peticion del usuario. *@
+                    <div class="tk-card tk-checklist">
+                        <div class="tk-card-head">
+                            <h3>Lista de chequeo</h3>
+                            <span class="tk-check-count" style="font-size:12px;color:var(--ink-3, var(--muted-foreground));"><strong>@ChecklistDone()/@_detail.Checklist.Count</strong></span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:10px;">
+                            @if (_detail.Checklist.Count == 0)
+                            {
+                                <p class="tk-empty-note">Sin items de chequeo.</p>
+                            }
+                            @foreach (var ck in _detail.Checklist)
+                            {
+                                var checkItem = ck;
+                                <div class="tk-check-row">
+                                    <button class="tk-check-box @(checkItem.IsCompleted ? "done" : "")" @onclick="@(() => ToggleChecklistAsync(checkItem))" disabled="@readOnly" aria-label="Completar item">
+                                        @if (checkItem.IsCompleted)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
+                                        }
+                                    </button>
+                                    <span class="tk-check-txt @(checkItem.IsCompleted ? "done" : "")">@checkItem.Text</span>
+                                    @if (!readOnly)
+                                    {
+                                        <button class="tk-check-del" title="Eliminar item" @onclick="@(() => RemoveChecklistAsync(checkItem.Id))">&times;</button>
+                                    }
+                                </div>
+                            }
+                            @if (!readOnly)
+                            {
+                                <div class="tk-check-add">
+                                    <input class="form-control form-control-sm" @bind="_newCheckText" maxlength="300" placeholder="Nuevo item..." />
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="AddChecklistAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newCheckText))">Agregar item</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+              </aside>
+
+              @* ===== 3a columna: BITACORA (columna propia) ===== *@
+              <aside class="tk-detail-bitacora-col">
                     <div class="tk-card tk-detail-bitacora">
                     <div class="tk-card-head"><h3>Bitacora</h3></div>
                     @if (!readOnly)
                     {
                         <div class="tk-comment-box">
-                            <textarea class="form-control" rows="2" @bind="_newComment" placeholder="Escribe un comentario..."></textarea>
-                            <button class="btn btn-sm btn-primary" @onclick="AddCommentAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_newComment))">Comentar</button>
+                            <textarea class="form-control" rows="2" @bind="_newComment" placeholder="Escribe un comentario... (usa @@ para mencionar)"></textarea>
+                            @* Adjuntos ya subidos, listos para enviar con el comentario. *@
+                            @if (_commentAtts.Count > 0)
+                            {
+                                <div class="tk-comment-atts">
+                                    @foreach (var ca in _commentAtts)
+                                    {
+                                        var att = ca;
+                                        <span class="tk-comment-att">
+                                            @if (att.IsImage) { <img src="@att.Url" alt="@att.Name" /> } else { <span class="tk-comment-att-ic">&#128206;</span> }
+                                            <span class="tk-comment-att-nm">@att.Name</span>
+                                            <button class="tk-comment-att-x" title="Quitar" @onclick="@(() => _commentAtts.Remove(att))">&times;</button>
+                                        </span>
+                                    }
+                                </div>
+                            }
+                            <div class="tk-comment-tools">
+                                <label class="tk-comment-tool" title="Adjuntar imagen o archivo">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                                    <InputFile class="tk-comment-file" multiple OnChange="OnCommentFilesAsync" disabled="@(_busy || _commentUploading)" />
+                                </label>
+                                <div class="tk-mention-wrap">
+                                    <button type="button" class="tk-comment-tool" title="Mencionar a un usuario" @onclick="@(() => _mentionOpen = !_mentionOpen)">@@</button>
+                                    @if (_mentionOpen)
+                                    {
+                                        <div class="tk-mention-menu">
+                                            @foreach (var u in _users.Take(50))
+                                            {
+                                                var uu = u;
+                                                <button type="button" class="tk-mention-item" @onclick="@(() => InsertMention(uu))">
+                                                    <span class="tb-avatar">@TaskUi.InitialsOf(uu.Email)</span>@uu.Email
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                @if (_commentUploading) { <span class="tk-empty-note" style="margin:0;">Subiendo...</span> }
+                                <button class="btn btn-sm btn-primary" style="margin-left:auto;" @onclick="AddCommentAsync" disabled="@(_busy || (string.IsNullOrWhiteSpace(_newComment) && _commentAtts.Count == 0))">Comentar</button>
+                            </div>
+                            @if (_commentError is not null) { <div class="tk-field-error" style="margin-top:4px;">@_commentError</div> }
                         </div>
                     }
                     <div class="tk-activity-list">
@@ -1079,9 +1122,26 @@
                                 <div class="tk-activity-body">
                                     @if (a.Type == TaskActivityType.Comment)
                                     {
+                                        var parsed = ParseComment(a.Text);
                                         <div class="tk-activity-bubble">
                                             <div class="tk-activity-meta"><strong>@a.ActorName</strong> <span>@TaskUi.FormatRelative(a.CreatedAt)</span></div>
-                                            <p>@a.Text</p>
+                                            @if (!string.IsNullOrWhiteSpace(parsed.Text)) { <p>@parsed.Text</p> }
+                                            @if (parsed.Atts.Count > 0)
+                                            {
+                                                <div class="tk-activity-atts">
+                                                    @foreach (var at in parsed.Atts)
+                                                    {
+                                                        @if (at.IsImage)
+                                                        {
+                                                            <a href="@at.Url" target="_blank" rel="noopener"><img class="tk-activity-img" src="@at.Url" alt="@at.Name" /></a>
+                                                        }
+                                                        else
+                                                        {
+                                                            <a class="tk-activity-file" href="@at.Url" target="_blank" rel="noopener">&#128206; @at.Name</a>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
                                         </div>
                                     }
                                     else
@@ -2125,6 +2185,14 @@
         RecalcCustomCalculated();   // cualquier campo puede alimentar una formula
     }
 
+    // Ancho del campo del tablero (rejilla de 12): Column 1 = 1/3 (col-md-4), 2 = 2/3 (col-md-8), 3 = completo.
+    private static string CustomColClass(int column) => column switch
+    {
+        1 => "col-md-4",
+        2 => "col-md-8",
+        _ => "col-12",
+    };
+
     private static DataLookupConfig? CustomLookupCfgOf(TaskFieldDto f) => DataLookupConfig.TryParse(f.Options);
 
     // Lista del Directorio: sin config valida (o sin perfil) igual funciona = todos los terceros.
@@ -2393,27 +2461,104 @@
 
     // ===== Comentarios y adjuntos =====
 
+    // ===== Bitacora enriquecida: adjuntos en el comentario + mencion de usuarios =====
+    private sealed record CommentAtt(string Url, string Name, bool IsImage);
+    private readonly List<CommentAtt> _commentAtts = new();
+    private bool _commentUploading;
+    private bool _mentionOpen;
+    private string? _commentError;
+
     private async Task AddCommentAsync()
     {
-        if (_detail is null || string.IsNullOrWhiteSpace(_newComment)) { return; }
+        if (_detail is null) { return; }
+        if (string.IsNullOrWhiteSpace(_newComment) && _commentAtts.Count == 0) { return; }
         _busy = true;
         try
         {
-            var result = await TasksSvc.AddCommentAsync(_detail.Item.Id, _newComment.Trim(), await ActorAsync(), await ActorNameAsync());
+            // El texto lleva las URLs de los adjuntos (una por linea); el render de la Bitacora las
+            // convierte en preview de imagen o enlace de archivo. Los adjuntos YA estan en Documentos.
+            var text = (_newComment ?? string.Empty).Trim();
+            if (_commentAtts.Count > 0)
+            {
+                var urls = string.Join("\n", _commentAtts.Select(a => a.Url));
+                text = string.IsNullOrEmpty(text) ? urls : text + "\n" + urls;
+            }
+            var result = await TasksSvc.AddCommentAsync(_detail.Item.Id, text, await ActorAsync(), await ActorNameAsync());
             if (result.IsOk)
             {
                 _newComment = "";
+                _commentAtts.Clear();
+                _mentionOpen = false;
+                _commentError = null;
                 await ReloadAsync(_detail.Item.Id);
             }
-            else
-            {
-                _actionError = result.Error;
-            }
+            else { _actionError = result.Error; }
         }
-        finally
+        finally { _busy = false; }
+    }
+
+    /// <summary>Adjunta imagen(es)/archivo(s) al comentario: sube CADA uno (queda en Documentos via
+    /// AddAttachment) y lo apila para enviarse con el comentario (preview inline en la Bitacora).</summary>
+    private async Task OnCommentFilesAsync(InputFileChangeEventArgs e)
+    {
+        if (_detail is null) { return; }
+        _commentError = null; _commentUploading = true; _busy = true;
+        var errores = new List<string>();
+        try
         {
-            _busy = false;
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                var saved = await StoreAttachmentAsync(file, errores);
+                if (saved is null) { continue; }
+                var name = RecortarNombreAtt(file.Name);
+                var result = await TasksSvc.AddAttachmentAsync(
+                    new AddTaskAttachmentRequest(_detail.Item.Id, name, saved.Value.Url, saved.Value.ContentType, saved.Value.Size),
+                    actor, actorName);
+                if (!result.IsOk) { errores.Add(result.Error ?? $"No se pudo registrar {file.Name}."); continue; }
+                _commentAtts.Add(new CommentAtt(saved.Value.Url, name, IsImageUrl(saved.Value.Url)));
+            }
+            await ReloadAsync(_detail.Item.Id); // refresca el tab Documentos
         }
+        catch (InvalidOperationException) { errores.Add("Solo se pueden adjuntar 10 archivos a la vez."); }
+        finally { _commentUploading = false; _busy = false; if (errores.Count > 0) { _commentError = string.Join(" ", errores); } }
+    }
+
+    /// <summary>Inserta una mencion "@Usuario" en el comentario.</summary>
+    private void InsertMention(TenantUserDto u)
+    {
+        var handle = "@" + TaskUi.UserLabel(u);
+        _newComment = string.IsNullOrWhiteSpace(_newComment) ? handle + " " : _newComment.TrimEnd() + " " + handle + " ";
+        _mentionOpen = false;
+    }
+
+    private static bool IsImageUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) { return false; }
+        var u = url.Split('?')[0].ToLowerInvariant();
+        return u.EndsWith(".png") || u.EndsWith(".jpg") || u.EndsWith(".jpeg") || u.EndsWith(".gif") || u.EndsWith(".webp") || u.EndsWith(".bmp");
+    }
+
+    /// <summary>Separa un comentario en texto + adjuntos (lineas que son URLs), para el render de la Bitacora.</summary>
+    private static (string Text, List<(string Url, string Name, bool IsImage)> Atts) ParseComment(string? raw)
+    {
+        var atts = new List<(string, string, bool)>();
+        if (string.IsNullOrEmpty(raw)) { return (string.Empty, atts); }
+        var textLines = new List<string>();
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase)
+                || t.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                var name = System.IO.Path.GetFileName(t.Split('?')[0]);
+                atts.Add((t, string.IsNullOrEmpty(name) ? t : name, IsImageUrl(t)));
+            }
+            else { textLines.Add(line); }
+        }
+        return (string.Join("\n", textLines).Trim(), atts);
     }
 
     private async Task OnAttachFilesAsync(InputFileChangeEventArgs e)

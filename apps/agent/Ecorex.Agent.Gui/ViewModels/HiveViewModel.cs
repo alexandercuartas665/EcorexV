@@ -108,22 +108,59 @@ public sealed class HiveViewModel : ObservableObject
         CopyLogCommand = new RelayCommand(CopyLog);
         ClearLogCommand = new RelayCommand(ClearLog);
 
-        // "Modo login": abre un navegador persistente para que el usuario inicie sesion a mano en la red; la
-        // sesion queda guardada en el perfil profiles/{red} y el scraping logueado la reutiliza (SessionKey).
-        LoginLinkedInCommand = new RelayCommand(() =>
-            SocialLoginLauncher.Open("linkedin", "https://www.linkedin.com/login", "LinkedIn"));
-        LoginFacebookCommand = new RelayCommand(() =>
-            SocialLoginLauncher.Open("facebook", "https://www.facebook.com/login", "Facebook"));
-        LoginInstagramCommand = new RelayCommand(() =>
-            SocialLoginLauncher.Open("instagram", "https://www.instagram.com/accounts/login/", "Instagram"));
-        LoginTikTokCommand = new RelayCommand(() =>
-            SocialLoginLauncher.Open("tiktok", "https://www.tiktok.com/login", "TikTok"));
+        // "Modo login" ADMINISTRABLE: la lista de perfiles (nombre + URL de login) la maneja el usuario;
+        // "Iniciar sesion" abre el navegador persistente profiles/{SessionKey} y el scraping logueado lo
+        // reutiliza (SessionKey). El backend no cambia: con el SessionKey correcto scrapea esa sesion.
+        OpenLoginCommand = new RelayCommand(p =>
+        {
+            if (p is LoginProfile lp) { SocialLoginLauncher.OpenLogin(lp.SessionKey, lp.LoginUrl); }
+        });
+        AddLoginCommand = new RelayCommand(_ => AddLoginProfile());
+        RemoveLoginCommand = new RelayCommand(p =>
+        {
+            if (p is LoginProfile lp && _loginStore.Remove(lp.SessionKey)) { RefreshLoginProfiles(); }
+        });
+        RefreshLoginProfiles();
     }
 
-    public RelayCommand LoginLinkedInCommand { get; }
-    public RelayCommand LoginFacebookCommand { get; }
-    public RelayCommand LoginInstagramCommand { get; }
-    public RelayCommand LoginTikTokCommand { get; }
+    // ---- Perfiles de login administrables (LoginProfileStore) ----
+    private readonly LoginProfileStore _loginStore = new();
+
+    /// <summary>Lista de perfiles de login (Builtin + los que agregue el usuario).</summary>
+    public ObservableCollection<LoginProfile> LoginProfiles { get; } = new();
+
+    public RelayCommand OpenLoginCommand { get; }
+    public RelayCommand AddLoginCommand { get; }
+    public RelayCommand RemoveLoginCommand { get; }
+
+    private string _newLoginName = "";
+    private string _newLoginUrl = "";
+    private string? _loginError;
+
+    /// <summary>Nombre del nuevo perfil de login (deriva el SessionKey).</summary>
+    public string NewLoginName { get => _newLoginName; set => SetProperty(ref _newLoginName, value); }
+
+    /// <summary>URL de login del nuevo perfil (http/https).</summary>
+    public string NewLoginUrl { get => _newLoginUrl; set => SetProperty(ref _newLoginUrl, value); }
+
+    /// <summary>Error del alta de perfil (nombre/URL invalidos), o null.</summary>
+    public string? LoginError { get => _loginError; private set => SetProperty(ref _loginError, value); }
+
+    private void RefreshLoginProfiles()
+    {
+        LoginProfiles.Clear();
+        foreach (var p in _loginStore.List()) { LoginProfiles.Add(p); }
+    }
+
+    private void AddLoginProfile()
+    {
+        var (profile, error) = _loginStore.Add(NewLoginName, NewLoginUrl);
+        if (profile is null) { LoginError = error; return; }
+        LoginError = null;
+        NewLoginName = "";
+        NewLoginUrl = "";
+        RefreshLoginProfiles();
+    }
 
     /// <summary>True cuando el flyout de capacidad abierto es el del Navegador: habilita la seccion
     /// "Iniciar sesion en redes" (el login solo aplica al navegador).</summary>

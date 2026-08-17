@@ -17,13 +17,14 @@ namespace Ecorex.Agent.Gui.Services;
 public static class SocialLoginLauncher
 {
     // async void: lanzador tipo evento (fire-and-forget de UI). Todo el cuerpo va protegido para que ninguna
-    // excepcion escape al Dispatcher.
-    public static async void Open(string sessionKey, string loginUrl, string redLabel)
+    // excepcion escape al Dispatcher. GENERICO: abre el perfil profiles/{sessionKey} en loginUrl; la lista
+    // de perfiles (nombre + URL) la administra el usuario via LoginProfileStore, ya no esta hardcodeada.
+    public static async void OpenLogin(string sessionKey, string loginUrl)
     {
         var web = new WpfWebView2();
         var window = new Window
         {
-            Title = $"ECOREX - Iniciar sesion: {redLabel}",
+            Title = $"ECOREX - Iniciar sesion: {sessionKey}",
             Width = 1024,
             Height = 760,
             Content = web,

@@ -182,24 +182,55 @@
                         <TextBlock Text="{Binding CapHint}" Foreground="{StaticResource HiveInkDim}"
                                    FontSize="10.5" Margin="0,4,0,0" TextWrapping="Wrap" />
 
-                        <!-- Iniciar sesion en redes (SOLO Navegador): abre un navegador persistente para que
-                             el usuario se loguee a mano; la sesion se guarda y el scraping logueado la reutiliza. -->
+                        <!-- Sesiones de login ADMINISTRABLES (SOLO Navegador): lista de perfiles (nombre + URL)
+                             que el usuario administra. "Iniciar sesion" abre un navegador persistente para
+                             loguearse a mano; el scraping reutiliza esa sesion por su clave (sessionKey). -->
                         <StackPanel Margin="0,16,0,0"
                                     Visibility="{Binding IsBrowserCap, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="Iniciar sesion en redes" Style="{DynamicResource FieldLabel}" />
-                            <TextBlock Text="Abre un navegador para iniciar sesion a mano (usuario/clave/2FA). La sesion queda guardada y el scraping la reutiliza."
+                            <TextBlock Text="Sesiones de login" Style="{DynamicResource FieldLabel}" />
+                            <TextBlock Text="Inicia sesion a mano en cada sitio; el scraping reutiliza esa sesion por su clave (sessionKey)."
                                        Foreground="{StaticResource HiveInkDim}" FontSize="10.5"
                                        Margin="0,0,0,8" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="LinkedIn" Command="{Binding LoginLinkedInCommand}"
-                                        Style="{DynamicResource GhostButton}" />
-                                <Button Content="Facebook" Command="{Binding LoginFacebookCommand}"
-                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
-                                <Button Content="Instagram" Command="{Binding LoginInstagramCommand}"
-                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
-                                <Button Content="TikTok" Command="{Binding LoginTikTokCommand}"
-                                        Style="{DynamicResource GhostButton}" Margin="8,0,0,0" />
-                            </StackPanel>
+
+                            <ItemsControl ItemsSource="{Binding LoginProfiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#14FFFFFF" BorderBrush="{StaticResource HiveStroke}"
+                                                BorderThickness="1" CornerRadius="8" Padding="8,6" Margin="0,0,0,6">
+                                            <Grid>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource HiveInk}"
+                                                               FontSize="12.5" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding SessionKey}" Foreground="{StaticResource HiveInkDim}"
+                                                               FontSize="10" FontFamily="Consolas" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                    <Button Content="Iniciar sesion" Style="{DynamicResource GhostButton}"
+                                                            Command="{Binding DataContext.OpenLoginCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}" />
+                                                    <Button Content="Quitar" Style="{DynamicResource ChromeButton}" Width="Auto" Padding="8,0" Margin="6,0,0,0" FontSize="11"
+                                                            Command="{Binding DataContext.RemoveLoginCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"
+                                                            Visibility="{Binding Builtin, Converter={StaticResource InverseBoolToVis}}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="Agregar sitio" Style="{DynamicResource FieldLabel}" Margin="0,8,0,0" />
+                            <TextBox Text="{Binding NewLoginName, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{DynamicResource InkTextBox}" Margin="0,0,0,5" />
+                            <TextBox Text="{Binding NewLoginUrl, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{DynamicResource InkTextBox}" />
+                            <TextBlock Text="Nombre (ej. MercadoLibre) + URL de login (https://...)."
+                                       Foreground="{StaticResource HiveInkDim}" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LoginError}" Foreground="#E5556B" FontSize="10.5" Margin="0,3,0,0" TextWrapping="Wrap" />
+                            <Button Content="Agregar" Command="{Binding AddLoginCommand}"
+                                    Style="{DynamicResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,6,0,0" />
+                            <TextBlock Text="Para SCRAPEAR un sitio nuevo, agrega tambien su dominio a la Allow-list de arriba."
+                                       Foreground="{StaticResource HiveInkDim}" FontSize="10" Margin="0,8,0,0" TextWrapping="Wrap" />
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Margin="0,18,0,0" HorizontalAlignment="Right">

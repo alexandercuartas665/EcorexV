@@ -4,6 +4,7 @@
              xmlns:conv="clr-namespace:Ecorex.Agent.Gui.Converters">
     <Application.Resources>
         <conv:BoolToStatusBrushConverter x:Key="BoolToStatusBrush" />
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <!-- Paleta MONOCROMA de la colmena (translucida, oscura, sin color de marca). Los
              hexagonos activos brillan en blanco/gris; el error es el unico acento (rojo tenue). -->

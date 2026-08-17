@@ -246,14 +246,23 @@
         _deleteId = id; _deleteName = name; _deleteRunning = running; _deleteError = null;
     }
 
+    // Serializa el acceso a la BD desde esta pagina: el DbContext del circuito lo comparten el indice y
+    // el editor de flujos; sin esto, dos operaciones a la vez lanzan "A second operation was started on
+    // this context".
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
     private async Task ConfirmDeleteAsync()
     {
         if (_deleteId is not Guid id) { return; }
         _busy = true;
         _deleteError = null;
-        var res = await DesignSvc.DeleteDefinitionAsync(id);
+        await _gate.WaitAsync();
+        bool ok;
+        string? err = null;
+        try { var res = await DesignSvc.DeleteDefinitionAsync(id); ok = res.IsOk; err = res.Error; }
+        finally { _gate.Release(); }
         _busy = false;
-        if (!res.IsOk) { _deleteError = res.Error ?? "No se pudo eliminar el flujo."; return; }
+        if (!ok) { _deleteError = err ?? "No se pudo eliminar el flujo."; return; }
         _deleteId = null;
         await ReloadAsync();
     }
@@ -262,15 +271,20 @@
 
     private async Task ReloadAsync()
     {
+        await _gate.WaitAsync();
         try
         {
-            _index = await DesignSvc.ListForIndexAsync();
+            for (var attempt = 0; ; attempt++)
+            {
+                try { _index = await DesignSvc.ListForIndexAsync(); _error = null; break; }
+                catch (InvalidOperationException ex) when (attempt < 2 && ex.Message.Contains("second operation", StringComparison.OrdinalIgnoreCase))
+                {
+                    await Task.Delay(150); // el DbContext del circuito estaba ocupado (editor); reintenta
+                }
+                catch (Exception ex) { _error = $"No se pudo cargar el indice de flujos: {ex.Message}"; break; }
+            }
         }
-        catch (Exception ex)
-        {
-            _error = $"No se pudo cargar el indice de flujos: {ex.Message}";
-        }
-        _loading = false;
+        finally { _gate.Release(); _loading = false; }
     }
 
     private IEnumerable<(string Name, int Count)> CategoryTabs
@@ -342,15 +356,23 @@
         _busy = true;
         try
         {
-            var result = await DesignSvc.CreateDraftAsync(_newFlowName, _newFlowCategory);
-            if (!result.IsOk || result.Value is null)
+            await _gate.WaitAsync();
+            bool ok; string? err; Guid newId = Guid.Empty;
+            try
             {
-                _error = result.Error ?? "No se pudo crear el flujo.";
+                var result = await DesignSvc.CreateDraftAsync(_newFlowName, _newFlowCategory);
+                ok = result.IsOk && result.Value is not null; err = result.Error;
+                if (ok) { newId = result.Value!.DefinitionId; }
+            }
+            finally { _gate.Release(); }
+            if (!ok)
+            {
+                _error = err ?? "No se pudo crear el flujo.";
                 return;
             }
             _newFlowOpen = false;
             await ReloadAsync();
-            _editorId = result.Value.DefinitionId;
+            _editorId = newId;
         }
         finally
         {

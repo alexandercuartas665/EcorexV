@@ -34,6 +34,16 @@
                     try { localStorage.setItem('ecorex-sidebar', c ? 'collapsed' : 'open'); } catch (e) { }
                 }
             };
+            // La navegacion mejorada de Blazor "morphea" el <html> a la respuesta del server (sin la
+            // clase), asi que al saltar de opcion el menu se re-abria. Se re-aplica el estado guardado en
+            // cada enhancedload (y en el primer load) para que el colapso PERSISTA por usuario.
+            function applySidebar() {
+                try {
+                    var col = localStorage.getItem('ecorex-sidebar') === 'collapsed';
+                    document.documentElement.classList.toggle('sidebar-collapsed', col);
+                } catch (e) { }
+            }
+            document.addEventListener('enhancedload', applySidebar);
         })();
     </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />

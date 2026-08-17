@@ -52,6 +52,22 @@ public sealed class ProjectService : IProjectService
         return ToDto(project, taskCount, memberCount);
     }
 
+    /// <summary>Siguiente codigo PRY-### del tenant (max existente + 1). Ignora codigos manuales no-PRY.</summary>
+    private async Task<string> NextProjectCodeAsync(CancellationToken cancellationToken)
+    {
+        var codes = await _db.Projects.Select(p => p.Code).ToListAsync(cancellationToken);
+        var max = 0;
+        foreach (var c in codes)
+        {
+            if (!string.IsNullOrEmpty(c) && c.StartsWith("PRY-", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(c.AsSpan(4), out var n) && n > max)
+            {
+                max = n;
+            }
+        }
+        return $"PRY-{max + 1:000}";
+    }
+
     public async Task<TaskCoreResult<ProjectDto>> CreateAsync(CreateProjectRequest request, CancellationToken cancellationToken = default)
     {
         if (_tenantContext.TenantId is not Guid tenantId)
@@ -60,9 +76,14 @@ public sealed class ProjectService : IProjectService
         }
         var code = (request.Code ?? "").Trim();
         var name = (request.Name ?? "").Trim();
-        if (code.Length == 0 || name.Length == 0)
+        if (name.Length == 0)
         {
-            return TaskCoreResult<ProjectDto>.Invalid("Codigo y nombre son obligatorios.");
+            return TaskCoreResult<ProjectDto>.Invalid("El nombre es obligatorio.");
+        }
+        // Codigo AUTOGENERADO: si el usuario no lo escribe, el sistema asigna el siguiente PRY-### del tenant.
+        if (code.Length == 0)
+        {
+            code = await NextProjectCodeAsync(cancellationToken);
         }
         if (request.StartDate is not null && request.EndDate is not null && request.EndDate < request.StartDate)
         {

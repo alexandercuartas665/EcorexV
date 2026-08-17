@@ -1705,7 +1705,18 @@ else
         @if (!node.IsDoc)
         {
             <div class="fb-field">
-                <label>Ancho (columnas)</label>
+                <label>Ancho del campo</label>
+                @* Presets claros (lo que la mayoria quiere): Pequeno=1/3, Mediano=1/2, Completo. Debajo
+                   quedan los 1-12 para ajuste fino. Todos usan SetWidthAsync (persiste Width + GridCol). *@
+                <div style="display:flex;gap:6px;margin-bottom:8px;">
+                    @foreach (var (lbl, w) in new[] { ("Pequeno (1/3)", 4), ("Mediano (1/2)", 6), ("Completo", 12) })
+                    {
+                        var pw = w;
+                        <button type="button" @onclick="@(() => SetWidthAsync(node, pw))"
+                                style="flex:1;padding:6px 8px;border:1px solid var(--line,#d1d5db);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;background:@(node.Width == pw ? "var(--primary,#7c3aed)" : "transparent");color:@(node.Width == pw ? "#fff" : "inherit");">@lbl</button>
+                    }
+                </div>
+                <label style="font-size:11px;opacity:.7;">Ajuste fino (columnas 1-12)</label>
                 <div class="fb-widthgrid">
                     @for (var w = 1; w <= 12; w++)
                     {

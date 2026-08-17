@@ -160,6 +160,7 @@
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.6" Color="#000000" />
                     </Border.Effect>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="20,18,20,18">
                         <Grid>
                             <TextBlock Text="{Binding CapTitle}" Foreground="{StaticResource HiveInk}"
@@ -240,6 +241,7 @@
                                     Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
                         </StackPanel>
                     </StackPanel>
+                    </ScrollViewer>
                 </Border>
             </Grid>
         </Grid>

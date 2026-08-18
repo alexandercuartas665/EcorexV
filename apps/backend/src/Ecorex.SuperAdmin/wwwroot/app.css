@@ -2841,7 +2841,19 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
     .ab-scopes { flex-wrap: wrap; }
     .ab-tabs { flex-wrap: wrap; row-gap: 4px; }
     .ab-tabs-right { margin-left: 0; margin-top: 8px; width: 100%; flex-wrap: wrap; }
-    /* El kanban es horizontal por naturaleza (columnas fijas): en celular se reduce el relleno
-       lateral y se contiene el scroll en la propia rejilla para no arrastrar el body. */
-    .ab-kanban { padding-left: 12px; padding-right: 12px; overflow-x: auto; }
+    /* Kanban en celular: la rejilla `repeat(N, minmax(0,1fr))` (inline) apinaba N columnas en 375px
+       hasta volverlas ilegibles. Se sustituye por columnas de ancho fijo (~82vw) que fluyen en una
+       fila con scroll horizontal y "snap", para leer una columna a la vez y deslizar a la siguiente. */
+    .ab-kanban {
+        padding-left: 12px; padding-right: 12px;
+        grid-template-columns: none !important;
+        grid-auto-flow: column;
+        grid-auto-columns: 82vw;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+    }
+    .ab-kanban > * { scroll-snap-align: start; }
+    /* La columna interna ya no necesita limitar su alto contra el viewport del escritorio. */
+    .ab-col-body { max-height: none; }
 }

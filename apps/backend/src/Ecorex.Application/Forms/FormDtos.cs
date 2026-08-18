@@ -60,13 +60,18 @@ public sealed record FormDefinitionDetailDto(
     bool IsModule = false, string? ModuleIcon = null,
     string? ListColumnsJson = null, string? FilterFieldsJson = null,
     // Ancho de la tarjeta al llenar (Normal/Ancho/Completo). Configurable por formulario.
-    FormCardLayout CardLayout = FormCardLayout.Normal);
+    FormCardLayout CardLayout = FormCardLayout.Normal,
+    // CSS personalizado de todo el formulario (pestana Estilos del disenador).
+    string? CustomCss = null);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
 /// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel.</summary>
 public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode,
     FormCardLayout CardLayout = FormCardLayout.Normal);
+
+/// <summary>CSS personalizado de todo el formulario (pestana Estilos del disenador). Null/vacio lo borra.</summary>
+public sealed record SetFormCssRequest(string? CustomCss);
 
 /// <summary>Fila de la bandeja del formulario-modulo (ola F4): un registro enviado. <see cref="Fields"/>
 /// son los valores de campo (fieldCode -> valor) para las columnas configurables de la bandeja / BI.</summary>

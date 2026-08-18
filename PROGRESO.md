@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-08-18 - v0.15.29: editor de CSS del formulario (#8) + kanban celular + fecha del tablero
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview local (5234 -> `ecorex_dev` 5442)
+con `/dev/login` (owner@sky-system.local) via MCP Chrome. Deploy a prod al final.
+
+**Que:**
+- **#8 CSS/estilos del formulario** (cierra el lote de 9): columna nueva `custom_css` en
+  `FormDefinition` (migracion dual PG + SqlServer, auto-aplica al arrancar -> `ALTER TABLE
+  form_definitions ADD custom_css text`). El disenador (pestana Propiedades) trae un textarea "CSS
+  personalizado"; el servicio `SetCustomCssAsync` lo guarda (solo presentacion, no toca revision). El
+  `DynamicFormRenderer` inyecta un `<style>` acotado con **@scope (#ecx-form-{id})** al contenedor del
+  formulario (no se filtra a la pagina; si el navegador no soporta @scope, no se aplica -> nunca
+  contamina) y emite una clase estable **field-{FieldCode}** por campo para estilar un objeto puntual.
+  Se neutraliza cualquier `</style>` de ruptura. VALIDADO: el `font-style:italic` del CSS de prueba se
+  aplico al titulo y el `<style>` sale con @scope; el textarea carga el valor guardado.
+- **Kanban en celular** (seguia apinado): la rejilla inline `repeat(N, minmax(0,1fr))` metia N columnas
+  en 375px. En `<=640px` se sustituye por `grid-auto-flow:column` + `grid-auto-columns:82vw` +
+  `overflow-x:auto` + scroll-snap -> columnas de ~308px legibles, se desliza una a la vez y el body ya
+  NO scrollea en horizontal. VALIDADO.
+- **Fecha de entrega del tablero**: la cabecera pintaba "Sin fecha limite" aunque el tablero no tuviera
+  fecha (inutil). Ahora el chip `.ab-ddue` solo se muestra si `_detail.DueDate` no es null.
+
+**Archivos:** `FormDefinition.cs` (+CustomCss), migraciones `AddFormCustomCss` (PG + SqlServer),
+`FormDtos.cs`/`IFormDefinitionService.cs`/`FormDefinitionService.cs` (DTO + SetCustomCssAsync),
+`DynamicFormRenderer.razor` (inyeccion @scope + field-{code}), `FormDesigner.razor` (textarea en
+Propiedades + guardado), `ActivityBoardDetail.razor` (chip fecha condicional), `app.css` (kanban movil),
+`AppVersion.cs`.
+
+**Decisiones:** una sola columna (`custom_css` a nivel formulario) + clases `field-{code}` en el render
+en vez de una columna de estilo por campo (menos esquema, misma potencia). Scoping con @scope (falla
+seguro). Kanban movil = patron "una columna a la vez" (estilo Trello), no apilado.
+
+---
+
 ## 2026-08-17 - Lote UX/movil v0.15.28 (8 de 9 puntos; persistencias, formularios, galeria, sede, auditoria movil)
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview local (5234 -> BD `ecorex_dev`

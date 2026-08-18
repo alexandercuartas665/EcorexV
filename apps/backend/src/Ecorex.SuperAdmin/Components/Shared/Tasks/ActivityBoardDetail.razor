@@ -39,10 +39,15 @@
         <div class="ab-dtitlerow">
             <h1 class="ab-dtitle">@_detail.Name</h1>
             <span class="ab-dstatus"><span class="ab-dot" style="background:@AbUi.BoardStatusColor(_detail.Status)"></span>@AbUi.BoardStatusLabel(_detail.Status)</span>
-            <span class="ab-ddue">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                @AbUi.BoardDeadline(_detail.DueDate)
-            </span>
+            @* La fecha de entrega del tablero solo se muestra si REALMENTE tiene una; antes se pintaba
+               "Sin fecha limite" sin aportar nada (el usuario pidio quitarlo de pantalla). *@
+            @if (_detail.DueDate is not null)
+            {
+                <span class="ab-ddue">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    @AbUi.BoardDeadline(_detail.DueDate)
+                </span>
+            }
             <button class="ab-dedit" title="Editar tablero" @onclick="OpenEditBoard">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>

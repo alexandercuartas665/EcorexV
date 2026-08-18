@@ -29,6 +29,9 @@ public interface IFormDefinitionService
     /// <summary>Configura la transaccionalidad del formulario (ola F3): IsTransactional + modo de identidad + campo clave.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador).</summary>
+    Task<FormResult<FormDefinitionDetailDto>> SetCustomCssAsync(Guid definitionId, SetFormCssRequest request, CancellationToken cancellationToken = default);
+
     /// <summary>Promueve/retira el formulario como modulo (ola F4): crea/borra el nodo de menu en el grupo elegido.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetModuleAsync(Guid definitionId, SetFormModuleRequest request, CancellationToken cancellationToken = default);
 

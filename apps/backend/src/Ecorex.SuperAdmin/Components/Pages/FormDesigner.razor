@@ -498,6 +498,21 @@ else
                         <p style="font-size:12px;color:var(--t-green);margin-top:4px;">Ya publicado como modulo. Ruta: /m/@_def.Code</p>
                     }
                 }
+                <hr style="margin:16px 0;border:none;border-top:1px solid var(--line);" />
+                @* CSS personalizado de todo el formulario (#8). Se aplica al llenar (URL publica, modulo
+                   y vista previa), acotado a este formulario con @@scope. Para dar estilo a un objeto
+                   puntual, usa su clase estable field-{codigo} (el codigo aparece en cada campo). *@
+                <div class="field">
+                    <label class="form-label">CSS personalizado (estilos del formulario)</label>
+                    <textarea class="form-control" style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;min-height:150px;white-space:pre;"
+                              @bind="_customCss" spellcheck="false"
+                              placeholder=".dfr-title { color:#0a7; }&#10;.field-total input { font-weight:800; }&#10;.field-observaciones { background:#fff8e1; }"></textarea>
+                    <p style="font-size:12px;color:var(--ink-3);margin:4px 0 0;">
+                        Se aplica solo a ESTE formulario. Apunta a un objeto por su clase
+                        <code>.field-<i>codigo</i></code> (p.ej. <code>.field-@(_def.Questions.FirstOrDefault(x => !FormFieldValidator.IsNonInput(x.ControlType))?.FieldCode ?? "total")</code>)
+                        o usa clases del formulario como <code>.dfr-title</code>, <code>.dfr-body</code>.
+                    </p>
+                </div>
                 @if (_modalError is not null)
                 {
                     <div class="tk-field-error">@_modalError</div>
@@ -544,6 +559,7 @@ else
     private string _txMode = nameof(FormIdentityMode.None);
     private string? _txField;
     private FormCardLayout _cardLayout = FormCardLayout.Normal;
+    private string _customCss = "";
     // Formulario como modulo (ola F4).
     private bool _isModule;
     private Guid? _moduleViewId;
@@ -1168,6 +1184,7 @@ else
         _txMode = _def.IdentityMode.ToString();
         _txField = _def.IdentitySourceFieldCode;
         _cardLayout = _def.CardLayout;
+        _customCss = _def.CustomCss ?? "";
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
         _moduleLabel = _def.Title;
@@ -1247,6 +1264,11 @@ else
                     _moduleColumns.ToList(), _moduleFilters.ToList(), _moduleLabel));
             if (!mod.IsOk) { _modalError = mod.Error; return; }
             _def = mod.Value;
+
+            // CSS personalizado del formulario (#8): solo presentacion, no toca estructura ni revision.
+            var css = await FormsSvc.SetCustomCssAsync(_def!.Id, new SetFormCssRequest(_customCss));
+            if (!css.IsOk) { _modalError = css.Error; return; }
+            _def = css.Value;
 
             _showFormProps = false;
         }

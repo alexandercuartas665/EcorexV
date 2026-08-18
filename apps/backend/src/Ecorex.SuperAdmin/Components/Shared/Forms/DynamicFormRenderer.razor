@@ -37,7 +37,14 @@ else if (_definition is null)
 }
 else
 {
-    <div class="dfr-root @CardWidthClass()">
+    <div class="dfr-root @CardWidthClass()" id="@FormScopeId">
+        @* CSS personalizado del formulario (#8): acotado con @@scope al contenedor de ESTE formulario
+           para no filtrarse al resto de la pagina; si el navegador no soporta @@scope, simplemente no
+           se aplica (nunca contamina globalmente). Se neutraliza cualquier cierre </style> de ruptura. *@
+        @if (!string.IsNullOrWhiteSpace(_definition.CustomCss))
+        {
+            <style>@((MarkupString)CustomStyleBlock(_definition.CustomCss))</style>
+        }
         @if (ShowHeader)
         {
             <div class="dfr-head">
@@ -257,6 +264,19 @@ else
 
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
+
+    // #8: id unico del contenedor del formulario, usado como raiz del @scope del CSS personalizado.
+    private string FormScopeId => $"ecx-form-{(_definition?.Id ?? DefinitionId):N}";
+
+    /// <summary>Envuelve el CSS del usuario en un @scope acotado a este formulario y neutraliza cualquier
+    /// cierre &lt;/style&gt; para que no pueda romper el bloque e inyectar markup.</summary>
+    private string CustomStyleBlock(string css)
+    {
+        var safe = System.Text.RegularExpressions.Regex.Replace(css, "</\\s*style", "<\\/style",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return $"@scope (#{FormScopeId}) {{\n{safe}\n}}";
+    }
+
     private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
     // RulesEngine (FASE 4 ola 3, ADR-0016): campos con reglas vinculadas y estado de UI
@@ -587,7 +607,9 @@ else
         {
             return;
         }
-        <div class="@(forceFullWidth ? "col-12" : string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol)">
+        @* La clase estable field-{FieldCode} permite que el CSS personalizado del formulario apunte a
+           un objeto puntual (p.ej. .field-total { font-weight:800 }). *@
+        <div class="@(forceFullWidth ? "col-12" : string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol) field-@q.FieldCode">
             @switch (q.ControlType)
             {
                 case FormControlType.Paragraph:

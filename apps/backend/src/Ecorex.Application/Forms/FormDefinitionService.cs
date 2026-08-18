@@ -673,7 +673,7 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             questions.Select(ToDto).ToList(),
             definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
-            definition.CardLayout);
+            definition.CardLayout, definition.CustomCss);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -691,6 +691,25 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
                 ? Normalize(request.IdentitySourceFieldCode) : null;
         // Ancho de tarjeta: se guarda desde el mismo panel de Propiedades del formulario.
         definition.CardLayout = request.CardLayout;
+        await _db.SaveChangesAsync(cancellationToken);
+        return (await GetAsync(definitionId, cancellationToken)) is { } dto
+            ? FormResult<FormDefinitionDetailDto>.Ok(dto)
+            : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    /// <summary>
+    /// Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador). Vacio -> null
+    /// (sin estilos). No altera la estructura ni la revision: es solo presentacion.
+    /// </summary>
+    public async Task<FormResult<FormDefinitionDetailDto>> SetCustomCssAsync(
+        Guid definitionId, SetFormCssRequest request, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+        }
+        definition.CustomCss = string.IsNullOrWhiteSpace(request.CustomCss) ? null : request.CustomCss;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)

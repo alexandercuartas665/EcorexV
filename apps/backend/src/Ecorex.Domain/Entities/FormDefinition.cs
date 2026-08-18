@@ -74,4 +74,12 @@ public class FormDefinition : TenantEntity, IVersioned
     /// formulario; util para cotizadores con tablas anchas. Default Normal = comportamiento actual.
     /// </summary>
     public FormCardLayout CardLayout { get; set; } = FormCardLayout.Normal;
+
+    /// <summary>
+    /// CSS personalizado para TODO el formulario (opcional). Lo edita el disenador en la pestana de
+    /// estilos y el renderer lo inyecta en un &lt;style&gt; dentro del contenedor del formulario. Para
+    /// dar estilo a un objeto puntual el renderer emite una clase estable por campo: <c>field-{FieldCode}</c>.
+    /// Es contenido del propio tenant (no de usuarios finales); el CSS no ejecuta JS.
+    /// </summary>
+    public string? CustomCss { get; set; }
 }

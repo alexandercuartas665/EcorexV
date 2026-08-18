@@ -4992,6 +4992,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("CustomCss")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("custom_css");
+
                     b.Property<string>("Description")
                         .HasMaxLength(600)
                         .HasColumnType("nvarchar(600)")

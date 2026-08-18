@@ -158,7 +158,7 @@ public partial class MainWindow : Window
     {
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Mostrar", null, (_, _) => ShowFromTray());
-        menu.Items.Add("Demo (Ctrl+D)", null, (_, _) => { ShowFromTray(); _vm.RunDemoCommand.Execute(null); });
+        menu.Items.Add("Ocultar", null, (_, _) => HideToTray());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Salir", null, (_, _) => ExitApp());
 

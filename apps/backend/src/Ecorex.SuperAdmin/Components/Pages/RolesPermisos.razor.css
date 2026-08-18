@@ -2,13 +2,16 @@
 
 .rp-layout {
     display: grid;
-    grid-template-columns: 300px 1fr;
+    /* minmax(0,1fr): permite que la columna de la matriz ENCOJA y que su scroll horizontal
+       interno (.rp-matrix-scroll) funcione, en vez de empujar la pagina fuera de pantalla en
+       tabletas (antes con 1fr la matriz se salia por la derecha). */
+    grid-template-columns: 300px minmax(0, 1fr);
     gap: 18px;
     align-items: start;
 }
 
 @media (max-width: 900px) {
-    .rp-layout { grid-template-columns: 1fr; }
+    .rp-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ---- Panel de roles ---- */

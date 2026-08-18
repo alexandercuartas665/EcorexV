@@ -5,6 +5,33 @@
 
 ---
 
+## 2026-08-18 - v0.15.30 + MSI 1.7.7: copiar descripcion, roles en tableta, agente (panal arriba, sin demo)
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Web validado en preview (5234 -> ecorex_dev 5442) con
+`/dev/login`. Agente WPF (MSI 1.7.7) compilado y copiado a Downloads.
+
+**Web (v0.15.30):**
+- **Copiar descripcion de la tarea**: boton "Copiar" junto a "Editar" en la seccion Descripcion del
+  `TaskDetailModal`; copia TODO el texto al portapapeles (`navigator.clipboard.writeText`) con flash
+  "Copiado". VALIDADO: el boton aparece cuando hay descripcion.
+- **Roles y permisos en tableta**: la matriz se salia por la derecha. Causa: `.rp-layout` usaba
+  `300px 1fr` y el `1fr` (=minmax(auto,1fr)) no encogia bajo el min-content de la tabla. Fix:
+  `300px minmax(0,1fr)` (+ `minmax(0,1fr)` en <=900px) para que la matriz ENCOJA y su
+  `.rp-matrix-scroll` (overflow-x:auto) haga el scroll interno. VALIDADO en 1024x768: la pagina ya no
+  scrollea en horizontal; la matriz scrollea dentro de su tarjeta.
+
+**Agente Colmena (MSI 1.7.7):**
+- **Panal anclado ARRIBA**: `ItemsControl` del panal pasa de `VerticalAlignment=Center` a `Top`
+  (`MainWindow.xaml`). Antes el centrado dejaba un hueco transparente arriba (se veia oscuro) e impedia
+  subir el panal al tope de la pantalla.
+- **Sin "Demo"**: se quita el item "Demo (Ctrl+D)" del menu de bandeja y el atajo Ctrl+D; el menu de
+  bandeja queda "Mostrar / Ocultar / Salir" (se agrego "Ocultar" -> HideToTray, lo que el usuario pedia
+  como "ocultar el aplicativo"). Cerrar ya iba a la bandeja (OnClosing cancela salvo "Salir").
+
+**Entrega:** MSI en `apps/agent/installer/dist/Ecorex-AgenteColmena-1.7.7.msi` + copia en Downloads.
+
+---
+
 ## 2026-08-18 - v0.15.29: editor de CSS del formulario (#8) + kanban celular + fecha del tablero
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview local (5234 -> `ecorex_dev` 5442)

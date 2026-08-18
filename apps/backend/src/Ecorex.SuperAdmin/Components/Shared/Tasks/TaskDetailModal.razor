@@ -431,10 +431,16 @@
                     <div class="tk-card">
                         <div class="tk-card-head">
                             <h3>Descripcion</h3>
-                            @if (!readOnly && !_editingDesc)
-                            {
-                                <button class="tb-modal-section-action" @onclick="@(() => { _editingDesc = true; _editDesc = _detail.Description ?? ""; })">Editar</button>
-                            }
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                @if (!_editingDesc && !string.IsNullOrWhiteSpace(_detail.Description))
+                                {
+                                    <button class="tb-modal-section-action" @onclick="CopyDescriptionAsync" title="Copiar toda la descripcion">@(_descCopied ? "Copiado" : "Copiar")</button>
+                                }
+                                @if (!readOnly && !_editingDesc)
+                                {
+                                    <button class="tb-modal-section-action" @onclick="@(() => { _editingDesc = true; _editDesc = _detail.Description ?? ""; })">Editar</button>
+                                }
+                            </div>
                         </div>
                         @if (_editingDesc)
                         {
@@ -1207,6 +1213,23 @@
     private string _editTitle = "";
     private bool _editingDesc;
     private string _editDesc = "";
+    private bool _descCopied;
+
+    /// <summary>Copia TODA la descripcion de la tarea al portapapeles y muestra un "Copiado" breve.</summary>
+    private async Task CopyDescriptionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_detail?.Description)) { return; }
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _detail.Description);
+            _descCopied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _descCopied = false;
+        }
+        catch (Microsoft.JSInterop.JSException) { /* portapapeles no disponible: se ignora en silencio */ }
+        catch (InvalidOperationException) { /* prerender: sin JS todavia */ }
+    }
     private DateTime? _editDue;
     private bool _confirmClose;
     private bool _confirmArchive;

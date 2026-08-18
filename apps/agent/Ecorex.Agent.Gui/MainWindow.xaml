@@ -12,8 +12,7 @@
         ShowInTaskbar="True">
 
     <Window.InputBindings>
-        <!-- Atajos ocultos: Ctrl+D corre la DEMO (Ola A); Ctrl+K abre/cierra Configuracion. -->
-        <KeyBinding Modifiers="Control" Key="D" Command="{Binding RunDemoCommand}" />
+        <!-- Ctrl+K abre/cierra Configuracion. (El atajo Ctrl+D de la DEMO se retiro: la demo ya no aplica.) -->
         <KeyBinding Modifiers="Control" Key="K" Command="{Binding ToggleConfigCommand}" />
     </Window.InputBindings>
 
@@ -38,8 +37,10 @@
                         <MenuItem Header="Salir" Click="OnExitMenu" />
                     </ContextMenu>
                 </Grid.ContextMenu>
+                <!-- Panal anclado ARRIBA (antes iba centrado y dejaba un hueco transparente encima que
+                     se veia como una franja oscura e impedia subir el panal al tope de la pantalla). -->
                 <ItemsControl ItemsSource="{Binding Cells}"
-                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              HorizontalAlignment="Center" VerticalAlignment="Top"
                               Margin="18,6,18,6">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>

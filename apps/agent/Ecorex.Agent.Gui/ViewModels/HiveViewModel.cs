@@ -525,43 +525,43 @@ public sealed class HiveViewModel : ObservableObject
         });
     });
 
-    // ---- Crecimiento del panal por peticiones ----
+    // ---- Actividad del panal (TAMANO FIJO: peticion del usuario) ----
+    // Antes cada peticion agregaba una celda EFIMERA de "worker" y el panal crecia/decrecia. Ahora el
+    // panal queda del tamano de reposo SIEMPRE: la actividad se muestra ENCENDIENDO (pulso Working) la
+    // celda BASE de la capacidad. Se cuentan las peticiones activas por capacidad para apagarla al terminar
+    // la ultima, y se mapea correlationId->kind porque HiveRequestResult no trae el kind.
+    private readonly Dictionary<string, SubAgentKind> _corrKind = new();
+    private readonly Dictionary<SubAgentKind, int> _activeByKind = new();
 
     private void OnRequestStarted(HiveRequest req) => _dispatcher.Invoke(() =>
     {
-        // La capacidad se enciende...
+        _corrKind[req.CorrelationId] = req.Kind;
+        _activeByKind[req.Kind] = _activeByKind.GetValueOrDefault(req.Kind) + 1;
         var capability = Cells.FirstOrDefault(c => c.Kind == req.Kind && !c.IsEphemeral);
-        if (capability is not null && capability.State == HiveCellState.Idle)
+        if (capability is not null)
         {
-            capability.State = HiveCellState.Active;
+            capability.State = HiveCellState.Working; // pulso, SIN agregar celdas (el panal no crece)
+            capability.Detail = req.Detail;
         }
-        // ...y aparece un worker EFIMERO atendiendo (el panal crece).
-        var worker = new HiveCellViewModel(req.Kind, WorkerLabel(req.Kind), GlyphFor(req.Kind), isEphemeral: true, correlationId: req.CorrelationId)
-        {
-            State = HiveCellState.Working,
-            Detail = req.Detail,
-        };
-        Cells.Add(worker);
     });
 
     private void OnRequestFinished(HiveRequestResult res) => _dispatcher.Invoke(async () =>
     {
-        var worker = Cells.FirstOrDefault(c => c.IsEphemeral && c.CorrelationId == res.CorrelationId);
-        if (worker is null) { return; }
-        worker.State = res.Ok ? HiveCellState.Active : HiveCellState.Error;
+        if (!_corrKind.TryGetValue(res.CorrelationId, out var kind)) { return; }
+        _corrKind.Remove(res.CorrelationId);
+        var remaining = Math.Max(0, _activeByKind.GetValueOrDefault(kind) - 1);
+        _activeByKind[kind] = remaining;
 
-        // El worker se muestra un instante en su estado final y luego se retira (el panal decrece).
-        await Task.Delay(res.Ok ? 700 : 1400);
-        Cells.Remove(worker);
-
-        // Si ya no quedan workers de esa capacidad, la capacidad vuelve a apagarse.
-        if (!Cells.Any(c => c.IsEphemeral && c.Kind == worker.Kind))
+        var capability = Cells.FirstOrDefault(c => c.Kind == kind && !c.IsEphemeral);
+        if (capability is not null)
         {
-            var capability = Cells.FirstOrDefault(c => c.Kind == worker.Kind && !c.IsEphemeral);
-            if (capability is not null && capability.State != HiveCellState.Error)
-            {
-                capability.State = HiveCellState.Idle;
-            }
+            capability.State = res.Ok ? HiveCellState.Active : HiveCellState.Error;
+        }
+        // Muestra el estado final un instante y, si ya no quedan peticiones de esa capacidad, se apaga.
+        await Task.Delay(res.Ok ? 700 : 1400);
+        if (remaining == 0 && capability is not null && capability.State != HiveCellState.Error)
+        {
+            capability.State = HiveCellState.Idle;
         }
     });
 

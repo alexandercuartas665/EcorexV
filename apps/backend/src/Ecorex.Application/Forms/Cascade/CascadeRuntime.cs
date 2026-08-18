@@ -28,7 +28,10 @@ public static class CascadeRuntime
 
         var parentSel = selections.TryGetValue(level.DependsOn, out var p) ? p : Array.Empty<string>();
         var parentSet = new HashSet<string>(parentSel, StringComparer.Ordinal);
-        return level.Options.Where(o => o.Parent is not null && parentSet.Contains(o.Parent)).ToList();
+        // Opcion SIN parent = siempre visible (una vez habilitado el nivel); opcion CON parent = visible
+        // solo si ese parent esta seleccionado. Permite gatear opciones puntuales por un nivel anterior
+        // (ej. "Sistemas" solo cuando Oportunidad=Proyecto) sin ocultar las demas.
+        return level.Options.Where(o => o.Parent is null || parentSet.Contains(o.Parent)).ToList();
     }
 
     /// <summary>Una tabla del paso final: su clave (keyBy), el juego de columnas resuelto, los productos

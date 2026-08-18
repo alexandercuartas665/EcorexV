@@ -301,7 +301,9 @@
             Selected(level.Key).RemoveAll(id =>
             {
                 var op = level.Options.FirstOrDefault(o => o.Id == id);
-                return op?.Parent is null || !parentSel.Contains(op.Parent);
+                // Quita SOLO si la opcion tiene un parent que ya no esta seleccionado. Las opciones sin
+                // parent son siempre validas (siempre visibles), por eso no se podan.
+                return op is null || (op.Parent is not null && !parentSel.Contains(op.Parent));
             });
         }
         var alive = new HashSet<string>(CascadeRuntime.DesiredTables(Config, SelectionsView()).Select(t => t.Key), StringComparer.Ordinal);

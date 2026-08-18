@@ -10,40 +10,48 @@
         // del CSS para evitar el destello claro. window.ecorexTheme.toggle() lo conmuta
         // (boton luna del sidebar); funciona igual en SSR y en paginas interactivas.
         (function () {
-            try {
-                if (localStorage.getItem('ecorex-theme') === 'dark') {
-                    document.documentElement.classList.add('dark');
-                }
-            } catch (e) { /* sin storage: modo claro */ }
-            window.ecorexTheme = {
-                toggle: function () {
-                    var dark = document.documentElement.classList.toggle('dark');
-                    try { localStorage.setItem('ecorex-theme', dark ? 'dark' : 'light'); } catch (e) { }
-                }
-            };
-            // Colapso del sidebar del workspace (boton panel del topbar, prototipo):
-            // clase en <html> restaurada antes del primer render + persistencia.
-            try {
-                if (localStorage.getItem('ecorex-sidebar') === 'collapsed') {
-                    document.documentElement.classList.add('sidebar-collapsed');
-                }
-            } catch (e) { /* sin storage: sidebar visible */ }
-            window.ecorexSidebar = {
-                toggle: function () {
-                    var c = document.documentElement.classList.toggle('sidebar-collapsed');
-                    try { localStorage.setItem('ecorex-sidebar', c ? 'collapsed' : 'open'); } catch (e) { }
-                }
-            };
-            // La navegacion mejorada de Blazor "morphea" el <html> a la respuesta del server (sin la
-            // clase), asi que al saltar de opcion el menu se re-abria. Se re-aplica el estado guardado en
-            // cada enhancedload (y en el primer load) para que el colapso PERSISTA por usuario.
-            function applySidebar() {
+            var root = document.documentElement;
+            // Estado de UI persistente por usuario: tema oscuro (clase 'dark') y colapso del menu
+            // ('sidebar-collapsed'), ambos en <html> + localStorage. Se aplican ANTES del CSS para
+            // evitar el destello claro y funcionan igual en SSR y en paginas interactivas.
+            function applyUiState() {
                 try {
-                    var col = localStorage.getItem('ecorex-sidebar') === 'collapsed';
-                    document.documentElement.classList.toggle('sidebar-collapsed', col);
+                    root.classList.toggle('dark', localStorage.getItem('ecorex-theme') === 'dark');
+                    root.classList.toggle('sidebar-collapsed', localStorage.getItem('ecorex-sidebar') === 'collapsed');
                 } catch (e) { }
             }
-            document.addEventListener('enhancedload', applySidebar);
+            applyUiState();
+            // Los toggles escriben localStorage PRIMERO y luego la clase, para que el observer de
+            // abajo nunca "pelee" contra un cambio legitimo del usuario.
+            window.ecorexTheme = {
+                toggle: function () {
+                    var dark = !root.classList.contains('dark');
+                    try { localStorage.setItem('ecorex-theme', dark ? 'dark' : 'light'); } catch (e) { }
+                    root.classList.toggle('dark', dark);
+                }
+            };
+            window.ecorexSidebar = {
+                toggle: function () {
+                    var col = !root.classList.contains('sidebar-collapsed');
+                    try { localStorage.setItem('ecorex-sidebar', col ? 'collapsed' : 'open'); } catch (e) { }
+                    root.classList.toggle('sidebar-collapsed', col);
+                }
+            };
+            // La navegacion mejorada de Blazor "morphea" el <html> a la respuesta del server (sin las
+            // clases de estado): al saltar de modulo se perdian el tema oscuro y el colapso del menu.
+            // Se re-aplica en cada enhancedload Y con un MutationObserver sobre la clase de <html> (red
+            // de seguridad que cubre cualquier via de navegacion), de modo que AMBOS PERSISTEN siempre.
+            document.addEventListener('enhancedload', applyUiState);
+            try {
+                new MutationObserver(function () {
+                    var wantDark = localStorage.getItem('ecorex-theme') === 'dark';
+                    var wantCol = localStorage.getItem('ecorex-sidebar') === 'collapsed';
+                    if (wantDark !== root.classList.contains('dark') ||
+                        wantCol !== root.classList.contains('sidebar-collapsed')) {
+                        applyUiState();
+                    }
+                }).observe(root, { attributes: true, attributeFilter: ['class'] });
+            } catch (e) { }
         })();
     </script>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />

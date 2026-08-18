@@ -1394,12 +1394,22 @@
     private FormFirstStarter? _formFirst;
     private bool _openWizardPending;
 
-    // #2: preferencias de UI por USUARIO (localStorage del navegador), por tablero: ultima vista +
-    // si el panel de filtros estaba abierto. Se cargan una vez y se persisten al cambiar.
+    // #2/#3: preferencias de UI por USUARIO (localStorage del navegador), por tablero: ultima vista,
+    // panel de filtros abierto, ALCANCE (equipo/mios/no asignados/terminados) y los CHIPS de filtro
+    // (columnas, usuarios, etiquetas, vencimiento). Se cargan una vez y se persisten en cada cambio,
+    // de modo que el tablero queda "en el estado que lo deje" al salir y volver a entrar.
     private bool _prefsLoaded;
-    private string _prefView = "";
-    private bool _prefFilters;
+    private string _prefSig = "";
     private string PrefsKey() => $"ecorex.board.{BoardId}.prefs";
+
+    // Snapshot serializable del estado de filtro/vista del tablero (para localStorage).
+    private sealed record BoardPrefs(
+        string View, bool Filters, int Scope,
+        List<Guid> Cols, List<Guid> Users, List<Guid> Tags, string? Due, DateTime? DueOn);
+
+    private BoardPrefs CurrentPrefs() => new(
+        _view, _filtersVisible, (int)_scope,
+        _fColumns.ToList(), _fUsers.ToList(), _fTags.ToList(), _fDue, _fDueOn);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1420,8 +1430,8 @@
             await _wizard.OpenAsync(presetSubcategoriaId: presetSub);
         }
 
-        // #2: carga UNA vez la vista + estado de filtro guardados para este usuario/tablero, y luego
-        // persiste cada cambio. localStorage se llama directo (getItem/setItem) sin JS propio.
+        // #2/#3: carga UNA vez la vista + alcance + chips de filtro guardados para este usuario/tablero,
+        // y luego persiste cada cambio. localStorage se llama directo (getItem/setItem) sin JS propio.
         if (!_prefsLoaded)
         {
             _prefsLoaded = true;
@@ -1430,26 +1440,33 @@
                 var raw = await JS.InvokeAsync<string?>("localStorage.getItem", PrefsKey());
                 if (!string.IsNullOrWhiteSpace(raw))
                 {
-                    var parts = raw.Split('|');
-                    if (parts.Length == 2)
+                    var p = System.Text.Json.JsonSerializer.Deserialize<BoardPrefs>(raw);
+                    if (p is not null)
                     {
-                        if (parts[0] is "tablero" or "lista" or "calendario" or "gantt") { _view = parts[0]; }
-                        _filtersVisible = parts[1] == "1";
+                        if (p.View is "tablero" or "lista" or "calendario" or "gantt") { _view = p.View; }
+                        _filtersVisible = p.Filters;
+                        if (Enum.IsDefined(typeof(ActivityBoardScope), p.Scope)) { _scope = (ActivityBoardScope)p.Scope; }
+                        _fColumns.Clear(); foreach (var g in p.Cols ?? new()) { _fColumns.Add(g); }
+                        _fUsers.Clear(); foreach (var g in p.Users ?? new()) { _fUsers.Add(g); }
+                        _fTags.Clear(); foreach (var g in p.Tags ?? new()) { _fTags.Add(g); }
+                        _fDue = p.Due;
+                        _fDueOn = p.DueOn;
                     }
                 }
             }
             catch (Microsoft.JSInterop.JSException) { /* prerender: sin JS todavia */ }
             catch (InvalidOperationException) { }
-            _prefView = _view;
-            _prefFilters = _filtersVisible;
-            StateHasChanged();
+            catch (System.Text.Json.JsonException) { /* pref vieja/corrupta: se ignora */ }
+            _prefSig = System.Text.Json.JsonSerializer.Serialize(CurrentPrefs());
+            // El alcance/chips restaurados cambian la consulta: recargar el tablero con el filtro guardado.
+            await ReloadAsync();
             return;
         }
-        if (_view != _prefView || _filtersVisible != _prefFilters)
+        var sig = System.Text.Json.JsonSerializer.Serialize(CurrentPrefs());
+        if (sig != _prefSig)
         {
-            _prefView = _view;
-            _prefFilters = _filtersVisible;
-            try { await JS.InvokeVoidAsync("localStorage.setItem", PrefsKey(), $"{_view}|{(_filtersVisible ? "1" : "0")}"); }
+            _prefSig = sig;
+            try { await JS.InvokeVoidAsync("localStorage.setItem", PrefsKey(), sig); }
             catch (Microsoft.JSInterop.JSException) { }
             catch (InvalidOperationException) { }
         }
@@ -1485,6 +1502,7 @@
     {
         if (_loadedBoardId == BoardId) { return; }
         _loadedBoardId = BoardId;
+        _prefsLoaded = false; // cada tablero restaura SUS propias preferencias (#3) en OnAfterRenderAsync
         _fColumns.Clear(); _fUsers.Clear(); _fTags.Clear();
         _fDue = null; _fDueOn = null;
         _scope = ActivityBoardScope.Team;

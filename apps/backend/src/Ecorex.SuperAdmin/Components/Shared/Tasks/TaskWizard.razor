@@ -358,13 +358,29 @@
                                     </div>
                                     @if (_wizFiles.Count > 0)
                                     {
-                                        <ul class="tk-wizfiles">
+                                        @* Galeria con previsualizacion: miniatura para imagenes, insignia de tipo para PDF/otros. *@
+                                        <div class="tk-gallery">
                                             @for (var _fi = 0; _fi < _wizFiles.Count; _fi++)
                                             {
                                                 var fi = _fi;
-                                                <li><span>@_wizFiles[fi].Name</span><button type="button" @onclick="() => _wizFiles.RemoveAt(fi)" disabled="@_busy" title="Quitar">&times;</button></li>
+                                                var w = _wizFiles[fi];
+                                                <div class="tk-gcard">
+                                                    <button type="button" class="tk-gremove" @onclick="() => _wizFiles.RemoveAt(fi)" disabled="@_busy" title="Quitar">&times;</button>
+                                                    <div class="tk-gthumb">
+                                                        @if (w.IsImage && w.PreviewUrl is not null)
+                                                        {
+                                                            <img src="@w.PreviewUrl" alt="@w.File.Name" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="tk-gbadge">@FileGlyph(w.File.Name)</span>
+                                                        }
+                                                    </div>
+                                                    <div class="tk-gname" title="@w.File.Name">@w.File.Name</div>
+                                                    <div class="tk-gsize">@w.SizeLabel</div>
+                                                </div>
                                             }
-                                        </ul>
+                                        </div>
                                     }
                                     @if (_wizError is not null) { <div style="@ErrStyle;margin-top:8px">@_wizError</div> }
                                 </div>
@@ -479,8 +495,17 @@
     // numero asignado) en vez de cerrarse, para que el usuario cierre o cree otra.
     private TaskItemDetailDto? _created;
 
-    // Archivos adjuntos elegidos en el paso "Archivos": se guardan al crear la actividad.
-    private readonly List<IBrowserFile> _wizFiles = new();
+    // Archivos adjuntos elegidos en el paso "Archivos": se guardan al crear la actividad. Cada uno
+    // guarda su miniatura (data URL) si es imagen, para la galeria de previsualizacion (#5).
+    private sealed class WizAttach
+    {
+        public required IBrowserFile File { get; init; }
+        public bool IsImage { get; init; }
+        public string? PreviewUrl { get; set; }
+        public required string SizeLabel { get; init; }
+    }
+
+    private readonly List<WizAttach> _wizFiles = new();
     private bool _wizDragOver;
     private string? _wizError;
     private const long WizMaxBytes = 25 * 1024 * 1024;
@@ -490,8 +515,12 @@
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
         ".txt", ".rtf", ".zip", ".rar", ".7z"
     };
+    private static readonly HashSet<string> WizImgExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"
+    };
 
-    private void OnWizFilesAsync(InputFileChangeEventArgs e)
+    private async Task OnWizFilesAsync(InputFileChangeEventArgs e)
     {
         _wizError = null;
         _wizDragOver = false;
@@ -502,11 +531,43 @@
                 var ext = Path.GetExtension(f.Name);
                 if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext)) { _wizError = $"{f.Name}: tipo de archivo no permitido."; continue; }
                 if (f.Size > WizMaxBytes) { _wizError = $"{f.Name}: supera {WizMaxBytes / (1024 * 1024)} MB."; continue; }
-                _wizFiles.Add(f);
+                var isImg = WizImgExt.Contains(ext);
+                var item = new WizAttach { File = f, IsImage = isImg, SizeLabel = HumanSize(f.Size) };
+                _wizFiles.Add(item);
+                if (isImg)
+                {
+                    // El navegador redimensiona la imagen a una miniatura pequena (RequestImageFileAsync),
+                    // que se lee como data URL para previsualizarla sin subir nada todavia.
+                    try
+                    {
+                        var thumb = await f.RequestImageFileAsync("image/jpeg", 320, 320);
+                        await using var s = thumb.OpenReadStream(6 * 1024 * 1024);
+                        using var ms = new MemoryStream();
+                        await s.CopyToAsync(ms);
+                        item.PreviewUrl = $"data:image/jpeg;base64,{Convert.ToBase64String(ms.ToArray())}";
+                    }
+                    catch { /* si el navegador no puede generar la miniatura, cae al icono generico */ }
+                }
             }
         }
         catch (InvalidOperationException) { _wizError = "Maximo 10 archivos por seleccion."; }
     }
+
+    private static string HumanSize(long b)
+        => b < 1024 ? $"{b} B"
+         : b < 1024 * 1024 ? $"{b / 1024.0:0.#} KB"
+         : $"{b / (1024.0 * 1024):0.#} MB";
+
+    private static string FileGlyph(string name) => Path.GetExtension(name).ToLowerInvariant().TrimStart('.') switch
+    {
+        "pdf" => "PDF",
+        "doc" or "docx" => "DOC",
+        "xls" or "xlsx" or "csv" => "XLS",
+        "ppt" or "pptx" => "PPT",
+        "zip" or "rar" or "7z" => "ZIP",
+        "txt" or "rtf" => "TXT",
+        _ => "ARCHIVO"
+    };
 
     // Guarda los archivos elegidos y los adjunta a la actividad recien creada (mismo almacen que el
     // detalle: wwwroot/uploads/tasks/{tenant}). Un archivo que falle se omite; no aborta la creacion.
@@ -517,8 +578,9 @@
         var actorName = await ActorNameAsync();
         var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
         Directory.CreateDirectory(dir);
-        foreach (var f in _wizFiles)
+        foreach (var w in _wizFiles)
         {
+            var f = w.File;
             try
             {
                 var ext = Path.GetExtension(f.Name).ToLowerInvariant();
@@ -899,8 +961,11 @@
     /// </summary>
     private IEnumerable<ActividadSubcategoriaDto> SubcategoriasVisibles
         => _entidadId is Guid ent
+            // Con Empresa/Area elegida: aplican los conceptos sin sede (para todas) + los de ESA sede.
             ? _subcategorias.Where(s => s.SedeEntidadIds.Count == 0 || s.SedeEntidadIds.Contains(ent))
-            : _subcategorias;
+            // Sin Empresa/Area elegida: un concepto con sede CONFIGURADA se filtra (solo aparece al elegir
+            // su sede); solo se muestran los conceptos que aplican a todas las sedes (#2).
+            : _subcategorias.Where(s => s.SedeEntidadIds.Count == 0);
 
     private void OnEntidadChanged(ChangeEventArgs e)
     {

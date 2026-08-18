@@ -443,7 +443,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .modal-close { display: grid; place-items: center; width: 34px; height: 34px; margin: -6px -6px -6px 0; border-radius: 0.6rem; background: none; border: none; font-size: 1.4rem; color: var(--muted-foreground); cursor: pointer; line-height: 1; transition: background .15s, color .15s; }
 .modal-close:hover { background: var(--muted); color: var(--foreground); }
 .modal-body { padding: 20px 22px; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px; border-top: 1px solid var(--border); }
+/* Footer pegajoso (#6): el dialogo hace scroll (max-height 90vh); en tabletas/pantallas cortas los
+   botones Guardar/Cerrar/Enviar quedaban debajo del pliegue. Sticky los mantiene siempre visibles. */
+.modal-foot { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px; border-top: 1px solid var(--border); background: var(--card); }
 .field { margin-bottom: 14px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -2740,6 +2742,17 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .tk-wizfiles li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .tk-wizfiles li button { border: none; background: none; color: var(--ink-3); font-size: 16px; line-height: 1; cursor: pointer; }
 .tk-wizfiles li button:hover { color: var(--danger, #dc2626); }
+/* Galeria de previsualizacion de adjuntos del wizard (#5): miniatura para imagenes, insignia para archivos. */
+.tk-gallery { margin: 12px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+.tk-gcard { position: relative; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+.tk-gthumb { aspect-ratio: 1 / 1; display: grid; place-items: center; background: var(--surface-2); overflow: hidden; }
+.tk-gthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-gbadge { font-size: 12px; font-weight: 800; letter-spacing: .5px; color: var(--ink-2); padding: 6px 10px; border: 1.5px solid var(--line-2); border-radius: 8px; background: var(--surface); }
+.tk-gname { font-size: 11.5px; color: var(--ink); padding: 6px 8px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-gsize { font-size: 10.5px; color: var(--ink-3); padding: 1px 8px 7px; }
+.tk-gremove { position: absolute; top: 5px; right: 5px; z-index: 2; width: 22px; height: 22px; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.tk-gremove:hover:not(:disabled) { background: var(--danger, #dc2626); }
+.tk-gremove:disabled { opacity: .5; cursor: default; }
 
 /* Cargador de contactos: modal de configurar busquedas. */
 .cs-editor { display: flex; flex-direction: column; gap: 12px; }
@@ -2800,3 +2813,35 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .cs-slot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .cs-slot .form-control { max-width: 150px; }
 .cs-slot-sum { font-size: 11.5px; color: var(--ink-3); margin-left: auto; }
+
+/* ============================================================================
+   AUDITORIA MOVIL (#9) - responsividad transversal
+   Las cabeceras de KPIs/estadisticas de cada modulo usan columnas fijas
+   (repeat(4|5|6, 1fr)) que desbordan y provocan scroll horizontal en celular.
+   Se colapsan a 2 columnas en tablet y 1 en movil. Se usa !important porque el
+   CSS scoped de cada pagina (.x-kpis[b-hash]) gana en especificidad al global.
+   ============================================================================ */
+@media (max-width: 900px) {
+    .ab-kpis, .fx-kpis, .dash-kpis, .fl-kpis, .cn-kpis, .rg-kpis, .xd-kpis,
+    .cl-kpis, .dg-kpis, .gc-kpis, .fm-kpis, .mc-kpis, .rpt-kpis, .pa-kpis,
+    .ae-kpi-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+@media (max-width: 560px) {
+    .ab-kpis, .fx-kpis, .dash-kpis, .fl-kpis, .cn-kpis, .rg-kpis, .xd-kpis,
+    .cl-kpis, .dg-kpis, .gc-kpis, .fm-kpis, .mc-kpis, .rpt-kpis, .pa-kpis,
+    .ae-kpi-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+/* Barra de herramientas del tablero (#9): las pildoras de alcance, las pestanas de vista y sus
+   acciones a la derecha desbordaban en celular. En pantallas angostas se ajustan por lineas. */
+@media (max-width: 640px) {
+    .ab-scopes { flex-wrap: wrap; }
+    .ab-tabs { flex-wrap: wrap; row-gap: 4px; }
+    .ab-tabs-right { margin-left: 0; margin-top: 8px; width: 100%; flex-wrap: wrap; }
+    /* El kanban es horizontal por naturaleza (columnas fijas): en celular se reduce el relleno
+       lateral y se contiene el scroll en la propia rejilla para no arrastrar el body. */
+    .ab-kanban { padding-left: 12px; padding-right: 12px; overflow-x: auto; }
+}

@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-08-17 - Lote UX/movil v0.15.28 (8 de 9 puntos; persistencias, formularios, galeria, sede, auditoria movil)
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview local (5234 -> BD `ecorex_dev`
+docker 5442) con `/dev/login` (`ECOREX_DEV_LOGIN=owner@sky-system.local`, atajo Development-only de
+`Program.cs`) via MCP Chrome. Sin migracion (todo codigo/CSS/JS).
+
+**Que (lote de 9 solicitudes del usuario):**
+1. **Tema oscuro no persistia** al saltar de modulo -> `App.razor`: la navegacion mejorada "morphea"
+   el `<html>` y borraba las clases de estado. Se re-aplican `dark` + `sidebar-collapsed` en cada
+   `enhancedload` Y con un `MutationObserver` sobre la clase de `<html>` (red de seguridad); los
+   toggles ahora escriben localStorage ANTES de la clase para no pelear con el observer. VALIDADO:
+   ambas clases sobreviven al navegar a /tableros.
+2. **Filtro por sede en conceptos** (`TaskWizard.razor`): SIN Empresa/Area elegida el picker mostraba
+   TODOS los conceptos, incluidos los que tienen sede configurada. Fix en `SubcategoriasVisibles`: sin
+   sede elegida solo se ven los conceptos que aplican a TODAS; un concepto con sede solo aparece al
+   elegir su sede. (Data de repro creada en SKY: "Cotizacion de equipos" -> sede "Agencia Norte".)
+4. **Menu ocultar persistente**: mismo fix de #1 (bulletproof). VALIDADO en vivo.
+3. **Filtro por tablero persistente** (`ActivityBoardDetail.razor`): antes solo persistian vista +
+   panel; ahora un snapshot JSON en localStorage (`ecorex.board.{id}.prefs`) guarda tambien ALCANCE
+   (equipo/mios/no asignados/terminados) y los CHIPS (columnas/usuarios/etiquetas/vencimiento); se
+   restaura por tablero al entrar. `_prefsLoaded` se resetea al cambiar de tablero.
+5. **Galeria de adjuntos al crear tarea** (`TaskWizard.razor`): el paso "Archivos" pasa de una lista de
+   nombres a una GALERIA con miniatura (imagenes via `RequestImageFileAsync` -> data URL) e insignia de
+   tipo (PDF/DOC/XLS/ZIP...) + tamano legible + quitar. CSS `.tk-gallery` en `app.css`.
+6. **Modal en tableta**: footer pegajoso (`.modal-foot { position: sticky; bottom: 0 }`) para que
+   Guardar/Cerrar/Enviar queden SIEMPRE visibles en pantallas cortas. (Verificado que el modal de vista
+   previa del designer ya era alcanzable por scroll en 768x1024 y 1024x768.)
+7. **Controles listcheckbox/roundbox** (`FormDesigner.razor`): `Radio` y `MultiCheck` estaban
+   registrados y renderizados pero FALTABAN en el desplegable "Tipo de elemento" -> agregados junto a
+   Select.
+9. **Auditoria movil**: overflow horizontal sistemico. (a) ~15 rejillas de KPIs con columnas fijas
+   `repeat(4|5|6,1fr)` sin breakpoints -> bloque global en `app.css` (2 col <=900px, 1 col <=560px,
+   `!important` para ganar al CSS scoped). (b) Barra del tablero (`.ab-scopes`, `.ab-tabs`,
+   `.ab-tabs-right`) se ajusta por lineas <=640px. (c) Kanban: relleno lateral reducido + `overflow-x`
+   contenido en celular. VALIDADO: /actividades y /formularios sin scroll horizontal tras el fix.
+
+**Siguiente:** #8 (editar CSS/estilos del formulario) es lo unico SIN empezar — feature nueva:
+requiere columna `CustomCss` en `FormDefinition` (+ `CssClass` por campo), UI en el designer (textarea
+"CSS personalizado" + clase por campo) e inyeccion `<style>` scoped en `DynamicFormRenderer`. Pendiente
+de una siguiente ola.
+
+**Decisiones:** persistencia de UI con `MutationObserver` como red de seguridad (no depender solo de
+`enhancedload`); fix de sede en el nivel del wizard (unico picker de conceptos); auditoria movil con
+override global + `!important` para no editar 15 CSS scoped uno por uno.
+
+---
+
 ## 2026-08-13 - Deploy prod v0.15.6 -> v0.15.7 (nombre del tenant en el token del agente)
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Deploy a prod via build-from-git.

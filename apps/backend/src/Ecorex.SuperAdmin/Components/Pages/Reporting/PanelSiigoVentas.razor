@@ -1,0 +1,17 @@
+@page "/reportes/siigo-ventas"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
+
+@* Banco de pruebas local del Panel de Ventas SIIGO: hospeda el componente reutilizable
+   SiigoVentasDashboardPanel (embebible en la galeria, SourceKey = panel:siigo-ventas). *@
+
+<PageTitle>Ventas SIIGO - ECOREX.tareas</PageTitle>
+
+<div style="padding:24px 28px;">
+    <div style="margin-bottom:16px;">
+        <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Ventas y Facturacion (SIIGO)</h1>
+        <p style="font-size:13px;color:#6b7280;margin:4px 0 0;">Vista previa del componente de panel (contenedores facturas + clientes).</p>
+    </div>
+    <SiigoVentasDashboardPanel />
+</div>

@@ -1,0 +1,366 @@
+@using System.Globalization
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Reporting.Sources
+@inject IReportCatalog Catalog
+@inject IReportDataSource ReportDs
+
+@* Panel de Ventas y Facturacion (SIIGO) REUTILIZABLE, sobre los contenedores "facturas" + "clientes"
+   del tenant. Carga las facturas UNA vez y pivotea en memoria: KPIs, ventas mensuales, Pareto de
+   clientes (80/20), ventas por vendedor y por estado DIAN, y tabla de top clientes. El Pareto usa el
+   nombre del cliente (join en memoria facturas.Cliente NIT -> clientes.Identificacion/Nombre). Filtros
+   (anio, vendedor, estado DIAN, buscar cliente) en memoria. Tenant-safe via el motor de reportes. *@
+
+<div class="rpt-dash">
+    <div class="rpt-filters">
+        <label>Anio
+            <select @bind="_anio" @bind:after="ApplyFilters">
+                <option value="">(todos)</option>
+                @foreach (var o in _anioOptions) { <option value="@o">@o</option> }
+            </select>
+        </label>
+        <label>Vendedor
+            <select @bind="_vendedor" @bind:after="ApplyFilters">
+                <option value="">(todos)</option>
+                @foreach (var o in _vendedorOptions) { <option value="@o">@o</option> }
+            </select>
+        </label>
+        <label>Estado DIAN
+            <select @bind="_estado" @bind:after="ApplyFilters">
+                <option value="">(todos)</option>
+                @foreach (var o in _estadoOptions) { <option value="@o">@o</option> }
+            </select>
+        </label>
+        <label>Cliente <input type="text" placeholder="nombre..." @bind="_cliente" @bind:after="ApplyFilters" /></label>
+        <button class="rpt-btn ghost" @onclick="ClearFilters">Limpiar</button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="rpt-error">@_error</div>
+    }
+    @if (_loading)
+    {
+        <div class="rpt-sub">Cargando facturas...</div>
+    }
+
+    <div class="rpt-kpis">
+        <div class="rpt-kpi"><span class="k-val">@MoneyM(_ventas)</span><span class="k-lbl">Ventas</span></div>
+        <div class="rpt-kpi prog"><span class="k-val">@_numFacturas.ToString("N0", Inv)</span><span class="k-lbl">Facturas</span></div>
+        <div class="rpt-kpi open"><span class="k-val">@_numClientes.ToString("N0", Inv)</span><span class="k-lbl">Clientes</span></div>
+        <div class="rpt-kpi done"><span class="k-val">@MoneyFull(_ticket)</span><span class="k-lbl">Ticket promedio</span></div>
+        <div class="rpt-kpi over"><span class="k-val">@MoneyM(_saldo)</span><span class="k-lbl">Saldo pendiente</span></div>
+        <div class="rpt-kpi susp"><span class="k-val">@MoneyM(_ventasAnio)</span><span class="k-lbl">Ventas @(_anioMax)</span></div>
+    </div>
+
+    <div class="rpt-grid">
+        <div class="rpt-card rpt-full">
+            <h3>Ventas mensuales (millones)</h3>
+            <EChart Option="_ventasMensuales" Height="320px" />
+        </div>
+        <div class="rpt-card rpt-full">
+            <h3>Pareto de clientes (80/20)</h3>
+            <EChart Option="_pareto" Height="360px" />
+        </div>
+        <div class="rpt-card">
+            <h3>Ventas por vendedor (millones)</h3>
+            <EChart Option="_porVendedor" Height="320px" />
+        </div>
+        <div class="rpt-card">
+            <h3>Facturas por estado DIAN</h3>
+            <EChart Option="_porEstado" Height="320px" />
+        </div>
+    </div>
+
+    <div class="rpt-card rpt-full">
+        <h3>Top 15 clientes</h3>
+        <table class="rpt-table">
+            <thead><tr><th>#</th><th>Cliente</th><th>NIT</th><th>Facturas</th><th class="num">Ventas</th><th class="num">Saldo</th></tr></thead>
+            <tbody>
+                @{ var rank = 0; }
+                @foreach (var c in _topClientes)
+                {
+                    rank++;
+                    <tr>
+                        <td>@rank</td>
+                        <td>@c.Nombre</td>
+                        <td>@c.Nit</td>
+                        <td>@c.Facturas</td>
+                        <td class="num">@MoneyFull(c.Ventas)</td>
+                        <td class="num">@MoneyFull(c.Saldo)</td>
+                    </tr>
+                }
+                @if (_topClientes.Count == 0)
+                {
+                    <tr><td colspan="6" class="rpt-empty">Sin facturas para el filtro.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    private string _anio = "", _vendedor = "", _estado = "", _cliente = "";
+    private string? _error;
+    private bool _loading = true;
+
+    private long _numFacturas, _numClientes;
+    private decimal _ventas, _ticket, _saldo, _ventasAnio;
+    private int _anioMax;
+    private object? _ventasMensuales, _pareto, _porVendedor, _porEstado;
+
+    private readonly List<string> _anioOptions = new();
+    private readonly List<string> _vendedorOptions = new();
+    private readonly List<string> _estadoOptions = new();
+    private List<TopCliente> _topClientes = new();
+
+    private readonly List<Factura> _all = new();
+    private readonly Dictionary<string, string> _nitNombre = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly string[] Palette = { "#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllAsync();
+        ApplyFilters();
+        _loading = false;
+    }
+
+    private async Task LoadAllAsync()
+    {
+        try
+        {
+            var sources = await Catalog.GetSourcesAsync();
+            var fact = sources.FirstOrDefault(s => s.Kind == ReportSourceKind.Container
+                    && string.Equals(s.DisplayName, "facturas", StringComparison.Ordinal))
+                ?? sources.FirstOrDefault(s => s.Kind == ReportSourceKind.Container
+                    && string.Equals(s.DisplayName, "facturas", StringComparison.OrdinalIgnoreCase));
+            var cli = sources.FirstOrDefault(s => s.Kind == ReportSourceKind.Container
+                    && string.Equals(s.DisplayName, "clientes", StringComparison.Ordinal))
+                ?? sources.FirstOrDefault(s => s.Kind == ReportSourceKind.Container
+                    && string.Equals(s.DisplayName, "clientes", StringComparison.OrdinalIgnoreCase));
+            if (fact is null)
+            {
+                _error = "No se encontro el contenedor 'facturas' en este tenant.";
+                return;
+            }
+
+            // clientes -> mapa NIT -> Nombre
+            if (cli is not null)
+            {
+                var kIdent = KeyOf(cli, "Identificacion");
+                var kNom = KeyOf(cli, "Nombre");
+                if (kIdent is not null && kNom is not null)
+                {
+                    var dc = await ReportDs.QueryAsync(new ReportQuerySpec
+                    {
+                        SourceKey = cli.Key,
+                        Fields = new[] { kIdent, kNom }
+                    }, new ReportContext(Guid.Empty));
+                    int ii = 0, ni = 1;
+                    foreach (var row in dc.Rows)
+                    {
+                        var nit = Norm(row[ii]);
+                        var nom = Norm(row[ni]);
+                        if (nit.Length > 0 && !_nitNombre.ContainsKey(nit)) { _nitNombre[nit] = nom; }
+                    }
+                }
+            }
+
+            // facturas
+            var kFecha = KeyOf(fact, "Fecha");
+            var kNit = KeyOf(fact, "Cliente NIT");
+            var kVend = KeyOf(fact, "Vendedor");
+            var kTotal = KeyOf(fact, "Total");
+            var kSaldo = KeyOf(fact, "Saldo");
+            var kEstado = KeyOf(fact, "Estado DIAN");
+            if (kFecha is null || kNit is null || kTotal is null)
+            {
+                _error = "El contenedor 'facturas' no tiene las columnas esperadas (Fecha, Cliente NIT, Total).";
+                return;
+            }
+
+            var fields = new[] { kFecha, kNit, kVend ?? kNit, kTotal, kSaldo ?? kTotal, kEstado ?? kNit };
+            var ds = await ReportDs.QueryAsync(new ReportQuerySpec { SourceKey = fact.Key, Fields = fields }, new ReportContext(Guid.Empty));
+            var idx = ds.Columns.Select((c, i) => (c.Key, i)).ToDictionary(x => x.Key, x => x.i, StringComparer.OrdinalIgnoreCase);
+            int iF = idx[kFecha], iN = idx[kNit], iV = idx[kVend ?? kNit], iT = idx[kTotal], iS = idx[kSaldo ?? kTotal], iE = idx[kEstado ?? kNit];
+
+            var anios = new HashSet<int>();
+            var vends = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ests = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var row in ds.Rows)
+            {
+                var fecha = AsDate(row[iF]);
+                var nit = Norm(row[iN]);
+                var vend = kVend is not null ? Norm(row[iV]) : "";
+                var total = AsDec(row[iT]);
+                var saldo = kSaldo is not null ? AsDec(row[iS]) : 0m;
+                var estado = kEstado is not null ? Norm(row[iE]) : "";
+                var anio = fecha?.Year ?? 0;
+                _all.Add(new Factura(fecha, anio, fecha?.ToString("yyyy-MM") ?? "", nit,
+                    _nitNombre.TryGetValue(nit, out var nm) ? nm : (nit.Length > 0 ? nit : "(sin cliente)"),
+                    vend, total, saldo, estado));
+                if (anio > 0) { anios.Add(anio); }
+                if (vend.Length > 0) { vends.Add(vend); }
+                if (estado.Length > 0) { ests.Add(estado); }
+            }
+
+            _anioOptions.Clear();
+            _anioOptions.AddRange(anios.OrderByDescending(a => a).Select(a => a.ToString()));
+            _vendedorOptions.Clear();
+            _vendedorOptions.AddRange(vends.OrderBy(v => v));
+            _estadoOptions.Clear();
+            _estadoOptions.AddRange(ests.OrderBy(e => e));
+            _anioMax = anios.Count > 0 ? anios.Max() : 0;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private void ClearFilters()
+    {
+        _anio = _vendedor = _estado = _cliente = "";
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var cli = _cliente.Trim();
+        IEnumerable<Factura> q = _all;
+        if (!string.IsNullOrEmpty(_anio) && int.TryParse(_anio, out var y)) { q = q.Where(f => f.Anio == y); }
+        if (!string.IsNullOrEmpty(_vendedor)) { q = q.Where(f => string.Equals(f.Vendedor, _vendedor, StringComparison.OrdinalIgnoreCase)); }
+        if (!string.IsNullOrEmpty(_estado)) { q = q.Where(f => string.Equals(f.Estado, _estado, StringComparison.OrdinalIgnoreCase)); }
+        if (cli.Length > 0) { q = q.Where(f => f.Nombre.Contains(cli, StringComparison.OrdinalIgnoreCase)); }
+        var rows = q.ToList();
+
+        _numFacturas = rows.Count;
+        _ventas = rows.Sum(f => f.Total);
+        _saldo = rows.Sum(f => f.Saldo);
+        _numClientes = rows.Where(f => f.Nit.Length > 0).Select(f => f.Nit).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        _ticket = _numFacturas > 0 ? Math.Round(_ventas / _numFacturas, 0) : 0m;
+        _ventasAnio = _anioMax > 0 ? rows.Where(f => f.Anio == _anioMax).Sum(f => f.Total) : 0m;
+
+        // Ventas mensuales
+        var porMes = rows.Where(f => f.Mes.Length > 0).GroupBy(f => f.Mes)
+            .ToDictionary(g => g.Key, g => g.Sum(f => f.Total));
+        var meses = porMes.Keys.OrderBy(m => m, StringComparer.Ordinal).ToList();
+        _ventasMensuales = BuildLine(meses, meses.Select(m => (double)(porMes[m] / 1_000_000m)).ToArray());
+
+        // Pareto de clientes
+        var porCli = rows.GroupBy(f => f.Nit).Select(g => new
+        {
+            Nit = g.Key,
+            Nombre = g.First().Nombre,
+            Total = g.Sum(f => f.Total),
+            Saldo = g.Sum(f => f.Saldo),
+            Facturas = g.Count()
+        }).OrderByDescending(x => x.Total).ToList();
+        var grand = porCli.Sum(x => x.Total);
+        var top = porCli.Take(20).ToList();
+        var cum = 0m;
+        var cumPct = new List<double>();
+        foreach (var c in top) { cum += c.Total; cumPct.Add(grand > 0 ? (double)(cum / grand * 100m) : 0); }
+        _pareto = BuildPareto(top.Select(c => Trunc(c.Nombre, 22)).ToArray(),
+            top.Select(c => (double)(c.Total / 1_000_000m)).ToArray(), cumPct.ToArray());
+
+        _topClientes = porCli.Take(15).Select(c => new TopCliente(c.Nombre, c.Nit, c.Facturas, c.Total, c.Saldo)).ToList();
+
+        // Por vendedor
+        var porVend = rows.Where(f => f.Vendedor.Length > 0).GroupBy(f => f.Vendedor)
+            .Select(g => new KeyValuePair<string, decimal>(g.Key, g.Sum(f => f.Total)))
+            .OrderByDescending(kv => kv.Value).Take(10).ToList();
+        _porVendedor = BuildBar(porVend.Select(kv => Trunc(kv.Key, 18)).ToArray(),
+            porVend.Select(kv => (double)(kv.Value / 1_000_000m)).ToArray());
+
+        // Por estado DIAN (conteo)
+        var porEst = rows.GroupBy(f => f.Estado.Length > 0 ? f.Estado : "(sin)")
+            .Select(g => new KeyValuePair<string, long>(g.Key, g.Count())).OrderByDescending(kv => kv.Value).ToList();
+        _porEstado = BuildDonut(porEst);
+    }
+
+    private static string? KeyOf(ReportSourceDescriptor d, string name) =>
+        d.Fields.FirstOrDefault(f => string.Equals(f.DisplayName, name, StringComparison.OrdinalIgnoreCase))?.Key;
+    private static string Norm(object? v) => (v?.ToString() ?? "").Trim();
+    private static decimal AsDec(object? v) => v is null ? 0m : (v is decimal d ? d : (decimal.TryParse(v.ToString(), NumberStyles.Any, Inv, out var r) ? r : 0m));
+    private static DateTimeOffset? AsDate(object? v) => v as DateTimeOffset? ?? (v is DateTime dt ? new DateTimeOffset(dt) : (DateTimeOffset.TryParse(v?.ToString(), Inv, DateTimeStyles.None, out var r) ? r : null));
+    private static string Trunc(string s, int n) => s.Length <= n ? s : s.Substring(0, n - 1) + "…";
+    private string MoneyFull(decimal v) => "$" + v.ToString("N0", Inv);
+    private string MoneyM(decimal v) => "$" + (v / 1_000_000m).ToString("N0", Inv) + " M";
+
+    private object BuildLine(List<string> cats, double[] vals) => new Dictionary<string, object?>
+    {
+        ["color"] = new[] { Palette[0] },
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+        ["grid"] = new Dictionary<string, object?> { ["left"] = 56, ["right"] = 20, ["top"] = 16, ["bottom"] = 60 },
+        ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = cats, ["axisLabel"] = new Dictionary<string, object?> { ["rotate"] = 60, ["fontSize"] = 9, ["interval"] = "auto" } },
+        ["yAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "line", ["smooth"] = true, ["showSymbol"] = false,
+                ["areaStyle"] = new Dictionary<string, object?> { ["opacity"] = 0.18 },
+                ["data"] = vals.Select(v => (object)Math.Round(v, 1)).ToArray()
+            }
+        }
+    };
+
+    private object BuildPareto(string[] cats, double[] bars, double[] cum) => new Dictionary<string, object?>
+    {
+        ["color"] = new[] { Palette[0], Palette[4] },
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis", ["axisPointer"] = new Dictionary<string, object?> { ["type"] = "shadow" } },
+        ["legend"] = new Dictionary<string, object?> { ["data"] = new[] { "Ventas (M)", "Acumulado %" }, ["bottom"] = 0 },
+        ["grid"] = new Dictionary<string, object?> { ["left"] = 56, ["right"] = 48, ["top"] = 16, ["bottom"] = 90 },
+        ["xAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = cats, ["axisLabel"] = new Dictionary<string, object?> { ["rotate"] = 55, ["fontSize"] = 9, ["interval"] = 0 } },
+        ["yAxis"] = new object[]
+        {
+            new Dictionary<string, object?> { ["type"] = "value", ["name"] = "M" },
+            new Dictionary<string, object?> { ["type"] = "value", ["name"] = "%", ["max"] = 100, ["axisLabel"] = new Dictionary<string, object?> { ["formatter"] = "{value}%" } }
+        },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?> { ["name"] = "Ventas (M)", ["type"] = "bar", ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = new[] { 4, 4, 0, 0 } }, ["data"] = bars.Select(v => (object)Math.Round(v, 1)).ToArray() },
+            new Dictionary<string, object?> { ["name"] = "Acumulado %", ["type"] = "line", ["yAxisIndex"] = 1, ["smooth"] = true, ["symbolSize"] = 5, ["data"] = cum.Select(v => (object)Math.Round(v, 1)).ToArray() }
+        }
+    };
+
+    private object BuildBar(string[] cats, double[] vals) => new Dictionary<string, object?>
+    {
+        ["color"] = new[] { Palette[2] },
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+        ["grid"] = new Dictionary<string, object?> { ["left"] = 150, ["right"] = 24, ["top"] = 10, ["bottom"] = 24 },
+        ["xAxis"] = new Dictionary<string, object?> { ["type"] = "value" },
+        ["yAxis"] = new Dictionary<string, object?> { ["type"] = "category", ["data"] = cats.Reverse().ToArray() },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "bar", ["barMaxWidth"] = 18,
+                ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = new[] { 0, 4, 4, 0 } },
+                ["label"] = new Dictionary<string, object?> { ["show"] = true, ["position"] = "right", ["formatter"] = "{c}" },
+                ["data"] = vals.Reverse().Select(v => (object)Math.Round(v, 1)).ToArray()
+            }
+        }
+    };
+
+    private object BuildDonut(List<KeyValuePair<string, long>> data) => new Dictionary<string, object?>
+    {
+        ["color"] = Palette,
+        ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "item", ["formatter"] = "{b}: {c} ({d}%)" },
+        ["legend"] = new Dictionary<string, object?> { ["bottom"] = 0, ["type"] = "scroll" },
+        ["series"] = new object[]
+        {
+            new Dictionary<string, object?>
+            {
+                ["type"] = "pie", ["radius"] = new[] { "42%", "70%" },
+                ["itemStyle"] = new Dictionary<string, object?> { ["borderRadius"] = 6, ["borderColor"] = "#fff", ["borderWidth"] = 2 },
+                ["label"] = new Dictionary<string, object?> { ["show"] = false },
+                ["data"] = data.Select(kv => new Dictionary<string, object?> { ["name"] = kv.Key, ["value"] = kv.Value }).ToArray()
+            }
+        }
+    };
+
+    private sealed record Factura(DateTimeOffset? Fecha, int Anio, string Mes, string Nit, string Nombre, string Vendedor, decimal Total, decimal Saldo, string Estado);
+    private sealed record TopCliente(string Nombre, string Nit, int Facturas, decimal Ventas, decimal Saldo);
+}

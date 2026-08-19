@@ -2431,6 +2431,12 @@ html.dark .ws-tenant .btn-outline-secondary { background: var(--surface); color:
 .ab-card-due { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
 .ab-card-counts { display: flex; align-items: center; gap: 13px; color: var(--ink-3); font-size: 11.5px; }
 .ab-card-counts span { display: flex; align-items: center; gap: 4px; }
+/* Etiqueta clara del tiempo en el estado (columna) de cada tarjeta. El color (texto + borde) lo pone
+   el estilo inline segun antiguedad (gris/ambar/rojo) para ver de un vistazo lo estancado. */
+.ab-card-statetime { display: inline-flex; align-items: center; gap: 5px; margin-top: 9px; padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface-2); font-size: 11px; font-weight: 600; }
+.ab-card-statetime svg { width: 13px; height: 13px; flex: none; }
+.ab-card-statetime span { opacity: .85; }
+.ab-card-statetime strong { font-weight: 800; }
 .ab-addtask { width: 100%; padding: 12px; border-radius: 14px; border: 1.5px dashed var(--line-2); background: none; color: var(--ink-3); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px; }
 .ab-addtask:hover { border-color: var(--ink-3); color: var(--ink); }
 

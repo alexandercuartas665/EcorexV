@@ -316,13 +316,6 @@
                                         @(c.DueDate is DateTimeOffset dd ? AbUi.CardDue(dd) : "Sin fecha")
                                     </span>
                                     <div class="ab-card-counts">
-                                        @{
-                                            var enColumnaDesde = c.ColumnEnteredAt ?? c.CreatedAt;
-                                        }
-                                        <span class="ab-card-age" title="Tiempo en esta columna"
-                                              style="color:@AbUi.TimeInColumnColor(enColumnaDesde, column.IsDone)">
-                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>@AbUi.TimeInColumn(enColumnaDesde)
-                                        </span>
                                         <span title="Adjuntos">
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 9.5 12 18a4 4 0 0 1-6-6l8-8a2.5 2.5 0 0 1 4 4l-8 8a1 1 0 0 1-1.5-1.5L16 7"/></svg>@c.AttachmentsCount
                                         </span>
@@ -333,6 +326,16 @@
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>@c.ChecklistDone/@c.ChecklistTotal
                                         </span>
                                     </div>
+                                </div>
+                                @* Tiempo que la tarjeta lleva EN ESTE ESTADO (columna): etiqueta clara y con color
+                                   (gris -> ambar -> rojo) para delatar tarjetas estancadas de un vistazo. *@
+                                @{
+                                    var enColumnaDesde = c.ColumnEnteredAt ?? c.CreatedAt;
+                                }
+                                <div class="ab-card-statetime" title="Tiempo que lleva en este estado (columna)"
+                                     style="color:@AbUi.TimeInColumnColor(enColumnaDesde, column.IsDone);border-color:currentColor">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+                                    <span>En este estado:</span> <strong>@AbUi.TimeInColumn(enColumnaDesde)</strong>
                                 </div>
                             </div>
                         }

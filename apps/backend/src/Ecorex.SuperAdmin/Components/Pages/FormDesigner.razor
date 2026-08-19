@@ -431,8 +431,32 @@ else
                     }
                     @if (_txMode == nameof(FormIdentityMode.Sequence))
                     {
-                        <p style="font-size:12px;color:var(--ink-3);margin-top:8px;">
-                            El numero se genera con el prefijo del codigo del formulario (ej. @_def.Code-000001).
+                        <div class="field-row" style="margin-top:12px;">
+                            <div class="field">
+                                <label class="form-label">Prefijo del numero</label>
+                                <input class="form-control" @bind="_txPrefix" @bind:event="oninput" placeholder="@(_def.Code + "-")" />
+                                <span style="font-size:11px;color:var(--ink-3);">Vacio = usa el codigo del formulario (@(_def.Code)-).</span>
+                            </div>
+                            <div class="field">
+                                <label class="form-label">Digitos (relleno con ceros)</label>
+                                <input class="form-control" type="number" min="1" max="12" step="1" @bind="_txPadding" @bind:event="oninput" />
+                            </div>
+                        </div>
+                        <div class="field" style="margin-top:8px;">
+                            <label class="form-label">Proximo numero</label>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input class="form-control" type="number" min="1" step="1" style="max-width:160px;" @bind="_txNextInput" />
+                                <button type="button" style="padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;"
+                                        @onclick="ApplySequenceNextAsync" disabled="@_txNextBusy">Aplicar</button>
+                                <span style="font-size:12px;color:var(--ink-3);">next_value actual: @_txNext</span>
+                            </div>
+                            @if (_txNextMsg is not null)
+                            {
+                                <span style="display:block;margin-top:4px;font-size:12px;color:@(_txNextOk ? "var(--t-green, #16a34a)" : "var(--danger, #dc2626)");">@_txNextMsg</span>
+                            }
+                        </div>
+                        <p style="font-size:12.5px;color:var(--ink-2);margin-top:8px;">
+                            Preview del proximo numero: <strong>@SeqPreview()</strong>
                         </p>
                     }
                 }
@@ -558,6 +582,14 @@ else
     private bool _txIsTransactional;
     private string _txMode = nameof(FormIdentityMode.None);
     private string? _txField;
+    // Consecutivo configurable (Sequence): prefijo, padding y el proximo numero (next_value de la secuencia).
+    private string _txPrefix = "";
+    private int _txPadding = 6;
+    private long _txNext;            // next_value ACTUAL (para el preview) y valor a fijar con "Aplicar".
+    private long _txNextInput;       // valor editable del "Proximo numero".
+    private bool _txNextBusy;
+    private string? _txNextMsg;
+    private bool _txNextOk;
     private FormCardLayout _cardLayout = FormCardLayout.Normal;
     private string _customCss = "";
     // Formulario como modulo (ola F4).
@@ -1183,6 +1215,11 @@ else
         _txIsTransactional = _def!.IsTransactional;
         _txMode = _def.IdentityMode.ToString();
         _txField = _def.IdentitySourceFieldCode;
+        _txPrefix = _def.IdentityPrefix ?? "";
+        _txPadding = _def.IdentityPadding is >= 1 and <= 12 ? _def.IdentityPadding : 6;
+        _txNext = _def.SequenceNext;
+        _txNextInput = _def.SequenceNext > 0 ? _def.SequenceNext : 1;
+        _txNextMsg = null; _txNextOk = false;
         _cardLayout = _def.CardLayout;
         _customCss = _def.CustomCss ?? "";
         _isModule = _def.IsModule;
@@ -1253,9 +1290,14 @@ else
         try
         {
             var tx = await FormsSvc.SetTransactionalAsync(_def!.Id,
-                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField, _cardLayout));
+                new SetFormTransactionalRequest(_txIsTransactional, mode, _txField, _cardLayout,
+                    _txPrefix, _txPadding));
             if (!tx.IsOk) { _modalError = tx.Error; return; }
             _def = tx.Value;
+            // Refresca el preview con lo persistido (prefijo/padding normalizados + next_value actual).
+            _txPrefix = _def.IdentityPrefix ?? "";
+            _txPadding = _def.IdentityPadding;
+            _txNext = _def.SequenceNext;
 
             // Modulo: promover/retirar con el grupo elegido (ola F4).
             Guid? parent = Guid.TryParse(_moduleParentId, out var pid) ? pid : null;
@@ -1275,6 +1317,39 @@ else
         finally
         {
             _busy = false;
+        }
+    }
+
+    /// <summary>Prefijo efectivo del consecutivo: el configurado, o el codigo del formulario + "-" si esta vacio.</summary>
+    private string EffectivePrefix() =>
+        string.IsNullOrEmpty(_txPrefix) ? (_def is null ? "" : _def.Code + "-") : _txPrefix;
+
+    /// <summary>Preview EN VIVO del proximo numero con el prefijo/padding actuales (ej. "COT-000086").</summary>
+    private string SeqPreview()
+    {
+        var pad = _txPadding is >= 1 and <= 12 ? _txPadding : 6;
+        var n = _txNext > 0 ? _txNext : 1;   // 0 = secuencia sin emitir aun -> el primer numero sera 1.
+        return EffectivePrefix() + n.ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(pad, '0');
+    }
+
+    /// <summary>Aplica el "proximo numero" (next_value) con validacion anti-colision (operacion separada del guardado).</summary>
+    private async Task ApplySequenceNextAsync()
+    {
+        _txNextMsg = null; _txNextOk = false;
+        if (_def is null) { return; }
+        _txNextBusy = true;
+        try
+        {
+            var res = await FormsSvc.SetSequenceNextAsync(_def.Id, _txNextInput);
+            if (!res.IsOk) { _txNextMsg = res.Error; return; }
+            _txNext = res.Value;
+            _txNextInput = res.Value;
+            _txNextOk = true;
+            _txNextMsg = $"Proximo numero fijado en {res.Value}. Vista previa: {SeqPreview()}";
+        }
+        finally
+        {
+            _txNextBusy = false;
         }
     }
 

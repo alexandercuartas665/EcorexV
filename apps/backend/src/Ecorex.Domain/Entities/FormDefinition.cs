@@ -52,6 +52,14 @@ public class FormDefinition : TenantEntity, IVersioned
     /// <summary>Sequence: referencia logica a la TenantSequence que se consume al confirmar (null si otro modo).</summary>
     public Guid? SequenceId { get; set; }
 
+    /// <summary>Sequence: prefijo legible del numero (ej. "COT-"). Null =&gt; se usa el <see cref="Code"/> del
+    /// formulario + "-" (comportamiento heredado). Cadena vacia =&gt; sin prefijo. Configurable por formulario.</summary>
+    public string? IdentityPrefix { get; set; }
+
+    /// <summary>Sequence: ancho del numero (relleno con ceros). Default 6 (COT-000086). Rango util 1..12.
+    /// El "proximo numero" NO vive aqui: es <c>tenant_sequences.next_value</c>.</summary>
+    public int IdentityPadding { get; set; } = 6;
+
     // ---- Formulario como MODULO del sistema (Formularios avanzados, ola F4; doc 01 D1/D6) ----
 
     /// <summary>Si es true, el formulario es un modulo con nodo de menu propio y bandeja en /m/{code}.</summary>

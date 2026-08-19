@@ -5019,6 +5019,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDefaultValue("None")
                         .HasColumnName("identity_mode");
 
+                    b.Property<int>("IdentityPadding")
+                        .HasColumnType("integer")
+                        .HasColumnName("identity_padding");
+
+                    b.Property<string>("IdentityPrefix")
+                        .HasColumnType("text")
+                        .HasColumnName("identity_prefix");
+
                     b.Property<string>("IdentitySourceFieldCode")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")

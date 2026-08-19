@@ -419,7 +419,13 @@ public sealed class FormResponseService : IFormResponseService
                 // legible del numero es el codigo del formulario (ej. FRM-021-000001).
                 var code = "F" + definition.Id.ToString("N")[..8];
                 await _sequences.EnsureSequenceAsync(code, cancellationToken);
-                var number = await _sequences.NextAsync(code, $"{definition.Code}-", 6, cancellationToken);
+                // Prefijo y padding CONFIGURABLES por formulario (disenador). IdentityPrefix null =>
+                // hereda el Code + "-" (ej. "COT-"); cadena vacia => sin prefijo. Padding fuera de 1..12 => 6.
+                var prefix = definition.IdentityPrefix is null
+                    ? (string.IsNullOrEmpty(definition.Code) ? "" : definition.Code + "-")
+                    : definition.IdentityPrefix;
+                var padding = definition.IdentityPadding is >= 1 and <= 12 ? definition.IdentityPadding : 6;
+                var number = await _sequences.NextAsync(code, prefix, padding, cancellationToken);
                 return (true, number, null);
 
             default:

@@ -19,15 +19,22 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly MenuConfig.IMenuConfigService _menu;
+    private readonly Tenancy.ISequenceService _sequences;
 
     [GeneratedRegex("^[A-Za-z][A-Za-z0-9_-]*$")]
     private static partial Regex FieldCodeRegex();
 
-    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext, MenuConfig.IMenuConfigService menu)
+    /// <summary>Code interno (varchar(10)) de la TenantSequence de un formulario: "F" + 8 hex del id.
+    /// Debe coincidir con el que consume FormResponseService al emitir el numero.</summary>
+    private static string SequenceCodeFor(Guid definitionId) => "F" + definitionId.ToString("N")[..8];
+
+    public FormDefinitionService(IApplicationDbContext db, ITenantContext tenantContext,
+        MenuConfig.IMenuConfigService menu, Tenancy.ISequenceService sequences)
     {
         _db = db;
         _tenantContext = tenantContext;
         _menu = menu;
+        _sequences = sequences;
     }
 
     public async Task<IReadOnlyList<FormDefinitionListItemDto>> ListAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
@@ -666,6 +673,11 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             .Where(q => q.DefinitionId == definition.Id)
             .OrderBy(q => q.SortOrder).ThenBy(q => q.CreatedAt)
             .ToListAsync(cancellationToken);
+        // Next_value ACTUAL de la secuencia (solo lectura, para el preview del disenador). Solo se
+        // consulta en modo Sequence; en otros modos no aplica (0).
+        var sequenceNext = definition.IdentityMode == FormIdentityMode.Sequence
+            ? await _sequences.PeekAsync(SequenceCodeFor(definition.Id), cancellationToken)
+            : 0L;
         return new FormDefinitionDetailDto(
             definition.Id, definition.Code, definition.Title, definition.Description,
             definition.Status, definition.Revision, definition.IsArchived, definition.Version,
@@ -673,7 +685,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             questions.Select(ToDto).ToList(),
             definition.IsTransactional, definition.IdentityMode, definition.IdentitySourceFieldCode,
             definition.IsModule, definition.ModuleIcon, definition.ListColumnsJson, definition.FilterFieldsJson,
-            definition.CardLayout, definition.CustomCss);
+            definition.CardLayout, definition.CustomCss,
+            definition.IdentityPrefix, definition.IdentityPadding, sequenceNext);
     }
 
     public async Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(
@@ -689,12 +702,57 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         definition.IdentitySourceFieldCode =
             request.IsTransactional && request.IdentityMode == FormIdentityMode.NaturalKey
                 ? Normalize(request.IdentitySourceFieldCode) : null;
+        // Consecutivo configurable: prefijo (trim; vacio -> null = hereda el Code) y padding (clamp 1..12)
+        // SOLO en modo Sequence; en otro caso se resetean para no dejar config huerfana.
+        if (request.IsTransactional && request.IdentityMode == FormIdentityMode.Sequence)
+        {
+            var prefix = request.IdentityPrefix?.Trim();
+            definition.IdentityPrefix = string.IsNullOrEmpty(prefix) ? null : prefix;
+            definition.IdentityPadding = request.IdentityPadding is >= 1 and <= 12 ? request.IdentityPadding : 6;
+        }
+        else
+        {
+            definition.IdentityPrefix = null;
+            definition.IdentityPadding = 6;
+        }
         // Ancho de tarjeta: se guarda desde el mismo panel de Propiedades del formulario.
         definition.CardLayout = request.CardLayout;
         await _db.SaveChangesAsync(cancellationToken);
         return (await GetAsync(definitionId, cancellationToken)) is { } dto
             ? FormResult<FormDefinitionDetailDto>.Ok(dto)
             : FormResult<FormDefinitionDetailDto>.NotFound("Formulario no encontrado.");
+    }
+
+    /// <summary>
+    /// Fija el "proximo numero" (next_value) de la secuencia del formulario. Validacion anti-colision:
+    /// rechaza bajar el contador a un numero ya emitido (next_value-1 es el ultimo numero dado); permite
+    /// mantenerlo o adelantarlo. Tenant-scoped (la secuencia es del tenant activo). Operacion separada del
+    /// guardado del panel (tiene su propio boton con confirmacion en el disenador).
+    /// </summary>
+    public async Task<FormResult<long>> SetSequenceNextAsync(
+        Guid definitionId, long next, CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null) { return FormResult<long>.NotFound("Formulario no encontrado."); }
+        if (definition.IdentityMode != FormIdentityMode.Sequence)
+        {
+            return FormResult<long>.Invalid("El formulario no numera por consecutivo del sistema.");
+        }
+        if (next < 1) { return FormResult<long>.Invalid("El proximo numero debe ser 1 o mayor."); }
+
+        var code = SequenceCodeFor(definitionId);
+        // Ultimo numero EMITIDO = next_value actual - 1 (la secuencia nunca salta al emitir). Bajar el
+        // contador a <= ese valor repetiria numeros ya usados: se rechaza. Subirlo siempre se permite.
+        var current = await _sequences.PeekAsync(code, cancellationToken);
+        var maxEmitted = current > 0 ? current - 1 : 0;
+        if (next <= maxEmitted)
+        {
+            return FormResult<long>.Invalid(
+                $"No puedes fijar el proximo numero en {next}: ya se emitio el {maxEmitted}. Usa {maxEmitted + 1} o mayor.");
+        }
+        await _sequences.SetNextAsync(code, next, cancellationToken);
+        return FormResult<long>.Ok(next);
     }
 
     /// <summary>

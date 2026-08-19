@@ -88,4 +88,31 @@ public sealed class SequenceService : ISequenceService
         throw new InvalidOperationException(
             $"No fue posible emitir el consecutivo '{code}' tras {MaxAttempts} intentos (contencion excesiva).");
     }
+
+    public async Task<long> PeekAsync(string code, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is null)
+        {
+            throw new InvalidOperationException("No hay tenant activo para leer consecutivos.");
+        }
+        // Filtro global por tenant. 0 => la fila aun no existe (nunca se ha emitido).
+        return await _db.TenantSequences.AsNoTracking()
+            .Where(s => s.Code == code)
+            .Select(s => (long?)s.NextValue)
+            .FirstOrDefaultAsync(cancellationToken) ?? 0L;
+    }
+
+    public async Task SetNextAsync(string code, long value, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is null)
+        {
+            throw new InvalidOperationException("No hay tenant activo para fijar consecutivos.");
+        }
+        if (value < 1) { value = 1; }
+        await EnsureSequenceAsync(code, cancellationToken);
+        // UPDATE portable (sin SQL crudo), acotado por code; el filtro global limita al tenant activo.
+        await _db.TenantSequences
+            .Where(s => s.Code == code)
+            .ExecuteUpdateAsync(u => u.SetProperty(x => x.NextValue, value), cancellationToken);
+    }
 }

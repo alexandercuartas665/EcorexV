@@ -22,4 +22,13 @@ public interface ISequenceService
     /// de modo que un rollback devuelve el numero (no quedan huecos por fallos).
     /// </summary>
     Task<string> NextAsync(string code, string prefix, int padding, CancellationToken cancellationToken = default);
+
+    /// <summary>Lee el proximo valor del consecutivo (next_value) del tenant activo SIN consumirlo.
+    /// Devuelve 0 si la fila aun no existe. Solo lectura: para pintar el preview del disenador.</summary>
+    Task<long> PeekAsync(string code, CancellationToken cancellationToken = default);
+
+    /// <summary>Fija el next_value del consecutivo del tenant activo (crea la fila si no existe).
+    /// Operacion administrativa (reiniciar/adelantar el contador); la validacion anti-colision vive
+    /// en el caso de uso que la invoca. Tenant-scoped por el filtro global.</summary>
+    Task SetNextAsync(string code, long value, CancellationToken cancellationToken = default);
 }

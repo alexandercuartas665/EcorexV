@@ -29,6 +29,10 @@ public interface IFormDefinitionService
     /// <summary>Configura la transaccionalidad del formulario (ola F3): IsTransactional + modo de identidad + campo clave.</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetTransactionalAsync(Guid definitionId, SetFormTransactionalRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el "proximo numero" (next_value) del consecutivo del formulario (Sequence). Valida
+    /// anti-colision: no permite bajarlo por debajo de un numero ya emitido. Devuelve el valor fijado.</summary>
+    Task<FormResult<long>> SetSequenceNextAsync(Guid definitionId, long next, CancellationToken cancellationToken = default);
+
     /// <summary>Guarda el CSS personalizado de todo el formulario (pestana Estilos del disenador).</summary>
     Task<FormResult<FormDefinitionDetailDto>> SetCustomCssAsync(Guid definitionId, SetFormCssRequest request, CancellationToken cancellationToken = default);
 

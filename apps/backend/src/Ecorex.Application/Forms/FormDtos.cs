@@ -62,13 +62,22 @@ public sealed record FormDefinitionDetailDto(
     // Ancho de la tarjeta al llenar (Normal/Ancho/Completo). Configurable por formulario.
     FormCardLayout CardLayout = FormCardLayout.Normal,
     // CSS personalizado de todo el formulario (pestana Estilos del disenador).
-    string? CustomCss = null);
+    string? CustomCss = null,
+    // Consecutivo configurable (Sequence): prefijo/padding del numero + el next_value ACTUAL de la
+    // secuencia (solo lectura, para el preview del disenador). IdentityPrefix null => usar Code.
+    string? IdentityPrefix = null, int IdentityPadding = 6, long SequenceNext = 0);
 
 /// <summary>Config transaccional de la definicion (ola F3): se edita en el panel "Propiedades del
-/// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel.</summary>
+/// formulario". Lleva ademas el ancho de tarjeta (CardLayout), que vive en el mismo panel. Prefijo/padding
+/// del consecutivo solo aplican cuando IsTransactional && IdentityMode==Sequence.</summary>
 public sealed record SetFormTransactionalRequest(
     bool IsTransactional, FormIdentityMode IdentityMode, string? IdentitySourceFieldCode,
-    FormCardLayout CardLayout = FormCardLayout.Normal);
+    FormCardLayout CardLayout = FormCardLayout.Normal,
+    string? IdentityPrefix = null, int IdentityPadding = 6);
+
+/// <summary>Fija el "proximo numero" (next_value) del consecutivo de un formulario. Operacion separada
+/// del guardado del panel: valida anti-colision (no bajar por debajo de un numero ya emitido).</summary>
+public sealed record SetFormSequenceNextRequest(long Next);
 
 /// <summary>CSS personalizado de todo el formulario (pestana Estilos del disenador). Null/vacio lo borra.</summary>
 public sealed record SetFormCssRequest(string? CustomCss);

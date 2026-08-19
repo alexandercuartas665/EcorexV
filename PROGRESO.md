@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-19 - v0.15.35: enlace flujo <-> tableros (la actividad salta de tablero/estado por paso)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Feature nueva; migracion dual.
+
+- **Idea:** cada nodo Tarea de un flujo puede apuntar a un TABLERO + COLUMNA destino; al activarse ese
+  paso, la actividad ligada al flujo SALTA a ese tablero/columna. Al cerrar un paso y activarse el
+  siguiente, la tarjeta se mueve sola.
+- **Esquema:** `WorkflowNode.TargetBoardId` + `TargetColumnId` (migracion `AddWorkflowNodeBoardTarget`,
+  nullable; metadatos por nodo, editables incluso sobre flujo publicado).
+- **Motor** (`WorkflowEngine.ActivateNodeAsync`): cuando un paso queda Pending (espera a un humano) y su
+  nodo tiene tablero destino, mueve la TaskItem ligada (`BoardId`/`ColumnId`/`ColumnEnteredAt`) en el
+  mismo SaveChanges del avance. Columna null -> primera columna del tablero.
+- **Servicio:** `IWorkflowDesignService.SetNodeBoardTargetAsync(nodeId, boardId?, columnId?)` (valida que
+  la columna pertenezca al tablero). `FlowCanvasNodeDto` + `TargetBoardId`/`TargetColumnId`.
+- **Diseñador** (`FlowEditor.razor`): en un nodo Tarea, selectores "Tablero destino" + "Columna/estado";
+  carga tableros + columnas del tenant (IActivityBoardService + ITaskBoardService).
+
+**Siguiente:** crear un flujo de 3 pasos en AGROMETALICAS y validar el salto al cerrar cada actividad.
+
+---
+
 ## 2026-08-19 - v0.15.34: herramienta MCP de inventario (agente consulta items, solo lectura)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Nuevo toolset del agente de IA; sin migracion.

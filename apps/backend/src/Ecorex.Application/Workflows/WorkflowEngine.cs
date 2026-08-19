@@ -285,7 +285,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         // Paso del startEvent (ciclo 0): los startEvent se completan solos y el avance
         // automatico deja como current el/los siguientes.
         var steps = new List<WorkflowStepHistory>();
-        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, inheritedApprovalResult: null, cancellationToken);
+        await ActivateNodeAsync(instance, steps, startNode, cycleIndex: 0, isCycleStart: false, inheritedApprovalResult: null, task, cancellationToken);
         var stuck = await AdvanceAsync(instance, steps, graph, task, cancellationToken);
 
         try
@@ -437,7 +437,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         step.ApprovalComment = reason.Trim();
 
         var previousNode = graph.NodesById[previous.NodeId];
-        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, inheritedApprovalResult: null, cancellationToken);
+        await ActivateNodeAsync(instance, steps, previousNode, previous.CycleIndex, isCycleStart: false, inheritedApprovalResult: null, task, cancellationToken);
         if (task is not null)
         {
             AddTaskActivity(task, null, "Sistema",
@@ -501,7 +501,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         var restartInherited = restartNode.NodeType == WorkflowNodeType.ExclusiveGateway
                             ? step.ApprovalResult
                             : null;
-                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, cancellationToken);
+                        await ActivateNodeAsync(instance, steps, restartNode, cycle, isCycleStart: true, restartInherited, task, cancellationToken);
                         instance.CurrentCycle = Math.Max(instance.CurrentCycle, cycle);
                     }
                     else if (target.NodeType == WorkflowNodeType.EndEvent)
@@ -527,7 +527,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
                         var inherited = target.NodeType == WorkflowNodeType.ExclusiveGateway
                             ? step.ApprovalResult
                             : null;
-                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, cancellationToken);
+                        await ActivateNodeAsync(instance, steps, target, step.CycleIndex, isCycleStart: false, inherited, task, cancellationToken);
                     }
                 }
             }
@@ -644,7 +644,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
     /// </summary>
     private async Task<WorkflowStepHistory> ActivateNodeAsync(
         WorkflowInstance instance, List<WorkflowStepHistory> steps, WorkflowNode node,
-        int cycleIndex, bool isCycleStart, string? inheritedApprovalResult, CancellationToken cancellationToken)
+        int cycleIndex, bool isCycleStart, string? inheritedApprovalResult, TaskItem? task, CancellationToken cancellationToken)
     {
         var step = AddStep(instance, node, cycleIndex, isCycleStart, WorkflowStepStatus.Pending, isCurrent: true);
         steps.Add(step);
@@ -674,6 +674,24 @@ public sealed class WorkflowEngine : IWorkflowEngine
                 step.CompletedAt = DateTimeOffset.UtcNow;
                 step.ApprovalResult = Normalize(result.ApprovalResult);
                 step.ApprovalComment = Normalize(result.Comment);
+            }
+        }
+
+        // Enlace flujo <-> tableros: cuando el paso QUEDA pendiente (espera a un humano) y el nodo tiene
+        // un tablero destino configurado, la actividad SALTA a ese tablero/columna. Asi, al cerrar un
+        // paso y activarse el siguiente, la tarjeta se mueve sola de tablero/estado. Se persiste en el
+        // mismo SaveChanges del avance. Columna null -> primera columna del tablero destino.
+        if (task is not null && step.Status == WorkflowStepStatus.Pending && node.TargetBoardId is Guid targetBoard)
+        {
+            var targetColumn = node.TargetColumnId ?? await _db.TaskBoardColumns.AsNoTracking()
+                .Where(c => c.BoardId == targetBoard)
+                .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+                .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
+            if (targetColumn is Guid col && (task.BoardId != targetBoard || task.ColumnId != col))
+            {
+                task.BoardId = targetBoard;
+                task.ColumnId = col;
+                task.ColumnEnteredAt = DateTimeOffset.UtcNow;
             }
         }
         return step;

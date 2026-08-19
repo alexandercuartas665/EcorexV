@@ -716,6 +716,39 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return WorkflowResult<bool>.Ok(true);
     }
 
+    /// <summary>Fija el TABLERO y la COLUMNA destino del nodo (enlace flujo &lt;-&gt; tableros): al activarse
+    /// este paso, la actividad salta alli. Son metadatos por nodo (no viajan en el XML), editables tambien
+    /// sobre una definicion publicada. boardId null = el paso no mueve la actividad de tablero. columnId
+    /// null = primera columna del tablero. Se valida que la columna pertenezca al tablero.</summary>
+    public async Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(
+        Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default)
+    {
+        var node = await _db.WorkflowNodes.FirstOrDefaultAsync(n => n.Id == nodeId, cancellationToken);
+        if (node is null)
+        {
+            return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
+        }
+        if (boardId is Guid bid)
+        {
+            var board = await _db.TaskBoards.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bid, cancellationToken);
+            if (board is null) { return WorkflowResult<bool>.Invalid("El tablero destino no existe."); }
+            if (columnId is Guid cid)
+            {
+                var okCol = await _db.TaskBoardColumns.AsNoTracking().AnyAsync(c => c.Id == cid && c.BoardId == bid, cancellationToken);
+                if (!okCol) { return WorkflowResult<bool>.Invalid("La columna no pertenece al tablero destino."); }
+            }
+            node.TargetBoardId = bid;
+            node.TargetColumnId = columnId;
+        }
+        else
+        {
+            node.TargetBoardId = null;
+            node.TargetColumnId = null;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     // ---- Propiedades y ciclo de vida ----
 
     public async Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(
@@ -1421,7 +1454,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                 n.AllowsAssignment, n.RestartNodeId,
                 form?.Id, form?.Code, form?.Title,
                 rulesByNode.GetValueOrDefault(n.Id) ?? [],
-                n.Color, n.Note);
+                n.Color, n.Note, n.TargetBoardId, n.TargetColumnId);
         }).ToList();
         var edgeDtos = edges.Select(e => new FlowCanvasEdgeDto(
             e.Id, e.SourceNodeId, e.TargetNodeId, e.BpmnElementId, e.Name, e.ConditionExpression)).ToList();

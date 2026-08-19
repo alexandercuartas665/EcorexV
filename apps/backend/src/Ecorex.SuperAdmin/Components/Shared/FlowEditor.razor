@@ -1,11 +1,14 @@
 @using System.Globalization
 @using Ecorex.Application.Forms
 @using Ecorex.Application.Organization
+@using Ecorex.Application.Tenancy
 @using Ecorex.Application.Workflows
 @using Ecorex.Domain.Enums
 @implements IAsyncDisposable
 @inject IWorkflowDesignService DesignSvc
 @inject IWorkflowEngine Engine
+@inject IActivityBoardService BoardsSvc
+@inject ITaskBoardService ColumnsSvc
 @inject IFormDefinitionService FormsSvc
 @inject IWorkflowNodePolicyService NodePolicySvc
 @inject INodeAssigneeResolver AssigneeResolver
@@ -490,9 +493,35 @@ else
         }
     }
 
+    // Enlace flujo <-> tableros: tableros del tenant + sus columnas (para configurar el destino por nodo).
+    private List<(Guid Id, string Name)> _boards = new();
+    private readonly Dictionary<Guid, IReadOnlyList<TaskBoardColumnDto>> _columnsByBoard = new();
+
+    private IReadOnlyList<TaskBoardColumnDto> ColumnsFor(Guid boardId)
+        => _columnsByBoard.GetValueOrDefault(boardId) ?? Array.Empty<TaskBoardColumnDto>();
+
+    private async Task LoadBoardsAsync()
+    {
+        try
+        {
+            var index = await BoardsSvc.ListBoardsAsync(new ActivityBoardIndexFilter());
+            _boards = index.Boards.Select(b => (b.Id, b.Name)).ToList();
+            // Columnas de cada tablero (pocos tableros en un tenant; se cachean para los selectores).
+            foreach (var (id, _) in _boards)
+            {
+                if (!_columnsByBoard.ContainsKey(id))
+                {
+                    _columnsByBoard[id] = await ColumnsSvc.ListColumnsAsync(id);
+                }
+            }
+        }
+        catch { /* si falla la carga de tableros, el selector queda vacio (no rompe el editor) */ }
+    }
+
     private async Task LoadAsync()
     {
         await GuardAsync(async () => _canvas = await DesignSvc.GetCanvasAsync(DefinitionId));
+        await LoadBoardsAsync();
         if (_canvas is null)
         {
             _error = "El flujo no existe.";
@@ -707,6 +736,37 @@ else
                    @onchange="@(e => OnAllowsAssignmentChangedAsync(node, e))" />
             Permite asignacion manual del paso
         </label>
+
+        @* Enlace flujo <-> tableros: al activarse este paso, la actividad SALTA a este tablero/columna.
+           Solo para nodos Tarea (los que esperan a un humano). *@
+        @if (node.NodeType == WorkflowNodeType.Task)
+        {
+            <div class="fe-field" style="margin-top:10px;">
+                <label>Tablero destino (la actividad salta aqui al llegar a este paso)</label>
+                <select class="fe-input sm" value="@(node.TargetBoardId?.ToString() ?? "")"
+                        @onchange="@(e => OnBoardTargetChangedAsync(node, e))">
+                    <option value="">Sin tablero (no mueve la actividad)</option>
+                    @foreach (var b in _boards)
+                    {
+                        <option value="@b.Id">@b.Name</option>
+                    }
+                </select>
+            </div>
+            @if (node.TargetBoardId is Guid tb)
+            {
+                <div class="fe-field">
+                    <label>Columna / estado del tablero</label>
+                    <select class="fe-input sm" value="@(node.TargetColumnId?.ToString() ?? "")"
+                            @onchange="@(e => OnColumnTargetChangedAsync(node, e))">
+                        <option value="">Primera columna</option>
+                        @foreach (var c in ColumnsFor(tb))
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </select>
+                </div>
+            }
+        }
 
         @* Apariencia del nodo (restaurado del canvas propio): color de paleta + nota post-it. Son
            metadatos (no viajan en el XML), asi que se pueden editar tambien sobre una publicada. *@
@@ -948,6 +1008,33 @@ else
         await GuardAsync(async () =>
         {
             var result = await DesignSvc.SetNodeConfigAsync(node.Id, node.AllowsAssignment, restartId);
+            if (!result.IsOk) { _error = result.Error; }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
+
+    private async Task OnBoardTargetChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? boardId = Guid.TryParse(e.Value?.ToString(), out var b) ? b : null;
+        await GuardAsync(async () =>
+        {
+            // Cambiar de tablero limpia la columna (se recalcula a la primera del nuevo tablero).
+            var result = await DesignSvc.SetNodeBoardTargetAsync(node.Id, boardId, null);
+            if (!result.IsOk) { _error = result.Error; }
+            if (boardId is Guid bid && !_columnsByBoard.ContainsKey(bid))
+            {
+                _columnsByBoard[bid] = await ColumnsSvc.ListColumnsAsync(bid);
+            }
+            _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
+        });
+    }
+
+    private async Task OnColumnTargetChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? columnId = Guid.TryParse(e.Value?.ToString(), out var c) ? c : null;
+        await GuardAsync(async () =>
+        {
+            var result = await DesignSvc.SetNodeBoardTargetAsync(node.Id, node.TargetBoardId, columnId);
             if (!result.IsOk) { _error = result.Error; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);
         });

@@ -14084,6 +14084,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("step_number");
 
+                    b.Property<Guid?>("TargetBoardId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("target_board_id");
+
+                    b.Property<Guid?>("TargetColumnId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("target_column_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");

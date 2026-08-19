@@ -35,6 +35,16 @@ public class WorkflowNode : TenantEntity
     public Guid? RestartNodeId { get; set; }
     public WorkflowNode? RestartNode { get; set; }
 
+    // ---- Destino en TABLERO (enlace flujo <-> tableros) ----
+    /// <summary>Tablero al que debe SALTAR la actividad cuando este nodo (paso) se vuelve el actual.
+    /// Null = no mueve la actividad de tablero en este paso. Referencia suelta (sin FK dura; se valida
+    /// en el motor). Solo aplica a nodos de tipo Task (los que esperan a un humano).</summary>
+    public Guid? TargetBoardId { get; set; }
+
+    /// <summary>Columna/estado del tablero (<see cref="TargetBoardId"/>) donde cae la actividad al
+    /// activarse este paso. Null = primera columna del tablero destino.</summary>
+    public Guid? TargetColumnId { get; set; }
+
     // ---- Layout del canvas (editor propio del prototipo, ADR-0022) ----
     // Coordenadas del diagrama (bpmndi:BPMNShape/dc:Bounds). Se llenan al importar el XML
     // (con auto-layout si el XML no trae DI) y las mueve el editor; al guardar, el XML

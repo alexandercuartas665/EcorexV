@@ -32,7 +32,9 @@ public sealed record FlowCanvasNodeDto(
     Guid? FormDefinitionId, string? FormCode, string? FormTitle,
     IReadOnlyList<FlowNodeRuleDto> Rules,
     // Apariencia del nodo en el graficador (color de paleta + nota post-it). Metadatos, no viajan en el XML.
-    string? Color = null, string? Note = null);
+    string? Color = null, string? Note = null,
+    // Destino en tablero: al activarse este paso, la actividad salta a este tablero/columna (enlace flujo<->tableros).
+    Guid? TargetBoardId = null, Guid? TargetColumnId = null);
 
 public sealed record FlowCanvasEdgeDto(
     Guid Id, Guid SourceNodeId, Guid TargetNodeId, string? BpmnElementId,

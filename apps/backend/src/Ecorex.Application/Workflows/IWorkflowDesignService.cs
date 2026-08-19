@@ -85,6 +85,10 @@ public interface IWorkflowDesignService
     /// </summary>
     Task<WorkflowResult<bool>> SetNodeAppearanceAsync(Guid nodeId, string? color, string? note, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el tablero + columna destino del nodo (enlace flujo &lt;-&gt; tableros); la actividad salta
+    /// alli al activarse el paso. boardId null = no mueve; columnId null = primera columna del tablero.</summary>
+    Task<WorkflowResult<bool>> SetNodeBoardTargetAsync(Guid nodeId, Guid? boardId, Guid? columnId, CancellationToken cancellationToken = default);
+
     // ---- Propiedades y ciclo de vida de la definicion ----
 
     Task<WorkflowResult<bool>> UpdateDefinitionPropsAsync(Guid definitionId, string name, string? category, string? description, CancellationToken cancellationToken = default);

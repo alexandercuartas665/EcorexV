@@ -103,6 +103,10 @@ public class TaskItem : TenantEntity, IVersioned
     /// <summary>Momento en que la tarea paso a Closed (estado terminal).</summary>
     public DateTimeOffset? ClosedAt { get; set; }
 
+    /// <summary>Motivo de cierre elegido al mover la tarea a una columna final (opcional). La lista de
+    /// motivos se configura por tablero (<see cref="TaskBoard.CloseReasonsJson"/>).</summary>
+    public string? CloseReason { get; set; }
+
     /// <summary>
     /// Instancia de flujo que gobierna esta tarea (FASE 4). Null = tarea sin flujo
     /// (estados libres via TaskItemStateMachine). FK sin cascada.

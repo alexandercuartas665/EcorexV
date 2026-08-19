@@ -95,6 +95,27 @@
                     <button class="tk-conflict-x" @onclick="@(() => _moveNote = null)">&times;</button>
                 </div>
             }
+            @* Prompt de motivo de cierre (opcional) al mover a una columna final del tablero. *@
+            @if (_pendingCloseColumn is not null)
+            {
+                <div class="tk-closeask-overlay" @onclick="@(() => _pendingCloseColumn = null)" @onclick:stopPropagation="true">
+                    <div class="tk-closeask" @onclick:stopPropagation="true">
+                        <div class="tk-closeask-h">Motivo de cierre <span>(opcional)</span></div>
+                        <p class="tk-closeask-sub">Vas a mover la tarea a <strong>@_pendingCloseColumn.Name</strong>. Elige un motivo o ciérrala sin motivo.</p>
+                        <div class="tk-closeask-opts">
+                            @foreach (var motivo in _closeReasons)
+                            {
+                                var m = motivo;
+                                <button class="tk-closeask-opt" @onclick="@(() => ConfirmCloseAsync(m))" disabled="@_busy">@m</button>
+                            }
+                        </div>
+                        <div class="tk-closeask-foot">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _pendingCloseColumn = null)" disabled="@_busy">Cancelar</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ConfirmCloseAsync(null))" disabled="@_busy">Cerrar sin motivo</button>
+                        </div>
+                    </div>
+                </div>
+            }
 
             <div class="tk-detail-pills" @onclick:stopPropagation="true">
                 @* Encargado *@
@@ -990,6 +1011,10 @@
                             {
                                 <div class="tk-summary-row"><span>Cerrada</span><strong>@item.ClosedAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")</strong></div>
                             }
+                            @if (!string.IsNullOrWhiteSpace(item.CloseReason))
+                            {
+                                <div class="tk-summary-row"><span>Motivo de cierre</span><strong>@item.CloseReason</strong></div>
+                            }
                             @* Avance de la lista de chequeo (ADR-0020): la barra del sidebar usa el checklist. *@
                             <div class="tk-summary-row tk-avance-row"><span>Avance</span><strong>@ProgressDone()/@ProgressTotal()</strong></div>
                             <div class="tk-progress-bar"><i style="width:@(ProgressPctCombined())%;background:@ProgressColor()"></i></div>
@@ -1285,6 +1310,10 @@
 
     // Tablero de actividades (ADR-0020, ola 2): columnas para "Mover a", checklist y asignados.
     private List<ActivityBoardColumnDto> _boardColumns = new();
+    private List<string> _closeReasons = new();
+    // Prompt de motivo de cierre: columna final pendiente de confirmar + su indice de drop.
+    private ActivityBoardColumnDto? _pendingCloseColumn;
+    private int _pendingCloseSort;
     private string? _moveNote;
     private string _newCheckText = "";
     private string _addAssigneeId = "";
@@ -1431,12 +1460,14 @@
             _flowNote = "";
             // Columnas del tablero para el dropdown "Mover a" (solo si la tarea esta en un tablero).
             _boardColumns = new List<ActivityBoardColumnDto>();
+            _closeReasons = new List<string>();
             if (_detail.Item.BoardId is Guid boardId)
             {
                 var board = await boardsSvc.GetBoardDetailAsync(boardId, new ActivityBoardDetailFilter());
                 if (board.IsOk)
                 {
                     _boardColumns = board.Value!.Columns.ToList();
+                    _closeReasons = (board.Value.CloseReasons ?? Array.Empty<string>()).ToList();
                 }
             }
 
@@ -1538,14 +1569,38 @@
     private async Task MoveToColumnAsync(ActivityBoardColumnDto target)
     {
         if (_detail is null) { return; }
+        if (_detail.Item.ColumnId == target.Id) { _openMenu = null; return; }
+        // Si la columna destino es FINAL y el tablero tiene motivos configurados, se pregunta el motivo
+        // (opcional) antes de mover. En cualquier otro caso, se mueve directo (comportamiento de siempre).
+        if (target.IsDone && _closeReasons.Count > 0)
+        {
+            _pendingCloseColumn = target;
+            _pendingCloseSort = target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1;
+            _openMenu = null;
+            return;
+        }
+        await DoMoveAsync(target, target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1, null);
+    }
+
+    /// <summary>Confirma el movimiento a la columna final pendiente con el motivo elegido (o sin motivo).</summary>
+    private async Task ConfirmCloseAsync(string? reason)
+    {
+        if (_pendingCloseColumn is null) { return; }
+        var col = _pendingCloseColumn;
+        var sort = _pendingCloseSort;
+        _pendingCloseColumn = null;
+        await DoMoveAsync(col, sort, reason);
+    }
+
+    private async Task DoMoveAsync(ActivityBoardColumnDto target, int sortOrder, string? closeReason)
+    {
+        if (_detail is null) { return; }
         _busy = true;
         _moveNote = null;
         try
         {
             var taskId = _detail.Item.Id;
-            if (_detail.Item.ColumnId == target.Id) { return; }
-            var sortOrder = target.Cards.Count == 0 ? 0 : target.Cards.Max(c => c.BoardSortOrder) + 1;
-            var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync());
+            var result = await BoardsSvc.MoveTaskAsync(taskId, target.Id, sortOrder, await ActorAsync(), await ActorNameAsync(), closeReason);
             if (!result.IsOk)
             {
                 _actionError = result.Error;

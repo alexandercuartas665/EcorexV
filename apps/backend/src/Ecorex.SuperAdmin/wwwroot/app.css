@@ -1708,6 +1708,16 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-conflict { display: flex; align-items: center; gap: 9px; background: oklch(0.78 0.14 70 / 0.15); border: 1px solid oklch(0.78 0.14 70 / 0.5); color: oklch(0.45 0.12 65); border-radius: 10px; padding: 9px 13px; font-size: 12.5px; font-weight: 600; margin-bottom: 12px; }
 .tk-conflict svg { width: 16px; height: 16px; flex: none; }
 .tk-conflict.tk-action-error { background: oklch(0.6 0.22 22 / 0.08); border-color: oklch(0.6 0.22 22 / 0.4); color: var(--destructive); }
+/* Prompt de motivo de cierre (opcional) al mover a una columna final. */
+.tk-closeask-overlay { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 60; border-radius: inherit; }
+.tk-closeask { width: min(420px, 92%); background: var(--card, var(--surface)); border: 1px solid var(--border, var(--line)); border-radius: 14px; box-shadow: 0 16px 40px -12px rgba(0,0,0,.4); padding: 18px 20px; }
+.tk-closeask-h { font-size: 15px; font-weight: 800; color: var(--foreground, var(--ink)); }
+.tk-closeask-h span { font-weight: 600; color: var(--muted-foreground, var(--ink-3)); font-size: 12.5px; }
+.tk-closeask-sub { font-size: 12.5px; color: var(--muted-foreground, var(--ink-2)); margin: 6px 0 14px; }
+.tk-closeask-opts { display: flex; flex-direction: column; gap: 7px; }
+.tk-closeask-opt { text-align: left; padding: 10px 12px; border: 1px solid var(--border, var(--line-2)); border-radius: 9px; background: var(--surface-2, var(--muted)); font: inherit; font-size: 13px; font-weight: 600; color: var(--foreground, var(--ink)); cursor: pointer; }
+.tk-closeask-opt:hover:not(:disabled) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--surface-2, var(--muted))); }
+.tk-closeask-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .tk-conflict-x { margin-left: auto; border: none; background: none; font-size: 16px; line-height: 1; color: inherit; cursor: pointer; }
 
 /* Cuerpo 2 columnas del detalle */

@@ -50,7 +50,9 @@ public sealed record CreateActivityBoardRequest(
 
 public sealed record UpdateActivityBoardRequest(
     string Name, string? Description, string? Color,
-    TaskBoardStatus Status, DateTimeOffset? DueDate, bool IsArchived);
+    TaskBoardStatus Status, DateTimeOffset? DueDate, bool IsArchived,
+    // Motivos de cierre del tablero (null = no tocar; lista vacia = borrar).
+    IReadOnlyList<string>? CloseReasons = null);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope
@@ -136,7 +138,9 @@ public sealed record ActivityBoardDetailDto(
     IReadOnlyList<ActivityBoardColumnDto> Columns,
     ActivityScopeCountersDto ScopeCounters,
     // Ola 2 ADR-0065: config de columnas de la vista Lista (JSON). Null = columnas por defecto.
-    string? ListViewConfigJson = null);
+    string? ListViewConfigJson = null,
+    // Motivos de cierre configurados del tablero (para pedirlos al mover a una columna final). Vacio = no se pregunta.
+    IReadOnlyList<string>? CloseReasons = null);
 
 /// <summary>
 /// Creacion rapida desde la columna del tablero. ActivityTypeId null usa el primer tipo

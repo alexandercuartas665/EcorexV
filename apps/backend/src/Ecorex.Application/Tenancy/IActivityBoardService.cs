@@ -50,7 +50,7 @@ public interface IActivityBoardService
     /// registra actividad; si no la permite, mueve la tarjeta SIN tocar el estado y lo
     /// reporta en StatusNote (nunca falla por eso).
     /// </summary>
-    Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+    Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, string? closeReason = null, CancellationToken cancellationToken = default);
 
     /// <summary>Cuelga una tarea existente del tablero (columna dada o la primera).</summary>
     Task<TaskCoreResult<bool>> AddTaskToBoardAsync(Guid taskItemId, Guid boardId, Guid? columnId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);

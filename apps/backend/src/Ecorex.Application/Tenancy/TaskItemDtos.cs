@@ -37,7 +37,9 @@ public sealed record TaskItemSummaryDto(
     // Proyectos P3: hito del proyecto al que se enlaza la actividad.
     Guid? MilestoneId = null, string? MilestoneName = null,
     // Subtareas (ADR-0065): tarea padre si esta es una subtarea.
-    Guid? ParentId = null, string? ParentNumber = null);
+    Guid? ParentId = null, string? ParentNumber = null,
+    // Motivo de cierre elegido al mover a una columna final (opcional).
+    string? CloseReason = null);
 
 public sealed record TaskItemDetailDto(
     TaskItemSummaryDto Item,

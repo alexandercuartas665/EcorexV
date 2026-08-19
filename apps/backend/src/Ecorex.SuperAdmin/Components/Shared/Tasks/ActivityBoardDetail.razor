@@ -1007,6 +1007,14 @@
                     <label>Fecha limite</label>
                     <input type="date" class="ab-input" @bind="_ebDue" />
                 </div>
+                <div class="ab-field">
+                    <label>Motivos de cierre (uno por linea)</label>
+                    <textarea class="ab-textarea" @bind="_ebCloseReasons" rows="4"
+                              placeholder="Resuelto&#10;Duplicado&#10;No aplica&#10;Cancelado por el cliente"></textarea>
+                    <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px;">
+                        Se ofrecen (opcional) al mover una tarea a una columna final. Vacio = no se pregunta.
+                    </div>
+                </div>
                 @if (_ebError is not null)
                 {
                     <div class="ab-field-error">@_ebError</div>
@@ -1380,6 +1388,7 @@
     private string _ebDesc = "";
     private TaskBoardStatus _ebStatus = TaskBoardStatus.InProgress;
     private DateTime? _ebDue;
+    private string _ebCloseReasons = "";
     private string? _ebError;
 
     private bool _busy;
@@ -2038,6 +2047,7 @@
         _ebDesc = _detail.Description ?? "";
         _ebStatus = _detail.Status;
         _ebDue = _detail.DueDate?.ToLocalTime().DateTime.Date;
+        _ebCloseReasons = string.Join("\n", _detail.CloseReasons ?? Array.Empty<string>());
         _ebError = null;
         _ebOpen = true;
     }
@@ -2052,13 +2062,17 @@
             var due = _ebDue is DateTime d
                 ? new DateTimeOffset(d.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime()
                 : (DateTimeOffset?)null;
+            var motivos = _ebCloseReasons
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
             var request = new UpdateActivityBoardRequest(
                 Name: _ebName.Trim(),
                 Description: string.IsNullOrWhiteSpace(_ebDesc) ? null : _ebDesc.Trim(),
                 Color: null,
                 Status: _ebStatus,
                 DueDate: due,
-                IsArchived: _detail.IsArchived);
+                IsArchived: _detail.IsArchived,
+                CloseReasons: motivos);
             var result = await BoardsSvc.UpdateBoardAsync(_detail.Id, request, await ActorAsync(), await ActorNameAsync());
             if (!result.IsOk)
             {

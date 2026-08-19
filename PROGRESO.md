@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-18 - v0.15.32: tiempo en estado por tarjeta + motivo de cierre por tablero + auto-archivar >30d
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview (dev local + /dev/login) via MCP
+Chrome, punta a punta. Migracion dual (PG + SqlServer) aplicada y probada en dev.
+
+- **Tiempo en estado por tarjeta (kanban):** el relojito discreto pasa a etiqueta clara
+  "En este estado: X" con color (gris/ambar/rojo) segun antiguedad en la columna. Dato: `ColumnEnteredAt`.
+- **Motivo de cierre por tablero (#B):** nuevo `TaskBoard.CloseReasonsJson` (lista configurable en
+  Editar tablero) + `TaskItem.CloseReason`. Al mover una tarea a una columna FINAL (IsDone), si el
+  tablero tiene motivos, se pregunta (OPCIONAL: elegir uno o "Cerrar sin motivo"); se guarda y se
+  muestra en Resumen. `MoveTaskAsync` acepta `closeReason`. Aplica desde la modal (drag-drop directo
+  queda como fast-follow). VALIDADO: prompt con 4 motivos -> "Resuelto" -> Resumen muestra el motivo.
+- **Auto-archivar terminadas > 30 dias (#C):** las vistas normales del tablero (Todas/Mios/No
+  asignados) ocultan las cerradas hace mas de 30 dias; siguen en el alcance "Terminados". Filtro en
+  `ApplyScope` (`status NOT IN (Done,Closed) OR closed_at >= now-30d`), con `teamCount` consistente.
+
+**Esquema:** migracion `AddCloseReasons` (task_boards.close_reasons_json + task_items.close_reason),
+ambos nullable/aditivos. Auto-aplica en el arranque (backup previo del deploy).
+
+---
+
 ## 2026-08-18 - v0.15.31: fecha inicio (Gantt) + video en adjuntos + contactos empresa consistentes
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Cambios de UI/servicio; SIN migracion (StartDate ya

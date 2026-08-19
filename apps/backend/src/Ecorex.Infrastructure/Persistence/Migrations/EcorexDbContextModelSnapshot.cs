@@ -10455,6 +10455,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("CloseReasonsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("close_reasons_json");
+
                     b.Property<string>("Code")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
@@ -11205,6 +11209,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<string>("CcEmails")
                         .HasColumnType("jsonb")
                         .HasColumnName("cc_emails");
+
+                    b.Property<string>("CloseReason")
+                        .HasColumnType("text")
+                        .HasColumnName("close_reason");
 
                     b.Property<DateTimeOffset?>("ClosedAt")
                         .HasColumnType("timestamp with time zone")

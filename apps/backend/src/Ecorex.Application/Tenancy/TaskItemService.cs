@@ -1470,7 +1470,8 @@ public sealed class TaskItemService : ITaskItemService
             t.MilestoneId,
             t.MilestoneId is Guid msid && milestoneNames.TryGetValue(msid, out var msname) ? msname : null,
             t.ParentId,
-            t.ParentId is Guid pid && parentNumbers.TryGetValue(pid, out var pnum) ? pnum : null)).ToList();
+            t.ParentId is Guid pid && parentNumbers.TryGetValue(pid, out var pnum) ? pnum : null,
+            t.CloseReason)).ToList();
     }
 
     /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>

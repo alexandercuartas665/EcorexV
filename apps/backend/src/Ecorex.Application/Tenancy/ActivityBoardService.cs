@@ -281,6 +281,17 @@ public sealed class ActivityBoardService : IActivityBoardService
         board.Status = request.Status;
         board.DueDate = request.DueDate;
         board.IsArchived = request.IsArchived;
+        // Motivos de cierre: null = no tocar; lista (vacia o no) = reemplazar. Se limpian y deduplican.
+        if (request.CloseReasons is not null)
+        {
+            var motivos = request.CloseReasons
+                .Select(m => (m ?? string.Empty).Trim())
+                .Where(m => m.Length > 0)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .Take(30)
+                .ToList();
+            board.CloseReasonsJson = motivos.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(motivos);
+        }
         await _db.SaveChangesAsync(cancellationToken);
 
         var columnNames = await _db.TaskBoardColumns.AsNoTracking()
@@ -375,7 +386,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             : Array.Empty<Guid>();
         var noRoute = Array.Empty<Guid>();
 
-        var teamCount = await query.CountAsync(cancellationToken);
+        var teamCount = await ApplyScope(query, ActivityBoardScope.Team, null, noRoute).CountAsync(cancellationToken);
         var mineCount = filter.CurrentTenantUserId is Guid me
             ? await ApplyScope(query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
             : 0;
@@ -487,7 +498,15 @@ public sealed class ActivityBoardService : IActivityBoardService
             board.Id, board.Code, board.Name, board.Description, board.Status, board.DueDate,
             board.IsArchived, columnDtos,
             new ActivityScopeCountersDto(teamCount, mineCount, unassignedCount, doneCount),
-            board.ListViewConfigJson));
+            board.ListViewConfigJson, ParseCloseReasons(board.CloseReasonsJson)));
+    }
+
+    /// <summary>Deserializa los motivos de cierre del tablero (arreglo JSON de textos); vacio si null/invalido.</summary>
+    private static IReadOnlyList<string> ParseCloseReasons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<string>(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch (System.Text.Json.JsonException) { return Array.Empty<string>(); }
     }
 
     public async Task<TaskCoreResult<bool>> SetListViewConfigAsync(Guid boardId, string? json, CancellationToken cancellationToken = default)
@@ -505,7 +524,7 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     // ---- Movimiento de tarjetas ----
 
-    public async Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    public async Task<TaskCoreResult<MoveTaskResultDto>> MoveTaskAsync(Guid taskItemId, Guid targetColumnId, int sortOrder, Guid actorUserId, string actorName, string? closeReason = null, CancellationToken cancellationToken = default)
     {
         var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
         if (task is null)
@@ -558,6 +577,14 @@ public sealed class ActivityBoardService : IActivityBoardService
         // Transicion OPORTUNISTA a Done al llegar a una columna final (ADR-0020): la
         // columna es ubicacion, el estado lo gobierna TaskItemStateMachine. Si la maquina
         // no permite Status -> Done, la tarjeta se mueve igual y se reporta el motivo.
+        // Motivo de cierre (opcional): se guarda al aterrizar en una columna final. Se elige de la lista
+        // configurada por tablero; si no se pasa, no se toca el motivo previo.
+        if (column.IsDone && !string.IsNullOrWhiteSpace(closeReason))
+        {
+            var cr = closeReason.Trim();
+            task.CloseReason = cr.Length > 200 ? cr[..200] : cr;
+        }
+
         var statusChanged = false;
         string? statusNote = null;
         if (column.IsDone && task.Status is not (TaskItemStatus.Done or TaskItemStatus.Closed))
@@ -758,19 +785,27 @@ public sealed class ActivityBoardService : IActivityBoardService
     /// </summary>
     private IQueryable<TaskItem> ApplyScope(IQueryable<TaskItem> query, ActivityBoardScope scope,
         Guid? currentTenantUserId, IReadOnlyList<Guid> routedTaskIds)
-        => scope switch
+    {
+        // #C: en las vistas normales (Todas / Mios / No asignados) NO se muestran las tareas cerradas
+        // hace mas de 30 dias, para que el tablero no se amontone. Siguen consultables en "Terminados".
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-30);
+        IQueryable<TaskItem> Fresh(IQueryable<TaskItem> q) => q.Where(t =>
+            (t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Closed)
+            || t.ClosedAt == null || t.ClosedAt >= cutoff);
+        return scope switch
         {
             ActivityBoardScope.Mine when currentTenantUserId is Guid me
-                => query.Where(t => t.AssigneeTenantUserId == me
+                => Fresh(query.Where(t => t.AssigneeTenantUserId == me
                     || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == me)
-                    || routedTaskIds.Contains(t.Id)),
+                    || routedTaskIds.Contains(t.Id))),
             ActivityBoardScope.Unassigned
-                => query.Where(t => t.AssigneeTenantUserId == null
-                    && !_db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id)),
+                => Fresh(query.Where(t => t.AssigneeTenantUserId == null
+                    && !_db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id))),
             ActivityBoardScope.Done
-                => query.Where(t => t.Status == TaskItemStatus.Done),
-            _ => query
+                => query.Where(t => t.Status == TaskItemStatus.Done), // Terminados: TODAS, incluidas las viejas
+            _ => Fresh(query)
         };
+    }
 
     /// <summary>
     /// ADR-0038: task-ids cuyo PASO ACTUAL del flujo (current+Pending de una instancia Running ligada

@@ -53,4 +53,8 @@ public class TaskBoard : TenantEntity
     /// SQL); null = columnas por defecto. Ver <c>Ecorex.Application.Tenancy.TaskListViewConfig</c>.
     /// </summary>
     public string? ListViewConfigJson { get; set; }
+
+    /// <summary>Motivos de cierre configurables de este tablero (arreglo JSON de textos). Al mover una
+    /// tarea a una columna final (IsDone) se ofrece elegir uno (OPCIONAL). Null/vacio = no se pregunta.</summary>
+    public string? CloseReasonsJson { get; set; }
 }

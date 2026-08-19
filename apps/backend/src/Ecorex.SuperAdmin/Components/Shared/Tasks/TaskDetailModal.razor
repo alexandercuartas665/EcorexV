@@ -115,6 +115,24 @@
                     }
                 </div>
 
+                @* Fecha inicio (planificada, para pintar la barra del Gantt junto con la fecha de entrega) *@
+                <div class="tk-pill-anchor">
+                    <button class="tk-pill" @onclick="@(() => ToggleMenu("start"))" disabled="@readOnly" title="Fecha de inicio (para el Gantt)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/><path d="m9 16 2 2 4-4"/></svg>
+                        <span>@(item.StartDate is null ? "Inicio" : TaskUi.FormatDue(item.StartDate.Value))</span>
+                    </button>
+                    @if (_openMenu == "start")
+                    {
+                        <div class="tk-pill-pop" style="padding:12px;">
+                            <input type="date" class="form-control" @bind="_editStart" />
+                            <div style="display:flex;gap:6px;margin-top:8px;">
+                                <button class="btn btn-sm btn-primary" @onclick="SaveStartAsync" disabled="@_busy">Guardar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(async () => { _editStart = null; await SaveStartAsync(); })" disabled="@_busy">Quitar</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
                 @* Fecha entrega *@
                 <div class="tk-pill-anchor">
                     <button class="tk-pill @(TaskUi.IsOverdue(item.DueDate, item.Status) ? "late" : "")" @onclick="@(() => ToggleMenu("due"))" disabled="@readOnly" title="Cambiar fecha de entrega">
@@ -916,7 +934,7 @@
                                 <InputFile class="tk-drop-input" multiple OnChange="OnAttachFilesAsync" disabled="@(_busy || _attUploading)" />
                                 <svg class="tk-drop-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M20 17v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/></svg>
                                 <div class="tk-drop-title">@(_attUploading ? "Subiendo archivos..." : "Arrastra tus archivos aqui o haz clic para elegir")</div>
-                                <div class="tk-drop-hint">PDF, imagenes, Office, texto o comprimidos. Hasta @(MaxAttBytes / (1024 * 1024)) MB por archivo.</div>
+                                <div class="tk-drop-hint">PDF, imagenes, video (mp4), Office, texto o comprimidos. Hasta @(MaxAttBytes / (1024 * 1024)) MB (video @(MaxVideoBytes / (1024 * 1024)) MB).</div>
                             </div>
                             <details class="tk-att-url">
                                 <summary>o adjuntar por enlace (URL)</summary>
@@ -1231,6 +1249,7 @@
         catch (InvalidOperationException) { /* prerender: sin JS todavia */ }
     }
     private DateTime? _editDue;
+    private DateTime? _editStart;
     private bool _confirmClose;
     private bool _confirmArchive;
     private string? _conflict;
@@ -1250,12 +1269,18 @@
     private string? _attError;
     private bool _attDragOver;
     private bool _attUploading;
-    private const long MaxAttBytes = 25 * 1024 * 1024; // 25 MB por archivo
+    private const long MaxAttBytes = 25 * 1024 * 1024; // 25 MB por archivo (no video)
+    private const long MaxVideoBytes = 200 * 1024 * 1024; // 200 MB para video (evidencias mas pesadas)
+    private static readonly HashSet<string> VideoExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
+    };
     private static readonly HashSet<string> AttExtWhitelist = new(StringComparer.OrdinalIgnoreCase)
     {
         ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
-        ".txt", ".rtf", ".zip", ".rar", ".7z"
+        ".txt", ".rtf", ".zip", ".rar", ".7z",
+        ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
     };
 
     // Tablero de actividades (ADR-0020, ola 2): columnas para "Mover a", checklist y asignados.
@@ -1387,6 +1412,7 @@
         {
             _totalSeconds = _detail.TotalWorkSeconds;
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime.Date;
+            _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime.Date;
             // Formularios exigidos por los pasos current del flujo (crea borrador+link
             // de forma idempotente si el nodo tiene formulario asignado).
             _stepForms = (await formsSvc.GetTaskStepFormsAsync(taskId)).ToList();
@@ -2117,7 +2143,8 @@
 
     private UpdateTaskItemRequest BuildUpdate(
         string? title = null, string? description = null, TaskPriority? priority = null,
-        DateTimeOffset? dueDate = null, bool clearDue = false)
+        DateTimeOffset? dueDate = null, bool clearDue = false,
+        DateTimeOffset? startDate = null, bool clearStart = false)
     {
         var d = _detail!;
         return new UpdateTaskItemRequest(
@@ -2132,7 +2159,9 @@
             CcEmails: d.CcEmails,
             ProjectId: d.Item.ProjectId,
             Color: d.Item.Color,
-            Version: d.Item.Version);
+            Version: d.Item.Version,
+            // La fecha de inicio (Gantt) se conserva en cada update; antes se perdia porque no se pasaba.
+            StartDate: clearStart ? null : (startDate ?? d.Item.StartDate));
     }
 
     private async Task ApplyUpdateAsync(UpdateTaskItemRequest request)
@@ -2157,6 +2186,7 @@
             }
             _detail = result.Value;
             _editDue = _detail!.Item.DueDate?.ToLocalTime().DateTime.Date;
+            _editStart = _detail!.Item.StartDate?.ToLocalTime().DateTime.Date;
             await NotifyChangedAsync(_detail.Item.Id, _detail.Item.Status);
         }
         finally
@@ -2294,6 +2324,20 @@
         // ToUniversalTime: Npgsql solo acepta DateTimeOffset UTC en timestamptz.
         var due = new DateTimeOffset(_editDue.Value.Date.AddHours(23).AddMinutes(59), DateTimeOffset.Now.Offset).ToUniversalTime();
         await ApplyUpdateAsync(BuildUpdate(dueDate: due));
+    }
+
+    /// <summary>Guarda la fecha de INICIO (planificada) de la tarea. Con la fecha de entrega, define la
+    /// barra del Gantt (inicio -> entrega). Granularidad de dia (el Gantt es por dias); la hora no aplica.</summary>
+    private async Task SaveStartAsync()
+    {
+        _openMenu = null;
+        if (_editStart is null)
+        {
+            await ApplyUpdateAsync(BuildUpdate(clearStart: true));
+            return;
+        }
+        var start = new DateTimeOffset(_editStart.Value.Date.AddHours(8), DateTimeOffset.Now.Offset).ToUniversalTime();
+        await ApplyUpdateAsync(BuildUpdate(startDate: start));
     }
 
     private async Task AssignAsync(Guid? tenantUserId)
@@ -2631,9 +2675,10 @@
             errores.Add($"{file.Name}: tipo de archivo no permitido.");
             return null;
         }
-        if (file.Size > MaxAttBytes)
+        var cap = VideoExt.Contains(ext) ? MaxVideoBytes : MaxAttBytes;
+        if (file.Size > cap)
         {
-            errores.Add($"{file.Name}: supera {MaxAttBytes / (1024 * 1024)} MB.");
+            errores.Add($"{file.Name}: supera {cap / (1024 * 1024)} MB.");
             return null;
         }
         try
@@ -2641,7 +2686,7 @@
             var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
             Directory.CreateDirectory(dir);
             var stored = $"{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
-            await using var srcStream = file.OpenReadStream(MaxAttBytes);
+            await using var srcStream = file.OpenReadStream(cap);
             await using (var dst = File.Create(Path.Combine(dir, stored)))
             {
                 await srcStream.CopyToAsync(dst);

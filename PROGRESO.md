@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-18 - v0.15.31: fecha inicio (Gantt) + video en adjuntos + contactos empresa consistentes
+
+**Agentes:** Claude Opus 4.8 (sesion principal). Cambios de UI/servicio; SIN migracion (StartDate ya
+existia). Investigacion de datos contra prod (via tunel 15433) + local.
+
+- **Doble fecha en tareas para el Gantt (#1):** `TaskItem` YA tenia `StartDate` + `DueDate`, pero la
+  UI solo editaba la de entrega y, peor, `BuildUpdate` no reenviaba `StartDate` -> CADA update la ponia
+  en null (bug latente). Ahora el modal trae una pildora "Inicio" (fecha) junto a "Entrega"; el update
+  conserva `StartDate`; el Gantt ya pinta la barra `StartDate -> DueDate` (antes caia a CreatedAt).
+  Granularidad de dia (el Gantt es por dias); la hora no se usa.
+- **Video en adjuntos (#2):** la bitacora (worklog) y el wizard rechazaban mp4 ("tipo no permitido").
+  Se agregaron `.mp4/.webm/.mov/.m4v/.mkv/.avi/.ogg` a ambas listas blancas, con tope propio de
+  **200 MB** para video (25 MB el resto). La subida por InputFile es en chunks -> el tamano no choca
+  con SignalR.
+- **Contactos ligados a empresa (#3):** el contador de la empresa sumaba TODOS los vinculados, pero la
+  lista de relaciones filtraba `Tipo=Persona && Estado<>Inactivo` -> "dice 10, muestra 0". Se alinearon:
+  la lista muestra todos los vinculados ACTIVOS (sin exigir Tipo=Persona) y el contador tambien excluye
+  inactivos. NOTA: no reproducible con la data actual (ni prod ni local tienen una empresa con 10
+  contactos); pendiente el caso puntual del usuario (tenant/empresa) para confirmar al 100%.
+
+---
+
 ## 2026-08-18 - v0.15.30 + MSI 1.7.7: copiar descripcion, roles en tableta, agente (panal arriba, sin demo)
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Web validado en preview (5234 -> ecorex_dev 5442) con

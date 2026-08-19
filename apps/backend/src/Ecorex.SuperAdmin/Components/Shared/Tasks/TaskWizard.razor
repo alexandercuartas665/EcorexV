@@ -509,16 +509,23 @@
     private bool _wizDragOver;
     private string? _wizError;
     private const long WizMaxBytes = 25 * 1024 * 1024;
+    private const long WizVideoBytes = 200 * 1024 * 1024; // video pesa mas: cap propio
+    private static readonly HashSet<string> WizVideoExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
+    };
     private static readonly HashSet<string> WizExtWhitelist = new(StringComparer.OrdinalIgnoreCase)
     {
         ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv",
-        ".txt", ".rtf", ".zip", ".rar", ".7z"
+        ".txt", ".rtf", ".zip", ".rar", ".7z",
+        ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi", ".ogg"
     };
     private static readonly HashSet<string> WizImgExt = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"
     };
+    private static long WizCapFor(string ext) => WizVideoExt.Contains(ext) ? WizVideoBytes : WizMaxBytes;
 
     private async Task OnWizFilesAsync(InputFileChangeEventArgs e)
     {
@@ -530,7 +537,8 @@
             {
                 var ext = Path.GetExtension(f.Name);
                 if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext)) { _wizError = $"{f.Name}: tipo de archivo no permitido."; continue; }
-                if (f.Size > WizMaxBytes) { _wizError = $"{f.Name}: supera {WizMaxBytes / (1024 * 1024)} MB."; continue; }
+                var cap = WizCapFor(ext);
+                if (f.Size > cap) { _wizError = $"{f.Name}: supera {cap / (1024 * 1024)} MB."; continue; }
                 var isImg = WizImgExt.Contains(ext);
                 var item = new WizAttach { File = f, IsImage = isImg, SizeLabel = HumanSize(f.Size) };
                 _wizFiles.Add(item);
@@ -584,9 +592,10 @@
             try
             {
                 var ext = Path.GetExtension(f.Name).ToLowerInvariant();
-                if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext) || f.Size > WizMaxBytes) { continue; }
+                var cap = WizCapFor(ext);
+                if (string.IsNullOrWhiteSpace(ext) || !WizExtWhitelist.Contains(ext) || f.Size > cap) { continue; }
                 var stored = $"{Guid.NewGuid():N}{ext}";
-                await using var srcStream = f.OpenReadStream(WizMaxBytes);
+                await using var srcStream = f.OpenReadStream(cap);
                 await using (var dst = File.Create(Path.Combine(dir, stored)))
                 {
                     await srcStream.CopyToAsync(dst);

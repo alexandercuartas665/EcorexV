@@ -83,9 +83,10 @@ public sealed class TerceroService : ITerceroService
                 t.Cargo,
                 t.FichasJson,
                 t.ImagenUrl,
-                // Contactos = contactos embebidos + personas reasignadas a esta empresa.
+                // Contactos = contactos embebidos + terceros activos vinculados a esta empresa. El mismo
+                // predicado (activos) que usa ListContactosAsync, para que el contador y la lista coincidan.
                 Contactos = _db.TerceroContactos.Count(c => c.TerceroId == t.Id)
-                    + _db.Terceros.Count(p => p.EmpresaId == t.Id)
+                    + _db.Terceros.Count(p => p.EmpresaId == t.Id && p.Estado != TerceroEstado.Inactivo)
             })
             .ToListAsync(cancellationToken);
 
@@ -352,8 +353,11 @@ public sealed class TerceroService : ITerceroService
             .Select(c => new TerceroContactoDto(c.Id, c.TerceroId, c.Nombre, c.Cargo, c.Email, c.Telefono, false))
             .ToListAsync(cancellationToken);
 
+        // Se muestran TODOS los terceros activos vinculados por EmpresaId (no solo Tipo=Persona): el
+        // contador de la empresa cuenta todos los vinculados, asi que la lista debe coincidir. Antes el
+        // filtro extra Tipo=Persona podia ocultar contactos que el contador SI sumaba ("dice 10, muestra 0").
         var personas = await _db.Terceros.AsNoTracking()
-            .Where(p => p.EmpresaId == terceroId && p.Tipo == TerceroTipo.Persona && p.Estado != TerceroEstado.Inactivo)
+            .Where(p => p.EmpresaId == terceroId && p.Estado != TerceroEstado.Inactivo)
             .Select(p => new TerceroContactoDto(p.Id, terceroId, p.Nombre, p.Cargo, p.Email, p.Telefono, true))
             .ToListAsync(cancellationToken);
 

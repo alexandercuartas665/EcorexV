@@ -198,18 +198,27 @@ builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentAssetReader, Ecor
 builder.Services.AddSingleton<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>();
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IAgentReplyQueue>(sp => sp.GetRequiredService<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Ecorex.SuperAdmin.RealTime.AgentReplyDispatcher>());
-// Motor de programaciones (modulo 000889, ola P2): dispara las programaciones vencidas. Vive AQUI y no en
-// Ecorex.Workers porque el compose de prod solo levanta este servicio (ver deploy/docker-prod).
-builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>();
-// Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
-// las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
-builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
-// Agentes de IA en nodos (ola 2): atiende los pasos de flujo cuyo nodo tiene agente. Es el disparo
-// ASINCRONO que mantiene la llamada al proveedor de IA fuera de la transaccion del motor de flujos.
-builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WorkflowAgentStepWorker>();
-// Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
-// ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
-builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
+// ECOREX_DISABLE_WORKERS=true apaga los motores autonomos (programaciones, importaciones, agentes en
+// nodos y acciones por filtro). Se usa cuando una instancia de DESARROLLO se conecta a la BD de PROD
+// solo para ver datos: asi NO compite con los workers del contenedor de prod ni dispara acciones
+// (mensajes, pasos de agente) por duplicado. En prod la variable no se define -> los motores corren.
+var disableWorkers = string.Equals(
+    Environment.GetEnvironmentVariable("ECOREX_DISABLE_WORKERS"), "true", StringComparison.OrdinalIgnoreCase);
+if (!disableWorkers)
+{
+    // Motor de programaciones (modulo 000889, ola P2): dispara las programaciones vencidas. Vive AQUI y no en
+    // Ecorex.Workers porque el compose de prod solo levanta este servicio (ver deploy/docker-prod).
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ScheduledJobWorker>();
+    // Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
+    // las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
+    // Agentes de IA en nodos (ola 2): atiende los pasos de flujo cuyo nodo tiene agente. Es el disparo
+    // ASINCRONO que mantiene la llamada al proveedor de IA fuera de la transaccion del motor de flujos.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WorkflowAgentStepWorker>();
+    // Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
+    // ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
+}
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();
 // Gate por circuito que serializa el acceso al DbContext desde todos los DynamicFormRenderer del

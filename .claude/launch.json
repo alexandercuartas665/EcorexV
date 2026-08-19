@@ -67,7 +67,7 @@
       "runtimeArgs": [
         "-NoProfile",
         "-Command",
-        "$env:ECOREX_DB_CONNECTION='Host=localhost;Port=5442;Database=ecorex_dev;Username=ecorex;Password=EcorexDev2026pg'; $env:ASPNETCORE_ENVIRONMENT='Development'; $env:ECOREX_DEV_LOGIN='owner@sky-system.local'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5234"
+        "$env:ASPNETCORE_ENVIRONMENT='Development'; $env:ECOREX_DISABLE_WORKERS='true'; dotnet run --project apps/backend/src/Ecorex.SuperAdmin/Ecorex.SuperAdmin.csproj --no-build --no-launch-profile --urls http://localhost:5234"
       ],
       "port": 5234
     },

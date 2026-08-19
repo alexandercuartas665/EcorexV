@@ -245,6 +245,10 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.DirectorioToolset>();
         services.AddScoped<Tenancy.IDirectorioToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.DirectorioToolset>());
+        // Toolset de Inventario: el agente CONSULTA (solo lectura) items, precios y existencias.
+        services.AddScoped<Tenancy.InventarioToolset>();
+        services.AddScoped<Tenancy.IInventarioToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
+        services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());
         // Atencion del agente por lineas de WhatsApp (binding, orquestacion, bitacora).
         services.AddScoped<Tenancy.IAiAgentLineService, Tenancy.AiAgentLineService>();
         services.AddScoped<Tenancy.IAgentConversationService, Tenancy.AgentConversationService>();

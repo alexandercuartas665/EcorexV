@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-19 - v0.15.34: herramienta MCP de inventario (agente consulta items, solo lectura)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Nuevo toolset del agente de IA; sin migracion.
+
+- **`InventarioToolset`** (`IAgentToolset`, grupo "Inventario"): dos herramientas de SOLO LECTURA que el
+  agente puede invocar al conversar:
+  - `consultar_inventario(busqueda, incluir_inactivos, pagina)` -> lista de items (nombre, SKU, precio,
+    marca, grupo, subgrupo, tipo, activo, stock total y por bodega). Reusa `IItemService.ListAsync`.
+  - `ver_item(item_id)` -> detalle (descripcion, especificaciones, precio, stock por bodega,
+    disponibilidad). Reusa `IItemService.GetDetailAsync`.
+  - Registrado en DI como los demas toolsets -> aparece automatico en el catalogo de HERRAMIENTAS (MCP)
+    del agente (toggles por agente). Aislado por tenant (query filter de Item). No crea ni modifica nada.
+
+---
+
 ## 2026-08-19 - v0.15.33: hand-off Colmena (contactos scrapeados: avatar, promocion limpia, direccion/web, ficha Base)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Implementa el hand-off de la sesion de arquitectura

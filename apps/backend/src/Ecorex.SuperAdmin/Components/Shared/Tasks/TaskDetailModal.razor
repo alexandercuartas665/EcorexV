@@ -1223,6 +1223,7 @@
                                      Reference="@_openForm.Reference"
                                      Mode="@_openForm.Mode"
                                      SubmittedByTenantUserId="@_actorTenantUserId"
+                                     TaskTokens="@BuildTaskTokens()"
                                      ApprovalOptions="@(_openForm.Step is { IsGatewayAhead: true } gs ? gs.ApprovalOptions : null)"
                                      OnSubmitted="@(_openForm.IsStep ? OnStepFormSubmittedAsync : OnConceptFormSubmittedAsync)" />
             </div>
@@ -1236,6 +1237,25 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     /// <summary>Se dispara tras cualquier mutacion exitosa para que el tablero refresque.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Contexto de la tarea para los tokens {tareas.campo} de los formularios (concepto/paso):
+    /// el cliente/contacto, correo, telefono, etc. de ESTA tarea. Asi un campo del formulario puede
+    /// prellenarse con {tareas.cliente} sin volver a escribirlo. Fuera de una tarea, el token queda vacio.</summary>
+    private IReadOnlyDictionary<string, string?>? BuildTaskTokens()
+    {
+        if (_detail is null) { return null; }
+        return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["cliente"] = _detail.RequesterName,
+            ["contacto"] = _detail.RequesterName,
+            ["solicitante"] = _detail.RequesterName,
+            ["email"] = _detail.RequesterEmail,
+            ["correo"] = _detail.RequesterEmail,
+            ["telefono"] = _detail.RequesterPhone,
+            ["titulo"] = _detail.Item.Title,
+            ["numero"] = _detail.Item.Number,
+        };
+    }
 
     private TaskItemDetailDto? _detail;
     private long _totalSeconds;

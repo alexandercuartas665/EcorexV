@@ -2109,6 +2109,10 @@ else
                 <label>Valor por defecto</label>
                 <input class="fb-input" value="@node.Q!.DefaultValue"
                        @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { DefaultValue = e.Value?.ToString() }))" />
+                <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px;">
+                    Admite tokens de la tarea anfitriona: <code>@("{tareas.cliente}")</code>, <code>@("{tareas.email}")</code>,
+                    <code>@("{tareas.telefono}")</code>, <code>@("{tareas.titulo}")</code>. Si el formulario no viene de una tarea, quedan vacios.
+                </div>
             </div>
             <div class="fb-field">
                 <label>Valor por defecto dinamico (al abrir)</label>

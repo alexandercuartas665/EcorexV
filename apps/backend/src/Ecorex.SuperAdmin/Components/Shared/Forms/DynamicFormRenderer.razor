@@ -391,8 +391,10 @@ else
                             && string.IsNullOrEmpty(_values.GetValueOrDefault(q.FieldCode)))
                         {
                             // Default DINAMICO (ola F6, doc 01 D8) gana sobre el literal DefaultValue.
+                            // El DefaultValue literal admite ademas TOKENS {tareas.campo} que se resuelven del
+                            // contexto de la tarea anfitriona (cliente, email, etc.); sin tarea -> quedan vacios.
                             var dyn = ResolveDynamicDefault(q.DefaultDynamic);
-                            var def = dyn ?? (string.IsNullOrWhiteSpace(q.DefaultValue) ? null : q.DefaultValue);
+                            var def = dyn ?? ResolveTokens(q.DefaultValue);
                             if (def is not null)
                             {
                                 _values[q.FieldCode] = def;
@@ -2356,6 +2358,35 @@ else
         }
         catch (System.Text.Json.JsonException) { }
         return false;
+    }
+
+    /// <summary>Contexto de la TAREA anfitriona (cliente, email, etc.) para resolver tokens {tareas.campo}
+    /// en el DefaultValue de un campo. Null / clave ausente = el token queda vacio (form fuera de tarea).</summary>
+    [Parameter] public IReadOnlyDictionary<string, string?>? TaskTokens { get; set; }
+
+    // Token {origen.campo} en el DefaultValue: p.ej. {tareas.cliente}. Insensible a mayusculas/espacios.
+    private static readonly System.Text.RegularExpressions.Regex TokenRegex =
+        new(@"\{\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\}", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Resuelve tokens {tareas.campo} del literal DefaultValue contra <see cref="TaskTokens"/>.
+    /// Un token sin contexto (form fuera de tarea) o desconocido se reemplaza por vacio, para que NO
+    /// genere conflicto ni deje el texto crudo. Sin tokens, devuelve el literal tal cual. Vacio -> null.</summary>
+    private string? ResolveTokens(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { return null; }
+        if (!raw.Contains('{')) { return raw; }
+        var resolved = TokenRegex.Replace(raw, m =>
+        {
+            var origen = m.Groups[1].Value.ToLowerInvariant();
+            var campo = m.Groups[2].Value.ToLowerInvariant();
+            // Por ahora solo el origen "tareas" (la tarea anfitriona); otros origenes -> vacio.
+            if (origen is "tareas" or "tarea" && TaskTokens is not null && TaskTokens.TryGetValue(campo, out var v))
+            {
+                return v ?? string.Empty;
+            }
+            return string.Empty;
+        });
+        return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
     }
 
     /// <summary>Resuelve un valor por defecto dinamico al abrir el formulario (Hoy / Usuario actual).</summary>

@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-19 - v0.15.36: tokens {tareas.campo} en el valor por defecto de un campo de formulario
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (reusa DefaultValue). Validado req #2 en
+preview (Vista Previa del COT sin tarea -> token vacio, sin texto crudo).
+
+- **Problema:** un formulario ligado a un concepto (p.ej. cotizacion) volvia a pedir el cliente que ya
+  tenia la tarea. Ahora el "Valor por defecto" de un campo admite TOKENS `{tareas.campo}` que se
+  resuelven del contexto de la tarea anfitriona.
+- **Renderer** (`DynamicFormRenderer`): nuevo parametro `TaskTokens` (dict) + `ResolveTokens(raw)` que
+  reemplaza `{tareas.cliente|contacto|solicitante|email|correo|telefono|titulo|numero}` (regex,
+  case-insensitive). Token sin contexto o desconocido -> VACIO (req #2: no genera conflicto ni deja el
+  texto crudo cuando el form no viene de una tarea). Se aplica en la resolucion del default (gana el
+  DefaultDynamic si existe).
+- **TaskDetailModal**: `BuildTaskTokens()` arma el dict (cliente=RequesterName, email, telefono, titulo,
+  numero) y lo pasa al `DynamicFormRenderer` de los formularios del concepto/paso.
+- **FormDesigner**: hint bajo "Valor por defecto" con los tokens disponibles.
+- **Extensible:** hoy solo el origen `tareas.*`; otros origenes se agregan en el mismo resolvedor.
+
+---
+
 ## 2026-08-19 - v0.15.35: enlace flujo <-> tableros (la actividad salta de tablero/estado por paso)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Feature nueva; migracion dual.

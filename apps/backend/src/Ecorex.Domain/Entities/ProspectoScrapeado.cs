@@ -28,6 +28,13 @@ public class ProspectoScrapeado : TenantEntity
     public string? Telefono { get; set; }
     public string? Correo { get; set; }
 
+    /// <summary>Direccion/ubicacion del negocio (texto libre). Se captura del scraping (ficha de Maps).</summary>
+    public string? Direccion { get; set; }
+
+    /// <summary>Sitio web PROPIO del negocio (URL http/https). NO confundir con <see cref="OrigenUrl"/>
+    /// (la ficha en Maps). Se filtra a http/https en la ingesta.</summary>
+    public string? SitioWeb { get; set; }
+
     /// <summary>Foto/logo del contacto (URL http/https). Se pinta como avatar circular en la Bolsa;
     /// si es null cae a las iniciales.</summary>
     public string? ImagenUrl { get; set; }

@@ -28,6 +28,7 @@ public sealed class TerceroFichaService : ITerceroFichaService
     // Reproduce el mapeo original: fiscal para cliente/proveedor, comercial para cliente/sospechoso.
     private static readonly (string Key, string Title, string Desc, string Color, string? Perfil)[] Defaults =
     [
+        ("base",      "Base",               "Datos universales (direccion, sitio web, correo)", "#475569", null),
         ("fiscal",    "Datos fiscales",     "Datos tributarios y de facturacion", "#B45309", "cliente,proveedor"),
         ("comercial", "Datos comerciales",  "Vendedor, origen y gestion de riesgo", "#7C3AED", "cliente,sospechoso"),
         ("cliente",   "Ficha de cliente",   "Condiciones comerciales de venta",   "#1D7A4A", "cliente"),
@@ -55,9 +56,29 @@ public sealed class TerceroFichaService : ITerceroFichaService
     public async Task EnsureDefaultsAsync(CancellationToken cancellationToken = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return; }
-        if (await _db.TerceroFichaDefinitions.AnyAsync(cancellationToken)) { return; }
-        _db.TerceroFichaDefinitions.AddRange(BuildDefaultFichas(tenantId));
-        await _db.SaveChangesAsync(cancellationToken);
+        var existingKeys = await _db.TerceroFichaDefinitions.Select(f => f.FichaKey).ToListAsync(cancellationToken);
+        if (existingKeys.Count == 0)
+        {
+            _db.TerceroFichaDefinitions.AddRange(BuildDefaultFichas(tenantId));
+            await _db.SaveChangesAsync(cancellationToken);
+            return;
+        }
+        // Tenant EXISTENTE sin la ficha "Base": se agrega (idempotente, siempre visible).
+        if (!existingKeys.Contains("base"))
+        {
+            _db.TerceroFichaDefinitions.Add(new TerceroFichaDefinition
+            {
+                TenantId = tenantId,
+                FichaKey = "base",
+                Title = "Base",
+                Description = "Datos universales (direccion, sitio web, correo)",
+                Color = "#475569",
+                Perfil = null,
+                SortOrder = 0,
+                IsSystem = true
+            });
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     public async Task<IReadOnlyList<TerceroFichaDto>> ListAsync(CancellationToken cancellationToken = default)

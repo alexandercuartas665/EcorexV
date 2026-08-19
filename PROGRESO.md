@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-19 - v0.15.33: hand-off Colmena (contactos scrapeados: avatar, promocion limpia, direccion/web, ficha Base)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Implementa el hand-off de la sesion de arquitectura
+Colmena (4 puntos). Migracion dual + seed de ficha Base al arrancar.
+
+- **#1 Avatar -> iniciales (no icono roto):** en `GestorContactos.razor` y `DirectorioGeneral.razor` el
+  avatar rinde iniciales de BASE + `<img>` superpuesta con `onerror="this.remove()"`; si la imagen
+  falla o falta, quedan las iniciales. CSS `.gc-av-wrap/.gc-av-img` y `.dg-av-wrap/.dg-av-img`.
+- **#2 Promocion limpia:** `PromoverProspectoAsync` -> `Perfiles=Ninguno` (antes Sospechoso),
+  `IdTipo=Ninguno` (antes caia a Nit), copia `ImagenUrl`; `Estado=Prospecto`.
+- **#3 Direccion + SitioWeb en el scraping:** `ProspectoScrapeado.Direccion` + `SitioWeb` (migracion
+  dual `AddProspectoDireccionSitioWeb`, nullable). Sink `ContactSearchRunner` mapea direccion (SafeText)
+  y sitio_web (SafeHttpUrl, distinto de OrigenUrl=ficha Maps); instruccion pide `direccion` y `sitio_web`.
+- **#4 Ficha "Base" (000232):** `TerceroFichaService`/`TerceroFieldService` siembran ficha `base`
+  (Perfil=null, siempre visible, IsSystem) con campos direccion/sitio_web/correo; seed IDEMPOTENTE para
+  tenants existentes (se agrega si falta). La promocion escribe `Tercero.FichasJson` = { base:
+  { direccion, sitio_web } } (correo/telefono siguen en columnas base del Tercero).
+
+**Gotchas:** FichasJson = ficha->campo->valor; el seed de fichas/campos ahora agrega solo lo que falta
+(no re-siembra todo). La ficha Base aparece siempre en el modal del tercero.
+
+---
+
 ## 2026-08-18 - v0.15.32: tiempo en estado por tarjeta + motivo de cierre por tablero + auto-archivar >30d
 
 **Agentes:** Claude Opus 4.8 (sesion principal). Validado en preview (dev local + /dev/login) via MCP

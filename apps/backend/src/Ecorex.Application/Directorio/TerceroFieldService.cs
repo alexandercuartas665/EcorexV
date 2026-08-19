@@ -33,6 +33,13 @@ public sealed class TerceroFieldService : ITerceroFieldService
     // lista fija el SortOrder; la columna alterna 1/2 al construir.
     private static readonly (string Ficha, (string Key, string Label, TerceroFieldType Type, string? Options)[] Fields)[] Defaults =
     [
+        // Ficha "Base" (Perfil null = siempre visible): campos universales no categorizados.
+        ("base",
+        [
+            ("direccion", "Direccion", TerceroFieldType.Text, null),
+            ("sitio_web", "Sitio web", TerceroFieldType.Text, null),
+            ("correo", "Correo", TerceroFieldType.Text, null)
+        ]),
         ("fiscal",
         [
             ("tipo_de_persona", "Tipo de persona", TerceroFieldType.Select, "Natural\nJuridica"),
@@ -115,13 +122,19 @@ public sealed class TerceroFieldService : ITerceroFieldService
         {
             return;
         }
-        if (await _db.TerceroFieldDefinitions.AnyAsync(cancellationToken))
+        if (!await _db.TerceroFieldDefinitions.AnyAsync(cancellationToken))
         {
+            _db.TerceroFieldDefinitions.AddRange(BuildDefaultFields(tenantId));
+            await _db.SaveChangesAsync(cancellationToken);
             return;
         }
-
-        _db.TerceroFieldDefinitions.AddRange(BuildDefaultFields(tenantId));
-        await _db.SaveChangesAsync(cancellationToken);
+        // Tenant EXISTENTE sin los campos de la ficha "Base": se agregan (idempotente).
+        if (!await _db.TerceroFieldDefinitions.AnyAsync(f => f.FichaKey == "base", cancellationToken))
+        {
+            var baseFields = BuildDefaultFields(tenantId).Where(f => f.FichaKey == "base").ToList();
+            _db.TerceroFieldDefinitions.AddRange(baseFields);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     // Las listas materializan y luego mapean con Map: antes proyectaban a mano y cada propiedad nueva

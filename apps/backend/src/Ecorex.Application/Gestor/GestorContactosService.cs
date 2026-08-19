@@ -116,15 +116,28 @@ public sealed class GestorContactosService : IGestorContactosService
             TenantId = tenantId,
             Nombre = prospecto.NombreCompleto,
             Tipo = TerceroTipo.Persona,
-            Perfiles = TerceroPerfil.Sospechoso,
+            // Promocion LIMPIA: sin perfil (no "Sospechoso") y sin identificacion ("no se identifica").
+            Perfiles = TerceroPerfil.Ninguno,
+            IdTipo = TerceroIdTipo.Ninguno,
             Estado = TerceroEstado.Prospecto,
             Cargo = Normalize(prospecto.Cargo),
             Ciudad = Normalize(prospecto.Ciudad),
             Email = Normalize(prospecto.Correo),
             Telefono = Normalize(prospecto.Telefono),
             Sector = Normalize(prospecto.Empresa),
+            ImagenUrl = prospecto.ImagenUrl,
             BolsaColumnaId = primera.Id
         };
+        // Ficha "Base" (000232): direccion + sitio web del prospecto. FichasJson = ficha -> campo -> valor.
+        // El correo/telefono ya viven en columnas base del Tercero (Email/Telefono), no se duplican aqui.
+        var baseFicha = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(prospecto.Direccion)) { baseFicha["direccion"] = prospecto.Direccion.Trim(); }
+        if (!string.IsNullOrWhiteSpace(prospecto.SitioWeb)) { baseFicha["sitio_web"] = prospecto.SitioWeb.Trim(); }
+        if (baseFicha.Count > 0)
+        {
+            tercero.FichasJson = System.Text.Json.JsonSerializer.Serialize(
+                new Dictionary<string, Dictionary<string, string?>> { ["base"] = baseFicha });
+        }
         _db.Terceros.Add(tercero);
         prospecto.TerceroId = tercero.Id;
 

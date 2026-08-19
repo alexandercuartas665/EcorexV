@@ -8350,6 +8350,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("data_json");
 
+                    b.Property<string>("Direccion")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("direccion");
+
                     b.Property<string>("Empresa")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
@@ -8383,6 +8387,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<string>("OrigenUrl")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("origen_url");
+
+                    b.Property<string>("SitioWeb")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("sitio_web");
 
                     b.Property<string>("Telefono")
                         .HasMaxLength(80)

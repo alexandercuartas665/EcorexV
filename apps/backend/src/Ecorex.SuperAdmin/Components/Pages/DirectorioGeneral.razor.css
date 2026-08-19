@@ -76,6 +76,9 @@
 .dg-av { flex: none; display: grid; place-items: center; color: #fff; font-weight: 700; }
 .dg-av.emp { width: 34px; height: 34px; border-radius: 11px; font-size: 11px; }
 .dg-av.per { width: 34px; height: 34px; border-radius: 50%; font-size: 11px; }
+/* Iniciales de base + imagen superpuesta; onerror quita la imagen fallida -> nunca icono roto. */
+.dg-av-wrap { position: relative; overflow: hidden; }
+.dg-av-img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; border-radius: inherit; }
 .dg-name-main { min-width: 0; cursor: pointer; }
 .dg-name-line { display: flex; align-items: center; gap: 7px; }
 .dg-name-txt { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

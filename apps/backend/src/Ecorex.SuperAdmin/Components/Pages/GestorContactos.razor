@@ -223,14 +223,15 @@
                                 }
                                 <div class="gc-tbl-row gc-prosp-grid">
                                     <div class="gc-cell-name">
-                                        @if (!string.IsNullOrWhiteSpace(rr.ImagenUrl))
-                                        {
-                                            <img class="gc-av gc-av-img" src="@rr.ImagenUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
-                                        }
-                                        else
-                                        {
-                                            <span class="gc-av" style="background:@AvatarColor(rr.Nombre)">@Initials(rr.Nombre)</span>
-                                        }
+                                        @* Iniciales SIEMPRE como base; si hay imagen se superpone y, si falla al
+                                           cargar, onerror la quita -> caen las iniciales (nunca icono roto). *@
+                                        <span class="gc-av gc-av-wrap" style="background:@AvatarColor(rr.Nombre)">
+                                            @Initials(rr.Nombre)
+                                            @if (!string.IsNullOrWhiteSpace(rr.ImagenUrl))
+                                            {
+                                                <img class="gc-av-img" src="@rr.ImagenUrl" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />
+                                            }
+                                        </span>
                                         <div style="min-width:0">
                                             <div class="gc-cell-title">@rr.Nombre</div>
                                             <div class="gc-cell-sub">@rr.Sub</div>

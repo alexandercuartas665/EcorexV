@@ -151,6 +151,8 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         if (!string.IsNullOrEmpty(guidance)) { sb.AppendLine(guidance).AppendLine(); }
         sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos usando claves como ");
         sb.Append("nombre, empresa, cargo, telefono, correo, ciudad, metrica, ");
+        sb.Append("direccion (direccion completa del negocio, de la ficha del lugar), ");
+        sb.Append("sitio_web (URL del sitio web PROPIO del negocio, si aparece el enlace 'Sitio web'), ");
         sb.Append("imagen_url (URL http de la foto o logo del negocio, si aparece) y ");
         sb.Append("url (URL de la ficha o pagina donde encontraste el contacto -- guardala siempre que la tengas). ");
         sb.Append("Guarda solo contactos reales con al menos un nombre.");
@@ -220,9 +222,12 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 Ciudad = Pick(row, "ciudad", "city", "localidad", "municipio"),
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
                 Correo = Pick(row, "correo", "email", "mail", "e-mail"),
+                Direccion = Pick(row, "direccion", "address", "dir", "ubicacion"),
                 Metrica = Pick(row, "metrica", "rating", "resenas", "reviews", "estrellas", "seguidores", "conexiones"),
                 // Solo http/https: no se persisten (ni luego se renderizan) URLs javascript:/data: del scraping.
                 ImagenUrl = SafeHttpUrl(Pick(row, "imagen_url", "imagen", "foto", "image", "photo", "avatar", "logo")),
+                // Sitio web PROPIO del negocio (distinto de OrigenUrl = ficha en Maps).
+                SitioWeb = SafeHttpUrl(Pick(row, "sitio_web", "website", "web", "sitio", "pagina", "url_web")),
                 OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
                 DataJson = JsonSerializer.Serialize(row),
                 FechaCaptura = DateTimeOffset.UtcNow,

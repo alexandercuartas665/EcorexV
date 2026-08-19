@@ -74,8 +74,9 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         }
 
         var cap = def.MaxContacts <= 0 ? int.MaxValue : def.MaxContacts;
+        var frase = BuildPhrase(def);
         var instruction = BuildInstruction(def, agent);
-        var sink = new ProspectoSearchRowSink(_db, tenantId, def.SourceType.ToString(), cap);
+        var sink = new ProspectoSearchRowSink(_db, tenantId, def.SourceType.ToString(), cap, frase);
         // TargetContainerId no se usa (el SinkOverride escribe en ProspectoScrapeado). MaxSteps/Segundos acotados.
         var ctx = new AiStepContext(
             def.ClientId!, tenantId, instruction, Guid.Empty, AllowListFor(def.SourceType),
@@ -98,7 +99,76 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         });
         await _db.SaveChangesAsync(ct);
 
-        return new(outcome.Ok, outcome.Inserted, outcome.Ok ? null : outcome.Error);
+        var totalCreated = outcome.Inserted;
+
+        // ETAPA 2 (enriquecimiento Maps -> LinkedIn): por cada EMPRESA encontrada en Maps, busca PERSONAS en
+        // LinkedIn (sesion logueada) y las agrega ligadas a esa empresa. Cada empresa = una corrida LinkedIn,
+        // sujeta al tope 20/dia; al alcanzarlo se corta (NO falla la corrida Maps). Cada empresa es su propio
+        // AiStepContext acotado (no un run gigante) para no chocar con los topes del orquestador.
+        if (def.EnrichLinkedIn && def.SourceType == ContactSearchSource.Maps && outcome.Ok)
+        {
+            var perCompany = def.EnrichMaxPorEmpresa <= 0 ? 5 : def.EnrichMaxPorEmpresa;
+            foreach (var empresa in sink.CreatedCompanyNames)
+            {
+                if (ct.IsCancellationRequested) { break; }
+                // Tope diario LinkedIn: se recuenta antes de CADA empresa (cada una toca la red).
+                var startOfDayUtc = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+                var liToday = await _db.ContactSearchRuns
+                    .CountAsync(r => r.Source == "LinkedIn" && r.RunAt >= startOfDayUtc, ct);
+                if (liToday >= DailySocialCap) { break; } // se agoto el cupo LinkedIn del dia.
+
+                var liSink = new ProspectoSearchRowSink(
+                    _db, tenantId, "LinkedIn", perCompany, $"LinkedIn: {empresa}", forcedEmpresa: empresa);
+                var liCtx = new AiStepContext(
+                    def.ClientId!, tenantId, BuildLinkedInEnrichInstruction(agent, empresa, perCompany),
+                    Guid.Empty, AllowListFor(ContactSearchSource.LinkedIn),
+                    MaxSteps: 20, MaxSeconds: 150, AiProviderId: providerCfg.Id, Secret: null,
+                    SinkOverride: liSink, SessionKey: "linkedin");
+                var liOutcome = await _orchestrator.RunAsync(liCtx, ct);
+                _db.ContactSearchRuns.Add(new ContactSearchRun
+                {
+                    TenantId = tenantId,
+                    DefinitionId = def.Id,
+                    Source = "LinkedIn",
+                    RunAt = DateTimeOffset.UtcNow,
+                    Ok = liOutcome.Ok,
+                    Inserted = liOutcome.Inserted,
+                });
+                await _db.SaveChangesAsync(ct);
+                totalCreated += liOutcome.Inserted;
+            }
+        }
+
+        return new(outcome.Ok, totalCreated, outcome.Ok ? null : outcome.Error);
+    }
+
+    /// <summary>Frase efectiva de la busqueda (terminos + geografia), p.ej. "centros medicos Bogota
+    /// Colombia". Se sella en cada prospecto (FraseBusqueda) para trazar el origen.</summary>
+    private static string? BuildPhrase(ContactSearchDefinition d)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(d.Query)) { parts.Add(d.Query!.Trim()); }
+        if (!string.IsNullOrWhiteSpace(d.City)) { parts.Add(d.City!.Trim()); }
+        if (!string.IsNullOrWhiteSpace(d.Region)) { parts.Add(d.Region!.Trim()); }
+        if (!string.IsNullOrWhiteSpace(d.Country)) { parts.Add(d.Country!.Trim()); }
+        return parts.Count == 0 ? null : string.Join(" ", parts);
+    }
+
+    /// <summary>Instruccion de la etapa 2: buscar PERSONAS de una EMPRESA en LinkedIn (logueado).</summary>
+    private static string BuildLinkedInEnrichInstruction(AiAgent agent, string empresa, int max)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(agent.SystemPrompt)) { sb.AppendLine(agent.SystemPrompt).AppendLine(); }
+        var url = $"https://www.linkedin.com/search/results/people/?keywords={Uri.EscapeDataString(empresa)}";
+        sb.AppendLine($"Estas logueado en LinkedIn. Busca PERSONAS que trabajen en la empresa \"{empresa}\".");
+        sb.AppendLine($"NAVEGA directamente a {url} (NO uses Google ni site:linkedin.com). Haz scroll para cargar mas resultados.");
+        sb.AppendLine($"Captura como maximo {max} personas y detente al llegar a ese numero.");
+        sb.AppendLine("El contenido trae PERSONAS con enlaces de perfil (/in/). Guarda UNA fila por persona con "
+            + "nombre, cargo (el headline tras el nombre) y url = la URL del perfil (/in/...). No inventes telefono "
+            + "ni correo si no aparecen.");
+        sb.Append("Cuando tengas los resultados, llama a 'guardar_filas' con un arreglo de objetos con las claves "
+            + "nombre, cargo y url (el perfil /in/).");
+        return sb.ToString();
     }
 
     private static string BuildInstruction(ContactSearchDefinition d, AiAgent agent)
@@ -192,14 +262,26 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
     private readonly Guid _tenantId;
     private readonly string _fuente;
     private readonly int _cap;
+    private readonly string? _frase;         // frase efectiva de la busqueda (se sella en cada prospecto).
+    private readonly string? _forcedEmpresa; // enriquecimiento LinkedIn: fuerza la empresa de cada persona.
     private int _total; // acumulado entre llamadas de IngestAsync de la misma corrida.
+    private readonly List<string> _createdNames = new(); // nombres creados (para el enriquecimiento por empresa).
 
-    public ProspectoSearchRowSink(IApplicationDbContext db, Guid tenantId, string fuente, int cap = int.MaxValue)
+    /// <summary>Nombres (negocios/personas) creados en esta corrida, distintos y no vacios. Base del
+    /// enriquecimiento Maps -> LinkedIn: por cada empresa creada se busca personal en LinkedIn.</summary>
+    public IReadOnlyList<string> CreatedCompanyNames =>
+        _createdNames.Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    public ProspectoSearchRowSink(IApplicationDbContext db, Guid tenantId, string fuente,
+        int cap = int.MaxValue, string? frase = null, string? forcedEmpresa = null)
     {
         _db = db;
         _tenantId = tenantId;
         _fuente = fuente;
         _cap = cap <= 0 ? int.MaxValue : cap;
+        _frase = string.IsNullOrWhiteSpace(frase) ? null : frase.Trim();
+        _forcedEmpresa = string.IsNullOrWhiteSpace(forcedEmpresa) ? null : forcedEmpresa.Trim();
     }
 
     public async Task<(int Inserted, int Updated, int Deleted)> IngestAsync(
@@ -212,13 +294,16 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
             if (_total >= _cap) { break; } // respeta el limite de contactos de la busqueda.
             var nombre = Pick(row, "nombre", "name", "nombre_completo", "negocio", "empresa", "company", "razon_social");
             if (string.IsNullOrWhiteSpace(nombre)) { continue; }
+            // Enriquecimiento LinkedIn: la empresa la fuerza el runner (la persona pertenece a esa empresa);
+            // si no, se toma de la fila (Maps/Web).
+            var empresa = _forcedEmpresa ?? Pick(row, "empresa", "company", "negocio");
             _db.ProspectosScrapeados.Add(new ProspectoScrapeado
             {
                 TenantId = _tenantId,
                 Fuente = _fuente,
                 NombreCompleto = nombre.Trim(),
                 Cargo = Pick(row, "cargo", "title", "puesto", "rol"),
-                Empresa = Pick(row, "empresa", "company", "negocio"),
+                Empresa = empresa,
                 Ciudad = Pick(row, "ciudad", "city", "localidad", "municipio"),
                 Telefono = Pick(row, "telefono", "tel", "phone", "celular", "movil"),
                 Correo = Pick(row, "correo", "email", "mail", "e-mail"),
@@ -229,9 +314,13 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 // Sitio web PROPIO del negocio (distinto de OrigenUrl = ficha en Maps).
                 SitioWeb = SafeHttpUrl(Pick(row, "sitio_web", "website", "web", "sitio", "pagina", "url_web")),
                 OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
+                // Frase efectiva con que se encontro (o "LinkedIn: <empresa>" en el enriquecimiento).
+                FraseBusqueda = _frase,
                 DataJson = JsonSerializer.Serialize(row),
                 FechaCaptura = DateTimeOffset.UtcNow,
             });
+            // El nombre del negocio creado alimenta el enriquecimiento por empresa (etapa 2).
+            _createdNames.Add(nombre.Trim());
             ins++;
             _total++;
         }

@@ -73,4 +73,12 @@ public class ContactSearchDefinition : TenantEntity
     public DateTimeOffset? LastRunAt { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Enriquecimiento Maps -> LinkedIn: tras encontrar EMPRESAS en Maps, por cada una busca
+    /// PERSONAS en LinkedIn (sesion logueada) y las agrega como contactos ligados a la empresa. Solo
+    /// aplica cuando <see cref="SourceType"/> es Maps. Respeta el tope 20/dia de LinkedIn.</summary>
+    public bool EnrichLinkedIn { get; set; }
+
+    /// <summary>Maximo de personas de LinkedIn a traer por empresa en el enriquecimiento (defensa).</summary>
+    public int EnrichMaxPorEmpresa { get; set; } = 5;
 }

@@ -12,14 +12,17 @@ public sealed record ContactSearchDto(
     Guid Id, string Name, ContactSearchSource SourceType, string? Query, string? SubQuery,
     string? Country, string? Region, string? City, string ExtractionPrompt,
     string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
-    IReadOnlyList<ContactSearchScheduleSlot> Schedules, DateTimeOffset? LastRunAt, bool IsActive);
+    IReadOnlyList<ContactSearchScheduleSlot> Schedules, DateTimeOffset? LastRunAt, bool IsActive,
+    // Enriquecimiento Maps -> LinkedIn (solo Maps): tras las empresas, trae personas de LinkedIn.
+    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5);
 
 /// <summary>Alta/edicion de una busqueda configurada.</summary>
 public sealed record SaveContactSearchRequest(
     Guid? Id, string Name, ContactSearchSource SourceType, string? Query, string? SubQuery,
     string? Country, string? Region, string? City, string ExtractionPrompt,
     string? ClientId, Guid? ClassifierAiAgentId, int MaxContacts,
-    IReadOnlyList<ContactSearchScheduleSlot> Schedules, bool IsActive);
+    IReadOnlyList<ContactSearchScheduleSlot> Schedules, bool IsActive,
+    bool EnrichLinkedIn = false, int EnrichMaxPorEmpresa = 5);
 
 /// <summary>
 /// CRUD de las busquedas de contactos configuradas por tenant. La EJECUCION (disparar el agente

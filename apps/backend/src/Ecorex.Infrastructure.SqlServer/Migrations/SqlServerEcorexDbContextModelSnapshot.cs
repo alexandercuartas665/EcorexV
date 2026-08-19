@@ -2083,6 +2083,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("day_of_week");
 
+                    b.Property<bool>("EnrichLinkedIn")
+                        .HasColumnType("bit")
+                        .HasColumnName("enrich_linked_in");
+
+                    b.Property<int>("EnrichMaxPorEmpresa")
+                        .HasColumnType("int")
+                        .HasColumnName("enrich_max_por_empresa");
+
                     b.Property<string>("ExtractionPrompt")
                         .IsRequired()
                         .HasMaxLength(4000)
@@ -8362,6 +8370,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<DateTimeOffset?>("FechaCaptura")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_captura");
+
+                    b.Property<string>("FraseBusqueda")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("frase_busqueda");
 
                     b.Property<string>("Fuente")
                         .IsRequired()

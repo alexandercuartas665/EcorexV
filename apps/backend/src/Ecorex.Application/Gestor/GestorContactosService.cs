@@ -128,16 +128,34 @@ public sealed class GestorContactosService : IGestorContactosService
             ImagenUrl = prospecto.ImagenUrl,
             BolsaColumnaId = primera.Id
         };
-        // Ficha "Base" (000232): direccion + sitio web del prospecto. FichasJson = ficha -> campo -> valor.
-        // El correo/telefono ya viven en columnas base del Tercero (Email/Telefono), no se duplican aqui.
+        // Ficha "Base" (000232): direccion + sitio web + URL de Maps + frase de busqueda del prospecto.
+        // FichasJson = ficha -> campo -> valor. El correo/telefono ya viven en columnas base del Tercero
+        // (Email/Telefono), no se duplican aqui.
         var baseFicha = new Dictionary<string, string?>();
         if (!string.IsNullOrWhiteSpace(prospecto.Direccion)) { baseFicha["direccion"] = prospecto.Direccion.Trim(); }
         if (!string.IsNullOrWhiteSpace(prospecto.SitioWeb)) { baseFicha["sitio_web"] = prospecto.SitioWeb.Trim(); }
+        // OrigenUrl = la ficha del lugar en Maps (distinta del sitio web propio, que va en sitio_web).
+        if (!string.IsNullOrWhiteSpace(prospecto.OrigenUrl)) { baseFicha["maps_url"] = prospecto.OrigenUrl.Trim(); }
+        if (!string.IsNullOrWhiteSpace(prospecto.FraseBusqueda)) { baseFicha["frase_busqueda"] = prospecto.FraseBusqueda.Trim(); }
         if (baseFicha.Count > 0)
         {
             tercero.FichasJson = System.Text.Json.JsonSerializer.Serialize(
                 new Dictionary<string, Dictionary<string, string?>> { ["base"] = baseFicha });
         }
+
+        // Enlace persona -> empresa (enriquecimiento Maps -> LinkedIn): si el prospecto trae Empresa y ya
+        // existe un Tercero-empresa con ese nombre en el tenant, se liga por EmpresaId (queda como contacto
+        // de esa empresa). Si no existe, el nombre queda en Sector como referencia (MVP; el enlace duro es
+        // la parte fina). Match por nombre insensible a mayusculas.
+        var empresaNombre = Normalize(prospecto.Empresa);
+        if (!string.IsNullOrWhiteSpace(empresaNombre))
+        {
+            var lower = empresaNombre.ToLower();
+            var empresa = await _db.Terceros
+                .FirstOrDefaultAsync(t => t.Tipo == TerceroTipo.Empresa && t.Nombre.ToLower() == lower, cancellationToken);
+            if (empresa is not null) { tercero.EmpresaId = empresa.Id; }
+        }
+
         _db.Terceros.Add(tercero);
         prospecto.TerceroId = tercero.Id;
 

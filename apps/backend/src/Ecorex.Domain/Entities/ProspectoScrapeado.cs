@@ -43,6 +43,11 @@ public class ProspectoScrapeado : TenantEntity
     /// "ver origen". Solo http/https (se filtra en la ingesta).</summary>
     public string? OrigenUrl { get; set; }
 
+    /// <summary>Frase efectiva con que se encontro el contacto (ej. "centros medicos Bogota Colombia",
+    /// o "LinkedIn: &lt;empresa&gt;" en el enriquecimiento). La setea el runner al ingerir; al promover
+    /// se copia a la ficha Base (frase_busqueda) para trazabilidad del origen.</summary>
+    public string? FraseBusqueda { get; set; }
+
     /// <summary>JSON crudo del scraper (portabilidad). jsonb en PG.</summary>
     public string? DataJson { get; set; }
 

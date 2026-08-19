@@ -115,6 +115,20 @@
                                                     <label>Region / zona<input class="form-control" @bind="row.Region" placeholder="Norte, Sur, departamento..." /></label>
                                                     <label>Ciudad<input class="form-control" @bind="row.City" placeholder="Bogota" /></label>
                                                 </div>
+                                                @* Enriquecimiento Maps -> LinkedIn: por cada empresa encontrada, busca personas en
+                                                   LinkedIn (sesion logueada) y las liga a la empresa. Respeta el tope 20/dia LinkedIn. *@
+                                                <div class="cs-enrich">
+                                                    <label class="cs-enrich-chk">
+                                                        <input type="checkbox" @bind="row.EnrichLinkedIn" />
+                                                        Tras Maps, buscar contactos en LinkedIn de cada empresa (sesion logueada, tope 20/dia)
+                                                    </label>
+                                                    @if (row.EnrichLinkedIn)
+                                                    {
+                                                        <label class="cs-enrich-max">Personas por empresa
+                                                            <input class="cs-in cs-num" type="number" min="1" max="25" step="1" @bind="row.EnrichMax" />
+                                                        </label>
+                                                    }
+                                                </div>
                                             }
                                             <label>Sub-busqueda (opcional)<input class="form-control" @bind="row.SubQuery" placeholder="refinamiento sobre cada resultado (ej. abrir la ficha y sacar el telefono)" /></label>
                                             <label>Prompt de extraccion (que datos debe tomar el agente) *<textarea class="form-control" rows="3" @bind="row.Prompt" placeholder="Ej: extrae de cada resultado el nombre del negocio, telefono, direccion, correo y ciudad."></textarea></label>
@@ -197,6 +211,8 @@
         public string ClientId = "";
         public string AgentId = "";
         public int MaxContacts = 30;
+        public bool EnrichLinkedIn;      // Maps -> LinkedIn: tras las empresas, trae personas de LinkedIn.
+        public int EnrichMax = 5;        // personas por empresa en el enriquecimiento.
         public List<SlotEdit> Schedules = new();  // varias programaciones; vacio = Manual
         public bool Active = true;
         public DateTimeOffset? LastRunAt;
@@ -244,6 +260,7 @@
         Prompt = s.ExtractionPrompt, ClientId = s.ClientId ?? "",
         AgentId = s.ClassifierAiAgentId?.ToString() ?? "",
         MaxContacts = s.MaxContacts,
+        EnrichLinkedIn = s.EnrichLinkedIn, EnrichMax = s.EnrichMaxPorEmpresa,
         Schedules = s.Schedules.Select(sl => new SlotEdit
         {
             Frequency = sl.Frequency == ContactSearchSchedule.Manual ? ContactSearchSchedule.Diaria : sl.Frequency,
@@ -272,7 +289,8 @@
                 .ToList();
             var req = new SaveContactSearchRequest(r.Id, r.Name, r.Source,
                 Nz(r.Query), Nz(r.SubQuery), Nz(r.Country), Nz(r.Region), Nz(r.City),
-                r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, slots, r.Active);
+                r.Prompt, Nz(r.ClientId), agentId, r.MaxContacts, slots, r.Active,
+                r.EnrichLinkedIn, r.EnrichMax);
             var err = await SearchSvc.SaveAsync(req);
             if (err is not null) { r.Error = err; r.Expanded = true; return; }
             await LoadRowsAsync();

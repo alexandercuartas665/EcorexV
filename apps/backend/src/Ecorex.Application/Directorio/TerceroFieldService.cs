@@ -38,7 +38,9 @@ public sealed class TerceroFieldService : ITerceroFieldService
         [
             ("direccion", "Direccion", TerceroFieldType.Text, null),
             ("sitio_web", "Sitio web", TerceroFieldType.Text, null),
-            ("correo", "Correo", TerceroFieldType.Text, null)
+            ("correo", "Correo", TerceroFieldType.Text, null),
+            ("maps_url", "URL Google Maps", TerceroFieldType.Text, null),
+            ("frase_busqueda", "Frase de busqueda", TerceroFieldType.Text, null)
         ]),
         ("fiscal",
         [
@@ -128,11 +130,18 @@ public sealed class TerceroFieldService : ITerceroFieldService
             await _db.SaveChangesAsync(cancellationToken);
             return;
         }
-        // Tenant EXISTENTE sin los campos de la ficha "Base": se agregan (idempotente).
-        if (!await _db.TerceroFieldDefinitions.AnyAsync(f => f.FichaKey == "base", cancellationToken))
+        // Tenant EXISTENTE: agrega los campos de la ficha "Base" que falten (idempotente por FieldKey).
+        // Cubre tanto el tenant sin ficha Base como el que ya la tiene pero sin los campos nuevos
+        // (maps_url, frase_busqueda) agregados despues.
+        var baseDefaults = BuildDefaultFields(tenantId).Where(f => f.FichaKey == "base").ToList();
+        var existingBaseKeys = await _db.TerceroFieldDefinitions
+            .Where(f => f.FichaKey == "base")
+            .Select(f => f.FieldKey)
+            .ToListAsync(cancellationToken);
+        var missing = baseDefaults.Where(f => !existingBaseKeys.Contains(f.FieldKey)).ToList();
+        if (missing.Count > 0)
         {
-            var baseFields = BuildDefaultFields(tenantId).Where(f => f.FichaKey == "base").ToList();
-            _db.TerceroFieldDefinitions.AddRange(baseFields);
+            _db.TerceroFieldDefinitions.AddRange(missing);
             await _db.SaveChangesAsync(cancellationToken);
         }
     }

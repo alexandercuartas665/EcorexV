@@ -24,8 +24,11 @@
 .gc-layout.collapsed { grid-template-columns: 48px 1fr; }
 
 /* ---- Sidebar filtros ---- */
-.gc-side { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); box-shadow: var(--sh-sm); overflow: hidden; }
-.gc-side-head { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+/* overflow visible (no hidden) para que el menu "..." de un filtro no se recorte cuando la lista es
+   corta (un solo filtro). El redondeo de esquinas superiores lo asume el header; position/z-index
+   dejan que el menu desbordado pinte por encima del panel vecino. */
+.gc-side { background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); box-shadow: var(--sh-sm); overflow: visible; position: relative; z-index: 1; }
+.gc-side-head { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: var(--rad) var(--rad) 0 0; }
 .gc-side-head span { flex: 1; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; color: var(--ink-3); text-transform: uppercase; }
 .gc-side-head svg { width: 15px; height: 15px; }
 .gc-side-head:hover { background: var(--surface-2); }
@@ -57,7 +60,7 @@
 .gc-filtro-tags { display: flex; align-items: center; gap: 5px; }
 .gc-new { font-size: 9px; font-weight: 800; letter-spacing: .04em; color: var(--brand); background: var(--brand-soft); padding: 2px 6px; border-radius: 5px; }
 .gc-fuente-chip { font-size: 10px; color: var(--ink-3); background: var(--surface-3); padding: 1px 6px; border-radius: 5px; }
-.gc-menu { position: absolute; top: 32px; right: 8px; z-index: 12; width: 170px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 11px; box-shadow: var(--sh-lg); padding: 5px; }
+.gc-menu { position: absolute; top: 32px; right: 8px; z-index: 30; width: 170px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 11px; box-shadow: var(--sh-lg); padding: 5px; }
 .gc-menu button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 9px; border: none; background: none; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); text-align: left; }
 .gc-menu button svg { width: 15px; height: 15px; }
 .gc-menu button:hover { background: var(--surface-3); }

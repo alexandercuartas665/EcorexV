@@ -85,6 +85,10 @@ public sealed class ContactSearchService : IContactSearchService
         entity.DayOfWeek = first?.DayOfWeek;
         entity.DayOfMonth = first?.DayOfMonth;
         entity.IsActive = request.IsActive;
+        // Enriquecimiento Maps -> LinkedIn (solo tiene efecto cuando la fuente es Maps; el runner lo ignora
+        // si no). El tope por empresa se acota a un rango sano.
+        entity.EnrichLinkedIn = request.EnrichLinkedIn;
+        entity.EnrichMaxPorEmpresa = request.EnrichMaxPorEmpresa < 1 ? 1 : request.EnrichMaxPorEmpresa > 25 ? 25 : request.EnrichMaxPorEmpresa;
 
         await _db.SaveChangesAsync(cancellationToken);
         return null;
@@ -150,5 +154,5 @@ public sealed class ContactSearchService : IContactSearchService
     private static ContactSearchDto Map(ContactSearchDefinition x) => new(
         x.Id, x.Name, x.SourceType, x.Query, x.SubQuery, x.Country, x.Region, x.City,
         x.ExtractionPrompt, x.ClientId, x.ClassifierAiAgentId, x.MaxContacts,
-        ReadSlots(x), x.LastRunAt, x.IsActive);
+        ReadSlots(x), x.LastRunAt, x.IsActive, x.EnrichLinkedIn, x.EnrichMaxPorEmpresa);
 }

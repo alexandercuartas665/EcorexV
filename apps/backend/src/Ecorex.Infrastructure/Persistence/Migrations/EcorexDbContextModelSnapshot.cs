@@ -8373,6 +8373,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("empresa");
 
+                    b.Property<Guid?>("EmpresaProspectoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("empresa_prospecto_id");
+
                     b.Property<DateTimeOffset?>("FechaCaptura")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_captura");
@@ -8433,6 +8437,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_prospectos_scrapeados");
+
+                    b.HasIndex("EmpresaProspectoId")
+                        .HasDatabaseName("ix_prospectos_scrapeados_empresa_prospecto_id");
 
                     b.HasIndex("TerceroId")
                         .HasDatabaseName("ix_prospectos_scrapeados_tercero_id");
@@ -15701,11 +15708,19 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ProspectoScrapeado", b =>
                 {
+                    b.HasOne("Ecorex.Domain.Entities.ProspectoScrapeado", "EmpresaProspecto")
+                        .WithMany()
+                        .HasForeignKey("EmpresaProspectoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_prospectos_scrapeados_prospectos_scrapeados_empresa_prospec");
+
                     b.HasOne("Ecorex.Domain.Entities.Tercero", "Tercero")
                         .WithMany()
                         .HasForeignKey("TerceroId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_prospectos_scrapeados_terceros_tercero_id");
+
+                    b.Navigation("EmpresaProspecto");
 
                     b.Navigation("Tercero");
                 });

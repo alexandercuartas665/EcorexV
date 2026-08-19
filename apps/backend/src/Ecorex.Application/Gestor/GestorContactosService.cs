@@ -129,31 +129,56 @@ public sealed class GestorContactosService : IGestorContactosService
             BolsaColumnaId = primera.Id
         };
         // Ficha "Base" (000232): direccion + sitio web + URL de Maps + frase de busqueda del prospecto.
-        // FichasJson = ficha -> campo -> valor. El correo/telefono ya viven en columnas base del Tercero
-        // (Email/Telefono), no se duplican aqui.
-        var baseFicha = new Dictionary<string, string?>();
-        if (!string.IsNullOrWhiteSpace(prospecto.Direccion)) { baseFicha["direccion"] = prospecto.Direccion.Trim(); }
-        if (!string.IsNullOrWhiteSpace(prospecto.SitioWeb)) { baseFicha["sitio_web"] = prospecto.SitioWeb.Trim(); }
-        // OrigenUrl = la ficha del lugar en Maps (distinta del sitio web propio, que va en sitio_web).
-        if (!string.IsNullOrWhiteSpace(prospecto.OrigenUrl)) { baseFicha["maps_url"] = prospecto.OrigenUrl.Trim(); }
-        if (!string.IsNullOrWhiteSpace(prospecto.FraseBusqueda)) { baseFicha["frase_busqueda"] = prospecto.FraseBusqueda.Trim(); }
-        if (baseFicha.Count > 0)
-        {
-            tercero.FichasJson = System.Text.Json.JsonSerializer.Serialize(
-                new Dictionary<string, Dictionary<string, string?>> { ["base"] = baseFicha });
-        }
+        tercero.FichasJson = BuildBaseFichaJson(prospecto);
 
-        // Enlace persona -> empresa (enriquecimiento Maps -> LinkedIn): si el prospecto trae Empresa y ya
-        // existe un Tercero-empresa con ese nombre en el tenant, se liga por EmpresaId (queda como contacto
-        // de esa empresa). Si no existe, el nombre queda en Sector como referencia (MVP; el enlace duro es
-        // la parte fina). Match por nombre insensible a mayusculas.
-        var empresaNombre = Normalize(prospecto.Empresa);
-        if (!string.IsNullOrWhiteSpace(empresaNombre))
+        // Amarre persona -> empresa. PREFERIDO: amarre FUERTE por FK del scraping (EmpresaProspectoId, del
+        // enriquecimiento LinkedIn) con PROMOCION ENCADENADA: si la empresa-prospecto aun no es Tercero, se
+        // promueve aqui como Empresa y se liga por EmpresaId. No depende del nombre ni del orden. FALLBACK:
+        // si no hay FK, se cae al match por nombre (comportamiento heredado).
+        if (prospecto.EmpresaProspectoId is Guid empProspId)
         {
-            var lower = empresaNombre.ToLower();
-            var empresa = await _db.Terceros
-                .FirstOrDefaultAsync(t => t.Tipo == TerceroTipo.Empresa && t.Nombre.ToLower() == lower, cancellationToken);
-            if (empresa is not null) { tercero.EmpresaId = empresa.Id; }
+            var empProsp = await _db.ProspectosScrapeados
+                .FirstOrDefaultAsync(p => p.Id == empProspId, cancellationToken);
+            if (empProsp is not null)
+            {
+                if (empProsp.TerceroId is Guid existingEmpTerceroId)
+                {
+                    tercero.EmpresaId = existingEmpTerceroId;
+                }
+                else
+                {
+                    // Promocion encadenada: la empresa-prospecto se vuelve un Tercero-EMPRESA (misma bolsa).
+                    var empresaTercero = new Tercero
+                    {
+                        TenantId = tenantId,
+                        Nombre = empProsp.NombreCompleto,
+                        Tipo = TerceroTipo.Empresa,
+                        Perfiles = TerceroPerfil.Ninguno,
+                        IdTipo = TerceroIdTipo.Ninguno,
+                        Estado = TerceroEstado.Prospecto,
+                        Ciudad = Normalize(empProsp.Ciudad),
+                        Email = Normalize(empProsp.Correo),
+                        Telefono = Normalize(empProsp.Telefono),
+                        ImagenUrl = empProsp.ImagenUrl,
+                        FichasJson = BuildBaseFichaJson(empProsp),
+                        BolsaColumnaId = primera.Id
+                    };
+                    _db.Terceros.Add(empresaTercero);
+                    empProsp.TerceroId = empresaTercero.Id;
+                    tercero.EmpresaId = empresaTercero.Id;
+                }
+            }
+        }
+        else
+        {
+            var empresaNombre = Normalize(prospecto.Empresa);
+            if (!string.IsNullOrWhiteSpace(empresaNombre))
+            {
+                var lower = empresaNombre.ToLower();
+                var empresa = await _db.Terceros
+                    .FirstOrDefaultAsync(t => t.Tipo == TerceroTipo.Empresa && t.Nombre.ToLower() == lower, cancellationToken);
+                if (empresa is not null) { tercero.EmpresaId = empresa.Id; }
+            }
         }
 
         _db.Terceros.Add(tercero);
@@ -850,6 +875,22 @@ public sealed class GestorContactosService : IGestorContactosService
 
     private static string? Normalize(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Arma el FichasJson de la ficha "Base" (000232) desde un prospecto: direccion, sitio web,
+    /// URL de Maps (OrigenUrl) y frase de busqueda. Correo/telefono viven en columnas del Tercero, no se
+    /// duplican. Devuelve null si no hay ningun dato. Reusado por la persona y por la empresa encadenada.</summary>
+    private static string? BuildBaseFichaJson(ProspectoScrapeado p)
+    {
+        var baseFicha = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(p.Direccion)) { baseFicha["direccion"] = p.Direccion.Trim(); }
+        if (!string.IsNullOrWhiteSpace(p.SitioWeb)) { baseFicha["sitio_web"] = p.SitioWeb.Trim(); }
+        // OrigenUrl = la ficha del lugar en Maps (distinta del sitio web propio).
+        if (!string.IsNullOrWhiteSpace(p.OrigenUrl)) { baseFicha["maps_url"] = p.OrigenUrl.Trim(); }
+        if (!string.IsNullOrWhiteSpace(p.FraseBusqueda)) { baseFicha["frase_busqueda"] = p.FraseBusqueda.Trim(); }
+        return baseFicha.Count > 0
+            ? JsonSerializer.Serialize(new Dictionary<string, Dictionary<string, string?>> { ["base"] = baseFicha })
+            : null;
+    }
 
     /// <summary>Proyeccion en memoria de un tercero para evaluar los criterios de filtro.</summary>
     private sealed record TerceroRow(

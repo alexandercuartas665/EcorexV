@@ -108,7 +108,7 @@ public sealed class ContactSearchRunner : IContactSearchRunner
         if (def.EnrichLinkedIn && def.SourceType == ContactSearchSource.Maps && outcome.Ok)
         {
             var perCompany = def.EnrichMaxPorEmpresa <= 0 ? 5 : def.EnrichMaxPorEmpresa;
-            foreach (var empresa in sink.CreatedCompanyNames)
+            foreach (var (empresaId, empresa) in sink.CreatedCompanies)
             {
                 if (ct.IsCancellationRequested) { break; }
                 // Tope diario LinkedIn: se recuenta antes de CADA empresa (cada una toca la red).
@@ -117,8 +117,10 @@ public sealed class ContactSearchRunner : IContactSearchRunner
                     .CountAsync(r => r.Source == "LinkedIn" && r.RunAt >= startOfDayUtc, ct);
                 if (liToday >= DailySocialCap) { break; } // se agoto el cupo LinkedIn del dia.
 
+                // Amarre FUERTE: cada persona de esta empresa lleva EmpresaProspectoId = Id del prospecto-empresa.
                 var liSink = new ProspectoSearchRowSink(
-                    _db, tenantId, "LinkedIn", perCompany, $"LinkedIn: {empresa}", forcedEmpresa: empresa);
+                    _db, tenantId, "LinkedIn", perCompany, $"LinkedIn: {empresa}",
+                    forcedEmpresa: empresa, forcedEmpresaProspectoId: empresaId);
                 var liCtx = new AiStepContext(
                     def.ClientId!, tenantId, BuildLinkedInEnrichInstruction(agent, empresa, perCompany),
                     Guid.Empty, AllowListFor(ContactSearchSource.LinkedIn),
@@ -264,17 +266,23 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
     private readonly int _cap;
     private readonly string? _frase;         // frase efectiva de la busqueda (se sella en cada prospecto).
     private readonly string? _forcedEmpresa; // enriquecimiento LinkedIn: fuerza la empresa de cada persona.
+    private readonly Guid? _forcedEmpresaProspectoId; // amarre FUERTE (self-FK) a la empresa-prospecto.
     private int _total; // acumulado entre llamadas de IngestAsync de la misma corrida.
-    private readonly List<string> _createdNames = new(); // nombres creados (para el enriquecimiento por empresa).
+    private readonly List<ProspectoScrapeado> _created = new(); // entidades creadas (para el enriquecimiento por empresa).
 
-    /// <summary>Nombres (negocios/personas) creados en esta corrida, distintos y no vacios. Base del
-    /// enriquecimiento Maps -> LinkedIn: por cada empresa creada se busca personal en LinkedIn.</summary>
-    public IReadOnlyList<string> CreatedCompanyNames =>
-        _createdNames.Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    /// <summary>Empresas (negocios) creadas en esta corrida: (Id del prospecto, Nombre), distintas por
+    /// nombre. Base del enriquecimiento Maps -> LinkedIn: por cada empresa se busca personal en LinkedIn y
+    /// las personas se amarran por FK (EmpresaProspectoId) al Id de la empresa. Leer DESPUES del run (los
+    /// Id ya estan poblados por SaveChanges).</summary>
+    public IReadOnlyList<(Guid Id, string Name)> CreatedCompanies =>
+        _created.Where(e => !string.IsNullOrWhiteSpace(e.NombreCompleto))
+            .GroupBy(e => e.NombreCompleto, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (g.First().Id, g.Key))
+            .ToList();
 
     public ProspectoSearchRowSink(IApplicationDbContext db, Guid tenantId, string fuente,
-        int cap = int.MaxValue, string? frase = null, string? forcedEmpresa = null)
+        int cap = int.MaxValue, string? frase = null, string? forcedEmpresa = null,
+        Guid? forcedEmpresaProspectoId = null)
     {
         _db = db;
         _tenantId = tenantId;
@@ -282,6 +290,7 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
         _cap = cap <= 0 ? int.MaxValue : cap;
         _frase = string.IsNullOrWhiteSpace(frase) ? null : frase.Trim();
         _forcedEmpresa = string.IsNullOrWhiteSpace(forcedEmpresa) ? null : forcedEmpresa.Trim();
+        _forcedEmpresaProspectoId = forcedEmpresaProspectoId;
     }
 
     public async Task<(int Inserted, int Updated, int Deleted)> IngestAsync(
@@ -297,7 +306,7 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
             // Enriquecimiento LinkedIn: la empresa la fuerza el runner (la persona pertenece a esa empresa);
             // si no, se toma de la fila (Maps/Web).
             var empresa = _forcedEmpresa ?? Pick(row, "empresa", "company", "negocio");
-            _db.ProspectosScrapeados.Add(new ProspectoScrapeado
+            var entity = new ProspectoScrapeado
             {
                 TenantId = _tenantId,
                 Fuente = _fuente,
@@ -316,11 +325,14 @@ public sealed class ProspectoSearchRowSink : IScrapeRowSink
                 OrigenUrl = SafeHttpUrl(Pick(row, "url", "origen", "enlace", "link", "source_url", "fuente_url", "perfil")),
                 // Frase efectiva con que se encontro (o "LinkedIn: <empresa>" en el enriquecimiento).
                 FraseBusqueda = _frase,
+                // Amarre FUERTE (self-FK) a la empresa-prospecto en el enriquecimiento LinkedIn.
+                EmpresaProspectoId = _forcedEmpresaProspectoId,
                 DataJson = JsonSerializer.Serialize(row),
                 FechaCaptura = DateTimeOffset.UtcNow,
-            });
-            // El nombre del negocio creado alimenta el enriquecimiento por empresa (etapa 2).
-            _createdNames.Add(nombre.Trim());
+            };
+            _db.ProspectosScrapeados.Add(entity);
+            // La empresa creada (Id + nombre) alimenta el enriquecimiento por empresa (etapa 2).
+            _created.Add(entity);
             ins++;
             _total++;
         }

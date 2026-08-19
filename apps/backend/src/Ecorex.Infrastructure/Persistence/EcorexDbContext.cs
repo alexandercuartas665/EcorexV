@@ -2212,6 +2212,12 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDataProtection
             b.Property(x => x.DataJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Tercero).WithMany()
                 .HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.SetNull);
+            // Amarre self (persona -> prospecto-empresa) del enriquecimiento LinkedIn. Restrict: el borrado
+            // de la empresa-prospecto no cascada a sus personas en SQL Server (evita rutas de cascada
+            // multiples); la limpieza logica la maneja el servicio.
+            b.HasOne(x => x.EmpresaProspecto).WithMany()
+                .HasForeignKey(x => x.EmpresaProspectoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.EmpresaProspectoId);
             b.HasIndex(x => new { x.TenantId, x.Fuente });
         });
 

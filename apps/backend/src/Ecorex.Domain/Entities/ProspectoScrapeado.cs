@@ -55,5 +55,12 @@ public class ProspectoScrapeado : TenantEntity
     public Guid? TerceroId { get; set; }
     public Tercero? Tercero { get; set; }
 
+    /// <summary>Enriquecimiento Maps -&gt; LinkedIn: FK (self) al prospecto-EMPRESA del que salio esta
+    /// persona. Es el amarre FUERTE por dato (no por nombre): al promover la persona se garantiza el
+    /// Tercero-empresa (promocion encadenada) y se liga por <see cref="Tercero.EmpresaId"/>. Null = no
+    /// proviene de enriquecimiento por empresa.</summary>
+    public Guid? EmpresaProspectoId { get; set; }
+    public ProspectoScrapeado? EmpresaProspecto { get; set; }
+
     public DateTimeOffset? FechaCaptura { get; set; }
 }

@@ -1,0 +1,18 @@
+@page "/reportes/ocs"
+@attribute [Authorize(Policy = "TenantMember")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
+
+@* Banco de pruebas local del Panel OCS: hospeda el componente reutilizable OcsDashboardPanel (el
+   mismo que la galeria embebe cuando el reporte es de tipo panel, SourceKey = panel:ocs). La galeria
+   real vive en el tronco de prod; esta pagina solo sirve para verificar el componente aislado. *@
+
+<PageTitle>Panel OCS - ECOREX.tareas</PageTitle>
+
+<div style="padding:24px 28px;">
+    <div style="margin-bottom:16px;">
+        <h1 style="font-size:22px;font-weight:700;margin:0;color:#111827;">Panel OCS &mdash; Inventario de Software</h1>
+        <p style="font-size:13px;color:#6b7280;margin:4px 0 0;">Vista previa del componente de panel (embebible en la Galeria de reportes).</p>
+    </div>
+    <OcsDashboardPanel />
+</div>

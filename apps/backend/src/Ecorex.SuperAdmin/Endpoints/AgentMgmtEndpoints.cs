@@ -417,6 +417,53 @@ public static class AgentMgmtEndpoints
             result => result is ApiOutcome o ? Results.Json(o.Payload, Json, statusCode: o.Status) : Results.NotFound()))
             .DisableAntiforgery();
 
+        // 20. LIMPIAR los contactos de un tenant (mgmt, cross-tenant por ?tenant=): SOFT-DELETE de los
+        //     terceros (Estado=Inactivo + se sacan de la Bolsa) y BORRADO de prospectos scrapeados y
+        //     contactos embebidos (datos crudos/dependientes, no agregados de negocio). Transaccion +
+        //     auditoria. GUARDA: ?tenant= (ya obligatorio en el gate) + ?confirm=WIPE para evitar disparos
+        //     accidentales. El tenant ambiente del gate acota el query filter -> solo toca el tenant objetivo.
+        group.MapPost("/contacts/cleanup", (HttpRequest req, IServiceScopeFactory scopes, CancellationToken ct) =>
+            RunBody<CleanupContactsRequest>(req, scopes, ct, async (svc, body, tenantId, c) =>
+            {
+                if (!string.Equals(req.Query["confirm"], "WIPE", StringComparison.Ordinal))
+                {
+                    return new ApiOutcome(400, new { ok = false, error = "Accion destructiva: agrega ?confirm=WIPE para confirmar." });
+                }
+                var doProspectos = body?.Prospectos ?? true;
+                var doTerceros = body?.Terceros ?? true;
+
+                await using var tx = await svc.Db.BeginTransactionAsync(c);
+                var prospectosBorrados = 0;
+                var tercerosBorrados = 0;
+
+                if (doProspectos)
+                {
+                    var pros = await svc.Db.ProspectosScrapeados.ToListAsync(c);
+                    prospectosBorrados = pros.Count;
+                    svc.Db.ProspectosScrapeados.RemoveRange(pros); // datos crudos de scraping (no agregado)
+                }
+                if (doTerceros)
+                {
+                    var contactos = await svc.Db.TerceroContactos.ToListAsync(c);
+                    svc.Db.TerceroContactos.RemoveRange(contactos); // embebidos (mismo criterio que DeleteContacto)
+                    var terceros = await svc.Db.Terceros.Where(t => t.Estado != TerceroEstado.Inactivo).ToListAsync(c);
+                    tercerosBorrados = terceros.Count;
+                    foreach (var t in terceros)
+                    {
+                        t.Estado = TerceroEstado.Inactivo; // soft-delete del agregado (rule #5)
+                        t.BolsaColumnaId = null;           // se saca de la Bolsa
+                    }
+                }
+
+                await svc.Db.SaveChangesAsync(c);
+                await AuditAsync(svc, tenantId, "contacts.cleanup", "Tenant", tenantId,
+                    new { prospectosBorrados, tercerosBorrados }, c);
+                await tx.CommitAsync(c);
+                return new ApiOutcome(200, new { ok = true, prospectosBorrados, tercerosBorrados });
+            },
+            result => result is ApiOutcome o ? Results.Json(o.Payload, Json, statusCode: o.Status) : Results.NotFound()))
+            .DisableAntiforgery();
+
         // 16. PRUEBA HEADLESS del Navegador Colmena: despacha Navigate -> ExtractReadable -> Screenshot a
         //     una Colmena YA conectada y DEVUELVE el resultado (para afinar scraping antes de formalizar
         //     una busqueda). Auth por mgmt-key (misma que el resto de /api/mgmt); NO usa ?tenant= porque el
@@ -535,6 +582,8 @@ public static class AgentMgmtEndpoints
         IContactSearchRunner ContactSearchRunner);
 
     // --- Cuerpos y DTOs de la extension (tools/lineas/bindings/recursos) ---
+    /// <summary>Cuerpo del cleanup de contactos: que borrar (ambos true por defecto).</summary>
+    private sealed record CleanupContactsRequest(bool Prospectos = true, bool Terceros = true);
     private sealed record ToolsBody(IReadOnlyList<string>? ToolKeys);
     private sealed record BindBody(Guid WhatsAppLineId, bool? Reassign);
     private sealed record ResourceBody(string Name, AgentResourceType ResourceType, string? Detail, string? FileUrl, string? FileName);

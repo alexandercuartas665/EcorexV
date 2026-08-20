@@ -78,7 +78,7 @@ public sealed class GestorContactosService : IGestorContactosService
         return rows.Select(p => new ProspectoDto(
             p.Id, p.Fuente, p.NombreCompleto, p.Cargo, p.Empresa, p.Ciudad, p.Metrica, p.Badge,
             p.Telefono, p.Correo, p.TerceroId, p.TerceroId != null, p.FechaCaptura,
-            p.ImagenUrl, p.OrigenUrl)).ToList();
+            p.ImagenUrl, p.OrigenUrl, p.EmpresaProspectoId)).ToList();
     }
 
     public async Task<TerceroResult<Guid>> PromoverProspectoAsync(
@@ -110,6 +110,63 @@ public sealed class GestorContactosService : IGestorContactosService
             columnas = defaults.ToList();
         }
         var primera = columnas[0];
+
+        // --- Camino EMPRESA (Maps con personas de LinkedIn enriquecidas) ---
+        // Un prospecto es una EMPRESA si NO pertenece a otra (EmpresaProspectoId null) y tiene
+        // prospectos-persona que lo referencian por EmpresaProspectoId. Al promoverlo se crea el
+        // Tercero-Empresa Y se ENCADENAN sus personas (Tercero Persona ligado por EmpresaId), todo en
+        // el MISMO SaveChanges. Inverso del amarre persona->empresa (v0.15.40); ahora es bidireccional.
+        var childPersons = prospecto.EmpresaProspectoId is null
+            ? await _db.ProspectosScrapeados
+                .Where(p => p.EmpresaProspectoId == prospectoId && p.TerceroId == null)
+                .ToListAsync(cancellationToken)
+            : new List<ProspectoScrapeado>();
+        if (childPersons.Count > 0)
+        {
+            var empresaTercero = new Tercero
+            {
+                TenantId = tenantId,
+                Nombre = prospecto.NombreCompleto,
+                Tipo = TerceroTipo.Empresa,
+                Perfiles = TerceroPerfil.Ninguno,
+                IdTipo = TerceroIdTipo.Ninguno,
+                Estado = TerceroEstado.Prospecto,
+                Ciudad = Normalize(prospecto.Ciudad),
+                Email = Normalize(prospecto.Correo),
+                Telefono = Normalize(prospecto.Telefono),
+                Sector = Normalize(prospecto.Empresa),
+                ImagenUrl = prospecto.ImagenUrl,
+                FichasJson = BuildBaseFichaJson(prospecto),
+                BolsaColumnaId = primera.Id
+            };
+            _db.Terceros.Add(empresaTercero);
+            prospecto.TerceroId = empresaTercero.Id;
+            foreach (var child in childPersons)
+            {
+                var personaTercero = new Tercero
+                {
+                    TenantId = tenantId,
+                    Nombre = child.NombreCompleto,
+                    Tipo = TerceroTipo.Persona,
+                    Perfiles = TerceroPerfil.Ninguno,
+                    IdTipo = TerceroIdTipo.Ninguno,
+                    Estado = TerceroEstado.Prospecto,
+                    Cargo = Normalize(child.Cargo),
+                    Ciudad = Normalize(child.Ciudad),
+                    Email = Normalize(child.Correo),
+                    Telefono = Normalize(child.Telefono),
+                    Sector = Normalize(child.Empresa),
+                    ImagenUrl = child.ImagenUrl,
+                    FichasJson = BuildBaseFichaJson(child),
+                    EmpresaId = empresaTercero.Id,
+                    BolsaColumnaId = primera.Id
+                };
+                _db.Terceros.Add(personaTercero);
+                child.TerceroId = personaTercero.Id;
+            }
+            await _db.SaveChangesAsync(cancellationToken);
+            return TerceroResult<Guid>.Ok(empresaTercero.Id);
+        }
 
         var tercero = new Tercero
         {

@@ -28,7 +28,10 @@ public sealed record ProspectoDto(
     bool Promovido,
     DateTimeOffset? FechaCaptura,
     string? ImagenUrl = null,
-    string? OrigenUrl = null);
+    string? OrigenUrl = null,
+    // Amarre FUERTE (enriquecimiento Maps->LinkedIn): empresa-prospecto a la que pertenece esta persona.
+    // Null = es una empresa (o un prospecto suelto). Sirve para anidar personas bajo su empresa en la Bolsa.
+    Guid? EmpresaProspectoId = null);
 
 /// <summary>Columna/estado configurable de la Bolsa de contactos (kanban de terceros).</summary>
 public sealed record BolsaColumnaDto(

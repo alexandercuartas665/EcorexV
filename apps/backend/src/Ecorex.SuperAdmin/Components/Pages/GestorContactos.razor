@@ -222,7 +222,12 @@
                                     var bi = BadgeInfo(rr.Badge);
                                 }
                                 <div class="gc-tbl-row gc-prosp-grid">
-                                    <div class="gc-cell-name">
+                                    <div class="gc-cell-name" style="@(rr.EmpresaProspectoId is not null ? "padding-left:18px" : "")">
+                                        @* Persona de LinkedIn ligada a una empresa (enriquecimiento): se anida con "↳". *@
+                                        @if (rr.EmpresaProspectoId is not null)
+                                        {
+                                            <span title="Contacto de @(string.IsNullOrWhiteSpace(rr.Empresa) ? "su empresa" : rr.Empresa)" style="color:var(--ink-3);margin-right:2px;font-weight:700">&#8627;</span>
+                                        }
                                         @* Iniciales SIEMPRE como base; si hay imagen se superpone y, si falla al
                                            cargar, onerror la quita -> caen las iniciales (nunca icono roto). *@
                                         <span class="gc-av gc-av-wrap" style="background:@AvatarColor(rr.Nombre)">
@@ -985,7 +990,9 @@
         Guid? TerceroId, Guid? ProspectoId, string Nombre, string Sub,
         string Empresa, string Ciudad, string Fuente, string Metrica,
         string? Badge, bool Promovido, bool EsPersona,
-        string? ImagenUrl = null, string? OrigenUrl = null);
+        string? ImagenUrl = null, string? OrigenUrl = null,
+        // Persona de LinkedIn ligada a una empresa-prospecto (enriquecimiento): se pinta anidada.
+        Guid? EmpresaProspectoId = null);
 
     private List<ContactoRow> ContactosFiltrados
     {
@@ -998,7 +1005,7 @@
                     p.TerceroId, p.Id, p.NombreCompleto,
                     string.IsNullOrWhiteSpace(p.Cargo) ? "Contacto" : p.Cargo,
                     p.Empresa ?? "", p.Ciudad ?? "", p.Fuente, p.Metrica ?? "",
-                    p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl)));
+                    p.Badge, p.Promovido, true, p.ImagenUrl, p.OrigenUrl, p.EmpresaProspectoId)));
             }
             if (_prospFuente is null || string.Equals(_prospFuente, FuenteDirectorio, StringComparison.Ordinal))
             {
